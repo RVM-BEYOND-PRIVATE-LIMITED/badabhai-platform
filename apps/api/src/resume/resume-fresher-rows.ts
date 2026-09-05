@@ -1,5 +1,6 @@
 import type { ResumeExperienceLine } from "./resume-renderer.service";
 import type { WorkerAttributeValues } from "./trade-resume-map";
+import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -42,17 +43,21 @@ import type { WorkerAttributeValues } from "./trade-resume-map";
  * a slug list authored for one trade silently mislabelling another's answers is exactly the
  * failure this scoping exists to prevent. A pack with no entry gets no fresher block, which is
  * the same drop-the-unknown rule every dictionary on this sheet follows.
+ *
+ * READ OFF THE ROLE DESCRIPTOR NOW, because "which packs have a fresher vocabulary" was the sort
+ * of fact that is only ever wrong by omission. `qp_vmc_milling` asks `iti_workshop_machines` and
+ * `trade_test_status` exactly as turning does, and had no entry here — so a VMC pass-out answered
+ * both questions and still met the empty History heading that §11 #1 forbids. Keeping the
+ * vocabulary beside the role that asks for it is what makes that omission visible: the descriptor
+ * has one `fresher` field, and a role either fills it or deliberately does not.
  */
-const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  qp_cnc_turning: {
-    conventional_lathe: "Conventional lathe",
-    cnc_lathe: "CNC lathe / turning centre",
-    milling: "Milling machine",
-    drilling: "Drilling machine",
-    grinding: "Grinding machine",
-    shaper: "Shaper / planer",
-  },
-};
+const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  Object.fromEntries(
+    ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher !== undefined).map((role) => [
+      role.packId,
+      role.fresher!.workshopMachines,
+    ]),
+  );
 
 /**
  * Trade-test status → the printed clause.
@@ -62,12 +67,91 @@ const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>
  * employer nothing he would not assume. `appeared` DOES print — a man who sat the test and is
  * waiting has done something, and saying so is the honest version of the same fact.
  */
-const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  qp_cnc_turning: {
-    passed: "Trade test passed",
-    appeared: "Trade test taken, result awaited",
-  },
-};
+const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.fromEntries(
+  ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher !== undefined).map((role) => [
+    role.packId,
+    role.fresher!.tradeTest,
+  ]),
+);
+
+/**
+ * The role line over a fresher block, per pack.
+ *
+ * SEE {@link DEFAULT_TRAINING_LABEL}. Read off the descriptor for the same reason the two
+ * vocabularies above are: "which packs need a different heading" is a fact only the role knows,
+ * and a table here would be the eleventh hand-maintained one this registry exists to delete.
+ */
+const TRAINING_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
+  ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher?.trainingLabel !== undefined).map((role) => [
+    role.packId,
+    role.fresher!.trainingLabel!,
+  ]),
+);
+
+/**
+ * What the block is called when a role does not say otherwise.
+ *
+ * TRUE OF EVERY MACHINING TRADE AND FALSE OF THE DRAWING OFFICE, which is why it became a default
+ * rather than staying a literal. A turner, a miller, a grinder and a part programmer all train on
+ * an ITI workshop floor. A CAD student very often trains at a private institute, and heading his
+ * block "ITI workshop training" would state a credential he has not got — on the one role whose
+ * primary worker is a fresher. See {@link RoleFresherVocabulary.trainingLabel}.
+ */
+const DEFAULT_TRAINING_LABEL = "ITI workshop training";
+
+/**
+ * Pack → { the tier question, the stored value that means "no work experience at all" }.
+ *
+ * READ OFF THE ROLE DESCRIPTOR for the same reason the three vocabularies above are: which packs
+ * have a fresher rung at all, and what that rung STORES, is a fact only the role knows, and the
+ * value is not portable — `qp_cad_drafting` stores 0 for "course kiya hai, kaam ka tajurba nahi"
+ * while every other pack stores 0 for "1 saal se kam". See
+ * {@link RoleFresherVocabulary.tenureValue}.
+ */
+const FRESHER_TENURE: Readonly<Record<string, { question: string; value: number }>> =
+  Object.fromEntries(
+    ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher?.tenureValue !== undefined).map((role) => [
+      role.packId,
+      { question: role.tenureQuestionKey, value: role.fresher!.tenureValue! },
+    ]),
+  );
+
+/**
+ * "Fresher", when this worker's own form says he has no work experience — otherwise null.
+ *
+ * WHY THE SHEET NEEDS THIS AT ALL (§6.2, and it is the ratified page). The CAD draughtsman's
+ * reference sheet leads "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
+ * SolidWorks, Fusion 360", and the renderer could not produce the word: the tenure segment had
+ * exactly two outputs, "N yrs" and "duration not stated". Pooja's status IS captured — she taps
+ * `fresher_course`, stored as 0 — but nothing carried it to the headline, so the highest-volume
+ * role in the programme printed "duration not stated" over the worker the role exists for.
+ *
+ * A STATUS LABEL, WHICH IS §8's FIRST PERMITTED SOURCE. It is a closed-vocabulary word, not a
+ * derived figure and not a model's sentence, and it is emitted only for the rung whose own chip
+ * says it. Every other rung yields null and the headline keeps saying "duration not stated" —
+ * including `under_one`, which on four of the five packs also stores 0 and means something else
+ * entirely.
+ *
+ * IT DOES NOT OUTRANK A STATED NUMBER. `tenurePhrase` consults it only where the segment would
+ * have said "duration not stated"; a worker who also stated a total still prints his own figure.
+ */
+export function fresherTenureLabel(
+  packId: string | null,
+  attributes: WorkerAttributeValues,
+): string | null {
+  const gate = packId === null ? undefined : FRESHER_TENURE[packId];
+  if (gate === undefined) return null;
+  // STRICT EQUALITY ON A NUMBER, deliberately. `pack-registry.service.ts::toOption` resolves
+  // `value_text ?? value_number ?? value_bool`, so a numeric rung arrives as a number; a string
+  // "0" would be a different pack shape and is not silently coerced into a fresher claim.
+  return attributes[gate.question] === gate.value ? FRESHER_LABEL : null;
+}
+
+/**
+ * The word itself. §6.2's vocabulary, and NOT per-role: a fresher is a fresher in every trade,
+ * and the only per-trade fact is which stored value means it.
+ */
+const FRESHER_LABEL = "Fresher";
 
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
 const MAX_WORKSHOP_MACHINES = 4;
@@ -123,10 +207,10 @@ export function buildFresherRows(
   if (work === "") return [];
   return [
     {
-      // THE ROLE IS A LITERAL, not a claim about him. "ITI workshop training" is what the block
-      // IS; it is not a job title he is asserting and it cannot be read as employment because it
-      // carries no employer and no dates.
-      role: "ITI workshop training",
+      // THE ROLE IS A LABEL, not a claim about him. It names what the block IS; it is not a job
+      // title he is asserting and it cannot be read as employment because it carries no employer
+      // and no dates. Per-role where the default would be false — see {@link TRAINING_LABEL}.
+      role: (packId === null ? undefined : TRAINING_LABEL[packId]) ?? DEFAULT_TRAINING_LABEL,
       // §11 #3's rule does not apply: this is not a tenure he stated and failed to have recorded,
       // it is a block that has no duration by nature. An empty string collapses the span.
       duration: "",

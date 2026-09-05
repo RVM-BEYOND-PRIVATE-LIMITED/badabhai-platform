@@ -52,11 +52,28 @@ export function buildVerdictLine(facts: {
    * it, exactly like every other absent segment here.
    */
   axes?: readonly string[];
+  /**
+   * A CLOSED-VOCABULARY TENURE STATUS the worker's own form stated — today only "Fresher" (§6.2).
+   *
+   * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes this additive rather than a
+   * new rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
+   * absent (the ordinary case, and every caller that does not pass it) leaves the composed line
+   * byte-for-byte what it was.
+   *
+   * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. `tenurePhrase` maps
+   * every falsy/absent number to "duration not stated" and must keep doing so — §11 #3 requires
+   * the sheet to SAY an unknown is unknown, and §6.2 reserves "fresher" for a worker who SAID he
+   * has no experience. This parameter is how that sentence becomes reachable: the caller carries
+   * the provenance ({@link fresherTenureLabel} reads the role's own tier rung), so the word
+   * appears only for a worker whose own chip said it. Handing this function a bare 0 still yields
+   * "duration not stated" — that separate wording question is recorded, open, and untouched here.
+   */
+  tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
   return {
     headlineLine: joinSegments([
       facts.role,
-      yearsPhrase(facts.years),
+      tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
     ]),
@@ -69,22 +86,50 @@ export function buildVerdictLine(facts: {
 }
 
 /**
- * "8 yrs", "1 yr 6 mo", or "duration not stated".
+ * The figure — "8 yrs", "1 yr 6 mo" — or null when the worker gave no usable one.
  *
- * "DURATION NOT STATED" IS THE HONEST RENDERING OF AN UNKNOWN, and §11 #3 makes it mandatory:
- * never estimated, never rounded, never silently omitted. It must also never become "fresher" —
- * §6.2 reserves that word for a worker who SAID they have no experience, and inferring it from
- * an absent number would put a claim on the page that the worker never made and that costs them
- * the job. Omitting the segment entirely would be just as wrong: an employer reading a résumé
- * with no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
+ * SPLIT OUT OF THE OLD `yearsPhrase` SO "IS THERE A FIGURE?" IS ASKED ONCE. The unknown text was
+ * baked in here, which meant the only way to reach any other wording was to change what a bare
+ * number renders as — and that is a separate, RECORDED-OPEN wording ruling (docs/profiling/
+ * persona-ladder-r8.md: a stated zero). Keeping the fallback in the caller leaves that question
+ * exactly where it was.
  */
-function yearsPhrase(years: number | null): string {
-  if (years === null || !Number.isFinite(years) || years <= 0) return "duration not stated";
+function knownYearsPhrase(years: number | null): string | null {
+  if (years === null || !Number.isFinite(years) || years <= 0) return null;
   const whole = Math.floor(years);
   const months = Math.round((years - whole) * 12);
   const y = whole > 0 ? `${whole} ${whole === 1 ? "yr" : "yrs"}` : null;
   const m = months > 0 ? `${months} mo` : null;
-  return joinSegments([y, m], " ") ?? "duration not stated";
+  return joinSegments([y, m], " ");
+}
+
+/**
+ * The tenure segment: the stated figure, else a stated STATUS, else the honest unknown.
+ *
+ * "DURATION NOT STATED" IS THE HONEST RENDERING OF AN UNKNOWN, and §11 #3 makes it mandatory:
+ * never estimated, never rounded, never silently omitted. It must also never be INFERRED into
+ * "fresher" — §6.2 reserves that word for a worker who SAID they have no experience, and reading
+ * it out of an absent number would put a claim on the page that the worker never made and that
+ * costs them the job. Omitting the segment entirely would be just as wrong: an employer reading a
+ * résumé with no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
+ *
+ * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It is the word made REACHABLE for the worker
+ * who did say it — the caller carries the provenance from the role's own tier rung — and it
+ * changes nothing about inference: this function still cannot tell a fresher from a blank, and
+ * still says so when the caller passes nothing.
+ *
+ * THE ORDER IS THE POINT. A number the worker gave outranks everything — a fresher who has since
+ * stated six months prints "6 mo", not "Fresher". Only where there is no figure at all does the
+ * status label get its turn, and only where there is neither does §11 #3's text print, unchanged
+ * and for exactly the case it was written for.
+ */
+function tenurePhrase(years: number | null, tenureLabel: string | null): string {
+  const figure = knownYearsPhrase(years);
+  if (figure !== null) return figure;
+  // An EMPTY label is treated as no label, not as an empty segment: `joinSegments` drops empties
+  // with their separator, and §6.2's tenure segment is the one that may never collapse.
+  const label = tenureLabel?.trim();
+  return label !== undefined && label !== "" ? label : "duration not stated";
 }
 
 /**

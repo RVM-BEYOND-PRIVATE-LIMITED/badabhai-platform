@@ -7,6 +7,7 @@ import { ResumeRenderer } from "./resume-renderer.service";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
 import { buildResumeQrDataUri } from "./resume-qr";
 import { RESUME_PROFILE_ORIGIN } from "./resume-sheet-footer";
+import { CAPABILITY_ROW_BUDGET } from "./trade-resume-map";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -25,9 +26,15 @@ import { RESUME_PROFILE_ORIGIN } from "./resume-sheet-footer";
  * today — which is the difference between an acceptance sheet and a mock-up.
  *
  * WHY EVERY ZONE 2 ROW IS ANSWERED. A sparse fixture would fit trivially and prove nothing. The
- * turner pack defines FOURTEEN capability rows against a budget of NINE, so a fully-answered
+ * turner pack defines FOURTEEN capability rows against a budget of TEN, so a fully-answered
  * worker is exactly the case R9 §5's conflict is about: the sheet that results is the one the
  * budget actually produces, not the one a convenient fixture produces.
+ *
+ * THIS SHEET IS ONE OF THE TWO THE 2026-09-03 RULING WAS TAKEN FOR. At the raised budget it
+ * measures 41.19 lines against `SHEET_LINE_BUDGET = 41`, and every ladder step that would clear
+ * those 0.19 lines deletes a row the twenty-one ratified pages print. Under the ruling it now
+ * SPILLS instead — the assertions below are what stop the page being bought back with his
+ * languages row, which is exactly what the old ladder did.
  *
  *   EMIT_PARITY=<dir> pnpm --filter @badabhai/api run test yadav-parity.emit
  *   docker run --rm -v "$PWD/<dir>:/w" -w /w bb-weasy:local weasyprint turner-parity.html out.pdf
@@ -138,7 +145,13 @@ function buildParityInput() {
         material_worked: ["mild_steel", "alloy_steel", "stainless", "cast_iron"],
         turning_operation: ["facing_od", "boring", "threading", "grooving", "drilling"],
         workholding: ["three_jaw", "four_jaw", "collet", "soft_jaw", "steady_rest"],
-        setting_operation: ["tool_offset", "work_offset", "nose_radius", "jaw_change", "first_piece"],
+        setting_operation: [
+          "tool_offset",
+          "work_offset",
+          "nose_radius",
+          "jaw_change",
+          "first_piece",
+        ],
         measuring_tools: ["vernier", "micrometer", "bore_gauge", "height_gauge"],
         quality_work: ["first_piece_check", "in_process", "spc"],
         troubleshooting: ["tool_wear", "chatter", "size_variation"],
@@ -184,17 +197,31 @@ function buildParityInput() {
 }
 
 describe("R9 §7 — the turner parity sheet", () => {
-  it("reaches Yadav's density: nine Zone 2 rows, three employers, a promotion, a full Zone 5", () => {
+  it("reaches Yadav's density: a full Zone 2, three employers, a promotion, a full Zone 5", () => {
     const input = buildParityInput();
     const zone2 =
       (input.capChipRows?.length ?? 0) +
       (input.capTickRows?.length ?? 0) +
       (input.capFactRows?.length ?? 0);
     // AT the budget, not below it — a fully-answered turner must not be able to under-fill Zone 2.
-    expect(zone2, "Zone 2 must sit at the row budget").toBe(9);
+    //
+    // AGAINST THE CONSTANT RATHER THAN THE LITERAL 9 IT USED TO NAME, and that is the fix rather
+    // than a relaxation: the property this line has always asserted is "he fills the budget", and
+    // hard-coding the budget's value meant the assertion silently became "he fills NINE rows" —
+    // which failed the moment the budget was re-measured against all twenty-one ratified pages
+    // and came out at ten. `toBeLessThanOrEqual` would be the relaxation; this is still equality.
+    expect(zone2, "Zone 2 must sit at the row budget").toBe(CAPABILITY_ROW_BUDGET);
     expect(input.employments).toHaveLength(3);
-    expect(input.employments?.[0]!.roles, "the promotion must render as two dated roles").toHaveLength(2);
+    expect(
+      input.employments?.[0]!.roles,
+      "the promotion must render as two dated roles",
+    ).toHaveLength(2);
     expect(input.qualFactRows?.find((r) => r.label === "Education")?.value).toContain("NCVT");
+    // UNCHANGED, AND LOAD-BEARING. This sheet measures 41.19 lines against a budget of 41, so
+    // under the old ladder the "languages" step fired and Haryanvi left the page — a row all
+    // twenty-one ratified pages print. What keeps this line green is the ruling: the ladder now
+    // runs out of PERMITTED steps and spills instead. A change that puts it red has re-admitted
+    // a forbidden step, not merely moved a row.
     expect(input.qualFactRows?.find((r) => r.label === "Languages spoken")?.value).toContain(
       "Haryanvi",
     );
@@ -209,21 +236,48 @@ describe("R9 §7 — the turner parity sheet", () => {
     expect(input.footerMeta).toContain("Ref");
   });
 
-  it("drops Tolerance held — the measured evidence behind the Q2 redline", () => {
-    // `tolerance_band` is rank 62 of the turner map's FOURTEEN rows, so it is tenth by rank and
-    // the budget of nine cuts immediately above it. A turner holding ±0.01 mm — the strongest pay
-    // signal in the trade — gets a sheet that does not say so, while the ratified MILLING sample
-    // prints tolerance at position eight of its nine. Asserted rather than described, so the
-    // redline has a test behind it.
+  it("now PRINTS Tolerance held — the Q2 redline, partly answered by the re-measured budget", () => {
+    // ── READ THIS BEFORE ASSUMING AN ASSERTION WAS FLIPPED TO REACH GREEN ────────────────
+    //
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and the inversion is the redline being ANSWERED
+    // rather than an expectation bent to match output. What it recorded was a defect: at
+    // `CAPABILITY_ROW_BUDGET = 9`, `tolerance_band` (rank 62, tenth of the turner map's fourteen
+    // rows) fell one place below the cut, so a turner holding ±0.01 mm — the strongest pay signal
+    // in the trade — got a sheet that did not say so, while the ratified MILLING sample printed
+    // tolerance at position eight of its nine. The complaint was always that NINE WAS TOO LOW.
+    //
+    // Re-measuring the budget across all twenty-one ratified pages put it at ten, and ten is
+    // exactly where `tolerance_band` sits. So the row prints, and the assertion states that.
+    // Deleting this test would delete the evidence; leaving it inverted-but-silent would hide
+    // that a ruled redline moved. Both halves are therefore asserted together below.
     const input = buildParityInput();
     const labels = [
       ...(input.capChipRows ?? []),
       ...(input.capTickRows ?? []),
       ...(input.capFactRows ?? []),
     ].map((r) => r.label);
-    expect(labels).not.toContain("Tolerance held");
+    expect(labels, "the raised budget must reach rank 62").toContain("Tolerance held");
+    // STILL SHED, and the redline is therefore only PARTLY answered. `Operations` is rank 63 and
+    // `Sector worked` rank 81 — eleventh and fourteenth — so a fully-answered turner still loses
+    // them. That remains an open pack/ruling question and must not be read as settled.
     expect(labels).not.toContain("Operations");
     expect(labels).not.toContain("Sector worked");
+  });
+
+  it("spills onto a second page rather than shedding a ratified row, and says that it did", () => {
+    // THE RULING'S OUTCOME, ASSERTED ON THE SHEET IT WAS TAKEN FOR. The compressing steps are all
+    // no-ops here (no volunteered fields exist, and he has exactly three employers), so the
+    // ladder cannot spend anything: stage 0, nothing dropped, and 0.19 lines over budget.
+    //
+    // THE MAGNITUDE IS THE INVARIANT, not just the flag. 0.19 lines is 0.93 mm — the residue of
+    // rounding `SHEET_LINE_BUDGET` down from a fitted 41.7 — and a sheet that starts overflowing
+    // by whole lines is ballooning for some other reason and must fail here.
+    const input = buildParityInput();
+    expect(input.degradationStage, "nothing may be shed to buy this page back").toBe(0);
+    expect(input.degradationDropped).toEqual([]);
+    expect(input.degradationOverflows, "a spill must be reported, never silent").toBe(true);
+    expect(input.degradationOverBudgetLines).toBeGreaterThan(0);
+    expect(input.degradationOverBudgetLines, "overflowing by more than rounding").toBeLessThan(1);
   });
 
   it.skipIf(!OUT_DIR)("writes the sheet for a side-by-side render", () => {

@@ -14,6 +14,9 @@ import { WorkerEmploymentService } from "./worker-employment.service";
 import { WorkerEmploymentController } from "./worker-employment.controller";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { WorkerPreferencesController } from "./worker-preferences.controller";
+import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
+import { WorkerQualificationsService } from "./worker-qualifications.service";
+import { WorkerQualificationsController } from "./worker-qualifications.controller";
 import { WorkersModule } from "../workers/workers.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
@@ -65,6 +68,7 @@ import {
     WorkerAiJobsController,
     WorkerEmploymentController,
     WorkerPreferencesController,
+    WorkerQualificationsController,
   ],
   providers: [
     ProfilesService,
@@ -87,6 +91,14 @@ import {
     // R6 §4 — the finishing form's closed-set page. Writes `worker_attributes` through the
     // repository already provided above, so this adds a provider and no module edge.
     WorkerPreferencesService,
+    // Migration 0098 — `worker_certificate` and `worker_education`, the résumé's Zone 5. Its own
+    // repository rather than more keys on the preferences one, because these are REPEATABLE
+    // ORDERED ROWS under a `(worker_id, sort_order)` uniqueness constraint: the shape that forces
+    // delete-then-insert inside a transaction, which is exactly what `WorkerPreferencesService`
+    // documents itself as not doing. `DATABASE` is the same @Global handle every repository here
+    // uses, so this adds two providers and no module edge.
+    WorkerQualificationsRepository,
+    WorkerQualificationsService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],
@@ -99,6 +111,12 @@ import {
     WorkerAttributesRepository,
     WorkerEmploymentRepository,
     WorkerTranscriptRepository,
+    // EXPORTED for the same reason `WorkerEmploymentRepository` is: the résumé render worker
+    // reads a worker's credentials to build Zone 5, and ResumeModule already imports this one, so
+    // the graph shape is unchanged. The payer disclosure does NOT come through here — it PROVIDES
+    // this repository itself, exactly as it provides the attribute and employment ones, so that
+    // its boot never depends on the profiles subtree.
+    WorkerQualificationsRepository,
   ],
 })
 export class ProfilesModule {}

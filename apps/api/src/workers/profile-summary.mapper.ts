@@ -40,6 +40,11 @@ export interface ProfileSummarySource {
   rawProfile: unknown;
   confirmedAt: Date | string | null;
   hasPhoto: boolean;
+  /**
+   * The worker's OWN city from `workers.current_city` (#1428), if they gave one at onboarding.
+   * Outranks anything in `locationPreference` — see {@link readCity}.
+   */
+  workerCity?: string | null;
 }
 
 type Json = Record<string, unknown>;
@@ -67,18 +72,28 @@ function toIsoOrNull(value: Date | string | null): string | null {
 }
 
 /**
- * `location_preference` JSONB → the summary city.
+ * The summary city, in precedence order.
  *
- * Issue #423 — prefers the worker's own `current_city`, then falls back to the first
- * non-blank `preferred_cities` entry. The fallback is NOT dead code: before current
- * and preferred locations were split, `_build_legacy` PREPENDED the current city to
- * that array, so on every profile extracted before the split it is the only place the
- * city exists. Reading `current_city` alone would blank the city for all of them.
+ * #1428 — `workers.current_city` FIRST, and that is an owner ruling (2026-09-05), not a
+ * preference. It is the city the worker typed (or accepted from a device reverse-geocode) on the
+ * first onboarding screen: a first-party assertion. Everything below it comes out of
+ * `location_preference`, whose only writer is the extraction processor — a value the model
+ * inferred from chat. "AI never owns business decisions" covers overwriting the worker's own
+ * answer with a derived guess, so the derived guess loses. Nothing writes the other direction
+ * either: the extraction path does not touch `workers.current_city`.
  *
- * `null` when the JSONB is absent, not an object, or both sources are
- * missing/empty/malformed.
+ * Issue #423 — then the profile's own `current_city`, then the first non-blank
+ * `preferred_cities` entry. The last fallback is NOT dead code: before current and preferred
+ * locations were split, `_build_legacy` PREPENDED the current city to that array, so on every
+ * profile extracted before the split it is the only place the city exists. Reading `current_city`
+ * alone would blank the city for all of them.
+ *
+ * `null` when every source is absent, not an object, or missing/empty/malformed.
  */
-function readCity(locationPreference: unknown): string | null {
+function readCity(locationPreference: unknown, workerCity?: string | null): string | null {
+  const own = nonBlankStringOrNull(workerCity);
+  if (own) return own;
+
   const obj = asObject(locationPreference);
   const current = nonBlankStringOrNull(obj?.current_city);
   if (current) return current;
@@ -284,7 +299,7 @@ export function toProfileSummary(
       canonical_role_id: canonicalRoleId,
       display_name: readDisplayName(canonicalRoleId, canonicalTradeId, profile.rawProfile),
     },
-    city: readCity(profile.locationPreference),
+    city: readCity(profile.locationPreference, profile.workerCity),
     strength: computeStrength(profile),
     strength_max: STRENGTH_MAX,
     missing_fields: computeMissingFields(profile),

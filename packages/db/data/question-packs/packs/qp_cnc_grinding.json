@@ -1,0 +1,766 @@
+{
+  "_why": "Role track for CNC GRINDING, the third pack authored under docs/profiling/role-pack-authoring-guide.md and the first of Batch 1's new packs. fam_machining stays the generic machining interview bound at ISCO unit 7223; this pack binds the NCO grinding occupations directly (job_domain specificity 50 beats unit 40), so a grinder gets grinding depth and every other machining worker is untouched.",
+  "_scope": "CNC AND CONVENTIONAL, on the same ruling that shaped qp_cnc_turning. The taxonomy lists 'CNC vs conventional' as this role's own attribute rather than as two roles, and a surface-grinder hand who has never seen a controller must be able to answer every question here honestly: grinding_type asks which he runs, controller_brand carries a 'Pata nahi' escape, and the machine list leads with the conventional surface grinder. The gate says 'Grinding', not 'CNC grinding', for the same reason the turner's says 'Turning'.",
+  "_depth": "THE TIER GATE IS grinding_experience, asked FIRST. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23). The three fresher items are gated on grinding_experience <= 0 and a senior never sees them; a fresher skips tiers 1 and 2 entirely, so his worst case is 16 + 3 = 19. The tiers are mutually exclusive by construction, which is why the fresher branch costs the senior nothing.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Sanjay Kamble, CNC Grinding Operator -- Setter), not invented. Its ten rows are Machines, Controllers, Materials, Setting, Measuring instruments, Wheels dressed, Drawings, Tolerance held, Surface finish held and Sector worked, and every one has a question here that fills it. Tolerance and surface finish are BANDED single-selects rather than free numbers: the sheet prints '+/-0.005 mm' and 'Ra 0.4 um', which are bands, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding the answer_type 'number' path that has no Flutter widget.",
+  "pack_id": "qp_cnc_grinding",
+  "version": 1,
+  "family_id": "fam_cnc_grinding",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising grinder -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half.",
+  "items": [
+    {
+      "question_key": "grinding_experience",
+      "prompt_text": "Grinding ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal grinding ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "grinding_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "grinding_machine",
+      "prompt_text": "Aap kaunsi grinding machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "grinding_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cylindrical",
+          "label_text": "Cylindrical grinder",
+          "value_text": "cylindrical"
+        },
+        {
+          "option_key": "surface",
+          "label_text": "Surface grinder",
+          "value_text": "surface"
+        },
+        {
+          "option_key": "centreless",
+          "label_text": "Centreless grinder",
+          "value_text": "centreless"
+        },
+        {
+          "option_key": "internal",
+          "label_text": "Internal grinder, ID",
+          "value_text": "internal"
+        },
+        {
+          "option_key": "tool_cutter",
+          "label_text": "Tool aur cutter grinder",
+          "value_text": "tool_cutter"
+        },
+        {
+          "option_key": "other_machine",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "grinding_type",
+      "prompt_text": "Machine CNC hai ya conventional?",
+      "why_text": "Dono ka kaam alag hota hai, dono ki demand hai.",
+      "target_kind": "attribute",
+      "target_field": "grinding_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cnc",
+          "label_text": "CNC grinding",
+          "value_text": "cnc"
+        },
+        {
+          "option_key": "conventional",
+          "label_text": "Conventional grinding",
+          "value_text": "conventional"
+        },
+        {
+          "option_key": "both",
+          "label_text": "Dono chalata hoon",
+          "value_text": "both"
+        }
+      ]
+    },
+    {
+      "question_key": "controller_brand",
+      "prompt_text": "Machine par kaunsa controller lagaa hai?",
+      "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "controller_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fanuc",
+          "label_text": "Fanuc",
+          "value_text": "fanuc"
+        },
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "studer",
+          "label_text": "Studer",
+          "value_text": "studer"
+        },
+        {
+          "option_key": "unknown_controller",
+          "label_text": "Pata nahi ya conventional machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Kaunse material par kaam kiya hai?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "en_thirty_one",
+          "label_text": "EN31, bearing steel",
+          "value_text": "en_thirty_one"
+        },
+        {
+          "option_key": "case_hardened",
+          "label_text": "Case-hardened steel",
+          "value_text": "case_hardened"
+        },
+        {
+          "option_key": "hchcr",
+          "label_text": "HCHCr, die steel",
+          "value_text": "hchcr"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "carbide",
+          "label_text": "Carbide",
+          "value_text": "carbide"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "wheel_type",
+      "prompt_text": "Kaunse grinding wheel istemaal karte hain?",
+      "why_text": "Wheel chunna grinding ka asli hunar hai.",
+      "target_kind": "attribute",
+      "target_field": "wheel_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "aluminium_oxide",
+          "label_text": "Aluminium oxide",
+          "value_text": "aluminium_oxide"
+        },
+        {
+          "option_key": "silicon_carbide",
+          "label_text": "Silicon carbide",
+          "value_text": "silicon_carbide"
+        },
+        {
+          "option_key": "cbn",
+          "label_text": "CBN",
+          "value_text": "cbn"
+        },
+        {
+          "option_key": "diamond",
+          "label_text": "Diamond wheel",
+          "value_text": "diamond"
+        },
+        {
+          "option_key": "unknown_wheel",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
+        {
+          "option_key": "slip_gauge",
+          "label_text": "Slip gauge",
+          "value_text": "slip_gauge"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "roughness_tester",
+          "label_text": "Surface roughness tester",
+          "value_text": "roughness_tester"
+        },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "other_instrument",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "no_drawing",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "setting_work",
+      "prompt_text": "Setting ka kaunsa kaam khud karte hain?",
+      "why_text": "Setting ka kaam operator aur setter ka farq batata hai.",
+      "target_kind": "attribute",
+      "target_field": "setting_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "wheel_mounting",
+          "label_text": "Wheel mounting aur balancing",
+          "value_text": "wheel_mounting"
+        },
+        {
+          "option_key": "diamond_dressing",
+          "label_text": "Diamond dressing",
+          "value_text": "diamond_dressing"
+        },
+        {
+          "option_key": "workhead_alignment",
+          "label_text": "Work-head alignment",
+          "value_text": "workhead_alignment"
+        },
+        {
+          "option_key": "steady_rest",
+          "label_text": "Steady rest setting",
+          "value_text": "steady_rest"
+        },
+        {
+          "option_key": "coolant_setting",
+          "label_text": "Coolant setting",
+          "value_text": "coolant_setting"
+        },
+        {
+          "option_key": "magnetic_chuck",
+          "label_text": "Magnetic chuck setup",
+          "value_text": "magnetic_chuck"
+        },
+        {
+          "option_key": "no_setting",
+          "label_text": "Setting koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "tolerance_band",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm tak",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "point_zero_zero_five",
+          "label_text": "0.005 mm tak",
+          "value_text": "0.005"
+        },
+        {
+          "option_key": "point_zero_zero_two",
+          "label_text": "0.002 mm ya usse kam",
+          "value_text": "0.002"
+        },
+        {
+          "option_key": "tolerance_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke parts banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "bearings",
+          "label_text": "Bearing ke parts",
+          "value_text": "bearings"
+        },
+        {
+          "option_key": "transmission",
+          "label_text": "Gear aur transmission",
+          "value_text": "transmission"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die aur mould banane wala",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "surface_finish",
+      "prompt_text": "Kitna surface finish nikaal lete hain?",
+      "why_text": "Finish grinding ke kaam ki sabse badi pehchaan hai.",
+      "target_kind": "attribute",
+      "target_field": "surface_finish",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "ra_coarse",
+          "label_text": "Ra 1.6 ya usse zyada",
+          "value_text": "1.6"
+        },
+        {
+          "option_key": "ra_medium",
+          "label_text": "Ra 0.8 tak",
+          "value_text": "0.8"
+        },
+        {
+          "option_key": "ra_fine",
+          "label_text": "Ra 0.4 tak",
+          "value_text": "0.4"
+        },
+        {
+          "option_key": "ra_mirror",
+          "label_text": "Ra 0.2 ya usse kam",
+          "value_text": "0.2"
+        },
+        {
+          "option_key": "ra_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "dressing_method",
+      "prompt_text": "Wheel dressing kaise karte hain?",
+      "why_text": "Dressing ka tarika wheel ki umar aur finish tay karta hai.",
+      "target_kind": "attribute",
+      "target_field": "dressing_method",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "single_point",
+          "label_text": "Single-point diamond",
+          "value_text": "single_point"
+        },
+        {
+          "option_key": "rotary_dresser",
+          "label_text": "Rotary dresser",
+          "value_text": "rotary_dresser"
+        },
+        {
+          "option_key": "form_dressing",
+          "label_text": "Form dressing",
+          "value_text": "form_dressing"
+        },
+        {
+          "option_key": "auto_dressing",
+          "label_text": "Machine khud dressing karti hai",
+          "value_text": "auto_dressing"
+        },
+        {
+          "option_key": "no_dressing",
+          "label_text": "Dressing koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "quality_work",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "no_quality",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "troubleshooting",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "chatter",
+          "label_text": "Chatter aur vibration",
+          "value_text": "chatter"
+        },
+        {
+          "option_key": "burn_marks",
+          "label_text": "Burning ke nishaan",
+          "value_text": "burn_marks"
+        },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size badal jaana",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Surface finish kharab aana",
+          "value_text": "surface_finish"
+        },
+        {
+          "option_key": "wheel_loading",
+          "label_text": "Wheel loading aur glazing",
+          "value_text": "wheel_loading"
+        },
+        {
+          "option_key": "no_trouble",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "shaper",
+          "label_text": "Shaper ya planer",
+          "value_text": "shaper"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "grinding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": []
+    }
+  ]
+}

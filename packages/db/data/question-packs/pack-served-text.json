@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 144,
+  "pack_count": 152,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -70,6 +70,14 @@
       "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
       "served_text_count": 9
     },
+    "qp_cad_drafting@1": {
+      "served_text_sha256": "7d8199a9e5c451bb048f354605c9aaff8f9131d27a2f01abfc98b12166461e12",
+      "served_text_count": 53
+    },
+    "qp_cam_programming@1": {
+      "served_text_sha256": "6236505db5b8916b5561915970395ea6626af248f8e4d3b04548a6f755c1320e",
+      "served_text_count": 46
+    },
     "qp_carpentry@1": {
       "served_text_sha256": "227ed09ca1f2e230ac01ab0a0e7ae8691fc711a90dcfa179824518387c9b7814",
       "served_text_count": 15
@@ -114,6 +122,10 @@
       "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
       "served_text_count": 9
     },
+    "qp_cnc_grinding@1": {
+      "served_text_sha256": "bc388994f5bf247cee476e13140a6c59ab06ca9da289901923233653b6bfad6d",
+      "served_text_count": 56
+    },
     "qp_cnc_turning@1": {
       "served_text_sha256": "f0c9d86a85eb636ad6ceeab6146aad0e24382b8f87c0a0613c8341f18f977a71",
       "served_text_count": 62
@@ -138,6 +150,10 @@
       "served_text_sha256": "6c9f8692140ca763f9b7f4bacdf3a88395e0010513ac50e6516282b61ca9f9f0",
       "served_text_count": 12
     },
+    "qp_conventional_machining@1": {
+      "served_text_sha256": "ff8d2500d212614588455b943d4a22eaeb740eedcf8130af785f5a502476f3f7",
+      "served_text_count": 90
+    },
     "qp_cooking@1": {
       "served_text_sha256": "44255ea92c1641d93dffd691d8c53379596cec545aed27b6c432175144954c5e",
       "served_text_count": 18
@@ -161,6 +177,10 @@
     "qp_domestic@1": {
       "served_text_sha256": "b487982eea4b9f7dcb33c63fc922a85491941c1114bf0ba846a3a7c22ff44d0c",
       "served_text_count": 15
+    },
+    "qp_draughting@1": {
+      "served_text_sha256": "af09e4c14a19294b43be8c084a8798cb23bb939f5f8891cc798bc4ad5a503a82",
+      "served_text_count": 17
     },
     "qp_driving_heavy@1": {
       "served_text_sha256": "1d5be43de9f3cf4431662715e0516ad109cd0db5ac6a531eb6e8b4c76af227e4",
@@ -382,6 +402,10 @@
       "served_text_sha256": "d91d3caf157e5c77ad236f98d3e1a0962d87e92f3d5a18edd26ace07fa3c4138",
       "served_text_count": 15
     },
+    "qp_powder_coating@1": {
+      "served_text_sha256": "7fd442a4771e5389c6b809b576f4ee30a821a4b0847202971120a4da415e91cc",
+      "served_text_count": 90
+    },
     "qp_printing@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
@@ -514,6 +538,10 @@
       "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
       "served_text_count": 12
     },
+    "qp_tool_die_making@1": {
+      "served_text_sha256": "2d13854bf896fc7eebc61b4e2433c66c461cffee3b34d2407bcbc261554efafb",
+      "served_text_count": 90
+    },
     "qp_toolmaking@1": {
       "served_text_sha256": "9db40e5fea20a4389b189180a560373df69c85e2a6747ead288ac4380ae738ca",
       "served_text_count": 15
@@ -565,6 +593,10 @@
     "qp_welding@1": {
       "served_text_sha256": "e1c9a3de94bb921ea6fe57b3c2989f89d9ed9ee760a4f3d14bc881aa25a6bf92",
       "served_text_count": 20
+    },
+    "qp_welding_trade@1": {
+      "served_text_sha256": "25962977448bd13421f8c50520929bac10d338a1a36ecf0d8586d42ee1dddee9",
+      "served_text_count": 66
     },
     "qp_wood_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",

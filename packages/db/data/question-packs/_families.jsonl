@@ -34,6 +34,32 @@
 {"kind":"family","family_id":"fam_machining","label_en":"Machining and CNC","label_hi":"खराद और सीएनसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_cnc_turning","label_en":"Turning (CNC and conventional)","label_hi":"टर्निंग और खराद","canonical_role_id":"role_cnc_turner_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_vmc_milling","label_en":"Milling (VMC and conventional)","label_hi":"मिलिंग और वीएमसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_cnc_grinding","label_en":"Grinding (CNC and conventional)","label_hi":"ग्राइंडिंग और घिसाई","canonical_role_id":"role_cnc_grinding_operator","industry_id":"ind_industrial_manufacturing"}
+
+# ── Batch 1, the desk trades: part programming and the drawing office ─────────
+#
+# THE REVIEW NOTE THAT HAS NOWHERE ELSE TO GO. `question_pack.review_note` is a column;
+# `profiling_family` has none, so the three rows below carry their draft status HERE rather
+# than in a JSON field the seeder would drop on the floor. THE LABELS, THE BINDINGS AND THE
+# ALIAS TRANCHE THAT REACHES THEM ARE DRAFTED AND NOT YET RATIFIED — no practising part
+# programmer or draughtsman has corrected this vocabulary. See
+# docs/registers/trade-content-ratification.md, and the `review_note` on each of the three
+# packs, which says the same thing where a column exists to say it.
+#
+# canonical_role_id IS SET ON TWO OF THE THREE, against this file's usual null. The header
+# above explains why most rows leave it null — the match engine's role space simply has no id
+# for a tailor or a cook. It has one here: `role_cam_programmer` (dom_programming) and
+# `role_designer` (dom_design) are both live in @badabhai/taxonomy ROLES, so filling the column
+# crosswalks these two trades into ranking instead of leaving them invisible to it.
+#
+# fam_draughting KEEPS BOTH COLUMNS NULL, and that is the same rule applied honestly rather
+# than an omission. It is the unit-3118 router: it holds twelve occupations spanning civil,
+# architectural, electrical, structural and topographical draughting plus the tracer and the
+# blue printer. `role_designer` would over-claim eleven of them and `ind_industrial_
+# manufacturing` is false for every civil one, so both stay null until the role space widens.
+{"kind":"family","family_id":"fam_cam_programming","label_en":"Part Programming (CAM and MDI)","label_hi":"पार्ट प्रोग्रामिंग","canonical_role_id":"role_cam_programmer","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_cad_drafting","label_en":"CAD Draughting (Mechanical)","label_hi":"सीएडी और ड्राफ्टिंग","canonical_role_id":"role_designer","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_draughting","label_en":"Draughting and Drawing Office","label_hi":"ड्राफ्टिंग और नक्शा"}
 {"kind":"family","family_id":"fam_fitting","label_en":"Fitting and Machine Maintenance","label_hi":"फिटर और मेंटेनेंस","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_toolmaking","label_en":"Tool and Die Making","label_hi":"टूल और डाई मेकिंग","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_auto_mechanic","label_en":"Automobile Mechanic","label_hi":"गाड़ी मैकेनिक"}
@@ -87,6 +113,37 @@
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_5005"}
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_1201"}
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_1400"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7223_2200"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0200"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0300"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0400"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0402"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0500"}
+
+# ── Batch 1, the desk trades ─────────────────────────────────────────────────
+#
+# PART PROGRAMMING IS BOUND AS ONE TRADE WITH TWO WORK SURFACES (owner ruling, this session).
+# NCO 7223.6003 defines a CNC Programmer as producing the component program "using manual data
+# input or by use of a remote computer", which is the desk CAM programmer AND the man typing
+# the program into the controller. Binding only a desk reading of the role would have left
+# every MDI programmer on fam_machining's six generic questions; qp_cam_programming's first
+# question splits the two surfaces, the way qp_machining's machine_type splits the machine.
+# One code, so one binding: 7223.6003 is the only NCO occupation in the unit whose whole
+# definition is writing the program. 7223.5001 ("CNC Operator") stays on fam_machining, for
+# the same reason the turner does not claim it.
+{"kind":"binding","family_id":"fam_cam_programming","job_domain_id":"jd_nco_7223_6003"}
+#
+# DRAUGHTING IS THE FIRST TWO-TIER SPLIT THIS FILE HAS OUTSIDE UNIT 7223, and it is the same
+# shape: fam_cad_drafting takes the two MECHANICAL codes at job-domain specificity 50, and
+# fam_draughting takes the whole unit at 40 for everybody else. Unit 3118 holds fourteen
+# occupations; without the @40 router the other twelve — civil, electrical, architectural,
+# structural, topographical, plumbing, tracer, blue printer, lithographic designer and the
+# unit's own generic "Draftsman" (3118.0301) — fall past every family to fam_universal@0 and
+# get eight trade-agnostic questions with not one drawing question among them. Measured live
+# this session, before this row existed: "draftsman" -> jd_nco_3118_0301 -> fam_universal@0.
+{"kind":"binding","family_id":"fam_cad_drafting","job_domain_id":"jd_nco_3118_0401"}
+{"kind":"binding","family_id":"fam_cad_drafting","job_domain_id":"jd_nco_3118_0402"}
+{"kind":"binding","family_id":"fam_draughting","isco_unit_code":"3118"}
 {"kind":"binding","family_id":"fam_fitting","isco_unit_code":"7233"}
 {"kind":"binding","family_id":"fam_toolmaking","isco_unit_code":"7222"}
 {"kind":"binding","family_id":"fam_auto_mechanic","isco_unit_code":"7231"}
@@ -254,3 +311,135 @@
 {"kind":"binding","family_id":"fam_street_vending","isco_minor_code":"952"}
 {"kind":"binding","family_id":"fam_refuse_work","isco_minor_code":"961"}
 {"kind":"binding","family_id":"fam_other_elementary","isco_minor_code":"962"}
+
+# ══ Batch 2, part one — the four roles whose vocabulary the corpus ALREADY reaches ═════════════
+#
+# WHY ONLY FOUR OF ELEVEN. Reachability was measured for all eleven Batch 2 roles through the
+# production chain (buildOccupationIndex -> resolveOccupation -> resolveFamily) before any pack
+# was authored, per the guide's section 2b. Seven of them cannot be reached by BINDING at all:
+# their words are absent from the alias corpus or owned by another trade — "sheet metal",
+# "fabricator" and "press brake" are NO MATCH; "power press" reaches masonry; "press operator"
+# reaches textile machines; every electrician phrase reaches fam_electrical's house wiring; "qc",
+# "quality control" and "क्वालिटी" are NO MATCH. Binding decides which family a HIT lands in; it
+# cannot create a hit. Those seven wait on a ratified rvm-aliases tranche rather than shipping
+# dead — which is the qp_cnc_turning failure, and it passes every structural gate.
+#
+# THE FOUR BELOW ARE DIFFERENT: each already owns live vernacular on a bindable code.
+#
+# NOT YET RATIFIED. Labels and chip vocabulary are drafted; no practising machinist, tool maker,
+# welder or coating operator has corrected them. See docs/registers/trade-content-ratification.md
+# and each pack's own review_note.
+{"kind":"family","family_id":"fam_conventional_machining","label_en":"Conventional Machining (manual machines)","label_hi":"मैनुअल मशीन और मशीन शॉप","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_tool_die_making","label_en":"Tool and Die Making","label_hi":"टूल रूम और डाई मेकर","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_welding_trade","label_en":"Welding (arc, MIG, TIG and gas)","label_hi":"वेल्डिंग और जोड़ाई","canonical_role_id":"role_welder","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_powder_coating","label_en":"Powder Coating and Industrial Spray Painting","label_hi":"पाउडर कोटिंग और स्प्रे पेंटिंग","industry_id":"ind_industrial_manufacturing"}
+
+# ── Conventional machining ───────────────────────────────────────────────────────────────────
+# 7223.0500 is the anchor: it owns "machinist" and "machine shop", and its NCO description is
+# decisive — "operates various types of power driven metal cutting or grinding machines... Fastens
+# metal in chuck, jig or other fixture", with no programming anywhere in it. NCO files the CNC
+# people separately on 0501/5001-5003/6001-6003, and those STAY on fam_machining.
+#
+# 7223.0701 "Lathe Machinist" and 7223.0601 "Turner/Conventional Turning" are NOT here and cannot
+# be: fam_cnc_turning already claims both, and it holds them legitimately — its scope is "Turning
+# (CNC and conventional)". That is this pack's single biggest reach loss and it is not recoverable
+# by binding. It is also why conventional-machinist.role.ts declares "lathe" and "खराद" as its OWN
+# machine terms: a word shared by value vetoes neither trade.
+#
+# 7223.1300 "Gear Cutter" was considered and dropped — gear hobbing is a specialty inside the
+# trade and this pack asks no hobbing questions, so binding it would promise depth that is absent.
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_0500"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_0800"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_0900"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1100"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1500"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1600"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1701"}
+{"kind":"binding","family_id":"fam_conventional_machining","job_domain_id":"jd_nco_7223_1800"}
+
+# ── Tool and die making ──────────────────────────────────────────────────────────────────────
+# The cleanest binding set in the batch. 7222.0200 alone carries "tool maker", "tool room",
+# "टूल रूम", "टूल मेकर", "die maker" and "डाई मेकर" — measured, it is the sole claimant of every
+# one. fam_toolmaking keeps unit 7222 at specificity 40 and therefore keeps the locksmiths,
+# metal patternmakers and the "other" bucket.
+#
+# THE ISCO NODE jd_isco_7222 IS DELIBERATELY **NOT** BOUND, and this is the asymmetry with welding
+# below. Measured, the node owns "toolmaker" (one word) and "die maker" — both of which would be
+# worth having — but the isco08 scrape hung five aliases on it and three are OTHER TRADES:
+# "Locksmith", "Gunsmith" and "Patternmaker" all resolve to this node today. Binding it to buy two
+# phrases would hand a locksmith eighteen questions about punch-and-die clearance. So the two
+# one-word phrases stay on the generic toolmaking pack, which is the correct interview for them
+# until an alias tranche can put "toolmaker" and "die maker" on 7222.0200 where they belong.
+{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0200"}
+{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0300"}
+{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0400"}
+{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0500"}
+{"kind":"binding","family_id":"fam_tool_die_making","job_domain_id":"jd_nco_7222_0600"}
+
+# ── Welding ──────────────────────────────────────────────────────────────────────────────────
+# jd_isco_7212 IS A JOB-DOMAIN BINDING, NOT A UNIT BINDING, and the distinction is what makes it
+# legal. fam_welding binds unit:7212 at specificity 40; the corpus validator keys targets as
+# job_domain:<id> versus unit:<code> (question-pack-corpus.ts:226-227), so these are different
+# targets and neither claim collides. It is worth having because the isco08 scrape put the bare
+# word "welder" on the UNIT NODE itself, so without this row the single commonest thing an Indian
+# welder types would still reach the generic pack.
+#
+# WHAT ELSE THE NODE DRAGS IN, MEASURED AND ACCEPTED. Its alias list is "Welders and Flame Cutters
+# / Brazier / Flame cutter / Welder", so binding it also captures "flame cutter" and "brazier".
+# Flame cutting is squarely in trade — gas cutting is one of the four processes on the reference
+# sheet. "Brazier" is NOT, and it is the one accepted imprecision here: a brazier reaching this
+# form is a worse interview than fam_welding's generic one, but it is one uncommon single word
+# against the commonest word in the trade, and the dedicated code 7212.0500 stays on fam_welding
+# so "brazer" itself still routes correctly. Moving "Brazier" off the node is alias work, listed
+# for the ratification tranche.
+#
+# CONTRAST jd_isco_7222 ABOVE, which is NOT bound for exactly this reason taken one step further:
+# three of its five node aliases are other trades, so the same trade-off comes out the other way.
+#
+# SIX CODES IN 7212 ARE DELIBERATELY LEFT ON fam_welding, and each for a stated reason:
+#   7212.0101/0102  Plumber (Welder) / Assistant — plumbing, not a production welding trade.
+#   7212.0500/0501  Brazer, Soldering and Brazing Operator — joining, but not the arc/gas trade
+#                   this pack's eighteen questions are about.
+#   7212.0600       Lead Burner — a distinct specialism.
+#   7212.0402       Plasma Cutter — cutting; the reference sheet gives plasma to sheet metal.
+#   7212.9900       "Others" — a catch-all is by definition not unambiguous.
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_isco_7212"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0100"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0105"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0111"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0200"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0300"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0301"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0302"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0303"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0400"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0700"}
+{"kind":"binding","family_id":"fam_welding_trade","job_domain_id":"jd_nco_7212_0801"}
+
+# ── Powder coating and industrial spray painting ─────────────────────────────────────────────
+# 7131.0500 CARRIES CONTAMINATION AND IS BOUND ANYWAY, WITH EYES OPEN. Its label_en is an OCR
+# fragment of the ISCO definition and the nco2015 scrape hung "Paper Hanger/Wallpaper Fixer/
+# Decorator" and "Paper Hanger" on it. It is nonetheless the ONLY row in the corpus that owns
+# "spray painter" and "स्प्रे पेंटिंग", so leaving it out costs the trade its commonest phrase —
+# the exact qp_cnc_turning failure. The cost of binding it is that a wallpaper fixer reaches a
+# coating form; the cost of not binding it is that no spray painter ever reaches this pack at all.
+# The alias rows belong on a decorating code and are listed for the ratification tranche.
+# question-pack-reachability.test.ts pins "paper hanger" so the harm stays visible and reviewable.
+#
+# BUILDING PAINTING STAYS WHERE IT IS. 7131.0100 "Painter, Building" owns "painter", "पेंटर" and
+# "paint shop" and is NOT bound: fam_painting is house painting and already disambiguates it. That
+# is the same ruling painter-coating.role.ts records for the detection terms — the bare word
+# "painter" is a level rung there, never an occupation term.
+#
+# AUTOMOTIVE REFINISH IS A DIFFERENT TRADE. 7132.0202/0203/0204/0901 (Auto Spray Painter, Auto
+# Body Painting Technician, Automotive Paint Shop Assistant) are panel-shop refinishers, not
+# industrial coating; the reference sheet's sector is "auto components and white goods", which is
+# powder on parts. They stay unbound — and are today misrouted to fam_structure_cleaning through
+# ISCO minor 713, which is a pre-existing hole this pack does not widen.
+#
+# 3123.0600 "Painting and Surface Treatment Line In Charge" is SUPERVISORY and stays out, on the
+# same rule that keeps the machine-shop supervisor off fam_conventional_machining.
+{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7131_0300"}
+{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7131_0500"}
+{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0201"}
+{"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0300"}

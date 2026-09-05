@@ -26,6 +26,7 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/feedback/presentation/feedback_screen.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 
 import '../../core/auth/fakes.dart';
 
@@ -89,6 +90,20 @@ Future<void> _enterPin(WidgetTester tester, String pin) async {
 }
 
 void main() {
+  // MockApiClient.getResumeDocument() deliberately always answers
+  // `document: null` (see its own doc) — collapsed to a single attempt so
+  // landing on the shell (Resume tab included) does not leave a real
+  // pending Timer past this file's fixed pump sequences (see
+  // ResumeCubit.documentPollInterval's own doc).
+  setUpAll(() {
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
+  });
+  tearDownAll(() {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
+  });
+
   tearDown(() async => locator.reset());
 
   void bigCanvas(WidgetTester tester) {
@@ -129,7 +144,10 @@ void main() {
     expect(find.text('Feedback'), findsOneWidget);
 
     // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
-    // mock latency 300ms) so no timer outlives the test.
+    // mock latency 300ms) AND the resume document fetch (#1398 —
+    // showGenerated()'s awaitingDocument window, documentPollMaxAttempts=1
+    // so exactly one 300ms mock call) so no timer outlives the test.
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
   });
 
@@ -144,6 +162,7 @@ void main() {
     await _pumpUntil(tester, find.text('Your resume'));
 
     expect(find.text('Feedback'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
   });
 
@@ -161,6 +180,7 @@ void main() {
     await _pumpUntil(tester, find.text('PIN daalein'));
     await _enterPin(tester, '7416');
     await _pumpUntil(tester, find.text('Your resume'));
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
 
     await tester.tap(find.text('Feedback'));

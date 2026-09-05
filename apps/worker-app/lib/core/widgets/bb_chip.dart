@@ -62,38 +62,77 @@ class BbChip extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(_kChipRadius),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
-          child: Container(
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 15,
-              vertical: AppSpacing.s2,
-            ),
-            decoration: BoxDecoration(
-              color: background,
-              borderRadius: BorderRadius.circular(_kChipRadius),
-              border: Border.all(color: borderColor, width: 1.5),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (icon != null) ...<Widget>[
-                  Icon(icon, size: 18, color: foreground),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  label,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    weight: labelWeight ?? FontWeight.w700,
-                    color: foreground,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        // A server-supplied label (a certificate suggestion, a role label —
+        // anything not authored client-side) can run long. `Row(mainAxisSize:
+        // .min)` alone sizes to the label's own single-line intrinsic width
+        // with no ceiling, so a long label just ran the chip off the right
+        // edge of the screen instead of wrapping.
+        //
+        // ONLY cap-and-wrap when the incoming constraint is already BOUNDED
+        // (a `Wrap` in a form page — the common case, and the one the "text
+        // should go to the next line, not overflow" ask is about). Where the
+        // parent hands down an UNBOUNDED width — a horizontally-SCROLLING
+        // chip row (the job feed's header, `SingleChildScrollView(scrollDirection:
+        // horizontal)`) — leave the chip exactly as it always rendered: a
+        // scrolling row is deliberately allowed to run wider than the
+        // screen, so there is nothing to wrap there, and forcing a
+        // screen-width cap onto every chip in it broke that row's own
+        // layout instead of fixing anything.
+        child: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints incoming) {
+            final bool bounded = incoming.maxWidth.isFinite;
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: AppSpacing.tap,
+                maxWidth: bounded ? incoming.maxWidth : double.infinity,
+              ),
+              child: _chipBody(background, borderColor, foreground, wrap: bounded),
+            );
+          },
         ),
+      ),
+    );
+  }
+
+  /// [wrap] true → the incoming constraint is bounded (a `Wrap` on a form
+  /// page): the label may span multiple lines instead of overflowing.
+  /// [wrap] false → unbounded (a horizontally-scrolling chip row): render
+  /// exactly as this widget always has, single line, no cap.
+  Widget _chipBody(
+    Color background,
+    Color borderColor,
+    Color foreground, {
+    required bool wrap,
+  }) {
+    final Widget labelText = Text(
+      label,
+      softWrap: wrap,
+      style: AppTypography.body(
+        size: AppTypography.sizeSm,
+        weight: labelWeight ?? FontWeight.w700,
+        color: foreground,
+      ),
+    );
+    return Container(
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 15,
+        vertical: AppSpacing.s2,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(_kChipRadius),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (icon != null) ...<Widget>[
+            Icon(icon, size: 18, color: foreground),
+            const SizedBox(width: 6),
+          ],
+          wrap ? Flexible(child: labelText) : labelText,
+        ],
       ),
     );
   }

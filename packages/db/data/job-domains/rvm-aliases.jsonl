@@ -198,6 +198,7 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"grinding machine","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ghisai","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"घिसाई","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_2200","text":"ग्राइंडिंग","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machine shop","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_0500","text":"machinist","lang":"en"}
 
@@ -569,3 +570,201 @@
 {"kind":"alias","job_domain_id":"jd_nco_7512_0100","text":"bread","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"juta","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7536_0300","text":"जूता","lang":"hi"}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BATCH 1 ROLLOUT — CAD draughting and CAM part programming.
+#
+# STATUS: DRAFTED, NOT YET RATIFIED. Authored alongside the qp_cad_drafting and
+# qp_cam_programming packs and routed for human sign-off with them. The git blame on these
+# lines names the drafter; it does not yet name a ratifier.
+#
+# WHY IT EXISTS. Neither pack was reachable at all. Measured before this block landed:
+#   cad, cad operator                 -> Caddie (golf, jd_nco_9621_0300), at L1
+#   cad designer, mechanical designer -> Designer (Garment, jd_nco_7532_0100), at L0
+#   post processor                    -> Mail Carriers (jd_isco_4412), at L1
+#   autocad solidworks catia creo draughtsman mastercam powermill solidcam edgecam
+#   part programming cam programmer   -> NO MATCH
+#   कैड ऑटोकैड ड्राफ्ट्समैन नक्शा कैम प्रोग्रामर सीएनसी प्रोग्रामर -> NO MATCH; the Devanagari half was 100% absent
+#
+# Every row below is an L0 EXACT key, and that is the entire mechanism. L0 is exhausted at
+# every span length before L1 is tried at any length, so an exact row makes a skeleton
+# collision unreachable rather than merely unlikely — the same fix, for the same reason, as
+# the driver/fitter/painter rows at the top of this file.
+#
+# WHAT A BARE ROW COSTS, AND THE RULE THIS BLOCK NOW FOLLOWS. An L0 row fixes the exact word
+# and simultaneously claims that word's SKELETON for its domain, which moves every fuzzy
+# neighbour of the word onto the same domain. So a bare row is authored only when (a) the
+# skeleton has no other trade claimant, or (b) the neighbours it captures are guarded by
+# their own L0 rows. Bare "fusion" failed both and was pulled; bare "cad" passes only with
+# the "caddy" and "g code" guards below; bare "draughtsman" and "नक्शा" pass but belong to
+# the unit ROUTER rather than to the mechanical role, because they are what a civil and an
+# electrical draughtsman say too. Every one of these is a measurement, not a judgement —
+# packages/db/src/question-pack-reachability.test.ts re-runs them through the real index.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── CAD draughting — NCO 3118.0401 (Draughtsperson, Mechanical) ─────────────
+# "cad" is the driver/fitter/painter case, with one honest difference from those three.
+# skeletonKey drops interior vowels and collapses repeats, so cad -> "cd" and
+# caddie -> "cdd" -> "cd" are ONE key, and the golf caddie owned it. The bare exact row
+# takes the exact word "cad" back at L0 — but it does NOT pre-empt the fold, it REVERSES
+# its owner: the "cd" bucket now holds 3118.0401 first and 9621.0300 second, so every
+# NON-exact spelling that folds to "cd" moves from the caddie to the drawing office. That
+# is a trade, not a fix, and the two rows it actually costs are guarded below and in the
+# CAM block ("caddy", "g code"). What is left in the bucket is bare "cod"/"cud"/"cadi" —
+# words no worker types as a trade — and it is written down here rather than claimed away.
+# Do NOT tidy the bare row away as redundant with "cad operator": deleting it puts every
+# bare "cad" back on a golf course, silently.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"cad","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"cad operator","lang":"en"}
+# GUARD ROW for the fold above. "caddy" and "golf caddy" resolved to Caddie at L1 before
+# this tranche and to a drawing office after it; an L0 exact row is what takes them back,
+# and it costs one line. Measured: with this row, "caddy" and "golf caddy" are L0 hits on
+# 9621.0300 again.
+{"kind":"alias","job_domain_id":"jd_nco_9621_0300","text":"caddy","lang":"en"}
+# "designer" is a PUBLISHED alias of Designer (Garment) and is deliberately left standing.
+# A bare rvm row would give that one L0 key two claimants and make the winner depend on
+# index order, which is arbitrary — and arbitrary is wrong when it picks the question pack.
+# The compounds take these two phrases instead, on longest-span-first.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"cad designer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"mechanical designer","lang":"en"}
+# "draughtsman" is not a spelling the skeleton could ever have reached from "draftsman":
+# gh folds to g, so draughtsman -> "drgtsmn" while draftsman -> "drftsmn". Two keys, and
+# only the American spelling had one.
+#
+# THE BARE WORD POINTS AT 3118.0301 ("Draftsman"), NOT AT THE MECHANICAL CODE, and this is
+# the single most load-bearing line in the block. A bare "draughtsman" row on 3118.0401
+# pins fam_cad_drafting at specificity 50, and 50 is ABOVE the unit-3118 router — so
+# "civil draughtsman", "electrical draughtsman", "architectural draughtsman", "structural
+# draughtsman" and "topographical draughtsman" all matched the 1-token span and were handed
+# the MECHANICAL form: eighteen questions about sheet-metal flat patterns for a man who
+# draws drainage layouts. Measured, before and after that row was moved: all five went
+# NO_MATCH -> fam_cad_drafting@50 -> fam_draughting@40. 3118.0301 is where the American
+# spelling already resolves and is inside fam_draughting's unit binding, so the generic
+# word reaches the router that asks WHICH line he draws for — which is the entire reason
+# the router family exists. The mechanical pack stays reachable on the two-token rows
+# below, which win outright on longest-span-first.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"draughtsman","lang":"en"}
+# Generic draughting words go to the same place and for the same reason: a civil, an
+# electrical and a mechanical draughtsman all say "drafting". Skeletons are long enough to
+# carry a bare row (drftng / drgtng) and neither had any claimant before.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"drafting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"draughting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"draughtsman mechanical","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"mechanical draughtsman","lang":"en"}
+# Software names, because a worker names the package rather than the occupation
+# ("main autocad karta hun").
+#
+# A BARE ROW IS ONLY SAFE WHEN ITS CONSONANT SKELETON IS LONG. Indexing an alias indexes its
+# skeleton too, and a 3-4 letter brand name folds to a 2-character key that then belongs to
+# ONE domain — which is worse than the word being unreachable, because an L1 hit pre-empts
+# the trigram and vector layers that would otherwise have answered. Measured on this corpus:
+# "catia" -> "ct" swallows cut / coat / cot / chat / chota, and "creo" -> "cr" swallows
+# car / core / carrier / courier. Neither is authored here; see the note at the end of this
+# block. "autocad" (atcd) and "solidworks" (sldvrks) are specific enough to carry a bare row.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"autocad","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"solidworks","lang":"en"}
+# BARE "fusion" IS NOT AUTHORED, and it was in the first draft of this block. It is the
+# catia/creo ruling applied to a word whose skeleton is long enough to look safe and is not.
+# "fusion" -> "fsn" is the SAME key as "fashion", and the bare row also won at i=0 before any
+# 1-token welding span was reached. Measured with it in place: "fusion welder" and "seam
+# fusion welder" moved Welder -> drawing office, "fusion cutting" moved Gas Cutter -> drawing
+# office, and every misspelling the L1 layer exists to fold ("fasion", "fashon", "faishan",
+# "fashan", "fesion", "phashion") became an L1 TIE whose first claimant was the drawing
+# office. Guarding one phrase at a time cannot close that: misspellings are open-ended, which
+# is precisely why the skeleton layer exists. So Fusion users are reached through the
+# occupation words instead, and "fusion 360" — the form a worker actually types — cannot be
+# authored at all because the overlay validator rejects digits. That needs an owner ruling,
+# the same as catia and creo below; it does not need a row that costs welders.
+# THE TWO WELDING ROWS BELOW ARE WHAT SURVIVED THAT REVIEW, and they stand on their own merits
+# rather than propping up a bare row. "fusion welding" reached Welder only by falling through
+# to the 1-token span "welding" — correct family, but by accident of span order rather than
+# because anything claimed the phrase; "fusion weld" reached nothing at all. Two-token exact
+# aliases pin both — the same move as "gaadi mechanic" above.
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"fusion welding","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"fusion weld","lang":"en"}
+# GUARD ROW 2 WAS "fashion" ON THE GARMENT DESIGNER, AND IT IS NOT AUTHORED EITHER — it went
+# out with the bare "fusion" row it existed to guard, and the measurement is why. With "fusion"
+# gone the row's only remaining value was closing a miss that predates this tranche ("fashion"
+# alone reached nothing), which is garment vocabulary and not this block's to mint. Its cost
+# lands squarely on this block's own trade: it makes the garment designer the sole claimant of
+# the "fsn" skeleton, so "fusion 360" — the form a CAD worker actually types, and unauthorable
+# here because the validator rejects digits — folds NO MATCH -> fam_garment_trades@30. Trading
+# an honest miss for a confident wrong answer is the thing this block refuses to do for catia
+# and creo; it does not get to do it to itself. So the "fsn" bucket is left exactly as Batch 1
+# found it: empty, and every word in it falling through to trigram and vector. Bare "fashion"
+# is a real gap in the GARMENT vocabulary and is logged for that trade's ratifier, not fixed
+# from inside a drawing-office tranche.
+# Devanagari is never transliterated by the normalizer and never folded by the skeleton, so
+# each script needs its own row. This half of the vocabulary did not exist.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"कैड","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_3118_0401","text":"ऑटोकैड","lang":"hi"}
+# "ड्राफ्ट्समैन" follows its Latin twin to 3118.0301 and not to the mechanical code. THE LINE
+# THIS BLOCK DRAWS, once, so the next tranche does not have to re-derive it: a word that is the
+# GENERIC OCCUPATION or the GENERIC ARTEFACT of unit 3118 ("draughtsman", "ड्राफ्ट्समैन",
+# "drafting", "draughting", "naksha", "नक्शा") goes to the unit's own code so the router asks
+# which line the worker draws for; a word that is a PACKAGE or an explicitly MECHANICAL
+# compound ("cad", "autocad", "solidworks", "कैड", "ऑटोकैड", "mechanical draughtsman") goes to
+# 3118.0401, because those are what this batch's reviewed pack was authored against.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"ड्राफ्ट्समैन","lang":"hi"}
+# "नक्शा" is the broadest word in this tranche: it is an engineering drawing AND a building
+# plan, so a civil draughtsman says it at least as often as a mechanical one. It therefore
+# goes to 3118.0301 with the bare "draughtsman" above, for exactly the same reason — a row on
+# the mechanical code pins fam_cad_drafting at 50, which is ABOVE the unit-3118 router, so the
+# disambiguator that is supposed to re-split it downstream would never have run.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"नक्शा","lang":"hi"}
+# THE LATIN TWIN, which the first draft of this block omitted. Every shipped vernacular row in
+# this programme carries both scripts and both resolve ("kharad"/"खराद" -> fam_cnc_turning,
+# "ghisai"/"घिसाई" -> fam_cnc_grinding); a worker typing Hinglish on a Latin keyboard is the
+# MAJORITY input mode, and "naksha" was measured NO MATCH while "नक्शा" resolved.
+{"kind":"alias","job_domain_id":"jd_nco_3118_0301","text":"naksha","lang":"en"}
+#
+# NOT AUTHORED, AND ON PURPOSE — for the ratifier. "catia" and "creo" were on the drafted
+# list and are held back on measurement, not taste: each is the only claimant its 2-character
+# skeleton would have, so bare "cut"/"coat"/"chota" and bare "car"/"courier" stop being an
+# honest miss that falls through to trigram and vector, and become a confident wrong answer
+# from a drawing office. "car ka kaam janta hun" is a gold row that flipped exactly that way
+# in the eval before "creo" was pulled. Restoring either needs one of: a 2-token surface form
+# a worker would really type, or an owner ruling on the bare word it collides with ("car" is
+# claimed by both 7231 automobile mechanic and 8322 driver today, which is why it cannot be
+# guarded the way "fashion" and "fusion welding" are.)
+
+# ── CAM part programming — NCO 7223.6003 (CNC Programmer) ───────────────────
+# Scoped as part programming IN GENERAL, not desk-CAM-only: NCO defines this code as
+# producing the component program "using manual data input or by use of a remote computer",
+# so the CAM programmer at a workstation and the man editing G-code at the controller are
+# one occupation here. The pack's first question is what splits them.
+#
+# BARE "cam" IS DELIBERATELY ABSENT. All three CAM titles in NCO are garment or jewellery
+# (7532.0901, 7532.0902, 8189.0301), "camera fitting" already reaches an electrician, and a
+# cam is a machine part. Every row here therefore carries a qualifier. Bare "programmer" is
+# absent for the opposite reason: it is a LEVEL RUNG on three roles in this cluster and an
+# occupation term on none, so folding it onto a code buys a wrong answer instead of no answer.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"cam programmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"cam programming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"part programming","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"part programmer","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"mastercam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"powermill","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"solidcam","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"edgecam","lang":"en"}
+# "post processor" reached Mail Carriers, because the 1-token span "post" folds to "pst" at
+# L1. A 2-token exact row is tried before any 1-token span and takes the phrase back. The
+# GERUND needs its own row: "post processing" is a different exact key and was still landing
+# on Mail Carriers after the first draft of this block shipped.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processor","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"post processing","lang":"en"}
+# G CODE IS THE MDI PROGRAMMER's OWN WORD, and the surface this code was deliberately scoped
+# to include — the man editing the program at the controller rather than at a workstation. It
+# was reaching the golf caddie before this tranche and the DRAWING OFFICE after it, because
+# "code" folds to the skeleton "cd" that bare "cad" now owns. L0 is exhausted at every span
+# before L1 is tried at any, so these exact rows pre-empt that fold outright — the same
+# mechanism as "cad" itself. Bare "code" is NOT authored: it is an English word, not a trade
+# word, and a row on it would claim the whole "cd" bucket for a second domain.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"g code","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"gcode","lang":"en"}
+# Latin "cnc programmer" is NOT authored here: it is already the published NCO title on this
+# code, so a second row would normalize identically and be an unreachable duplicate that the
+# overlay validator rejects. Only the Devanagari half was missing.
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"कैम प्रोग्रामर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"सीएनसी प्रोग्रामर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"जी कोड","lang":"hi"}

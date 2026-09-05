@@ -895,8 +895,45 @@ describe("AuthController", () => {
     const res = await controller.accountDeleteImmediate(WORKER);
     // The erasure targets the TOKEN's worker.id (never a body) — the same identity source as
     // every other deletion route.
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id, {
+      setReregistrationCooldown: false,
+    });
     expect(res).toEqual({ ok: true });
+  });
+
+  // ---- The QA trap (#1306, docs/otp-throttles-runbook.md §3) ----
+  //
+  // `execute` normally writes a `deleted_phone:<hash>` tombstone that 429s every OTP send to
+  // that number for 7 days. On THIS seam — whose whole purpose is "delete, then sign back in" —
+  // that burned a test number per tap, and invisibly: the client maps EVERY 429 to one string,
+  // so it is indistinguishable from an ordinary rate limit. This seam therefore opts OUT.
+
+  it("accountDeleteImmediate: opts OUT of the re-registration cool-down so QA can sign back in immediately", async () => {
+    const { controller, accountDeletion, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    await controller.accountDeleteImmediate(WORKER);
+
+    // Asserted on the CALL rather than by destructuring `mock.calls` — the bare `vi.fn()` in
+    // this file's harness is typed with no parameters, so indexing a second argument does not
+    // typecheck even though it exists at runtime.
+    expect(accountDeletion.execute).toHaveBeenCalledWith(
+      WORKER.id,
+      expect.objectContaining({ setReregistrationCooldown: false }),
+    );
+  });
+
+  it("accountDeleteImmediate: the opt-out narrows ONLY the cool-down — it is still a full erasure", async () => {
+    // Guard against the opt-out being widened into "a lighter delete". The seam must keep
+    // routing through AccountDeletionService (never a bare hardDelete) and must never acquire
+    // an OTP step — those are separate guarantees this file already pins elsewhere.
+    const { controller, accountDeletion, workers, otp, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    await controller.accountDeleteImmediate(WORKER);
+
+    expect(accountDeletion.execute).toHaveBeenCalledTimes(1);
+    expect(workers.hardDelete).not.toHaveBeenCalled();
+    expect(otp.verify).not.toHaveBeenCalled();
+    expect(accountDeletion.schedule).not.toHaveBeenCalled();
   });
 
   it("accountDeleteImmediate: FLAG ON, idempotent — a re-run on an already-gone worker is STILL { ok: true }", async () => {
@@ -927,7 +964,9 @@ describe("AuthController", () => {
     const { controller, accountDeletion, workers, otp, config } = make();
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     await controller.accountDeleteImmediate(WORKER);
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id, {
+      setReregistrationCooldown: false,
+    });
     expect(accountDeletion.schedule).not.toHaveBeenCalled();
     expect(workers.hardDelete).not.toHaveBeenCalled();
     expect(otp.verify).not.toHaveBeenCalled();
@@ -956,7 +995,9 @@ describe("AuthController", () => {
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [WORKER.id, OTHER_WORKER.id];
     const res = await controller.accountDeleteImmediate(WORKER);
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id, {
+      setReregistrationCooldown: false,
+    });
     expect(res).toEqual({ ok: true });
   });
 
@@ -999,7 +1040,9 @@ describe("AuthController", () => {
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [WORKER.id];
     await controller.accountDeleteImmediate({ ...WORKER, id: WORKER.id });
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id, {
+      setReregistrationCooldown: false,
+    });
   });
 
   it("accountDeleteImmediate: an EMPTY allowlist stays unrestricted — today's QA box is unchanged", async () => {
@@ -1009,7 +1052,9 @@ describe("AuthController", () => {
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [];
     await expect(controller.accountDeleteImmediate(WORKER)).resolves.toEqual({ ok: true });
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id, {
+      setReregistrationCooldown: false,
+    });
   });
 
   it("accountDeleteImmediate: the allowlist NEVER overrides the flag — off is off", async () => {

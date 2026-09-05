@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 171 event names (170 prior + the trade-form handover)", () => {
-    expect(EVENT_NAMES).toHaveLength(171);
+  it("exposes all 174 event names (173 prior + the worker location recorded)", () => {
+    expect(EVENT_NAMES).toHaveLength(174);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
@@ -4297,5 +4297,53 @@ describe("admin.ai_trace_viewed — the largest disclosure on the admin surface,
     expect(validateEvent(traceEvent({ ...VALID, prompt_chars: "Main Pune mein" })).success).toBe(
       false,
     );
+  });
+});
+
+describe("worker.location_recorded (#1428)", () => {
+  const located = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.location_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-05T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, city_recorded: true, state_recorded: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(located(valid)).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the city or the state itself", () => {
+    // THE WHOLE POINT OF THE EVENT'S SHAPE, and `.strict()` is what enforces it. A city is not an
+    // identifier — the 2026-07-31 owner ruling forbids redacting it from an AI prompt precisely
+    // because it is the strongest matching signal the product has. But a city plus a state plus a
+    // worker id plus a timestamp narrows a person considerably, and an audit trail needs only
+    // that the worker answered. `worker.name_recorded` is NOT strict, so the equivalent smuggle
+    // would pass there; this one cannot.
+    //
+    // The base case above is asserted VALID first, so a rejection here is the extra key being
+    // refused and not the envelope being malformed all along.
+    for (const smuggled of [{ city: "Pune" }, { state: "Maharashtra" }, { current_city: "Pune" }]) {
+      expect(validateEvent(located({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires both booleans — 'which half was given' may not be silently omitted", () => {
+    const { city_recorded: _a, ...noCity } = valid;
+    expect(validateEvent(located(noCity)).success).toBe(false);
+    const { state_recorded: _b, ...noState } = valid;
+    expect(validateEvent(located(noState)).success).toBe(false);
+  });
+
+  it("rejects a non-boolean flag", () => {
+    expect(validateEvent(located({ ...valid, city_recorded: "yes" })).success).toBe(false);
   });
 });

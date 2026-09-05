@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/util/devanagari_guard.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_note_repository.dart';
 import 'package:badabhai_worker_app/features/voice/presentation/cubit/voice_note_cubit.dart';
@@ -202,6 +203,55 @@ void main() {
       verifyNever(
           () => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'));
       await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    group('Devanagari is blocked in the correction box (#1411)', () {
+      testWidgets(
+          'a Devanagari transcript is stripped the moment the edit box opens',
+          (WidgetTester tester) async {
+        await pumpScreen(tester);
+        await reachConfirm(tester, transcript: 'मेने CNC par kaam kiya');
+
+        await tester.tap(find.text('Sudhaarna hai'));
+        await tester.pumpAndSettle();
+
+        final TextField field =
+            tester.widget<TextField>(find.byType(TextField));
+        expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
+        expect(find.text(kDevanagariBlockedHint), findsOneWidget);
+      });
+
+      testWidgets('typing Devanagari into the edit box strips it too',
+          (WidgetTester tester) async {
+        await pumpScreen(tester);
+        await reachConfirm(tester);
+
+        await tester.tap(find.text('Sudhaarna hai'));
+        await tester.pumpAndSettle();
+        expect(find.text(kDevanagariBlockedHint), findsNothing);
+
+        await tester.enterText(find.byType(TextField), 'फिर से काम किया');
+        await tester.pump();
+
+        final TextField field =
+            tester.widget<TextField>(find.byType(TextField));
+        expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
+        expect(find.text(kDevanagariBlockedHint), findsOneWidget);
+      });
+
+      testWidgets('a Roman-only edit never shows the notice',
+          (WidgetTester tester) async {
+        await pumpScreen(tester);
+        await reachConfirm(tester);
+
+        await tester.tap(find.text('Sudhaarna hai'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+            find.byType(TextField), 'VMC operator, 4 saal.');
+        await tester.pump();
+
+        expect(find.text(kDevanagariBlockedHint), findsNothing);
+      });
     });
 
     testWidgets('"Dobara bolein" returns to the idle mic and sends nothing',

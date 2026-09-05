@@ -1,7 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
+import '../../../../core/api/api_client.dart'
+    show QualificationOptionsDto, WorkPrefOptionsDto;
 import '../../../../core/error/failure.dart';
 import '../../domain/trade_form_models.dart';
 import '../../domain/trade_form_repository.dart';
@@ -54,6 +55,9 @@ class TradeFormState extends Equatable {
     this.total = 0,
     this.loadError,
     this.submitError,
+    this.savedPreferences,
+    this.savedEmployment,
+    this.savedQualifications,
   });
 
   final TradeFormStatus status;
@@ -73,6 +77,21 @@ class TradeFormState extends Equatable {
   /// A transient submit error (e.g. a 400 naming an unknown option_key) —
   /// shown inline while the worker stays on the same question and can retry.
   final String? submitError;
+
+  /// The LAST successfully-saved value for each marker screen (#1384 item 1)
+  /// — markers carry no server-side "already filled" signal on this contract
+  /// (see this class' own doc), so unlike a question's `step.answer`, this is
+  /// the CUBIT's own memory of what a marker widget last sent, kept purely so
+  /// a worker who `goBack()`s into an already-passed marker sees it filled
+  /// in rather than reset to a blank constructor default. Set the moment a
+  /// marker save succeeds (see `_advanceAfterMarkerSave`) — a worker can only
+  /// `goBack()` into a marker that already saved successfully once, so "the
+  /// last successful save" is always available by the time it would be read.
+  /// Never sent anywhere; purely a local re-hydration seed for
+  /// `trade_form_screen.dart`'s `_stepBody()`.
+  final TradeFormPreferences? savedPreferences;
+  final List<TradeFormEmploymentEntry>? savedEmployment;
+  final TradeFormQualifications? savedQualifications;
 
   TradeFormStep? get currentStep =>
       currentIndex >= 0 && currentIndex < flatSteps.length
@@ -96,6 +115,9 @@ class TradeFormState extends Equatable {
     int? total,
     Object? loadError = _sentinel,
     Object? submitError = _sentinel,
+    Object? savedPreferences = _sentinel,
+    Object? savedEmployment = _sentinel,
+    Object? savedQualifications = _sentinel,
   }) {
     return TradeFormState(
       status: status ?? this.status,
@@ -106,6 +128,15 @@ class TradeFormState extends Equatable {
       loadError: loadError == _sentinel ? this.loadError : loadError as String?,
       submitError:
           submitError == _sentinel ? this.submitError : submitError as String?,
+      savedPreferences: savedPreferences == _sentinel
+          ? this.savedPreferences
+          : savedPreferences as TradeFormPreferences?,
+      savedEmployment: savedEmployment == _sentinel
+          ? this.savedEmployment
+          : savedEmployment as List<TradeFormEmploymentEntry>?,
+      savedQualifications: savedQualifications == _sentinel
+          ? this.savedQualifications
+          : savedQualifications as TradeFormQualifications?,
     );
   }
 
@@ -118,6 +149,9 @@ class TradeFormState extends Equatable {
         total,
         loadError,
         submitError,
+        savedPreferences,
+        savedEmployment,
+        savedQualifications,
       ];
 }
 
@@ -151,11 +185,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;
       }
-      final List<TradeFormFlatStep> flat = <TradeFormFlatStep>[
-        for (final TradeFormSection section in form.sections)
-          for (final TradeFormStep step in section.screens)
-            TradeFormFlatStep(sectionTitle: section.title, step: step),
-      ];
+      final List<TradeFormFlatStep> flat = _flatten(form);
       final int total = form.questionSteps.length;
       final int answeredCount =
           form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
@@ -177,14 +207,33 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     }
   }
 
+  List<TradeFormFlatStep> _flatten(TradeForm form) => <TradeFormFlatStep>[
+        for (final TradeFormSection section in form.sections)
+          for (final TradeFormStep step in section.screens)
+            TradeFormFlatStep(sectionTitle: section.title, step: step),
+      ];
+
   int _resumeIndex(List<TradeFormFlatStep> flat) {
-    final int i = flat.indexWhere((TradeFormFlatStep f) {
-      final TradeFormStep s = f.step;
-      if (s is TradeFormQuestionStep) return !s.isAnswered;
-      return true; // any marker screen — see class doc for why.
-    });
+    final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
     return flat.isEmpty ? 0 : flat.length - 1;
+  }
+
+  /// The first UNANSWERED question OR marker screen at/after [from] — the
+  /// forward-scan half of resumability. [_resumeIndex] is the FRESH-LOAD
+  /// concept (always scans from 0); this is the shared primitive it and the
+  /// mid-walk `schema_stale` resync (`_resyncAfterStaleSchema`) both use —
+  /// the latter scans from wherever the worker just was, never from the top.
+  int _nextStepIndex(List<TradeFormFlatStep> flat, {required int from}) {
+    for (int i = from; i < flat.length; i++) {
+      final TradeFormStep s = flat[i].step;
+      if (s is TradeFormQuestionStep) {
+        if (!s.isAnswered) return i;
+      } else {
+        return i; // any marker screen — see class doc for why.
+      }
+    }
+    return -1;
   }
 
   // --- Navigation ----------------------------------------------------------
@@ -194,19 +243,41 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(currentIndex: state.currentIndex - 1, submitError: null));
   }
 
-  void _advanceAfterMarkerSave() {
+  /// Advances past the just-saved marker screen — and, per #1384 item 1,
+  /// banks whichever [savedPreferences]/[savedEmployment]/[savedQualifications]
+  /// the caller passes as this cubit's own memory of "the last successful
+  /// save" for that marker kind (see [TradeFormState]'s doc). Every caller
+  /// passes exactly ONE of the three (the marker it just saved); the other
+  /// two default to the shared [_sentinel], which `copyWith` reads as "leave
+  /// this field exactly as it already is" — so advancing past, say, the
+  /// employment marker never touches whatever preferences value is already
+  /// banked.
+  void _advanceAfterMarkerSave({
+    Object? savedPreferences = _sentinel,
+    Object? savedEmployment = _sentinel,
+    Object? savedQualifications = _sentinel,
+  }) {
     if (state.isLastStep) {
       // #1367: the write already landed — there is no next step, so this
       // MUST still emit (leaving state at `submitting` forever is the bug),
       // just with nowhere further to walk to. The screen reacts to `done`
       // by navigating away.
-      emit(state.copyWith(status: TradeFormStatus.done, submitError: null));
+      emit(state.copyWith(
+        status: TradeFormStatus.done,
+        submitError: null,
+        savedPreferences: savedPreferences,
+        savedEmployment: savedEmployment,
+        savedQualifications: savedQualifications,
+      ));
       return;
     }
     emit(state.copyWith(
       status: TradeFormStatus.ready,
       currentIndex: state.currentIndex + 1,
       submitError: null,
+      savedPreferences: savedPreferences,
+      savedEmployment: savedEmployment,
+      savedQualifications: savedQualifications,
     ));
   }
 
@@ -234,32 +305,28 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         text: answer.text,
         boolValue: answer.boolValue,
       );
-      final List<TradeFormFlatStep> next = List<TradeFormFlatStep>.of(state.flatSteps);
-      // Matched by question_key, NOT list index or Equatable step-equality —
-      // the worker's position may have moved (unlikely, but never assumed)
-      // and two distinct questions could otherwise coincide on every other
-      // field.
-      final int idx = next.indexWhere((TradeFormFlatStep f) =>
-          f.step is TradeFormQuestionStep &&
-          (f.step as TradeFormQuestionStep).question.id == step.question.id);
-      if (idx >= 0) {
-        next[idx] = TradeFormFlatStep(
-          sectionTitle: next[idx].sectionTitle,
-          step: TradeFormQuestionStep(
-            question: step.question,
-            searchable: step.searchable,
-            answer: saved,
-          ),
-        );
+      final List<TradeFormFlatStep> banked =
+          _bankAnswer(state.flatSteps, step, saved);
+
+      if (result.schemaStale) {
+        // #1382 — the just-answered question gates other questions, so the
+        // schema `banked` was built against is now out of date. Re-fetch and
+        // re-flatten the WHOLE form rather than patching one entry — see
+        // `_resyncAfterStaleSchema`'s own doc for why. `banked` is passed as
+        // the fallback so a re-fetch failure never loses the answer that
+        // already landed server-side (the submit above succeeded).
+        await _resyncAfterStaleSchema(result, fallback: banked);
+        return;
       }
-      final bool last = state.currentIndex >= next.length - 1;
+
+      final bool last = state.currentIndex >= banked.length - 1;
       if (last) {
         // #1375 — the last step is a question (not a marker screen), so
         // answerQuestion is the terminal write. Emit done so the screen
         // navigates to the résumé pipeline.
         emit(state.copyWith(
           status: TradeFormStatus.done,
-          flatSteps: next,
+          flatSteps: banked,
           answered: result.answered,
           total: result.total,
           submitError: null,
@@ -268,7 +335,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       }
       emit(state.copyWith(
         status: TradeFormStatus.ready,
-        flatSteps: next,
+        flatSteps: banked,
         currentIndex: state.currentIndex + 1,
         answered: result.answered,
         total: result.total,
@@ -279,6 +346,104 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     } catch (_) {
       emit(state.copyWith(
         status: TradeFormStatus.ready,
+        submitError: 'Save nahi hua. Dobara koshish karein.',
+      ));
+    }
+  }
+
+  /// Replays [saved] into [flat] at [step]'s question, banking the reply so
+  /// a re-render shows it as answered even before the next [load] — or,
+  /// under `schema_stale`, before the re-fetch it is only a FALLBACK for.
+  List<TradeFormFlatStep> _bankAnswer(
+    List<TradeFormFlatStep> flat,
+    TradeFormQuestionStep step,
+    TradeFormSavedAnswer saved,
+  ) {
+    final List<TradeFormFlatStep> next = List<TradeFormFlatStep>.of(flat);
+    // Matched by question_key, NOT list index or Equatable step-equality —
+    // the worker's position may have moved (unlikely, but never assumed)
+    // and two distinct questions could otherwise coincide on every other
+    // field.
+    final int idx = next.indexWhere((TradeFormFlatStep f) =>
+        f.step is TradeFormQuestionStep &&
+        (f.step as TradeFormQuestionStep).question.id == step.question.id);
+    if (idx >= 0) {
+      next[idx] = TradeFormFlatStep(
+        sectionTitle: next[idx].sectionTitle,
+        step: TradeFormQuestionStep(
+          question: step.question,
+          searchable: step.searchable,
+          answer: saved,
+        ),
+      );
+    }
+    return next;
+  }
+
+  /// `schema_stale: true` on the answer response (#1382 — forward-compatible
+  /// groundwork; see [TradeFormAnswerResult.schemaStale]'s doc) means the
+  /// screen list this client is holding is out of date: the question just
+  /// answered gates OTHER questions, which the server has already re-filtered
+  /// on its own copy.
+  ///
+  /// PRESERVES POSITION rather than resetting to the first unanswered
+  /// question overall ([_resumeIndex] is a fresh-LOAD concept — reusing it
+  /// here could send the worker backward to something earlier in the walk
+  /// that a re-order or a race could otherwise surface). Instead: re-fetch,
+  /// re-flatten, find the just-answered question's id in the NEW list, and
+  /// walk FORWARD from just after it with the exact same predicate
+  /// `_resumeIndex` uses — never backward (never re-shows the question just
+  /// settled) and never skipped past an unanswered one (the first match
+  /// wins). A question gated OUT by the new schema is simply absent from
+  /// the re-fetched list, so a plain forward scan is enough; nothing here
+  /// re-derives the `ask_if` rule itself, which stays entirely server-side.
+  Future<void> _resyncAfterStaleSchema(
+    TradeFormAnswerResult result, {
+    required List<TradeFormFlatStep> fallback,
+  }) async {
+    try {
+      final TradeForm? form = await _repo.loadForm();
+      if (form == null) {
+        // The form vanished mid-walk — the same honest reading a 404 gets
+        // on the very first load.
+        emit(state.copyWith(status: TradeFormStatus.noForm));
+        return;
+      }
+      final List<TradeFormFlatStep> flat = _flatten(form);
+      final int answeredIdx = flat.indexWhere((TradeFormFlatStep f) =>
+          f.step is TradeFormQuestionStep &&
+          (f.step as TradeFormQuestionStep).question.id == result.questionKey);
+      final int searchFrom = answeredIdx >= 0 ? answeredIdx + 1 : 0;
+      final int nextIdx = _nextStepIndex(flat, from: searchFrom);
+      if (nextIdx < 0) {
+        // The just-answered question was the new schema's last step too.
+        emit(state.copyWith(
+          status: TradeFormStatus.done,
+          flatSteps: flat,
+          answered: result.answered,
+          total: result.total,
+          submitError: null,
+        ));
+        return;
+      }
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: flat,
+        currentIndex: nextIdx,
+        answered: result.answered,
+        total: result.total,
+        submitError: null,
+      ));
+    } on Failure catch (f) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: fallback,
+        submitError: f.message,
+      ));
+    } catch (_) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: fallback,
         submitError: 'Save nahi hua. Dobara koshish karein.',
       ));
     }
@@ -300,7 +465,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.savePreferences(prefs);
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedPreferences: prefs);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -324,7 +489,66 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveEmployment(kept);
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedEmployment: kept);
+    } on Failure catch (f) {
+      emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
+    } catch (_) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        submitError: 'Save nahi hua. Dobara koshish karein.',
+      ));
+    }
+  }
+
+  Future<QualificationOptionsDto> loadQualificationOptions() =>
+      _repo.loadQualificationOptions();
+
+  /// Saves the `qualifications` marker and advances — same submitting/error
+  /// shape as [savePreferencesAndAdvance]/[saveEmploymentAndAdvance], with
+  /// two differences the tri-state contract and the certificate schema
+  /// require:
+  ///
+  ///  1. Blank rows (mirrors [saveEmploymentAndAdvance]'s own `isBlank`
+  ///     filter) are dropped from EACH list before anything else — a row the
+  ///     worker added and then left empty is not a real answer. A remaining
+  ///     certificate missing its one required field (`name`) blocks the save
+  ///     with an inline message rather than reaching the server as a 400;
+  ///     education has no equivalent case ([TradeFormEducationEntry.isBlank]
+  ///     already IS the server's own completeness rule).
+  ///  2. When [TradeFormQualifications.hasAnyTouch] is false (the worker
+  ///     touched NEITHER sub-section this visit), the write is skipped
+  ///     entirely rather than sent — `{}` is this endpoint's one deliberate
+  ///     400, and "nothing touched" already means "leave both stored lists
+  ///     exactly as they are", which skipping the call achieves for free.
+  Future<void> saveQualificationsAndAdvance(
+    TradeFormQualifications qualifications,
+  ) async {
+    if (state.isSubmitting) return;
+    final List<TradeFormCertificateEntry> keptCertificates = qualifications
+        .certificates
+        .where((TradeFormCertificateEntry c) => !c.isBlank)
+        .toList();
+    if (keptCertificates.any((TradeFormCertificateEntry c) => !c.isComplete)) {
+      emit(state.copyWith(submitError: kTradeFormIncompleteCertificateMessage));
+      return;
+    }
+    final List<TradeFormEducationEntry> keptEducations = qualifications
+        .educations
+        .where((TradeFormEducationEntry e) => !e.isBlank)
+        .toList();
+    final TradeFormQualifications toSend = qualifications.copyWith(
+      certificates: keptCertificates,
+      educations: keptEducations,
+    );
+
+    if (!toSend.hasAnyTouch) {
+      _advanceAfterMarkerSave(savedQualifications: toSend);
+      return;
+    }
+    emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
+    try {
+      await _repo.saveQualifications(toSend);
+      _advanceAfterMarkerSave(savedQualifications: toSend);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -341,5 +565,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
 /// persona_neutrality_test.dart.
 const String kTradeFormIncompleteEmployerMessage =
     'Har naukri mein company ka naam aur aapka kaam dono likhein.';
+
+/// Copy shown when a partially-typed certificate card is missing its one
+/// required field (`name`). Persona-neutral, scanned by
+/// persona_neutrality_test.dart.
+const String kTradeFormIncompleteCertificateMessage =
+    'Har certificate ka naam likhein.';
 
 const Object _sentinel = Object();

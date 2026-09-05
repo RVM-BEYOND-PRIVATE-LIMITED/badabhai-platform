@@ -26,9 +26,10 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0092_flawless_glorian`** (journal has 93 entries, `idx` 0–92). This line had said `0086` /
-87 entries since 2026-08-21 — it was not moved as `0087`–`0092` landed, so re-read the journal
-rather than this sentence when minting a number.
+**`0099_flaky_squirrel_girl`** (journal has 100 entries, `idx` 0–99). This line has gone stale
+twice now — it said `0086` from 2026-08-21 while `0087`–`0092` landed, then `0092` while
+`0093`–`0098` landed — so **re-read the journal rather than this sentence when minting a
+number**. `packages/db/migrations/meta/_journal.json` is the only source that cannot lag.
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |

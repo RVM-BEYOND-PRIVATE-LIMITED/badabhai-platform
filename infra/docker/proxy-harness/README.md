@@ -44,7 +44,7 @@ curl http://localhost:8088/health        # smoke: through the proxy to the API
 same fail-safe default as the config schema) — run **without** setting it to
 reproduce the hop=0 collapse bug below.
 
-## Two-client QA scenario (per-IP OTP cap, `OTP_MAX_SENDS_PER_HOUR` default 5)
+## Two-client QA scenario (per-phone OTP cap, `OTP_MAX_SENDS_PER_HOUR` default 5)
 
 Two curls from the host share one IP, so play each client from its **own
 container** (each gets a distinct IP on the compose network — find the network

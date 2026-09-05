@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
@@ -13,8 +14,10 @@ import type { ResumeRenderer } from "./resume-renderer.service";
 import type { StorageService } from "../storage/storage.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import type { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
+import type { WorkerCertificateRecord, WorkerEducationRecord } from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const RESUME_ID = "res-1";
@@ -35,6 +38,125 @@ const SNAPSHOT = {
 };
 
 const PDF = Buffer.from("%PDF-1.7 fake bytes");
+
+// ── A SHEET DENSE ENOUGH TO SPILL, for the degradation-warning tests at the end of this file ──
+//
+// A turner who answered every question his pack asks, three employers, and a full Zone 5. It is
+// the shape the 2026-09-03 owner ruling was taken for: at `CAPABILITY_ROW_BUDGET = 10` it runs
+// past `SHEET_LINE_BUDGET`, and every ladder step that would clear it deletes a row all
+// twenty-one ratified pages print — so the ladder stops and the sheet goes to a second page.
+const SPILLING_TURNER_ATTRIBUTES = {
+  turning_machine: ["cnc_lathe", "conventional_lathe", "vtl", "sliding_head", "spm"],
+  controller_brand: ["fanuc", "siemens", "mitsubishi", "haas", "mazak"],
+  material_worked: ["mild_steel", "alloy_steel", "stainless", "aluminium", "brass", "cast_iron"],
+  turning_operation: ["facing_od", "boring", "threading", "grooving", "drilling", "knurling"],
+  workholding: ["three_jaw", "four_jaw", "collet", "soft_jaw", "tailstock", "steady_rest"],
+  setting_operation: ["tool_offset", "work_offset", "nose_radius", "jaw_change", "first_piece"],
+  measuring_tools: ["vernier", "micrometer", "bore_gauge", "height_gauge", "plug_gauge"],
+  quality_work: ["first_piece_check", "in_process", "spc", "rejection"],
+  troubleshooting: ["tool_wear", "chatter", "size_variation", "surface_finish", "alarm"],
+  programming_level: "write_program",
+  drawing_reading: "gdt",
+  tolerance_band: "0.01",
+  sector_worked: ["automotive", "general_engg", "pump_valve", "oil_gas"],
+  advanced_capability: ["live_tooling", "bar_feeder", "sub_spindle", "c_axis", "y_axis"],
+  // Zone 5's other two rows. Every one of the twenty-one ratified pages prints both, and they are
+  // two of the rows the ruling forbids the ladder to take — so a fixture for the spill has to
+  // carry them or it is not the shape that was ruled on.
+  languages: ["hindi", "haryanvi", "english"],
+  documents_ready: [
+    "aadhaar",
+    "pan",
+    "bank_account",
+    "uan_pf",
+    "iti_certificate",
+    "experience_letter",
+  ],
+};
+
+const SPILLING_EMPLOYMENTS: WorkerEmploymentRecord[] = [
+  {
+    employer: "Sandhar Technologies Limited",
+    employerCity: "Manesar",
+    employerState: "Haryana",
+    startYm: "2022-04",
+    endYm: null,
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "CNC Turner — Setter",
+        startYm: "2022-04",
+        endYm: null,
+        workDone: "Setting and running twin-spindle lathes on steering housings",
+      },
+    ],
+  },
+  {
+    employer: "Rico Auto Industries Limited",
+    employerCity: "Gurugram",
+    employerState: "Haryana",
+    startYm: "2018-06",
+    endYm: "2022-03",
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "CNC Turner — Operator",
+        startYm: "2018-06",
+        endYm: "2022-03",
+        workDone: "Bar-fed turning of aluminium housings to ±0.02 mm",
+      },
+    ],
+  },
+  {
+    employer: "Faridabad Precision Components",
+    employerCity: "Faridabad",
+    employerState: "Haryana",
+    startYm: "2015-01",
+    endYm: "2018-05",
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "Turner",
+        startYm: "2015-01",
+        endYm: "2018-05",
+        workDone: "Conventional lathe work on shafts and bushes",
+      },
+    ],
+  },
+];
+
+// The availability block and the verdict line the ratified pages carry. Without them the sheet is
+// four rows and two section headings short of the density the ruling is about.
+const SPILLING_SNAPSHOT = {
+  ...SNAPSHOT,
+  resume_profile: {
+    domain_label: "CNC machining",
+    role_label: "CNC Turner",
+    skills: ["CNC turning", "Tool offset setting"],
+    experiences: [],
+    shift: "rotational",
+    current_city: "Faridabad",
+    preferred_locations: ["Faridabad", "Gurugram", "Manesar", "Bawal"],
+    availability: "immediate",
+    expected_salary: 26000,
+  },
+};
+
+const SPILLING_QUALIFICATIONS = {
+  educations: [
+    {
+      level: "iti",
+      trade: "Turner",
+      council: "ncvt",
+      completionYear: 2014,
+      instituteName: "Government ITI Faridabad",
+    },
+  ] as unknown as WorkerEducationRecord[],
+  certificates: [
+    { name: "Forklift licence", issuer: "Haryana RTO", issueYear: 2021 },
+    { name: "Safety training", issuer: "Rico Auto Industries Limited", issueYear: 2023 },
+  ] as unknown as WorkerCertificateRecord[],
+};
 
 function makeJob(
   over: {
@@ -86,6 +208,12 @@ function setup(
     // Zone 4 — seeded `worker_employment` rows, and the failure mode of reading them.
     employments?: WorkerEmploymentRecord[];
     empThrows?: boolean;
+    // Zone 5 (0098) — seeded credentials, and the failure mode of reading them.
+    qualifications?: {
+      certificates: WorkerCertificateRecord[];
+      educations: WorkerEducationRecord[];
+    };
+    qualThrows?: boolean;
     // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
     workerSaid?: string[];
     transcriptThrows?: boolean;
@@ -136,6 +264,16 @@ function setup(
       return opts.employments ?? [];
     }),
   };
+  // Zone 5 (migration 0098). Same degrade contract again: a failed credential read must cost the
+  // Education and Certificates rows, never the PDF. Empty by default, which is `undefined` after
+  // `qualificationFactsFrom` — i.e. no override, and every assertion below sees exactly the sheet
+  // it saw before this repository existed.
+  const qualifications = {
+    loadForResume: vi.fn(async () => {
+      if (opts.qualThrows) throw new Error("qualification boom");
+      return opts.qualifications ?? { certificates: [], educations: [] };
+    }),
+  };
   // R8 §2/§4. Same degrade contract as the two reads above: a failed transcript load must cost
   // the quote block and the veto, never the PDF.
   const transcript = {
@@ -156,6 +294,7 @@ function setup(
     storage as unknown as StorageService,
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
+    qualifications as unknown as WorkerQualificationsRepository,
     transcript as unknown as WorkerTranscriptRepository,
     // #1350 — a pass-through by default. These tests are about the render lifecycle, and the
     // polish is off unless WORK_HISTORY_POLISH_ENABLED is set; its own behaviour has its own
@@ -185,8 +324,9 @@ describe("ResumeRenderProcessor — the worker's night-shift toggle (#947)", () 
     expect(renderer.renderPdf.mock.calls[0]![0].availability).toBe("Night shift ke liye taiyaar");
   });
 
-  it("says nothing at all for a worker still on the column default", async () => {
-    // `resume_night_shift_ready` is `notNull().default(false)`, so this row is indistinguishable
+  it("says nothing at all for a worker who has never answered", async () => {
+    // `resume_night_shift_ready` is NULL for such a worker since #1426 and the processor
+    // coalesces it to `false` at the read, so this row is indistinguishable
     // from one whose owner answered No — and it is what every worker who has never opened the
     // Edit-Resume screen carries. Their PDF must not acquire a refusal they never gave.
     const { proc, renderer } = setup({ fullName: NAME_TOKEN });
@@ -314,9 +454,9 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently ten:
-    //   resumes · workers · pii · renderer · storage · attributes · employments · transcript
-    //   · polish · config
+    // NON-EVENT deps, currently eleven:
+    //   resumes · workers · pii · renderer · storage · attributes · employments · qualifications
+    //   · transcript · polish · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
     // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
     // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
@@ -328,9 +468,15 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // WorkerEmploymentRepository; NEITHER has an event surface, which is the property this
     // test actually protects and which was checked before the number below was bumped.
     //
+    // `qualifications` (WorkerQualificationsRepository) joined for migration 0098 — Zone 5's
+    // Education and Certificates rows, the second of which had never had a writer. Its ONLY
+    // dependency is the @Global DATABASE; it holds no ciphertext and reaches no service, so it
+    // has no event surface either. Checked before the number below was bumped, exactly as the
+    // three above were.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(10);
+    expect(ResumeRenderProcessor.length).toBe(11);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
@@ -363,6 +509,64 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     const joined = lines.join("\n");
     expect(joined).not.toContain(NAME_TOKEN);
     expect(joined).not.toContain(REAL_NAME);
+  });
+
+  // ── THE 2026-09-03 RULING MADE A TWO-PAGE RÉSUMÉ REACHABLE, SO IT MUST BE COUNTABLE ────
+  //
+  // Before the ruling the degradation ladder always bought the single page, so a spill could not
+  // happen and its absence from the logs cost nothing. Now the ladder stops rather than deleting
+  // a row the ratified corpus prints, and a worker can be handed a two-page PDF. Without a log
+  // line that happens with no event, no metric and no way to measure the rate — and the rate is
+  // what a decision to revisit the ladder's forbidden steps would have to be made against.
+
+  /** Capture every line the processor's own Logger writes, in order. */
+  function captureLogs(proc: ResumeRenderProcessor): string[] {
+    const lines: string[] = [];
+    const instLogger = (
+      proc as unknown as { logger: { warn: (m: string) => void; log: (m: string) => void } }
+    ).logger;
+    instLogger.warn = (m: string) => void lines.push(String(m));
+    instLogger.log = (m: string) => void lines.push(String(m));
+    return lines;
+  }
+
+  it("WARNS when the sheet spills past one page, with the magnitude", async () => {
+    // A fully-answered turner with a full credentials block — the density the ruling was taken
+    // for. The ladder has nothing it is still permitted to spend here (no volunteered fields, and
+    // three employers is already at the collapse floor), so it returns the sheet intact.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      resume: { ...DEFAULT_ROW, sourceProfileSnapshot: SPILLING_SNAPSHOT },
+      tradeSheet: { packId: "qp_cnc_turning", attributes: SPILLING_TURNER_ATTRIBUTES },
+      employments: SPILLING_EMPLOYMENTS,
+      qualifications: SPILLING_QUALIFICATIONS,
+    });
+    const lines = captureLogs(proc);
+    await proc.process(makeJob());
+
+    // The render input really is over budget — the log line must not be able to pass while the
+    // thing it reports has stopped happening.
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.degradationOverflows, "fixture no longer spills — rebuild it").toBe(true);
+
+    const spill = lines.filter((l) => l.includes("spills past one page"));
+    expect(spill).toHaveLength(1);
+    expect(spill[0]).toContain(RESUME_ID);
+    expect(spill[0]).toContain(String(input.degradationOverBudgetLines));
+    // NO PII, on the line that only exists to be shipped to a log sink.
+    expect(spill[0]).not.toContain(NAME_TOKEN);
+    expect(spill[0]).not.toContain(REAL_NAME);
+    expect(spill[0]).not.toContain(REAL_PHONE);
+  });
+
+  it("says NOTHING about degradation when the sheet fits", async () => {
+    // The half that makes the assertion above mean something: a line that always fires is noise,
+    // and a warn on every render would train the sink's readers to filter it out.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    const lines = captureLogs(proc);
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].degradationOverflows).toBe(false);
+    expect(lines.filter((l) => l.includes("spills past one page"))).toEqual([]);
   });
 });
 
@@ -573,10 +777,135 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(resumes.markRenderFailed).not.toHaveBeenCalled();
   });
 
-  it("renderer returning null on a NON-final attempt: stays pending, not marked failed", async () => {
-    const { proc, resumes } = setup({ renderResult: null, renderEnabled: true });
+  /**
+   * #1399 — THIS TEST USED TO ASSERT THE BUG.
+   *
+   * It read `const res = await proc.process(...)` / `expect(res).toEqual({ rendered: false })`,
+   * i.e. it pinned "a non-final attempt RESOLVES" as the contract. Resolving is precisely what
+   * told BullMQ the job was done: no retry ran, none of the terminal branches (all gated on
+   * `isFinalAttempt`) was ever reachable on a 3-attempt queue, and the row stayed 'pending'
+   * forever. The half of the assertion that was right — the row must not be marked failed
+   * mid-retry — is kept.
+   */
+  it("renderer returning null on a NON-final attempt: THROWS so BullMQ retries, and leaves the row alone", async () => {
+    const { proc, resumes, storage } = setup({ renderResult: null, renderEnabled: true });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    expect(resumes.markRendered).not.toHaveBeenCalled();
+    expect(storage.uploadPdf).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + kill-switch OFF: does NOT throw — the one no-PDF outcome that must not retry", async () => {
+    // Without this, the fix floods the queue with three futile renders per resume for as long
+    // as rendering is deliberately disabled. The carve-out was only ever tested on the FINAL
+    // attempt, so nothing stopped that.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: false });
     const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
     expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + forced re-render over a rendered row: THROWS, and TD77 holds across the retry", async () => {
+    // The degrade-open invariant is pinned at the END of the sequence (see the final-attempt
+    // test above); this pins it DURING it. A retry must not downgrade a resume the worker can
+    // still download.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: true,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    await expect(
+      proc.process(makeJob({ force: true, attemptsMade: 0, attempts: 3 })),
+    ).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    expect(resumes.markRendered).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + failClosed over a rendered row: THROWS, and the erasure has NOT landed yet", async () => {
+    // Erasure is terminal, not per-attempt: a retry that succeeds produces a clean PDF, which
+    // beats 409ing the worker's resume. Marking failed here would give up on attempt 1.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: true,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    await expect(
+      proc.process(makeJob({ force: true, failClosed: true, attemptsMade: 0, attempts: 3 })),
+    ).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + failClosed + kill-switch OFF: marks failed IMMEDIATELY — erasure outranks the carve-out", async () => {
+    // The two rulings collide here and the order is the answer: retrying is futile while the
+    // switch is off, so the erasure lands on attempt 1 instead of after two pointless renders.
+    // A face the worker asked us to erase must stop serving sooner, not later.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: false,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    const res = await proc.process(
+      makeJob({ force: true, failClosed: true, attemptsMade: 0, attempts: 3 }),
+    );
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("NON-final + the renderer THROWING: still throws — a spawn failure can never be laundered into a completed job", async () => {
+    const { proc, resumes } = setup({ renderThrows: true, renderEnabled: true });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + a FontResolutionError: retries like any other no-PDF failure (owner ruling: retry ALL)", async () => {
+    // No per-error classification. If that is ever refined — font errors are arguably not
+    // transient, since the IMAGE is wrong — this test is what makes the change deliberate.
+    const { proc, renderer, resumes } = setup({ renderEnabled: true });
+    renderer.renderPdf.mockRejectedValue(new FontResolutionError("bb_trade", ["Inter"], []));
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("attempts: 1 — the first attempt IS final, so it marks failed rather than throwing forever", async () => {
+    // Guards the `job.opts.attempts ?? 1` default: on a single-attempt queue there is no later
+    // attempt to defer the terminal write to.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: true });
+    const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 1 }));
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("the new throw is scoped to the no-PDF block: a MISSING row still resolves on a non-final attempt", async () => {
+    // The cheapest proof the fix was not implemented too broadly — this returns long before the
+    // render (processor `resume not found` guard) and must stay a no-op, not a retry.
+    const { proc } = setup({ resume: null });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).resolves.toEqual({
+      rendered: false,
+    });
+  });
+
+  it("upload/persist failure on a NON-final attempt also throws — the two failure paths retry alike", async () => {
+    const { proc, storage, resumes } = setup({ renderEnabled: true });
+    storage.uploadPdf.mockRejectedValue(new Error("s3 down"));
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
     expect(resumes.markRenderFailed).not.toHaveBeenCalled();
   });
 

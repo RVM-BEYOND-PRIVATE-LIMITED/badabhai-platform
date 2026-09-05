@@ -362,41 +362,49 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   // Do not reintroduce it before a real prioritize route ships.
 
   Widget _ctaRow(double width) {
-    return Row(
-      children: <Widget>[
-        // #375 — an icon-only control announces nothing to TalkBack: a worker
-        // hears "button" with no idea it skips the job. Labelled like the voice
-        // screen's mic.
-        Semantics(
-          button: true,
-          label: kSkipSemanticLabel,
-          child: Material(
-            color: AppColors.surfaceCard,
-            shape: const CircleBorder(
-              side: BorderSide(color: AppColors.borderStrong, width: 2),
-            ),
-            child: InkWell(
-              key: const Key('swipeSkipButton'),
-              customBorder: const CircleBorder(),
-              onTap: _locked ? null : () => _flyOff(-1, width),
-              child: const SizedBox(
-                width: 56,
-                height: 56,
-                child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
+    // Same `s3` horizontal inset as `BbJobCard`'s own built-in margin, so the
+    // buttons align with the card edges above them — the caller
+    // (`swipe_jobs_screen.dart`'s `_deck`) applies no horizontal padding of
+    // its own; the card gets its inset from its own margin, and this row
+    // needs its own since a `Row` carries none.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
+      child: Row(
+        children: <Widget>[
+          // #375 — an icon-only control announces nothing to TalkBack: a
+          // worker hears "button" with no idea it skips the job. Labelled
+          // like the voice screen's mic.
+          Semantics(
+            button: true,
+            label: kSkipSemanticLabel,
+            child: Material(
+              color: AppColors.surfaceCard,
+              shape: const CircleBorder(
+                side: BorderSide(color: AppColors.borderStrong, width: 2),
+              ),
+              child: InkWell(
+                key: const Key('swipeSkipButton'),
+                customBorder: const CircleBorder(),
+                onTap: _locked ? null : () => _flyOff(-1, width),
+                child: const SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.s3),
-        Expanded(
-          child: BbButton(
-            buttonKey: const Key('swipeApplyButton'),
-            label: 'Apply',
-            iconLeft: Icons.check,
-            onPressed: _locked ? null : () => _flyOff(1, width),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: BbButton(
+              buttonKey: const Key('swipeApplyButton'),
+              label: 'Apply',
+              iconLeft: Icons.check,
+              onPressed: _locked ? null : () => _flyOff(1, width),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

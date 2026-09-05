@@ -61,6 +61,22 @@ export const DOCUMENTS_READY: PreferenceVocabulary = {
   pan: "PAN",
   bank_account: "Bank account",
   uan_pf: "UAN / PF",
+  /**
+   * The second statutory number, and it sits beside `uan_pf` because they are the same fact about
+   * a worker: whether he is already inside the formal system.
+   *
+   * MEASURED, NOT ASSUMED. It appears on THIRTEEN of the twenty-one ratified reference pages —
+   * more often than `experience_letter` (3) and `passport_photos` (2), both of which have had a
+   * slug here since the beginning. Every other document those pages print was already in this
+   * dictionary; ESIC was the only one missing, so a worker who has one had no way to say so and
+   * the row simply never mentioned it.
+   *
+   * IT IS HIRING FRICTION, WHICH IS WHAT THIS BLOCK IS FOR. An employer reading "documents ready"
+   * is asking how fast this man can start. A worker who already holds an ESIC number joins on the
+   * existing registration; one who does not needs a fresh enrolment before he is covered, and on
+   * a factory floor that is a real delay somebody has to own.
+   */
+  esic: "ESIC",
   iti_certificate: "ITI certificate",
   experience_letter: "Experience letter",
   passport_photos: "Passport photos",
@@ -148,10 +164,98 @@ export const EDUCATION_COUNCILS: PreferenceVocabulary = {
  * BACKWARD COMPATIBLE BY CONSTRUCTION. `education_level` keeps its stored `iti_diploma` value and
  * its meaning; this is an ADDITIONAL, narrower fact. A worker who never answers the form still
  * prints "ITI / Diploma", which is true of him — it is unspecific, not wrong.
+ *
+ * ═══ #1447 — THE CLIENT STOPPED ASKING; THIS DID NOT BECOME DEAD ═══
+ *
+ * The trade form's "Availability & terms" marker no longer collects the credential, and #1447
+ * asked whether this dictionary and the four `education_*` attribute keys could now be dropped.
+ * They cannot, for two independent reasons.
+ *
+ * FIRST, THE WRITE HAS NOT ACTUALLY STOPPED. Two client surfaces PUT to /workers/me/work-preferences
+ * and only one of them changed: the finishing form still sends all four
+ * (`finishing_models.dart:221-227`).
+ *
+ * SECOND — and this holds even if both stopped — "no client writes it" and "nothing reads it" are
+ * different facts, and only the first would be true.
+ *
+ * READ PATH, STILL LIVE: `resume-preference-facts.ts:146` composes `educationCredential` /
+ * `educationDetail` from these keys, and `resume-render-input.ts` resolves Zone 5's education
+ * headline as `tradeSheet?.qualification?.educationHeadline ?? <that composition>` (:627, :902).
+ * The `??` is a FALLBACK, not a leftover — it is what a worker with no `worker_education` rows
+ * renders from, and that is every worker who answered the old form plus every worker who
+ * completes the trade form without reaching the qualifications marker.
+ *
+ * WHAT DELETING IT WOULD COST, measured rather than guessed. `educationLevelText` narrows the
+ * merged `iti_diploma` level to the credential ONLY when this value is present; without it a
+ * worker whose interview stored `iti_diploma` renders "ITI / Diploma — Machinist" instead of
+ * "ITI — Machinist" — the exact R11 §3.1 defect this dictionary was built to fix, on the one line
+ * an employer checks hardest. `yadav-parity.contract.test.ts` pins both halves of that already.
+ * The council, year and institute segments would go with it.
+ *
+ * SO THE CORRECT STATE IS: write path retired at the client's discretion, read path retained and
+ * load-bearing. Retiring the READ is a migration of historical worker data onto
+ * `worker_education` rows, not a deletion.
  */
 export const EDUCATION_CREDENTIALS: PreferenceVocabulary = {
   iti: "ITI",
   diploma: "Diploma",
+};
+
+/**
+ * A WHOLE credential, for a `worker_education` row (migration 0098).
+ *
+ * ═══ WHY THIS IS NOT {@link EDUCATION_CREDENTIALS} ═══
+ *
+ * That dictionary answers a NARROWER question — "the option you tapped names two credentials,
+ * which is yours" — and holds exactly two values because a third would make it a competing answer
+ * to `education_level` rather than a refinement of it. This one answers the whole question,
+ * because a `worker_education` row is a credential in its own right rather than a narrowing of
+ * one the interview already captured.
+ *
+ * ═══ IT IS THE SHIPPED LEVEL SET WITH ONE SPLIT, NOT A NEW TAXONOMY ═══
+ *
+ * Four of these six are `KNOWN_EDUCATION_LEVELS`'s own labels, character for character, and the
+ * remaining two are `iti_diploma` finally separated into the two real credentials R11 §3.1 said
+ * must never be collapsed. A worker's stored level and a worker's stored education row therefore
+ * print the SAME words for the same schooling — which is the whole reason to reuse the labels
+ * rather than write better ones here.
+ *
+ * ═══ WHAT IT DELIBERATELY DOES NOT DO ═══
+ *
+ * It does not grow a value for every credential a worker might hold. A B.Tech maps to "Graduate",
+ * exactly as it does through `education_level` today, so this is the platform's existing
+ * expressiveness plus one refinement rather than a new promise. Widening it is a data change with
+ * no migration behind it — but a value added here starts printing on résumés immediately, so it
+ * is a ratification decision (`docs/registers/trade-content-ratification.md`), not a typing one.
+ */
+export const EDUCATION_QUALIFICATIONS: PreferenceVocabulary = {
+  // ── THE LABELS ARE `KNOWN_EDUCATION_LEVELS`'s OWN; THE SLUGS DELIBERATELY ARE NOT ──────────
+  //
+  // The printed English matches that map character for character, so a worker's stored level and
+  // their stored education row name the same schooling the same way. The SLUGS differ for two
+  // reasons, and the correspondence is written out below so a future join has it in one place:
+  //
+  //   `class_10` ↔ `KNOWN_EDUCATION_LEVELS["10"]`      `iti`      ↘ both ↔ `iti_diploma`
+  //   `class_12` ↔ `KNOWN_EDUCATION_LEVELS["12"]`      `diploma`  ↗ (R11 §3.1's split)
+  //   `below_10`, `graduate` are identical on both sides.
+  //
+  // FIRST, `^[a-z_]+$` IS THE PLATFORM'S SLUG SHAPE. Attribute keys enforce it (`wa_attribute_key_chk`)
+  // and `slugKey` refuses digits at runtime — which is why the pack authoring guide lists
+  // "no digits in question_key / option_key" as a trap that passes the corpus validator and then
+  // makes a whole pack unparseable. This column has no CHECK to enforce it, and following the
+  // convention anyway is what keeps one shape of slug on the platform.
+  //
+  // SECOND, AND CONCRETELY: JavaScript hoists integer-like keys to the FRONT of an object. With
+  // "10" and "12" as keys, `Object.keys` — which is exactly what the options endpoint serves and
+  // what the DTO builds its enum from — returns them BEFORE `below_10`, so the client renders
+  // "10th pass · 12th pass · Below 10th · ITI …". The ladder reads out of order for every worker,
+  // and no amount of care at the call site can fix it while the keys are numeric.
+  below_10: "Below 10th",
+  class_10: "10th pass",
+  class_12: "12th pass",
+  iti: "ITI",
+  diploma: "Diploma",
+  graduate: "Graduate",
 };
 
 /**
@@ -196,9 +300,25 @@ export const PREFERENCE_KEYS = {
 
 export type PreferenceKey = keyof typeof PREFERENCE_KEYS;
 
-/** Print an option through its dictionary. An unknown slug yields null and is DROPPED. */
+/**
+ * Print an option through its dictionary. An unknown slug yields null and is DROPPED.
+ *
+ * THE `typeof` CHECK IS NOT DEFENSIVE PADDING — it is the same one {@link labelsFor} has always
+ * had one function below, and this one was missing it. These dictionaries are plain object
+ * literals, so a slug naming an `Object.prototype` member — `toString`, `constructor`, `valueOf`,
+ * `hasOwnProperty` — resolves to a FUNCTION rather than to `undefined`, and `?? null` does not
+ * catch a function. The caller then hands it to a string composer and the render throws
+ * `p?.trim is not a function`: a 500 instead of the dropped segment this function's own contract
+ * promises, which is the exact inversion of the safety property.
+ *
+ * NOT REACHABLE THROUGH AN API WRITE TODAY — every caller's slug comes from a `z.enum` built over
+ * these same keys. It is reachable through the DATABASE: `worker_education.credential` and
+ * `.council` are plain `text` with no format check, so a hand-written row, a backfill or a future
+ * writer can put one there. A row that cannot be printed must cost its segment, never the sheet.
+ */
 export function labelFor(vocabulary: PreferenceVocabulary, slug: string): string | null {
-  return vocabulary[slug] ?? null;
+  const label = vocabulary[slug];
+  return typeof label === "string" ? label : null;
 }
 
 /**

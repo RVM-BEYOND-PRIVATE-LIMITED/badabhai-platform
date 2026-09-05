@@ -105,6 +105,12 @@ void main() {
     // #1343 — the ordinary answer; this file exercises the share flow, not the
     // structured-document render (see resume_document_render_test.dart).
     when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
+    // Collapsed to a single attempt (matches the pre-retry behaviour
+    // exactly) — a real retry against the null mock above would leave a
+    // pending Timer past this file's fixed pump counts and trip the
+    // widget-test binding's `!timersPending` assertion.
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
@@ -112,7 +118,11 @@ void main() {
     locator.registerFactory<ResumeEditRepository>(() => editRepo);
   });
 
-  tearDown(() async => locator.reset());
+  tearDown(() async {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
+    await locator.reset();
+  });
 
   void sizeView(WidgetTester tester) {
     tester.view.physicalSize = const Size(900, 1900);

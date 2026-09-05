@@ -117,6 +117,12 @@ const LOCKED_TABLES = [
   // outside `workers` holding a worker's employment record; deny-by-default, no policy.
   "worker_employment",
   "worker_employment_role",
+  // 0098: the credentials the résumé's Zone 5 prints — the certificates a worker holds and the
+  // schooling behind them. `issuer` and `institute` are stored IN CLEAR by explicit decision (see
+  // the migration header), which makes the deny-by-default lock the only thing standing between a
+  // client role and a worker's credential history. Deny-by-default, FORCE, no policy.
+  "worker_certificate",
+  "worker_education",
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
   // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
   // Listed late, and that is the finding rather than the fix: 0076 created these three

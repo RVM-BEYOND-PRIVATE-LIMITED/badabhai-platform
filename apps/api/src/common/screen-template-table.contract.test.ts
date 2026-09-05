@@ -142,6 +142,7 @@ describe("the screen table is the worker app's route table", () => {
     expect([...RELATIVE_SUBPATHS].sort()).toEqual(
       [
         "applied", // → Routes.appliedJobs   '/profile/applied'
+        "city-state-demo", // → Routes.cityStateDemo '/profile/settings/city-state-demo'
         "detail/:jobId", // → Routes.jobDetail     '/jobs/detail'  + '/<jobId>'
         "detail/:tradeKey", // → Routes.kitDetail     '/profile/kit/detail' + '/<tradeKey>'
         "devices", // → Routes.devices       '/profile/settings/devices'

@@ -296,6 +296,197 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Lagbhag kitne saal milling ka kaam kiya hai?": "लगभग कितने साल मिलिंग का काम किया है?",
   "3-axis, 4-axis ya 5-axis, kaunsi machine par kaam kiya hai?":
     "3-एक्सिस, 4-एक्सिस या 5-एक्सिस, कौनसी मशीन पर काम किया है?",
+  // --- qp_cnc_grinding@1 (role pack, CNC and conventional grinding) — Batch 1 -----------
+  //
+  // SEVEN PROMPTS AND ONE RETRY. The pack has eighteen items; the other eleven ask the same
+  // thing as the turner and milling packs and reuse their served text VERBATIM, so their twins
+  // are already above. That reuse is deliberate corpus hygiene rather than laziness: one
+  // question wording per attribute key means one twin, and a second phrasing of "Kya aap
+  // drawing padh lete hain?" would be a second clip to keep in step forever.
+  //
+  // INITIALISMS STAY LATIN — CNC is spelled out letter by letter by a hi-IN voice, which is how
+  // a worker says it. "Grinding", "wheel", "setting" and "surface finish" are Devanagari:
+  // they are the words the worker actually uses, and a hi-IN voice reads Latin as English.
+  "Grinding ka kitna tajurba hai?": "ग्राइंडिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal grinding ka kaam kiya hai?": "लगभग कितने साल ग्राइंडिंग का काम किया है?",
+  "Aap kaunsi grinding machine chalate hain?": "आप कौन सी ग्राइंडिंग मशीन चलाते हैं?",
+  "Machine CNC hai ya conventional?": "मशीन CNC है या कन्वेंशनल?",
+  "Kaunse grinding wheel istemaal karte hain?": "कौन से ग्राइंडिंग व्हील इस्तेमाल करते हैं?",
+  "Setting ka kaunsa kaam khud karte hain?": "सेटिंग का कौन सा काम खुद करते हैं?",
+  "Kitna surface finish nikaal lete hain?": "कितना सरफेस फिनिश निकाल लेते हैं?",
+  "Wheel dressing kaise karte hain?": "व्हील ड्रेसिंग कैसे करते हैं?",
+  // --- qp_cam_programming@1 (role pack, part programming — CAM seat and at-machine MDI) — Batch 1
+  //
+  // TEN PROMPTS AND TWO RETRIES ACROSS TEN KEYS. The pack has fourteen items; the other four
+  // (`controller_brand`, `drawing_reading`, `trade_test_status`, `iti_project_work`) ask the same
+  // thing as the turning, milling and grinding packs in the same words, so their twins are already
+  // above. That reuse is the corpus hygiene this file exists to reward: one wording per attribute
+  // key means one clip to keep in step, forever.
+  //
+  // "कैम" AND "कैड" ARE DEVANAGARI WHILE "MDI" IS LATIN, and the split is about how the words are
+  // SAID rather than about how they are spelled. The rule in this file's header keeps an
+  // initialism Latin when a Hindi speaker spells it out letter by letter — CNC, MIG, TIG, and MDI
+  // here. CAM and CAD are not spelled out; a programmer says them as words, which is also how the
+  // alias corpus writes them (कैम प्रोग्रामर, कैड). Left Latin they would be read as English.
+  "Program aap CAM software par banate hain ya machine par?":
+    "प्रोग्राम आप कैम सॉफ्टवेयर पर बनाते हैं या मशीन पर?",
+  "CAM software par ya machine par MDI se program banate hain?":
+    "कैम सॉफ्टवेयर पर या मशीन पर MDI से प्रोग्राम बनाते हैं?",
+  "Programming ka kitna tajurba hai?": "प्रोग्रामिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal programming ka kaam kiya hai?": "लगभग कितने साल प्रोग्रामिंग का काम किया है?",
+  "Aap kaunsa CAM software chalate hain?": "आप कौनसा कैम सॉफ्टवेयर चलाते हैं?",
+  "Kaunsi machine ke liye program banate hain?": "कौनसी मशीन के लिए प्रोग्राम बनाते हैं?",
+  "Program banate waqt kaunsa kaam karte hain?": "प्रोग्राम बनाते वक़्त कौनसा काम करते हैं?",
+  "CAD model ke saath kaunsa kaam karte hain?": "कैड मॉडल के साथ कौनसा काम करते हैं?",
+  "Post-processor ke saath aap kitna kaam karte hain?":
+    "पोस्ट-प्रोसेसर के साथ आप कितना काम करते हैं?",
+  "Program release se pehle simulation kaise karte hain?":
+    "प्रोग्राम रिलीज़ से पहले सिमुलेशन कैसे करते हैं?",
+  // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
+  //
+  // TWO PACKS, ONE BLOCK, BECAUSE THEY SHARE SIX OF THEIR SERVED STRINGS. `qp_draughting` is the
+  // unit-3118 router that catches the civil, electrical, architectural and structural draughtsmen
+  // `qp_cad_drafting` deliberately does not claim, and it asks its software, drawing-type and
+  // drawing-work questions in the mechanical pack's exact words — only its OPTION lists diverge.
+  // Filing them together is what makes the sharing visible to the next author instead of inviting
+  // a second phrasing of "Aap kis tarah ki drawing banate hain?".
+  //
+  // "आईटीआई" MATCHES ITS OWN SIBLING, the turner's "ITI me kya banaya tha?" twin above, rather
+  // than the Latin-initialism rule that keeps CNC and MDI in Latin. The two conventions already
+  // sit side by side in this table; a THIRD spelling of ITI in one file would be worse than the
+  // inconsistency.
+  "Drawing aur CAD ke kaam ka kitna tajurba hai?": "ड्रॉइंग और कैड के काम का कितना तजुर्बा है?",
+  "Lagbhag kitne saal drawing ka kaam ya course kiya hai?":
+    "लगभग कितने साल ड्रॉइंग का काम या कोर्स किया है?",
+  "Aap kaunsa CAD software chalate hain?": "आप कौनसा कैड सॉफ्टवेयर चलाते हैं?",
+  "Software ke kaunse module par kaam kiya hai?": "सॉफ्टवेयर के कौनसे मॉड्यूल पर काम किया है?",
+  "Drawing ka kaunsa kaam khud karte hain?": "ड्रॉइंग का कौनसा काम खुद करते हैं?",
+  "Drawing me kaunse standard ka istemaal karte hain?":
+    "ड्रॉइंग में कौनसे स्टैंडर्ड का इस्तेमाल करते हैं?",
+  "Aap kis tarah ki drawing banate hain?": "आप किस तरह की ड्रॉइंग बनाते हैं?",
+  "Aap kaunsa output banakar dete hain?": "आप कौनसा आउटपुट बनाकर देते हैं?",
+  "Kis line ki drawing banayi hai?": "किस लाइन की ड्रॉइंग बनाई है?",
+  "Drawing banane ke liye aapko kya milta hai?": "ड्रॉइंग बनाने के लिए आपको क्या मिलता है?",
+  "Doosron ki banayi drawing check karte hain?": "दूसरों की बनाई ड्रॉइंग चेक करते हैं?",
+  "Design ka kaunsa kaam aap karte hain?": "डिज़ाइन का कौनसा काम आप करते हैं?",
+  "CAD kahaan se seekha hai?": "कैड कहाँ से सीखा है?",
+  "Training me kaunsa kaam khud kiya hai?": "ट्रेनिंग में कौनसा काम खुद किया है?",
+  "Kis line ki drawing par padhai ki hai?": "किस लाइन की ड्रॉइंग पर पढ़ाई की है?",
+  "Course ya ITI me kya banaya tha? Apne shabdon me bataiye.":
+    "कोर्स या आईटीआई में क्या बनाया था? अपने शब्दों में बताइए।",
+  "Aap mechanical, civil ya electrical, kis line me kaam karte hain?":
+    "आप मैकेनिकल, सिविल या इलेक्ट्रिकल, किस लाइन में काम करते हैं?",
+  "Kis line ki drawing banate hain, machine ki ya building ki?":
+    "किस लाइन की ड्रॉइंग बनाते हैं, मशीन की या बिल्डिंग की?",
+
+  // --- qp_conventional_machining@1 (the manual machine shop) — Batch 2 ------------------------
+  "Khraad aur milling ka kitna tajurba hai?": "खराद और मिलिंग का कितना तजुर्बा है?",
+  "Shop par aap kis level ka kaam karte hain?": "शॉप पर आप किस लेवल का काम करते हैं?",
+  "Khraad par kitne bade job tak kaam kiya hai?": "खराद पर कितने बड़े जॉब तक काम किया है?",
+  "Cutting tool khud grind karke banate hain?": "कटिंग टूल खुद ग्राइंड करके बनाते हैं?",
+  "Kaunsa mushkil kaam aap kar lete hain?": "कौनसा मुश्किल काम आप कर लेते हैं?",
+  "Lagbhag kitne saal machine par kaam kiya hai?": "लगभग कितने साल मशीन पर काम किया है?",
+  "Khraad, milling ya drill, kaunsi machine chalate hain?": "खराद, मिलिंग या ड्रिल, कौनसी मशीन चलाते हैं?",
+  "Helper, operator ya skilled machinist, kaunsa kaam karte hain?": "हेल्पर, ऑपरेटर या स्किल्ड मशीनिस्ट, कौनसा काम करते हैं?",
+  "Turning, milling, drilling ya boring, kya kya karte hain?": "टर्निंग, मिलिंग, ड्रिलिंग या बोरिंग, क्या क्या करते हैं?",
+  "MS, EN8 ya cast iron, kis par kaam kiya hai?": "MS, EN8 या कास्ट आयरन, किस पर काम किया है?",
+  "Vernier, micrometer ya dial gauge, kya istemaal karte hain?": "वर्नियर, माइक्रोमीटर या डायल गेज, क्या इस्तेमाल करते हैं?",
+  "Drawing dekh kar job bana lete hain?": "ड्राइंग देख कर जॉब बना लेते हैं?",
+  "Job shop, auto parts ya pump valve, kis line me kaam kiya?": "जॉब शॉप, ऑटो पार्ट्स या पंप वाल्व, किस लाइन में काम किया?",
+  "Sabse bada job kitne dia ka kiya hai?": "सबसे बड़ा जॉब कितने डाया का किया है?",
+  "Job ki tolerance lagbhag kitni rakhte hain?": "जॉब की टॉलरेंस लगभग कितनी रखते हैं?",
+  "Job set karna, tool set karna, kya khud karte hain?": "जॉब सेट करना, टूल सेट करना, क्या खुद करते हैं?",
+  "Pehla piece check karna ya rejection dekhna, kya karte hain?": "पहला पीस चेक करना या रिजेक्शन देखना, क्या करते हैं?",
+  "Belt, gear ya bearing ki dikkat kya khud theek karte hain?": "बेल्ट, गियर या बेयरिंग की दिक्कत क्या खुद ठीक करते हैं?",
+  "HSS tool ki dhaar aap banate hain ya koi aur?": "HSS टूल की धार आप बनाते हैं या कोई और?",
+  "Taper, gear cutting ya lamba shaft, kya bana lete hain?": "टेपर, गियर कटिंग या लंबा शाफ्ट, क्या बना लेते हैं?",
+  "Workshop me khraad ya milling par kaam kiya tha?": "वर्कशॉप में खराद या मिलिंग पर काम किया था?",
+  "ITI ka trade test pass kiya hai ya nahi?": "आईटीआई का ट्रेड टेस्ट पास किया है या नहीं?",
+  "ITI me banaya hua koi job yaad hai?": "आईटीआई में बनाया हुआ कोई जॉब याद है?",
+
+  // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
+  "Tool room ka kitna tajurba hai?": "टूल रूम का कितना तजुर्बा है?",
+  "Tool room me aapki abhi kaunsi post hai?": "टूल रूम में आपकी अभी कौनसी पोस्ट है?",
+  "Aap kaunsa tooling banate hain?": "आप कौनसा टूलिंग बनाते हैं?",
+  "Tool room me kaunsi machine chalate hain?": "टूल रूम में कौनसी मशीन चलाते हैं?",
+  "Kaunse tool steel par kaam kiya hai?": "कौनसे टूल स्टील पर काम किया है?",
+  "Tool room ka kaunsa kaam khud karte hain?": "टूल रूम का कौनसा काम खुद करते हैं?",
+  "Kis industry ke liye tooling banayi hai?": "किस इंडस्ट्री के लिए टूलिंग बनाई है?",
+  "EDM par aap kaunsa kaam karte hain?": "EDM पर आप कौनसा काम करते हैं?",
+  "Die design ka kaunsa kaam karte hain?": "डाई डिज़ाइन का कौनसा काम करते हैं?",
+  "Die ki kaunsi dikkat aap sudhaar lete hain?": "डाई की कौनसी दिक्कत आप सुधार लेते हैं?",
+  "Heat treatment ka kaam aap kaise sambhaalte hain?": "हीट ट्रीटमेंट का काम आप कैसे सँभालते हैं?",
+  "Kitne tonnage ki press par tryout kiya hai?": "कितने टनेज की प्रेस पर ट्रायआउट किया है?",
+  "Lagbhag kitne saal tool room ka kaam kiya hai?": "लगभग कितने साल टूल रूम का काम किया है?",
+  "Trainee, tool maker ya senior, kaunsi post hai?": "ट्रेनी, टूल मेकर या सीनियर, कौनसी पोस्ट है?",
+  "Press tool, die ya fixture, kya banate hain?": "प्रेस टूल, डाई या फिक्सचर, क्या बनाते हैं?",
+  "Grinder, EDM ya milling, kaunsi machine chalate hain?": "ग्राइंडर, EDM या मिलिंग, कौनसी मशीन चलाते हैं?",
+  "OHNS, HCHCr ya EN31, kaunsa steel istemaal kiya hai?": "OHNS, HCHCr या EN31, कौनसा स्टील इस्तेमाल किया है?",
+  "Assembly, tryout ya benchwork, kaunsa kaam karte hain?": "असेंबली, ट्रायआउट या बेंचवर्क, कौनसा काम करते हैं?",
+  "Slip gauge, micrometer ya sine bar, kya chalate hain?": "स्लिप गेज, माइक्रोमीटर या साइन बार, क्या चलाते हैं?",
+  "Tooling drawing dekh kar kaam kar lete hain?": "टूलिंग ड्रॉइंग देख कर काम कर लेते हैं?",
+  "Die clearance kitni tolerance tak rakh lete hain?": "डाई क्लीयरेंस कितनी टॉलरेंस तक रख लेते हैं?",
+  "Sheet metal, auto ya electrical, kis line ki tooling banayi?": "शीट मेटल, ऑटो या इलेक्ट्रिकल, किस लाइन की टूलिंग बनाई?",
+  "Wire-cut program, electrode ya setting, kya karte hain?": "वायर-कट प्रोग्राम, इलेक्ट्रोड या सेटिंग, क्या करते हैं?",
+  "Strip layout ya clearance nikalna, kya karte hain?": "स्ट्रिप लेआउट या क्लीयरेंस निकालना, क्या करते हैं?",
+  "Burr, punch tootna ya strip jam, kya theek karte hain?": "बर्र, पंच टूटना या स्ट्रिप जाम, क्या ठीक करते हैं?",
+  "Hardness khud check karte hain ya bahar bhijwate hain?": "हार्डनेस खुद चेक करते हैं या बाहर भिजवाते हैं?",
+  "Chhoti press ya badi press, kis par tryout kiya hai?": "छोटी प्रेस या बड़ी प्रेस, किस पर ट्रायआउट किया है?",
+  "Workshop me kaunsi machine par haath aazmaya hai?": "वर्कशॉप में कौनसी मशीन पर हाथ आज़माया है?",
+  "Trade test ka result aa gaya hai?": "ट्रेड टेस्ट का रिज़ल्ट आ गया है?",
+  "Kaunsa job ya model banaya tha ITI me?": "कौनसा जॉब या मॉडल बनाया था आईटीआई में?",
+
+  // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
+  "Welding ka kitna tajurba hai?": "वेल्डिंग का कितना तजुर्बा है?",
+  "Aap khud ko kis level ka welder maante hain?": "आप खुद को किस लेवल का वेल्डर मानते हैं?",
+  "Kaunsi welding machine par kaam karte hain?": "कौनसी वेल्डिंग मशीन पर काम करते हैं?",
+  "Kaunsi rod ya wire istemaal karte hain?": "कौनसी रॉड या वायर इस्तेमाल करते हैं?",
+  "Kaunse material par welding karte hain?": "कौनसे मटीरियल पर वेल्डिंग करते हैं?",
+  "Kaunsi position me welding kar lete hain?": "कौनसी पोज़िशन में वेल्डिंग कर लेते हैं?",
+  "Kitni moti plate par welding karte hain?": "कितनी मोटी प्लेट पर वेल्डिंग करते हैं?",
+  "Weld ki checking ka kaunsa kaam karte hain?": "वेल्ड की चेकिंग का कौनसा काम करते हैं?",
+  "Kis line ki fabrication me kaam kiya hai?": "किस लाइन की फैब्रिकेशन में काम किया है?",
+  "Kaunse joint weld kar lete hain?": "कौनसे जॉइंट वेल्ड कर लेते हैं?",
+  "Machine ki kaunsi setting khud karte hain?": "मशीन की कौनसी सेटिंग खुद करते हैं?",
+  "Weld ki kaunsi kharabi aap sudhaar lete hain?": "वेल्ड की कौनसी खराबी आप सुधार लेते हैं?",
+  "Welding ke alawa kaunsa kaam karte hain?": "वेल्डिंग के अलावा कौनसा काम करते हैं?",
+  "Lagbhag kitne saal welding ka kaam kiya hai?": "लगभग कितने साल वेल्डिंग का काम किया है?",
+  "Inverter, CO2 ya TIG machine, kaunsi chalayi hai?": "इनवर्टर, CO2 या TIG मशीन, कौनसी चलाई है?",
+
+  // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
+  "Powder coating ya paint ka kitna tajurba hai?": "पाउडर कोटिंग या पेंट का कितना तजुर्बा है?",
+  "Paint shop me aap kis level par kaam karte hain?": "पेंट शॉप में आप किस लेवल पर काम करते हैं?",
+  "Aap kaunsa coating ka kaam karte hain?": "आप कौन सा कोटिंग का काम करते हैं?",
+  "Kaunse booth aur oven par kaam kiya hai?": "कौन से बूथ और ओवन पर काम किया है?",
+  "Kaunsa powder ya paint lagaya hai?": "कौन सा पाउडर या पेंट लगाया है?",
+  "Coating se pehle kaunsi tayyari khud karte hain?": "कोटिंग से पहले कौन सी तैयारी खुद करते हैं?",
+  "Coating ke baad kaunsi checking karte hain?": "कोटिंग के बाद कौन सी चेकिंग करते हैं?",
+  "Booth batch wala hai ya conveyor line?": "बूथ बैच वाला है या कन्वेयर लाइन?",
+  "Kitne micron ki coating thickness rakhte hain?": "कितने माइक्रोन की कोटिंग थिकनेस रखते हैं?",
+  "Kis industry ke parts par coating ki hai?": "किस इंडस्ट्री के पार्ट्स पर कोटिंग की है?",
+  "Kis dhaat par coating karte hain?": "किस धातु पर कोटिंग करते हैं?",
+  "Gun ki kaunsi setting khud karte hain?": "गन की कौन सी सेटिंग खुद करते हैं?",
+  "Curing oven kis temperature par chalate hain?": "क्योरिंग ओवन किस टेम्परेचर पर चलाते हैं?",
+  "Coating ki kaunsi dikkat aap sudhaar lete hain?": "कोटिंग की कौन सी दिक्कत आप सुधार लेते हैं?",
+  "Colour change ke waqt kaunsa kaam karte hain?": "कलर चेंज के वक़्त कौन सा काम करते हैं?",
+  "Lagbhag kitne saal coating ka kaam kiya hai?": "लगभग कितने साल कोटिंग का काम किया है?",
+  "Helper, operator ya skilled, kaunsa level hai?": "हेल्पर, ऑपरेटर या स्किल्ड, कौन सा लेवल है?",
+  "Powder coating, spray ya touch-up, kya kaam karte hain?": "पाउडर कोटिंग, स्प्रे या टच-अप, क्या काम करते हैं?",
+  "Powder booth, spray booth ya oven, kis par kaam kiya hai?": "पाउडर बूथ, स्प्रे बूथ या ओवन, किस पर काम किया है?",
+  "Epoxy, polyester, PU ya primer, kya lagaya hai?": "एपॉक्सी, पॉलिएस्टर, PU या प्राइमर, क्या लगाया है?",
+  "Degreasing, phosphating ya masking, kya karte hain?": "डीग्रीसिंग, फॉस्फेटिंग या मास्किंग, क्या करते हैं?",
+  "DFT gauge, gloss meter ya adhesion test, kya karte hain?": "DFT गेज, ग्लॉस मीटर या एडहेजन टेस्ट, क्या करते हैं?",
+  "Batch booth, conveyor line ya dono, kis par kaam kiya hai?": "बैच बूथ, कन्वेयर लाइन या दोनों, किस पर काम किया है?",
+  "Lagbhag kitne micron DFT par kaam karte hain?": "लगभग कितने माइक्रोन DFT पर काम करते हैं?",
+  "Auto parts, white goods ya furniture, kis line me kaam kiya hai?": "ऑटो पार्ट्स, व्हाइट गुड्स या फर्नीचर, किस लाइन में काम किया है?",
+  "MS, GI, aluminium ya stainless, kis par coating ki hai?": "MS, GI, एल्युमिनियम या स्टेनलेस, किस पर कोटिंग की है?",
+  "kV, powder flow ya gun distance, kya set karte hain?": "kV, पाउडर फ्लो या गन डिस्टेंस, क्या सेट करते हैं?",
+  "Lagbhag kitne degree par curing karte hain?": "लगभग कितने डिग्री पर क्योरिंग करते हैं?",
+  "Orange peel, patli coating ya blister, kya theek karte hain?": "ऑरेंज पील, पतली कोटिंग या ब्लिस्टर, क्या ठीक करते हैं?",
+  "Booth safai, powder reclaim ya filter, kaunsa kaam karte hain?": "बूथ सफाई, पाउडर रिक्लेम या फिल्टर, कौन सा काम करते हैं?",
+  "Spray gun, booth ya oven, kis par kaam kiya hai?": "स्प्रे गन, बूथ या ओवन, किस पर काम किया है?",
+  "Trade test pass kiya hai ya abhi nahi diya?": "ट्रेड टेस्ट पास किया है या अभी नहीं दिया?",
+  "ITI me banaya hua koi ek kaam bata dijiye.": "ITI में बनाया हुआ कोई एक काम बता दीजिए।",
 };
 
 /**
@@ -517,6 +708,111 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "सेक्टर का तजुर्बा उसी लाइन के एम्प्लॉयर ढूँढते हैं।",
   "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.":
     "दिक्कत सुधारने वाले ऑपरेटर की शॉप पर ज़रूरत रहती है।",
+  // --- qp_cnc_grinding@1 (role pack) — Batch 1 -----------------------------------------
+  //
+  // FIVE WHY-TEXTS. The other thirteen are shared verbatim with the turner and milling packs
+  // and are already above. Statements take the danda; only questions keep the Latin "?".
+  "Dono ka kaam alag hota hai, dono ki demand hai.":
+    "दोनों का काम अलग होता है, दोनों की डिमांड है।",
+  "Wheel chunna grinding ka asli hunar hai.": "व्हील चुनना ग्राइंडिंग का असली हुनर है।",
+  "Setting ka kaam operator aur setter ka farq batata hai.":
+    "सेटिंग का काम ऑपरेटर और सेटर का फ़र्क़ बताता है।",
+  "Finish grinding ke kaam ki sabse badi pehchaan hai.":
+    "फिनिश ग्राइंडिंग के काम की सबसे बड़ी पहचान है।",
+  "Dressing ka tarika wheel ki umar aur finish tay karta hai.":
+    "ड्रेसिंग का तरीका व्हील की उम्र और फिनिश तय करता है।",
+  // --- qp_cam_programming@1 (role pack) — Batch 1 --------------------------------------------
+  //
+  // FIVE WHY-TEXTS. The pack's other nine are the turner's, miller's and grinder's verbatim and
+  // are already above — including "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.", which
+  // every role pack's tier gate now shares. Statements take the danda; only questions keep the
+  // Latin "?".
+  "Dono tarah ke programmer ki alag jagah zaroorat hoti hai.":
+    "दोनों तरह के प्रोग्रामर की अलग जगह ज़रूरत होती है।",
+  "Software ke hisaab se sahi kaam dikhaya jaata hai.":
+    "सॉफ्टवेयर के हिसाब से सही काम दिखाया जाता है।",
+  "Model theek kar lena programmer ka apna hunar hai.":
+    "मॉडल ठीक कर लेना प्रोग्रामर का अपना हुनर है।",
+  "Post-processor theek karne wale programmer kam milte hain.":
+    "पोस्ट-प्रोसेसर ठीक करने वाले प्रोग्रामर कम मिलते हैं।",
+  "Simulation se machine aur job ka nuksaan bachta hai.":
+    "सिमुलेशन से मशीन और जॉब का नुक़सान बचता है।",
+  // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
+  //
+  // THIRTEEN WHY-TEXTS FOR THE TWO PACKS TOGETHER. "Software ke hisaab se sahi kaam dikhaya jaata
+  // hai." is above with the CAM block — all three packs ask their software question with the same
+  // explanation, which is one clip rather than three.
+  //
+  // TWO PAIRS HERE LOOK ALIKE AND ARE NOT. `sector_studied`'s "Jis line ki drawing seekhi hai…"
+  // is the FRESHER's, and `sector_drawn`'s is the machining packs' "Sector ka tajurba usi line ke
+  // employer dhoondhte hain." already above; likewise `iti_workshop_machines` diverges from the
+  // machining wording because a CAD student's training is a drawing board and a computer lab. The
+  // divergence is deliberate and costs exactly the two clips below.
+  "Module se pata chalta hai aap kis tarah ki drawing banate hain.":
+    "मॉड्यूल से पता चलता है आप किस तरह की ड्रॉइंग बनाते हैं।",
+  "Standard ke hisaab se bani drawing seedha production me chali jaati hai.":
+    "स्टैंडर्ड के हिसाब से बनी ड्रॉइंग सीधा प्रोडक्शन में चली जाती है।",
+  "Drawing banane ka tarika employer ko aapka kaam samjhata hai.":
+    "ड्रॉइंग बनाने का तरीका एम्प्लॉयर को आपका काम समझाता है।",
+  "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.":
+    "आउटपुट देखकर एम्प्लॉयर समझता है आप क्या काम दे सकते हैं।",
+  "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain.":
+    "इससे पता चलता है आप सिर्फ़ ड्रॉइंग बनाते हैं या डिज़ाइन भी करते हैं।",
+  "Part naap kar drawing banane wale ki alag zaroorat hoti hai.":
+    "पार्ट नाप कर ड्रॉइंग बनाने वाले की अलग ज़रूरत होती है।",
+  "Drawing check karne wale ko senior maana jaata hai.":
+    "ड्रॉइंग चेक करने वाले को सीनियर माना जाता है।",
+  "Design ka kaam jaanne wale ko design engineer banaya jaata hai.":
+    "डिज़ाइन का काम जानने वाले को डिज़ाइन इंजीनियर बनाया जाता है।",
+  "Training kahaan hui, ye employer sabse pehle dekhte hain.":
+    "ट्रेनिंग कहाँ हुई, ये एम्प्लॉयर सबसे पहले देखते हैं।",
+  "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.":
+    "ट्रेनिंग में किया हुआ काम भी तजुर्बा है, एम्प्लॉयर इसे देखते हैं।",
+  "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.":
+    "जिस लाइन की ड्रॉइंग सीखी है, वही एम्प्लॉयर आपको ढूँढते हैं।",
+  "Banaya hua project dikhata hai ki aap kya kar sakte hain.":
+    "बनाया हुआ प्रोजेक्ट दिखाता है कि आप क्या कर सकते हैं।",
+  "Har line ki drawing ka kaam alag hota hai.": "हर लाइन की ड्रॉइंग का काम अलग होता है।",
+
+  // --- qp_conventional_machining@1 (the manual machine shop) — Batch 2 ------------------------
+  "Level se employer ko aapke kaam ka darja pata chalta hai.": "लेवल से एम्प्लॉयर को आपके काम का दर्जा पता चलता है।",
+  "Badi machine chalane wale ko bade job ka kaam milta hai.": "बड़ी मशीन चलाने वाले को बड़े जॉब का काम मिलता है।",
+  "Apna tool khud grind karna purana aur bada hunar hai.": "अपना टूल खुद ग्राइंड करना पुराना और बड़ा हुनर है।",
+  "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.": "मुश्किल काम करने वाले मशीनिस्ट की अलग पहचान होती है।",
+
+  // --- qp_tool_die_making@1 (the tool room) — Batch 2 -----------------------------------------
+  "Post se employer ko aapka darja pehli line me samajh aata hai.": "पोस्ट से एम्प्लॉयर को आपका दर्जा पहली लाइन में समझ आता है।",
+  "Aap kya banate hain, yahi employer sabse pehle dekhta hai.": "आप क्या बनाते हैं, यही एम्प्लॉयर सबसे पहले देखता है।",
+  "Tool steel ka tajurba employer ke liye alag mayne rakhta hai.": "टूल स्टील का तजुर्बा एम्प्लॉयर के लिए अलग मायने रखता है।",
+  "Khud kiya hua kaam helper aur tool maker ka farq batata hai.": "खुद किया हुआ काम हेल्पर और टूल मेकर का फ़र्क़ बताता है।",
+  "EDM ka kaam tool room me alag hunar mana jaata hai.": "EDM का काम टूल रूम में अलग हुनर माना जाता है।",
+  "Design samajhne wale tool maker ko senior kaam milta hai.": "डिज़ाइन समझने वाले टूल मेकर को सीनियर काम मिलता है।",
+  "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai.": "दिक्कत सुधारने वाले टूल मेकर की शॉप पर ज़रूरत रहती है।",
+  "Hardness sahi na ho to die jaldi toot jaati hai.": "हार्डनेस सही न हो तो डाई जल्दी टूट जाती है।",
+  "Press ka size batata hai ki kitni badi tooling banayi hai.": "प्रेस का साइज़ बताता है कि कितनी बड़ी टूलिंग बनाई है।",
+
+  // --- qp_welding_trade@1 (arc, MIG, TIG and gas welding) — Batch 2 ---------------------------
+  "Helper aur certified welder ka kaam aur vetan alag hota hai.": "हेल्पर और सर्टिफाइड वेल्डर का काम और वेतन अलग होता है।",
+  "Rod aur wire ka sahi chunaav welder ka hunar hai.": "रॉड और वायर का सही चुनाव वेल्डर का हुनर है।",
+  "Moti plate ka kaam alag rate par hota hai.": "मोटी प्लेट का काम अलग रेट पर होता है।",
+  "Checking jaanne wale welder ko quality ka kaam milta hai.": "चेकिंग जानने वाले वेल्डर को क्वालिटी का काम मिलता है।",
+  "Joint ka tarika kaam ki mushkil batata hai.": "जॉइंट का तरीका काम की मुश्किल बताता है।",
+  "Setting karne wale welder ko zyada vetan milta hai.": "सेटिंग करने वाले वेल्डर को ज़्यादा वेतन मिलता है।",
+  "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai.": "खराबी सुधारने वाले वेल्डर की शॉप पर ज़रूरत रहती है।",
+  "Poora fabrication jaanne wale ko shop me aage rakha jaata hai.": "पूरा फैब्रिकेशन जानने वाले को शॉप में आगे रखा जाता है।",
+
+  // --- qp_powder_coating@1 (powder coating and industrial spray) — Batch 2 --------------------
+  "Level se employer ko aapka darja saaf pata chalta hai.": "लेवल से एम्प्लॉयर को आपका दर्जा साफ़ पता चलता है।",
+  "Process ke hisaab se sahi kaam dikhaya jaata hai.": "प्रोसेस के हिसाब से सही काम दिखाया जाता है।",
+  "Equipment ka tajurba employer sabse pehle dekhte hain.": "इक्विपमेंट का तजुर्बा एम्प्लॉयर सबसे पहले देखते हैं।",
+  "Tayyari ka kaam coating ki quality tay karta hai.": "तैयारी का काम कोटिंग की क्वालिटी तय करता है।",
+  "Checking karne wale ko quality ka kaam diya jaata hai.": "चेकिंग करने वाले को क्वालिटी का काम दिया जाता है।",
+  "Batch aur conveyor line ka kaam alag hota hai.": "बैच और कन्वेयर लाइन का काम अलग होता है।",
+  "Thickness se coating ki quality aur cost tay hoti hai.": "थिकनेस से कोटिंग की क्वालिटी और कॉस्ट तय होती है।",
+  "Dhaat ke hisaab se coating ka tarika badal jaata hai.": "धातु के हिसाब से कोटिंग का तरीका बदल जाता है।",
+  "Gun setting se coating barabar lagti hai aur powder bachta hai.": "गन सेटिंग से कोटिंग बराबर लगती है और पाउडर बचता है।",
+  "Oven ka temperature aur time coating ki jaan hai.": "ओवन का टेम्परेचर और टाइम कोटिंग की जान है।",
+  "Colour change jaldi karne se line ka time bachta hai.": "कलर चेंज जल्दी करने से लाइन का टाइम बचता है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

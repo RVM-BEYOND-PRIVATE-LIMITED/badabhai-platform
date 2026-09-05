@@ -77,7 +77,9 @@ import '../../features/finishing/presentation/cubit/finishing_cubit.dart';
 import '../../features/trade_form/data/trade_form_repository_impl.dart';
 import '../../features/trade_form/domain/trade_form_repository.dart';
 import '../../features/trade_form/presentation/cubit/trade_form_cubit.dart';
+import '../../features/name/data/device_location_lookup.dart';
 import '../../features/name/data/name_repository_impl.dart';
+import '../../features/name/domain/location_lookup.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
 import '../../features/profile/data/profile_repository_impl.dart';
@@ -102,6 +104,7 @@ import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
 import '../../features/resume/presentation/cubit/resume_edit_cubit.dart';
+import '../../features/swipe/data/job_feed_view_store.dart';
 import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
 import '../../features/swipe/domain/jobs_repository.dart';
@@ -243,6 +246,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<NameRepository>(
     () => NameRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // On-device GPS/network -> city/state (no backend round-trip). Registered
+  // unconditionally like the other real repos in this block — nothing here
+  // needs the plugin graph until a widget actually calls resolveCurrent().
+  locator.registerLazySingleton<LocationLookup>(() => DeviceLocationLookup());
   locator.registerLazySingleton<FeedbackRepository>(
     () => FeedbackRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
@@ -564,6 +571,7 @@ Future<void> initAuthLocator({
   LocaleStore? localeStore,
   AuthApi? authApi,
   NotificationReadStore? readStore,
+  JobFeedViewStore? jobFeedViewStore,
   PendingReferralStore? pendingReferral,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
@@ -588,6 +596,17 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<NotificationReadStore>()) {
     locator.registerSingleton<NotificationReadStore>(
       readStore ?? const SharedPrefsNotificationReadStore(),
+    );
+  }
+
+  // The Jobs tab's list-vs-deck view preference — same shape as the read store
+  // above, registered here for the identical plugin-free-sync-graph reason. A
+  // test-supplied [jobFeedViewStore] wins, mirroring [readStore]. This is a
+  // device/UI preference, not worker data, so unlike the read store it is
+  // never cleared on logout (same posture as [LocaleStore]).
+  if (!locator.isRegistered<JobFeedViewStore>()) {
+    locator.registerSingleton<JobFeedViewStore>(
+      jobFeedViewStore ?? const SharedPrefsJobFeedViewStore(),
     );
   }
 

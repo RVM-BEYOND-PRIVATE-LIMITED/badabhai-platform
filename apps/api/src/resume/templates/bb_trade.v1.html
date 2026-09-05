@@ -64,10 +64,25 @@
     * Label-carrying rows use `.row:empty` so an absent value takes its own label with it.
       There is no such thing as a "Tolerance held" line with nothing after it.
 
-  ONE PAGE IS THE PRODUCT. Nothing here scales type to fit; overflow is handled by the
-  truncation rules in resume-render-input.ts (four employers in full, the remainder
-  collapsed to one counted line), where they can be documented and tested. If a sheet
-  overflows, the mapper is wrong, not the CSS.
+  ONE PAGE IS THE TARGET, NOT AN ABSOLUTE (owner ruling, 2026-09-03). Nothing here scales
+  type to fit. Overflow is handled upstream, in resume-render-input.ts and the degradation
+  ladder in resume-degradation.ts, where the rules can be documented and tested: the mapper
+  keeps four employers in full and counts the remainder, and the ladder may fold a fourth
+  block into that count — but ONLY when doing so actually buys the single page.
+
+  SO A SHEET THAT RUNS TO TWO PAGES IS NOT AUTOMATICALLY A MAPPER BUG ANY MORE. This
+  comment used to end "if a sheet overflows, the mapper is wrong, not the CSS", and that
+  sentence is what the ruling reversed. When every compression that does not delete a
+  human-ratified row has been spent and the content still will not fit, the sheet SPILLS
+  rather than shedding the row — the fully-answered turner and the grinder's ratified page
+  are the two sheets this was ruled for. Such a render carries `degradationOverflows: true`
+  and an `degradationOverBudgetLines` count on its input; check those before concluding
+  anything from a page count. A sheet that spills with `degradationOverflows: false` IS a
+  defect, and it is a mapper or line-model defect, still not a CSS one.
+
+  THE FOOTER FLOWS. .foot carries no positioning of any kind — nothing in this stylesheet
+  does — so on a two-page render it lands at the end of page 2 rather than floating. That
+  is deliberate: a fixed footer would print the QR over the spilled content.
 
   Rendering is WeasyPrint, offline: inline <style> only, no JS, no external fonts /
   images / stylesheets / network references of any kind. The QR arrives as a `data:` URI.

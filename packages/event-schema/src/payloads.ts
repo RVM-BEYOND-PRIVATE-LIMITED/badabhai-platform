@@ -6,6 +6,7 @@ import {
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
+  TRADE_FORM_KINDS_ALL,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -61,6 +62,29 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker recorded their coarse home location on the first onboarding screen (#1428).
+//
+// THE VALUES DO NOT TRAVEL, and that is the same decision `WorkerEmploymentRecordedPayload` below
+// took for the same reason. A city is NOT an identifier — the 2026-07-31 owner ruling is explicit
+// that it must never be redacted from an AI prompt, because it is the strongest matching signal
+// this product has. But a city plus a state plus a worker id plus a timestamp narrows a person
+// considerably, and an audit trail needs none of it: what it needs to know is that the worker
+// answered, and which halves they gave. `worker-preferences.service.ts` states the same rule as
+// "COUNTS, NEVER THE ANSWERS".
+//
+// A SEPARATE EVENT FROM `worker.name_recorded` rather than two more fields on it. They ride one
+// PATCH, but they are different facts with different lifetimes — a name is set once and a location
+// can be re-stated — and widening a shipped payload is the schema mutation §3 forbids.
+export const WorkerLocationRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** Whether this write supplied a city. Never which city. */
+    city_recorded: z.boolean(),
+    /** Whether this write supplied a state. Never which state. */
+    state_recorded: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
@@ -101,6 +125,46 @@ export const WorkerPreferencesRecordedPayload = z
     keys_cleared: z.number().int().min(0).max(16),
   })
   .strict();
+
+/**
+ * THE WORKER RECORDED THEIR CREDENTIALS — Zone 5's Education and Certificates rows
+ * (migration 0098).
+ *
+ * ═══ WHY NOT MORE COUNTS ON `worker.preferences_recorded` ═══
+ *
+ * That payload counts ATTRIBUTE KEYS, and its `keys_written` is bounded at 16 because
+ * `PREFERENCE_KEYS` has twelve entries (counted 2026-09-05; this line said sixteen and was never
+ * moved as the map changed — the cap below is deliberately loose, not derived from the count). Certificates and educations are rows in their own tables
+ * with their own uniqueness constraint and their own endpoint; folding their counts into a field
+ * named for attribute keys would make the number mean two things and its bound meaningless. This
+ * is the shape `worker.employment_recorded` already has, for a table of the same kind.
+ *
+ * ═══ COUNTS ONLY, NEVER THE CREDENTIALS ═══
+ *
+ * A council slug on its own would be harmless. The SET is not: an institute plus a year plus a
+ * worker id narrows a person considerably, and the spine needs to know the page was answered
+ * rather than what it said. The certificate name and the issuer are exactly what may not travel —
+ * an issuer can be an employer, which is the disclosure `worker.employment_recorded` withholds by
+ * carrying a count instead of a name.
+ *
+ * `replaced_existing` DISTINGUISHES AN EDIT FROM A FIRST ANSWER, which no count can: zero
+ * certificates with `replaced_existing: true` is a worker deleting the ones they had, and zero
+ * with `false` is a worker who never had any. The funnel needs to tell those apart.
+ */
+export const WorkerQualificationsRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** How many certificates this submission stored. Zero can mean "cleared" — see below. */
+    certificate_count: z.number().int().min(0).max(8),
+    /** How many education rows this submission stored. */
+    education_count: z.number().int().min(0).max(4),
+    /** True when this replaced rows the worker already had, rather than creating the first ones. */
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+export type WorkerQualificationsRecordedPayload = z.infer<
+  typeof WorkerQualificationsRecordedPayload
+>;
 
 // The worker updated their resume display prefs on the "Aap control karte hain"
 // edit screen. PII-FREE: only worker_id + the two boolean flags — never the
@@ -3531,8 +3595,18 @@ export const ProfileFormModeEnteredPayload = z
   .object({
     worker_id: uuidSchema,
     session_id: uuidSchema,
-    /** Which form. A closed set, mirroring `TRADE_FORM_KINDS`. */
-    form_kind: z.enum(["cnc_turner"]),
+    /**
+     * Which form. A closed set — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`, which is
+     * where the list lives so that this enum and the API's role registry cannot disagree.
+     *
+     * WIDENED FROM `["cnc_turner"]`, AND THAT IS AN EXTENSION RATHER THAN A MUTATION (§2.8): every
+     * payload valid against the one-value enum is still valid, so the event stays v1. The one-value
+     * enum was a live landmine — `recordFormHandoff` passes a `TradeFormKind`, so the day a second
+     * role's `formEnabled` flips, the TypeScript type widens, this does not, `emit` throws, the
+     * orchestrator swallows it by design, and the handover goes invisible for the trade just
+     * launched.
+     */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
     /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
     llm_led_turns: z.number().int().nonnegative(),
     /** Questions the model asked before handing over. */
@@ -3540,6 +3614,52 @@ export const ProfileFormModeEnteredPayload = z
   })
   .strict();
 export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
+
+/**
+ * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
+ *
+ * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══
+ *
+ * `profile.form_mode_entered` says a worker was SENT to a form. Nothing said whether they ever
+ * came out of one. `POST /profiling/form/answer` emitted nothing at all, so the only measurable
+ * fact about the entire form-first funnel was its first step — and the platform is about to have
+ * twenty-one of these funnels. Abandonment at question fourteen of a badly ordered pack and
+ * completion in one sitting produce identical telemetry today.
+ *
+ * ═══ `answered` AND `total` ARE BOTH CARRIED, AND `total` IS THE VISIBLE COUNT ═══
+ *
+ * Not the pack's item count. A senior turner is never asked the three fresher questions, so a
+ * denominator of "every item in the pack" is one they can never reach — they would finish at
+ * 15/18 and the funnel would record a completion that looks like an abandonment. This is the same
+ * number the client's progress rail shows, which is what makes the event answer the question a
+ * human would ask of it.
+ *
+ * ═══ ONCE PER WORKER PER PACK ═══
+ *
+ * Keyed on `(worker_id, pack_id)` at the emit site. A worker who reopens a finished form and
+ * corrects one answer has not completed it a second time, and counting that as a second
+ * completion would inflate the only number this event exists to produce.
+ *
+ * PII-FREE: one id, one pack key, one closed-set form kind, two counts. No labels, no answers —
+ * the identical discipline `profile.form_mode_entered` keeps, and `.strict()` is what stops a
+ * later field adding them back.
+ */
+export const ProfileFormCompletedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** The pack behind it, e.g. `qp_cnc_turning`. A slug, never a label. */
+    pack_id: z.string().min(1).max(64),
+    /** Pinned, so a completion against v1 is never counted against v2's funnel. */
+    pack_version: z.number().int().positive(),
+    /** How many of this worker's VISIBLE questions are settled. Equals `total` on completion. */
+    answered: z.number().int().nonnegative(),
+    /** How many this worker is still asked — never the pack's item count. */
+    total: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormCompletedPayload = z.infer<typeof ProfileFormCompletedPayload>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache

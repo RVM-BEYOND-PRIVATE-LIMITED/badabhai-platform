@@ -1808,18 +1808,63 @@ class ResumeFieldsDto extends Equatable {
 /// worker reads is the client's. Rendering chips from THIS (never a hard-coded
 /// list) is what keeps the client and the server enum from drifting into a chip
 /// the server then rejects with nothing naming the cause.
+/// One entry of `WorkPrefOptionsDto.cities` (#1406/#1410) — the preferred-city
+/// gazetteer. Unlike the four label maps above, a city has no slug layer:
+/// [value] is BOTH what the chip shows and what `preferred_cities` must send
+/// (the server's `worker-cities.catalogue.ts` guarantees every [value]
+/// round-trips through the same validator that rejects free text). [aliases]
+/// are lowercase SEARCH KEYS ONLY ("dilli", "bombay", "banglore", "poona") —
+/// never rendered, never submitted; they exist so a worker typing the name
+/// they actually use still finds the city the résumé prints.
+class CityOptionDto extends Equatable {
+  const CityOptionDto({
+    required this.value,
+    required this.aliases,
+    this.state = '',
+  });
+
+  final String value;
+  final List<String> aliases;
+
+  /// The state/UT this city is in (#1429) — a member of
+  /// [WorkPrefOptionsDto.states], by exact string equality. PURELY a filter
+  /// key for a state-then-city cascade; never part of the
+  /// `preferred_cities` write contract, which still submits [value] alone.
+  final String state;
+
+  factory CityOptionDto.fromJson(Map<String, dynamic> json) => CityOptionDto(
+        value: json['value'] as String? ?? '',
+        aliases: (json['aliases'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+        state: json['state'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[value, aliases, state];
+}
+
 class WorkPrefOptionsDto extends Equatable {
   const WorkPrefOptionsDto({
     required this.languages,
     required this.documentsReady,
     required this.jobType,
     required this.shift,
+    this.cities = const <CityOptionDto>[],
+    this.states = const <String>[],
   });
 
   final Map<String, String> languages;
   final Map<String, String> documentsReady;
   final Map<String, String> jobType;
   final Map<String, String> shift;
+  final List<CityOptionDto> cities;
+
+  /// The state/UT picker list (#1429), in server order — the same strings
+  /// [CityOptionDto.state] carries, so filtering a city list to one state is
+  /// plain string equality with no lookup table of its own.
+  final List<String> states;
 
   static Map<String, String> _labelMap(dynamic raw) {
     if (raw is! Map) return const <String, String>{};
@@ -1832,17 +1877,73 @@ class WorkPrefOptionsDto extends Equatable {
     return out;
   }
 
+  static List<CityOptionDto> _cityList(dynamic raw) {
+    if (raw is! List) return const <CityOptionDto>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(CityOptionDto.fromJson)
+        .where((CityOptionDto c) => c.value.isNotEmpty)
+        .toList();
+  }
+
   factory WorkPrefOptionsDto.fromJson(Map<String, dynamic> json) =>
       WorkPrefOptionsDto(
         languages: _labelMap(json['languages']),
         documentsReady: _labelMap(json['documents_ready']),
         jobType: _labelMap(json['job_type']),
         shift: _labelMap(json['shift']),
+        cities: _cityList(json['cities']),
+        states: (json['states'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[languages, documentsReady, jobType, shift];
+      <Object?>[languages, documentsReady, jobType, shift, cities, states];
+}
+
+/// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) — the
+/// closed-set chip vocabulary for the `qualifications` marker's education
+/// rows. Same shape and same reasoning as [WorkPrefOptionsDto]: each map is
+/// `slug → English label`, and chips render from THIS rather than a
+/// hard-coded copy that could drift from the server's zod enum
+/// (`worker-preferences.vocabulary.ts`'s `EDUCATION_QUALIFICATIONS` /
+/// `EDUCATION_COUNCILS`, served here verbatim).
+///
+/// Certificate names are deliberately ABSENT from this response — they are
+/// free text, not a closed set, and ride the form schema's per-trade
+/// `suggested_certificates` instead (see `TradeFormQualificationsStep`).
+class QualificationOptionsDto extends Equatable {
+  const QualificationOptionsDto({
+    required this.educationCredential,
+    required this.educationCouncil,
+  });
+
+  final Map<String, String> educationCredential;
+  final Map<String, String> educationCouncil;
+
+  static Map<String, String> _labelMap(dynamic raw) {
+    if (raw is! Map) return const <String, String>{};
+    // Preserve insertion order (the server's intended chip order — the
+    // credential slugs are ordered lowest rung first) and coerce every value
+    // to a String, skipping any malformed non-string label.
+    final Map<String, String> out = <String, String>{};
+    raw.forEach((dynamic k, dynamic v) {
+      if (k is String && v is String) out[k] = v;
+    });
+    return out;
+  }
+
+  factory QualificationOptionsDto.fromJson(Map<String, dynamic> json) =>
+      QualificationOptionsDto(
+        educationCredential: _labelMap(json['education_credential']),
+        educationCouncil: _labelMap(json['education_council']),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[educationCredential, educationCouncil];
 }
 
 /// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the

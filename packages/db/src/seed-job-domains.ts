@@ -32,6 +32,7 @@
  */
 import { sql as dsql } from "drizzle-orm";
 
+import { chunked } from "./chunk";
 import { createDbClient } from "./client";
 import { deterministicJobDomainAliasId as aliasId } from "./job-domain-alias-id";
 import { resolveJobDomainCorpus, summariseCorpus, type ResolvedJobDomain } from "./job-domain-corpus";
@@ -41,14 +42,12 @@ import { jobDomainAliases, jobDomains } from "./schema";
 const SCRIPT = "seed:domains";
 
 /** Multi-row inserts. One-row-at-a-time (what seed-skills does for 48 skills) is minutes
- *  of round-trips at corpus scale, so the batch is not a micro-optimisation. */
+ *  of round-trips at corpus scale, so the batch is not a micro-optimisation. Safe against
+ *  Postgres' 65535-parameter Bind ceiling at this literal — the widest statement below is
+ *  the 15-column `job_domain` insert, so 500 x 15 + 1 = 7,501 against a 65,535 limit —
+ *  which is why it does not need `chunkSizeForColumns`. Anything that raises this literal,
+ *  or widens a row, does. */
 const CHUNK = 500;
-
-function chunked<T>(rows: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
-  return out;
-}
 
 async function main(): Promise<void> {
   const opts = parseCommonCli(SCRIPT);

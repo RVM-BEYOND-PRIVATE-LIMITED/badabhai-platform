@@ -12,8 +12,8 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 | `predicates.json` | Cue patterns for don't-know, hardship, question-back, abuse, correction | Phase 3 |
 | `skills.json` | The `_SKILLS` keyword → label → taxonomy-id table | Phase 3 |
 | `particles.json` | Indian occupational particles the normalizer strips (`wala`, `ka kaam`, …) | Phase 1 (Divyanshu) |
-| `cities.json` | `KNOWN_CITIES` + `CITY_ALIASES` | Phase 3 (values slice) |
-| `states.json` | States, abbreviations and multi-state regions | Phase 3 (values slice) |
+| `cities.json` | `KNOWN_CITIES` + `CITY_ALIASES`, plus `states` (city → state tag, #1429) | Phase 3 (values slice) |
+| `states.json` | States, abbreviations and multi-state regions, plus `administrative` (the picker list, #1429) | Phase 3 (values slice) |
 | `experience.json` | The spelled-out Hinglish quantity table + the years matcher | Phase 3 (values slice) |
 | `salary.json` | The amount matcher, the annual/monthly/money cue lists, the credential guard | Phase 3 (values slice) |
 | `availability.json` | Availability, notice-period and relocation cues, plus their blockers | Phase 3 (values slice) |
@@ -31,6 +31,18 @@ removed silently deletes a real qualification from a worker's profile, which is 
 
 So the set is **pinned by checksum** in `tests/test_lexicon_parity.py`. If that test fails, the diff
 is a privacy decision and wants a security review — not a re-baselined hash.
+
+`cities.json` has a privacy consequence too — narrower, in the **opposite direction**, and with no
+checksum to stop you. `canonical` and `aliases` become `pseudonymize.KNOWN_CITIES` /
+`CITY_ALIASES`, which is what stops the leading-position heuristic masking a capitalised token as
+a person's name. So **adding a city releases a string the gateway was withholding**, exactly as a
+`VOCABULARY_TOKENS` addition does — and if that city is also a personal name (Surat, Sanand and,
+since #1409, Kota), a worker with that name now reaches a provider unmasked.
+
+Unlike the two files above, this set is **not pinned**, and the property test over it in
+`tests/test_pseudonymize.py` gets **more** green with each addition rather than red. There is no
+failing test to make you think. The gate is the diff and `docs/registers/risks-register.md` R32(1),
+which is why `canonical` is kept sorted and why an addition belongs in its own reviewable commit.
 
 Note also that the stored pattern source for the welding/plumbing/carpentry/design tables is
 **unbounded**: `signals._bounded()` wraps it in `{WB}`/`{WE}` at compile time. That is deliberate,
@@ -150,3 +162,31 @@ Each pattern object carries `{ "source": ..., "flags": ... }`. Only `i` is used.
 to `re.IGNORECASE` and the JS `i` flag. A pattern with `"flags": ""` is case-sensitive **on purpose**
 — `states.json`'s two-letter abbreviations will rely on it, because a case-insensitive `up` would
 swallow "set up".
+
+## Detection data vs picker data (#1429)
+
+Two keys in this directory are **not** detector inputs, and the split is deliberate.
+
+| key | read by | changing it changes |
+| --- | --- | --- |
+| `cities.json` → `canonical`, `aliases` | `pseudonymize.py`, `signals.py`, `canonicalCity` | what is read out of worker speech, **and the privacy carve-out** |
+| `cities.json` → `states` | `apps/api` city catalogue only | which state a city filters under |
+| `states.json` → `names`, `abbreviations`, `regions` | `signals.py` | what is read out of worker speech |
+| `states.json` → `administrative` | `apps/api` state catalogue only | which states a picker offers |
+
+**Why `administrative` is not just `names`.** `names` holds 22 entries and no union territory,
+because it only ever needed the states a worker says out loud. A picker cannot have that gap:
+`delhi`, `new delhi` and `chandigarh` are canonical cities here with nowhere to sit. Adding them to
+`names` to fill the picker would make "Delhi" resolve as a **state** in free text, where it is far
+more often the city — a detection change smuggled in behind a UI feature.
+
+**Tagging is not widening.** Adding a `states` row for a city already in `canonical` is safe.
+Adding a **city** is not: `canonical` and `aliases` are the carve-out in `pseudonymize.py` that
+stops a capitalised token being masked as a person's name, so a new city releases a string the
+gateway was withholding. That remains a privacy decision needing its own reviewable commit.
+
+**What no test can catch.** `worker-cities.catalogue.test.ts` asserts every canonical city is
+tagged, that the two double-booked tokens (`bengaluru`, `gurgaon`) agree, and that every value is a
+real offered state. It cannot tell you a tag is simply **wrong** — "Pune → Punjab" is a real state
+on a real city and passes every structural check. As with the privacy rule above, the gate is the
+diff.

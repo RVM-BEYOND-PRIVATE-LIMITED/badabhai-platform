@@ -59,6 +59,28 @@ TradeForm _form({bool q1Answered = true}) => TradeForm(
       ],
     );
 
+/// [_form] extended with a THIRD marker (`qualifications`) as the walk's
+/// actual last step — the #1384 qualifications-marker tests below need a
+/// "Ho gaya" step to reach `done` from. Both questions start unanswered
+/// (unlike [_form]'s own default) so the walk helper can answer each in
+/// turn without a stale `currentStep` cast.
+TradeForm _formWithQualifications() {
+  final TradeForm base = _form(q1Answered: false);
+  return TradeForm(
+    kind: base.kind,
+    packId: base.packId,
+    packVersion: base.packVersion,
+    sections: <TradeFormSection>[
+      ...base.sections,
+      const TradeFormSection(
+        id: 'qualifications',
+        title: 'Qualification, documents & languages',
+        screens: <TradeFormStep>[TradeFormQualificationsStep()],
+      ),
+    ],
+  );
+}
+
 void main() {
   late _MockRepo repo;
 
@@ -66,6 +88,7 @@ void main() {
     registerFallbackValue(const TradeFormAnswer.declined());
     registerFallbackValue(const TradeFormPreferences());
     registerFallbackValue(<TradeFormEmploymentEntry>[]);
+    registerFallbackValue(const TradeFormQualifications());
   });
 
   setUp(() {
@@ -73,6 +96,42 @@ void main() {
   });
 
   TradeFormCubit build() => TradeFormCubit(repo);
+
+  /// Walks a fresh [cubit] from load() through both questions and both
+  /// existing markers, landing on the qualifications marker — the exact
+  /// path a worker takes, never reaching into Cubit's protected `emit`.
+  /// Hoisted out of `group('saveQualificationsAndAdvance (#1384)', …)` (its
+  /// original home) to file/`main()` scope so the #1384-item-1 "banked
+  /// saves" group below can reuse it too.
+  Future<TradeFormCubit> walkToQualifications() async {
+    when(() => repo.loadForm()).thenAnswer((_) async => _formWithQualifications());
+    when(() => repo.submitAnswer(
+          questionKey: any(named: 'questionKey'),
+          answer: any(named: 'answer'),
+        )).thenAnswer((_) async => const TradeFormAnswerResult(
+          questionKey: 'x',
+          status: TradeFormAnswerStatus.answered,
+          answered: 2,
+          total: 2,
+        ));
+    when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    final TradeFormCubit cubit = build();
+    await cubit.load();
+    await cubit.answerQuestion(
+      cubit.state.currentStep as TradeFormQuestionStep,
+      const TradeFormAnswer.chips(<String>['cnc_lathe']),
+    );
+    await cubit.answerQuestion(
+      cubit.state.currentStep as TradeFormQuestionStep,
+      const TradeFormAnswer.chips(<String>['mild_steel']),
+    );
+    await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+    await cubit.saveEmploymentAndAdvance(<TradeFormEmploymentEntry>[]);
+    expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
+    expect(cubit.state.isLastStep, isTrue);
+    return cubit;
+  }
 
   test('load() resumes at the first UNANSWERED question, not index 0',
       () async {
@@ -298,6 +357,150 @@ void main() {
     expect(cubit.state.status, isNot(TradeFormStatus.submitting));
   });
 
+  group('schema_stale (#1382 — forward-compatible groundwork)', () {
+    test(
+        'schema_stale absent/false does NOT re-fetch — loadForm is called '
+        'exactly once (the initial load)', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'material_worked',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      verify(() => repo.loadForm()).called(1);
+      expect(cubit.state.currentStep, isA<TradeFormPreferencesStep>());
+    });
+
+    test(
+        'schema_stale: true re-fetches and lands on the correct NEXT step, '
+        'never resetting to the first unanswered question overall', () async {
+      // The initial form: q1 unanswered, q2 unanswered, then a THIRD
+      // question a real ask_if-filtered pack would have removed once q1 is
+      // answered — simulated by the re-fetched form below being SHORTER.
+      const VoiceQuestion q3 = VoiceQuestion(
+        id: 'iti_fresher_only',
+        prompt: 'ITI fresher wala sawaal',
+        kind: VoiceQuestionKind.boolean,
+      );
+      final TradeForm initial = TradeForm(
+        kind: 'cnc_turner',
+        packId: 'qp_cnc_turning',
+        packVersion: 1,
+        sections: <TradeFormSection>[
+          TradeFormSection(
+            id: 'capability',
+            title: 'Machines, controllers & capability',
+            screens: <TradeFormStep>[
+              const TradeFormQuestionStep(question: _q1, searchable: false),
+              const TradeFormQuestionStep(question: _q2, searchable: false),
+              const TradeFormQuestionStep(question: q3, searchable: false),
+            ],
+          ),
+        ],
+      );
+      // Re-fetched AFTER answering q1: q1 now answered, q3 (the fresher-only
+      // question) is GATED OUT entirely by ask_if — a real server response,
+      // not a client guess. The worker must land on q2, not q3, and not
+      // back at q1.
+      final TradeForm refetched = TradeForm(
+        kind: 'cnc_turner',
+        packId: 'qp_cnc_turning',
+        packVersion: 1,
+        sections: <TradeFormSection>[
+          TradeFormSection(
+            id: 'capability',
+            title: 'Machines, controllers & capability',
+            screens: <TradeFormStep>[
+              const TradeFormQuestionStep(
+                question: _q1,
+                searchable: false,
+                answer: TradeFormSavedAnswer(
+                  status: TradeFormAnswerStatus.answered,
+                  optionKeys: <String>['cnc_lathe'],
+                ),
+              ),
+              const TradeFormQuestionStep(question: _q2, searchable: false),
+            ],
+          ),
+        ],
+      );
+      when(() => repo.loadForm()).thenAnswer((_) async => initial);
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+      expect(cubit.state.currentIndex, 0); // starts on q1, nothing answered
+
+      // The re-fetch happens on the NEXT loadForm() call — swap the stub so
+      // the resync sees the post-answer schema.
+      when(() => repo.loadForm()).thenAnswer((_) async => refetched);
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+
+      verify(() => repo.loadForm()).called(2); // initial load + resync
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked'); // q2 — never q1 (backward) or q3 (gone)
+      expect(cubit.state.answered, 1); // server's own count, not recomputed
+      expect(cubit.state.total, 2);
+    });
+
+    test(
+        'schema_stale: true whose refetch fails falls back to the '
+        'locally-banked answer rather than losing it', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+
+      when(() => repo.loadForm())
+          .thenThrow(const NetworkFailure('offline'));
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.submitError, isNotNull);
+      final TradeFormQuestionStep banked = cubit.state.flatSteps
+          .map((TradeFormFlatStep f) => f.step)
+          .whereType<TradeFormQuestionStep>()
+          .firstWhere((TradeFormQuestionStep q) => q.question.id == 'material_worked');
+      expect(banked.isAnswered, isTrue); // the submit that DID land is kept
+    });
+  });
+
   test('saveEmploymentAndAdvance blocks on a partially-typed employer',
       () async {
     when(() => repo.loadForm()).thenAnswer((_) async => _form());
@@ -326,5 +529,194 @@ void main() {
 
     expect(cubit.state.submitError, kTradeFormIncompleteEmployerMessage);
     verifyNever(() => repo.saveEmployment(any()));
+  });
+
+  group('saveQualificationsAndAdvance (#1384)', () {
+    test(
+        'a fully-touched save PUTs then reaches done, never stuck at '
+        'submitting (#1367)', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      verify(() => repo.saveQualifications(any())).called(1);
+      expect(cubit.state.status, TradeFormStatus.done);
+      expect(cubit.state.status, isNot(TradeFormStatus.submitting));
+    });
+
+    test(
+        'neither section touched skips the PUT entirely and still advances '
+        '— an empty body would be the server\'s one deliberate 400',
+        () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications());
+
+      verifyNever(() => repo.saveQualifications(any()));
+      expect(cubit.state.status, TradeFormStatus.done);
+    });
+
+    test('blank rows are dropped from both lists before the PUT', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+          TradeFormCertificateEntry(name: ''), // added, never filled in
+        ],
+        certificatesTouched: true,
+        educations: <TradeFormEducationEntry>[
+          TradeFormEducationEntry(credential: 'iti'),
+          TradeFormEducationEntry(), // added, never filled in
+        ],
+        educationsTouched: true,
+      ));
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.certificates, hasLength(1));
+      expect(sent.certificates.single.name, 'Fanuc Oi-TF Programming');
+      expect(sent.educations, hasLength(1));
+      expect(sent.educations.single.credential, 'iti');
+    });
+
+    test(
+        'a certificate missing its required name blocks the save with an '
+        'honest message', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: '', issuer: 'RVM CAD'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      expect(cubit.state.submitError, kTradeFormIncompleteCertificateMessage);
+      expect(cubit.state.status, isNot(TradeFormStatus.done));
+      verifyNever(() => repo.saveQualifications(any()));
+    });
+
+    test('a 400 from the server keeps the worker on the same marker',
+        () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any()))
+          .thenThrow(const InvalidRequestFailure(
+              'remove contact details from the issuer'));
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'ITI', issuer: '9876543210'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      expect(cubit.state.submitError, 'remove contact details from the issuer');
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
+    });
+  });
+
+  group('marker screens bank their last successful save (#1384 item 1)', () {
+    test(
+        'savePreferencesAndAdvance banks the saved value on '
+        'TradeFormState.savedPreferences, untouched by a LATER employment '
+        'save', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'material_worked',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      expect(cubit.state.savedPreferences, isNull);
+
+      const TradeFormPreferences prefs = TradeFormPreferences(
+        languages: <String>{'hindi'},
+        preferredCities: <String>['Faridabad'],
+      );
+      await cubit.savePreferencesAndAdvance(prefs);
+
+      expect(cubit.state.savedPreferences, prefs);
+      expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+
+      // Advancing past a DIFFERENT marker must never wipe what preferences
+      // already banked — the sentinel-default plumbing in
+      // `_advanceAfterMarkerSave` is exactly what this guards.
+      await cubit.saveEmploymentAndAdvance(<TradeFormEmploymentEntry>[
+        const TradeFormEmploymentEntry(employerName: 'Acme', roleLabel: 'Fitter'),
+      ]);
+
+      expect(cubit.state.savedPreferences, prefs);
+      expect(
+        cubit.state.savedEmployment,
+        <TradeFormEmploymentEntry>[
+          const TradeFormEmploymentEntry(employerName: 'Acme', roleLabel: 'Fitter'),
+        ],
+      );
+    });
+
+    test(
+        'saveEmploymentAndAdvance banks the FILTERED (kept) list, not the '
+        'raw list with blank rows still in it', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'material_worked',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+
+      await cubit.saveEmploymentAndAdvance(<TradeFormEmploymentEntry>[
+        const TradeFormEmploymentEntry(employerName: 'Acme', roleLabel: 'Fitter'),
+        const TradeFormEmploymentEntry(employerName: '', roleLabel: ''), // blank
+      ]);
+
+      expect(cubit.state.savedEmployment, hasLength(1));
+      expect(cubit.state.savedEmployment!.single.employerName, 'Acme');
+    });
+
+    test(
+        'saveQualificationsAndAdvance banks the touched-filtered value even '
+        'when the PUT is skipped (nothing touched)', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications());
+
+      verifyNever(() => repo.saveQualifications(any()));
+      expect(cubit.state.savedQualifications, const TradeFormQualifications());
+    });
   });
 }

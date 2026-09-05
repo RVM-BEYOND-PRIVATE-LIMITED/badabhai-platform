@@ -471,10 +471,22 @@ class ApiClient {
   Future<void> updateName({
     required String fullName,
     required String authToken,
+    String? city,
+    String? state,
+    String? address,
   }) async {
     await _patch(
       '/workers/me/name',
-      <String, dynamic>{'full_name': fullName},
+      <String, dynamic>{
+        'full_name': fullName,
+        // city/state persist for real (#1428) — see NameRepository's doc.
+        // address has no matching column; the schema silently drops it, so
+        // sending it stays a harmless no-op. All three stay off the body
+        // when null so a plain name-only submit is byte-identical to before.
+        if (city != null) 'city': city,
+        if (state != null) 'state': state,
+        if (address != null) 'address': address,
+      },
       authToken: authToken,
     );
   }
@@ -655,6 +667,42 @@ class ApiClient {
   }) async {
     await _put(
       '/workers/me/work-preferences',
+      fields,
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) —
+  /// the slug→label vocabulary for the `qualifications` marker's education
+  /// chips. Same contract shape as [getWorkPreferenceOptions] and for the
+  /// same reason: render chips from THIS, never a hard-coded copy. Worker
+  /// from [authToken].
+  Future<QualificationOptionsDto> getQualificationOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/qualifications/options',
+      authToken: authToken,
+    );
+    return QualificationOptionsDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/qualifications (#1384/#1385, migration 0098) — the
+  /// worker's own certificates + education rows. [fields] is the already
+  /// TRI-STATE-shaped body the repository builds
+  /// (`TradeFormQualifications.toJson`): a key OMITTED leaves the stored rows
+  /// for that half alone, `[]` clears them ("I have none" — a real answer),
+  /// and a populated list REPLACES them in the given order (stored as
+  /// `sort_order`, never re-sorted). Sending neither key is a deliberate 400
+  /// the server names explicitly — see `worker-qualifications.dto.ts`.
+  /// Worker from [authToken]; the response carries only counts, so nothing is
+  /// parsed back.
+  Future<void> updateQualifications({
+    required Map<String, dynamic> fields,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/qualifications',
       fields,
       authToken: authToken,
     );
@@ -1543,16 +1591,44 @@ class ApiClient {
     return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
   }
 
+  /// The server's REAL envelope (`AllExceptionsFilter`, every error response
+  /// app-wide) is `{statusCode, error: {message, issues?}, requestId, path,
+  /// timestamp}` — `message` sits under `error`, never at the top level. This
+  /// used to check the top level only, so it never matched, and fell through
+  /// to returning the WHOLE raw JSON body as the "message" — which a caller
+  /// that shows `Failure.message` directly (e.g. a form's inline submit
+  /// error) then rendered verbatim on screen as a wall of JSON.
+  ///
+  /// Prefers the FIRST validation issue's own message when present (Zod's
+  /// `.refine()` messages in this codebase are already written to be
+  /// worker-safe — e.g. "unrecognised city: Kota" — and are more actionable
+  /// than the generic "Validation failed" wrapping them), falls back to
+  /// `error.message`, then a legacy top-level `message` for any other shape,
+  /// and NEVER falls back to the raw body — an unparseable/unexpected shape
+  /// gets a safe, persona-neutral generic line instead.
   String _messageFrom(String body) {
     try {
       final dynamic decoded = jsonDecode(body);
-      if (decoded is Map<String, dynamic> && decoded['message'] != null) {
-        return decoded['message'].toString();
+      if (decoded is Map<String, dynamic>) {
+        final dynamic error = decoded['error'];
+        if (error is Map<String, dynamic>) {
+          final dynamic issues = error['issues'];
+          if (issues is List && issues.isNotEmpty) {
+            final dynamic first = issues.first;
+            if (first is Map<String, dynamic> && first['message'] is String) {
+              return first['message'] as String;
+            }
+          }
+          if (error['message'] is String) return error['message'] as String;
+        } else if (error is String && error.isNotEmpty) {
+          return error;
+        }
+        if (decoded['message'] is String) return decoded['message'] as String;
       }
     } catch (_) {
-      // fall through to raw body
+      // fall through to the generic line below
     }
-    return body.isEmpty ? 'request failed' : body;
+    return 'Kuch gadbad ho gayi. Dobara koshish karein.';
   }
 
   /// Best-effort decode of a response body to a `Map<String,dynamic>`, or null

@@ -145,5 +145,37 @@ void main() {
       expect(dto.jobType, isEmpty);
       expect(dto.shift, isEmpty);
     });
+
+    // #1429 — the state-then-city cascade: each city carries its state, and
+    // the response's own top-level `states` list is the picker's vocabulary.
+    test('parses state-tagged cities and the top-level states list', () {
+      final WorkPrefOptionsDto dto = WorkPrefOptionsDto.fromJson(<String, dynamic>{
+        'cities': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'value': 'Gurugram',
+            'aliases': <String>['gurgaon'],
+            'state': 'Haryana',
+          },
+          <String, dynamic>{'value': 'Pune', 'aliases': <String>[], 'state': 'Maharashtra'},
+        ],
+        'states': <String>['Haryana', 'Maharashtra'],
+      });
+      expect(dto.states, <String>['Haryana', 'Maharashtra']);
+      expect(dto.cities, hasLength(2));
+      expect(dto.cities.first.value, 'Gurugram');
+      expect(dto.cities.first.state, 'Haryana');
+      expect(dto.cities.last.state, 'Maharashtra');
+    });
+
+    test('missing state/states default to empty — never a crash on an '
+        'old-server response', () {
+      final WorkPrefOptionsDto dto = WorkPrefOptionsDto.fromJson(<String, dynamic>{
+        'cities': <Map<String, dynamic>>[
+          <String, dynamic>{'value': 'Pune', 'aliases': <String>[]},
+        ],
+      });
+      expect(dto.states, isEmpty);
+      expect(dto.cities.single.state, '');
+    });
   });
 }

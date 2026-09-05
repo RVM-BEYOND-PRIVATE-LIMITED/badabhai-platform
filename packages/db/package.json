@@ -121,6 +121,7 @@
     "db:audit:regression-case": "tsx src/audit-regression-case.ts",
     "db:audit:live-drift:ci": "tsx src/live-drift-ci.ts",
     "db:audit:undeclared-routines": "tsx src/audit-undeclared-routines.ts",
+    "db:audit:render-status": "tsx src/audit-render-status.ts",
     "db:export:alias-vectors": "tsx src/export-alias-vectors.ts",
     "db:discover:skills": "tsx src/discover-skills.ts",
     "db:export:approved-skills": "tsx src/export-approved-skills.ts",

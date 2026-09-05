@@ -67,13 +67,18 @@ describe("routeToTradeForm", () => {
 
   describe("a competing specialisation vetoes the route", () => {
     const conflicted: readonly (readonly [string, string])[] = [
-      // The ratified sample's own worker. Milling, not turning — and the sheet proves it.
+      // A rung with no occupation word. "Setter-cum-Operator" is shared vocabulary across every
+      // machining role, so it corroborates a pin and never carries a route by itself.
       ["CNC Machining", "VMC Setter-cum-Operator"],
-      ["CNC Machining", "VMC Operator"],
-      ["Manufacturing", "milling machine operator"],
-      ["Manufacturing", "grinding operator"],
+      // A role we DECLARE but do not serve. The veto is what keeps such a worker talking to the
+      // interview rather than being handed the nearest enabled form, and it is why a disabled
+      // descriptor is load-bearing rather than a placeholder. Grinding used to sit here too, and
+      // moved to its own block below when Batch 1 authored its pack.
       ["Manufacturing", "drilling operator"],
       // Ambiguous by the worker's own account: keep talking rather than guess which form fits.
+      // BOTH roles are enabled now, and this must STILL reach neither — an enabled rival is a
+      // stronger test of the veto than a declared-only one, because there is now a second form
+      // it could wrongly land in.
       ["CNC Machining", "CNC Turner cum VMC Operator"],
       ["CNC Machining", "turner and milling operator"],
     ];
@@ -88,6 +93,56 @@ describe("routeToTradeForm", () => {
     });
   });
 
+  describe("the machining-centre form, enabled in Batch 1", () => {
+    // THESE TWO USED TO ASSERT `null`, AND THE CHANGE IS THE FEATURE RATHER THAN A RELAXED TEST.
+    // They sat under "a competing specialisation vetoes the route" for one reason: turning was the
+    // only form that existed, so the only correct thing to do with a miller was to keep them
+    // talking. The assertion that mattered was never "reaches nothing" — it was "must not be
+    // handed the TURNER form", which is why each case below pins the kind rather than merely
+    // asserting non-null.
+    const milling: readonly (readonly [string, string])[] = [
+      ["CNC Machining", "VMC Operator"],
+      ["Manufacturing", "milling machine operator"],
+      ["CNC Machining", "HMC Operator"],
+      ["Manufacturing", "मिलिंग"],
+    ];
+    for (const [domain, role] of milling) {
+      it(`${role} reaches the machining-centre form and not the turner's`, () => {
+        expect(route(domain, role, null)).toBe("vmc_milling");
+      });
+    }
+
+    it("still needs a family pin for a bare machine word", () => {
+      // `vmc` is a MACHINE term, not an occupation: a worker who names the machine has told us
+      // what they stand at, not which of the occupations built around it is theirs. This is the
+      // `signals.py` rule that this router exists to hold, and enabling a second role is exactly
+      // when it would quietly stop holding.
+      expect(route("Manufacturing", "vmc", null)).toBeNull();
+      expect(route("Manufacturing", "vmc", "fam_vmc_milling")).toBe("vmc_milling");
+    });
+
+    it("does not let the machining-centre form claim a grinder", () => {
+      // THE THIRD MACHINING ROLE MAKES THIS SHARPER, not merely longer. Turner and miller vetoed
+      // "grinding" from the day grinding was DECLARED — the whole argument for declaring a role
+      // before building it. Now that grinding is enabled, the same word must ROUTE rather than
+      // only veto, and it must route to grinding and to neither of the other two.
+      expect(route("Manufacturing", "grinding operator", null)).toBe("cnc_grinding");
+      expect(route("Manufacturing", "surface grinder", "fam_cnc_grinding")).toBe("cnc_grinding");
+      expect(route("Manufacturing", "ghisai ka kaam", "fam_cnc_grinding")).toBe("cnc_grinding");
+      // And a worker who claims two of the three still reaches none of them.
+      expect(route("CNC Machining", "grinding aur turning dono", null)).toBeNull();
+      expect(route("CNC Machining", "milling aur grinding", null)).toBeNull();
+    });
+
+    it("does not let the turner form claim a miller, in either direction", () => {
+      // The symmetry is the point. Turner vetoes milling's vocabulary and milling vetoes
+      // turning's, both DERIVED from the shared `machining` cluster rather than hand-listed — so
+      // neither can be widened without the other following.
+      expect(route("CNC Machining", "VMC Operator", "fam_cnc_turning")).not.toBe("cnc_turner");
+      expect(route("Manufacturing", "CNC turner", "fam_vmc_milling")).not.toBe("vmc_milling");
+    });
+  });
+
   describe("routes nobody else", () => {
     const others: readonly (readonly [string | null, string | null])[] = [
       ["Retail", "Cashier"],
@@ -95,7 +150,14 @@ describe("routeToTradeForm", () => {
       ["Construction", "Electrician"],
       ["Garments", "Tailor"],
       ["Hospitality", "Cook"],
-      ["Welding", "MIG welder"],
+      // "Welding / MIG welder" USED TO LIVE HERE and has moved to a positive assertion below.
+      // It was correct while welding had no form; Batch 2 gave it one, so a MIG welder reaching
+      // NO form would now be the bug. Moved rather than deleted, because the reason it changed is
+      // the thing a reviewer needs to see.
+      //
+      // "Construction / Electrician" STAYS. `industrial_electrician` is declared but disabled —
+      // its words all reach fam_electrical's house wiring, so there is no form to route to and a
+      // domestic wireman must not be handed a VFD questionnaire.
       [null, null],
       ["", ""],
       [null, "   "],
@@ -105,6 +167,23 @@ describe("routeToTradeForm", () => {
         expect(route(domain, role, null)).toBeNull();
       });
     }
+
+    it("routes a welder to the welding form — Batch 2's first fabrication trade", () => {
+      // THE POSITIVE HALF OF THE ROW REMOVED ABOVE. "welder" is an occupation term, so it routes
+      // on its own evidence without needing a family pin — the same tier the turner's "turning"
+      // sits in.
+      expect(route("Welding", "MIG welder", null)).toBe("welder");
+      expect(route("Manufacturing", "Welder", null)).toBe("welder");
+    });
+
+    it("a welder who also names a fabrication rival reaches NO form", () => {
+      // THE CLUSTER VETO, measured rather than assumed. `sheet_metal_worker` and `press_operator`
+      // are declared in `fabrication` alongside welding, so their vocabulary is derived into
+      // welding's conflict set even though neither form ships yet — which is exactly what
+      // declaring a role early buys. A man who does both must keep talking.
+      expect(route("Fabrication", "Welder and sheet metal worker", null)).toBeNull();
+      expect(route("Fabrication", "Welder, powder coating bhi karta hoon", null)).toBeNull();
+    });
 
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
@@ -196,7 +275,13 @@ describe("routeToTradeForm", () => {
       // the model's draft is still empty — so every surface the veto could read says "turner",
       // and the worker's own "vmc" lives only in the sentence they typed.
       expect(
-        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "cnc turning aur vmc dono karta hoon"),
+        route(
+          null,
+          null,
+          "fam_cnc_turning",
+          "CNC Operator-Turning",
+          "cnc turning aur vmc dono karta hoon",
+        ),
       ).toBeNull();
     });
 

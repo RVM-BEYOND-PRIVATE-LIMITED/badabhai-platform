@@ -131,7 +131,16 @@ overrides:
   brace-expansion@<1.1.18: "^1.1.18"
   brace-expansion@>=2.0.0 <2.1.4: "^2.1.4"
   brace-expansion@>=5.0.0 <5.0.9: "^5.0.9"
-  fast-uri@<3.1.5: "^3.1.5"
+  # DEP-5 (2026-09-05). GHSA on <=4.28.6 (HIGH). Transitive under `@nestjs/cli` only —
+  # build tooling, never shipped to a production runtime. Same-major patch bump.
+  browserslist@<4.28.7: "^4.28.7"
+  # DEP-5 (2026-09-05). SUPERSEDES the DEP-3 floor above (was `<3.1.5: ^3.1.5`), the same
+  # shape as the `nanoid` and `postcss` entries below: GHSA-jqff-g426-hqxp (HIGH, host
+  # confusion via percent-encoded scheme normalization) is patched at 3.1.6, ONE patch past
+  # the old floor — and `^3.1.5` is satisfied by 3.1.5 itself, so pnpm never bumped further
+  # and the advisory stayed live behind a rule that looked like it covered it. Reached only
+  # through `@nestjs/cli` > `@angular-devkit/core` > `ajv` (24 paths, all build-tooling).
+  fast-uri@<3.1.6: "^3.1.6"
   js-yaml@<4.3.1: "^4.3.1"
   # DEP-4 (2026-08-17). SUPERSEDES the DEP-3 floor above (was `<3.3.17: ^3.3.17`):
   # GHSA-2v37-7h3g-55p8 (HIGH, custom generators can loop indefinitely when size is

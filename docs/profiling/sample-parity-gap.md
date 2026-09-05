@@ -57,11 +57,11 @@ its own class of gap and it costs nothing to close — no ask, no model, no migr
 | 4    | **promotion inside one employer** | Setter-cum-Operator, then VMC Operator, one tenure                | schema supports two roles; **Q1 ruled the form asks one role each**                                                                     | **no ask**               |
 | 4    | ">4 employers" collapse line      | (not on this sample)                                              | `employmentsMore` is built and rendered — but the form caps at **4**, so nothing can ever produce a fifth                               | **dead by construction** |
 | 5    | education level                   | ITI                                                               | `education` (universal), 5 options                                                                                                      | capturable               |
-| 5    | ITI trade                         | — Machinist                                                       | `education_field` is on the crosswalk; **no pack in 143 asks it**                                                                       | **no ask**               |
-| 5    | council                           | NCVT                                                              | **no field anywhere** — not on the draft, not in the corpus                                                                             | **no ask**               |
-| 5    | year                              | 2018                                                              | **no field anywhere**                                                                                                                   | **no ask**               |
-| 5    | institute                         | Govt. ITI, Faridabad                                              | **no field anywhere**                                                                                                                   | **no ask**               |
-| 5    | certificates — name, issuer, year | CNC / VMC Programming & Setting (RVM CAD, Faridabad, 2021)        | `certifications` is `string[]`; **no pack asks it**; no structure for issuer or year                                                    | **no ask**               |
+| 5    | ITI trade                         | — Machinist                                                       | `worker_education.field`, typed by the worker on the qualifications page (0098)                                                         | capturable               |
+| 5    | council                           | NCVT                                                              | `education_council` (R9 §3, closed set) and `worker_education.council` (0098)                                                           | capturable               |
+| 5    | year                              | 2018                                                              | `education_year` (R9 §3) and `worker_education.year` (0098), both bounded 1950–2100                                                     | capturable               |
+| 5    | institute                         | Govt. ITI, Faridabad                                              | `education_institute` (R9 §3) and `worker_education.institute` (0098); free text, PII-screened at capture                               | capturable               |
+| 5    | certificates — name, issuer, year | CNC / VMC Programming & Setting (RVM CAD, Faridabad, 2021)        | `worker_certificate` (0098) — the three fields, repeatable and ordered, via `PUT /workers/me/qualifications`                            | capturable               |
 | 5    | languages spoken                  | Hindi · Haryanvi · English                                        | `crosswalk.ts` records `draftPath: null` — **no ask, and no column**                                                                    | **no ask**               |
 | 5    | documents ready                   | Aadhaar · PAN · Bank · UAN/PF · ITI cert                          | `qualTickRows` renders it; **no pack asks it**                                                                                          | **no ask**               |
 | 6    | QR                                | scans to the profile                                              | `resume-qr.ts`, self-contained data URI                                                                                                 | capturable               |
@@ -82,9 +82,22 @@ no ask at all (`relocate`, `job type`, `accommodation`) — but every one of the
 closed-set answer that needs no model. §4.4 calls this "the block every competitor omits"; we omit
 it too, by accident.
 
-**Zone 5 is the largest remaining hole and it is all capture, not rendering.** Every row already
-renders — R5 fixed the education/certificates path — and five of its seven fields have no ask
-anywhere in 143 packs. `languages` has no column either.
+**Zone 5 WAS the largest remaining hole, and it is now closed except for `languages` and
+`documents ready`.** Every row already rendered — R5 fixed the education/certificates path — and
+the five credential fields had no ask anywhere in 143 packs. R9 §3 put the council, the year and
+the institute on the finishing form, and migration 0098 added `worker_certificate` /
+`worker_education` behind `PUT /workers/me/qualifications`, which is what finally gave the
+**Certificates** row a writer at all: it had printed only from LLM extraction, and the trade-form
+handover deliberately switches extraction off, so it had never appeared for a single form-first
+worker while `resume-degradation.ts` carried a ladder step to shed it.
+
+The table's remaining Zone 5 rows are `languages` (which has a column and an ask now, on the same
+finishing form) and `documents ready` — both closed-set and both on the preferences page.
+
+Two properties the new tables carry that the old scalars could not: education is REPEATABLE, so a
+worker with an ITI and a later diploma no longer overwrites one with the other; and both lists are
+ORDERED by the worker's own submission order rather than by year, so a regenerated PDF is not a
+false diff.
 
 **Three fields are structurally unreachable without a model** and no pack authoring changes that:
 the function modifier in the verdict line (§8.3 forbids inferring it), the promotion case, and the
@@ -95,10 +108,10 @@ already hold, and nothing has been built.
 
 ## Where each row goes
 
-| destination                   | rows                                                                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **§4 — the finishing form**   | languages, documents ready, job type, relocate, accommodation, shift (re-asked in the form so the answer reaches the page) |
-| **§4 — pure render wiring**   | salary (legacy branch), shift (legacy branch)                                                                              |
-| **§5 — the revised ask list** | ITI trade, council, certificate detail — Zone 5 credential structure                                                       |
-| **Q10 — the flip**            | function modifier, promotion case, own-words block                                                                         |
-| **not scheduled**             | trust badge (Phase 2 verification), Devanagari transliteration, salary range, the dead overflow line                       |
+| destination                   | rows                                                                                                                                                                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **§4 — the finishing form**   | languages, documents ready, job type, relocate, accommodation, shift (re-asked in the form so the answer reaches the page)                                                                                                                      |
+| **§4 — pure render wiring**   | salary (legacy branch), shift (legacy branch)                                                                                                                                                                                                   |
+| **§5 — the revised ask list** | ITI trade, council, certificate detail — Zone 5 credential structure. **DONE**: council/year/institute on the finishing form (R9 §3), and the trade plus repeatable certificates in `worker_education` / `worker_certificate` (migration 0098). |
+| **Q10 — the flip**            | function modifier, promotion case, own-words block                                                                                                                                                                                              |
+| **not scheduled**             | trust badge (Phase 2 verification), Devanagari transliteration, salary range, the dead overflow line                                                                                                                                            |

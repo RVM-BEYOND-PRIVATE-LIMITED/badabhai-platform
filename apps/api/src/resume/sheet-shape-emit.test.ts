@@ -93,6 +93,12 @@ describe.skipIf(!OUT_DIR)("emit the content-shape sheets for a real PDF render",
             // Without them "stage 3" says a sheet degraded three times and nothing about whether
             // any of the three was proportionate.
             trace: input.degradationTrace ?? [],
+            // THE 2026-09-03 RULING'S OUTCOME, emitted beside the stage that produced it. Since
+            // the ladder stops rather than shedding a ratified row, `stage: 0` no longer implies
+            // "fitted comfortably" — a sheet can be untouched AND over budget. The Docker
+            // measurement has to be read against which of those two it was.
+            overflows: input.degradationOverflows ?? false,
+            overBudgetLines: input.degradationOverBudgetLines ?? 0,
             lines: Number(sheetContentLines(input).toFixed(2)),
             // R8 §3 — THE ESTIMATOR'S OWN PREDICTION, written beside the sheet it predicts.
             //

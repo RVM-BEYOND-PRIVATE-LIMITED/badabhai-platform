@@ -19,6 +19,7 @@ class ResumeState extends Equatable {
     this.resumeText = '',
     this.nightShiftReady = false,
     this.document,
+    this.awaitingDocument = false,
   });
 
   final ResumeStatus status;
@@ -31,9 +32,26 @@ class ResumeState extends Equatable {
   /// on null, never treat it as "no resume".
   final ResumeDocument? document;
 
+  /// True for the SHORT window right after a fresh generate/handoff
+  /// (`generate()`/`showGenerated()`) while [document] is still being
+  /// fetched WITH RETRY (see [_loadDocumentWithRetry]) — `status` is already
+  /// `ready` (the text landed) but the authoritative structured render has
+  /// not resolved yet. The screen must show a LOADER while this is true,
+  /// never the [resumeText] fallback — see this class' own doc note on
+  /// [document] for why that fallback under-represents a form-first
+  /// worker's real content, which is exactly the "wrong info flashes then
+  /// gets replaced" symptom this flag exists to prevent.
+  ///
+  /// ALWAYS false outside that one window: never set by [refresh] (a
+  /// tab-focus reread of an ALREADY-shown resume — a loader there would
+  /// regress "a stale resume beats no resume"), and flipped back to `false`
+  /// the moment the retry settles, successfully or not — a worker is never
+  /// left on the loader forever, even if the retry budget runs out.
+  final bool awaitingDocument;
+
   @override
   List<Object?> get props =>
-      <Object?>[status, resumeText, nightShiftReady, document];
+      <Object?>[status, resumeText, nightShiftReady, document, awaitingDocument];
 }
 
 /// Drives the resume screen: a single generate-on-open action. A failure shows
@@ -89,6 +107,10 @@ class ResumeCubit extends Cubit<ResumeState> {
         status: ResumeStatus.ready,
         resumeText: text,
         nightShiftReady: state.nightShiftReady,
+        // A fresh generate — the structured document fetch below has not
+        // resolved yet. The screen shows a loader, not this text, until it
+        // does (see ResumeState.awaitingDocument's own doc).
+        awaitingDocument: true,
       ));
       // B7 funnel milestone — the worker reached a generated resume. Fired from
       // generate() only (never refresh(), which is a tab-focus re-read of an
@@ -100,9 +122,11 @@ class ResumeCubit extends Cubit<ResumeState> {
       }
       // Started together so the document fetch rides alongside the night-shift
       // fetch rather than doubling the wait — both are best-effort UPGRADES
-      // over the resume text already on screen.
+      // over the resume text already on screen. This is a FRESH generation
+      // (not a re-read of an existing resume), so the document is fetched
+      // WITH RETRY — see [_loadDocumentWithRetry].
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
-      final Future<ResumeDocument?> documentFuture = _loadDocument();
+      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
       final bool nightShiftReady = await nightShiftFuture;
       final ResumeDocument? document = await documentFuture;
       if (isClosed) return;
@@ -111,6 +135,10 @@ class ResumeCubit extends Cubit<ResumeState> {
         resumeText: text,
         nightShiftReady: nightShiftReady,
         document: document,
+        // Settled — successfully or not (the retry budget is bounded; see
+        // _loadDocumentWithRetry's own doc). Never leaves the worker on the
+        // loader forever.
+        awaitingDocument: false,
       ));
     } on ProfileIncompleteFailure catch (_) {
       if (isClosed) return;
@@ -135,9 +163,36 @@ class ResumeCubit extends Cubit<ResumeState> {
         final String retryText = await _repo.generateResume(force: false);
         if (isClosed) return;
         if (!_isBlank(retryText)) {
+          // THIS retry path was landing a worker on the Resume tab with the
+          // thin resumeText fallback and no loader at all — awaitingDocument
+          // defaults to false, and nothing here ever fetched the structured
+          // document. It is reachable disproportionately by FORM-FIRST
+          // workers (this whole branch only runs because "form handover
+          // skips extraction", per the class doc above), i.e. exactly the
+          // population the awaitingDocument fix in the happy path below was
+          // built for — so it needs the identical two-emit dance, not a
+          // shortcut. See ResumeState.awaitingDocument's own doc.
           emit(ResumeState(
             status: ResumeStatus.ready,
             resumeText: retryText,
+            awaitingDocument: true,
+          ));
+          if (!_resumeReadyLogged) {
+            _resumeReadyLogged = true;
+            unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
+          }
+          final Future<bool> nightShiftFuture = _loadNightShiftReady();
+          final Future<ResumeDocument?> documentFuture =
+              _loadDocumentWithRetry();
+          final bool nightShiftReady = await nightShiftFuture;
+          final ResumeDocument? document = await documentFuture;
+          if (isClosed) return;
+          emit(ResumeState(
+            status: ResumeStatus.ready,
+            resumeText: retryText,
+            nightShiftReady: nightShiftReady,
+            document: document,
+            awaitingDocument: false,
           ));
           return;
         }
@@ -220,27 +275,60 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   /// Display an already-generated resume (generated upstream by the Building
   /// screen) without re-running generation.
+  ///
+  /// MUST HOLD [_loading] FOR ITS WHOLE DURATION — this is the actual bug
+  /// behind 3 rounds of "the resume tab still shows incomplete info first",
+  /// and it was never in this method's own emit sequence (which was already
+  /// correct). The Building screen hands off via `context.go`, landing on
+  /// this cubit's `create:` on the VERY FIRST build of the resume tab
+  /// branch — before the shell's own `TabFocus` value has caught up (it
+  /// defaults to the jobs tab). `_syncActiveTabAfterBuild` (router.dart)
+  /// corrects that ONE frame later via `addPostFrameCallback`, which fires
+  /// `TabFocusRefetch` → [refresh]. Without a shared mutex, that [refresh]
+  /// call races the document poll below: `_loading` was still `false` (this
+  /// method never touched it), so [refresh] ran, reused the already-created
+  /// resume, and emitted `ready` with `awaitingDocument` defaulting to
+  /// `false` and `document` still `null` — the exact thin/incomplete
+  /// content the loader exists to hide, landing IN BETWEEN this method's
+  /// own correct first and second emits. A worker on their FIRST EVER
+  /// resume never taps anything to trigger this — the automatic post-frame
+  /// tab-sync alone reproduces it every time.
   Future<void> showGenerated(String text) async {
-    // #820 — the Building screen can hand off an empty body; never present it as a
-    // ready resume. Fail closed to the retry view.
-    if (_isBlank(text)) {
-      emit(const ResumeState(status: ResumeStatus.failed));
-      return;
+    if (_loading) return; // never race a concurrent refresh()/generate()
+    _loading = true;
+    try {
+      // #820 — the Building screen can hand off an empty body; never present it as a
+      // ready resume. Fail closed to the retry view.
+      if (_isBlank(text)) {
+        emit(const ResumeState(status: ResumeStatus.failed));
+        return;
+      }
+      // This hands off a JUST-generated resume (from the Building screen,
+      // right after trade-form/chat completion). The document fetch below is
+      // WITH RETRY (see [_loadDocumentWithRetry]) — the screen shows a loader
+      // for this window (awaitingDocument), never the bare text, so a
+      // form-first worker's thin fallback narrative never flashes on screen
+      // only to be replaced a moment later by the real structured content.
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        awaitingDocument: true,
+      ));
+      final Future<bool> nightShiftFuture = _loadNightShiftReady();
+      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
+      final bool nightShiftReady = await nightShiftFuture;
+      final ResumeDocument? document = await documentFuture;
+      if (isClosed) return;
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: nightShiftReady,
+        document: document,
+        awaitingDocument: false,
+      ));
+    } finally {
+      _loading = false;
     }
-    // Show the text immediately; load the night-shift pref + the structured
-    // document in the background.
-    emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
-    final Future<bool> nightShiftFuture = _loadNightShiftReady();
-    final Future<ResumeDocument?> documentFuture = _loadDocument();
-    final bool nightShiftReady = await nightShiftFuture;
-    final ResumeDocument? document = await documentFuture;
-    if (isClosed) return;
-    emit(ResumeState(
-      status: ResumeStatus.ready,
-      resumeText: text,
-      nightShiftReady: nightShiftReady,
-      document: document,
-    ));
   }
 
   /// Reload only the night-shift pref from the server — lightweight, no
@@ -287,6 +375,47 @@ class ResumeCubit extends Cubit<ResumeState> {
     }
   }
 
+  /// How many times [_loadDocumentWithRetry] re-checks a `null` document
+  /// before giving up, and how long it waits between checks. `GET
+  /// /resume/document` reads a STORED column (`resumeDocument`) that only a
+  /// server-side async render job writes — the write that triggered this
+  /// load (a fresh generate, or a description-source change) only ENQUEUES
+  /// that job and returns immediately, so a null on the first check is
+  /// routinely just the job not having landed yet, not "no document exists".
+  /// A CEILING to catch the common case, not a tuned value — the real
+  /// number should come from measured render-job p50/p95 (see
+  /// [kProfileExtractWaitBudget]'s own doc for the same caveat on the same
+  /// shape of problem). The principled fix is the server exposing
+  /// `render_status` on this response so the client polls a real signal
+  /// instead of blind-retrying a fixed count; raised as an issue.
+  /// Mutable (not `const`), matching the same test-seam shape as
+  /// `AppTypography.bundledBrandFonts` — a widget/bloc test sets
+  /// [documentPollInterval] to `Duration.zero` (restored in `tearDown`) so
+  /// the whole suite does not sit through real multi-second delays every
+  /// time a test's mock happens to answer the default `null`.
+  static int documentPollMaxAttempts = 6;
+  static Duration documentPollInterval = const Duration(seconds: 2);
+
+  /// [_loadDocument], retried on a `null` result — worst case adds ~10s
+  /// (5 waits × 2s) before accepting null as final. Stops the instant a
+  /// non-null document arrives. See [documentPollMaxAttempts]'s doc for why
+  /// this exists: without it, a worker who just finished the trade form (or
+  /// just changed a description source) can land on the Resume tab before
+  /// the async render job has written the document at all, and see a thin
+  /// generic-text fallback instead of the real trade-sheet content until
+  /// their next tab-focus or app restart happens to land after the job.
+  Future<ResumeDocument?> _loadDocumentWithRetry() async {
+    for (int attempt = 0; attempt < documentPollMaxAttempts; attempt++) {
+      final ResumeDocument? document = await _loadDocument();
+      if (document != null) return document;
+      if (isClosed) return null;
+      if (attempt < documentPollMaxAttempts - 1) {
+        await Future<void>.delayed(documentPollInterval);
+      }
+    }
+    return null;
+  }
+
   /// Resolves a short-lived signed url for the resume PDF, or null if it could
   /// not be fetched (the screen then shows a user-safe message). Does NOT change
   /// [ResumeState] — the resume is already shown; this is a side action. The url
@@ -324,7 +453,11 @@ class ResumeCubit extends Cubit<ResumeState> {
   }) async {
     await _repo.setEmploymentDescriptionSource(employmentId, ownWords: ownWords);
     if (isClosed) return;
-    final ResumeDocument? reloaded = await _loadDocument();
+    // This write ALSO enqueues an async re-render (same
+    // `RESUME_RENDER_QUEUE` the initial generate does — see
+    // `worker-employment.service.ts`'s `setDescriptionSource`), so the same
+    // race [_loadDocumentWithRetry] guards against applies here too.
+    final ResumeDocument? reloaded = await _loadDocumentWithRetry();
     if (isClosed) return;
     emit(ResumeState(
       status: state.status,

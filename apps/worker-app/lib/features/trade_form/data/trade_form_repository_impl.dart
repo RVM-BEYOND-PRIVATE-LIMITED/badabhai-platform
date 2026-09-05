@@ -120,6 +120,40 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     }
   }
 
+  @override
+  Future<QualificationOptionsDto> loadQualificationOptions() async {
+    final String token = _requireToken();
+    try {
+      return await _api.getQualificationOptions(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<void> saveQualifications(
+    TradeFormQualifications qualifications,
+  ) async {
+    final String token = _requireToken();
+    try {
+      await _api.updateQualifications(
+        fields: qualifications.toJson(),
+        authToken: token,
+      );
+    } on ApiException catch (error) {
+      // A 400 here is most often the phone/email-shape screen naming the
+      // offending field ("remove contact details from the issuer") — surface
+      // the server's own message honestly, same convention as every other
+      // write on this repository.
+      if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
+        throw InvalidRequestFailure(error.message);
+      }
+      throw mapError(error);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
   // ---- wire → domain, mirrors HttpVoiceFormGateway's defensive parsing:
   // a malformed section/screen/question is DROPPED rather than thrown, so one
   // bad row never takes the whole form down for a worker who can still fill
@@ -172,6 +206,13 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         return const TradeFormPreferencesStep();
       case 'employment':
         return const TradeFormEmploymentStep();
+      case 'qualifications':
+        return TradeFormQualificationsStep(
+          suggestedCertificates: (json['suggested_certificates'] as List<dynamic>?)
+                  ?.whereType<String>()
+                  .toList() ??
+              const <String>[],
+        );
       default:
         return null;
     }
@@ -212,6 +253,10 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         .map((Map<dynamic, dynamic> o) => VoiceChoice(
               key: o['option_key'] as String? ?? '',
               label: o['label_text'] as String? ?? '',
+              // #1382 — carried onto the domain model so a multi-select
+              // renderer can keep this option mutually exclusive with every
+              // other one; previously parsed away entirely.
+              isNoneOfAbove: o['is_none_of_above'] as bool? ?? false,
             ))
         .where((VoiceChoice c) => c.key.isNotEmpty)
         .toList();
@@ -248,6 +293,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
           : TradeFormAnswerStatus.answered,
       answered: (json['answered'] as num?)?.toInt() ?? 0,
       total: (json['total'] as num?)?.toInt() ?? 0,
+      // #1382 — absent on the wire today (backend work in progress);
+      // missing/null reads as false, the current, correct behaviour.
+      schemaStale: json['schema_stale'] as bool? ?? false,
     );
   }
 }

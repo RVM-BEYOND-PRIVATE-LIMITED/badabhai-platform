@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildEmploymentBlock,
+  totalEmployedYears,
   EMPLOYMENT_BLOCK_BUDGET,
   type WorkerEmploymentRecord,
 } from "./resume-employment-rows";
@@ -263,6 +264,10 @@ describe("§11 #14 — promoted within one employer", () => {
     // fully-answered turner it wraps: the parity sheet went from `degradationStage: 0` to STAGE 2,
     // shedding the Languages row and two materials chips. The placement is not affordable at
     // `SHEET_LINE_BUDGET = 41`, which R9 §5 measured as un-raiseable. See the parity contract.
+    //
+    // STILL NOT AFFORDABLE AFTER THE 2026-09-03 RULING, and for a restated reason: the ladder may
+    // no longer shed those rows, so the same wrap now buys a SECOND PAGE rather than two §5.1
+    // losses. The price moved; it did not fall.
     const { employments } = buildEmploymentBlock(
       [
         employment({
@@ -374,5 +379,71 @@ describe("tenure arithmetic", () => {
       asOf: AS_OF,
     });
     expect(employments[0]!.when).toBe("Duration not stated");
+  });
+});
+
+/**
+ * THE HEADLINE'S YEARS FIGURE, WHEN THE CONTAINER HAS NONE (#1377).
+ *
+ * The Verdict Line sums `rp.experiences[].duration_months`. A form-first worker has none of
+ * those — the router can hand them the form on their first message, so the universal experience
+ * question is never asked and extraction never runs — while the work-history screen they then
+ * fill collects exact dated employments. §5.1's highest-ranked element printed blank for a worker
+ * who had just typed in their whole history.
+ *
+ * THE FABRICATION GATE CANNOT SEE THESE CASES. It checks that a printed digit is derivable, so it
+ * catches an inflated total (verified by mutation) and says nothing about a total that is absent
+ * when it should be present, or present when it should be absent. Those are here.
+ */
+describe("totalEmployedYears", () => {
+  it("sums consecutive employments rather than spanning first to last", () => {
+    // The ratified samples add up: Vinod Sharma's three jobs print as one total, not as the gap
+    // between his first start date and today.
+    const years = totalEmployedYears(
+      [
+        employment({ startYm: "2021-04", endYm: null }),
+        employment({ startYm: "2019-01", endYm: "2021-03" }),
+      ],
+      AS_OF,
+    );
+    // Apr 2021–Aug 2026 is 65 months; Jan 2019–Mar 2021 is 27. 92/12 = 7.7.
+    expect(years).toBe(7.7);
+  });
+
+  it("prints NOTHING when any employment's dates are unstated — all or nothing", () => {
+    // A total that quietly omits the job whose dates the worker could not give is a false number
+    // on a printed page, and worse than no number because it reads as complete. Same rule the
+    // overflow line's months segment already follows.
+    expect(
+      totalEmployedYears(
+        [
+          employment({ startYm: "2021-04", endYm: null }),
+          employment({ startYm: null, endYm: null, durationStated: false }),
+        ],
+        AS_OF,
+      ),
+    ).toBeNull();
+  });
+
+  it("counts a promotion once — role stints subdivide an employment, they do not add to it", () => {
+    const promoted = employment({
+      startYm: "2020-01",
+      endYm: "2024-01",
+      roles: [
+        { roleLabel: "Operator", startYm: "2020-01", endYm: "2022-01", workDone: "Running" },
+        { roleLabel: "Setter", startYm: "2022-02", endYm: "2024-01", workDone: "Setting" },
+      ],
+    });
+    // Jan 2020 – Jan 2024 inclusive is 49 months = 4.1 years. Counting the two stints as well
+    // would roughly double it.
+    expect(totalEmployedYears([promoted], AS_OF)).toBe(4.1);
+  });
+
+  it("has no opinion when there is no history at all", () => {
+    expect(totalEmployedYears([], AS_OF)).toBeNull();
+  });
+
+  it("needs a clock to close an open-ended job, and refuses rather than guessing one", () => {
+    expect(totalEmployedYears([employment({ endYm: null })], null)).toBeNull();
   });
 });

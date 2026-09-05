@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show SystemUiOverlayStyle;
+import 'package:flutter/services.dart'
+    show SystemUiOverlayStyle, TextInputFormatter;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -9,6 +10,7 @@ import '../../../core/api/api_models.dart'
     show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind, FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/util/devanagari_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -136,6 +138,12 @@ class _ChatViewState extends State<_ChatView> {
   /// True while the profile preview is being opened (#372) — see
   /// [_openProfilePreview] for why a bool and not just the disabled state.
   bool _openingPreview = false;
+
+  /// Sticky once a Devanagari keystroke (typed or dictated) has been
+  /// stripped from the composer — see [DevanagariBlockFormatter]. No
+  /// resume-rendering step transliterates Hindi script today (#1411), so
+  /// this stops it reaching a worker's printed resume at the source instead.
+  bool _devanagariBlocked = false;
 
   /// True while the trade-form handover is being opened (#1340) — same
   /// same-frame double-tap guard as [_openingPreview]; see [_openTradeForm].
@@ -448,12 +456,19 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// Put recognised [text] in the composer with the caret at the end.
+  ///
+  /// A programmatic write like this NEVER goes through the field's
+  /// [DevanagariBlockFormatter] (formatters only intercept interactive
+  /// keyboard input) — dictation is a separate route into the same box, so
+  /// it needs its own strip here rather than relying on the formatter.
   void _landDictation(String text) {
     if (text.isEmpty || !mounted) return;
+    final String romanized = stripDevanagari(text);
     setState(() {
+      if (romanized != text) _devanagariBlocked = true;
       _controller.value = TextEditingValue(
-        text: text,
-        selection: TextSelection.collapsed(offset: text.length),
+        text: romanized,
+        selection: TextSelection.collapsed(offset: romanized.length),
       );
     });
   }
@@ -522,7 +537,10 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// A transient, honest snackbar for the hold-to-talk failure paths (mic
-  /// denied, nothing heard, transcription unavailable). Typing is never blocked.
+  /// denied, nothing heard, transcription unavailable). Typing itself is
+  /// never blocked, except character-by-character for Devanagari script
+  /// (see [_devanagariBlocked] / [DevanagariBlockFormatter]), which uses the
+  /// persistent [_replyNotice] instead of this transient one.
   void _showComposerNotice(String message) {
     if (!mounted || message.trim().isEmpty) return;
     // Plain Text on purpose: a custom AppTypography style defaults to a DARK
@@ -940,6 +958,14 @@ class _ChatViewState extends State<_ChatView> {
                           color: AppColors.textMuted,
                           text: maintenance,
                         ),
+                      // #1411 — Devanagari never reaches the composer; this
+                      // is why, the first time it happens this session.
+                      if (_devanagariBlocked)
+                        _replyNotice(
+                          icon: Icons.error_outline,
+                          color: AppColors.red600,
+                          text: kDevanagariBlockedHint,
+                        ),
                       _bottomComposerSegment(state, showVoice),
                     ],
                   ),
@@ -1056,6 +1082,11 @@ class _ChatViewState extends State<_ChatView> {
             maxLines: 4,
             textInputAction: TextInputAction.send,
             onSubmitted: (_) => _send(),
+            inputFormatters: <TextInputFormatter>[
+              DevanagariBlockFormatter(
+                onBlocked: () => setState(() => _devanagariBlocked = true),
+              ),
+            ],
             // Compact composer (owner request): body-size text + dense padding so
             // the field is shorter and leaves more transcript visible with the
             // keyboard open. Matches the chat bubble size (sizeSm).

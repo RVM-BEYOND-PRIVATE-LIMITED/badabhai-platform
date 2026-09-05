@@ -410,7 +410,18 @@ const CONTRACT: ControllerContract[] = [
     // unreachable by the only caller that would ever emit it. It is worker-authed, consent-gated,
     // ownership-checked and rate-limited now. THIS IS THE THIRD PLACE that pinned those guards
     // (with resume-consent.authz.test.ts and prod-canary's OPS_ROUTES); they move together.
-    routes: { generate: [C, W], get: [I], regenerate: [I], download: [W], share: [C, W] },
+    // #1397 — `myDocument` was MISSING from this register since it shipped (#1339). The
+    // enumeration test below only checks listed→exists, never exists→listed, so a route can be
+    // absent here silently; a worker-authed, consent-gated read went two releases with its
+    // guards pinned nowhere. It is [C, W] like every sibling worker read on this controller.
+    routes: {
+      generate: [C, W],
+      myDocument: [C, W],
+      get: [I],
+      regenerate: [I],
+      download: [W],
+      share: [C, W],
+    },
   },
   {
     name: "Unlocks",

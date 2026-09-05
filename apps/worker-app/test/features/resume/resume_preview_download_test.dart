@@ -34,6 +34,20 @@ class MockProfileRepository extends Mock implements ProfileRepository {}
 /// file. The repo resolves the `mock://` sentinel, so no byte fetch happens
 /// (exactly the offline mock-mode walk).
 void main() {
+  // The document mock below answers `null` throughout this file (its own
+  // structured-document coverage lives in resume_document_render_test.dart).
+  // Collapsed to a single attempt (matches the pre-retry behaviour exactly)
+  // — a real retry would leave a pending Timer past this file's fixed pump
+  // counts and trip the widget-test binding's `!timersPending` assertion.
+  setUpAll(() {
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
+  });
+  tearDownAll(() {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
+  });
+
   const MethodChannel channel = MethodChannel('badabhai.workerapp/downloads');
 
   late MockResumeRepository repo;

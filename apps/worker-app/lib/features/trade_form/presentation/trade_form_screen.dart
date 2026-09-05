@@ -14,6 +14,7 @@ import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
 import 'widgets/trade_form_preferences_page.dart';
 import 'widgets/trade_form_progress_bar.dart';
+import 'widgets/trade_form_qualifications_page.dart';
 import 'widgets/trade_form_question_body.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
@@ -192,11 +193,14 @@ class _ErrorBody extends StatelessWidget {
 }
 
 /// The main walk chrome: a per-step header (section title, back-to-previous),
-/// a progress bar, the swapped step body, and — for the two marker screens
-/// ONLY — a sticky save/advance button. A question screen has no such
-/// button: it advances from its OWN inline controls
-/// ([TradeFormQuestionBody]), since each question is its own
-/// `POST /profiling/form/answer` rather than a batched page write.
+/// a progress bar, and the swapped step body. A marker screen's sticky
+/// save/advance button ([_MarkerBottomBar]) lives HERE, a sibling of the
+/// scrollable body; a question screen's own pinned submit button lives
+/// INSIDE [TradeFormQuestionBody] instead (it needs the live draft text/
+/// selection, which only that widget holds) — either way every "Aage
+/// badhein" on this walk is fixed at the bottom, never scrolls away. Each
+/// question answer is still its own `POST /profiling/form/answer` rather
+/// than a batched page write.
 class _WizardScaffold extends StatefulWidget {
   const _WizardScaffold({required this.state});
   final TradeFormState state;
@@ -215,6 +219,125 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       GlobalKey<TradeFormPreferencesPageState>();
   final GlobalKey<TradeFormEmploymentPageState> _empKey =
       GlobalKey<TradeFormEmploymentPageState>();
+  final GlobalKey<TradeFormQualificationsPageState> _qualsKey =
+      GlobalKey<TradeFormQualificationsPageState>();
+
+  // #1384 item 2 — the currently-mounted marker's own INTERNAL page state,
+  // mirrored up here so the ONE shared sticky bottom bar / header back arrow
+  // can act on the right target: an internal "Aage badhein" that only moves
+  // within this marker, vs the true save that reaches `widget.onSave(...)`
+  // and advances the OUTER walk (`TradeFormCubit.flatSteps`/`currentIndex`,
+  // which this pagination never touches — see the marker widgets' own class
+  // docs). A marker widget cannot call `setState` on this DIFFERENT State
+  // object from inside its own build phase, so it reports through
+  // `onPageChanged` instead (see `TradeFormPreferencesPage.onPageChanged`'s
+  // doc) — deferred via `addPostFrameCallback` for the very first report,
+  // called directly on every later page change (a normal button tap, never
+  // mid-build).
+  //
+  // Defaults deliberately assume "more than one page, not yet on the last
+  // one" — `_markerPage(0) < _markerPageCount(2) - 1` — so the ONE transient
+  // frame before a freshly-mounted marker's real page count arrives never
+  // shows the true-final (green/"Ho gaya") treatment prematurely; the worse
+  // case is a harmless one-frame "Aage badhein" on a marker that turns out
+  // to be single-page (`TradeFormEmploymentPageState.pageCount` with no
+  // entries yet), self-corrected the instant the post-frame callback fires.
+  int _markerPage = 0;
+  int _markerPageCount = 2;
+
+  @override
+  void didUpdateWidget(covariant _WizardScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.state.currentIndex != widget.state.currentIndex) {
+      // A freshly (re)mounted marker widget always starts its own internal
+      // `_page` at 0 (a brand-new State object — see `_prefsKey`'s doc on
+      // why a GlobalKey cannot survive the unmount) — mirror that here so
+      // this frame's bottom-bar label never reads stale from the PREVIOUS
+      // step, before the new marker's own post-frame report (if any) lands.
+      _markerPage = 0;
+      _markerPageCount = 2;
+    }
+  }
+
+  bool _isMarkerStep(TradeFormStep? step) =>
+      step is TradeFormPreferencesStep ||
+      step is TradeFormEmploymentStep ||
+      step is TradeFormQualificationsStep;
+
+  void _onMarkerPageChanged(int page, int pageCount) {
+    if (!mounted) return;
+    setState(() {
+      _markerPage = page;
+      _markerPageCount = pageCount;
+    });
+  }
+
+  /// The current marker page's blocking validation message, or null — e.g.
+  /// a "kis saal" field still showing a future/invalid year. A red inline
+  /// message with no way to stop "Aage badhein" was a real, reported bug;
+  /// this is the actual gate, checked before every advance/save below.
+  String? _currentMarkerPageError(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      return _prefsKey.currentState?.currentPageError();
+    } else if (step is TradeFormEmploymentStep) {
+      return _empKey.currentState?.currentPageError();
+    } else if (step is TradeFormQualificationsStep) {
+      return _qualsKey.currentState?.currentPageError();
+    }
+    return null;
+  }
+
+  /// Docks at the TOP of the scaffold body (unlike a `SnackBar`, which
+  /// always animates from the bottom) — the owner's explicit ask for a red
+  /// banner where the worker's eyes already are, right under the header,
+  /// not somewhere they have to look down for.
+  void _showBlockedBanner(String message) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.danger,
+        content: Text(message,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: Colors.white)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Theek hai',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
+  }
+
+  void _goToNextMarkerPage(TradeFormStep? step) {
+    final String? error = _currentMarkerPageError(step);
+    if (error != null) {
+      _showBlockedBanner(error);
+      return;
+    }
+    if (step is TradeFormPreferencesStep) {
+      _prefsKey.currentState?.goToNextPage();
+    } else if (step is TradeFormEmploymentStep) {
+      _empKey.currentState?.goToNextPage();
+    } else if (step is TradeFormQualificationsStep) {
+      _qualsKey.currentState?.goToNextPage();
+    }
+  }
+
+  void _goToPreviousMarkerPage(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      _prefsKey.currentState?.goToPreviousPage();
+    } else if (step is TradeFormEmploymentStep) {
+      _empKey.currentState?.goToPreviousPage();
+    } else if (step is TradeFormQualificationsStep) {
+      _qualsKey.currentState?.goToPreviousPage();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -222,6 +345,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     final TradeFormState state = widget.state;
     final TradeFormStep? step = state.currentStep;
     final bool enabled = !state.isSubmitting;
+    final bool isMarkerStep = _isMarkerStep(step);
+    final bool markerOnLastInternalPage = _markerPage >= _markerPageCount - 1;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -229,7 +354,14 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         children: <Widget>[
           BbBlueHeader(
             title: state.currentSectionTitle ?? '',
-            onBack: state.isFirstStep ? () => context.pop() : cubit.goBack,
+            // #1384 item 2 — a marker mid-way through its own internal pages
+            // walks BACKWARD through those first; only once it is back on
+            // its own first internal page does the SAME back arrow fall
+            // through to the outer-step behaviour every other step already
+            // has.
+            onBack: (isMarkerStep && _markerPage > 0)
+                ? () => _goToPreviousMarkerPage(step)
+                : (state.isFirstStep ? () => context.pop() : cubit.goBack),
           ),
           Expanded(
             child: SafeArea(
@@ -240,8 +372,28 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                   Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    child:
-                        TradeFormProgressBar(answered: state.answered, total: state.total),
+                    // #1384 — deliberately NOT `state.answered`/`state.total`
+                    // (those are QUESTION-only counters, server-authoritative
+                    // per #1375, and stay untouched here). The bar instead
+                    // renders progress through the WHOLE walk — questions AND
+                    // marker screens — using the worker's own position
+                    // (`currentIndex`) against the true step count
+                    // (`flatSteps.length`), so it also moves while filling a
+                    // preferences/employment marker screen instead of sitting
+                    // frozen. `+ 1` so the very first step still shows a
+                    // sliver rather than reading empty, and the LAST step
+                    // reads fully complete rather than stuck one short;
+                    // clamped and `flatSteps`-empty-guarded defensively even
+                    // though neither should happen per this state's own
+                    // invariants.
+                    child: TradeFormProgressBar(
+                      answered: state.flatSteps.isEmpty
+                          ? 0
+                          : (state.currentIndex + 1)
+                              .clamp(0, state.flatSteps.length)
+                              .toInt(),
+                      total: state.flatSteps.length,
+                    ),
                   ),
                   if (state.submitError != null) ...<Widget>[
                     const SizedBox(height: AppSpacing.s3),
@@ -256,22 +408,52 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     ),
                   ],
                   Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
-                          AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
-                      child: _stepBody(step, cubit, enabled),
-                    ),
+                    // A question step (`TradeFormQuestionBody`) manages its
+                    // OWN internal scroll region + pinned submit footer (the
+                    // "Aage badhein"/"Submit karein" button must stay fixed
+                    // at the bottom, not scroll away on a long question) — so
+                    // it is handed the raw space directly, unwrapped. Every
+                    // other step keeps the plain scroll-the-whole-body
+                    // treatment.
+                    child: step is TradeFormQuestionStep
+                        ? _stepBody(step, cubit, enabled, state)
+                        : SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.gutter,
+                                AppSpacing.s4,
+                                AppSpacing.gutter,
+                                AppSpacing.s4),
+                            child: _stepBody(step, cubit, enabled, state),
+                          ),
                   ),
-                  if (step is TradeFormPreferencesStep ||
-                      step is TradeFormEmploymentStep)
+                  if (isMarkerStep)
                     _MarkerBottomBar(
-                      isLast: state.isLastStep,
+                      // #1384 item 2 — "the true final button for THIS
+                      // marker" now requires BOTH: the outer walk has
+                      // nothing after it (`state.isLastStep`, unchanged) AND
+                      // this marker itself is on its own last internal page.
+                      // Every internal-pagination "next" tap — including on
+                      // a marker whose outer step happens to be last — stays
+                      // the ordinary advance button; only the one tap that
+                      // ACTUALLY calls `.save()` gets the last-step styling.
+                      isLast: state.isLastStep && markerOnLastInternalPage,
                       isSubmitting: state.isSubmitting,
                       onPressed: () {
+                        if (!markerOnLastInternalPage) {
+                          _goToNextMarkerPage(step);
+                          return;
+                        }
+                        final String? error = _currentMarkerPageError(step);
+                        if (error != null) {
+                          _showBlockedBanner(error);
+                          return;
+                        }
                         if (step is TradeFormPreferencesStep) {
                           _prefsKey.currentState?.save();
                         } else if (step is TradeFormEmploymentStep) {
                           _empKey.currentState?.save();
+                        } else if (step is TradeFormQualificationsStep) {
+                          _qualsKey.currentState?.save();
                         }
                       },
                     ),
@@ -284,7 +466,12 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     );
   }
 
-  Widget _stepBody(TradeFormStep? step, TradeFormCubit cubit, bool enabled) {
+  Widget _stepBody(
+    TradeFormStep? step,
+    TradeFormCubit cubit,
+    bool enabled,
+    TradeFormState state,
+  ) {
     if (step is TradeFormQuestionStep) {
       return TradeFormQuestionBody(
         key: ValueKey<String>(step.question.id),
@@ -297,6 +484,10 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         onSubmitText: (String text) =>
             cubit.answerQuestion(step, TradeFormAnswer.text(text)),
         onDecline: () => cubit.declineQuestion(step),
+        // #1384 item 3 — reliable per #1376's fix to `answerQuestion`: a
+        // question on the walk's true last step emits `done` directly on
+        // submit rather than silently advancing.
+        isLastStep: state.isLastStep,
       );
     }
     if (step is TradeFormPreferencesStep) {
@@ -305,6 +496,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.savePreferencesAndAdvance,
+        initialPreferences: state.savedPreferences,
+        onPageChanged: _onMarkerPageChanged,
       );
     }
     if (step is TradeFormEmploymentStep) {
@@ -312,6 +505,19 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         key: _empKey,
         enabled: enabled,
         onSave: cubit.saveEmploymentAndAdvance,
+        initialEntries: state.savedEmployment,
+        onPageChanged: _onMarkerPageChanged,
+      );
+    }
+    if (step is TradeFormQualificationsStep) {
+      return TradeFormQualificationsPage(
+        key: _qualsKey,
+        suggestedCertificates: step.suggestedCertificates,
+        enabled: enabled,
+        loadOptions: cubit.loadQualificationOptions,
+        onSave: cubit.saveQualificationsAndAdvance,
+        initialQualifications: state.savedQualifications,
+        onPageChanged: _onMarkerPageChanged,
       );
     }
     return const SizedBox.shrink();
@@ -340,6 +546,13 @@ class _MarkerBottomBar extends StatelessWidget {
       ),
       child: BbButton(
         label: isLast ? _kFinish : _kNext,
+        // #1384 item 3 — [isLast] here already means "the true final save"
+        // (see the `_MarkerBottomBar(...)` call site's own comment) —
+        // green, reserved for exactly this ("Money / WhatsApp / done ONLY",
+        // `bb_button.dart`'s own doc on `BbButtonVariant.success`).
+        // navy (not primary/haldi) — haldi is IDENTICAL to a selected
+        // BbChip's fill, so this nav button read as just another option.
+        variant: isLast ? BbButtonVariant.success : BbButtonVariant.navy,
         block: true,
         loading: isSubmitting,
         onPressed: isSubmitting ? null : onPressed,

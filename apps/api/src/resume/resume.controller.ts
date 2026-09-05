@@ -29,6 +29,7 @@ import {
   GenerateResumeSchema,
   ShareResumeSchema,
   type GenerateResumeDto,
+  type MyResumeDocumentResponse,
   type ShareResumeDto,
 } from "./resume.dto";
 
@@ -82,7 +83,8 @@ export class ResumeController {
   }
 
   /**
-   * The acting worker's own resume as structured data.
+   * The acting worker's own resume as structured data, with the render signals a client polls
+   * on ({@link MyResumeDocumentResponse}).
    *
    * DECLARED BEFORE `@Get(":id")` AND THAT IS LOAD-BEARING. Nest matches routes in
    * declaration order, so a literal path that shares a segment with a parameterised one has to
@@ -90,9 +92,12 @@ export class ResumeController {
    * `ParseUUIDPipe` as a 400.
    */
   @Get("document")
-  @Header("Cache-Control", "no-store") // carries the worker's own name and phone
+  // Carries the worker's own name and phone — AND, since #1397, is a route clients poll: a
+  // cached 'pending' would be a poll that can never observe the render landing. Both reasons
+  // are independently sufficient; neither may be removed on the strength of the other.
+  @Header("Cache-Control", "no-store")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
-  myDocument(@CurrentWorker() worker: AuthenticatedWorker) {
+  myDocument(@CurrentWorker() worker: AuthenticatedWorker): Promise<MyResumeDocumentResponse> {
     return this.resume.myDocument(worker.id);
   }
 

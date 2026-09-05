@@ -133,7 +133,7 @@ believed to be covered, and one of them was documented as covered in a code comm
 
 ### (1) The leading-position carve-out defers to a closed city gazetteer
 
-`pseudonymize.py`'s positional heuristic `^\s*([A-Z][a-z]+)\s*,` was masking **33 of the 36
+`pseudonymize.py`'s positional heuristic `^\s*([A-Z][a-z]+)\s*,` was masking **35 of the 38
 canonical cities** to `[PERSON_n]` — directly against the owner ruling of 2026-07-31 written four
 lines below it in the same file. Fixed by deferring the no-cue guess to the gazetteer the module
 already imported and never consulted. The cue rule (`mera naam X`) is untouched.
@@ -146,6 +146,43 @@ was previously masked by accident.
 Strictly smaller than what R32 already accepts — it needs a name in a 40-string set, at offset 0,
 immediately before a comma, exactly title-cased ASCII, against R32's existing finding that 3 of 4
 natural un-cued forms leak anyway. **But see (2) before assuming the upstream mitigation applies.**
+
+#### 2026-09-04 — the carve-out set is now being enlarged DELIBERATELY (#1409)
+
+The Surat/Sanand residual above was a **side effect** of a bug fix: the set was what it was, and
+deferring to it happened to release two names. `#1409` changes the character of that acceptance,
+so it is re-recorded rather than inherited. `kota` and `neemrana` were added to the gazetteer
+because the platform already assumed them — `job_search_screen.dart` ships the hint *"jaise Kota,
+Rajasthan"* while the write path answered `unrecognised city: Kota`, and two **ratified résumé
+shapes** print `Neemrana` as a preferred location the same path rejects.
+
+**The delta, per city, measured rather than asserted:**
+
+- **`Neemrana` — provably empty.** Nobody is named Neemrana. No worker's name stops being masked.
+- **`Kota` — a real new member of this residual.** Kota is an established Telugu surname. A worker
+  named Kota writing `"Kota, main fitter hoon"` now reaches a provider unmasked, where the
+  positional heuristic previously masked him by accident. This is the same shape as Surat and
+  Sanand, and it is now the result of a deliberate policy of growing the gazetteer rather than of
+  a one-off correction.
+
+**The counter-argument, also measured, so the trade is the real one:** the omission was not
+protecting him either. Only the exact leading form `^Kota,` masked. `main Kota me rehta hu`,
+`Kota me kaam karta hu`, `KOTA,` and `Kota Kumar,` all egress verbatim on shipped code today —
+consistent with R32's own 3-of-4-forms-leak finding above. And per **(2) below**, the
+`redactKnownName` mitigation cannot be credited here: it runs on `profile_extraction`, while the
+armed task is `profiling_chat_turn`.
+
+**What is NOT decided by this entry.** Nine further candidate cities are also real Indian personal
+names — `Salem`, `Anand`, `Daman`, `Tirupati`, `Vidisha`, `Rewa`, `Alwar`, `Ajmer`, `Karur`. This
+acceptance covers `Kota` only, on the strength of #1409 naming it. Whether the argument extends to
+those is an **open owner ruling**, and it should be made before any bulk addition — `Anand` and
+`Salem` are the highest-frequency collisions and additionally corrupt data, since a hit writes a
+wrong `current_city` and fabricates `relocation_willingness`.
+
+**No test can catch a bad addition here, and one asserts the opposite.**
+`tests/test_pseudonymize.py`'s property test over the whole carve-out union asserts that no member
+is masked in the leading position — so every city added makes it *more* green. This register entry
+and the PR body are the only places the argument exists.
 
 ### (2) `redactKnownName` covers extraction ONLY, not the armed chat turn
 

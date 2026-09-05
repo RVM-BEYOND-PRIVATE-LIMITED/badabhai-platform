@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -35,9 +37,29 @@ void main() {
     // #1343 — the ORDINARY answer (no structured document yet). Tests below
     // that care about a real document override this per-test.
     when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
+    // The default answer above is `null` on every call, which would
+    // otherwise run every retrying document fetch through its full real
+    // multi-second backoff on every single test in this file (see
+    // ResumeCubit.documentPollInterval's own doc for why the retry exists).
+    // Collapsed to a single attempt for the whole suite (matches the
+    // pre-retry behaviour exactly); restored in tearDown. A test that wants
+    // to exercise the retry itself overrides both back per-test.
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
+  });
+
+  tearDown(() {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
   });
 
   // bloc emits the first state even when it equals the initial `loading`.
+  //
+  // THREE states, not two: `generate()` (#1398) emits `ready` once
+  // IMMEDIATELY with the text (awaitingDocument: true — the structured
+  // document fetch has not resolved yet, so the screen shows a loader, not
+  // this text) and again once the document fetch SETTLES
+  // (awaitingDocument: false) — see ResumeState.awaitingDocument's own doc.
   blocTest<ResumeCubit, ResumeState>(
     'generate success -> ready with the resume text',
     build: () {
@@ -47,6 +69,12 @@ void main() {
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
       ResumeState(status: ResumeStatus.loading),
+      ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: 'RESUME TEXT',
+        nightShiftReady: false,
+        awaitingDocument: true,
+      ),
       ResumeState(
         status: ResumeStatus.ready,
         resumeText: 'RESUME TEXT',
@@ -287,6 +315,44 @@ void main() {
       expect(cubit.state.document, same(tradeSheet));
     });
 
+    // The real bug behind 3 rounds of "the resume tab still shows incomplete
+    // info first": showGenerated() (the Building-screen handoff — every
+    // worker's FIRST EVER landing on the resume tab) never held `_loading`,
+    // so the automatic post-frame tab-sync's `refresh()` call (fired on
+    // literally every first landing, no tap needed — see TabFocus/router.dart
+    // and its `_syncActiveTabAfterBuild`) could race in and stomp
+    // `awaitingDocument` back to false with a stale null document WHILE
+    // showGenerated()'s own document poll was still resolving.
+    test('a refresh() racing showGenerated()\'s document poll is ignored — '
+        'the worker never sees an intermediate stale/incomplete state',
+        () async {
+      final Completer<ResumeDocument?> documentPoll =
+          Completer<ResumeDocument?>();
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) => documentPoll.future);
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenAnswer((_) async => 'resume text'); // refresh()'s reuse read
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+
+      final Future<void> handoff = cubit.showGenerated('resume text');
+      // The tab-sync-triggered refresh(), firing while the handoff's own
+      // document poll is still in flight — exactly the real race.
+      await cubit.refresh();
+
+      // Must still be waiting on the loader: refresh() was ignored, not
+      // raced in with a stale awaitingDocument:false/document:null state.
+      expect(cubit.state.awaitingDocument, isTrue,
+          reason: 'a racing refresh() must never stomp the loader flag '
+              'while the handoff\'s own document poll is still pending');
+
+      documentPoll.complete(tradeSheet);
+      await handoff;
+
+      expect(cubit.state.awaitingDocument, isFalse);
+      expect(cubit.state.document, same(tradeSheet));
+    });
+
     test('refreshNightShift() PRESERVES the document — a prefs-only reload '
         'must not blank a document that was already on screen', () async {
       when(() => repo.loadResumeDocument())
@@ -300,6 +366,56 @@ void main() {
 
       expect(cubit.state.document, same(tradeSheet));
     });
+
+    // A real, reported gap: the form-first "profile wasn't extracted yet"
+    // retry inside generate() emitted `ready` with awaitingDocument
+    // defaulting to false and never fetched the document at all — a worker
+    // landing on the Resume tab via THIS path (disproportionately
+    // form-first workers, since the branch only runs because form handover
+    // skips extraction) saw the thin resumeText fallback immediately, with
+    // no loader, exactly the "incomplete info shown before the real content
+    // arrives" bug this whole mechanism exists to prevent.
+    blocTest<ResumeCubit, ResumeState>(
+      'generate() retried after ProfileIncompleteFailure ALSO shows the '
+      'loader and fetches the structured document — not a shortcut',
+      build: () {
+        // generate()'s default `force: false` means the FIRST call and the
+        // catch block's retry call are the exact same stub shape
+        // (`generateResume(force: false)`) — a call counter is the only way
+        // to make the first one throw and the retry succeed.
+        int calls = 0;
+        when(() => repo.generateResume(force: false)).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const ProfileIncompleteFailure();
+          return 'RETRY RESUME TEXT';
+        });
+        when(() => profileRepo.extractProfile())
+            .thenAnswer((_) async => 'profile-1');
+        when(() => profileRepo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument())
+            .thenAnswer((_) async => tradeSheet);
+        return ResumeCubit(repo, editRepo, profileRepo);
+      },
+      act: (ResumeCubit c) => c.generate(),
+      expect: () => <ResumeState>[
+        const ResumeState(status: ResumeStatus.loading),
+        const ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: 'RETRY RESUME TEXT',
+          awaitingDocument: true,
+        ),
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: 'RETRY RESUME TEXT',
+          document: tradeSheet,
+        ),
+      ],
+      verify: (_) {
+        verify(() => profileRepo.extractProfile()).called(1);
+        verify(() => profileRepo.confirmProfile()).called(1);
+        verify(() => repo.loadResumeDocument()).called(1);
+      },
+    );
 
     test('refresh() re-fetches and can pick up a document that appeared '
         'since the last load', () async {

@@ -5,11 +5,15 @@ import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
 import { degradeToFit, fitOwnWords } from "./resume-degradation";
-import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
+import {
+  buildEmploymentBlock,
+  totalEmployedYears,
+  type WorkerEmploymentRecord,
+} from "./resume-employment-rows";
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
-import { buildFresherRows } from "./resume-fresher-rows";
+import { buildFresherRows, fresherTenureLabel } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
@@ -248,7 +252,10 @@ export function buildResumeRenderInput(
   // a worker with three quotes and one line of overflow would have the ladder drop his LANGUAGES
   // row — a §5.1-ranked fact — to make room for a quote that ranks nowhere. Zeroed going in,
   // re-fitted after: ranked content settles first and the quotes take what is left.
-  const { sheet, stage, dropped, trace } = degradeToFit({ ...built, ownWords: [] });
+  const { sheet, stage, dropped, trace, overflows, overBudgetLines } = degradeToFit({
+    ...built,
+    ownWords: [],
+  });
   // §8.4's quotes go in LAST, into whatever room is left after the ranked content has settled —
   // see `fitOwnWords`. `built.ownWords` holds everything that earned the right to print; this
   // decides how much of it the page can afford, and a sheet already at the budget affords none.
@@ -257,6 +264,11 @@ export function buildResumeRenderInput(
     degradationStage: stage,
     degradationDropped: dropped,
     degradationTrace: trace,
+    // MEASURED BEFORE THE QUOTES GO IN, and that is the right moment. `fitOwnWords` only adds a
+    // phrase while it fits, so it can never turn a one-page sheet into a spill; an overflow
+    // reported here is one the ranked content caused, which is the only kind the ruling is about.
+    degradationOverflows: overflows,
+    degradationOverBudgetLines: overBudgetLines,
   };
 }
 
@@ -323,6 +335,16 @@ function buildUndegraded(
   const fresherRows = hasEmployments
     ? []
     : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
+  // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
+  // `preferences` are: both mapper paths compose the Verdict Line, and a fresher whose interview
+  // happened to produce a résumé container must not get a different headline from one whose did
+  // not. Null for every role that declares no fresher rung, which is four of the five shipped.
+  //
+  // NOT GATED ON `hasEmployments`. A worker who taps "course kiya hai, kaam ka tajurba nahi" and
+  // then files an employment row has contradicted himself; the tenure segment resolves that the
+  // way §8.3 requires — see `tenurePhrase`, where a stated figure wins outright — rather than by
+  // this line deciding which of his two answers to believe.
+  const tenureLabel = fresherTenureLabel(tradeSheet?.packId ?? null, vettedAttributes);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -421,8 +443,10 @@ function buildUndegraded(
       capabilitySlots,
       capability.headlineTools,
       capability.headlineAxes,
+      tenureLabel,
       tradeSheet?.qualification,
       hasEmployments,
+      totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null),
       {
         educationHeadline,
         // R15 §1 — THE FIVE STARVED SLOTS, AND THE POPULATION IS WHY THEY WENT FIRST.
@@ -526,6 +550,11 @@ function buildUndegraded(
       tools: headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills),
       city: legacyCity,
       availability: legacyAvailability,
+      // §6.2 — see `tenureLabel`'s definition above the branch. THE LEGACY PATH IS THE ONE THAT
+      // MATTERS FIRST: a form-first worker never runs extraction, so this is the branch four of
+      // the five shipped roles actually take, and the CAD draughtsman — whose ratified page IS a
+      // fresher's — takes it always.
+      tenureLabel,
       // WAS HARD `null`, AND IT IS THE SAME MISS AS THE ROW BELOW — found by R12 §1.4, which
       // set out to prove the segment COLLAPSES when there is no figure and found that it
       // collapses when there IS one.
@@ -679,7 +708,12 @@ function buildUndegraded(
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
     // default renders this line byte-for-byte as it does today; see `humanizeAvailability`.
-    availability: humanizeAvailability(draft.availability.status, draft.shift, nightShiftReady),
+    availability: humanizeAvailability(
+      draft.availability.status,
+      draft.shift,
+      nightShiftReady,
+      preferences.shiftLabel,
+    ),
     summary: buildSummary(draft, trade),
     // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
     // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
@@ -753,6 +787,14 @@ function fromResumeProfile(
   /** The pack's headline CONFIGURATION values — the Verdict Line's fourth segment (R16 §1). */
   headlineAxes: string[],
   /**
+   * "Fresher", or null — the §6.2 tenure STATUS the worker's own form stated.
+   *
+   * PASSED IN ON THE SAME TERMS AS `headlineTools`: computed once above the branch so the two
+   * mapper paths cannot compose one worker's headline two ways. Consulted only where there is no
+   * stated figure; see `buildVerdictLine.tenureLabel`.
+   */
+  tenureLabel: string | null,
+  /**
    * Zone 5's values from the caller. The worker's own structured answer, never through the model.
    */
   qualification: ResumeQualificationFacts | undefined,
@@ -765,6 +807,19 @@ function fromResumeProfile(
    * so the richer shape wins outright and the flat one is suppressed, never merged.
    */
   hasEmployments: boolean,
+  /**
+   * Total years across the worker's DATED employment history, or null (#1377).
+   *
+   * PASSED IN, NOT REBUILT, on the same terms as `capabilitySlots`: the caller already holds the
+   * `worker_employment` records and this path does not, and a second computation here would be a
+   * second place for the two branches to disagree about how long a worker has worked.
+   *
+   * A FALLBACK ONLY — see its use below. It exists because a form-first worker can be handed the
+   * form on their first message, so the universal `experience_years` question is never asked and
+   * extraction never runs, leaving the highest-ranked element on the sheet blank for a worker who
+   * had just typed in their whole dated history.
+   */
+  employedYears: number | null,
   /**
    * THE FALLBACK ZONE 5 NEVER HAD. This path read only `qualification`, which no production
    * caller supplies, so education and certificates rendered empty for every worker whose
@@ -858,7 +913,13 @@ function fromResumeProfile(
   // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
   // read it, and computing it at three call sites is how a sheet ends up saying "8 yrs" at the
   // top and "with 5 years of experience" three lines down.
-  const totalYears = renderedTotalYears(statedYears, totalYearsFrom(rp.experiences));
+  // A FALLBACK, NOT A NEW PRECEDENCE (#1377). The employment dates are consulted only when the
+  // draft's own sum is null, which is precisely the form-first worker whose extraction never ran.
+  // Every profile that already renders a years figure keeps the one it renders today.
+  const totalYears = renderedTotalYears(
+    statedYears,
+    totalYearsFrom(rp.experiences) ?? employedYears,
+  );
 
   // §8.4's verbatim quotes. THE MODEL PROPOSES — these are the sentences it recorded — AND THE
   // TRANSCRIPT DISPOSES: `selectOwnWords` prints a phrase only when the worker's own stored turn
@@ -898,6 +959,7 @@ function fromResumeProfile(
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
+      tenureLabel,
       // R16 §1 — see the legacy branch. PASSED IN rather than read here, for the same reason
       // `headlineTools` is: this function receives `capabilitySlots` (a `Pick` of render-input
       // fields, which cannot carry a non-slot value) and never the `capability` object itself.
@@ -961,6 +1023,7 @@ function fromResumeProfile(
       cleanScalar(rp.availability),
       cleanScalar(rp.shift),
       nightShiftReady,
+      preferences.shiftLabel,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
     summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
@@ -1107,9 +1170,15 @@ function cleanScalar(value: string | null): string | null {
  * What is gone is the case where he stated it plainly and the sheet said nobody asked.
  *
  * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
- * decision made here — `yearsPhrase` maps 0 to the unknown text, pinned by a test whose comment
- * reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
+ * decision made here — `tenurePhrase` maps a bare 0 to the unknown text, pinned by a test whose
+ * comment reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
  * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ *
+ * STILL OPEN, AND NARROWED RATHER THAN ANSWERED. `buildVerdictLine.tenureLabel` now lets a worker
+ * whose ROLE FORM carried a fresher rung print "Fresher" — a closed-vocabulary status label with
+ * provenance, not a reading of a bare number. This function still receives `number | null` and
+ * still cannot tell a stated zero from an absent answer, so the ruling above is exactly where it
+ * was: untouched, and asserted untouched in `resume-sheet-rows.test.ts`.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
   const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
@@ -1313,9 +1382,11 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  *
  * ── TRUE PRINTS; FALSE PRINTS NOTHING, AND THE ASYMMETRY IS THE DESIGN ─────────────────
  *
- * `workers.resume_night_shift_ready` is `notNull().default(false)`. So "the worker answered No"
- * and "the worker has never opened the Edit-Resume screen" are THE SAME STORED BYTE, and nothing
- * in the column can tell them apart. A "Night shift ke liye taiyaar: No" line would therefore
+ * `workers.resume_night_shift_ready` is three-state since #1426 — NULL means the worker has
+ * never answered — but this function is handed a plain boolean, because every caller coalesces
+ * `?? false` at its own boundary. So from here "the worker answered No" and "the worker has
+ * never opened the Edit-Resume screen" still arrive as THE SAME VALUE, and the asymmetry below
+ * is what makes that safe. A "Night shift ke liye taiyaar: No" line would
  * stamp a refusal onto the résumé of every worker who has never seen the toggle — a claim they
  * never made, printed on the one document whose entire purpose is to be handed to an employer,
  * and the overwhelming majority of rows are in exactly that state. It would make the fix for a
@@ -1326,8 +1397,8 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  * made. This is the same judgement `AVAILABILITY_PHRASES` already makes by having no
  * `not_looking` entry: a résumé exists to be shown to employers, and stamping it with a line
  * that discourages them serves nobody. It is also what makes the change unconditionally
- * back-compatible — every row still on the column default renders `{{availability}}`
- * byte-for-byte as it does today (invariant #8).
+ * back-compatible — every row that has never been answered renders `{{availability}}`
+ * byte-for-byte as it does today (invariant #8), whether it holds `false` or NULL.
  *
  * THE COST, STATED PLAINLY: a worker who genuinely means No cannot say so on the PDF. That is
  * the right trade. Silence is already what a résumé says about every preference nobody asserted,
@@ -1348,6 +1419,7 @@ function humanizeAvailability(
   status: string | null,
   shift: string | null,
   nightShiftReady: boolean,
+  sheetShiftLabel: string | null = null,
 ): string | null {
   const phrase = AVAILABILITY_PHRASES[status?.trim().toLowerCase() ?? ""] ?? null;
   // WHEN BOTH SAY NIGHTS, THE STRONGER CLAIM SURVIVES — and it is the model's, not the toggle's.
@@ -1377,9 +1449,17 @@ function humanizeAvailability(
   // character of a value it does not recognise, so "NIGHT SHIFT" and "Night Shift" come back
   // unchanged and an equality test against "Night shift" misses both. Case, surrounding space and
   // the singular/plural tail are all noise on a free-text field the model is not constrained to.
-  const shiftAlreadySaysNight = NIGHT_SHIFT_TOKENS.test(
-    (shift ?? "").trim().toLowerCase().replace(/\s+/g, " "),
-  );
+  //
+  // TESTED AGAINST THE SHEET'S SHIFT ROW TOO, NOT ONLY THE MODEL'S (#1426). The row actually
+  // printed is `preferences.shiftLine ?? humanizeShift(<model shift>)`, so the worker's own
+  // finishing-form answer can say "Night shift" while `shift` here is null — and it will now do
+  // so systematically, because that same answer is what seeds `nightShiftReady`. Left to the
+  // model's field alone this guard would go quiet exactly when the duplication became routine,
+  // and the sheet would say nights in one slot and willing-to-work-nights in the other, from one
+  // answer. Either source saying night is enough to drop the weaker clause.
+  const saysNight = (value: string | null): boolean =>
+    NIGHT_SHIFT_TOKENS.test((value ?? "").trim().toLowerCase().replace(/\s+/g, " "));
+  const shiftAlreadySaysNight = saysNight(shift) || saysNight(sheetShiftLabel);
   const clauses = [
     phrase,
     shiftPhrase,

@@ -40,59 +40,70 @@
  */
 import type { LlmInterviewDraft } from "@badabhai/ai-contracts";
 
+import {
+  conflictTermsForKind,
+  TRADE_FORM_KINDS,
+  descriptorForKind,
+  ENABLED_ROLE_DESCRIPTORS,
+  type TradeFormKind,
+} from "./roles/role-registry";
+
 /**
  * The forms that exist. A kind here must have a form schema behind it — an entry with no form is
  * an interview that stops and hands the worker nothing.
+ *
+ * DERIVED FROM THE ROLE REGISTRY, not authored here any more. `role-registry.ts` filters to the
+ * roles whose forms actually ship, so a role can be DESCRIBED (and contribute its vocabulary to
+ * everybody else's veto) long before it can be routed to.
  */
-export const TRADE_FORM_KINDS = ["cnc_turner"] as const;
-export type TradeFormKind = (typeof TRADE_FORM_KINDS)[number];
+export { TRADE_FORM_KINDS } from "./roles/role-registry";
+export type { TradeFormKind };
 
 interface TradeFormRoute {
   readonly kind: TradeFormKind;
   /**
-   * The family retrieval must have pinned for a MACHINE term to count. Never consulted for an
-   * occupation term: a worker who says "turner" has named their own trade, and requiring a pin
-   * as well would strand every worker whose phrasing retrieval could not resolve.
+   * The family retrieval must have pinned for a MACHINE or LEVEL term to count. Never consulted
+   * for an occupation term: a worker who says "turner" has named their own trade, and requiring a
+   * pin as well would strand every worker whose phrasing retrieval could not resolve.
    */
   readonly corroboratingFamilyId: string;
   /** Names the occupation. Routes on its own. */
   readonly occupationTerms: readonly string[];
-  /** Names only the equipment. Routes only alongside {@link corroboratingFamilyId}. */
-  readonly machineTerms: readonly string[];
+  /**
+   * Names only the equipment, or a RUNG of this role's level ladder. Routes only alongside
+   * {@link corroboratingFamilyId}.
+   *
+   * THE TWO TIERS MERGE HERE BECAUSE THEY ROUTE IDENTICALLY, and they are kept apart on the
+   * descriptor because they DERIVE differently: a machine word is another role's veto, a level
+   * word is shared vocabulary that must never veto anybody. Once conflict derivation has run,
+   * the distinction has done its job and both are simply corroborated evidence.
+   */
+  readonly corroboratedTerms: readonly string[];
   /** Names a competing specialisation. Vetoes the route. */
   readonly conflictTerms: readonly string[];
 }
 
 /**
- * Devanagari sits beside the Latin spellings because the labels are the MODEL's words, not the
- * pack's. The persona constrains `reply_text` to Latin-script Hinglish; it says nothing about the
- * draft, and a model handed a Devanagari answer has every reason to echo the worker's script back
- * into `role_label`. A table that only spelled these in Latin would route a worker who typed
- * Hinglish and drop the one who spoke Hindi, which is the wrong worker to lose.
+ * THE TABLE IS NOW COMPUTED FROM `role-registry.ts` and this file authors none of it. The terms
+ * live on each role's descriptor, beside that role's pack id, family id, level ladder and sheet
+ * vocabulary, so the twenty facts that describe one trade sit together instead of in eleven
+ * files. What stays here is the RULE — two tiers of evidence and a veto — which is identical for
+ * every trade and was never per-trade data.
+ *
+ * Devanagari sits beside the Latin spellings in those descriptors because the labels are the
+ * MODEL's words, not the pack's. The persona constrains `reply_text` to Latin-script Hinglish; it
+ * says nothing about the draft, and a model handed a Devanagari answer has every reason to echo
+ * the worker's script back into `role_label`. A table that only spelled these in Latin would
+ * route a worker who typed Hinglish and drop the one who spoke Hindi, which is the wrong worker
+ * to lose.
  */
-const TRADE_FORM_ROUTES: readonly TradeFormRoute[] = [
-  {
-    kind: "cnc_turner",
-    corroboratingFamilyId: "fam_cnc_turning",
-    occupationTerms: ["turner", "turning", "cnc turner", "टर्नर", "टर्निंग"],
-    machineTerms: ["lathe", "cnc lathe", "khraad", "kharad", "khrad", "खराद", "लेथ"],
-    conflictTerms: [
-      "vmc",
-      "hmc",
-      "milling",
-      "miller",
-      "mill",
-      "machining centre",
-      "machining center",
-      "grinding",
-      "grinder",
-      "drilling",
-      "edm",
-      "wire cut",
-      "मिलिंग",
-    ],
-  },
-];
+const TRADE_FORM_ROUTES: readonly TradeFormRoute[] = ENABLED_ROLE_DESCRIPTORS.map((descriptor) => ({
+  kind: descriptor.kind,
+  corroboratingFamilyId: descriptor.familyId,
+  occupationTerms: descriptor.detection.occupationTerms,
+  corroboratedTerms: [...descriptor.detection.machineTerms, ...descriptor.detection.levelTerms],
+  conflictTerms: conflictTermsForKind(descriptor.kind),
+}));
 
 /**
  * Lowercase, strip everything that is not a letter or digit, collapse runs, and pad with single
@@ -205,7 +216,7 @@ export function routeToTradeForm(input: TradeFormRouteInput): TradeFormKind | nu
     if (containsAny(haystack, route.occupationTerms)) return route.kind;
     if (
       input.occupationFamilyId === route.corroboratingFamilyId &&
-      containsAny(haystack, route.machineTerms)
+      containsAny(haystack, route.corroboratedTerms)
     ) {
       return route.kind;
     }
@@ -232,14 +243,67 @@ export interface TradeFormOffer {
   readonly ctaLabel: string;
 }
 
-export const TRADE_FORM_OFFERS: Readonly<Record<TradeFormKind, TradeFormOffer>> = {
-  cnc_turner: {
-    kind: "cnc_turner",
-    reply: "CNC turner profile detected. Ab form bharkar resume pura karein.",
-    headline: "CNC turner profile detected",
-    ctaLabel: "Form bharkar resume pura karein",
-  },
-};
+/**
+ * The CTA is IDENTICAL FOR EVERY TRADE, and only the noun changes.
+ *
+ * That is why the copy is composed rather than authored twenty-one times. "Form bharkar resume
+ * pura karein" says what the button does, which does not depend on the trade; the trade appears
+ * once, in the headline, as the thing we have recognised. Authoring each variant by hand would
+ * produce twenty-one near-identical strings that drift the first time somebody improves one of
+ * them, and every one of them would have to be re-checked against the persona rules.
+ *
+ * `offerName` RATHER THAN `displayName` — see the descriptor. The sheet prints a title-cased job
+ * title; this is a sentence spoken to a worker.
+ */
+const FORM_CTA_LABEL = "Form bharkar resume pura karein";
+
+/**
+ * Sentence case for the FIRST character only — because `offerName` is sentence-cased for the
+ * MIDDLE of a sentence and this is the one place it starts one.
+ *
+ * ═══ THE BUG THIS FIXES, AND WHY FIVE ROLES HID IT ═══
+ *
+ * The headline is `${offerName} profile detected`, and every Batch 1 role's offerName begins with
+ * an acronym — "CNC turner", "CNC machining centre operator", "CAM programmer", "CAD draughtsman".
+ * All four therefore started with a capital by accident of the trade's name, and the composition
+ * looked correct for a year. Batch 2's roles are ordinary nouns, and the same line produced
+ * "welder profile detected", "tool and die maker profile detected" and "conventional machinist
+ * profile detected" — a sentence beginning in lower case, on the one card the worker reads at the
+ * moment we tell them we recognised their trade.
+ *
+ * ═══ WHY THE FIX IS HERE AND NOT ON THE DESCRIPTOR ═══
+ *
+ * Capitalising `offerName` itself would be wrong: the descriptor documents it as the form that
+ * appears INSIDE a worker-facing sentence, and it is deliberately not `displayName` precisely so
+ * the card does not read like a form field. The casing belongs to the SENTENCE, so it is applied
+ * where the sentence is built.
+ *
+ * ═══ ZERO REGRESSION, WHICH IS CHECKABLE RATHER THAN ASSERTED ═══
+ *
+ * All five shipped headlines already begin with an uppercase letter, so this leaves every one of
+ * them byte-identical — which matters because the Flutter contract test pins the shipped copy
+ * exactly. `toUpperCase()` on an already-uppercase character is the identity.
+ */
+function sentenceCase(text: string): string {
+  return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
+}
+
+export const TRADE_FORM_OFFERS: Readonly<Record<TradeFormKind, TradeFormOffer>> = Object.freeze(
+  Object.fromEntries(
+    ENABLED_ROLE_DESCRIPTORS.map((descriptor) => {
+      const headline = sentenceCase(`${descriptor.offerName} profile detected`);
+      return [
+        descriptor.kind,
+        {
+          kind: descriptor.kind,
+          reply: `${headline}. Ab ${FORM_CTA_LABEL.toLowerCase()}.`,
+          headline,
+          ctaLabel: FORM_CTA_LABEL,
+        } satisfies TradeFormOffer,
+      ];
+    }),
+  ),
+) as Readonly<Record<TradeFormKind, TradeFormOffer>>;
 
 /** Narrow an untrusted (Redis-round-tripped) value back to an offer. */
 export function narrowTradeFormOffer(value: unknown): TradeFormOffer | null {
@@ -260,9 +324,9 @@ export function narrowTradeFormOffer(value: unknown): TradeFormOffer | null {
  * and a second table would be free to disagree with the first the day a family is renamed.
  */
 export function familyForTradeForm(kind: TradeFormKind): string {
-  const route = TRADE_FORM_ROUTES.find((candidate) => candidate.kind === kind);
-  // Unreachable while `TradeFormKind` is derived from the same table; asserted so an entry
-  // removed from the table without its kind fails loudly instead of serving an empty form.
-  if (!route) throw new Error(`no trade-form route for ${kind}`);
-  return route.corroboratingFamilyId;
+  const descriptor = descriptorForKind(kind);
+  // Unreachable while `TRADE_FORM_KINDS` is derived from the same registry; asserted so a role
+  // removed from the registry without its kind fails loudly instead of serving an empty form.
+  if (!descriptor) throw new Error(`no trade-form route for ${kind}`);
+  return descriptor.familyId;
 }

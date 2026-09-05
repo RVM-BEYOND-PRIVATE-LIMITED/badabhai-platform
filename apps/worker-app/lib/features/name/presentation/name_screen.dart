@@ -8,12 +8,18 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../router.dart';
+import '../domain/location_lookup.dart';
 import 'cubit/name_cubit.dart';
 
 /// "Your name" onboarding step — placed AFTER consent, before chat profiling.
 /// Captures the worker's real name ONCE, explicitly, with a clear purpose ("for
 /// your resume"). The name goes straight to the API (encrypted at rest) and is
 /// never asked for again in the chat flow, which stays identity-free.
+///
+/// Also captures a MANDATORY coarse location (city + state) — via GPS/network
+/// (device geocoder, no backend round-trip) or, if that fails or the worker
+/// declines, a manual fallback. Continue is disabled until both name and
+/// location are present; see [LocationLookup] for the resolution contract.
 class NameScreen extends StatelessWidget {
   const NameScreen({super.key});
 
@@ -34,27 +40,133 @@ class _NameView extends StatefulWidget {
 }
 
 class _NameViewState extends State<_NameView> {
-  final TextEditingController _controller = TextEditingController();
-  bool _hasText = false;
+  final TextEditingController _firstNameController = TextEditingController();
+  final TextEditingController _lastNameController = TextEditingController();
+  final TextEditingController _manualAddressController =
+      TextEditingController();
+
+  bool _hasName = false;
+  bool _manualLocationEntry = false;
+  bool _locationLoading = false;
+  String? _locationErrorText;
+  ResolvedLocation? _resolvedLocation;
+
+  LocationLookup get _locationLookup => locator<LocationLookup>();
 
   @override
   void initState() {
     super.initState();
-    _controller.addListener(() {
-      final bool has = _controller.text.trim().isNotEmpty;
-      if (has != _hasText) setState(() => _hasText = has);
-    });
+    _firstNameController.addListener(_onNameChanged);
+    _lastNameController.addListener(_onNameChanged);
+    _manualAddressController.addListener(_onManualLocationChanged);
   }
+
+  void _onNameChanged() {
+    final bool has = _firstNameController.text.trim().isNotEmpty &&
+        _lastNameController.text.trim().isNotEmpty;
+    if (has != _hasName) setState(() => _hasName = has);
+  }
+
+  void _onManualLocationChanged() => setState(() {});
 
   @override
   void dispose() {
-    _controller.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _manualAddressController.dispose();
     super.dispose();
   }
 
+  // GPS/network path only — a clean, matchable city+state (issue #1428).
+  // The manual fallback below is a single free-text address line instead
+  // (a worker types their address the way they naturally would, e.g. "G32,
+  // Mangalam City, Kalwar Road, Jaipur, Rajasthan"); we don't try to parse
+  // city/state out of it client-side — see [_manualAddress]'s doc.
+  String get _effectiveCity => _manualLocationEntry ? '' : (_resolvedLocation?.city ?? '');
+
+  String get _effectiveState => _manualLocationEntry ? '' : (_resolvedLocation?.state ?? '');
+
+  String get _manualAddress => _manualAddressController.text.trim();
+
+  bool get _hasLocation => _manualLocationEntry
+      ? _manualAddress.isNotEmpty
+      : _resolvedLocation != null;
+
+  Future<void> _useCurrentLocation() async {
+    setState(() {
+      _locationLoading = true;
+      _locationErrorText = null;
+    });
+    try {
+      final ResolvedLocation location = await _locationLookup.resolveCurrent();
+      if (!mounted) return;
+      setState(() {
+        _resolvedLocation = location;
+        _manualLocationEntry = false;
+        _locationLoading = false;
+      });
+    } on LocationLookupFailure catch (failure) {
+      if (!mounted) return;
+      setState(() {
+        _locationLoading = false;
+        _locationErrorText = _messageFor(failure.reason);
+        // Never leave the worker stuck: a failed GPS attempt drops straight
+        // into manual entry so location capture stays completable either way.
+        _manualLocationEntry = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _locationLoading = false;
+        _locationErrorText = _messageFor(LocationLookupFailureReason.unknown);
+        _manualLocationEntry = true;
+      });
+    }
+  }
+
+  String _messageFor(LocationLookupFailureReason reason) {
+    switch (reason) {
+      case LocationLookupFailureReason.serviceDisabled:
+        return 'Phone ki location on nahi hai. Neeche khud likhein.';
+      case LocationLookupFailureReason.permissionDenied:
+      case LocationLookupFailureReason.permissionDeniedForever:
+        return 'Location ki permission nahi mili. Neeche khud likhein.';
+      case LocationLookupFailureReason.unresolved:
+      case LocationLookupFailureReason.unknown:
+        return 'Location nahi mil paayi. Neeche khud likhein.';
+    }
+  }
+
+  void _switchToManualEntry() {
+    setState(() {
+      // Pre-fill with whatever GPS DID resolve (e.g. just a city before the
+      // worker taps "Badlein") so switching to manual never throws away a
+      // partial result.
+      final String prefill = <String>[
+        if (_resolvedLocation?.city.isNotEmpty ?? false) _resolvedLocation!.city,
+        if (_resolvedLocation?.state.isNotEmpty ?? false) _resolvedLocation!.state,
+      ].join(', ');
+      if (_manualAddressController.text.isEmpty) {
+        _manualAddressController.text = prefill;
+      }
+      _manualLocationEntry = true;
+      _locationErrorText = null;
+    });
+  }
+
+  bool get _canSubmit => _hasName && _hasLocation;
+
   void _submit(BuildContext context, NameState state) {
-    if (_hasText && !state.isSubmitting) {
-      context.read<NameCubit>().submit(_controller.text);
+    if (_canSubmit && !state.isSubmitting) {
+      final String fullName =
+          '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'
+              .trim();
+      context.read<NameCubit>().submit(
+            fullName,
+            city: _manualLocationEntry ? null : _effectiveCity,
+            state: _manualLocationEntry ? null : _effectiveState,
+            address: _manualLocationEntry ? _manualAddress : null,
+          );
     }
   }
 
@@ -83,8 +195,8 @@ class _NameViewState extends State<_NameView> {
       },
       builder: (BuildContext context, NameState state) {
         // Kit onboarding pattern (screens 02/06): a full-bleed deep-blue header
-        // band (haldi title + muted subtitle) over a padded body with a single
-        // labelled field and the primary CTA.
+        // band (haldi title + muted subtitle) over a padded body with the
+        // labelled fields and the primary CTA.
         return Scaffold(
           // SafeArea(top: false) — the blue header intentionally bleeds under
           // the status bar (it pads the top inset itself); this keeps the CTA
@@ -126,38 +238,41 @@ class _NameViewState extends State<_NameView> {
                   child: ListView(
                     padding: const EdgeInsets.all(AppSpacing.gutter),
                     children: <Widget>[
-                      Text('POORA NAAM',
+                      Text('PEHLA NAAM',
                           style: AppTypography.eyebrow(
                               color: AppColors.textMuted)),
                       const SizedBox(height: AppSpacing.s2),
-                      TextField(
-                        controller: _controller,
-                        textCapitalization: TextCapitalization.words,
-                        textInputAction: TextInputAction.done,
-                        maxLength: 80,
+                      _NameField(
+                        controller: _firstNameController,
+                        hint: 'Jaise: Asha',
                         autofocus: true,
                         onSubmitted: (_) => _submit(context, state),
-                        style: AppTypography.body(size: AppTypography.sizeMd),
-                        decoration: InputDecoration(
-                          hintText: 'Jaise: Asha Kumari',
-                          counterText: '',
-                          filled: true,
-                          fillColor: AppColors.paper,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: AppSpacing.s3,
-                            vertical: AppSpacing.controlInset,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppRadii.sm),
-                            borderSide:
-                                const BorderSide(color: AppColors.borderSubtle),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppRadii.sm),
-                            borderSide: const BorderSide(
-                                color: AppColors.blue, width: 1.5),
-                          ),
-                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.s4),
+                      Text('AAKHRI NAAM',
+                          style: AppTypography.eyebrow(
+                              color: AppColors.textMuted)),
+                      const SizedBox(height: AppSpacing.s2),
+                      _NameField(
+                        controller: _lastNameController,
+                        hint: 'Jaise: Kumari',
+                        onSubmitted: (_) => _submit(context, state),
+                      ),
+                      const SizedBox(height: AppSpacing.s5),
+                      Text('SHEHER AUR STATE',
+                          style: AppTypography.eyebrow(
+                              color: AppColors.textMuted)),
+                      const SizedBox(height: AppSpacing.s2),
+                      _LocationSection(
+                        loading: _locationLoading,
+                        errorText: _locationErrorText,
+                        resolved:
+                            !_manualLocationEntry ? _resolvedLocation : null,
+                        manualEntry: _manualLocationEntry,
+                        addressController: _manualAddressController,
+                        onUseCurrentLocation: _useCurrentLocation,
+                        onEnterManually: _switchToManualEntry,
+                        onChangeLocation: _switchToManualEntry,
                       ),
                       const SizedBox(height: AppSpacing.s6),
                       BbButton(
@@ -165,7 +280,7 @@ class _NameViewState extends State<_NameView> {
                         block: true,
                         loading: state.isSubmitting,
                         iconRight: Icons.arrow_forward_rounded,
-                        onPressed: (_hasText && !state.isSubmitting)
+                        onPressed: (_canSubmit && !state.isSubmitting)
                             ? () => _submit(context, state)
                             : null,
                       ),
@@ -177,6 +292,200 @@ class _NameViewState extends State<_NameView> {
           ),
         );
       },
+    );
+  }
+}
+
+class _NameField extends StatelessWidget {
+  const _NameField({
+    required this.controller,
+    required this.hint,
+    this.autofocus = false,
+    this.onSubmitted,
+  });
+
+  final TextEditingController controller;
+  final String hint;
+  final bool autofocus;
+  final ValueChanged<String>? onSubmitted;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      textCapitalization: TextCapitalization.words,
+      textInputAction: TextInputAction.next,
+      maxLength: 40,
+      autofocus: autofocus,
+      onSubmitted: onSubmitted,
+      style: AppTypography.body(size: AppTypography.sizeMd),
+      decoration: InputDecoration(
+        hintText: hint,
+        counterText: '',
+        filled: true,
+        fillColor: AppColors.paper,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.controlInset,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
+        ),
+      ),
+    );
+  }
+}
+
+/// Renders exactly one of three states: a resolved-location summary card, a
+/// "use my location" prompt, or the manual full-address fallback field.
+class _LocationSection extends StatelessWidget {
+  const _LocationSection({
+    required this.loading,
+    required this.errorText,
+    required this.resolved,
+    required this.manualEntry,
+    required this.addressController,
+    required this.onUseCurrentLocation,
+    required this.onEnterManually,
+    required this.onChangeLocation,
+  });
+
+  final bool loading;
+  final String? errorText;
+  final ResolvedLocation? resolved;
+  final bool manualEntry;
+  final TextEditingController addressController;
+  final VoidCallback onUseCurrentLocation;
+  final VoidCallback onEnterManually;
+  final VoidCallback onChangeLocation;
+
+  @override
+  Widget build(BuildContext context) {
+    if (resolved != null) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.s3,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.paper,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          border: Border.all(color: AppColors.borderSubtle),
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(Icons.location_on_rounded, color: AppColors.blue),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(
+              child: Text(
+                '${resolved!.city}, ${resolved!.state}',
+                style: AppTypography.body(
+                  size: AppTypography.sizeMd,
+                  weight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onChangeLocation,
+              child: const Text('Badlein'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (manualEntry) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          if (errorText != null) ...<Widget>[
+            Text(
+              errorText!,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.danger,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+          ],
+          _AddressField(controller: addressController),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        if (errorText != null) ...<Widget>[
+          Text(
+            errorText!,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.danger,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+        ],
+        BbButton(
+          label: loading ? 'Location dhoondh rahe hain…' : 'Location se bharein',
+          variant: BbButtonVariant.outline,
+          block: true,
+          loading: loading,
+          iconLeft: loading ? null : Icons.my_location_rounded,
+          onPressed: loading ? null : onUseCurrentLocation,
+        ),
+        TextButton(
+          onPressed: loading ? null : onEnterManually,
+          child: const Text('Khud likhein'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The manual-entry fallback: ONE free-text line for the worker's whole
+/// address (house/plot, locality, road, city, state — the way an address is
+/// naturally written), not separate city/state boxes. Sent to the API as
+/// `address`, distinct from the clean `city`/`state` the GPS/network path
+/// resolves — see [NameRepository]'s doc for why they're not the same field.
+class _AddressField extends StatelessWidget {
+  const _AddressField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      textCapitalization: TextCapitalization.sentences,
+      textInputAction: TextInputAction.done,
+      maxLines: 3,
+      minLines: 2,
+      maxLength: 200,
+      style: AppTypography.body(size: AppTypography.sizeMd),
+      decoration: InputDecoration(
+        hintText: 'Jaise: G32, Mangalam City, Kalwar Road, Jaipur, Rajasthan',
+        filled: true,
+        fillColor: AppColors.paper,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.controlInset,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
+        ),
+      ),
     );
   }
 }

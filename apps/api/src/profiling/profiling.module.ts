@@ -6,6 +6,7 @@ import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
 import { EventsModule } from "../events/events.module";
+import { MatchModule } from "../match/match.module";
 import { OccupationModule } from "../occupation/occupation.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { VoiceModule } from "../voice/voice.module";
@@ -60,6 +61,11 @@ import { TradeFormService } from "./form/trade-form.service";
  */
 @Module({
   imports: [
+    // M1 — `TradeFormService` enqueues the match rebuild when a form completes, so this module
+    // needs `WorkerSkillsService`, which `MatchModule` exports. NOT a forwardRef: `MatchModule`
+    // imports `PayersModule` and a Bull queue and reaches nothing here, so the edge is acyclic.
+    // If that ever changes this fails at BOOT, not in a unit test — see the note below.
+    MatchModule,
     forwardRef(() => ChatModule),
     forwardRef(() => OccupationModule),
     EventsModule,

@@ -153,6 +153,52 @@ void main() {
       expect(openQ.question.kind, VoiceQuestionKind.open);
     });
 
+    test('is_none_of_above (#1382) is carried onto VoiceChoice, not parsed away',
+        () async {
+      final Map<String, dynamic> json = _formJson();
+      (((json['sections'] as List<dynamic>)[0] as Map<String, dynamic>)['screens']
+          as List<dynamic>)[1] = <String, dynamic>{
+        'type': 'question',
+        'question': <String, dynamic>{
+          'question_key': 'material_worked',
+          'prompt_text': 'Aap kaunsi dhaatu par kaam karte hain?',
+          'why_text': null,
+          'answer_type': 'multi_select',
+          'options': <dynamic>[
+            <String, dynamic>{
+              'option_key': 'mild_steel',
+              'label_text': 'Mild steel',
+              'is_none_of_above': false,
+            },
+            <String, dynamic>{
+              'option_key': 'none_of_these',
+              'label_text': 'In me se koi nahi',
+              'is_none_of_above': true,
+            },
+          ],
+        },
+        'ui': <String, dynamic>{'searchable': true},
+        'answer': null,
+      };
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient(
+            (http.Request req) async => http.Response(jsonEncode(json), 200)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final TradeForm? form = await repo.loadForm();
+
+      final TradeFormQuestionStep step =
+          form!.sections[0].screens[1] as TradeFormQuestionStep;
+      final List<VoiceChoice> options = step.question.options;
+      expect(options.firstWhere((VoiceChoice c) => c.key == 'mild_steel').isNoneOfAbove,
+          isFalse);
+      expect(
+          options.firstWhere((VoiceChoice c) => c.key == 'none_of_these').isNoneOfAbove,
+          isTrue);
+    });
+
     test('a declined answer is NOT confused with an unanswered one', () async {
       final Map<String, dynamic> json = _formJson();
       (((json['sections'] as List<dynamic>)[0] as Map<String, dynamic>)['screens']
@@ -259,6 +305,42 @@ void main() {
       expect(declined.total, 4);
     });
 
+    test(
+        'schema_stale (#1382) parses true when present and defaults false '
+        'when absent from the wire', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          final Map<String, dynamic> body =
+              jsonDecode(req.body) as Map<String, dynamic>;
+          final bool stale = body['question_key'] == 'turning_machine';
+          final Map<String, dynamic> response = <String, dynamic>{
+            'question_key': body['question_key'],
+            'status': 'answered',
+            'answered': 1,
+            'total': 2,
+          };
+          // Only ONE of the two requests below carries the key — mirrors the
+          // real wire today, where the field does not exist at all yet.
+          if (stale) response['schema_stale'] = true;
+          return http.Response(jsonEncode(response), 200);
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final TradeFormAnswerResult stale = await repo.submitAnswer(
+        questionKey: 'turning_machine',
+        answer: const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+      final TradeFormAnswerResult notStale = await repo.submitAnswer(
+        questionKey: 'material_worked',
+        answer: const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(stale.schemaStale, isTrue);
+      expect(notStale.schemaStale, isFalse);
+    });
+
     test('a 400 naming an unknown option_key surfaces the server message',
         () async {
       final ApiClient api = ApiClient(
@@ -280,6 +362,181 @@ void main() {
           (InvalidRequestFailure f) => f.message,
           'message',
           contains('not_a_real_key'),
+        )),
+      );
+    });
+  });
+
+  group('TradeFormRepositoryImpl.loadQualificationOptions', () {
+    test('parses the slug->label maps, preserving order', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          expect(req.url.path, '/workers/me/qualifications/options');
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'education_credential': <String, String>{
+                'below_10': 'Below 10th',
+                'iti': 'ITI',
+              },
+              'education_council': <String, String>{'ncvt': 'NCVT'},
+            }),
+            200,
+          );
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final QualificationOptionsDto options = await repo.loadQualificationOptions();
+
+      expect(options.educationCredential, <String, String>{
+        'below_10': 'Below 10th',
+        'iti': 'ITI',
+      });
+      expect(options.educationCouncil, <String, String>{'ncvt': 'NCVT'});
+    });
+  });
+
+  group('TradeFormRepositoryImpl.saveQualifications — the tri-state PUT body',
+      () {
+    /// Captures the body of the single PUT this test drives.
+    Future<Map<String, dynamic>> putAndCapture(
+      TradeFormQualifications qualifications,
+    ) async {
+      Map<String, dynamic>? sent;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          expect(req.method, 'PUT');
+          expect(req.url.path, '/workers/me/qualifications');
+          sent = jsonDecode(req.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'ok': true,
+              'certificate_count': 0,
+              'education_count': 0,
+            }),
+            200,
+          );
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+      await repo.saveQualifications(qualifications);
+      return sent!;
+    }
+
+    test('an untouched section is OMITTED from the body entirely, never sent '
+        'as []', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+          ],
+          certificatesTouched: true,
+          // educations left at defaults: untouched, empty.
+        ),
+      );
+
+      expect(body.containsKey('certificates'), isTrue);
+      expect(body.containsKey('educations'), isFalse);
+      expect(body['certificates'], <Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'Fanuc Oi-TF Programming',
+          'issuer': null,
+          'year': null,
+        },
+      ]);
+    });
+
+    test('a touched section with zero rows is sent as [] — "I have none" is '
+        'a real answer', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificatesTouched: true, // added then removed every row
+          educationsTouched: true,
+        ),
+      );
+
+      expect(body['certificates'], <Map<String, dynamic>>[]);
+      expect(body['educations'], <Map<String, dynamic>>[]);
+    });
+
+    test('a populated list is sent in the CALLER\'S order, never re-sorted',
+        () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(
+              credential: 'diploma',
+              field: 'Mechanical',
+              council: 'aicte',
+              year: 2015,
+              institute: 'Govt. Polytechnic',
+            ),
+            TradeFormEducationEntry(
+              credential: 'iti',
+              field: 'Machinist',
+              council: 'ncvt',
+              year: 2018, // EARLIER display position, LATER year — order wins.
+              institute: 'Govt. ITI, Faridabad',
+            ),
+          ],
+          educationsTouched: true,
+        ),
+      );
+
+      final List<dynamic> educations = body['educations'] as List<dynamic>;
+      expect(educations, hasLength(2));
+      expect((educations[0] as Map<String, dynamic>)['institute'],
+          'Govt. Polytechnic'); // first in the caller's list, not by year
+      expect((educations[1] as Map<String, dynamic>)['institute'],
+          'Govt. ITI, Faridabad');
+    });
+
+    test('both sections touched sends both keys', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(
+                name: 'Welder Qualification Test — 3G',
+                issuer: 'RVM CAD',
+                year: 2019),
+          ],
+          certificatesTouched: true,
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(credential: 'iti'),
+          ],
+          educationsTouched: true,
+        ),
+      );
+
+      expect(body.containsKey('certificates'), isTrue);
+      expect(body.containsKey('educations'), isTrue);
+    });
+
+    test('a 400 naming a phone/email shape surfaces the server message',
+        () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'message': 'remove contact details from the issuer',
+            }),
+            400)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      await expectLater(
+        repo.saveQualifications(const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'ITI', issuer: '9876543210'),
+          ],
+          certificatesTouched: true,
+        )),
+        throwsA(isA<InvalidRequestFailure>().having(
+          (InvalidRequestFailure f) => f.message,
+          'message',
+          contains('issuer'),
         )),
       );
     });

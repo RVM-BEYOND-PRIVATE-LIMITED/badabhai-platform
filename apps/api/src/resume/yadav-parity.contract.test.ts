@@ -133,6 +133,12 @@ describe("R9 §6 rule 1 — role and detail placement", () => {
     // placement — and R9 §5 measured `SHEET_LINE_BUDGET = 41` as un-raiseable (42 puts two fixture
     // sheets below the floor). So this rule is blocked on the Zone 2 row-budget ruling, not on
     // anyone implementing it.
+    //
+    // THE RULING HAS SINCE BEEN TAKEN (2026-09-03) AND IT DOES NOT UNBLOCK THIS. The ladder may
+    // no longer shed the Languages row at all — it SPILLS onto a second page instead — so the
+    // measured cost of this placement is no longer two §5.1-ranked losses, it is a second page on
+    // a sheet that would otherwise have been one. That is still the worse sheet, and the rule is
+    // still blocked; what changed is which currency it would be paid in.
     const { employments } = buildEmploymentBlock([SINGLE_ROLE], { asOf: AS_OF });
     const emp = employments[0]!;
     expect(emp.role_inline).toBe("");
@@ -448,6 +454,64 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
       { packId: "qp_cnc_turning", attributes: {} },
     ).qualFactRows?.find((r) => r.label === "Education")?.value;
     expect(value).toBe("ITI / Diploma — Machinist");
+  });
+
+  it("#1447 — worker_education rows WIN, and the attributes are the fallback under them", () => {
+    // WHY THIS GUARD EXISTS. #1447 observed that the trade form asked for education twice — the
+    // "Availability & terms" marker writing `education_*` ATTRIBUTES, and the qualifications
+    // marker writing `worker_education` ROWS — removed the first from the client, and asked
+    // whether the backend half was now dead. It is not: the two are one slot with a defined
+    // winner, and the attribute half is the FALLBACK arm.
+    //
+    // NOTHING PINNED THE PRECEDENCE ITSELF. `resume-qualification-rows.test.ts` pins the rows
+    // composition, `yadav-parity` pins the attribute composition, and the `??` that chooses
+    // between them (`resume-render-input.ts:627`, `:902`) was asserted by neither — so deleting
+    // the attribute arm would have gone green here while blanking the education line of every
+    // worker who has no rows.
+    const educationOf = (
+      attributes: Record<string, unknown>,
+      qualification?: Parameters<typeof buildResumeRenderInput>[6] extends infer T
+        ? T extends { qualification?: infer Q }
+          ? Q
+          : never
+        : never,
+    ) =>
+      buildResumeRenderInput(
+        { education_level: "iti_diploma", education_field: "Machinist" },
+        "R",
+        "bb_trade",
+        null,
+        false,
+        "worker",
+        { packId: "qp_cnc_turning", attributes, qualification },
+      ).qualFactRows?.find((r) => r.label === "Education")?.value;
+
+    const ATTRS = {
+      education_credential: "iti",
+      education_council: "ncvt",
+      education_year: 2018,
+      education_institute: "Govt. ITI, Faridabad",
+    };
+
+    // 1. NO ROWS -> the attributes compose the whole ratified line. THIS is the arm #1447 would
+    //    have deleted, and it is the arm every pre-qualifications worker renders from.
+    expect(educationOf(ATTRS)).toBe("ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad");
+
+    // 2. ROWS PRESENT -> they win outright, and the attributes contribute nothing. The two
+    //    surfaces are not merged; a worker who filled the newer form gets that form's answer.
+    expect(
+      educationOf(ATTRS, {
+        educationHeadline: "Diploma — Fitter · AICTE · 2021 · MSBTE, Pune",
+        education: [],
+        certifications: [],
+        languages: [],
+      }),
+    ).toBe("Diploma — Fitter · AICTE · 2021 · MSBTE, Pune");
+
+    // 3. AND THE COST OF DROPPING THE FALLBACK, stated as an assertion rather than a comment: with
+    //    no rows AND no attributes, the merged interview level is all that is left and the sheet
+    //    reverts to the R11 §3.1 defect — "ITI / Diploma" on the line an employer checks hardest.
+    expect(educationOf({})).toBe("ITI / Diploma — Machinist");
   });
 
   it("NARROWS ONLY THE MERGED LEVEL — a graduate is never demoted to his diploma", () => {
