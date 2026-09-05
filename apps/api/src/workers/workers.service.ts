@@ -260,7 +260,10 @@ export class WorkersService {
     return {
       full_name: fullName,
       show_photo: worker.resumeShowPhoto,
-      night_shift_ready: worker.resumeNightShiftReady,
+      // Three-state in the column, two-state on the wire (#1426). The Flutter model reads
+      // `as bool? ?? false` anyway, so a null would not crash it — but the response interface
+      // says `boolean`, and an endpoint whose type lies is worse than one that coalesces.
+      night_shift_ready: worker.resumeNightShiftReady ?? false,
       // ADR-0032: boolean projection of the photo POINTER — never the key/URL.
       has_photo: typeof worker.photoStorageKey === "string" && worker.photoStorageKey.length > 0,
     };
@@ -483,7 +486,12 @@ export class WorkersService {
       payload: {
         worker_id: workerId,
         show_photo: updated.resumeShowPhoto,
-        night_shift_ready: updated.resumeNightShiftReady,
+        // MUST COALESCE, AND THIS ONE IS A 500 IF IT DOES NOT. `WorkerResumePrefsUpdatedPayload`
+        // is `.strict()` with `night_shift_ready: z.boolean()`, and EventsService validates and
+        // throws before any side effect — so a partial PATCH that left the column null would
+        // fail the whole request AFTER the write had already landed. Coalescing also keeps the
+        // event byte-compatible for every existing consumer (§3 forbids mutating a schema).
+        night_shift_ready: updated.resumeNightShiftReady ?? false,
       },
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,

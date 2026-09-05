@@ -9,20 +9,25 @@ import { WorkerPreferencesService } from "./worker-preferences.service";
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const CTX = { correlationId: "corr", requestId: "req" } as RequestContext;
 
-function setup() {
+function setup(nightShiftReady: boolean | null = null) {
   // Typed explicitly — `vi.fn(async () => …)` infers a ZERO-ARG signature, so `calls[0][1]` is a
   // type error even though the call happens at runtime, and the suite goes green while tsc fails.
   const upsertMany = vi.fn(async (_rows: NewWorkerAttribute[]) => 0);
   const deleteKeys = vi.fn(async (_workerId: string, _keys: readonly string[]) => 0);
   const emit = vi.fn(async (_event: { event_name: string; payload: unknown }) => undefined);
   const add = vi.fn(async (_name: string, _data: unknown) => undefined);
+  const updateResumePrefs = vi.fn(async (_id: string, _patch: unknown) => ({ id: WORKER }));
   const svc = new WorkerPreferencesService(
     { upsertMany, deleteKeys } as never,
-    { findById: async () => ({ id: WORKER }), latestResume: async () => null } as never,
+    {
+      findById: async () => ({ id: WORKER, resumeNightShiftReady: nightShiftReady }),
+      latestResume: async () => null,
+      updateResumePrefs,
+    } as never,
     { emit } as never,
     { add } as never,
   );
-  return { svc, upsertMany, deleteKeys, emit, add };
+  return { svc, upsertMany, deleteKeys, emit, add, updateResumePrefs };
 }
 
 const parse = (body: unknown) => SetMyPreferencesSchema.parse(body);
@@ -194,5 +199,64 @@ describe("the form's contract", () => {
     // The form is one screen a worker can leave without answering anything, and a no-op must not
     // be an error.
     expect(() => parse({})).not.toThrow();
+  });
+});
+
+describe("the shift answer seeds night-shift readiness (#1426)", () => {
+  const submit = async (h: ReturnType<typeof setup>, shift: unknown) =>
+    h.svc.setForWorker(WORKER, parse({ shift }), CTX);
+
+  it("seeds TRUE from night, rotational and any", async () => {
+    // Owner ruling 2026-09-05. `rotational` includes nights by definition and `any` says so
+    // outright, so all three are the worker stating a willingness they have already stated.
+    for (const shift of ["night", "rotational", "any"]) {
+      const h = setup(null);
+      await submit(h, shift);
+      expect(h.updateResumePrefs, `shift=${shift}`).toHaveBeenCalledWith(WORKER, {
+        resumeNightShiftReady: true,
+      });
+    }
+  });
+
+  it("seeds FALSE from day", async () => {
+    // Safe to write because `false` PRINTS NOTHING on the résumé — it is the absence of the
+    // clause, never a rendered "not willing" (see resume-render-input.ts). The worst case is a
+    // day-shift worker who later ticks the box themselves.
+    const h = setup(null);
+    await submit(h, "day");
+    expect(h.updateResumePrefs).toHaveBeenCalledWith(WORKER, { resumeNightShiftReady: false });
+  });
+
+  it("NEVER overwrites a worker who has already answered — in either direction", async () => {
+    // THE REASON THE COLUMN HAD TO BECOME THREE-STATE. Under `NOT NULL DEFAULT false` this method
+    // could not tell "never asked" from a deliberate "no", so every worker who revisited this
+    // form with a night-ish shift would have had their own "no" silently flipped to yes — on a
+    // claim that reaches employers.
+    for (const existing of [true, false]) {
+      const h = setup(existing);
+      await submit(h, "night");
+      expect(h.updateResumePrefs, `existing=${existing}`).not.toHaveBeenCalled();
+    }
+  });
+
+  it("does nothing when the worker did not answer the shift question", async () => {
+    // Absent = never reached the page; null = cleared the answer. Neither is a shift to derive
+    // from, and neither may consume the worker's one chance at a seeded default.
+    const h = setup(null);
+    await h.svc.setForWorker(WORKER, parse({ job_type: "permanent" }), CTX);
+    expect(h.updateResumePrefs).not.toHaveBeenCalled();
+
+    const cleared = setup(null);
+    await submit(cleared, null);
+    expect(cleared.updateResumePrefs).not.toHaveBeenCalled();
+  });
+
+  it("does not fail the worker's submission when the seed write throws", async () => {
+    // The preferences are already committed by this point. A derived default is a convenience;
+    // losing the answers the worker actually typed to save it would not be.
+    const h = setup(null);
+    h.updateResumePrefs.mockRejectedValueOnce(new Error("db down"));
+    await expect(submit(h, "night")).resolves.toMatchObject({ worker_id: WORKER });
+    expect(h.upsertMany).toHaveBeenCalled();
   });
 });
