@@ -21,11 +21,27 @@ import {
   type RoleFormDescriptor,
 } from "./role-form-descriptor";
 
+import { ASSEMBLY_LINE_WORKER } from "./assembly-line-worker.role";
+import { BLOW_MOULDING_OPERATOR } from "./blow-moulding-operator.role";
 import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
 import { CNC_MACHINING_CENTRE } from "./cnc-machining-centre.role";
 import { CNC_TURNER } from "./cnc-turner.role";
+import { CONVENTIONAL_MACHINIST } from "./conventional-machinist.role";
+import { FITTER } from "./fitter.role";
+import { INDUSTRIAL_ELECTRICIAN } from "./industrial-electrician.role";
+import { INJECTION_MOULDING_OPERATOR } from "./injection-moulding-operator.role";
+import { MAINTENANCE_TECHNICIAN } from "./maintenance-technician.role";
+import { MOULD_DIE_MAKER } from "./mould-die-maker.role";
+import { PAINTER_COATING } from "./painter-coating.role";
+import { PLASTIC_PROCESS_TECHNICIAN } from "./plastic-process-technician.role";
+import { PRESS_OPERATOR } from "./press-operator.role";
+import { QUALITY_INSPECTOR } from "./quality-inspector.role";
+import { RUBBER_MOULDING_OPERATOR } from "./rubber-moulding-operator.role";
+import { SHEET_METAL_WORKER } from "./sheet-metal-worker.role";
+import { TOOL_DIE_MAKER } from "./tool-die-maker.role";
+import { WELDER } from "./welder.role";
 
 /**
  * DECLARED ROLES — including the ones whose forms do not exist yet.
@@ -37,11 +53,33 @@ import { CNC_TURNER } from "./cnc-turner.role";
  * difference between twenty additive changes and four hundred and twenty ordered pairs.
  */
 const DECLARED = [
+  // ── machining ────────────────────────────────────────────────────────────────────────────────
   CNC_TURNER,
   CNC_MACHINING_CENTRE,
   CNC_GRINDING,
+  CONVENTIONAL_MACHINIST,
+  TOOL_DIE_MAKER,
+  // ── design ───────────────────────────────────────────────────────────────────────────────────
   CAM_PROGRAMMER,
   CAD_DRAUGHTSMAN,
+  // ── fabrication ──────────────────────────────────────────────────────────────────────────────
+  WELDER,
+  SHEET_METAL_WORKER,
+  PRESS_OPERATOR,
+  PAINTER_COATING,
+  // ── maintenance ──────────────────────────────────────────────────────────────────────────────
+  FITTER,
+  MAINTENANCE_TECHNICIAN,
+  INDUSTRIAL_ELECTRICIAN,
+  // ── production ───────────────────────────────────────────────────────────────────────────────
+  ASSEMBLY_LINE_WORKER,
+  QUALITY_INSPECTOR,
+  // ── polymer ──────────────────────────────────────────────────────────────────────────────────
+  INJECTION_MOULDING_OPERATOR,
+  MOULD_DIE_MAKER,
+  BLOW_MOULDING_OPERATOR,
+  RUBBER_MOULDING_OPERATOR,
+  PLASTIC_PROCESS_TECHNICIAN,
 ] as const;
 
 /**
