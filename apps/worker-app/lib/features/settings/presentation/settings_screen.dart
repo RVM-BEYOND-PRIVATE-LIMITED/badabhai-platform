@@ -183,18 +183,6 @@ class _SettingsView extends StatelessWidget {
             ),
             const _WithdrawConsentRow(),
           ]),
-          const SizedBox(height: AppSpacing.s4),
-          _group(<Widget>[
-            // #1429 preview — writes nothing anywhere; see
-            // CityStateDemoScreen's own doc. Delete this row once the real
-            // state->city picker ships in trade_form_employment_page.dart.
-            BbListRow.setting(
-              icon: Icons.map_outlined,
-              title: 'Sheher/State demo',
-              subtitle: 'Preview: state chunein, phir sheher (#1429)',
-              onTap: () => context.push(Routes.cityStateDemo),
-            ),
-          ]),
           // Account delete hidden for now; will return after the flow is redesigned.
           Visibility(
             visible: false,

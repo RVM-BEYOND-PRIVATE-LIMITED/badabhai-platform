@@ -34,20 +34,17 @@ class NameCubit extends Cubit<NameState> {
     String fullName, {
     String? city,
     String? state,
-    String? address,
   }) async {
     final String trimmed = titleCaseName(fullName.trim());
     if (trimmed.isEmpty || this.state.isSubmitting) return;
     final String? trimmedCity = _titleCaseOrNull(city);
     final String? trimmedState = _titleCaseOrNull(state);
-    final String? trimmedAddress = _titleCaseOrNull(address);
     emit(const NameState(status: NameStatus.submitting));
     try {
       await _repo.submitName(
         trimmed,
         city: trimmedCity,
         state: trimmedState,
-        address: trimmedAddress,
       );
       if (isClosed) return;
       emit(const NameState(status: NameStatus.success));

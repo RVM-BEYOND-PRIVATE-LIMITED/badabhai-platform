@@ -28,8 +28,7 @@ Future<void> _pump(
   registerFallbackValue('');
   when(() => repo.submitName(any(),
       city: any(named: 'city'),
-      state: any(named: 'state'),
-      address: any(named: 'address'))).thenAnswer((_) async {});
+      state: any(named: 'state'))).thenAnswer((_) async {});
   locator.registerFactory<NameRepository>(() => repo);
   locator.registerFactory<NameCubit>(() => NameCubit(locator<NameRepository>()));
   locator.registerLazySingleton<LocationLookup>(() => locationLookup);
@@ -86,8 +85,13 @@ void main() {
 
     await tester.tap(find.text('Khud likhein'));
     await tester.pump();
-    final Finder addressField = find.byType(TextField).at(2);
-    await tester.enterText(addressField, 'G32, Kalwar Road, Jaipur, Rajasthan');
+    // City ALONE is not enough — the manual path needs both halves, matching
+    // the pair the GPS path resolves and the pair the API stores.
+    await tester.enterText(find.byType(TextField).at(2), 'Jaipur');
+    await tester.pump();
+    expect(tester.widget<FilledButton>(continueButton).onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField).at(3), 'Rajasthan');
     await tester.pump();
     expect(tester.widget<FilledButton>(continueButton).onPressed, isNotNull);
   });
@@ -118,7 +122,7 @@ void main() {
     await tester.pump();
 
     verify(() => repo.submitName('Asha Kumari',
-            city: 'Pune', state: 'Maharashtra', address: null))
+            city: 'Pune', state: 'Maharashtra'))
         .called(1);
   });
 
@@ -138,13 +142,18 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Location ki permission nahi mili. Neeche khud likhein.'),
         findsOneWidget);
-    // Dropped straight into manual entry (one address line, not two
-    // city/state boxes) — the worker is never stranded.
-    expect(find.byType(TextField), findsNWidgets(3));
+    // Dropped straight into manual entry — two city/state boxes beside the
+    // two name fields, so the worker is never stranded.
+    expect(find.byType(TextField), findsNWidgets(4));
+    expect(find.text('SHEHER'), findsOneWidget);
+    expect(find.text('STATE'), findsOneWidget);
   });
 
-  testWidgets(
-      'manual address entry submits address only, never a parsed city/state',
+  // #1428 — the manual path used to send ONE free-text `address` line, which
+  // the API's zod object silently dropped (there is no address column), so a
+  // hand-typing worker's location was never stored at all. It now submits the
+  // same city/state pair the GPS path does.
+  testWidgets('manual entry submits the typed city/state, title-cased',
       (WidgetTester tester) async {
     final MockNameRepository repo = MockNameRepository();
     await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
@@ -154,17 +163,39 @@ void main() {
     await tester.enterText(nameFields.at(1), 'Kumari');
     await tester.tap(find.text('Khud likhein'));
     await tester.pump();
-    await tester.enterText(find.byType(TextField).at(2),
-        'g32, mangalam city, kalwar road, jaipur, rajasthan');
+    await tester.enterText(find.byType(TextField).at(2), 'jaipur');
+    await tester.enterText(find.byType(TextField).at(3), 'rajasthan');
     await tester.pump();
 
     await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
     await tester.pump();
 
     verify(() => repo.submitName('Asha Kumari',
-            city: null,
-            state: null,
-            address: 'G32, Mangalam City, Kalwar Road, Jaipur, Rajasthan'))
+            city: 'Jaipur', state: 'Rajasthan'))
         .called(1);
+  });
+
+  // Switching to manual after a partial GPS resolve must not throw the
+  // resolved halves away — each pre-fills its own box.
+  testWidgets('"Badlein" pre-fills the manual boxes from the GPS result',
+      (WidgetTester tester) async {
+    final MockLocationLookup lookup = MockLocationLookup();
+    when(() => lookup.resolveCurrent()).thenAnswer(
+      (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
+    );
+    await _pump(tester, repo: MockNameRepository(), locationLookup: lookup);
+
+    await tester.tap(find.text('Location se bharein'));
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('Badlein'));
+    await tester.pump();
+
+    expect(
+        tester.widget<TextField>(find.byType(TextField).at(2)).controller!.text,
+        'Pune');
+    expect(
+        tester.widget<TextField>(find.byType(TextField).at(3)).controller!.text,
+        'Maharashtra');
   });
 }

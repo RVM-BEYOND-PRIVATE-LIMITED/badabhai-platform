@@ -130,29 +130,18 @@ void main() {
     expect(router.state.uri.toString(), Routes.devices);
   });
 
-  // #1429 — the state->city preview row must actually reach
-  // Routes.cityStateDemo, not just render.
-  testWidgets('the Sheher/State demo row navigates to Routes.cityStateDemo',
+  // #1429 — the state->city PREVIEW row is gone, and must stay gone. It stood
+  // in for a backend dataset that has since shipped: the real state-then-city
+  // cascade now lives on the preferences marker's cities page, driven by the
+  // options response's own `states` list. A Settings row pointing at a
+  // hardcoded 15-state map would now be a second, WRONG answer to the same
+  // question.
+  testWidgets('no Sheher/State demo row — the real cascade superseded it',
       (WidgetTester tester) async {
-    final GoRouter router = GoRouter(
-      initialLocation: '/',
-      routes: <RouteBase>[
-        GoRoute(path: '/', builder: (_, __) => const SettingsScreen()),
-        GoRoute(
-          path: Routes.cityStateDemo,
-          builder: (_, __) => const Scaffold(body: Text('CITY STATE DEMO')),
-        ),
-      ],
-    );
     await tester.pumpWidget(
-        MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+      MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
+    );
 
-    expect(find.text('Sheher/State demo'), findsOneWidget);
-
-    await tester.tap(find.text('Sheher/State demo'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('CITY STATE DEMO'), findsOneWidget);
-    expect(router.state.uri.toString(), Routes.cityStateDemo);
+    expect(find.text('Sheher/State demo'), findsNothing);
   });
 }

@@ -21,7 +21,6 @@ class NameRepositoryImpl implements NameRepository {
     String fullName, {
     String? city,
     String? state,
-    String? address,
   }) async {
     final String? token = _session.sessionToken;
     if (token == null) {
@@ -32,7 +31,6 @@ class NameRepositoryImpl implements NameRepository {
         fullName: fullName,
         city: city,
         state: state,
-        address: address,
         authToken: token,
       );
     } catch (error) {

@@ -42,8 +42,8 @@ class _NameView extends StatefulWidget {
 class _NameViewState extends State<_NameView> {
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
-  final TextEditingController _manualAddressController =
-      TextEditingController();
+  final TextEditingController _manualCityController = TextEditingController();
+  final TextEditingController _manualStateController = TextEditingController();
 
   bool _hasName = false;
   bool _manualLocationEntry = false;
@@ -58,7 +58,8 @@ class _NameViewState extends State<_NameView> {
     super.initState();
     _firstNameController.addListener(_onNameChanged);
     _lastNameController.addListener(_onNameChanged);
-    _manualAddressController.addListener(_onManualLocationChanged);
+    _manualCityController.addListener(_onManualLocationChanged);
+    _manualStateController.addListener(_onManualLocationChanged);
   }
 
   void _onNameChanged() {
@@ -73,23 +74,28 @@ class _NameViewState extends State<_NameView> {
   void dispose() {
     _firstNameController.dispose();
     _lastNameController.dispose();
-    _manualAddressController.dispose();
+    _manualCityController.dispose();
+    _manualStateController.dispose();
     super.dispose();
   }
 
-  // GPS/network path only — a clean, matchable city+state (issue #1428).
-  // The manual fallback below is a single free-text address line instead
-  // (a worker types their address the way they naturally would, e.g. "G32,
-  // Mangalam City, Kalwar Road, Jaipur, Rajasthan"); we don't try to parse
-  // city/state out of it client-side — see [_manualAddress]'s doc.
-  String get _effectiveCity => _manualLocationEntry ? '' : (_resolvedLocation?.city ?? '');
+  // BOTH paths produce the SAME pair of fields (#1428): `workers.current_city`
+  // / `current_state` are the only location columns the platform has ("City +
+  // state only — never an address, never a coordinate", `worker.ts`), so the
+  // manual fallback asks for exactly those two rather than one free-text
+  // address line the API would silently drop. Free text on purpose — this is
+  // the FIRST screen a worker meets, and it must never refuse the name of the
+  // place they actually live in (the server does not gazetteer-check either).
+  String get _effectiveCity => _manualLocationEntry
+      ? _manualCityController.text.trim()
+      : (_resolvedLocation?.city ?? '');
 
-  String get _effectiveState => _manualLocationEntry ? '' : (_resolvedLocation?.state ?? '');
-
-  String get _manualAddress => _manualAddressController.text.trim();
+  String get _effectiveState => _manualLocationEntry
+      ? _manualStateController.text.trim()
+      : (_resolvedLocation?.state ?? '');
 
   bool get _hasLocation => _manualLocationEntry
-      ? _manualAddress.isNotEmpty
+      ? _effectiveCity.isNotEmpty && _effectiveState.isNotEmpty
       : _resolvedLocation != null;
 
   Future<void> _useCurrentLocation() async {
@@ -139,15 +145,15 @@ class _NameViewState extends State<_NameView> {
 
   void _switchToManualEntry() {
     setState(() {
-      // Pre-fill with whatever GPS DID resolve (e.g. just a city before the
-      // worker taps "Badlein") so switching to manual never throws away a
-      // partial result.
-      final String prefill = <String>[
-        if (_resolvedLocation?.city.isNotEmpty ?? false) _resolvedLocation!.city,
-        if (_resolvedLocation?.state.isNotEmpty ?? false) _resolvedLocation!.state,
-      ].join(', ');
-      if (_manualAddressController.text.isEmpty) {
-        _manualAddressController.text = prefill;
+      // Pre-fill each box with whatever GPS DID resolve (e.g. just a city
+      // before the worker taps "Badlein") so switching to manual never throws
+      // away a partial result — and the two halves stay independent, exactly
+      // as the API takes them.
+      if (_manualCityController.text.isEmpty) {
+        _manualCityController.text = _resolvedLocation?.city ?? '';
+      }
+      if (_manualStateController.text.isEmpty) {
+        _manualStateController.text = _resolvedLocation?.state ?? '';
       }
       _manualLocationEntry = true;
       _locationErrorText = null;
@@ -163,9 +169,8 @@ class _NameViewState extends State<_NameView> {
               .trim();
       context.read<NameCubit>().submit(
             fullName,
-            city: _manualLocationEntry ? null : _effectiveCity,
-            state: _manualLocationEntry ? null : _effectiveState,
-            address: _manualLocationEntry ? _manualAddress : null,
+            city: _effectiveCity,
+            state: _effectiveState,
           );
     }
   }
@@ -269,7 +274,8 @@ class _NameViewState extends State<_NameView> {
                         resolved:
                             !_manualLocationEntry ? _resolvedLocation : null,
                         manualEntry: _manualLocationEntry,
-                        addressController: _manualAddressController,
+                        cityController: _manualCityController,
+                        stateController: _manualStateController,
                         onUseCurrentLocation: _useCurrentLocation,
                         onEnterManually: _switchToManualEntry,
                         onChangeLocation: _switchToManualEntry,
@@ -342,14 +348,15 @@ class _NameField extends StatelessWidget {
 }
 
 /// Renders exactly one of three states: a resolved-location summary card, a
-/// "use my location" prompt, or the manual full-address fallback field.
+/// "use my location" prompt, or the manual city + state fallback fields.
 class _LocationSection extends StatelessWidget {
   const _LocationSection({
     required this.loading,
     required this.errorText,
     required this.resolved,
     required this.manualEntry,
-    required this.addressController,
+    required this.cityController,
+    required this.stateController,
     required this.onUseCurrentLocation,
     required this.onEnterManually,
     required this.onChangeLocation,
@@ -359,7 +366,8 @@ class _LocationSection extends StatelessWidget {
   final String? errorText;
   final ResolvedLocation? resolved;
   final bool manualEntry;
-  final TextEditingController addressController;
+  final TextEditingController cityController;
+  final TextEditingController stateController;
   final VoidCallback onUseCurrentLocation;
   final VoidCallback onEnterManually;
   final VoidCallback onChangeLocation;
@@ -414,7 +422,21 @@ class _LocationSection extends StatelessWidget {
             ),
             const SizedBox(height: AppSpacing.s2),
           ],
-          _AddressField(controller: addressController),
+          Text('SHEHER', style: AppTypography.eyebrow(color: AppColors.textMuted)),
+          const SizedBox(height: AppSpacing.s2),
+          _ManualLocationField(
+            controller: cityController,
+            hint: 'Jaise: Jaipur',
+            textInputAction: TextInputAction.next,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          Text('STATE', style: AppTypography.eyebrow(color: AppColors.textMuted)),
+          const SizedBox(height: AppSpacing.s2),
+          _ManualLocationField(
+            controller: stateController,
+            hint: 'Jaise: Rajasthan',
+            textInputAction: TextInputAction.done,
+          ),
         ],
       );
     }
@@ -449,28 +471,42 @@ class _LocationSection extends StatelessWidget {
   }
 }
 
-/// The manual-entry fallback: ONE free-text line for the worker's whole
-/// address (house/plot, locality, road, city, state — the way an address is
-/// naturally written), not separate city/state boxes. Sent to the API as
-/// `address`, distinct from the clean `city`/`state` the GPS/network path
-/// resolves — see [NameRepository]'s doc for why they're not the same field.
-class _AddressField extends StatelessWidget {
-  const _AddressField({required this.controller});
+/// One half of the manual-entry fallback — city or state, typed by hand when
+/// GPS is unavailable or declined.
+///
+/// TWO BOXES, NOT ONE ADDRESS LINE. `workers` stores exactly
+/// `current_city`/`current_state` and nothing else ("City + state only —
+/// never an address, never a coordinate", `packages/db/src/schema/worker.ts`),
+/// so a single free-text address line had nowhere to land: the API's zod
+/// object silently dropped it and a hand-typing worker's location was never
+/// stored at all. These two map straight onto the columns that exist.
+///
+/// FREE TEXT, capped at the server's own 80 — deliberately NOT checked
+/// against the preferred-cities gazetteer, which is a closed set of
+/// manufacturing hubs. This is the first screen the product ever shows, and
+/// it must not refuse a worker in Patna the name of the town they live in.
+class _ManualLocationField extends StatelessWidget {
+  const _ManualLocationField({
+    required this.controller,
+    required this.hint,
+    required this.textInputAction,
+  });
 
   final TextEditingController controller;
+  final String hint;
+  final TextInputAction textInputAction;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
-      textCapitalization: TextCapitalization.sentences,
-      textInputAction: TextInputAction.done,
-      maxLines: 3,
-      minLines: 2,
-      maxLength: 200,
+      textCapitalization: TextCapitalization.words,
+      textInputAction: textInputAction,
+      maxLength: 80,
       style: AppTypography.body(size: AppTypography.sizeMd),
       decoration: InputDecoration(
-        hintText: 'Jaise: G32, Mangalam City, Kalwar Road, Jaipur, Rajasthan',
+        hintText: hint,
+        counterText: '',
         filled: true,
         fillColor: AppColors.paper,
         contentPadding: const EdgeInsets.symmetric(

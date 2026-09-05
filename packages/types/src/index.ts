@@ -426,17 +426,17 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings
   "/profile/settings/devices", // Routes.devices
-  // The #1429 state→city demo picker. Added here rather than with the screen for EXACTLY the
-  // reason recorded twice above, which has now happened a THIRD time: 8a4a02ad touched only
-  // `apps/worker-app`, the CI path filter skipped the Node job that owns this contract, and the
-  // route landed on main with a green check on a suite that never ran — leaving `main` itself red
-  // until the next api-touching branch surfaced it.
+  // The #1429 state→city demo picker USED TO SIT HERE. It was a preview standing in for a backend
+  // dataset that has since shipped (#1437 state-tags the gazetteer and serves a state list), so the
+  // real cascade now lives on the trade form's preferred-cities page and the Settings preview —
+  // route, screen and this entry — is gone. Removing it here is not optional: the contract asserts
+  // this list and `router.dart`'s route count are equal, so the two move together or CI reddens.
   //
-  // THREE OCCURRENCES IS A BROKEN GATE, NOT THREE MISTAKES. The contract is owned by a job that
-  // does not run on the PRs most likely to violate it, so the check is structurally absent exactly
-  // when it is needed. Raised for the CI owner rather than papered over again: the Node job should
-  // not be path-filtered out when `apps/worker-app/lib/router.dart` changes.
-  "/profile/settings/city-state-demo", // Routes.cityStateDemo
+  // THE BROKEN GATE THAT ENTRY RECORDED IS STILL BROKEN, and is kept here because it outlives the
+  // route that surfaced it three times: this contract is owned by a Node job that is path-filtered
+  // OFF the PRs most likely to violate it (worker-app-only changes), so the check is structurally
+  // absent exactly when it is needed. Raised for the CI owner: the Node job should not be
+  // path-filtered out when `apps/worker-app/lib/router.dart` changes.
 ] as const);
 
 /** One screen of the worker app. The ONLY non-null shape `screen_context` can hold. */
