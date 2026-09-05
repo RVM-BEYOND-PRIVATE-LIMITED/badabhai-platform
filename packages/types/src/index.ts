@@ -426,6 +426,17 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings
   "/profile/settings/devices", // Routes.devices
+  // The #1429 state→city demo picker. Added here rather than with the screen for EXACTLY the
+  // reason recorded twice above, which has now happened a THIRD time: 8a4a02ad touched only
+  // `apps/worker-app`, the CI path filter skipped the Node job that owns this contract, and the
+  // route landed on main with a green check on a suite that never ran — leaving `main` itself red
+  // until the next api-touching branch surfaced it.
+  //
+  // THREE OCCURRENCES IS A BROKEN GATE, NOT THREE MISTAKES. The contract is owned by a job that
+  // does not run on the PRs most likely to violate it, so the check is structurally absent exactly
+  // when it is needed. Raised for the CI owner rather than papered over again: the Node job should
+  // not be path-filtered out when `apps/worker-app/lib/router.dart` changes.
+  "/profile/settings/city-state-demo", // Routes.cityStateDemo
 ] as const);
 
 /** One screen of the worker app. The ONLY non-null shape `screen_context` can hold. */
