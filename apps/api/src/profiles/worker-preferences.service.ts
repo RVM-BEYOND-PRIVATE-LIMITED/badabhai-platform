@@ -107,6 +107,8 @@ export class WorkerPreferencesService {
     await this.attributes.upsertMany(rows);
     await this.attributes.deleteKeys(workerId, cleared);
 
+    await this.seedNightShiftReadyFromShift(workerId, dto.shift);
+
     await this.events.emit({
       event_name: "worker.preferences_recorded",
       actor: { actor_type: "worker", actor_id: workerId },
@@ -131,6 +133,56 @@ export class WorkerPreferencesService {
     await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, keys_written: rows.length, keys_cleared: cleared.length };
+  }
+
+  /**
+   * Seed `workers.resume_night_shift_ready` from the shift the worker just picked (#1426).
+   *
+   * ONLY WHEN THE COLUMN IS NULL. NULL means the worker has never touched the Edit-Resume
+   * toggle, so there is nothing to overwrite. A worker who HAS set it — either way — keeps their
+   * own answer forever, even if they come back and change their shift afterwards. That is the
+   * whole reason 0100 made the column three-state: under `NOT NULL DEFAULT false` this method
+   * could not tell a blank from a deliberate "no", and would have silently overwritten the "no"
+   * of every worker who revisited this form.
+   *
+   * THE MAPPING (owner ruling 2026-09-05): `night`, `rotational` and `any` seed `true`; `day`
+   * seeds `false`. `rotational` includes nights by definition and `any` says so outright.
+   * `day -> false` is safe to write because `false` PRINTS NOTHING on the résumé — it is the
+   * absence of the clause, never a rendered "not willing" — so the worst case is a worker who
+   * prefers days and later ticks the box themselves.
+   *
+   * FROM THIS FORM ONLY, NEVER FROM EXTRACTION (owner ruling 2026-09-05, and it is the same
+   * distinction `resume-render-input.ts` argues at length). `shift_preference` has two writers:
+   * this one, where the WORKER picked from a closed list, and `profile-extraction.processor.ts`,
+   * where the MODEL inferred a shift from chat. A shift is what the worker WORKS; the toggle is
+   * what they are WILLING to do. Seeding a willingness claim that reaches employers from a
+   * model's inference would be exactly the substitution that file refuses to make. Seeding it
+   * from the worker's own answer is the same author saying a compatible thing.
+   *
+   * BEST-EFFORT. The preferences the worker just submitted are already committed; a failure to
+   * seed a derived default must not fail that write or lose it.
+   */
+  private async seedNightShiftReadyFromShift(
+    workerId: string,
+    shift: string | null | undefined,
+  ): Promise<void> {
+    // Absent = the worker never reached this page; null = they cleared the answer. Neither is a
+    // shift to derive from.
+    if (shift === undefined || shift === null) return;
+    try {
+      const worker = await this.workers.findById(workerId);
+      if (!worker || worker.resumeNightShiftReady !== null) return;
+      await this.workers.updateResumePrefs(workerId, {
+        resumeNightShiftReady: shift !== "day",
+      });
+      this.logger.log(`night-shift readiness seeded from the shift answer for worker ${workerId}`);
+    } catch (err) {
+      this.logger.warn(
+        `could not seed night-shift readiness for worker ${workerId} (${
+          err instanceof Error ? err.message : "unknown"
+        })`,
+      );
+    }
   }
 
   /** One attribute row, with the storage kind taken from the vocabulary rather than the caller. */

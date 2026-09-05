@@ -324,8 +324,9 @@ describe("ResumeRenderProcessor — the worker's night-shift toggle (#947)", () 
     expect(renderer.renderPdf.mock.calls[0]![0].availability).toBe("Night shift ke liye taiyaar");
   });
 
-  it("says nothing at all for a worker still on the column default", async () => {
-    // `resume_night_shift_ready` is `notNull().default(false)`, so this row is indistinguishable
+  it("says nothing at all for a worker who has never answered", async () => {
+    // `resume_night_shift_ready` is NULL for such a worker since #1426 and the processor
+    // coalesces it to `false` at the read, so this row is indistinguishable
     // from one whose owner answered No — and it is what every worker who has never opened the
     // Edit-Resume screen carries. Their PDF must not acquire a refusal they never gave.
     const { proc, renderer } = setup({ fullName: NAME_TOKEN });

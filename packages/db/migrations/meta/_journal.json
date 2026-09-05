@@ -702,6 +702,13 @@
       "when": 1788586147877,
       "tag": "0099_flaky_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1788587131759,
+      "tag": "0100_lethal_phantom_reporter",
+      "breakpoints": true
     }
   ]
 }

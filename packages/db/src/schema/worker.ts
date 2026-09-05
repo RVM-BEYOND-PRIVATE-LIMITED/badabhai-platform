@@ -62,7 +62,20 @@ export const workers = pgTable(
     // gates the (deferred) profile-photo on the worker's own resume/app avatar;
     // `night_shift_ready` is the worker-asserted availability flag.
     resumeShowPhoto: boolean("resume_show_photo").notNull().default(true),
-    resumeNightShiftReady: boolean("resume_night_shift_ready").notNull().default(false),
+    // THREE-STATE ON PURPOSE (#1426): NULL = the worker has never answered, `true`/`false` = they
+    // did. It was `notNull().default(false)`, and that made "never asked" and "said no"
+    // indistinguishable — which is fine while the ONLY writer is the worker's own toggle, and
+    // wrong the moment anything wants to DERIVE a default. A derivation cannot know whether it is
+    // filling a blank or overwriting a deliberate "no" unless the column can say.
+    //
+    // THE DEFAULT IS DROPPED, NOT JUST THE NOT NULL, and that is load-bearing: leaving
+    // `.default(false)` on would land every new row on `false` and reproduce exactly the
+    // ambiguity this change exists to remove, while looking fixed.
+    //
+    // READERS COALESCE, THE COLUMN DOES NOT. `?? false` at every render/disclosure/admin/event
+    // boundary keeps the wire contracts byte-identical — a null still prints nothing, which is
+    // what `false` always meant on the sheet.
+    resumeNightShiftReady: boolean("resume_night_shift_ready"),
     // Worker-controlled push preference (#643). NON-PII boolean. Default TRUE so every
     // existing row keeps today's behaviour — the column is additive and back-compat.
     // READ BY THE SEND PATH: PushService.deliver gates the fan-out on it (ADR-0034), so
