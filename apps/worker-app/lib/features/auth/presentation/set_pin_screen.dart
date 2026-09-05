@@ -67,18 +67,9 @@ class _SetPinViewState extends State<_SetPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
-  /// True during the brief "processing" beat between the first PIN and the
-  /// confirm step — the keypad is swapped for a loader and input is ignored.
-  bool _processing = false;
-
-  /// How long the loader shows before the confirm step. The instant switch was
-  /// too fast for the worker to register they'd moved to "confirm".
-  static const Duration _confirmDelay = Duration(seconds: 2);
-
   String get _buffer => _step == _Step.enter ? _first : _confirm;
 
   void _onDigit(String d) {
-    if (_processing) return;
     if (_buffer.length >= kPinLength) return;
     setState(() {
       if (_step == _Step.enter) {
@@ -91,7 +82,6 @@ class _SetPinViewState extends State<_SetPinView> {
   }
 
   void _onBackspace() {
-    if (_processing) return;
     setState(() {
       if (_step == _Step.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
@@ -125,24 +115,17 @@ class _SetPinViewState extends State<_SetPinView> {
     context.read<SetPinCubit>().submit(pin);
   }
 
-  /// Hold a brief "processing" beat with a loader after the first PIN, THEN move
-  /// to the confirm step. The instant switch happened too fast for the worker to
-  /// notice they'd advanced; the loader makes the transition legible. Input is
-  /// ignored during the beat ([_processing]).
+  /// Moves straight to the confirm step, no loading beat in between — one
+  /// continuous entry, not a page-feeling transition.
   Future<void> _startConfirmTransition() async {
-    // Let the 4th dot finish its fill-pop BEFORE the keypad→loader swap (that
-    // same-frame layout change otherwise eats the pop the first three showed).
+    // Let the 4th dot finish its fill-pop BEFORE swapping the header/step
+    // (a same-frame layout change otherwise eats the pop the first three
+    // showed).
     await Future<void>.delayed(BbPinView.fillPopSettle);
     // A backspace during that beat drops the buffer below full — abort and let
     // the worker keep typing rather than advancing a partial PIN.
     if (!mounted || _first.length != kPinLength) return;
-    setState(() => _processing = true);
-    await Future<void>.delayed(_confirmDelay);
-    if (!mounted) return;
-    setState(() {
-      _processing = false;
-      _step = _Step.confirm;
-    });
+    setState(() => _step = _Step.confirm);
   }
 
   /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
@@ -254,10 +237,9 @@ class _SetPinViewState extends State<_SetPinView> {
                           filled: _buffer.length,
                         ),
                         const SizedBox(height: AppSpacing.s6),
-                        // During the processing beat the keypad is swapped for a
-                        // loader so the worker sees the step is advancing, not
-                        // that nothing happened.
-                        if (_processing)
+                        // The real submit-to-server call — the ONLY wait left
+                        // now that the artificial between-steps beat is gone.
+                        if (state.isSubmitting)
                           const Padding(
                             padding: EdgeInsets.symmetric(
                                 vertical: AppSpacing.s6),
@@ -267,7 +249,7 @@ class _SetPinViewState extends State<_SetPinView> {
                           )
                         else
                           BbPinKeypad(
-                            enabled: !state.isSubmitting,
+                            enabled: true,
                             onDigit: _onDigit,
                             onBackspace: _onBackspace,
                           ),
