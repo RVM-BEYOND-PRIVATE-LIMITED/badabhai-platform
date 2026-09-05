@@ -21,19 +21,26 @@ const String _kDeclineLabel = 'Pata nahi';
 ///
 /// - **not searchable** → [VoiceChoiceChips] directly (byte-identical
 ///   question shape, #1341) — a single-select/boolean tap submits
-///   immediately; a multi-select accumulates behind its own "Aage badhein".
+///   immediately; a multi-select accumulates behind the pinned submit button
+///   below.
 /// - **searchable** (`ui.searchable`, server-computed from option count) →
 ///   [BbSearchableMultiSelect]. For a genuinely multi-select question, picks
-///   accumulate behind an explicit submit button (same shape as the
-///   non-searchable multi path). For a single-select question that happens
-///   to cross the search threshold, one tap settles it — the LAST tapped key
-///   is submitted immediately, mirroring `VoiceChoiceChips`' own
-///   one-tap-per-single-select rule, rather than adding a second selection
-///   primitive.
+///   accumulate behind the same pinned submit button. For a single-select
+///   question that happens to cross the search threshold, one tap settles it
+///   — the LAST tapped key is submitted immediately, mirroring
+///   `VoiceChoiceChips`' own one-tap-per-single-select rule, rather than
+///   adding a second selection primitive.
 /// - **open** (`text`/`number` `answer_type`) → neither chip widget applies
-///   (no options ship with these questions); a plain text field with its own
-///   submit button, enabled once non-empty (matching the server's
-///   `text.trim().min(1)` rule).
+///   (no options ship with these questions); a plain text field, submit
+///   enabled once non-empty (matching the server's `text.trim().min(1)`
+///   rule).
+///
+/// An open-answer or multi-select question has a real "Aage badhein"/"Submit
+/// karein" button to press — that button is PINNED at the bottom of the
+/// screen (a fixed footer, sibling of the scrollable prompt/options above it)
+/// so it never scrolls out of reach on a long question. A single-select/
+/// boolean question submits on tap with no button to pin, so it renders no
+/// footer at all.
 ///
 /// EVERY branch also renders an explicit decline affordance — "nothing here
 /// applies" is a real, settled answer (`{kind: declined}`), never a silent
@@ -61,13 +68,13 @@ class TradeFormQuestionBody extends StatefulWidget {
   final ValueChanged<String> onSubmitText;
   final VoidCallback onDecline;
 
-  /// #1384 item 3 — `TradeFormState.isLastStep`, threaded down so whichever
-  /// sub-widget renders this question's actual submit BUTTON (a multi-select
-  /// or open-answer question; single-select/boolean submit via a [BbChip]
-  /// tap with no button surface to style — see [VoiceChoiceChips.isFinalStep]'s
-  /// own doc) can show the green/[kVoiceFinalSubmit] treatment ONLY when
-  /// this question is truly the walk's last step — #1376 made that a
-  /// reliable signal (see `TradeFormCubit.answerQuestion`'s own doc on why).
+  /// #1384 item 3 — `TradeFormState.isLastStep`, threaded down so the pinned
+  /// submit footer (a multi-select or open-answer question; single-select/
+  /// boolean submits via a [BbChip] tap with no button surface to style — see
+  /// [VoiceChoiceChips.isFinalStep]'s own doc) can show the green/
+  /// [kVoiceFinalSubmit] treatment ONLY when this question is truly the
+  /// walk's last step — #1376 made that a reliable signal (see
+  /// `TradeFormCubit.answerQuestion`'s own doc on why).
   final bool isLastStep;
 
   @override
@@ -75,6 +82,48 @@ class TradeFormQuestionBody extends StatefulWidget {
 }
 
 class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
+  /// The live draft for an OPEN question — mirrors [_OpenAnswerField]'s own
+  /// controller text, kept here too so the pinned footer (a SIBLING of the
+  /// scrollable body, not a descendant of the field) can gate/act on it.
+  String _text = '';
+
+  /// The live draft for a MULTI-select question (chip or searchable) — same
+  /// reasoning as [_text].
+  List<String> _selected = const <String>[];
+
+  @override
+  void initState() {
+    super.initState();
+    // A fresh mount per question (the parent always supplies a new
+    // `ValueKey` — see `trade_form_screen.dart`'s `_stepBody`), so seeding
+    // once here from the saved answer is correct and never goes stale.
+    final VoiceQuestion q = widget.step.question;
+    if (q.kind == VoiceQuestionKind.open) {
+      _text = widget.step.answer?.text ?? '';
+    } else if (q.isMultiSelect) {
+      _selected = _seedOptionKeys(widget.step.answer, q.options);
+    }
+  }
+
+  bool get _hasSubmitButton {
+    final VoiceQuestion q = widget.step.question;
+    return q.kind == VoiceQuestionKind.open || q.isMultiSelect;
+  }
+
+  bool get _canSubmit => widget.step.question.kind == VoiceQuestionKind.open
+      ? _text.trim().isNotEmpty
+      : _selected.isNotEmpty;
+
+  void _submit() {
+    if (!_canSubmit) return;
+    final VoiceQuestion q = widget.step.question;
+    if (q.kind == VoiceQuestionKind.open) {
+      widget.onSubmitText(_text.trim());
+    } else {
+      widget.onSubmitChips(List<String>.of(_selected));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final VoiceQuestion q = widget.step.question;
@@ -90,30 +139,69 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     final bool hasNoneOfAboveOption =
         q.options.any((VoiceChoice o) => o.isNoneOfAbove);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(q.prompt, style: AppTypography.display(size: AppTypography.sizeLg)),
-        if (q.whyText != null && q.whyText!.trim().isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
-          _WhyText(text: q.whyText!),
-        ],
-        const SizedBox(height: AppSpacing.s4),
-        IgnorePointer(
-          ignoring: !widget.enabled,
-          child: Opacity(
-            opacity: widget.enabled ? 1 : 0.5,
-            child: _body(q),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
+                AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(q.prompt,
+                    style: AppTypography.display(size: AppTypography.sizeLg)),
+                if (q.whyText != null && q.whyText!.trim().isNotEmpty) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s2),
+                  _WhyText(text: q.whyText!),
+                ],
+                const SizedBox(height: AppSpacing.s4),
+                IgnorePointer(
+                  ignoring: !widget.enabled,
+                  child: Opacity(
+                    opacity: widget.enabled ? 1 : 0.5,
+                    child: _body(q),
+                  ),
+                ),
+                if (!hasNoneOfAboveOption) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s3),
+                  BbButton(
+                    label: _kDeclineLabel,
+                    variant: BbButtonVariant.ghost,
+                    onPressed: widget.enabled ? widget.onDecline : null,
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-        if (!hasNoneOfAboveOption) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          BbButton(
-            label: _kDeclineLabel,
-            variant: BbButtonVariant.ghost,
-            onPressed: widget.enabled ? widget.onDecline : null,
-          ),
-        ],
+        if (_hasSubmitButton) _submitFooter(),
       ],
+    );
+  }
+
+  /// Pinned at the bottom, OUTSIDE the scroll view above — the button never
+  /// scrolls out of reach on a long question. Mirrors `_MarkerBottomBar`'s
+  /// container styling (`trade_form_screen.dart`) for visual consistency
+  /// with the marker screens' own sticky footer.
+  Widget _submitFooter() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s4),
+      decoration: const BoxDecoration(
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      ),
+      child: BbButton(
+        // #1384 item 3 — the ONE true final-submit button of the whole walk
+        // is green with distinct copy; every other submit (including on a
+        // non-final question) is navy, not primary/haldi — haldi is
+        // IDENTICAL to a selected BbChip's fill, so this nav button read as
+        // just another option.
+        label: widget.isLastStep ? kVoiceFinalSubmit : _kTextSubmit,
+        variant:
+            widget.isLastStep ? BbButtonVariant.success : BbButtonVariant.navy,
+        block: true,
+        onPressed: (widget.enabled && _canSubmit) ? _submit : null,
+      ),
     );
   }
 
@@ -127,8 +215,8 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         // them to `boolean`/never ships `number` — see `VoiceQuestionKind`'s
         // `_kind` mapping), so `text` is the only field this widget renders.
         initialText: widget.step.answer?.text,
-        onSubmit: widget.onSubmitText,
-        isLastStep: widget.isLastStep,
+        onChanged: (String v) => setState(() => _text = v),
+        onSubmitPressed: _submit,
       );
     }
     if (widget.step.searchable) {
@@ -136,7 +224,9 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         key: ValueKey<String>('${q.id}-searchable'),
         step: widget.step,
         onSubmitChips: widget.onSubmitChips,
-        isLastStep: widget.isLastStep,
+        onSelectionChanged: q.isMultiSelect
+            ? (List<String> s) => setState(() => _selected = s)
+            : null,
       );
     }
     return VoiceChoiceChips(
@@ -148,10 +238,13 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       initialSelected: _seedOptionKeys(widget.step.answer, q.options),
       onChips: widget.onSubmitChips,
       onBoolean: widget.onSubmitBoolean,
-      // #1384 item 3 — only the MULTI-select submit button reads this (see
-      // `VoiceChoiceChips.isFinalStep`'s own doc); harmless to pass on a
-      // single-select/boolean question, which never renders that button.
-      isFinalStep: widget.isLastStep,
+      // The trade form pins its OWN submit button below (see
+      // `_submitFooter`) — VoiceChoiceChips' internal multi-select button
+      // would be a redundant second one, so it stays hidden here.
+      showSubmitButton: false,
+      onMultiSelectionChanged: q.isMultiSelect
+          ? (List<String> s) => setState(() => _selected = s)
+          : null,
     );
   }
 }
@@ -200,22 +293,28 @@ class _WhyText extends StatelessWidget {
 
 /// The `ui.searchable == true` branch: [BbSearchableMultiSelect] over the
 /// question's options. See the class doc on [TradeFormQuestionBody] for the
-/// single- vs multi-select handling.
+/// single- vs multi-select handling. The multi-select submit button lives in
+/// the PARENT's pinned footer now — this widget only reports its live
+/// selection up via [onSelectionChanged].
 class _SearchableChoiceBody extends StatefulWidget {
   const _SearchableChoiceBody({
     super.key,
     required this.step,
     required this.onSubmitChips,
-    required this.isLastStep,
+    required this.onSelectionChanged,
   });
 
   final TradeFormQuestionStep step;
+
+  /// Single-select-via-search submits immediately (see [_onChanged]) — this
+  /// is the only path that still calls it directly. Multi-select submits
+  /// through the parent's pinned footer instead.
   final ValueChanged<List<String>> onSubmitChips;
 
-  /// #1384 item 3 — see `TradeFormQuestionBody.isLastStep`'s doc; only the
-  /// MULTI-select submit button below reads this (a single-select tap
-  /// submits immediately via [_onChanged], no button to style).
-  final bool isLastStep;
+  /// Reports the live selection up to [TradeFormQuestionBody] on every
+  /// change — null for a single-select question (nothing to report; it
+  /// submits immediately and has no button to gate).
+  final ValueChanged<List<String>>? onSelectionChanged;
 
   @override
   State<_SearchableChoiceBody> createState() => _SearchableChoiceBodyState();
@@ -251,6 +350,7 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
       // rule (see `applyNoneOfAboveRule`'s own doc), so `next` is accepted
       // as-is.
       setState(() => _selected = next);
+      widget.onSelectionChanged?.call(_selected);
       return;
     }
     // A select — BbSearchableMultiSelect always APPENDS a new pick, so the
@@ -261,6 +361,7 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
           key: next.last,
           options: q.options,
         ));
+    widget.onSelectionChanged?.call(_selected);
   }
 
   @override
@@ -270,54 +371,37 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
       for (final VoiceChoice c in q.options)
         BbSelectOption(key: c.key, label: c.label),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        BbSearchableMultiSelect(
-          options: options,
-          selectedKeys: _selected,
-          onChanged: _onChanged,
-          resetKey: q.id,
-        ),
-        if (q.isMultiSelect) ...<Widget>[
-          const SizedBox(height: AppSpacing.s4),
-          BbButton(
-            // #1384 item 3 — see `VoiceChoiceChips`'s own identical
-            // treatment; this is the searchable-question equivalent of that
-            // same button. navy, not primary/haldi — haldi is IDENTICAL to a
-            // selected BbChip's fill, so this nav button read as an option.
-            label: widget.isLastStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
-            variant: widget.isLastStep
-                ? BbButtonVariant.success
-                : BbButtonVariant.navy,
-            block: true,
-            onPressed: _selected.isEmpty
-                ? null
-                : () => widget.onSubmitChips(List<String>.of(_selected)),
-          ),
-        ],
-      ],
+    return BbSearchableMultiSelect(
+      options: options,
+      selectedKeys: _selected,
+      onChanged: _onChanged,
+      resetKey: q.id,
     );
   }
 }
 
 /// The `open` branch (`text`/`number` `answer_type`) — a plain text field;
-/// neither chip widget applies since these questions ship no options.
+/// neither chip widget applies since these questions ship no options. The
+/// submit button lives in the PARENT's pinned footer — this widget only
+/// reports its live text up via [onChanged], plus [onSubmitPressed] for the
+/// keyboard's own "Done" action.
 class _OpenAnswerField extends StatefulWidget {
   const _OpenAnswerField({
     super.key,
-    required this.onSubmit,
+    required this.onChanged,
+    required this.onSubmitPressed,
     this.initialText,
-    required this.isLastStep,
   });
-  final ValueChanged<String> onSubmit;
+
+  /// Reports the live (untrimmed) text up on every keystroke.
+  final ValueChanged<String> onChanged;
+
+  /// The keyboard's "Done" action — mirrors tapping the pinned submit button.
+  final VoidCallback onSubmitPressed;
 
   /// A saved `text` answer to pre-fill (#1382) — null/omitted starts empty,
   /// today's behaviour.
   final String? initialText;
-
-  /// #1384 item 3 — see `TradeFormQuestionBody.isLastStep`'s doc.
-  final bool isLastStep;
 
   @override
   State<_OpenAnswerField> createState() => _OpenAnswerFieldState();
@@ -327,7 +411,8 @@ class _OpenAnswerFieldState extends State<_OpenAnswerField> {
   // Same seed-from-widget-on-construction shape `_EmployerCardState` already
   // uses for its own text controllers (`trade_form_employment_page.dart`).
   late final TextEditingController _controller =
-      TextEditingController(text: widget.initialText ?? '');
+      TextEditingController(text: widget.initialText ?? '')
+        ..addListener(() => widget.onChanged(_controller.text));
 
   @override
   void dispose() {
@@ -335,43 +420,14 @@ class _OpenAnswerFieldState extends State<_OpenAnswerField> {
     super.dispose();
   }
 
-  void _submit() {
-    final String value = _controller.text.trim();
-    if (value.isEmpty) return;
-    widget.onSubmit(value);
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        TradeFormTextField(
-          controller: _controller,
-          hint: _kTextHint,
-          maxLines: 3,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _submit(),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        ValueListenableBuilder<TextEditingValue>(
-          valueListenable: _controller,
-          builder: (BuildContext context, TextEditingValue value, _) {
-            return BbButton(
-              // #1384 item 3 — same green/final treatment as the two chip
-              // submit buttons, for the open-answer question type.
-              // navy (not primary/haldi) — haldi is IDENTICAL to a selected
-              // BbChip's fill, so this nav button read as just another option.
-              label: widget.isLastStep ? kVoiceFinalSubmit : _kTextSubmit,
-              variant: widget.isLastStep
-                  ? BbButtonVariant.success
-                  : BbButtonVariant.navy,
-              block: true,
-              onPressed: value.text.trim().isEmpty ? null : _submit,
-            );
-          },
-        ),
-      ],
+    return TradeFormTextField(
+      controller: _controller,
+      hint: _kTextHint,
+      maxLines: 3,
+      textInputAction: TextInputAction.done,
+      onSubmitted: (_) => widget.onSubmitPressed(),
     );
   }
 }

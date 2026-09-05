@@ -37,11 +37,28 @@ void _tallSurface(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// The Feed's top chip row, as opposed to an identically-labelled sheet chip.
-Finder _topChip(String label) => find.descendant(
-      of: find.byType(SingleChildScrollView),
-      matching: find.text(label),
-    );
+/// Types [query] into the header's unified filter-search field and taps the
+/// suggestion with [suggestionKey] (e.g. `jobFilterSuggestion_trade_VMC`) to
+/// apply it — the search+suggestions+removable-chip row replaced the old
+/// static CNC/VMC/"Sabhi" chip row.
+Future<void> _applyFilterViaSearch(
+  WidgetTester tester,
+  String query,
+  String suggestionKey,
+) async {
+  await tester.enterText(
+      find.byKey(const Key('jobFilterSearchField')), query);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key(suggestionKey)));
+  await tester.pumpAndSettle();
+}
+
+/// Removes an already-applied filter via its chip in the header's horizontal
+/// row (e.g. `jobFilterChip_trade_VMC`).
+Future<void> _removeActiveChip(WidgetTester tester, String chipKey) async {
+  await tester.tap(find.byKey(Key(chipKey)));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   setUp(() async {
@@ -91,12 +108,15 @@ void main() {
     },
   );
 
-  // REGRESSION (the bug this change fixes): the top chip row was visual-only —
-  // it wrote to a private `_chips` set that nothing filtered on, so tapping a
-  // chip highlighted it and changed NOTHING. The row and the sheet now share one
-  // FilterSelection, so a chip tap must narrow the deck exactly like the sheet.
-  testWidgets('tapping a TOP-ROW chip narrows the deck (was visual-only)',
-      (WidgetTester tester) async {
+  // REGRESSION guard for the bug the chip-row-to-search-box rewrite must not
+  // reintroduce: the OLD top chip row once wrote to a private `_chips` set
+  // that nothing filtered on, so tapping a chip highlighted it and changed
+  // NOTHING. The header search box and the sheet share the SAME
+  // FilterSelection, so applying a filter via search must narrow the deck
+  // exactly like the sheet does — and removing it must restore the deck.
+  testWidgets(
+      'applying a filter via the header search narrows the deck, removing it '
+      'restores the deck (was visual-only)', (WidgetTester tester) async {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
@@ -112,22 +132,20 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Both jobs are in the deck and NO chip is pre-selected.
+    // Both jobs are in the deck and no filter is active yet.
     expect(find.text('CNC Operator'), findsOneWidget);
     expect(bloc.state.filters.isEmpty, isTrue);
 
-    // Tap the top-row VMC chip — no sheet involved.
-    await tester.tap(_topChip('VMC'));
-    await tester.pumpAndSettle();
+    // Search "VMC" and tap the trade suggestion — no sheet involved.
+    await _applyFilterViaSearch(tester, 'VMC', 'jobFilterSuggestion_trade_VMC');
 
     // It reached the bloc AND narrowed the deck.
     expect(bloc.state.filters.trades, <String>{'VMC'});
     expect(find.text('VMC Setter'), findsOneWidget);
     expect(find.text('CNC Operator'), findsNothing);
 
-    // Tapping it again de-selects and restores the full deck (round-trip).
-    await tester.tap(_topChip('VMC'));
-    await tester.pumpAndSettle();
+    // Removing the active chip restores the full deck (round-trip).
+    await _removeActiveChip(tester, 'jobFilterChip_trade_VMC');
     expect(bloc.state.filters.isEmpty, isTrue);
     expect(find.text('CNC Operator'), findsOneWidget);
   });
@@ -157,22 +175,20 @@ void main() {
       expect(bloc.state.filters.isEmpty, isTrue);
       expect(dot, findsNothing);
 
-      // Apply a filter from the top chip row -> the dot appears.
-      await tester.tap(_topChip('VMC'));
-      await tester.pumpAndSettle();
+      // Apply a filter via the header search -> the dot appears.
+      await _applyFilterViaSearch(tester, 'VMC', 'jobFilterSuggestion_trade_VMC');
       expect(dot, findsOneWidget);
 
-      // Clear every filter -> the dot disappears again.
-      await tester.tap(_topChip('VMC'));
-      await tester.pumpAndSettle();
+      // Remove it via its chip -> the dot disappears again.
+      await _removeActiveChip(tester, 'jobFilterChip_trade_VMC');
       expect(bloc.state.filters.isEmpty, isTrue);
       expect(dot, findsNothing);
     },
   );
 
   testWidgets(
-    'the top chip row and the sheet share ONE filter state (a sheet selection '
-    'paints the chip)',
+    'the header active-filter row and the sheet share ONE filter state (a '
+    'sheet selection shows a removable chip)',
     (WidgetTester tester) async {
       _tallSurface(tester);
 
@@ -200,11 +216,11 @@ void main() {
       await tester.tap(find.textContaining('Show '));
       await tester.pumpAndSettle();
 
-      // ...and the TOP-ROW chip reflects it (one source of truth). Tapping the
-      // top-row CNC chip now CLEARS it rather than re-adding a duplicate.
+      // ...and the header's active-filter row shows a removable chip for it
+      // (one source of truth). Removing that chip clears it.
       expect(bloc.state.filters.trades, <String>{'CNC'});
-      await tester.tap(_topChip('CNC'));
-      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('jobFilterChip_trade_CNC')), findsOneWidget);
+      await _removeActiveChip(tester, 'jobFilterChip_trade_CNC');
       expect(bloc.state.filters.trades, isEmpty);
       expect(find.text('VMC Setter'), findsOneWidget);
     },
