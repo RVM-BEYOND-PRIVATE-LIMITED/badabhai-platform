@@ -479,10 +479,10 @@ class ApiClient {
       '/workers/me/name',
       <String, dynamic>{
         'full_name': fullName,
-        // Forward-compatible only — see NameRepository's doc. The current
-        // API schema silently drops unknown keys, so these are a no-op
-        // until the backend adds the columns; kept off the body when null
-        // so a plain name-only submit stays byte-identical to before.
+        // city/state persist for real (#1428) — see NameRepository's doc.
+        // address has no matching column; the schema silently drops it, so
+        // sending it stays a harmless no-op. All three stay off the body
+        // when null so a plain name-only submit is byte-identical to before.
         if (city != null) 'city': city,
         if (state != null) 'state': state,
         if (address != null) 'address': address,

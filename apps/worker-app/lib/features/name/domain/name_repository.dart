@@ -12,10 +12,13 @@
 ///    chat step already does, neither of which belongs in this onboarding
 ///    step.
 ///
-/// The current API schema (`SetMyNameSchema`, a plain non-`.strict()` zod
-/// object) silently drops unknown keys, so sending any of these today is a
-/// harmless no-op — this is forward-compatible with zero app update needed
-/// once the backend adds the columns + widens the schema (tracked in #1428).
+/// [city]/[state] are REAL, persisted fields (#1428, `SetMyNameSchema`) —
+/// `workers.current_city`/`current_state`, plaintext (owner ruling: cities
+/// are a matching input, not PII), free text (NOT resolved against the
+/// preferred-cities gazetteer — this is the first screen a worker meets,
+/// which must never refuse the name of the place they actually live in).
+/// [address] has NO matching backend column; the same non-`.strict()` zod
+/// object silently drops it, so sending it today stays a harmless no-op.
 ///
 /// PRIVACY: the name is PII. It is held only transiently (the text field +
 /// this call) — never stored in app state, an event, or a log. Implementations
