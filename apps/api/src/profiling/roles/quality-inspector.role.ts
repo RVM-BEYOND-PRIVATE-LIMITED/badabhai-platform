@@ -27,9 +27,23 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  * ═══ "inspector" IS THE FIRST RUNG OF THE LADDER AND ALSO A SECURITY GUARD'S TITLE ═══
  *
  * The taxonomy ladder is "Inspector → QC Engineer", so the bare word is a rung and lives with the
- * rungs. It is also what a man in `fam_protective_service` calls himself. Keeping it out of
- * `occupationTerms` costs nothing — "quality inspector", "qc" and "quality control" all route —
- * and avoids handing a plant guard a CMM form.
+ * rungs. It is also what a man in `fam_protective_service` calls himself, so keeping it out of
+ * `occupationTerms` avoids handing a plant guard a CMM form.
+ *
+ * ⚠ THIS PARAGRAPH USED TO CLAIM THE EXCLUSION "COSTS NOTHING — quality inspector, qc and quality
+ * control all route". THAT WAS FALSE, and it was written without measuring. Resolved through the
+ * production chain (`buildOccupationIndex` → `resolveOccupation` → `resolveFamily`):
+ *
+ *   "quality inspector"  → jd_isco_7543        → fam_other_craft
+ *   "quality control"    → NO MATCH
+ *   "qc"                 → NO MATCH
+ *   "क्वालिटी"            → NO MATCH
+ *
+ * So the exclusion costs nothing only because NOTHING here routes yet. This role is one of the
+ * seven in Batch 2 that binding alone cannot reach: the words are absent from the alias corpus,
+ * and `rvm-aliases.jsonl` is ratified vernacular rather than something to invent. The form stays
+ * disabled until that tranche ships — and the correction is recorded rather than quietly deleted,
+ * because a confident unmeasured claim in a doc comment is what the next author would have built on.
  */
 export const QUALITY_INSPECTOR = {
   kind: "quality_inspector",

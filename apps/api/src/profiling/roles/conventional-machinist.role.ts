@@ -41,7 +41,7 @@ export const CONVENTIONAL_MACHINIST = {
   packId: "qp_conventional_machining",
   familyId: "fam_conventional_machining",
   cluster: "machining",
-  formEnabled: false,
+  formEnabled: true,
   displayName: "Conventional Machinist",
   offerName: "conventional machinist",
   levelLadder: ["Helper", "Operator", "Skilled"],
@@ -68,4 +68,41 @@ export const CONVENTIONAL_MACHINIST = {
     ],
     levelTerms: ["helper", "operator", "skilled", "ऑपरेटर"],
   },
+  fresher: {
+    // KEYED BY THE PACK'S STORED `value_text`, never by `option_key` — the rule that has already
+    // shipped wrong twice on qp_cnc_grinding. Read off `iti_workshop_machines` in
+    // qp_conventional_machining@1 and verified against it by `role-corpus-parity.guard.test.ts`.
+    workshopMachines: {
+      conventional_lathe: "Conventional lathe",
+      milling: "Milling machine",
+      drilling: "Drilling machine",
+      shaper: "Shaper / planer",
+      grinding: "Grinding machine",
+    },
+    // `not_yet` PRINTS NOTHING, on the turner's §8.3 asymmetry ruling: "has not yet taken the
+    // trade test" is true, costs the worker the reading, and tells an employer nothing he would
+    // not already assume.
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
+  /**
+   * AUTOCOMPLETE, NOT A CLOSED SET — the qualifications endpoint stores whatever the worker types.
+   *
+   * `Trade Test — Machinist` IS THE ITI TRADE NAME FOR THIS ROLE, and it is the entry a copy-paste
+   * from the turner's list would have got wrong: an ITI trade test is named for the trade sat, and
+   * a manual machine-shop hand sits Machinist, not Turner. No controller courses here — this trade
+   * has no controller, which is the whole distinction from the three CNC roles.
+   */
+  suggestedCertificates: [
+    "Trade Test — Machinist",
+    "ITI Machinist — NCVT",
+    "ITI Machinist — SCVT",
+    "Machine Shop Operator — NSQF",
+    "Metrology & Inspection",
+    "Blueprint Reading & GD&T",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
 } as const satisfies RoleFormDescriptor;
