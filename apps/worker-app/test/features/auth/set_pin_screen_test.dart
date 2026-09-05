@@ -90,29 +90,26 @@ void main() {
     expect(find.text('PIN dobara daalein'), findsOneWidget);
   });
 
-  testWidgets('the 4th-dot pop plays first, THEN a 2-second loader, THEN confirm',
+  testWidgets(
+      'the 4th-dot pop plays first, THEN the confirm step — no loading beat '
+      'in between (one continuous entry, not a page-feeling transition)',
       (WidgetTester tester) async {
     await pumpScreen(tester);
     await enterPin(tester, '3927'); // strong PIN → 4th digit lands
 
-    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
-    // loader has not swapped in yet (this is the fix: the swap no longer lands
-    // in the same frame and eats the 4th dot's pop).
+    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render —
+    // the confirm step has not swapped in yet (the swap must not land in the
+    // same frame and eat the 4th dot's pop).
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(BbPinKeypad), findsOneWidget);
-    expect(find.byType(BbSpinner), findsNothing);
-
-    // After the ~300ms pop beat, the loader takes over; confirm not reached yet.
-    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
-    expect(find.byType(BbSpinner), findsOneWidget);
-    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
-    expect(find.byType(BbPinKeypad), findsNothing);
     expect(find.text('PIN dobara daalein'), findsNothing);
-
-    // After the 2-second delay the loader clears into the confirm header.
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
+    // No artificial loader beat at all — never shown for this transition.
     expect(find.byType(BbSpinner), findsNothing);
+
+    // After the ~300ms pop settles, the confirm step is up immediately.
+    await tester.pump(const Duration(milliseconds: 250)); // ~350ms in
+    expect(find.byType(BbSpinner), findsNothing);
+    expect(find.byType(BbPinKeypad), findsOneWidget);
     expect(find.text('PIN dobara daalein'), findsOneWidget);
     // The redundant confirm dialog was dropped — the header carries the prompt.
     expect(find.text('PIN confirm karein'), findsNothing);

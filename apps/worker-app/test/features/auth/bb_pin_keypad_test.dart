@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:badabhai_worker_app/core/theme/app_colors.dart';
 import 'package:badabhai_worker_app/features/auth/domain/weak_pin.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+
+/// The [BoxDecoration] painted by the Nth [AnimatedContainer] slot.
+BoxDecoration _slotDecoration(WidgetTester tester, int index) {
+  final AnimatedContainer box =
+      tester.widgetList<AnimatedContainer>(find.byType(AnimatedContainer)).elementAt(index);
+  return box.decoration! as BoxDecoration;
+}
 
 void main() {
   group('BbPinKeypad', () {
@@ -73,8 +81,38 @@ void main() {
       for (final String d in <String>['0', '1', '2', '3', '4', '5']) {
         expect(find.text(d), findsNothing);
       }
-      // Four dot containers (length), regardless of how many are filled.
+      // Four box containers (length), regardless of how many are filled.
       expect(find.byType(AnimatedContainer), findsNWidgets(4));
+    });
+
+    testWidgets('renders rounded BOXES, not circles', (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 0)),
+      ));
+      final BoxDecoration deco = _slotDecoration(tester, 0);
+      expect(deco.shape, BoxShape.rectangle);
+      expect(deco.borderRadius, isNotNull);
+    });
+
+    testWidgets('empty slots have a GREY border; filled slots turn theme BLUE',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 2)),
+      ));
+
+      expect(_slotDecoration(tester, 0).border!.top.color, AppColors.blue);
+      expect(_slotDecoration(tester, 1).border!.top.color, AppColors.blue);
+      expect(_slotDecoration(tester, 2).border!.top.color, AppColors.borderStrong);
+      expect(_slotDecoration(tester, 3).border!.top.color, AppColors.borderStrong);
+    });
+
+    testWidgets('error tints a filled slot crimson, not blue',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 1, error: true)),
+      ));
+
+      expect(_slotDecoration(tester, 0).border!.top.color, AppColors.danger);
     });
   });
 

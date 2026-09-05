@@ -76,16 +76,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
 
   bool _busy = false;
 
-  /// True during the loader beat between the first PIN and the confirm step —
-  /// the keypad is swapped for a loader and input is ignored, so the worker
-  /// registers they have advanced to "confirm" instead of the step flipping
-  /// instantly. Mirrors the set-PIN screen.
-  bool _processing = false;
-
-  /// How long the loader shows before the confirm step (mirrors set-PIN). The
-  /// instant switch was too fast for a worker to register the change.
-  static const Duration _confirmDelay = Duration(seconds: 2);
-
   /// True while an alert dialog is open, so a rapid tap or a rebuild can't stack
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
@@ -180,7 +170,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   // --- phase 3: choose a new PIN (enter + confirm) --------------------------
 
   void _onDigit(String d) {
-    if (_processing) return;
     if (_buffer.length >= kPinLength) return;
     setState(() {
       if (_pinStep == _PinStep.enter) {
@@ -193,7 +182,6 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   void _onBackspace() {
-    if (_processing) return;
     setState(() {
       if (_pinStep == _PinStep.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
@@ -232,21 +220,15 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   }
 
   /// Enter step filled with a strong PIN: let the 4th dot finish its fill-pop,
-  /// hold a brief loader beat so the worker registers they've advanced, THEN
-  /// move to the confirm step. Input is frozen during the beat ([_processing]).
+  /// THEN move straight to the confirm step — one continuous entry, no
+  /// loading beat in between (mirrors the set-PIN screen).
   Future<void> _startConfirmTransition() async {
     // The pop first — clearing/switching in the same frame masks the 4th dot.
     await Future<void>.delayed(BbPinView.fillPopSettle);
     // A backspace during that beat drops the buffer below full — abort and let
     // the worker keep typing rather than advancing a partial PIN.
     if (!mounted || _first.length != kPinLength) return;
-    setState(() => _processing = true);
-    await Future<void>.delayed(_confirmDelay);
-    if (!mounted) return;
-    setState(() {
-      _processing = false;
-      _pinStep = _PinStep.confirm;
-    });
+    setState(() => _pinStep = _PinStep.confirm);
   }
 
   /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
@@ -487,10 +469,9 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
                     const Spacer(flex: 1),
                     BbPinView(length: kPinLength, filled: _buffer.length),
                     const SizedBox(height: AppSpacing.s6),
-                    // During the processing beat the keypad is swapped for a
-                    // loader so the worker sees the step is advancing, not that
-                    // nothing happened.
-                    if (_processing)
+                    // The real confirm-reset submit call — the ONLY wait left
+                    // now that the artificial between-steps beat is gone.
+                    if (_busy)
                       const Padding(
                         padding:
                             EdgeInsets.symmetric(vertical: AppSpacing.s6),

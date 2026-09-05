@@ -115,28 +115,24 @@ void main() {
   });
 
   testWidgets(
-      'the new-PIN 4th dot pops, THEN a 2-second loader, THEN the confirm step',
+      'the new-PIN 4th dot pops, THEN the confirm step immediately — no '
+      'loading beat in between',
       (WidgetTester tester) async {
     await pumpToPinPhase(tester);
     await enterPin(tester, '3927'); // strong → transition begins
 
-    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
-    // loader has not swapped in yet.
+    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render —
+    // the confirm step has not swapped in yet.
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.byType(BbPinKeypad), findsOneWidget);
-    expect(find.byType(BbSpinner), findsNothing);
-
-    // After the ~300ms pop beat the loader takes over; confirm not reached yet.
-    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
-    expect(find.byType(BbSpinner), findsOneWidget);
-    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
-    expect(find.byType(BbPinKeypad), findsNothing);
     expect(find.text('PIN dobara daalein'), findsNothing);
-
-    // After the 2-second delay the loader clears into the confirm step.
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
+    // No artificial loader beat at all — never shown for this transition.
     expect(find.byType(BbSpinner), findsNothing);
+
+    // After the ~300ms pop settles, the confirm step is up immediately.
+    await tester.pump(const Duration(milliseconds: 250)); // ~350ms in
+    expect(find.byType(BbSpinner), findsNothing);
+    expect(find.byType(BbPinKeypad), findsOneWidget);
     expect(find.text('PIN dobara daalein'), findsOneWidget); // confirm header
     verifyNever(() => manager.confirmPinReset(any(), any(), any()));
   });
