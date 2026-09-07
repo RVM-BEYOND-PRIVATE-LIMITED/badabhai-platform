@@ -21,14 +21,14 @@ with two of three is the failure this block exists to prevent, and it will prese
 a reasonable scope call late in a session.
 
   C-1. THE WORKER IS TOLD HE WAS UNLOCKED — emit `profile.viewed` from the unlock path.
-       The event is registered (packages/event-schema/src/registry.ts:517) and the faceless
+       The event is registered (packages/event-schema/src/registry.ts:522) and the faceless
        notification template already exists
        (apps/api/src/notifications/notifications.dto.ts:165-172). NOTHING EMITS IT. Without
        it, the worker's first knowledge that a stranger holds his contact is the stranger's
        message.
        THIS IS NOT THE ONE-LINE WIRING JOB IT LOOKS LIKE, and the correction is recorded
        here rather than left for you to hit mid-session. `ProfileViewedPayload` requires
-       `job_id` (packages/event-schema/src/payloads.ts:2145-2149, NOT optional), while
+       `job_id` (packages/event-schema/src/payloads.ts:2169-2173, NOT optional), while
        `unlocks.job_id` is NULLABLE — "optional job context (per-profile granularity, so
        nullable)", packages/db/src/schema/payer.ts:235-236 — and the request DTO defaults it
        to null (apps/api/src/unlocks/unlocks.dto.ts:23). An unlock with no posting attached
@@ -40,7 +40,7 @@ a reasonable scope call late in a session.
                compiles: the workers it silently skips are precisely those found by search
                with no posting attached, which is the whole of E2's flow.
          (ii)  loosen `job_id` to nullable in the payload. CLAUDE.md §3 forbids mutating an
-               event schema, and registry.ts:517 pins `version: 1`. The practical risk is nil
+               event schema, and registry.ts:522 pins `version: 1`. The practical risk is nil
                — zero producers and zero consumers exist — but "nil risk" is an argument for
                the owner to weigh, not a licence.
          (iii) mint a distinct event for the unlock notification, with its own template.
@@ -118,14 +118,20 @@ has been closed, confirm the string is gone from the file.
 WHAT ALREADY EXISTS — do not rebuild any of it.
   - The entitlement and its lifecycle: `unlocks` (packages/db/src/schema/payer.ts:225), the
     14-day window (packages/db/src/credit-packs.ts:101), the reveal attempt cap
-    (packages/config/src/server.ts:1135, default 3).
+    (packages/config/src/server.ts:1151, default 3).
   - The routing row: `unlock_routing` (packages/db/src/schema/payer.ts:349-370) already
     stores `unlock_id`, a server-internal `routing_token` (unique index at :367), the
     `channel`, the `relay_handle`, and `expires_at`. **The join you need is already
     persisted.** You are not adding a routing table; you are adding a reader.
-  - The fail-closed ladder the resolution must reuse rather than re-derive:
-    apps/api/src/unlocks/unlocks.service.ts:67-78 — credit precondition, `employer_sharing`
-    consent, ADR-0031 pending-deletion freeze, worker caps, then payment+grant.
+  - The fail-closed ladder the resolution must reuse rather than re-derive.
+    CORRECTED 2026-09-07, measured: `:67-78` is a DOCBLOCK and it describes POST /unlocks —
+    the GRANT path — not the use-time path. Its five steps (credit precondition,
+    `employer_sharing` consent, ADR-0031 pending-deletion freeze, worker caps, then
+    payment+grant) are the ones a GRANT runs. The EXECUTABLE use-time ladder, which is what a
+    resolution re-check must actually reuse, is apps/api/src/unlocks/unlocks.service.ts:318-400
+    and differs materially: a worker-gone SET-NULL guard, a pending-deletion re-read under
+    lock, a consent check before the lock, a live-grant check, and the per-unlock attempt cap.
+    Reusing the docblock's list would re-derive the grant ladder and miss four of those.
   - A worker-facing IN-APP notification surface: `GET /workers/me/notifications`
     (apps/api/src/notifications/notifications.controller.ts:20, :27) with a `notifications`
     feature module in the Flutter app. That is the landing place for "someone messaged you"
@@ -180,7 +186,9 @@ handle resolve, it does not build a messaging product.
      re-consent over an already-opted-in base if it lands later. That is the `model_training`
      decision (`:23-24`) taken deliberately a second time.
      WHAT THIS MEANS FOR YOU. Adding to `consent.purposes[]` is still a NEVER-DO
-     (docs/agent/BUILD_RULES.md:28) and the ruling does not transfer it to you. The string is
+     (docs/agent/BUILD_RULES.md:89-91 — CORRECTED 2026-09-07; `:28` is the PARKED.md entry of
+     the authority list and has never carried this rule) and the ruling does not transfer it to
+     you by itself. The string is
      minted by the owner as a one-line addition to `CONSENT_PURPOSES` with its docblock;
      `employer_messaging` is the proposed name and the owner confirms it. Your gates key on
      it. If the string is not in `packages/types/src/index.ts` when you build, HALT — do not
