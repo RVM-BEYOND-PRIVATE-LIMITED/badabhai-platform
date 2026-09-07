@@ -21,7 +21,7 @@ ever received a relayed message. Nothing here has been proven against real suppl
 
 ## A. Does `employer_sharing` authorise MESSAGING, or only DISCLOSURE?
 
-> **RULED 2026-09-05 — disclosure only; mint the ninth purpose NOW.** The recommendation
+> **RULED 2026-09-07 — disclosure only; mint the ninth purpose NOW.** The recommendation
 > below argued the opposite conclusion from the same evidence, and the owner ruled against it
 > on the cost asymmetry: *"This is the `model_training` decision made deliberately a second
 > time, and the cost asymmetry is not close."* The reasoning about the enum's house rule is
@@ -100,7 +100,7 @@ decided **before** E4's notice ships, not after.
 
 ## B. The free-text leak
 
-> **RULED 2026-09-05 — (c) for the payer's first message, (a) after the worker replies**, as
+> **RULED 2026-09-07 — (c) for the payer's first message, (a) after the worker replies**, as
 > recommended, with both framing corrections carried into `E0_BUILD.md`. The owner attached a
 > condition to the record: **intent remains unsolved, and no shape constraint addresses it.**
 > A later session must not read this ruling as closing both halves. `E0_BUILD.md` says so at
@@ -175,7 +175,7 @@ to build, breaks the product's own vocabulary, and buys a guarantee it cannot ke
 
 ## C. What does the worker EXPERIENCE when a payer opens a relay?
 
-> **RULED 2026-09-05 — the three additions are BLOCKING CONDITIONS on E0**, written into
+> **RULED 2026-09-07 — the three additions are BLOCKING CONDITIONS on E0**, written into
 > `E0_BUILD.md` above the phase title in the same position as E2's empty-result trap. E0 does
 > not ship without all three; a builder finding any of them harder than scoped HALTs rather
 > than trims.

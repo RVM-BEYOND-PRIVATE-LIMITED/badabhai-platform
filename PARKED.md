@@ -799,3 +799,51 @@ costing a session.
 hard part and it is already written and already guarded
 ([apps/api/src/notifications/notifications.service.test.ts:320-326](apps/api/src/notifications/notifications.service.test.ts)).
 The gap is the producer and the payload, not the copy.
+
+---
+
+## P-020 · "No other slot moved" is a rule with no falsifiable check
+
+**Found:** 2026-09-07, signing R7, ADR-0040 and the three E0 rulings (PR #1454).
+**Owner ruling:** PARK, do not build — Prakash, 2026-09-07.
+
+**The gap.** A decision document's signature slots are the most consequential text in this
+repository: `docs/agent/BUILD_RULES.md:3-9` admits ruling R1-R7 as source of truth *"ONLY
+where the `Signed (RVM / CEO): ...  Date: ...` line under that ruling is filled in"*, and
+admits an ADR *"ONLY"* when its Status reads Accepted. A filled slot is what converts a
+recommendation into an authority a builder must obey.
+
+Nothing checks them. `scripts/check-authority-paths.mjs` is the only automated gate that
+reads these files and it asserts one thing — that every path named in `BUILD_RULES.md`
+resolves. It does not read a signature slot, does not know which slots exist, and cannot tell
+a filled one from a blank one. So the invariant that actually governed PR #1454 —
+*the ruling says what the owner dictated, and no other slot moved* — was enforced by a human
+reading a blob diff, and by nothing else. Twelve lines across nine ruling slots stayed blank in that PR
+(`RVM_TAXONOMY_WORKSHEET_2026-09.md:367`, `:375`, `:386`, `:456`, `:479`, `:527`, `:562`,
+`:606`, `:636`, `:725`, `:763`, `:765`) because the diff was read, not because anything would
+have gone red had one moved.
+
+**Why it is its own shape and not P-016.** P-016 is a check whose own prescribed text goes
+stale. This is the layer below: there is no check at all. P-016's failure produces a wrong
+record from an obedient checker; this one produces no record either way. They are caught by
+different questions — P-016 by *"if this fires, is the sentence it makes me write still
+true?"*, this one by *"what would have to go wrong for anything to go red?"*
+
+**THE TRAP THAT KEEPS THIS PARKED, and it is why the obvious build is worse than nothing.**
+The obvious gate — pin the set of blank slots, fail when one changes — cannot distinguish
+*signed because the owner ruled* from *signed because something went wrong*. Those are the
+same diff. A gate that cannot tell them apart turns **every future signature into a false
+FAIL**: the owner signs R2, CI goes red, and the only way to green is to edit the pin in the
+same commit — at which point the check is pinned by the very change it exists to catch, and
+has been reduced to a changelog that fails once per ruling. A checker who sees it go red for
+the fifth legitimate signature stops reading it, which is the state P-015 documents for
+`deps-audit`.
+
+Any real version has to carry the owner's intent into the check — a signed manifest naming
+which slots this change is authorised to fill, written before the edit and diffed against
+after. That is a build with an owner ruling in front of it, not a script.
+
+**What to do in the meantime.** Keep doing what PR #1454 did, and keep it explicit: after
+signing, enumerate every verdict, signature and answer line **from the remote blob on `main`**,
+not the working tree, and report which are filled and which stay blank. It is a human check.
+Recording that it is a human check is the point of this entry.
