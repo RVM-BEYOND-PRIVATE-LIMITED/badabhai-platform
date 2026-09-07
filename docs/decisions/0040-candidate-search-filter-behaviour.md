@@ -1,6 +1,6 @@
 # ADR-0040: Candidate search filter behaviour — reorder-and-count by default, strict by opt-in
 
-- **Status:** **PROPOSED — UNSIGNED.** Owner ruling R-E1 (2026-09-05) is transcribed here; the signature slot at the foot of this file is deliberately blank. Nothing may be built from this ADR until it is signed.
+- **Status:** **Accepted** — owner ruling R-E1 (2026-09-05), signed 2026-09-07.
 - **Date:** 2026-09-05
 - **Owner:** CEO / Prakash
 - **Amends:** [ADR-0036](0036-matching-algorithm-v1.md) — narrowly, and only on the points named in "What this does and does not supersede" below. Every other clause of ADR-0036 stands unchanged.
