@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/api/api_client.dart'
+    show CityOptionDto, WorkPrefOptionsDto;
+
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -35,11 +38,13 @@ const String _kBackToPickerLink = 'List se chunein';
 /// map (and [_EmployerLocationPicker]'s picker branch) once #1429 lands and
 /// wire the real options through instead — [employerCity]/[employerState]
 /// stay plain strings on the wire either way, so nothing downstream changes.
-const Map<String, List<String>> _kDemoEmployerStateCities =
-    <String, List<String>>{
-      'Haryana': <String>['Gurugram', 'Faridabad'],
-      'Maharashtra': <String>['Mumbai', 'Pune'],
-    };
+// The 2-state demo map that used to live here is GONE (#1429 shipped the real
+// dataset): states now come from the server's own state catalogue (all 28
+// states + 8 UTs) and cities from the state-tagged gazetteer, both off the
+// SAME `GET work-preferences/options` response the preferences page already
+// fetches. See `_EmployerLocationPicker` for what happens in the states the
+// gazetteer has no city for — which is most of them, and is why the free-text
+// path stays.
 const String _kStartLabel = 'Kab shuru kiya';
 const String _kEndLabel = 'Kab tak';
 const String _kStillWorking = 'Abhi yahin kaam kar rahe hain';
@@ -87,12 +92,18 @@ class TradeFormEmploymentPage extends StatefulWidget {
     super.key,
     required this.enabled,
     required this.onSave,
+    required this.loadOptions,
     this.initialEntries,
     this.onPageChanged,
   });
 
   final bool enabled;
   final ValueChanged<List<TradeFormEmploymentEntry>> onSave;
+
+  /// The SAME options fetch the preferences marker uses — it carries the
+  /// state catalogue and the state-tagged city gazetteer (#1429). Loaded
+  /// once here rather than per employer card.
+  final Future<WorkPrefOptionsDto> Function() loadOptions;
 
   /// The cubit's own memory of the last successful save for THIS marker
   /// (#1384 item 1, `TradeFormState.savedEmployment`) — see the doc on
@@ -125,13 +136,49 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   bool get isFirstPage => _page <= 0;
   bool get isLastPage => _page >= pageCount - 1;
 
+  /// The state catalogue + state-tagged city gazetteer (#1429), once loaded.
+  /// Null while in flight or if the fetch failed — in BOTH cases the picker
+  /// falls back to free text rather than blocking the page, because a work
+  /// history the worker cannot type is worse than one without a dropdown.
+  WorkPrefOptionsDto? _options;
+
   @override
   void initState() {
     super.initState();
+    _loadOptions();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       widget.onPageChanged?.call(_page, pageCount);
     });
+  }
+
+  Future<void> _loadOptions() async {
+    try {
+      final WorkPrefOptionsDto options = await widget.loadOptions();
+      if (!mounted) return;
+      setState(() => _options = options);
+    } catch (_) {
+      // Deliberately silent: the free-text path below is a complete way to
+      // enter an employer's location, so a failed options fetch costs the
+      // worker a convenience, not the page.
+      if (!mounted) return;
+      setState(() => _options = null);
+    }
+  }
+
+  /// Every state/UT the server offers, or empty while the fetch is in flight.
+  List<String> get _states => _options?.states ?? const <String>[];
+
+  /// The gazetteer's cities for [state]. EMPTY for most states — the
+  /// gazetteer is a closed set of manufacturing hubs (36 cities across 13
+  /// states), not a map of India, so a worker whose last employer was
+  /// anywhere else types the city instead. See `_EmployerLocationPicker`.
+  List<String> _citiesFor(String state) {
+    final List<CityOptionDto> all = _options?.cities ?? const <CityOptionDto>[];
+    return all
+        .where((CityOptionDto c) => c.state == state)
+        .map((CityOptionDto c) => c.value)
+        .toList();
   }
 
   /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
@@ -211,6 +258,8 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
         _EmployerCard(
           key: ValueKey<int>(i),
           entry: _entries[i],
+          states: _states,
+          citiesFor: _citiesFor,
           onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
           onRemove: () => _remove(i),
         ),
@@ -248,9 +297,14 @@ class _EmployerCard extends StatefulWidget {
   const _EmployerCard({
     super.key,
     required this.entry,
+    required this.states,
+    required this.citiesFor,
     required this.onChanged,
     required this.onRemove,
   });
+
+  final List<String> states;
+  final List<String> Function(String state) citiesFor;
 
   final TradeFormEmploymentEntry entry;
   final ValueChanged<TradeFormEmploymentEntry> onChanged;
@@ -346,6 +400,8 @@ class _EmployerCardState extends State<_EmployerCard> {
           _EmployerLocationPicker(
             initialCity: e.employerCity,
             initialState: e.employerState,
+            states: widget.states,
+            citiesFor: widget.citiesFor,
             onChanged: (String? city, String? state) =>
                 _push(e.copyWith(employerCity: city, employerState: state)),
           ),
@@ -431,21 +487,42 @@ class _EmployerCardState extends State<_EmployerCard> {
 }
 
 /// Employer city/state — a two-step "pick state, then pick a city filtered
-/// to it" picker, backed by [_kDemoEmployerStateCities], with a "Khud
-/// likhein" fallback to the ORIGINAL free-text fields so a real employer
-/// outside the 2-state demo set is never unenterable. TEMPORARY: once #1429
-/// ships the real backend dataset, replace the demo map with the real
-/// options and delete the manual-fallback toggle (or keep it — that's the
-/// call to make then, not now).
+/// to it" picker, now backed by the REAL server data (#1429): all 28 states
+/// + 8 UTs from the state catalogue, and cities from the state-tagged
+/// gazetteer.
+///
+/// ── WHY THE FREE-TEXT PATH IS PERMANENT, NOT A LEFTOVER ─────────────────
+/// The gazetteer is a closed set of MANUFACTURING HUBS — 36 cities across 13
+/// states — not a map of India, and there is no authoritative India-wide city
+/// dataset in this repo (owner ruling 2026-09-05, recorded on #1429: "ship
+/// the state picker, leave employer city free text rather than invent a
+/// dataset"). A PREVIOUS employer can be anywhere, so:
+///  - every state is pickable, because the state list IS complete;
+///  - a state the gazetteer has cities for offers them in the dropdown;
+///  - a state it has none for drops straight to a free-text city field, so
+///    picking e.g. Bihar is never a dead end;
+///  - "Khud likhein" still escapes to free text for BOTH fields at any time.
+/// Do not "finish" this by hiding the free-text path — it is the only way a
+/// worker from the other 23 states/UTs can answer at all.
 class _EmployerLocationPicker extends StatefulWidget {
   const _EmployerLocationPicker({
     required this.initialCity,
     required this.initialState,
+    required this.states,
+    required this.citiesFor,
     required this.onChanged,
   });
 
   final String? initialCity;
   final String? initialState;
+
+  /// Every state/UT the server offers. Empty while the options fetch is in
+  /// flight or after it failed — the picker then shows the free-text fields,
+  /// never an empty dropdown.
+  final List<String> states;
+
+  /// The gazetteer's cities for one state; empty for most states.
+  final List<String> Function(String state) citiesFor;
 
   /// Fires on every change, city and state independently nullable — mirrors
   /// the two free-text fields this replaces (either can be filled alone).
@@ -469,22 +546,26 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
   @override
   void initState() {
     super.initState();
-    _manual = !_matchesDemoData(widget.initialCity, widget.initialState);
-    _pickedState = _kDemoEmployerStateCities.containsKey(widget.initialState)
+    _manual = !_isPickable(widget.initialCity, widget.initialState);
+    _pickedState = (widget.initialState != null &&
+            widget.states.contains(widget.initialState))
         ? widget.initialState
         : null;
   }
 
   /// True for a BLANK entry (nothing typed yet — default to the picker, the
-  /// preferred path) or a value that already matches the demo set. False for
-  /// pre-existing free text that doesn't match it — that data is preserved
-  /// via the manual fields rather than silently hidden.
-  static bool _matchesDemoData(String? city, String? state) {
+  /// preferred path) or a saved value the picker can actually represent:
+  /// a known state, with a city that is either one the gazetteer lists for
+  /// it or absent. False for pre-existing free text the picker cannot show —
+  /// that data is preserved via the manual fields rather than silently
+  /// hidden.
+  bool _isPickable(String? city, String? state) {
     if ((city == null || city.isEmpty) && (state == null || state.isEmpty)) {
       return true;
     }
-    final List<String>? cities = _kDemoEmployerStateCities[state];
-    return cities != null && cities.contains(city);
+    if (state == null || !widget.states.contains(state)) return false;
+    if (city == null || city.isEmpty) return true;
+    return widget.citiesFor(state).contains(city);
   }
 
   @override
@@ -576,7 +657,9 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
     }
 
     final List<String> cities =
-        _kDemoEmployerStateCities[_pickedState] ?? const <String>[];
+        _pickedState == null
+            ? const <String>[]
+            : widget.citiesFor(_pickedState!);
     final String? cityValue = _cityController.text.isEmpty ? null : _cityController.text;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,7 +674,7 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
                   _fieldLabel(_kStateLabel),
                   BbSearchableDropdownField(
                     placeholder: _kPickStateLabel,
-                    options: _kDemoEmployerStateCities.keys.toList(),
+                    options: widget.states,
                     selected: _pickedState,
                     onSelected: _pickState,
                   ),
@@ -604,13 +687,28 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   _fieldLabel(_kCityLabel),
-                  BbSearchableDropdownField(
-                    placeholder: _kPickCityLabel,
-                    options: cities,
-                    selected: cityValue,
-                    enabled: _pickedState != null,
-                    onSelected: _pickCity,
-                  ),
+                  // A state the gazetteer lists cities for gets the
+                  // dropdown; one it does not (23 of the 36 states/UTs) gets
+                  // a plain text field right here, so picking e.g. Bihar
+                  // leads to a field the worker can answer instead of an
+                  // empty menu. The gazetteer is a hub list, not a map of
+                  // India — see this widget's own doc.
+                  if (_pickedState != null && cities.isEmpty)
+                    TradeFormTextField(
+                      controller: _cityController,
+                      hint: _kCityLabel,
+                      label: _kCityLabel,
+                      onChanged: (String v) =>
+                          widget.onChanged(v, _pickedState),
+                    )
+                  else
+                    BbSearchableDropdownField(
+                      placeholder: _kPickCityLabel,
+                      options: cities,
+                      selected: cityValue,
+                      enabled: _pickedState != null,
+                      onSelected: _pickCity,
+                    ),
                 ],
               ),
             ),
