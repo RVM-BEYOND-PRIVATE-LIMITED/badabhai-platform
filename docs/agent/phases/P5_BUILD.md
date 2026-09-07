@@ -12,16 +12,20 @@ P5_BUILD is R7 option (a) verbatim. ADR-0040 (unsigned) carries that ruling now,
 QUESTION moves to the ADR and only the BUILD is dropped.
 
 ------------------------------------------------------------------------------
-STATUS: BLOCKED ON RULING R7 (unsigned, docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:794).
-The hot-tag half of this phase is deleted outright; what remains IS R7 option (a) verbatim, and
-building it settles an open ruling. BUILD_RULES.md:31 makes that a full stop. HALT and ask.
+STATUS: BLOCKED ON THE PHASE-ORDER GATE. R7 IS NO LONGER THE BLOCKER — it was signed on
+2026-09-07, option (a), at docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:794, and
+docs/decisions/0040-candidate-search-filter-behaviour.md carries it as an Accepted ADR whose
+"Implemented by" line names phase E2. The hot-tag half of this phase is deleted outright.
+Building the facet here is no longer settling an open ruling; it is building E2's deliverable
+in the wrong phase. HALT and ask.
 
 PHASE P5 — an employer facet over the applicants list.
 
 DO THIS, AND ONLY THIS.
-Write docs/qa/evidence/P5/HALT.md. Name R7 and worksheet:794, or name the P0 FAIL
-(docs/qa/evidence/P0/VERDICT.md line 1 is "FAIL", and README.md:47 forbids starting downstream
-of that). Either ground is sufficient. Change no code. No route, no query parameter, no
+Write docs/qa/evidence/P5/HALT.md. Name the P0 FAIL (docs/qa/evidence/P0/VERDICT.md line 1 is
+"FAIL", and README.md:47 forbids starting downstream of that), and ADR-0040's assignment of
+this work to phase E2. DO NOT name R7 as unsigned — it is signed, and a HALT record that says
+otherwise is a false record. Change no code. No route, no query parameter, no
 constant, no test.
 
 DELETED BY RULING. Do not build these, and do not reintroduce them as a fallback or an option:

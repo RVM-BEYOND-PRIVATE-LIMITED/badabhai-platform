@@ -1,6 +1,6 @@
 # E0 — the three questions that decide whether the relay is worth building
 
-STATUS: **ALL THREE RULED — owner, 2026-09-05.** Each ruling is recorded at the head of its
+STATUS: **ALL THREE RULED AND SIGNED — owner, 2026-09-07.** Each ruling is recorded at the head of its
 own section, and each recommendation was accepted. Written 2026-09-05 for PR #1427; nothing
 here is built. Item 0 (the false payer copy) went out as issue #1430 ahead of every ruling.
 
@@ -263,8 +263,20 @@ a credit worth something. The relay plus an exit is.
 
 ## Signature
 
-Owner decision A: ______________________  date: __________
+A — CONSENT. Ruling: add the ninth consent purpose NOW, in the copy E4 is
+already writing. The enum's house rule is egress to a third party; the relay
+has none, so on that rule it does not earn a split. The deadline decides it:
+no worker holds employer_sharing today, E4 already owes a full re-consent,
+so a ninth purpose costs one sentence now or a second re-consent over an
+already-opted-in base later. This is the model_training decision, made
+deliberately a second time.
 
-Owner decision B: ______________________  date: __________
+B — SHAPE. Ruling: option (c) for the payer's first message, option (a) after
+the worker replies. Intent remains unsolved and no shape constraint addresses
+it; do not read this ruling as closing both.
 
-Owner decision C: ______________________  date: __________
+C — WORKER EXPERIENCE. Ruling: the three additions are BLOCKING CONDITIONS of
+shipping E0, not recommendations. E0 does not ship without them. A builder
+finding any of the three harder than scoped must HALT, not trim.
+
+Signed: Prakash Kantumutchu, TPM, 2026-09-07.

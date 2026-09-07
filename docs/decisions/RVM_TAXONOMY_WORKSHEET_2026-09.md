@@ -791,7 +791,15 @@ the hero health metric.
 changing **membership**, which is the line the locked principle actually draws.
 
 ```
-Signed (CEO / RVM): .......................  Date: .................
+RVM verdict: OPTION (a) — reorder-and-count. Same candidate set, same count;
+matching candidates lead; badge reads "14 of 62 match Fanuc".
+
+Signed: Prakash Kantumutchu, TPM, 2026-09-07.
+
+Reason: a narrowing filter over a thin pool returns zero and reads as no
+supply. Reorder-and-count shows "0 of 62" — same information, and the payer
+can see a pool exists. A strict narrowing filter remains available as an
+explicit payer opt-in, with the count shown before the narrowed list renders.
 ```
 
 ---

@@ -1,13 +1,14 @@
-STATUS: BLOCKED — THREE GATES, and each one HALTs a session run today.
-  (1) ADR-0040 (docs/decisions/0040-candidate-search-filter-behaviour.md) is UNSIGNED. It
-      carries owner ruling R-E1 and it settles worksheet ruling R7, whose signature slot at
-      docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:794 is still blank. Building this
-      phase before either is signed IS a builder settling R1-R7, which
-      docs/agent/BUILD_RULES.md:31 makes a full stop.
+STATUS: BLOCKED — TWO GATES, and each one HALTs a session run today.
+  (1) SATISFIED, 2026-09-07 — no longer a gate. ADR-0040
+      (docs/decisions/0040-candidate-search-filter-behaviour.md) is SIGNED and its Status
+      reads Accepted, and it settles worksheet ruling R7, whose slot at
+      docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:794 now carries option (a). Building
+      this phase is no longer a builder settling R1-R7. Gates (2) and (3) still are blockers,
+      and they are the real ones.
   (2) E4 MUST HAVE SHIPPED (owner ruling R-E3). See WHY E4 FIRST.
   (3) THE SUPPLY DOES NOT EXIST YET. See THE EMPTY-RESULT TRAP, immediately below —
       it is above the phase title on purpose.
-A correct session today writes a HALT record naming all three and changes no code.
+A correct session today writes a HALT record naming gates (2) and (3) and changes no code.
 
 ================================================================================
 THE EMPTY-RESULT TRAP. READ THIS BEFORE ANYTHING ELSE, INCLUDING THE REST OF THE STATUS.

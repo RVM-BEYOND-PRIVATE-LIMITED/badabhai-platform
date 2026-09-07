@@ -86,7 +86,9 @@ NEVER DO THESE. Each one is a full stop, not a decision you get to make:
     both engines run side by side through the cutover. It is being RETIRED, not maintained:
     the numbers stay frozen until it is deleted.
   - Add any ranking input that money, RVM membership, or a demographic can influence.
-  - Add anything to consent.purposes[].
+  - Add anything to consent.purposes[]. The sole exception is the ninth
+    purpose authorised for E4 by docs/decisions/E0_RELAY_DECISION_2026-09.md §A,
+    signed 2026-09-07. No other addition, in any phase, without a new signed ruling.
   - Create an in-app-purchase product or any payment screen inside a Flutter app.
   - Let an LLM produce, choose, or approve a canonical ID.
   - Settle an open ruling (R1 to R7) by picking a sensible-looking default.
