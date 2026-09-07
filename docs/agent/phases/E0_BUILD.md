@@ -4,7 +4,7 @@ prerequisite is PR #1425.
 ITEM 0 IS DONE AND DID NOT WAIT: issue #1430 (payer-web, the frontend owner's layer) carries
 the exact replacement copy, filed 2026-09-05.
 THE TWO QUESTIONS THAT HALTED THIS BRIEF ARE NOW RULED — consent (§A) and the free-text shape
-(§B) of docs/decisions/E0_RELAY_DECISION_2026-09.md, owner, 2026-09-05. Both rulings are
+(§B) of docs/decisions/E0_RELAY_DECISION_2026-09.md, owner, 2026-09-07. Both rulings are
 written into the items below. What replaces them is not a question but a gate: the THREE
 BLOCKING CONDITIONS immediately below, above the phase title on purpose.
 
@@ -13,7 +13,7 @@ THE THREE CONDITIONS. READ THIS BEFORE ANYTHING ELSE, INCLUDING THE REST OF THE 
 
 **E0 DOES NOT SHIP WITHOUT ALL THREE.** They are not garnish on the relay; they are the half
 of it that makes a relay something a worker consented into rather than something that happens
-to him. Owner ruling, 2026-09-05, on the measurements in
+to him. Owner ruling, 2026-09-07, on the measurements in
 docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
 
 IF ANY ONE OF THEM IS HARDER THAN SCOPED HERE, THAT IS A HALT, NOT A TRIM. Shipping the relay
@@ -166,7 +166,7 @@ handle resolve, it does not build a messaging product.
      every controller in apps/api and asserts its guard chain, and write a module boot test
      (apps/api/src/match/match.module.boot.test.ts is the pattern) — a bad module edge fails
      BOOT while typecheck, lint and unit tests all pass.
-     RULED, 2026-09-05 — A NINTH CONSENT PURPOSE, AND YOU ARE NOT THE ONE WHO MINTS IT.
+     RULED, 2026-09-07 — A NINTH CONSENT PURPOSE, AND YOU ARE NOT THE ONE WHO MINTS IT.
      The question was whether `employer_sharing` authorises MESSAGING or only DISCLOSING the
      routed contact. The owner ruled: it authorises disclosure only, and messaging gets its
      own purpose, added NOW rather than later. Reasoning, preserved because it is the part a
@@ -205,13 +205,13 @@ handle resolve, it does not build a messaging product.
      owner's (CLAUDE.md §6). Raise the issue with the route and payload shapes; do not open a
      `.dart` file.
 
-THE LEAK THIS CHANNEL HAS BY CONSTRUCTION — RULED 2026-09-05, and read all of it before
+THE LEAK THIS CHANNEL HAS BY CONSTRUCTION — RULED 2026-09-07, and read all of it before
 designing item 2's body column, including the two things the ruling does NOT settle. The
 entire point of the routed relay is that the payer never learns the worker's phone number. A free-text channel between them defeats that in one message: the
 payer types "send me your number" and the worker types it back. Nothing in the schema, the
 guards or the events can prevent that, because both parties are legitimate and the text is
 the product.
-RULED, 2026-09-05: **(c) FOR THE PAYER'S FIRST MESSAGE, (a) FOR THE THREAD ONCE THE WORKER
+RULED, 2026-09-07: **(c) FOR THE PAYER'S FIRST MESSAGE, (a) FOR THE THREAD ONCE THE WORKER
 HAS REPLIED.** The payer opens with a structured message from a closed template set — a
 template id plus a closed parameter set in the body column, so a leak in the opening message
 is a compile error rather than a review miss. After the worker has replied — an affirmative
