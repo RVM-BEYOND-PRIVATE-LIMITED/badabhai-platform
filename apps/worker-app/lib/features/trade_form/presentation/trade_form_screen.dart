@@ -504,6 +504,9 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       return TradeFormEmploymentPage(
         key: _empKey,
         enabled: enabled,
+        // #1429 — the SAME options fetch the preferences marker uses; it
+        // carries the state catalogue + the state-tagged city gazetteer.
+        loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.saveEmploymentAndAdvance,
         initialEntries: state.savedEmployment,
         onPageChanged: _onMarkerPageChanged,

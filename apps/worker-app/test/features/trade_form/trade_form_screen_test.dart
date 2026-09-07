@@ -179,9 +179,22 @@ const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
         state: _kTestCityState),
     CityOptionDto(
         value: 'Noida', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Mumbai', aliases: <String>[], state: _kOtherCityState),
+    CityOptionDto(
+        value: 'Pune', aliases: <String>[], state: _kOtherCityState),
   ],
-  states: <String>[_kTestCityState],
+  states: <String>[_kTestCityState, _kOtherCityState, _kCitylessState],
 );
+
+/// A second state WITH cities, so "cities are filtered to the picked state"
+/// is a real assertion rather than one that passes for want of any other
+/// state's data.
+const String _kOtherCityState = 'Maharashtra';
+
+/// A state the gazetteer has NO city for — 23 of the real 36 states/UTs are
+/// in this position, so the picker must stay answerable there.
+const String _kCitylessState = 'Bihar';
 
 /// Picks [state] via the cities page's state-then-city cascade (#1429) — the
 /// worker must be on the preferences marker's cities internal page (page 4)
@@ -1568,7 +1581,7 @@ void main() {
     });
   });
 
-  group('employer location: state-then-city demo picker (#1429 preview)', () {
+  group('employer location: state-then-city picker, real gazetteer (#1429)', () {
     Future<void> walkToEmploymentPage(WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1636,8 +1649,11 @@ void main() {
 
       expect(find.text('Gurugram'), findsOneWidget);
       expect(find.text('Faridabad'), findsOneWidget);
-      // Maharashtra's cities must not leak into Haryana's sheet.
+      // The other state's cities must not leak into this state's sheet —
+      // a real assertion now that the fixture actually HAS another state
+      // with cities of its own.
       expect(find.text('Mumbai'), findsNothing);
+      expect(find.text('Pune'), findsNothing);
 
       await tester.tap(find.text('Gurugram'));
       await tester.pumpAndSettle();
@@ -1655,6 +1671,42 @@ void main() {
           .single as List<TradeFormEmploymentEntry>;
       expect(sent.single.employerCity, 'Gurugram');
       expect(sent.single.employerState, 'Haryana');
+    });
+
+    // 23 of the real 36 states/UTs have no gazetteer city, because the
+    // gazetteer is a closed set of manufacturing hubs rather than a map of
+    // India. Picking one of those must land on a field the worker can
+    // answer, never an empty menu.
+    testWidgets(
+        'a state the gazetteer has no city for falls back to a typed city, '
+        'not an empty dropdown', (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('STATE CHUNEIN'));
+      await tester.tap(find.text('STATE CHUNEIN'));
+      await tester.pumpAndSettle();
+      expect(find.text(_kCitylessState), findsOneWidget);
+      await tester.tap(find.text(_kCitylessState));
+      await tester.pumpAndSettle();
+
+      // No city dropdown to open — a text field took its place.
+      expect(find.text('SHEHER CHUNEIN'), findsNothing);
+
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      // The city field is the third: employer, role, then city.
+      await tester.enterText(find.byType(TextField).at(2), 'Muzaffarpur');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final List<TradeFormEmploymentEntry> sent = verify(
+              () => repo.saveEmployment(captureAny()))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerCity, 'Muzaffarpur');
+      expect(sent.single.employerState, _kCitylessState);
     });
 
     testWidgets(
