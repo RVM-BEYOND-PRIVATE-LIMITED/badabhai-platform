@@ -210,4 +210,119 @@ void main() {
       expect(find.textContaining('spots'), findsNothing);
     });
   });
+
+  // ── The deck layout ───────────────────────────────────────────────────────
+  // The swipe card renders the SAME data as the list row, arranged for a card
+  // that owns a screen. These pin the difference in both directions so the two
+  // layouts cannot silently converge again.
+  group('BbJobCard — deck layout', () {
+    const BbJobCardData data = BbJobCardData(
+      title: 'CNC Operator',
+      payBand: '22-28k',
+      place: 'Pimpri, Pune',
+      shift: 'Day shift',
+      matchNote: 'Aapke lathe ke kaam se milta-julta hai.',
+    );
+
+    Widget deckHost(BbJobCardData d, {Size size = const Size(400, 640)}) =>
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: size.width,
+                height: size.height,
+                child: BbJobCard(data: d, layout: BbJobCardLayout.deck),
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('surfaces the shift the list row drops, and the swipe hint',
+        (tester) async {
+      await tester.pumpWidget(deckHost(data));
+
+      expect(find.text('CNC Operator'), findsOneWidget);
+      expect(find.text('22-28k'), findsOneWidget);
+      // The list row keeps `shift` on the model and never renders it; the deck
+      // card has the room, so it shows it.
+      expect(find.text('Day shift'), findsOneWidget);
+      // The gesture is spelled out — a worker cannot discover swipe otherwise.
+      expect(find.text('Skip'), findsOneWidget);
+      expect(find.text('Apply'), findsOneWidget);
+    });
+
+    testWidgets('the LIST layout shows neither the shift nor the swipe hint',
+        (tester) async {
+      await tester.pumpWidget(_host(const BbJobCard(data: data)));
+
+      expect(find.text('Day shift'), findsOneWidget,
+          reason: 'the list row uses shift as its right-hand meta slot');
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Apply'), findsNothing);
+    });
+
+    testWidgets('the title stays a real 48px button with its spoken label',
+        (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      bool tapped = false;
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SizedBox(
+            height: 640,
+            child: BbJobCard(
+              data: data,
+              layout: BbJobCardLayout.deck,
+              onTitleTap: () => tapped = true,
+            ),
+          ),
+        ),
+      ));
+
+      // MergeSemantics folds the title text INTO this node, so the label is
+      // "<title>\n<action label>" — matched by containment, exactly as the
+      // list-layout test above does.
+      final SemanticsNode node =
+          tester.getSemantics(find.byKey(const Key('jobCardTitleButton')));
+      expect(node.label, contains(kJobCardTitleSemanticLabel));
+      expect(node.label, contains('CNC Operator'));
+      expect(node.getSemanticsData().flagsCollection.isButton, isTrue);
+      expect(
+        tester.getSize(find.byKey(const Key('jobCardTitleButton'))).height,
+        greaterThanOrEqualTo(AppSpacing.tap),
+      );
+      await tester.tap(find.byKey(const Key('jobCardTitleButton')));
+      expect(tapped, isTrue);
+      handle.dispose();
+    });
+
+    // The deck card FILLS its box, so a cramped phone is exactly where a
+    // too-tall layout would overflow. The spacer is Flexible for this reason.
+    testWidgets('does not overflow on a short, narrow handset', (tester) async {
+      await tester.pumpWidget(deckHost(
+        const BbJobCardData(
+          title: 'CNC Turner / Setter for a precision components shop',
+          payBand: '22-28k',
+          place: 'Pimpri-Chinchwad, Pune',
+          shift: 'Rotational shift',
+          matchNote: 'Aapke lathe ke kaam se milta-julta hai.',
+        ),
+        size: const Size(320, 380),
+      ));
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('renders nothing it was not given (no pay, no shift, no note)',
+        (tester) async {
+      await tester.pumpWidget(deckHost(
+        const BbJobCardData(title: 'Welder', place: 'Pune'),
+      ));
+
+      expect(find.text('Welder'), findsOneWidget);
+      expect(find.textContaining('/mah'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

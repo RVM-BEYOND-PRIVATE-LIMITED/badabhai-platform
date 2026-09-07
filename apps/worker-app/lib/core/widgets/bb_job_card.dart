@@ -83,6 +83,17 @@ const String kJobCardTitleSemanticLabel = 'Job kholein — poori jaankari';
 /// TalkBack label for the APPLY action.
 const String kJobCardApplySemanticLabel = 'Apply karein';
 
+/// Which layout a [BbJobCard] renders.
+///
+/// The SAME data and the SAME semantics labels, arranged for two genuinely
+/// different jobs — so the deck stops borrowing a row built for a list.
+///
+///  - [list] — the compact vertical-feed row (unchanged, the default).
+///  - [deck] — the swipe card: it OWNS a full screen, so the facts a worker
+///    decides on (pay, shift) get real size instead of list-row type, and the
+///    card fills its space rather than floating at the top of an empty one.
+enum BbJobCardLayout { list, deck }
+
 /// The job card — the kit's LIST `JobCard`. Crisp white paper, one hairline
 /// border, radius 10, elevation 0. A featured/urgent posting ([BbJobCardData.hot])
 /// earns a 4px haldi LEFT RAIL and a [BbHotTag]; nothing else does.
@@ -100,10 +111,15 @@ class BbJobCard extends StatelessWidget {
     required this.data,
     this.onTitleTap,
     this.onApply,
+    this.layout = BbJobCardLayout.list,
   });
 
   final BbJobCardData data;
   final VoidCallback? onTitleTap;
+
+  /// Which arrangement to render — see [BbJobCardLayout]. Defaults to the
+  /// list row, so every existing call site is untouched.
+  final BbJobCardLayout layout;
 
   /// Fired by the green `APPLY →` action. When null the action is not rendered
   /// (the salary row shows [BbJobCardData.metaRight] instead, if present).
@@ -116,6 +132,10 @@ class BbJobCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDeck = layout == BbJobCardLayout.deck;
+    // The deck card owns a full screen, so it gets the roomier radius/padding
+    // and stretches; the list row keeps exactly the geometry it always had.
+    final double radius = isDeck ? AppRadii.md : AppRadii.sm;
     return Container(
       margin: const EdgeInsets.fromLTRB(
         AppSpacing.s3,
@@ -125,11 +145,11 @@ class BbJobCard extends StatelessWidget {
       ),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
+        borderRadius: BorderRadius.circular(radius),
         border: Border.all(color: AppColors.borderSubtle),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadii.sm),
+        borderRadius: BorderRadius.circular(radius),
         child: DecoratedBox(
           // Haldi left rail on featured/urgent cards ONLY — earned, never uniform.
           decoration: BoxDecoration(
@@ -143,8 +163,10 @@ class BbJobCard extends StatelessWidget {
                 : null,
           ),
           child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.s3),
-            child: Column(
+            padding: EdgeInsets.all(isDeck ? AppSpacing.s5 : AppSpacing.s3),
+            child: isDeck
+                ? _DeckBody(data: data, onTitleTap: onTitleTap)
+                : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 _HeaderRow(data: data, onTitleTap: onTitleTap),
@@ -396,6 +418,280 @@ class _TitleButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── The DECK layout ─────────────────────────────────────────────────────────
+//
+// Same data, same semantics labels, arranged for a card that owns a screen.
+//
+// WHY IT IS NOT THE LIST ROW. The deck used to render the list row verbatim,
+// so a card with a whole screen to fill showed a 15px title and a 16px pay
+// figure crammed into the top ~120px with dead space beneath — the layout read
+// as unfinished because it WAS a row, stretched. Here the two facts a worker
+// actually decides on (pay, shift) get real size in their own panel, and the
+// card fills its box instead of floating at the top of an empty one.
+//
+// NO SHADOW, and that is not an oversight: this system separates surfaces with
+// hairline borders and flat fills only (`app_theme.dart` — "hairline borders,
+// never shadows; every elevation is 0"). Depth here comes from a tint panel and
+// a border, never an elevation.
+
+/// The swipe card's body: title, place, a key-facts panel, the match note, and
+/// a swipe hint pinned to the bottom.
+class _DeckBody extends StatelessWidget {
+  const _DeckBody({required this.data, required this.onTitleTap});
+
+  final BbJobCardData data;
+  final VoidCallback? onTitleTap;
+
+  /// Anek display, big enough to be the card's anchor — the list row's 15px
+  /// body title is a row heading, not a card heading.
+  Text _title() => Text(
+        data.title,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: AppTypography.display(
+          size: 22,
+          weight: FontWeight.w800,
+          color: AppColors.textPrimary,
+          height: 1.15,
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final String? meta = data.effectiveMetaRight;
+    final bool hasFacts = data.payBand != null || meta != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // #362 — the title stays the ONLY route into the job detail from a
+            // deck card (the pan recognizer claims the rest), so it keeps the
+            // same ≥48px button, key and TalkBack label as the list row.
+            Expanded(
+              child: onTitleTap == null
+                  ? _title()
+                  : _TitleButton(onTap: onTitleTap!, title: _title()),
+            ),
+            if (data.hot) ...<Widget>[
+              const SizedBox(width: AppSpacing.s2),
+              const BbHotTag(),
+            ],
+          ],
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        _DeckPlaceRow(data: data),
+        if (hasFacts) ...<Widget>[
+          const SizedBox(height: AppSpacing.s4),
+          _DeckFactsPanel(payBand: data.payBand, meta: meta),
+        ],
+        if (data.matchNote != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          _DeckMatchNote(text: data.matchNote!),
+        ],
+        // Pushes the hint to the bottom so the card FILLS its box. Flexible,
+        // not Expanded: on a short card the content wins and the hint simply
+        // sits under it rather than forcing an overflow.
+        const Flexible(child: SizedBox(height: AppSpacing.s4)),
+        const _DeckSwipeHint(),
+      ],
+    );
+  }
+}
+
+/// Place (with the employer when one exists) behind a pin icon.
+class _DeckPlaceRow extends StatelessWidget {
+  const _DeckPlaceRow({required this.data});
+
+  final BbJobCardData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final String line =
+        data.company == null ? data.place : '${data.company} · ${data.place}';
+    return Row(
+      children: <Widget>[
+        const Icon(Icons.place_outlined, size: 16, color: AppColors.textMuted),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            line,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        if (data.verified) ...<Widget>[
+          const SizedBox(width: 4),
+          const Icon(Icons.verified, size: 15, color: AppColors.blue),
+        ],
+      ],
+    );
+  }
+}
+
+/// The two facts a worker decides on, in one haldi-tinted panel: the pay at
+/// display size on the left, the shift (already on the model, and dropped by
+/// the list row) muted on the right.
+class _DeckFactsPanel extends StatelessWidget {
+  const _DeckFactsPanel({required this.payBand, required this.meta});
+
+  final String? payBand;
+  final String? meta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s3,
+        vertical: AppSpacing.s3,
+      ),
+      decoration: BoxDecoration(
+        // Haldi wash + a saffron hairline: warmth and separation with no
+        // elevation, per the system's flat rule.
+        color: AppColors.haldiTint,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        border: Border.all(color: AppColors.saffron200),
+      ),
+      // WRAP, not a Row with a Spacer. A 26px pay figure beside a long shift
+      // ("Rotational shift") overflows a 320px handset by ~52px, and neither
+      // fact is one to ellipsize: the shift drops to its own line instead.
+      child: Wrap(
+        spacing: AppSpacing.s4,
+        runSpacing: AppSpacing.s2,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: <Widget>[
+          if (payBand != null)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: <Widget>[
+                Text(
+                  payBand!,
+                  maxLines: 1,
+                  style: AppTypography.display(
+                    size: 26,
+                    weight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  ' /mah',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          if (meta != null)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.schedule,
+                    size: 15, color: AppColors.textMuted),
+                const SizedBox(width: 4),
+                Text(
+                  meta!,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    color: AppColors.textSecondary,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// E18's "why am I seeing this" line, given its own quiet blue panel so it
+/// reads as an explanation rather than another job fact.
+class _DeckMatchNote extends StatelessWidget {
+  const _DeckMatchNote({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: AppColors.blueTintChat,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(Icons.info_outline, size: 16, color: AppColors.blue),
+          const SizedBox(width: AppSpacing.s2),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The gesture, spelled out. A worker who has never met a card deck cannot
+/// discover swipe from a static card, and the two big buttons below are the
+/// primary affordance for exactly that reason — this names the shortcut in the
+/// same words the buttons use, in muted meta type so it never competes with
+/// the job itself.
+class _DeckSwipeHint extends StatelessWidget {
+  const _DeckSwipeHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: <Widget>[
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.arrow_back, size: 14, color: AppColors.textMuted),
+            const SizedBox(width: 4),
+            Text('Skip',
+                style: AppTypography.body(
+                  size: AppTypography.size2xs,
+                  color: AppColors.textMuted,
+                  weight: FontWeight.w700,
+                )),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text('Apply',
+                style: AppTypography.body(
+                  size: AppTypography.size2xs,
+                  color: AppColors.success,
+                  weight: FontWeight.w700,
+                )),
+            const SizedBox(width: 4),
+            const Icon(Icons.arrow_forward,
+                size: 14, color: AppColors.success),
+          ],
+        ),
+      ],
     );
   }
 }
