@@ -59,9 +59,14 @@ Paste raw output for each.
 
 7. The governing ruling still governs.
    head -6 docs/decisions/0036-matching-algorithm-v1.md (Status must read Accepted);
-   sed -n '794p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
-   RED: ADR-0036 superseded, or R7 signed — R7 option (a) puts a reordering facet on the
-   employer candidate list, which is this invariant's subject.
+   sed -n '794,801p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7).
+   READ THE LINES, DO NOT TEST THEM FOR EMPTINESS. R7 IS SIGNED — option (a), 2026-09-07 —
+   and docs/decisions/0040-candidate-search-filter-behaviour.md carries it. That is NOT a RED
+   here: ADR-0040 amends ADR-0036 on the candidate SEARCH surface only, and names the
+   per-posting candidate list among what it explicitly does NOT supersede (0040:186-190).
+   RED: ADR-0036 superseded outright, or its rank key (§2) amended for the per-posting
+   candidate list or the worker feed, or a facet reaching
+   apps/api/src/match/match-feed.repository.ts.
    INFORMATIONAL only, never RED: R4-d (ruled 21, 2026-09-04) settles a role count and does
    not bear on the rank key.
 

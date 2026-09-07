@@ -257,5 +257,8 @@ boolean cannot be tuned, which is the whole of its merit.
 ---
 
 ```
-Signed (CEO / Prakash): .......................  Date: .................
+Signed: Prakash Kantumutchu, TPM, 2026-09-07.
+
+This ADR supersedes ADR-0036 on the hard-filter point only. Every other
+provision of ADR-0036 stands.
 ```

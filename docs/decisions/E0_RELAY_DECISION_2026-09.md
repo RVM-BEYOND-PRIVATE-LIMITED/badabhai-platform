@@ -263,8 +263,20 @@ a credit worth something. The relay plus an exit is.
 
 ## Signature
 
-Owner decision A: ______________________  date: __________
+A — CONSENT. Ruling: add the ninth consent purpose NOW, in the copy E4 is
+already writing. The enum's house rule is egress to a third party; the relay
+has none, so on that rule it does not earn a split. The deadline decides it:
+no worker holds employer_sharing today, E4 already owes a full re-consent,
+so a ninth purpose costs one sentence now or a second re-consent over an
+already-opted-in base later. This is the model_training decision, made
+deliberately a second time.
 
-Owner decision B: ______________________  date: __________
+B — SHAPE. Ruling: option (c) for the payer's first message, option (a) after
+the worker replies. Intent remains unsolved and no shape constraint addresses
+it; do not read this ruling as closing both.
 
-Owner decision C: ______________________  date: __________
+C — WORKER EXPERIENCE. Ruling: the three additions are BLOCKING CONDITIONS of
+shipping E0, not recommendations. E0 does not ship without them. A builder
+finding any of the three harder than scoped must HALT, not trim.
+
+Signed: Prakash Kantumutchu, TPM, 2026-09-07.
