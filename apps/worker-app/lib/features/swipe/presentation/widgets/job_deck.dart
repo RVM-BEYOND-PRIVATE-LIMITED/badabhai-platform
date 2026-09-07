@@ -68,6 +68,11 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   // up to 0 as the front card is dragged away.
   static const double _behindPeek = 14;
 
+  // How much smaller the behind card sits at rest. Small on purpose: enough to
+  // read as a second card in a stack, not enough to look like a different size
+  // of card once it is promoted to the front.
+  static const double _behindScale = 0.94;
+
   // Peak opacity of the drag-direction side-band tint (right=apply, left=skip).
   static const double _bandMaxAlpha = 0.6;
 
@@ -236,8 +241,11 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
               // The behind card is the next REAL job, rendered at full size /
               // full fidelity. It peeks below the front card and animates up to
               // the front position as the front card is dragged away.
-              if (cards.length > 1) _behind(cards[1], width),
-              _front(cards.first, width),
+              // Positioned.fill: the deck card is sized by the STACK, not by
+              // its own content — a card that owns the screen should fill it.
+              if (cards.length > 1)
+                Positioned.fill(child: _behind(cards[1], width)),
+              Positioned.fill(child: _front(cards.first, width)),
             ],
           ),
         ),
@@ -263,13 +271,26 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     return IgnorePointer(
       child: ValueListenableBuilder<Offset>(
         valueListenable: _drag,
-        child: RepaintBoundary(child: BbJobCard(data: item.data)),
+        child: RepaintBoundary(
+          child: BbJobCard(
+            data: item.data,
+            layout: BbJobCardLayout.deck,
+          ),
+        ),
         builder: (BuildContext ctx, Offset drag, Widget? child) {
           // #374 — promotion follows the HORIZONTAL commit progress only. An
           // up-drag used to promote the next card too, which read as "this is
           // about to commit" for a gesture that does nothing.
-          final double dy = _behindPeek * (1 - _progress(drag, width));
-          return Transform.translate(offset: Offset(0, dy), child: child);
+          final double t = _progress(drag, width);
+          final double dy = _behindPeek * (1 - t);
+          // Sitting a hair smaller is what makes two identical cards read as a
+          // STACK rather than a misaligned duplicate; it grows to full size as
+          // the front card leaves, so the promotion lands on an exact match.
+          final double scale = _behindScale + (1 - _behindScale) * t;
+          return Transform.translate(
+            offset: Offset(0, dy),
+            child: Transform.scale(scale: scale, child: child),
+          );
         },
       ),
     );
@@ -280,6 +301,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     final Widget card = RepaintBoundary(
       child: BbJobCard(
         data: item.data,
+        layout: BbJobCardLayout.deck,
         // Gate the title tap too: during a commit/decision the (stale)
         // head must not open a detail for a card already being applied.
         onTitleTap: (_locked || widget.onTitleTap == null)
