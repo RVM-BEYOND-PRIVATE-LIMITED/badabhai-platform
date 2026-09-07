@@ -238,8 +238,7 @@ void main() {
           ),
         );
 
-    testWidgets('surfaces the shift the list row drops, and the swipe hint',
-        (tester) async {
+    testWidgets('surfaces the shift the list row drops', (tester) async {
       await tester.pumpWidget(deckHost(data));
 
       expect(find.text('CNC Operator'), findsOneWidget);
@@ -247,17 +246,16 @@ void main() {
       // The list row keeps `shift` on the model and never renders it; the deck
       // card has the room, so it shows it.
       expect(find.text('Day shift'), findsOneWidget);
-      // The gesture is spelled out — a worker cannot discover swipe otherwise.
-      expect(find.text('Skip'), findsOneWidget);
-      expect(find.text('Apply'), findsOneWidget);
     });
 
-    testWidgets('the LIST layout shows neither the shift nor the swipe hint',
-        (tester) async {
-      await tester.pumpWidget(_host(const BbJobCard(data: data)));
+    // The CARD carries no Skip/Apply affordance of its own: the deck's two big
+    // buttons below it (`swipeSkipButton` / `swipeApplyButton`, owned by
+    // `JobDeck`) are the only ones, and a second pair printed on the card read
+    // as controls that could not be pressed. Owner call — kept as a guard so
+    // they cannot drift back onto the card.
+    testWidgets('carries no Skip/Apply labels of its own', (tester) async {
+      await tester.pumpWidget(deckHost(data));
 
-      expect(find.text('Day shift'), findsOneWidget,
-          reason: 'the list row uses shift as its right-hand meta slot');
       expect(find.text('Skip'), findsNothing);
       expect(find.text('Apply'), findsNothing);
     });
