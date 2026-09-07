@@ -494,11 +494,6 @@ class _DeckBody extends StatelessWidget {
           const SizedBox(height: AppSpacing.s3),
           _DeckMatchNote(text: data.matchNote!),
         ],
-        // Pushes the hint to the bottom so the card FILLS its box. Flexible,
-        // not Expanded: on a short card the content wins and the hint simply
-        // sits under it rather than forcing an overflow.
-        const Flexible(child: SizedBox(height: AppSpacing.s4)),
-        const _DeckSwipeHint(),
       ],
     );
   }
@@ -651,47 +646,3 @@ class _DeckMatchNote extends StatelessWidget {
   }
 }
 
-/// The gesture, spelled out. A worker who has never met a card deck cannot
-/// discover swipe from a static card, and the two big buttons below are the
-/// primary affordance for exactly that reason — this names the shortcut in the
-/// same words the buttons use, in muted meta type so it never competes with
-/// the job itself.
-class _DeckSwipeHint extends StatelessWidget {
-  const _DeckSwipeHint();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: <Widget>[
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.arrow_back, size: 14, color: AppColors.textMuted),
-            const SizedBox(width: 4),
-            Text('Skip',
-                style: AppTypography.body(
-                  size: AppTypography.size2xs,
-                  color: AppColors.textMuted,
-                  weight: FontWeight.w700,
-                )),
-          ],
-        ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text('Apply',
-                style: AppTypography.body(
-                  size: AppTypography.size2xs,
-                  color: AppColors.success,
-                  weight: FontWeight.w700,
-                )),
-            const SizedBox(width: 4),
-            const Icon(Icons.arrow_forward,
-                size: 14, color: AppColors.success),
-          ],
-        ),
-      ],
-    );
-  }
-}
