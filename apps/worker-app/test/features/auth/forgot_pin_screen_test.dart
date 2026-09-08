@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/forgot_pin_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -20,6 +21,14 @@ class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 /// guessable PIN is still blocked client-side before that call, and a weak PIN
 /// / confirm mismatch each raise the centred dialog.
 void main() {
+  // #1463 — the active PIN slot carries a BLINKING caret, and a perpetual
+  // blink keeps a frame scheduled forever, so every `pumpAndSettle` below
+  // would pump until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen. The blink
+  // itself is covered by its own discrete-pump test in bb_pin_keypad_test.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   const String guessMsg =
       '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
       'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';

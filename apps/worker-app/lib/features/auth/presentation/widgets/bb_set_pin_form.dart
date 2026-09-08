@@ -17,12 +17,22 @@ const Key kSetPinConfirmFieldKey = Key('bb_set_pin_confirm_field');
 
 /// ONE page, two rows: "enter" then "confirm" — both visible together, no
 /// next-screen transition between them. The OS numeric keyboard drives entry
-/// (NOT the custom [BbPinKeypad]); each row is an invisible [TextField] with a
-/// [BbPinView] painted on top of it as the only thing the worker actually sees.
+/// (NOT the custom [BbPinKeypad]); each row is a TRANSPARENT [TextField]
+/// spanning the whole row, with a [BbPinView] painted under it as the only
+/// thing the worker actually sees.
 ///
-/// SECURITY: the digits never render — the invisible field carries them, the
-/// box row only shows a COUNT (as a star per filled box). Both buffers are
-/// LOCAL widget state, dropped the moment they are handed to [onConfirmed].
+/// THE ROW SHOWS WHERE THE WORKER IS (#1463). [BbPinView] is told which row
+/// holds focus, and paints a ring plus a blinking caret on the slot the next
+/// digit lands in. Before that the capture field was a 1x1 box under
+/// `Opacity(0)` with `showCursor: false`, so there was no caret anywhere on
+/// the screen and no way to tell which of the two rows was live — the
+/// auto-advance to the confirm row happened invisibly.
+///
+/// SECURITY: the digits never render — the field carries them masked twice
+/// over (`obscureText` plus a fully transparent glyph colour) and refuses
+/// selection, so nothing can lift a PIN to the clipboard; the box row only
+/// shows a COUNT (as a star per filled box). Both buffers are LOCAL widget
+/// state, dropped the moment they are handed to [onConfirmed].
 ///
 /// Owns the weak-PIN and mismatch dialogs end-to-end. [onConfirmed] fires
 /// exactly once, with the confirmed PIN, after both rows are 4 digits, the
@@ -73,8 +83,30 @@ class BbSetPinFormState extends State<BbSetPinForm> {
     super.initState();
     _firstCtrl.addListener(_onFirstChanged);
     _confirmCtrl.addListener(_onConfirmChanged);
+    // #1463 — the ring and the caret live in the PAINT, so a focus change has
+    // to repaint. Without these two the rows could not show which one is live,
+    // and the auto-advance to the confirm row would happen invisibly.
+    _firstFocus.addListener(_onFocusChanged);
+    _confirmFocus.addListener(_onFocusChanged);
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => _firstFocus.requestFocus());
+        .addPostFrameCallback((_) => _focusRow(_firstCtrl, _firstFocus));
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Focus a row AND park the caret at the end of whatever it already holds.
+  ///
+  /// Flutter would land there by itself on a cleared row (an invalid selection
+  /// resolves to `text.length` on focus), but not deterministically on a row
+  /// the worker is coming BACK to. Setting it explicitly means the next digit
+  /// always appends and backspace always bites the last digit — the whole of
+  /// what "editable" means for a 4-digit masked field.
+  void _focusRow(TextEditingController controller, FocusNode focus) {
+    controller.selection =
+        TextSelection.collapsed(offset: controller.text.length);
+    focus.requestFocus();
   }
 
   @override
@@ -91,6 +123,8 @@ class BbSetPinFormState extends State<BbSetPinForm> {
   void dispose() {
     _firstCtrl.dispose();
     _confirmCtrl.dispose();
+    _firstFocus.removeListener(_onFocusChanged);
+    _confirmFocus.removeListener(_onFocusChanged);
     _firstFocus.dispose();
     _confirmFocus.dispose();
     super.dispose();
@@ -103,8 +137,10 @@ class BbSetPinFormState extends State<BbSetPinForm> {
       _blockWeakPin();
       return;
     }
-    // Strong first entry — hand off straight to the confirm row.
-    _confirmFocus.requestFocus();
+    // Strong first entry — hand off straight to the confirm row. The ring and
+    // caret move with it, which is the ONLY thing telling the worker the
+    // second row is now the live one.
+    _focusRow(_confirmCtrl, _confirmFocus);
   }
 
   void _onConfirmChanged() {
@@ -134,7 +170,7 @@ class BbSetPinFormState extends State<BbSetPinForm> {
     );
     if (mounted) {
       _dialogOpen = false;
-      _firstFocus.requestFocus();
+      _focusRow(_firstCtrl, _firstFocus);
     }
   }
 
@@ -152,7 +188,7 @@ class BbSetPinFormState extends State<BbSetPinForm> {
     );
     if (mounted) {
       _dialogOpen = false;
-      _firstFocus.requestFocus();
+      _focusRow(_firstCtrl, _firstFocus);
     }
   }
 
@@ -164,7 +200,7 @@ class BbSetPinFormState extends State<BbSetPinForm> {
     _confirmCtrl.clear();
     if (mounted) {
       setState(() {});
-      _firstFocus.requestFocus();
+      _focusRow(_firstCtrl, _firstFocus);
     }
   }
 
@@ -209,34 +245,62 @@ class BbSetPinFormState extends State<BbSetPinForm> {
         const SizedBox(height: AppSpacing.s3),
         GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: widget.busy ? null : () => focus.requestFocus(),
+          onTap: widget.busy ? null : () => _focusRow(controller, focus),
           child: Stack(
             alignment: Alignment.center,
             children: <Widget>[
-              BbPinView(length: kPinLength, filled: controller.text.length),
-              // The real capture surface — fully invisible; the boxes above are
-              // the ONLY thing the worker sees. Still focusable/editable at any
-              // size, so the OS numeric keyboard opens on tap.
-              Opacity(
-                opacity: 0,
-                child: SizedBox(
-                  width: 1,
-                  height: 1,
-                  child: TextField(
-                    key: fieldKey,
-                    controller: controller,
-                    focusNode: focus,
-                    enabled: !widget.busy,
-                    keyboardType: TextInputType.number,
-                    obscureText: true,
-                    enableSuggestions: false,
-                    autocorrect: false,
-                    autofillHints: const <String>[],
-                    showCursor: false,
-                    inputFormatters: <TextInputFormatter>[
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(kPinLength),
-                    ],
+              BbPinView(
+                length: kPinLength,
+                filled: controller.text.length,
+                // #1463 — this is what puts the ring and the caret on the row
+                // the worker is actually typing into.
+                focused: focus.hasFocus,
+              ),
+              // The real capture surface. TRANSPARENT, NOT COLLAPSED (#1463):
+              // it used to be a 1x1 box under Opacity(0), which the OS could
+              // barely treat as a field — the same trap the OTP screen calls
+              // out ("a collapsed field cannot be tapped or long-pressed").
+              // Filling the row instead gives the keyboard a real target the
+              // worker can hit anywhere along the boxes.
+              //
+              // The digits are masked TWICE over: obscureText replaces them
+              // with bullets, and the text colour is fully transparent on top
+              // of that. The boxes below remain the only thing on screen, and
+              // they only ever receive a COUNT.
+              Positioned.fill(
+                child: TextField(
+                  key: fieldKey,
+                  controller: controller,
+                  focusNode: focus,
+                  enabled: !widget.busy,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  obscureText: true,
+                  enableSuggestions: false,
+                  autocorrect: false,
+                  autofillHints: const <String>[],
+                  // A PIN is not copy/paste material: no selection handles, no
+                  // toolbar, nothing that could lift it to the clipboard.
+                  enableInteractiveSelection: false,
+                  // Flutter's own caret would sit at the CENTRE of the row,
+                  // nowhere near the box being filled. BbPinView paints the
+                  // caret in the active slot instead.
+                  showCursor: false,
+                  cursorColor: Colors.transparent,
+                  style: const TextStyle(color: Colors.transparent),
+                  inputFormatters: <TextInputFormatter>[
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(kPinLength),
+                  ],
+                  decoration: const InputDecoration(
+                    counterText: '',
+                    filled: false,
+                    isCollapsed: true,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               ),

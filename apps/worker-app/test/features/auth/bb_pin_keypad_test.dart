@@ -139,6 +139,169 @@ void main() {
     });
   });
 
+  // #1463 — the set-PIN rows showed NO cursor at all: the capture field was a
+  // 1x1 box under Opacity(0) with showCursor:false, and BbPinView only ever
+  // knew a COUNT, so nothing on screen could say which slot (or which of the
+  // two rows) the next digit would land in.
+  group('BbPinView — the caret on the active slot', () {
+    Finder caretFinder() => find.byKey(kPinCaretKey);
+
+    double caretOpacity(WidgetTester tester) => tester
+        .widget<FadeTransition>(find.ancestor(
+          of: caretFinder(),
+          matching: find.byType(FadeTransition),
+        ))
+        .opacity
+        .value;
+
+    testWidgets('unfocused renders NO caret — the unlock screen is untouched',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 2)),
+      ));
+
+      expect(caretFinder(), findsNothing);
+      // And the old grey/blue split still holds exactly as before.
+      expect(_slotDecoration(tester, 2).border!.top.color,
+          AppColors.borderStrong);
+    });
+
+    testWidgets('focused puts ONE caret in the next empty slot',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 2, focused: true)),
+      ));
+
+      expect(caretFinder(), findsOneWidget);
+      // Slot 2 is next, so it takes the live colour even though it is EMPTY —
+      // that is the difference between "typed" and "typing here".
+      expect(_slotDecoration(tester, 2).border!.top.color, AppColors.blue);
+      expect(_slotDecoration(tester, 2).border!.top.width, 2.5);
+      // Slot 3 is still an ordinary empty box.
+      expect(_slotDecoration(tester, 3).border!.top.color,
+          AppColors.borderStrong);
+      expect(_slotDecoration(tester, 3).border!.top.width, 2);
+    });
+
+    testWidgets('on a FULL row the caret holds on the last slot, beside its star',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 4, focused: true)),
+      ));
+
+      // Falling off the end would leave a worker who taps back into a finished
+      // row with no idea where backspace bites.
+      expect(caretFinder(), findsOneWidget);
+      // The star is NEVER dropped to make room — the row would then under-report
+      // how many digits are actually in.
+      expect(find.byIcon(Icons.star_rounded), findsNWidgets(4));
+    });
+
+    testWidgets('the caret takes the error tint with the rest of the row',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(
+          body: BbPinView(length: 4, filled: 1, focused: true, error: true),
+        ),
+      ));
+
+      final Container caret = tester.widget<Container>(caretFinder());
+      expect((caret.decoration! as BoxDecoration).color, AppColors.danger);
+    });
+
+    testWidgets('SECURITY: a focused row still renders no digit glyph',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 3, focused: true)),
+      ));
+
+      for (final String d in <String>['0', '1', '2', '3', '4', '5']) {
+        expect(find.text(d), findsNothing);
+      }
+    });
+
+    // Deliberately NOT frozen here, and deliberately pumped in discrete steps —
+    // this is the one test that proves the blink actually blinks. Every other
+    // suite that reaches a focused row freezes it via debugDeterministicCaret,
+    // because a perpetual blink makes pumpAndSettle time out.
+    testWidgets('the caret really blinks, at Flutter\'s own half-period',
+        (WidgetTester tester) async {
+      expect(BbPinView.debugDeterministicCaret, isFalse,
+          reason: 'this test needs the real blink');
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 0, focused: true)),
+      ));
+
+      expect(caretOpacity(tester), 1.0);
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(caretOpacity(tester), closeTo(0.5, 0.05));
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(caretOpacity(tester), closeTo(0.0, 0.05));
+      // reverse:true — it comes back rather than staying dark.
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(caretOpacity(tester), closeTo(0.5, 0.05));
+    });
+
+    testWidgets('freezing the blink still PAINTS the caret, fully opaque',
+        (WidgetTester tester) async {
+      BbPinView.debugDeterministicCaret = true;
+      addTearDown(() => BbPinView.debugDeterministicCaret = false);
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 0, focused: true)),
+      ));
+
+      expect(caretFinder(), findsOneWidget);
+      expect(caretOpacity(tester), 1.0);
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(caretOpacity(tester), 1.0);
+      // No frame left scheduled — this is what keeps pumpAndSettle finite.
+      expect(tester.binding.hasScheduledFrame, isFalse);
+    });
+
+    testWidgets(
+        'a FULL focused row fits a 320dp screen at textScale 2.0 — star AND caret',
+        (WidgetTester tester) async {
+      BbPinView.debugDeterministicCaret = true;
+      addTearDown(() => BbPinView.debugDeterministicCaret = false);
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const MaterialApp(
+        home: MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(2.0)),
+          child: Scaffold(
+            body: Center(child: BbPinView(length: 4, filled: 4, focused: true)),
+          ),
+        ),
+      ));
+
+      // The worst case: every box filled AND focused, so one 56px box carries a
+      // 20px star, a 4px gap and the caret on the narrowest handset we support.
+      expect(tester.takeException(), isNull);
+      // Wider than Flutter's own 2.0 default caret, so it is never a hairline.
+      expect(tester.getSize(find.byKey(kPinCaretKey)).width, 2.5);
+    });
+
+    // Regression: the controller used to be a `late final` initialiser that the
+    // frozen path never touched, so dispose() built it on a deactivated element
+    // and createTicker's inherited TickerMode lookup threw.
+    testWidgets('disposing a frozen caret throws nothing',
+        (WidgetTester tester) async {
+      BbPinView.debugDeterministicCaret = true;
+      addTearDown(() => BbPinView.debugDeterministicCaret = false);
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 0, focused: true)),
+      ));
+      await tester.pumpWidget(const MaterialApp(home: Scaffold(body: SizedBox())));
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('isWeakPin (hint heuristic — never a block)', () {
     test('flags repeated and sequential PINs', () {
       expect(isWeakPin('1111'), isTrue);
