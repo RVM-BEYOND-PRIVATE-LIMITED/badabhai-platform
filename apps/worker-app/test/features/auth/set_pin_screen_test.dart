@@ -41,12 +41,6 @@ void main() {
   setUpAll(() => BbPinView.debugDeterministicCaret = true);
   tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
-  // The exact copy the screen ships — asserted verbatim so a wording drift is
-  // caught here rather than by a worker.
-  const String guessMsg =
-      '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
-      'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';
-
   late FakeSetPinCubit cubit;
 
   setUp(() async {
@@ -91,21 +85,35 @@ void main() {
     expect(find.byKey(kSetPinConfirmFieldKey), findsOneWidget);
   });
 
-  testWidgets('a guessable PIN is blocked with a dialog and clears the row',
+  // #1464 — owner ruling: the worker picks their own PIN, full stop. The screen
+  // used to hard-block 1234 / 1111 behind a centred dialog before the confirm
+  // row was ever reachable.
+  testWidgets('a guessable PIN is ACCEPTED — no strength gate on the client',
       (WidgetTester tester) async {
     await pumpScreen(tester);
     await enterFirst(tester, '1234');
-    await tester.pumpAndSettle();
+    await tester.pump();
 
-    // The centred block — not a silent advance.
-    expect(find.text('Yeh PIN aasan hai'), findsOneWidget);
-    expect(find.text(guessMsg), findsOneWidget);
+    // No block, and the confirm row is live — the first row advanced normally.
+    expect(find.text('Yeh PIN aasan hai'), findsNothing);
+    expect(
+        tester.widgetList<BbPinView>(find.byType(BbPinView)).toList()[1].focused,
+        isTrue);
 
-    await tapOk(tester);
+    await enterConfirm(tester, '1234');
+    await tester.pump();
 
-    // Still on the one page; the confirm row was never reached.
-    expect(find.text('PIN DAALEIN'), findsOneWidget);
-    expect(cubit.submitted, isEmpty);
+    expect(cubit.submitted, <String>['1234']);
+  });
+
+  testWidgets('an all-same PIN is accepted too', (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await enterFirst(tester, '1111');
+    await enterConfirm(tester, '1111');
+    await tester.pump();
+
+    expect(find.text('Yeh PIN aasan hai'), findsNothing);
+    expect(cubit.submitted, <String>['1111']);
   });
 
   testWidgets('a mismatched confirm shows the mismatch dialog and clears both rows',

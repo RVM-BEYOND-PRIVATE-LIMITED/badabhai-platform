@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/theme/app_colors.dart';
-import 'package:badabhai_worker_app/features/auth/domain/weak_pin.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
@@ -302,18 +301,4 @@ void main() {
     });
   });
 
-  group('isWeakPin (hint heuristic — never a block)', () {
-    test('flags repeated and sequential PINs', () {
-      expect(isWeakPin('1111'), isTrue);
-      expect(isWeakPin('0000'), isTrue);
-      expect(isWeakPin('1234'), isTrue);
-      expect(isWeakPin('4321'), isTrue);
-    });
-
-    test('passes a non-obvious PIN', () {
-      expect(isWeakPin('7416'), isFalse);
-      expect(isWeakPin('2580'), isFalse);
-      expect(isWeakPin('9043'), isFalse);
-    });
-  });
 }

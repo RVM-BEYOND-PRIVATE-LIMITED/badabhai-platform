@@ -6,7 +6,6 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_alert_dialog.dart';
 import '../../../../core/widgets/bb_spinner.dart';
-import '../../domain/weak_pin.dart';
 import '../enter_pin_screen.dart' show kPinLength;
 import 'bb_pin_view.dart';
 
@@ -34,9 +33,10 @@ const Key kSetPinConfirmFieldKey = Key('bb_set_pin_confirm_field');
 /// shows a COUNT (as a star per filled box). Both buffers are LOCAL widget
 /// state, dropped the moment they are handed to [onConfirmed].
 ///
-/// Owns the weak-PIN and mismatch dialogs end-to-end. [onConfirmed] fires
-/// exactly once, with the confirmed PIN, after both rows are 4 digits, the
-/// first passes [isWeakPin], and the two match.
+/// Owns the mismatch dialog end-to-end. [onConfirmed] fires exactly once, with
+/// the confirmed PIN, as soon as both rows are 4 digits and the two match.
+/// There is NO strength gate here (#1464): any 4 digits the worker picks are
+/// accepted by this form.
 class BbSetPinForm extends StatefulWidget {
   const BbSetPinForm({
     super.key,
@@ -133,11 +133,13 @@ class BbSetPinFormState extends State<BbSetPinForm> {
   void _onFirstChanged() {
     setState(() {}); // repaint the row's boxes as digits land
     if (_firstCtrl.text.length < kPinLength) return;
-    if (isWeakPin(_firstCtrl.text)) {
-      _blockWeakPin();
-      return;
-    }
-    // Strong first entry — hand off straight to the confirm row. The ring and
+    // NO client-side strength gate (#1464 — owner ruling): the worker may pick
+    // ANY 4 digits, 1234 and 1111 included. The screen used to hard-block a
+    // guessable PIN here with a dialog; that is gone. The server still runs its
+    // own denylist for now, so such a PIN comes back as a plain submit failure
+    // (see the caller's failure dialog) until that policy is lifted too —
+    // tracked for the backend owner.
+    // Full first entry — hand off straight to the confirm row. The ring and
     // caret move with it, which is the ONLY thing telling the worker the
     // second row is now the live one.
     _focusRow(_confirmCtrl, _confirmFocus);
@@ -154,24 +156,6 @@ class BbSetPinFormState extends State<BbSetPinForm> {
     _firstFocus.unfocus();
     _confirmFocus.unfocus();
     widget.onConfirmed(pin);
-  }
-
-  /// Guessable PIN — block it, explain in a dialog, and clear just the first
-  /// row (the confirm row is still empty at this point).
-  Future<void> _blockWeakPin() async {
-    if (_dialogOpen) return;
-    _dialogOpen = true;
-    _firstCtrl.clear();
-    await showBbAlert(
-      context,
-      title: 'Yeh PIN aasan hai',
-      message: '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
-          'Aisa 4-digit PIN chunein jo sirf aap jaante hain.',
-    );
-    if (mounted) {
-      _dialogOpen = false;
-      _focusRow(_firstCtrl, _firstFocus);
-    }
   }
 
   /// The two entries differed — explain, and send the worker back to the start.
