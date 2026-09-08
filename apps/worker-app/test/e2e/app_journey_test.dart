@@ -188,19 +188,17 @@ void main() {
 
     // ── 4b. YOUR NAME + LOCATION — consent-gated capture (PATCH
     //     /workers/me/name), before the identity-free chat. Mock
-    //     ApiClient.updateName is a no-op. First/last name are two separate
-    //     fields; location is mandatory too — "Khud likhein" (manual entry,
-    //     a city box and a state box) avoids depending on the geolocator
-    //     plugin, which has no platform channel in a widget-test host. ──
+    //     ApiClient.updateName is a no-op. Four fields, all present from the
+    //     first frame (#1462): first name, last name, then the city and state
+    //     boxes. This types the location by hand rather than tapping the GPS
+    //     button, which would need the geolocator plugin — it has no platform
+    //     channel in a widget-test host. ──
     await _pumpUntil(tester, find.text('Aapka naam?'));
     final Finder nameFields = find.byType(TextField);
     await tester.enterText(nameFields.at(0), 'Asha');
     await tester.enterText(nameFields.at(1), 'Kumari');
-    await tester.pump();
-    await tester.tap(find.text('Khud likhein'));
-    await tester.pump();
-    await tester.enterText(find.byType(TextField).at(2), 'Jaipur');
-    await tester.enterText(find.byType(TextField).at(3), 'Rajasthan');
+    await tester.enterText(nameFields.at(2), 'Jaipur');
+    await tester.enterText(nameFields.at(3), 'Rajasthan');
     await tester.pump();
     await tester.tap(find.text('Continue'));
 
