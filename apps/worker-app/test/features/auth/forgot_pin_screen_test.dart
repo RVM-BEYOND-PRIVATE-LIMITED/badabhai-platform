@@ -29,10 +29,6 @@ void main() {
   setUpAll(() => BbPinView.debugDeterministicCaret = true);
   tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
-  const String guessMsg =
-      '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
-      'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';
-
   late MockAuthSessionManager manager;
 
   setUp(() async {
@@ -128,24 +124,23 @@ void main() {
     expect(find.text('PIN STUB'), findsOneWidget); // routed on success
   });
 
-  testWidgets('a guessable new PIN is blocked before the confirm call',
+  // #1464 — the client no longer judges PIN strength on the reset flow either.
+  // A guessable PIN now goes STRAIGHT to the server, which is the only place
+  // any remaining policy lives.
+  testWidgets('a guessable new PIN is submitted, not blocked on the client',
       (WidgetTester tester) async {
+    when(() => manager.confirmPinReset(any(), any(), any()))
+        .thenAnswer((_) async {});
+
     await pumpToPinPhase(tester);
     expect(find.text('Naya PIN banayein'), findsOneWidget);
 
     await enterFirst(tester, '1234');
+    await enterConfirm(tester, '1234');
     await tester.pumpAndSettle();
 
-    // Blocked with the centred dialog, not silently advanced.
-    expect(find.text('Yeh PIN aasan hai'), findsOneWidget);
-    expect(find.text(guessMsg), findsOneWidget);
-
-    await tester.tap(find.text('Theek hai'));
-    await tester.pumpAndSettle();
-
-    // Still on the same one-page PIN phase; the reset OTP was never spent.
-    expect(find.text('Naya PIN banayein'), findsOneWidget);
-    verifyNever(() => manager.confirmPinReset(any(), any(), any()));
+    expect(find.text('Yeh PIN aasan hai'), findsNothing);
+    verify(() => manager.confirmPinReset(any(), any(), '1234')).called(1);
   });
 
   testWidgets('a mismatched confirm shows the dialog and clears both rows',
