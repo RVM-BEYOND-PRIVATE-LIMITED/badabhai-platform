@@ -42,6 +42,7 @@ import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 import '../core/auth/fakes.dart';
 
@@ -95,6 +96,14 @@ int _navIndex(WidgetTester tester) =>
     tester.widget<BbBottomNav>(find.byType(BbBottomNav)).currentIndex;
 
 void main() {
+  // #1463 — the active PIN slot carries a BLINKING caret, and a perpetual
+  // blink keeps a frame scheduled forever, so every `pumpAndSettle` below
+  // would pump until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen. The blink
+  // itself is covered by its own discrete-pump test in bb_pin_keypad_test.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   setUp(() async {
     // No network, deterministic glyph metrics.
     GoogleFonts.config.allowRuntimeFetching = false;
