@@ -144,6 +144,19 @@ class TradeFormQualificationsPageState
       List<TradeFormCertificateEntry>.of(
           widget.initialQualifications?.certificates ??
               const <TradeFormCertificateEntry>[]);
+
+  /// A STABLE id per certificate card, parallel to [_certificates].
+  ///
+  /// The cards used to be keyed by POSITION. Removing card 0 of two shifted
+  /// the survivor onto key 0, so Flutter matched it to the DELETED card's
+  /// element and kept that element's controllers: the worker deleted
+  /// "FIRST-CERT" and watched it stay on screen while "SECOND-CERT" vanished
+  /// — and the surviving entry then saved under the wrong text. A key that is
+  /// tied to the entry rather than to its index cannot do that: the removed
+  /// card's element is disposed and every survivor keeps its own state.
+  late List<int> _certIds =
+      List<int>.generate(_certificates.length, (int i) => i);
+  late int _nextCertId = _certificates.length;
   late bool _certificatesTouched =
       widget.initialQualifications?.certificatesTouched ?? false;
 
@@ -295,6 +308,7 @@ class TradeFormQualificationsPageState
         ..._certificates,
         const TradeFormCertificateEntry(name: ''),
       ];
+      _certIds = <int>[..._certIds, _nextCertId++];
       _certificatesTouched = true;
     });
   }
@@ -314,11 +328,12 @@ class TradeFormQualificationsPageState
         List<TradeFormCertificateEntry>.of(_certificates)..removeAt(index);
     setState(() {
       _certificates = next;
+      _certIds = List<int>.of(_certIds)..removeAt(index);
       _certificatesTouched = true;
-      // Cards are keyed by POSITION (`ValueKey<int>(i)`), so a removal
-      // reshuffles every later card onto a different key — each one remounts
-      // fresh and reports its own validity again. Stale indices here would
-      // otherwise wrongly keep the wizard blocked (or wrongly unblock it).
+      // Every surviving card keeps its own element (it keeps its id), so the
+      // year-validity each one reported is still ITS OWN — but the indices
+      // those were recorded under have shifted, so drop them and let the
+      // cards re-report rather than block the wizard on a stale index.
       _certYearErrorIndices.clear();
     });
   }
@@ -412,10 +427,19 @@ class TradeFormQualificationsPageState
           subtitle: _kEduSubtitle,
           section: _EduSection.credentialAndField,
         );
+      // The heading rides EVERY education sub-page, not just the first
+      // (#1469). Pages 2 and 3 render one row per education entry and nothing
+      // else, so while the options fetch is in flight — which happens on every
+      // remount, e.g. walking BACK into an already-saved marker — their whole
+      // body was a bare spinner: no text, no field, no control, under a full
+      // progress bar. On the 2G these workers actually have, that is the blank
+      // screen that was reported. A heading costs nothing and means no state
+      // of this page can ever be contextless.
       case 2:
-        return _educationPage(section: _EduSection.council);
+        return _educationPage(title: _kEduTitle, section: _EduSection.council);
       default:
-        return _educationPage(section: _EduSection.yearAndInstitute);
+        return _educationPage(
+            title: _kEduTitle, section: _EduSection.yearAndInstitute);
     }
   }
 
@@ -431,7 +455,7 @@ class TradeFormQualificationsPageState
         const SizedBox(height: AppSpacing.s4),
         for (int i = 0; i < _certificates.length; i++) ...<Widget>[
           _CertificateCard(
-            key: ValueKey<int>(i),
+            key: ValueKey<int>(_certIds[i]),
             entry: _certificates[i],
             suggestions: widget.suggestedCertificates,
             onChanged: (TradeFormCertificateEntry e) =>

@@ -145,6 +145,85 @@ void main() {
     expect(reported.last, <int>[1, 2]);
   });
 
+  // #1469 — found by an adversarial verification pass. Pages 2 and 3 carried no
+  // heading, so while the options fetch was in flight their WHOLE body was a
+  // bare spinner: no text, no field, no control, under a full progress bar.
+  // That happens on every remount — walking BACK into an already-saved marker
+  // refetches — and on 2G it is the reported blank screen.
+  testWidgets('education sub-pages are never blank while options are loading',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(900, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final GlobalKey<TradeFormQualificationsPageState> key =
+        GlobalKey<TradeFormQualificationsPageState>();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: TradeFormQualificationsPage(
+            key: key,
+            suggestedCertificates: const <String>[],
+            enabled: true,
+            // Never resolves inside the test: the worker is on a slow network.
+            loadOptions: () => Future<QualificationOptionsDto>.delayed(
+                const Duration(seconds: 30), () => kOptions),
+            onSave: (_) {},
+            initialQualifications: const TradeFormQualifications(
+              certificates: <TradeFormCertificateEntry>[],
+              educations: <TradeFormEducationEntry>[TradeFormEducationEntry()],
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    for (int p = 0; p < 4; p++) {
+      expect(find.byType(Text), findsWidgets,
+          reason: 'sub-page $p is a contextless body while options load');
+      if (p < 3) {
+        key.currentState!.goToNextPage();
+        await tester.pump();
+      }
+    }
+    await tester.pump(const Duration(seconds: 31)); // let the fetch settle
+  });
+
+  // #1469 — certificate cards were keyed by POSITION, so removing card 0 of two
+  // shifted the survivor onto key 0 and Flutter reused the DELETED card's
+  // element: the worker deleted "FIRST" and watched it stay while "SECOND"
+  // vanished, then saved the survivor under the wrong text.
+  testWidgets('deleting a certificate keeps the RIGHT card, with its own text',
+      (WidgetTester tester) async {
+    final GlobalKey<TradeFormQualificationsPageState> key = await pump(
+      tester,
+      initial: const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'FIRST'),
+          TradeFormCertificateEntry(name: 'SECOND'),
+        ],
+        educations: <TradeFormEducationEntry>[],
+      ),
+    );
+    expect(key.currentState, isNotNull);
+
+    List<String> fieldTexts() => tester
+        .widgetList<TextField>(find.byType(TextField))
+        .map((TextField f) => f.controller?.text ?? '')
+        .toList();
+
+    expect(fieldTexts(), contains('FIRST'));
+    expect(fieldTexts(), contains('SECOND'));
+
+    await tester.tap(find.byIcon(Icons.close).first); // delete FIRST
+    await tester.pump();
+
+    expect(fieldTexts(), contains('SECOND'));
+    expect(fieldTexts(), isNot(contains('FIRST')));
+  });
+
   testWidgets('removing the last education never strands the worker on a page '
       'that no longer exists', (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(

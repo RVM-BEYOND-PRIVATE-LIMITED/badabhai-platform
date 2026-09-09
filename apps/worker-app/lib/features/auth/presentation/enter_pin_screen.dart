@@ -57,6 +57,13 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
+  /// The worker has SEEN the wrong-PIN dialog and dismissed it (#1469). The
+  /// cubit stays in `failure` until the next attempt resolves, so painting the
+  /// row off that status alone left the cleared retry row — and its caret —
+  /// crimson for the whole of the corrective retype: the app kept shouting
+  /// about a mistake the worker was already fixing.
+  bool _errorAcknowledged = false;
+
   /// Identifies the pending submit so a backspace can CANCEL it (#1466).
   /// Bumping this orphans the in-flight `_onDigit` continuation, which checks
   /// the token after its delay and returns rather than unlocking.
@@ -109,7 +116,11 @@ class _EnterPinViewState extends State<_EnterPinView> {
       // Clear ONLY now — after the worker has seen the wrong-PIN dialog — so a
       // fresh retry starts from empty dots. (On success the dots stay filled
       // until the router navigates away; they never blank mid-verify.)
-      setState(() => _pin = '');
+      // Cleared AND un-tinted together: the next digit lands on a neutral row.
+      setState(() {
+        _pin = '';
+        _errorAcknowledged = true;
+      });
     }
   }
 
@@ -123,10 +134,14 @@ class _EnterPinViewState extends State<_EnterPinView> {
     return BlocConsumer<EnterPinCubit, EnterPinState>(
       listenWhen: (EnterPinState p, EnterPinState c) => p.status != c.status,
       listener: (BuildContext context, EnterPinState state) {
-        if (state.status == EnterPinStatus.failure) _showError(state.message);
+        if (state.status == EnterPinStatus.failure) {
+          _errorAcknowledged = false;
+          _showError(state.message);
+        }
       },
       builder: (BuildContext context, EnterPinState state) {
-        final bool error = state.status == EnterPinStatus.failure;
+        final bool error =
+        state.status == EnterPinStatus.failure && !_errorAcknowledged;
         // Kit auth chrome: blue header carries the title/context; the light body
         // holds the masked dots + on-screen keypad. Not [BbScaffold] — the header
         // bleeds to the status bar. No back button: this is the locked root.

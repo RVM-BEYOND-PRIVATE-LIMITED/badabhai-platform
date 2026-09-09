@@ -59,8 +59,14 @@ class BbPinKeypad extends StatelessWidget {
         onTap: enabled ? () => onDigit(digit) : null,
       );
 
+  // Three 72px keys plus their 12px side padding need 288, but a 320dp handset
+  // inside the auth screens' 20px gutter offers 280 — a RenderFlex overflow
+  // that CLIPPED THE BACKSPACE KEY (#1469), the one control the whole "fix a
+  // wrong PIN" story depends on. scaleDown is inert at 360dp and above.
   Widget _row(List<Widget> keys) => Padding(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
+        child: FittedBox(
+        fit: BoxFit.scaleDown,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
@@ -71,6 +77,7 @@ class BbPinKeypad extends StatelessWidget {
                 child: key,
               ),
           ],
+        ),
         ),
       );
 }
