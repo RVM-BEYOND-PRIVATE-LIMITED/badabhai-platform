@@ -942,15 +942,14 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
       await tester.pumpAndSettle();
-      // #1384 item 2 — "Ho gaya" only renders on the marker's LAST internal
-      // page (year+institute, the 4th) — certificates -> credential+subject
-      // -> council -> year+institute; every "Aage badhein" before that is
-      // purely internal pagination and must NOT reach the server.
-      for (int i = 0; i < 3; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // #1465 — with NO education added, the marker is TWO internal pages:
+      // certificates -> credential+subject. The council and year+institute
+      // pages render one row per education entry, so with none they would be
+      // blank and the wizard does not walk them at all. That single "Aage
+      // badhein" is purely internal pagination and must NOT reach the server.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -970,13 +969,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
       await tester.pumpAndSettle();
-      // #1384 item 2 — walk to the marker's LAST internal page (education's
-      // 3rd sub-page, year+institute) before the button's tap actually saves.
-      for (int i = 0; i < 3; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // #1465 — no education, so the marker's LAST internal page is
+      // credential+subject, one hop away.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -997,14 +994,12 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
-      // #1384 item 2 — walk to the marker's LAST internal page (education's
-      // 3rd sub-page, year+institute); every "Aage badhein" before that is
-      // purely internal and must not touch saveQualifications either.
-      for (int i = 0; i < 3; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // #1465 — nothing touched at all, so there is no education and the
+      // marker is two pages; the one "Aage badhein" is purely internal and
+      // must not touch saveQualifications either.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
