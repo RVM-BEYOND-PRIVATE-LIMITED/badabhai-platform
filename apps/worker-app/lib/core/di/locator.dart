@@ -110,6 +110,8 @@ import '../../features/swipe/data/swipe_repository_impl.dart';
 import '../../features/swipe/domain/jobs_repository.dart';
 import '../../features/swipe/domain/swipe_repository.dart';
 import '../../features/swipe/presentation/bloc/swipe_bloc.dart';
+import '../../features/trade_form/data/spoken_work_description_recorder_impl.dart';
+import '../../features/trade_form/domain/spoken_work_description.dart';
 
 /// The composition root. `get_it` wires the dependency graph in exactly one
 /// place; screens resolve their bloc/cubit through [locator], and BLoCs receive
@@ -430,6 +432,26 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
         ? const MockVoiceTranscriptResolver()
         : RealVoiceTranscriptResolver(locator<ApiClient>()),
   );
+  // #1472 — the mic on the work-history description. Its own seam because it
+  // must return the `voice_note_id` ALONGSIDE the transcript (the chat path
+  // discards the id, having nothing to file it against), and because it files
+  // the clip under the TRADE FORM's session rather than the chat's.
+  //
+  // Built from the pieces that already exist — the same registrar, the same
+  // transcribe-then-poll, the same resolver — so there is one pipeline, not
+  // two that can drift. `SessionVoiceRecorder` rather than the app-wide
+  // `VoiceRecorder`: that singleton is already owned by VoiceNoteRepository,
+  // and two live users would collide over its mutable capture state.
+  locator.registerLazySingleton<SpokenWorkDescriptionRecorder>(
+    () => SpokenWorkDescriptionRecorderImpl(
+      recorder: locator<SessionVoiceRecorder>(),
+      registrar: locator<VoiceNoteRegistrar>(),
+      resolver: locator<VoiceTranscriptResolver>(),
+      api: locator<ApiClient>(),
+      session: locator<SessionRepository>(),
+    ),
+  );
+
   locator.registerLazySingleton<VoiceNoteRepository>(
     () => VoiceNoteRepositoryImpl(
       recorder: locator<VoiceRecorder>(),

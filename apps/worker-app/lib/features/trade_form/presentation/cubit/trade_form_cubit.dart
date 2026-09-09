@@ -58,7 +58,13 @@ class TradeFormState extends Equatable {
     this.savedPreferences,
     this.savedEmployment,
     this.savedQualifications,
+    this.sessionId,
   });
+
+  /// The form's own profiling session (#1472), re-read from EVERY schema
+  /// response so a spoken work description is filed under the conversation
+  /// this form actually belongs to. Never cached, never the chat session.
+  final String? sessionId;
 
   final TradeFormStatus status;
   final List<TradeFormFlatStep> flatSteps;
@@ -118,8 +124,10 @@ class TradeFormState extends Equatable {
     Object? savedPreferences = _sentinel,
     Object? savedEmployment = _sentinel,
     Object? savedQualifications = _sentinel,
+    Object? sessionId = _sentinel,
   }) {
     return TradeFormState(
+      sessionId: sessionId == _sentinel ? this.sessionId : sessionId as String?,
       status: status ?? this.status,
       flatSteps: flatSteps ?? this.flatSteps,
       currentIndex: currentIndex ?? this.currentIndex,
@@ -142,6 +150,7 @@ class TradeFormState extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[
+        sessionId,
         status,
         flatSteps,
         currentIndex,
@@ -196,6 +205,10 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         currentIndex: resumeIndex,
         answered: answeredCount,
         total: total,
+        // #1472 — carried from THIS response, every time. Never cached: the
+        // form is resumable across a cold start, and a stale id would file a
+        // spoken work description under the wrong conversation.
+        sessionId: form.sessionId,
       ));
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.loadError, loadError: f.message));
@@ -423,6 +436,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
           answered: result.answered,
           total: result.total,
           submitError: null,
+          sessionId: form.sessionId, // re-read, never carried over (#1472)
         ));
         return;
       }
@@ -433,6 +447,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         answered: result.answered,
         total: result.total,
         submitError: null,
+        sessionId: form.sessionId, // re-read, never carried over (#1472)
       ));
     } on Failure catch (f) {
       emit(state.copyWith(
