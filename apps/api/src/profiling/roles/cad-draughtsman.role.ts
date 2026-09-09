@@ -148,10 +148,15 @@ export const CAD_DRAUGHTSMAN = {
     /**
      * `fresher_course` STORES 0, AND ON THIS PACK ALONE THAT MEANS A FRESHER — the rung reads
      * "Course kiya hai, kaam ka tajurba nahi" and `under_one` ("1 saal se kam") is a SEPARATE
-     * rung storing 1. The ratified sheet's headline is "CAD Designer / Draughtsman — Draughtsman ·
-     * Fresher · AutoCAD, SolidWorks, Fusion 360"; see the note at the top of this file — "Fresher"
-     * is a status chip on that sheet, not an absence. See
-     * {@link RoleFresherVocabulary.tenureValue} for why no other role may copy this line.
+     * rung storing 1, which is why this pack's `lte 0` gates open for a different worker than
+     * every other pack's do. The ratified sheet's headline is "CAD Designer / Draughtsman —
+     * Draughtsman · Fresher · AutoCAD, SolidWorks, Fusion 360"; see the note at the top of this
+     * file — "Fresher" is a status chip on that sheet, not an absence.
+     *
+     * THE SHEET NO LONGER REACHES THAT WORD THROUGH THIS FIELD (owner ruling 2026-09-09b). She
+     * has no work history, and an empty work history is now the entire rule; the headline is
+     * unchanged, and it would be unchanged if this line were deleted. See
+     * {@link RoleFresherVocabulary.tenureValue} for what the field is still read for.
      */
     tenureValue: 0,
   },

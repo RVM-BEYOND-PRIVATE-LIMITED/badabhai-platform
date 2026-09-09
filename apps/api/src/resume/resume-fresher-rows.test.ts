@@ -114,72 +114,58 @@ describe("the fresher block reaches Zone 4 on a real sheet", () => {
  * from the work history itself" — 1 yr 2 mo + 10 mo + 2 yrs is 4 years. The figure is
  * `totalEmployedYears`; this label is only what prints when there is no work history to sum.
  *
- * THE REVISION THIS SUITE REPLACED read the role pack's tier gate and printed its rungs as bands
- * ("1–3 yrs", "7+ yrs"). That is exactly the range-from-a-question the ruling rejects, and the
- * assertions for it are deleted rather than adapted — the rung now does one thing only, and it is
- * negative: it stops the sheet calling a self-declared seven-year man a fresher.
+ * AND THE FOLLOW-UP RULING (2026-09-09b) FINISHED THE JOB. "Restrict the total experience shown on
+ * the resume only to the work history details… if there is someone who has no work experience, no
+ * work history, then it will be considered as a fresher, and it should not become like duration
+ * not stated." The role pack's tier gate stays in the FORM — it sizes the questionnaire — and
+ * leaves the SHEET entirely.
+ *
+ * SO THIS SUITE IS SMALLER THAN THE TWO BEFORE IT, ON PURPOSE. The first pinned the gate's rungs
+ * as printed bands; the second pinned the rung being read to WITHHOLD the word. Both sets of
+ * assertions are deleted rather than adapted, because both encoded the premise the owner rejected.
+ * What is left asserts that the answers cannot reach the label at all.
  */
-describe("tenureStatusLabel — Fresher, and the two ways it must be withheld", () => {
-  it("prints Fresher for the CAD draughtsman's own fresher chip, work history or not", () => {
-    // The ratified page: "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
-    // SolidWorks, Fusion 360". UNGATED, exactly as it shipped: she said the word herself.
-    expect(tenureStatusLabel("qp_cad_drafting", { drafting_experience: 0 }, true)).toBe("Fresher");
-    expect(tenureStatusLabel("qp_cad_drafting", { drafting_experience: 0 }, false)).toBe("Fresher");
-  });
-
-  it("prints Fresher for a worker who filed no work history", () => {
+describe("tenureStatusLabel — one rule: no work history on file means Fresher", () => {
+  it("prints Fresher for a form worker whose work history was read and is empty", () => {
     // The owner's standing definition — "someone not added work experience" — and with the sum as
     // the only source of a figure it is also simply true: there is nothing to add up.
-    expect(tenureStatusLabel("qp_cnc_turning", {}, true)).toBe("Fresher");
-    expect(tenureStatusLabel("qp_cnc_turning", { turning_machine: ["cnc_lathe"] }, true)).toBe(
-      "Fresher",
-    );
-    // The lowest rung means "under a year" on the machining packs and does not contradict him.
-    expect(tenureStatusLabel("qp_cnc_turning", { turning_experience: 0 }, true)).toBe("Fresher");
-    expect(tenureStatusLabel("qp_cad_drafting", { drafting_experience: 1 }, true)).toBe("Fresher");
-  });
-
-  it("WITHHOLDS the word from a worker whose own form claims a year or more — §8.3", () => {
-    // He filed no work history, so there is no sum; but he told the form he has years, and the
-    // sheet may neither call him a fresher nor invent a figure for him. It says nothing, and
-    // §11 #3's honest unknown prints instead.
-    for (const rung of [2, 5, 10]) {
-      expect(tenureStatusLabel("qp_cnc_turning", { turning_experience: rung }, true)).toBeNull();
-      expect(tenureStatusLabel("qp_welding_trade", { welding_experience: rung }, true)).toBeNull();
-    }
-  });
-
-  it("NEVER prints a band — the rung is read to withhold a word, never to print one", () => {
-    // The ruling in one assertion. Whatever the rung, the only two outputs are the word and null.
-    for (const rung of [0, 1, 2, 5, 10]) {
-      for (const filed of [true, false]) {
-        const label = tenureStatusLabel("qp_cnc_turning", { turning_experience: rung }, filed);
-        expect(label === null || label === "Fresher", `rung ${rung}, filed=${filed}`).toBe(true);
-      }
-    }
+    //
+    // THIS ONE CALL IS ALSO THE CASE THE RULING TURNS OVER. A man who tapped "7 saal se zyada"
+    // and filed no history reaches the same call and the same word, because there is no longer an
+    // argument that could tell him apart. His sheet no longer repeats his bracket; the owner's
+    // ground is that the bracket sized his questionnaire and was never a claim about his career,
+    // and the fix for him is the work-history screen rather than a range on a page.
+    expect(tenureStatusLabel("qp_cnc_turning", true)).toBe("Fresher");
+    expect(tenureStatusLabel("qp_welding_trade", true)).toBe("Fresher");
+    expect(tenureStatusLabel("qp_cad_drafting", true)).toBe("Fresher");
   });
 
   it("says NOTHING once a work history exists — the sum speaks, or §11 #3 does", () => {
     // Either it is dated and `totalEmployedYears` prints the figure, or it is not and "duration
-    // not stated" is the honest line. "Fresher" over a man's own employer block is neither.
-    expect(tenureStatusLabel("qp_cnc_turning", {}, false)).toBeNull();
-    expect(tenureStatusLabel("qp_cnc_turning", { turning_experience: 0 }, false)).toBeNull();
+    // not stated" is the honest line. "Fresher" over a man's own employer block is neither, and
+    // that now holds for the CAD chip too: her declared "course kiya hai, kaam ka tajurba nahi"
+    // used to print the word beside an employment block, which is the contradiction §6.2 exists
+    // to prevent. Her ratified sheet is unaffected — it has no work history.
+    expect(tenureStatusLabel("qp_cnc_turning", false)).toBeNull();
+    expect(tenureStatusLabel("qp_cad_drafting", false)).toBeNull();
   });
 
-  it("says NOTHING without a pack — a legacy chat profile was never asked any of this", () => {
-    // THE BOUND ON THE RULING. Every profile written before the role forms has no pack and often
-    // no employment rows; reading that as "fresher" would relabel the entire back catalogue.
-    expect(tenureStatusLabel(null, { turning_experience: 0 }, true)).toBeNull();
-    expect(tenureStatusLabel(null, {}, true)).toBeNull();
-    expect(tenureStatusLabel("qp_not_a_real_pack", {}, true)).toBeNull();
+  it("says NOTHING without a form pack — a legacy chat profile was never handed one", () => {
+    // THE BOUND ON THE RULING, and the only thing the function still asks about a role. Every
+    // profile written before the role forms has no pack and often no employment rows; reading
+    // that as "fresher" would relabel the entire back catalogue. `qp_universal@2` is the trap
+    // worth naming: it is a real, shipped pack that no ROLE FORM serves.
+    expect(tenureStatusLabel(null, true)).toBeNull();
+    expect(tenureStatusLabel("qp_not_a_real_pack", true)).toBeNull();
+    expect(tenureStatusLabel("qp_universal@2", true)).toBeNull();
   });
 
-  it("does not coerce — a STRING rung is a different pack shape, not an answer", () => {
-    // A string rung is not a number, so it cannot claim a year or more — and the worker still
-    // filed nothing, so he still reads as a fresher. The shape change must be NOTICED (the corpus
-    // guard is what notices it), not silently turned into a different claim about him.
-    expect(tenureStatusLabel("qp_cnc_turning", { turning_experience: "5" }, true)).toBe("Fresher");
-    expect(tenureStatusLabel("qp_cnc_turning", { turning_experience: "5" }, false)).toBeNull();
+  it("cannot be reached by any pack answer — the ruling, as an arity", () => {
+    // WHAT REPLACES THE WITHHOLD SUITE. Those tests varied an attribute bag to prove the rung
+    // changed the word; there is no bag left to vary, so the proof is structural instead: the
+    // gate cannot be READ because it cannot be PASSED. A revision that starts consulting the
+    // rung again has to widen this signature, and this line is what notices.
+    expect(tenureStatusLabel).toHaveLength(2);
   });
 });
 
@@ -247,6 +233,32 @@ describe("total experience is the sum of the work history, on BOTH branches", ()
   it("a worker with NO work history reads Fresher, not a figure", () => {
     expect(sheetFor(LEGACY, []).headlineLine).toContain("Fresher");
     expect(sheetFor(LEGACY, []).experienceYears).toBeNull();
+  });
+
+  it("EVERY rung of the tier gate reaches the same headline (owner ruling 2026-09-09b)", () => {
+    // THE RULING AT THE LEVEL THE OWNER SEES IT, which is the sheet rather than a pure function.
+    // He filed no work history; whatever he tapped on "Turning ka kitna tajurba hai?" — including
+    // "7 saal se zyada", which used to withhold the word and print §11 #3's text over him — the
+    // headline reads "Fresher" and carries no figure. The gate sizes his form and leaves the page.
+    for (const rung of [0, 2, 5, 10]) {
+      const input = buildResumeRenderInput(
+        LEGACY,
+        "Dean Parker",
+        "bb_trade",
+        null,
+        false,
+        "worker",
+        {
+          packId: "qp_cnc_turning",
+          attributes: { turning_experience: rung, turning_machine: ["cnc_lathe"] },
+          employments: [],
+          asOf: new Date("2026-09-09T00:00:00Z"),
+        },
+      );
+      expect(input.headlineLine, `rung ${rung}`).toContain("Fresher");
+      expect(input.headlineLine, `rung ${rung}`).not.toContain("duration not stated");
+      expect(input.experienceYears, `rung ${rung}`).toBeNull();
+    }
   });
 
   it("an UNDATED job voids the total — §11 #3, and it is asserted so it is a decision", () => {

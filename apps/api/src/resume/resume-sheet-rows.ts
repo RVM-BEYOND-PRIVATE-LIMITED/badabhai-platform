@@ -65,9 +65,10 @@ export function buildVerdictLine(facts: {
    * every falsy/absent number to "duration not stated" and must keep doing so — §11 #3 requires
    * the sheet to SAY an unknown is unknown. What this parameter carries is not an inference about
    * an unknown but the fact that there is no work history to sum, which is what "Fresher" says
-   * ({@link tenureStatusLabel} owns the provenance). It is NEVER a tenure figure or a band: the
-   * figure is the sum of the worker's own dated employments and reaches this function as
-   * `years`. Handing this a bare 0 still yields "duration not stated".
+   * ({@link tenureStatusLabel} owns the provenance, and since the 2026-09-09b ruling it derives
+   * the word from the empty history alone — no pack answer reaches this segment). It is NEVER a
+   * tenure figure or a band: the figure is the sum of the worker's own dated employments and
+   * reaches this function as `years`. Handing this a bare 0 still yields "duration not stated".
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
@@ -113,16 +114,16 @@ function knownYearsPhrase(years: number | null): string | null {
  * the job. Omitting the segment entirely would be just as wrong: an employer reading a résumé with
  * no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
  *
- * WHO IT IS STILL FOR, AFTER THE 2026-09-09 RULING NARROWED IT. A worker the forms never asked —
- * a legacy chat profile with no pack — and a worker who HAS a work history whose dates he could
- * not give. It is no longer reached by a form-first worker who answered his role's mandatory
- * tenure question, and that is the correction: printing "nobody asked" over an answer is not
- * §11 #3 being honest, it is §11 #3 being wrong about its own subject.
+ * WHO IT IS STILL FOR, AFTER THE 2026-09-09b RULING NARROWED IT TO TWO WORKERS. A worker the role
+ * forms never asked — a legacy chat profile with no pack — and a worker who HAS a work history
+ * whose dates he could not give. A form worker who filed no work history is no longer one of them:
+ * printing "nobody asked" over a man with nothing to ask about is not §11 #3 being honest, it is
+ * §11 #3 being wrong about its own subject.
  *
- * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It carries the worker's own answer, with the
- * provenance attached by the caller (the role's tier rung, or the fresher chip he tapped) — and it
- * changes nothing about inference: this function still cannot tell a fresher from a blank, and
- * still says so when the caller passes nothing.
+ * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It carries the one fact that is not a figure —
+ * that there is no work history for the sum to find — and it changes nothing about inference: this
+ * function still cannot tell a fresher from a blank, and still says so when the caller passes
+ * nothing.
  *
  * THE ORDER IS THE POINT. A number the worker gave outranks everything — a fresher who has since
  * stated six months prints "6 mo", not "Fresher". Only where there is no figure at all does the

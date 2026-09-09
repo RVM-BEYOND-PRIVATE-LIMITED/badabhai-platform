@@ -420,11 +420,12 @@ function buildUndegraded(
     !hasEmployments &&
     (draft.resume_profile?.experiences.length ?? 0) === 0 &&
     tradeSheet?.employmentsUnavailable !== true;
-  const tenureLabel = tenureStatusLabel(
-    tradeSheet?.packId ?? null,
-    vettedAttributes,
-    filedNoWorkHistory,
-  );
+  // AND THE LABEL FOR THE MAN THE SUM FINDS NOTHING FOR (owner ruling 2026-09-09b). It takes the
+  // pack — to bound the rule to workers a form actually asked — and whether the history was READ
+  // and empty. It no longer takes his answers: the tier gate sizes his questionnaire and says
+  // nothing about his career, so "restrict only to the work history details" is enforced here by
+  // giving the label nothing else to read. See `tenureStatusLabel`.
+  const tenureLabel = tenureStatusLabel(tradeSheet?.packId ?? null, filedNoWorkHistory);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
