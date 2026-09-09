@@ -158,6 +158,23 @@ GoRouter buildAppRouter() => _buildRouter();
 /// Routes the auth redirect treats as "auth surface" — reachable while NOT
 /// authenticated (splash + the whole login/PIN journey). Everything else (the
 /// shell + onboarding) requires [AuthStatus.authenticated].
+/// The LINEAR onboarding sequence, in order: a worker inside it has not
+/// finished registering. Killing the app here used to lose the place entirely
+/// (#1470) — the in-memory resume stash dies with the process, so the unlock
+/// fell through to the shell and dropped a half-registered worker onto an
+/// empty Résumé tab with no route back into the flow. The redirect now
+/// remembers the step durably while the worker is on one of these, and forgets
+/// it the moment they reach a real screen outside the sequence.
+const Set<String> _onboardingRoutes = <String>{
+  Routes.consent,
+  Routes.name,
+  Routes.chatProfiling,
+  Routes.profilePreview,
+  Routes.finishing,
+  Routes.tradeForm,
+  Routes.building,
+};
+
 const Set<String> _authRoutes = <String>{
   Routes.splash,
   Routes.phoneLogin,
@@ -319,9 +336,24 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
       // it, else the Resume tab as before. PEEKED, not consumed — EnterPinScreen
       // resolves the same target, and a consuming read here would strand it on
       // the fallback.
-      if (onAuthRoute) return auth.resumeLocation ?? Routes.resume;
+      // #1470 — the onboarding step outranks the Résumé fallback. A worker who
+      // never finished registering has nothing on the Résumé tab to come back
+      // to; sending them there is the empty-tab dead end that was reported.
+      // Order matters: `resumeLocation` (this process's re-lock) is more
+      // specific than `onboardingLocation` (this device's last known step).
+      if (onAuthRoute) {
+        return auth.resumeLocation ?? auth.onboardingLocation ?? Routes.resume;
+      }
       // Landed on a real screen — the stash has done its job.
       auth.clearResumeLocation();
+      // Remember the onboarding step while the worker is inside the sequence,
+      // and forget it the moment they are out of it (onboarding finished, or
+      // they were never in it). Both calls are no-ops when nothing changed.
+      if (_onboardingRoutes.contains(loc)) {
+        auth.rememberOnboardingLocation(loc);
+      } else {
+        auth.clearOnboardingLocation();
+      }
       return null;
   }
 }
