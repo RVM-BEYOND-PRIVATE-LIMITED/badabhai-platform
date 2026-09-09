@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 
 import { AiService } from "../ai/ai.service";
 import type { AiRequestContext } from "../ai/ai.service";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
 
@@ -42,6 +43,21 @@ import type { WorkerEmploymentRecord } from "./resume-employment-rows";
  * it printed before this existed. Nothing here may throw into the render: a resume that fails
  * to render is a strictly worse outcome than one that renders in Hinglish.
  */
+/**
+ * How long ONE render may spend rewriting work history, across every stint.
+ *
+ * A CEILING ON THE LOOP, not on a call — `WORK_HISTORY_POLISH_TIMEOUT_MS` bounds each call at
+ * 23 s so the ai-service's own 20 s deadline is reachable. This bounds the SUM, because the loop
+ * is sequential and a worker may file nine stints. 60 s buys the four-employer history the
+ * guideline's zone map budgets for (§11 #7) with room for one slow provider retry, and stops the
+ * tail from turning a render into a multi-minute job.
+ *
+ * NOT A FAILURE WHEN IT FIRES. The stints it skips keep a null polish, which is precisely the
+ * work-list the next render reads — so the cost of the bound is one deferred rewrite, not a lost
+ * one, and the sheet prints the worker's own words in the meantime.
+ */
+const POLISH_WALL_CLOCK_BUDGET_MS = 60_000;
+
 @Injectable()
 export class WorkHistoryPolishService {
   private readonly logger = new Logger(WorkHistoryPolishService.name);
@@ -49,6 +65,7 @@ export class WorkHistoryPolishService {
   constructor(
     private readonly ai: AiService,
     private readonly employments: WorkerEmploymentRepository,
+    private readonly attributes: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -82,12 +99,39 @@ export class WorkHistoryPolishService {
     if (pending.length === 0) return records;
 
     const polished = new Map<string, string>();
+    const startedAt = Date.now();
+    let abandoned = 0;
     for (const role of pending) {
       // SEQUENTIAL, NOT PARALLEL. A worker has at most four employers and a handful of stints,
       // and firing them together would put a burst on the provider's per-minute quota for a
       // job that is already off the request path and in no hurry.
+      //
+      // BOUNDED IN AGGREGATE, and that bound is what makes the per-call budget safe to raise.
+      // `WORK_HISTORY_POLISH_TIMEOUT_MS` is 23 s so a slow rewrite ARRIVES rather than being
+      // aborted into Hinglish; sequential x 23 s would put a nine-stint history at over three
+      // minutes of provider wait on top of six DB loads and WeasyPrint. The stints that fit are
+      // polished, the rest keep a null polish, and the NEXT render picks them up for free —
+      // which is the same degrade this whole file is built on: a degrade costs polish, never a
+      // description, and never the PDF.
+      if (Date.now() - startedAt >= POLISH_WALL_CLOCK_BUDGET_MS) {
+        abandoned += 1;
+        continue;
+      }
       const result = await this.polishOne(workerId, role.workDone as string, role.roleLabel, ctx);
       if (result !== null) polished.set(role.id as string, result);
+    }
+
+    // NEVER A SILENT PARTIAL. A sheet that prints one employer in English and the next in
+    // Hinglish is the defect this service was reported for, and it was invisible because nothing
+    // counted. COUNTS ONLY — a stint's description is the worker's own text and never reaches a
+    // log line, an event or a metric.
+    if (polished.size < pending.length) {
+      this.logger.warn(
+        `work-history polish covered ${polished.size}/${pending.length} stint(s) for worker ` +
+          `${workerId}` +
+          (abandoned > 0 ? `; ${abandoned} left for the next render (wall-clock budget)` : "") +
+          `; the remainder print the worker's own words`,
+      );
     }
     if (polished.size === 0) return records;
 
@@ -111,6 +155,54 @@ export class WorkHistoryPolishService {
           : role,
       ),
     }));
+  }
+
+  /**
+   * Rephrase ONE worker-typed text answer and store it beside that answer (#1350, extended to
+   * the fresher block on the 2026-09-09 owner report).
+   *
+   * WHY IT IS HERE AND NOT A SECOND SERVICE. It is the same override of §8, the same route, the
+   * same prompt, the same kill switch and the same fail-closed contract — a fresher's ITI
+   * training description differs from an employment description only in which form collected it.
+   * A parallel service would have been a second place to forget the switch.
+   *
+   * ONE CALL PER ANSWER, EVER, on the same mechanism as a stint: the result is written to
+   * `worker_attributes.value_text_polished` and this returns early when one is already stored.
+   * The upsert clears that column whenever the answer is re-written, so an EDITED answer is
+   * re-polished for free and a re-render of an unchanged one spends nothing.
+   *
+   * NEVER THROWS, and returns the text to PRINT — the rewrite when there is one, otherwise null,
+   * which the caller reads as "print what the worker wrote".
+   */
+  async polishAttribute(
+    workerId: string,
+    attributeKey: string,
+    ownText: string | null | undefined,
+    contextLabel: string,
+    ctx: AiRequestContext,
+    config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    alreadyPolished: string | null | undefined,
+  ): Promise<string | null> {
+    if (!config.WORK_HISTORY_POLISH_ENABLED) return null;
+    if ((alreadyPolished ?? "").trim() !== "") return (alreadyPolished as string).trim();
+    const text = ownText?.trim();
+    if (!text) return null;
+
+    const result = await this.polishOne(workerId, text, contextLabel, ctx);
+    if (result === null) return null;
+
+    // WRITE-BACK IS BEST-EFFORT, exactly as for a stint: a failed persist costs one model call on
+    // the next render, never this render's output — which is already computed and already right.
+    try {
+      await this.attributes.saveAttributePolish(workerId, attributeKey, result);
+    } catch (err) {
+      this.logger.warn(
+        `could not persist the polished '${attributeKey}' for worker ${workerId}; this render ` +
+          `is unaffected and the next one will retry ` +
+          `(${err instanceof Error ? err.message : "unknown"})`,
+      );
+    }
+    return result;
   }
 
   /** One stint. Never throws — the caller is a render. */

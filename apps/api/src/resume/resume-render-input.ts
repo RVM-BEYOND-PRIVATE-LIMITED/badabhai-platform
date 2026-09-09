@@ -176,6 +176,24 @@ export interface TradeSheetContext {
   readonly polishEnabled?: boolean;
 
   /**
+   * The model's rewrite of a worker-typed TEXT attribute, keyed by attribute key (#1350,
+   * extended to the fresher block on the 2026-09-09 owner report).
+   *
+   * SPARSE, AND FALLBACK IS ABSENCE. A key appears only when a rewrite exists and the worker's
+   * own answer is always still in `attributes` — so every degrade, including this map simply not
+   * being passed, prints what the sheet printed before, which is what the worker typed.
+   *
+   * READ ONLY UNDER {@link polishEnabled}, exactly like `work_done_polished`. The kill switch has
+   * to revert text that is ALREADY stored, or it is not a kill switch (#1350 item 4).
+   *
+   * ONE KEY USES IT TODAY — `iti_project_work`. It is the only free-text item in any enabled role
+   * pack; every other worker-typed value that reaches this sheet is a proper noun (an employer, a
+   * city, an institute, a certificate) or a job title, and a model may not restate any of those:
+   * rephrasing a company renames his employer, and rephrasing "operator" can promote him.
+   */
+  readonly polishedAttributes?: Readonly<Record<string, string>>;
+
+  /**
    * ZONE 5 — Qualification, documents and languages.
    *
    * CALLER-SUPPLIED FOR THE SAME REASON THE CAPABILITY BLOCK IS PACK-SUPPLIED: the résumé
@@ -368,7 +386,13 @@ function buildUndegraded(
   // with them.
   const fresherRows = hasEmployments
     ? []
-    : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
+    : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes, {
+        // The rewrite of the ONE free-text answer in this block, under the same kill switch and
+        // the same `?? false` fail-closed default the employment block above uses. A fresher's
+        // training description is his entire Zone 4; before this it printed exactly as typed.
+        polished: tradeSheet?.polishedAttributes,
+        polishEnabled: tradeSheet?.polishEnabled ?? false,
+      });
   // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
   // `preferences` are: both mapper paths compose the Verdict Line, and a worker whose interview
   // happened to produce a résumé container must not get a different headline from one whose did

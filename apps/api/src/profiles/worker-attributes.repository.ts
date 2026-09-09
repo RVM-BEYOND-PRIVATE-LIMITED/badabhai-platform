@@ -56,6 +56,13 @@ export class WorkerAttributesRepository {
           valueNumber: sqlExcluded("value_number"),
           valueText: sqlExcluded("value_text"),
           valueTextList: sqlExcluded("value_text_list"),
+          // CLEARED ON EVERY WRITE, and that is the whole invalidation rule for the rewrite.
+          // No writer of this table ever sets `valueTextPolished`, so `excluded` carries NULL —
+          // which means a re-answered question drops the rewrite of the sentence it replaced.
+          // Carrying it forward would print last week's English over this week's answer, and the
+          // cost of dropping it is one model call on the next render. Same doctrine as the four
+          // value columns above: every column this upsert owns is overwritten, never left stale.
+          valueTextPolished: sqlExcluded("value_text_polished"),
           source: sqlExcluded("source"),
           questionKey: sqlExcluded("question_key"),
           packId: sqlExcluded("pack_id"),
@@ -117,6 +124,7 @@ export class WorkerAttributesRepository {
   async loadTradeSheet(workerId: string): Promise<{
     packId: string | null;
     attributes: Record<string, unknown>;
+    polishedAttributes: Record<string, string>;
   }> {
     const rows = await this.db
       .select({
@@ -125,6 +133,7 @@ export class WorkerAttributesRepository {
         valueBool: workerAttributes.valueBool,
         valueNumber: workerAttributes.valueNumber,
         valueText: workerAttributes.valueText,
+        valueTextPolished: workerAttributes.valueTextPolished,
         valueTextList: workerAttributes.valueTextList,
         packId: workerAttributes.packId,
         updatedAt: workerAttributes.updatedAt,
@@ -133,6 +142,12 @@ export class WorkerAttributesRepository {
       .where(eq(workerAttributes.workerId, workerId));
 
     const attributes: Record<string, unknown> = {};
+    // A SECOND MAP, NEVER FOLDED INTO `attributes`. That map means "what the worker answered" and
+    // is read by the mapper, the matcher's callers and the fresher block alike; putting a
+    // model-composed sentence in it under the same key would make a rewrite indistinguishable
+    // from an answer at every one of those readers. Sparse by construction — a key appears here
+    // only when a rewrite exists, so `polished[k] ?? attributes[k]` is the whole fallback.
+    const polishedAttributes: Record<string, string> = {};
     let packId: string | null = null;
     let newest = -Infinity;
     for (const r of rows) {
@@ -153,6 +168,9 @@ export class WorkerAttributesRepository {
           break;
         default:
           attributes[r.attributeKey] = r.valueText;
+          if (r.valueTextPolished !== null && r.valueTextPolished.trim() !== "") {
+            polishedAttributes[r.attributeKey] = r.valueTextPolished;
+          }
       }
       const at = r.updatedAt?.getTime() ?? 0;
       if (r.packId && at > newest) {
@@ -160,7 +178,38 @@ export class WorkerAttributesRepository {
         packId = r.packId;
       }
     }
-    return { packId, attributes };
+    return { packId, attributes, polishedAttributes };
+  }
+
+  /**
+   * Store the model's rewrite of ONE text answer (#1350, extended to the fresher block).
+   *
+   * SCOPED TO A TEXT ANSWER THAT EXISTS. The `value_kind = 'text'` predicate is belt on the
+   * `wa_value_text_polished_chk` brace: the constraint would reject a polish attached to a slug,
+   * and matching zero rows here means the caller simply gets `false` instead of an exception
+   * thrown into a render. A worker whose answer changed between the read and this write matches
+   * nothing for the same reason and is re-polished next time — which is correct, because the
+   * rewrite in hand is of a sentence that is no longer there.
+   *
+   * Returns whether a row was updated, so the caller can say so in a log rather than assume it.
+   */
+  async saveAttributePolish(
+    workerId: string,
+    attributeKey: string,
+    polished: string,
+  ): Promise<boolean> {
+    const updated = await this.db
+      .update(workerAttributes)
+      .set({ valueTextPolished: polished })
+      .where(
+        and(
+          eq(workerAttributes.workerId, workerId),
+          eq(workerAttributes.attributeKey, attributeKey),
+          eq(workerAttributes.valueKind, "text"),
+        ),
+      )
+      .returning({ id: workerAttributes.id });
+    return updated.length > 0;
   }
 }
 

@@ -502,9 +502,28 @@ def _strip_delimiters(text: str) -> str:
 # than dropped.
 _DIGIT_RUN = re.compile(r"\d+")
 
+# A gateway placeholder, as `pseudonymize` mints them: `[EMPLOYER_1]`, `[PERSON_2]`, `[AMOUNT_1]`.
+#
+# WRITTEN AS A SHAPE, NOT A PREFIX LIST, so it cannot drift. The gateway's prefix set is not
+# stable — CITY and STATE were retired by the 2026-07-31 owner ruling and could return — and a
+# hand-copied list here would silently stop matching the day one is added.
+_PLACEHOLDER = re.compile(r"\[[A-Z]+_\d+\]")
+
 
 def _digits_are_grounded(polished: str, source: str) -> bool:
-    """Every digit run in the rewrite occurs in the worker's own sentence."""
+    """Every digit run in the rewrite occurs in the text the model was actually given.
+
+    ``source`` MUST BE THE MASKED TEXT WITH ITS PLACEHOLDERS REMOVED — see the caller. Grounding
+    against the RAW description was a false-negative machine: the model never sees the raw text,
+    it sees the masked rendering, so a placeholder's index digit ("[EMPLOYER_1]") echoed into an
+    otherwise-faithful rewrite was scored as an INVENTED NUMBER and the whole rewrite thrown away.
+    The worker then got his own Hinglish printed on that line and no explanation anywhere.
+
+    Stripping the placeholders before taking the digit set is what keeps this from weakening the
+    rule: the surviving digits of the masked text are exactly the digits of the worker's own
+    sentence that the gateway judged safe to pass on, so the wall still says "no number the worker
+    did not state" — it just stops counting the gateway's own bookkeeping as the worker's.
+    """
     grounded = set(_DIGIT_RUN.findall(source))
     return all(run in grounded for run in _DIGIT_RUN.findall(polished))
 
@@ -541,7 +560,29 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
 
         resolved = resolve_prompt(prompt_registry.WORK_HISTORY_POLISH)
         system_prompt = resolved.text if resolved is not None else work_history_polish_prompt()
-        role = body.role_label or "worker"
+        # THE SECOND FIELD THAT CROSSES THE BOUNDARY, AND IT WAS THE UNGATED ONE. `work_done` is
+        # masked two lines up; `role_label` was passed through on the assumption that a job title
+        # carries no identity. It is free text the worker typed on the same form — "supervisor
+        # Ramesh ke under", "helper at Sandhar", "operator, call 98765 43210" — and CLAUDE.md §3
+        # admits no field-by-field exception.
+        #
+        # CLEAN OR NOT AT ALL, which is a STRONGER test than `_certified_scalar` and deliberately
+        # so. That helper asks only whether the gateway would BLOCK a value, and the gateway does
+        # not block a phone — it MASKS it and reports `blocked=False`, so a certified-scalar check
+        # would have handed the number straight to the model. Here the label is accepted only if
+        # the gateway found nothing to mask at all (`replaced_entities == 0`), the same rule
+        # `certified_clean_skill_labels` applies at the resume boundary.
+        #
+        # AND IT FALLS BACK TO A LITERAL RATHER THAN TO THE MASKED TEXT. This value is prompt
+        # CONTEXT, not printed output: "[PERSON_1] ke under" tells the model nothing "worker" does
+        # not, so there is no reason to spend a mask token on it. The `or "worker"` fallback
+        # already stood here for the empty case and now covers this one too.
+        role_gate = pseudonymize(body.role_label) if body.role_label else None
+        role = (
+            body.role_label
+            if role_gate is not None and not role_gate.blocked and role_gate.replaced_entities == 0
+            else "worker"
+        )
         messages = [
             {"role": "system", "content": system_prompt},
             {
@@ -607,7 +648,19 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         if len(polished) > 300:
             logger.warning("work-history polish rejected: over length")
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
-        if not _digits_are_grounded(polished, body.work_done):
+        # A PLACEHOLDER MUST NEVER REACH THE PAGE. The model is given the MASKED text, so
+        # "[EMPLOYER_1]" is an ordinary token in its input and echoing it is a live failure mode
+        # the prompt alone cannot close. Printing it would put the gateway's bookkeeping on a
+        # worker's resume — visible, unexplained, and worse than the line simply not being
+        # rewritten. Rejected rather than stripped: a sentence with a hole where its object was
+        # is not a rewrite of what the worker said.
+        if _PLACEHOLDER.search(polished):
+            logger.warning("work-history polish rejected: it echoed a gateway placeholder")
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+        # GROUNDED AGAINST WHAT THE MODEL SAW, not against the raw description it never saw.
+        # See `_digits_are_grounded` — the placeholders are stripped first so the gateway's own
+        # index digits are neither grounds for a number nor a reason to throw a rewrite away.
+        if not _digits_are_grounded(polished, _PLACEHOLDER.sub(" ", masked.text)):
             logger.warning("work-history polish rejected: it introduced a number")
             return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
         if pseudonymize(polished).blocked:

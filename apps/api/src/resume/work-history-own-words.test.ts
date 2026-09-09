@@ -144,6 +144,7 @@ describe("a refusal survives a re-render", () => {
     const svc = new WorkHistoryPolishService(
       { polishWorkHistory } as never,
       { savePolishedDescriptions: vi.fn(async () => undefined) } as never,
+      { saveAttributePolish: vi.fn(async () => true) } as never,
     );
     return { svc, polishWorkHistory };
   }

@@ -181,3 +181,107 @@ def test_strip_delimiters_removes_only_the_angle_brackets() -> None:
     assert "&" not in _strip_delimiters("<script>")
     # Ordinary descriptions are untouched.
     assert _strip_delimiters(RAW) == RAW
+
+
+# ── the masked-input walls (owner report, 2026-09-09) ────────────────────────────────────
+#
+# The gateway MASKS before the model sees anything, and the route used to score the model's
+# answer against the RAW description instead. Two failures came out of that gap, and both
+# printed as a worker's own Hinglish on a resume with nothing anywhere saying why.
+
+
+def test_a_placeholder_index_digit_no_longer_reads_as_an_invented_number(monkeypatch) -> None:
+    # THE FALSE NEGATIVE. `_EMPLOYER_RE` masks ordinary trade vocabulary — "Precision Tools" is
+    # a company shape and also two things a turner does — so an honest rewrite of a masked
+    # sentence can echo "[EMPLOYER_1]"'s index. Grounded against the raw text, that "1" was an
+    # invented quantity and the whole rewrite was thrown away.
+    #
+    # Here the digit the model returns is grounded in the WORKER's own sentence, and the rewrite
+    # must survive: the source says 150, so may the rewrite.
+    _capture(monkeypatch, json.dumps({"work_done": "Machined 150 parts and prepared drawings."}))
+    body = _post("150 parts banaye, drawings banayi, Precision Tools me kaam kiya").json()
+    assert body["work_done"] == "Machined 150 parts and prepared drawings."
+
+
+def test_a_rewrite_that_echoes_a_gateway_placeholder_is_refused(monkeypatch) -> None:
+    # THE HOLE THE ABOVE WOULD OTHERWISE OPEN. Grounding against the masked text makes the
+    # placeholder's digits "grounded" — so the placeholder itself needs its own wall, or
+    # "[EMPLOYER_1]" reaches the page. Rejected rather than stripped: a sentence with a hole
+    # where its object was is not a rewrite of what the worker said.
+    _capture(monkeypatch, json.dumps({"work_done": "Operated a lathe at [EMPLOYER_1]."}))
+    assert _post(RAW).json()["work_done"] is None
+
+
+def test_the_grounding_wall_still_refuses_a_genuinely_invented_number(monkeypatch) -> None:
+    # The point of the two tests above is to stop over-rejecting, never to relax the rule. A
+    # tolerance the worker did not state is still the fabrication that costs him a machine trial.
+    _capture(monkeypatch, json.dumps({"work_done": "Held 0.02 mm on 150 shafts."}))
+    assert _post("shaft banata tha").json()["work_done"] is None
+
+
+def test_the_role_label_crosses_the_boundary_through_the_gateway(monkeypatch) -> None:
+    # `work_done` was masked and `role_label` was not, though a worker types both on the same
+    # form. A defence applied to one of two attacker-controlled fields is not a defence
+    # (CLAUDE.md §3 admits no field-by-field exception).
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post(RAW, role_label="helper, phone 9876543210").status_code == 200
+
+    user_turn = seen["messages"][-1]["content"]
+    assert "9876543210" not in user_turn
+
+
+# ── the prompt covers the fresher's training description too ─────────────────────────────
+
+
+def test_the_prompt_admits_training_not_only_employment(monkeypatch) -> None:
+    # A fresher's Zone 4 is his ITI training, and the same route rewrites it. A prompt that
+    # says "in a job" invites the model to decline the one worker with the least on his page.
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post("kuch nhi banaya, bas knowledge he mujhe").status_code == 200
+
+    system = seen["messages"][0]["content"]
+    assert "training" in system.lower()
+
+
+def test_the_prompt_forbids_declining_on_vagueness(monkeypatch) -> None:
+    # "Return null if the input is too vague" fired on exactly the register real workers write
+    # in, and every decline prints as Hinglish. Null is now reserved for input with NO work
+    # content — this pins the narrowing so it cannot quietly widen again.
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post(RAW).status_code == 200
+
+    system = seen["messages"][0]["content"]
+    assert "VAGUENESS IS NOT A REASON TO DECLINE" in system
+
+
+def test_the_prompt_tells_the_model_to_keep_every_activity(monkeypatch) -> None:
+    # The other half of the owner report: ALL details of the work history, not just the first
+    # clause a run-on sentence happens to open with.
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post(RAW).status_code == 200
+
+    system = seen["messages"][0]["content"]
+    assert "KEEP EVERY ACTIVITY THE INPUT NAMES" in system
+
+
+def test_the_prompt_explains_the_placeholders_the_gateway_mints(monkeypatch) -> None:
+    # The model is handed MASKED text, so "[EMPLOYER_1]" is an ordinary token in its input. With
+    # no instruction it either copies it onto the resume or treats it as a reason to decline.
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post(RAW).status_code == 200
+
+    system = seen["messages"][0]["content"]
+    assert "[EMPLOYER_1]" in system
+
+
+# ── the route is sampled deterministically ───────────────────────────────────────────────
+
+
+def test_the_polish_route_does_not_sample() -> None:
+    # It fell through `get_route` to the RESUME defaults and ran at temperature 0.4 — so the
+    # null decision was a coin flip, taken independently once per stint. That is the mechanism
+    # by which one employer's line came back in English and the next in Hinglish, from one
+    # render. A rewrite under a list of prohibitions has one right answer.
+    from app.ai.model_config import get_route
+
+    assert get_route("work_history_polish").temperature == 0.0
