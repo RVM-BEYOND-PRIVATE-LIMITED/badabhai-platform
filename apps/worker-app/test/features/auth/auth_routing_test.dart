@@ -214,6 +214,13 @@ void main() {
     expect(after[1].focused, isTrue);
   });
 
+  // The owner's rule, half one: OTP REQUESTED BUT NOT VERIFIED, app killed,
+  // restart -> the app starts like a fresh user. It holds because
+  // `AuthSessionManager.requestOtp` persists NOTHING — the refresh token, the
+  // worker id and the pinSet flag are all written inside `verifyOtp` (GAP A).
+  // So an unverified attempt leaves no state to resume, and the gate sees
+  // `loggedOut`. (Half two — verified but no PIN yet -> set-PIN, never a second
+  // OTP — is the #352 test above.)
   testWidgets('cold start WITHOUT a refresh token -> phone login (/login)',
       (WidgetTester tester) async {
     bigCanvas(tester);
@@ -226,6 +233,9 @@ void main() {
     await _pumpUntil(tester, find.text('Send OTP'));
     expect(find.text('Send OTP'), findsOneWidget);
     expect(find.text('PIN daalein'), findsNothing);
+    // And never the SET-PIN screen either: an unverified OTP must not skip the
+    // worker forward into choosing a PIN for an account that does not exist.
+    expect(find.text('PIN banayein'), findsNothing);
   });
 
   testWidgets(
