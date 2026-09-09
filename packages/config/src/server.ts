@@ -418,7 +418,9 @@ export const serverEnvSchema = z.object({
   // NEVER enters events/ai_jobs/audit_logs/logs (§2). Dev default keeps local boot/tests
   // working; production MUST override PIN_PEPPER (assertAuthConfig fails closed otherwise).
   PIN_PEPPER: z.string().min(16).default(DEV_PIN_PEPPER),
-  // PIN shape: exactly N digits (4 by default). A weak-PIN denylist is enforced in code.
+  // PIN shape: exactly N digits (4 by default), and since #1462 that is the WHOLE policy —
+  // the weak-PIN denylist was removed on the owner ruling that a worker picks his own PIN
+  // (`1234`/`1111`/`0000` all accepted). There is deliberately no knob for it here.
   PIN_LENGTH: z.coerce.number().int().min(4).max(8).default(4),
   // Server-side throttle (durable in worker_credentials — survives a Redis flush): after
   // PIN_MAX_ATTEMPTS consecutive wrong PINs the account is locked for an EXPONENTIAL backoff

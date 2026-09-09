@@ -7,8 +7,8 @@ import { PinHasher, CURRENT_PIN_PEPPER_VERSION } from "./pin-hasher.service";
  * SERVICE-level tests for the PinHasher boundary (ADR-0026 Phase 3). The scrypt round-trip
  * itself (pepper-required, fail-closed on a malformed/wrong-version token) is already covered
  * in packages/db/src/crypto.test.ts — here we exercise ONLY the boundary's own behaviour:
- * the format gate, the weak-PIN denylist (explicit + structural), and that hash/verify thread
- * the pepper version. The PII crypto is a deterministic in-memory double (no real pepper, no
+ * the format gate (the ONLY policy left since #1462 removed the strength rules) and that
+ * hash/verify thread the pepper version. The PII crypto is a deterministic in-memory double (no real pepper, no
  * live KDF) so the test is fast and self-contained.
  */
 
@@ -55,45 +55,47 @@ describe("PinHasher — format gate", () => {
   });
 });
 
-describe("PinHasher — weak-PIN denylist (isWeakPin)", () => {
+/**
+ * #1462 — THE STRENGTH POLICY IS GONE, AND THIS IS THE LOCK THAT KEEPS IT GONE.
+ *
+ * Owner ruling 2026-09-08: "the worker chooses their own PIN. No strength policy, client or
+ * server. 1234, 1111, 0000 — all must be accepted." This suite used to assert the opposite,
+ * denylist entry by denylist entry, so deleting it outright would have left NOTHING saying the
+ * removal was deliberate — and a weak-PIN check is exactly the kind of thing a well-meaning
+ * security pass re-adds. The assertions are therefore INVERTED rather than deleted: the class
+ * must not carry a strength check at all, and the format gate above must keep working.
+ */
+describe("PinHasher — no strength policy (#1462)", () => {
   const hasher = build();
 
-  it("rejects every explicit-denylist PIN", () => {
-    // The full WEAK_PINS set declared in pin-hasher.service.ts.
-    const denylist = ["0000", "1111", "1234", "4321", "1212", "2580", "1004", "2000", "6969"];
-    for (const pin of denylist) {
-      expect(hasher.isWeakPin(pin), `expected ${pin} to be weak`).toBe(true);
+  it("has no isWeakPin method any more, under any name", () => {
+    // The property check is the load-bearing one: re-adding `isWeakPin` to the class turns this
+    // red at the definition, before any call site exists to catch it.
+    expect((hasher as unknown as Record<string, unknown>).isWeakPin).toBeUndefined();
+    const surface = Object.getOwnPropertyNames(Object.getPrototypeOf(hasher));
+    for (const name of surface) {
+      expect(name, `${name} looks like a re-added strength rule`).not.toMatch(
+        /weak|strength|denylist|blacklist|guessable/i,
+      );
     }
   });
 
-  it("rejects ALL all-same-digit PINs (every digit 0-9)", () => {
-    for (let d = 0; d <= 9; d += 1) {
-      const pin = String(d).repeat(4);
-      expect(hasher.isWeakPin(pin), `expected ${pin} (all-same) to be weak`).toBe(true);
+  it("still gates FORMAT for the values a strength rule used to catch", () => {
+    // The point of the ruling is that a guessable PIN is a worker's own call — not that anything
+    // goes. A malformed value is still refused, and that is the whole of the remaining policy.
+    for (const pin of ["0000", "1111", "1234", "4321", "2580", "6969"]) {
+      expect(hasher.isCorrectFormat(pin), `${pin} must be accepted as well-formed`).toBe(true);
+    }
+    for (const pin of ["12a4", "", "123", "12345"]) {
+      expect(hasher.isCorrectFormat(pin), `${pin} must still be refused`).toBe(false);
     }
   });
 
-  it("rejects every ascending consecutive run (1234..6789)", () => {
-    for (const pin of ["1234", "2345", "3456", "4567", "5678", "6789"]) {
-      expect(hasher.isWeakPin(pin), `expected ascending ${pin} to be weak`).toBe(true);
-    }
-  });
-
-  it("rejects every descending consecutive run (4321, 9876, ...)", () => {
-    for (const pin of ["4321", "9876", "8765", "7654", "6543", "5432"]) {
-      expect(hasher.isWeakPin(pin), `expected descending ${pin} to be weak`).toBe(true);
-    }
-  });
-
-  it("treats a malformed / non-numeric value as weak (never slips past as strong)", () => {
-    expect(hasher.isWeakPin("12a4")).toBe(true);
-    expect(hasher.isWeakPin("")).toBe(true);
-  });
-
-  it("ACCEPTS a non-trivial PIN that is neither a run nor on the denylist", () => {
-    for (const pin of ["1357", "4826", "9042", "7391"]) {
-      expect(hasher.isWeakPin(pin), `expected ${pin} to be strong`).toBe(false);
-    }
+  it("hashes a guessable PIN like any other — nothing downstream special-cases it", () => {
+    const { pinHash, pepperVersion } = hasher.hash("1234");
+    expect(pinHash).not.toBe("1234");
+    expect(pepperVersion).toBe(CURRENT_PIN_PEPPER_VERSION);
+    expect(hasher.verify("1234", pinHash, pepperVersion)).toBe(true);
   });
 });
 

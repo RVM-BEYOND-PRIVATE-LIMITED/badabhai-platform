@@ -7,8 +7,9 @@ import type { LoginResponse } from "./auth.dto";
  * Zod DTOs for the device-bound PIN endpoints (ADR-0026 Phase 3).
  *
  * The `pin` regex accepts a 4-8 digit RANGE at the boundary; the SERVICE enforces the
- * EXACT configured PIN_LENGTH plus the weak-PIN denylist (so length policy lives in one
- * place — config — not split between the wire schema and the service). `refresh_token` is
+ * EXACT configured PIN_LENGTH (so length policy lives in one place — config — not split
+ * between the wire schema and the service). That length gate is now the WHOLE policy: #1462
+ * removed the weak-PIN denylist on the owner ruling that a worker picks his own PIN. `refresh_token` is
  * the device-bound credential for /verify (NO worker_auth guard there — the token in the
  * body IS the credential, exactly like POST /auth/token/refresh). `phone` reuses the shared
  * e164 schema; the OTP regex mirrors the existing OtpVerifySchema (4-8 digits).
@@ -18,7 +19,7 @@ import type { LoginResponse } from "./auth.dto";
  * authz). The PIN never enters an event/log.
  */
 
-/** 4-8 digits at the wire; the service pins the exact PIN_LENGTH + runs the denylist. */
+/** 4-8 digits at the wire; the service pins the exact PIN_LENGTH. No strength rule (#1462). */
 const pinSchema = z.string().regex(/^\d{4,8}$/, "PIN must be 4-8 digits");
 
 /** Body of POST /auth/pin/set — set/replace the PIN for the authenticated worker. */

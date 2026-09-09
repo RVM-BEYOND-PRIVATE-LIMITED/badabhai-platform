@@ -214,3 +214,53 @@ before `AI_ENABLE_REAL_CALLS`.
 **Recommendation, for whenever R32 is next opened:** apply `redactKnownName` in
 `LlmTurnService.take` to `message_text` and every history leg. It is the same shipped helper, on
 the sibling path, and it would make the comment true rather than making it go away.
+
+---
+
+## R25 addendum — 2026-09-08: PIN entropy is now entirely worker-chosen (#1462)
+
+Owner ruling: *"The worker chooses their own PIN. No strength policy, client or server. `1234`,
+`1111`, `0000` — all must be accepted."* The server-side weak-PIN denylist (`PinHasher.isWeakPin`
++ `WEAK_PINS`, the all-same-digit rule and the consecutive-run rule) is removed;
+`PinService.assertPinPolicy` keeps only the exact-length format gate. Recorded here because R25
+clause (a) credits "PIN hashed … device-bound … server-throttled" as the mitigation set, and one
+of the things quietly standing behind it has now been withdrawn.
+
+**The number, measured rather than asserted.** Against the only attacker who reaches the PIN
+screen — an unlocked handset that already holds a bound refresh token, with the SIM removed or SMS
+otherwise unreachable — the throttle ladder allows **25 guesses** before the durable force-OTP latch
+closes (`PIN_MAX_ATTEMPTS = 5` × `PIN_MAX_LOCKOUT_CYCLES = 5`, ~15 minutes of wall clock). 25
+guesses against a uniform 4-digit PIN is ~0.25%; 25 guesses spent on the public top-25 list against
+a real population is roughly **25-30%**. In that slice the removal is close to a 100× increase in
+per-victim success probability.
+
+**Why it is accepted.** The same attacker holding the handset **with** its SIM does not need to
+guess at all: `POST /auth/pin/reset/request` is unguarded and takes only the phone, the OTP lands on
+the SIM in his hand, and `reset/confirm` writes a new PIN and mints a fresh session — ~100% success
+regardless of PIN strength. An attacker who can read `flutter_secure_storage` skips the PIN entirely
+via `POST /auth/token/refresh`, where the refresh token in the body is the whole credential. The
+denylist therefore only ever protected one narrow slice, and the blast radius inside it is the
+worker's own profile and résumé on his own device — the worker app carries no payment surface
+(CLAUDE.md §12).
+
+**What must not move without re-review.** These stop being defence-in-depth and become
+load-bearing for the ruling above:
+
+1. `PinService.verifyPin` resolves identity **only** from the device-bound refresh token. Adding a
+   `worker_id` or `phone` field to `PinVerifySchema` would turn the PIN into a remotely
+   brute-forceable from-scratch authenticator across the whole worker base. Treat as Critical.
+2. The durable force-OTP gate reads `worker_credentials`, not Redis. Making it Redis-only restores
+   "flush = unlimited guesses".
+3. `readThrottle` rehydrates the ladder from the durable mirror on a Redis miss **and** on error.
+4. `PIN_MAX_ATTEMPTS` × `PIN_MAX_LOCKOUT_CYCLES` — these two numbers **are** the 25-guess ceiling.
+   Security constants, not tunables.
+5. `assertPinPolicy` stays inside `writePin`, so no future caller can reach `upsertPin` around the
+   format gate.
+6. scrypt + a mandatory production `PIN_PEPPER` (`assertAuthConfig` fail-closed), and
+   `PinHasher.verify` failing closed on an unknown pepper version.
+
+**Pre-existing, and separately wrong: R25 clause (c)** says *"OTP on existing account from new
+device still requires account PIN (SIM-swap gate)"*. ADR-0026 §217-225 records that as built there
+is no post-OTP PIN gate — the SIM-swap defence is the trusted-device requirement on
+`/auth/pin/verify`. Found during the #1462 security review, left for whoever next opens R25; it is a
+claim about shipped auth behaviour, not a side effect of this change.
