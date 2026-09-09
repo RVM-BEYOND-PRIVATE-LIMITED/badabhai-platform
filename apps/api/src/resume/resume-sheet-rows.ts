@@ -54,20 +54,21 @@ export function buildVerdictLine(facts: {
    */
   axes?: readonly string[];
   /**
-   * A CLOSED-VOCABULARY TENURE STATUS the worker's own form stated — today only "Fresher" (§6.2).
+   * A CLOSED-VOCABULARY TENURE STATUS the worker's own form stated — "Fresher", "1–3 yrs", "7+
+   * yrs" (§6.2).
    *
-   * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes this additive rather than a
-   * new rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
-   * absent (the ordinary case, and every caller that does not pass it) leaves the composed line
-   * byte-for-byte what it was.
+   * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes it additive rather than a new
+   * rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
+   * absent (every caller that does not pass it) leaves the composed line byte-for-byte what it
+   * was.
    *
-   * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. `tenurePhrase` maps
+   * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. This function maps
    * every falsy/absent number to "duration not stated" and must keep doing so — §11 #3 requires
-   * the sheet to SAY an unknown is unknown, and §6.2 reserves "fresher" for a worker who SAID he
-   * has no experience. This parameter is how that sentence becomes reachable: the caller carries
-   * the provenance ({@link fresherTenureLabel} reads the role's own tier rung), so the word
-   * appears only for a worker whose own chip said it. Handing this function a bare 0 still yields
-   * "duration not stated" — that separate wording question is recorded, open, and untouched here.
+   * the sheet to SAY an unknown is unknown. What this parameter carries is not an inference about
+   * an unknown but the worker's OWN ANSWER to the one tenure question his form makes mandatory,
+   * rendered as the band that chip names ({@link tenureStatusLabel} owns the provenance and the
+   * order). Handing this function a bare 0 still yields "duration not stated": the number has no
+   * provenance, and only the caller knows whether a rung was tapped.
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
@@ -108,14 +109,19 @@ function knownYearsPhrase(years: number | null): string | null {
  * The tenure segment: the stated figure, else a stated STATUS, else the honest unknown.
  *
  * "DURATION NOT STATED" IS THE HONEST RENDERING OF AN UNKNOWN, and §11 #3 makes it mandatory:
- * never estimated, never rounded, never silently omitted. It must also never be INFERRED into
- * "fresher" — §6.2 reserves that word for a worker who SAID they have no experience, and reading
- * it out of an absent number would put a claim on the page that the worker never made and that
- * costs them the job. Omitting the segment entirely would be just as wrong: an employer reading a
- * résumé with no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
+ * never estimated, never rounded, never silently omitted. It must also never be INFERRED out of an
+ * absent number, which would put a claim on the page that the worker never made and that costs him
+ * the job. Omitting the segment entirely would be just as wrong: an employer reading a résumé with
+ * no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
  *
- * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It is the word made REACHABLE for the worker
- * who did say it — the caller carries the provenance from the role's own tier rung — and it
+ * WHO IT IS STILL FOR, AFTER THE 2026-09-09 RULING NARROWED IT. A worker the forms never asked —
+ * a legacy chat profile with no pack — and a worker who HAS a work history whose dates he could
+ * not give. It is no longer reached by a form-first worker who answered his role's mandatory
+ * tenure question, and that is the correction: printing "nobody asked" over an answer is not
+ * §11 #3 being honest, it is §11 #3 being wrong about its own subject.
+ *
+ * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It carries the worker's own answer, with the
+ * provenance attached by the caller (the role's tier rung, or the fresher chip he tapped) — and it
  * changes nothing about inference: this function still cannot tell a fresher from a blank, and
  * still says so when the caller passes nothing.
  *

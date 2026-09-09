@@ -13,7 +13,7 @@ import {
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
-import { buildFresherRows, fresherTenureLabel } from "./resume-fresher-rows";
+import { buildFresherRows, tenureStatusLabel } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
@@ -143,7 +143,7 @@ export interface TradeSheetContext {
    * degrades to an empty array, deliberately: a dead query must cost Zone 4 and never the whole
    * PDF. But "this worker filed no jobs" and "we could not read his jobs" mean opposite things to
    * the tenure segment since the 2026-09-08 ruling, and conflating them lets a database timeout
-   * print "Fresher" over a twelve-year turner. See `fresherTenureLabel`.
+   * print "Fresher" over a twelve-year turner. See `tenureStatusLabel`.
    *
    * IT CHANGES NOTHING ELSE ON THE SHEET. Zone 4 already renders from `employments`, so a failed
    * read collapses the history exactly as it does today; this flag is read by the tenure segment
@@ -370,18 +370,22 @@ function buildUndegraded(
     ? []
     : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
   // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
-  // `preferences` are: both mapper paths compose the Verdict Line, and a fresher whose interview
+  // `preferences` are: both mapper paths compose the Verdict Line, and a worker whose interview
   // happened to produce a résumé container must not get a different headline from one whose did
-  // not. Null for every role that declares no fresher rung, which is four of the five shipped.
+  // not.
   //
-  // `hasEmployments` IS PASSED, AND IT GATES ONE OF THE TWO ROUTES TO THE WORD. The DECLARED
-  // rung — a worker who tapped "course kiya hai, kaam ka tajurba nahi" — is his own statement and
-  // stays ungated: if he then files an employment row he has contradicted himself, and the tenure
-  // segment resolves that the way §8.3 requires, with a stated figure winning outright (see
-  // `tenurePhrase`), rather than by this line deciding which of his two answers to believe. The
-  // LOWEST-RUNG route added by the 2026-09-08 ruling is different in kind — it reads "under a
-  // year" as "fresher" — so it fires only for a worker who has filed no work history at all. See
-  // `fresherTenureLabel`.
+  // IT IS NOW THE WHOLE ANSWER TO "HOW LONG?" FOR A FORM-FIRST WORKER, not a special case for
+  // freshers (owner ruling 2026-09-09, on a rendered sheet that still read "CNC turner · duration
+  // not stated · Siemens"). The role's tier gate is the only tenure question that worker is ever
+  // asked — the universal `experience_years` ask never runs for him, which is why `employedYears`
+  // exists below — so every rung of it now prints, as the band it names. `tenureStatusLabel`
+  // owns the order and the reasoning.
+  //
+  // `filedNoWorkHistory` DECIDES ONE THING ONLY: whether the LOWEST rung reads "Fresher" or
+  // "Under 1 yr". It is not a gate on the whole label. A man who tapped "7 saal se zyada" and
+  // skipped the work-history screen prints "7+ yrs" either way — printing "Fresher" over him
+  // would delete seven years of his own stated experience, which is §8.3 broken in the direction
+  // that costs him the job.
   //
   // "NO WORK HISTORY" MEANS ZONE 4 WILL PRINT NONE OF ITS THREE SHAPES, not merely that
   // `worker_employment` is empty. Zone 4 renders EITHER the two-level employment blocks OR the
@@ -400,12 +404,13 @@ function buildUndegraded(
   // so a dead query costs Zone 4 rather than the whole PDF; taking that `[]` as "he filed
   // nothing" would let an infrastructure miss print "Fresher" over a man with twelve years of
   // employer blocks he simply could not be shown. `employmentsUnavailable` is how the caller says
-  // it did not look, and it resolves to the honest unknown.
+  // it did not look, and the lowest rung then reads "Under 1 yr" — true of him whatever the read
+  // did, and never a claim the failure invented.
   const filedNoWorkHistory =
     !hasEmployments &&
     (draft.resume_profile?.experiences.length ?? 0) === 0 &&
     tradeSheet?.employmentsUnavailable !== true;
-  const tenureLabel = fresherTenureLabel(
+  const tenureLabel = tenureStatusLabel(
     tradeSheet?.packId ?? null,
     vettedAttributes,
     filedNoWorkHistory,

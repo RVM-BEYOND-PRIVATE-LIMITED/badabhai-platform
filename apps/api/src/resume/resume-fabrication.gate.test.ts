@@ -93,6 +93,22 @@ const SHEET_LABELS: readonly string[] = [
   // reviewed dictionary a fabrication the first time one was added. The vocabulary should not
   // omit a word the renderer can emit.
   "Fresher",
+  // §6.2's TENURE BANDS, emitted by `tenureStatusLabel` for a worker who answered his role's tier
+  // gate but stated no figure (owner ruling 2026-09-09). CLOSED-VOCABULARY LABELS, which is §8's
+  // first permitted source: each one is the chip he tapped, rendered in English, and never a
+  // derived number — "7+ yrs" is deliberately not "10 yrs", because the rung is a threshold and a
+  // point figure would be a tenure nobody stated.
+  //
+  // LISTED WHILE NO FIXTURE PRINTS ONE, deliberately, and for the reason "Fresher" above was:
+  // every sheet shape either states a figure or leaves the gate unanswered, so these are dormant
+  // exactly the way `configValues` was before a milling shape existed — and that dormancy is what
+  // made this gate call the sheet's own reviewed dictionary a fabrication the first time one was
+  // added. A vocabulary that omits a word the renderer can emit is not a narrower gate, it is a
+  // wrong one.
+  "Under 1 yr",
+  "1–3 yrs",
+  "3–7 yrs",
+  "7+ yrs",
   "Present",
 ];
 

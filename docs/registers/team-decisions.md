@@ -397,3 +397,38 @@ PIN list is ~25-30% success versus ~0.25% uniform. Accepted, because that same a
 handset *with* its SIM has a deterministic bypass through `/auth/pin/reset/request` → OTP →
 `reset/confirm`, and one who can read `flutter_secure_storage` skips the PIN entirely via
 `POST /auth/token/refresh`.
+
+### 2026-09-09 — The tenure segment prints the rung the worker tapped, not "duration not stated"
+Follow-up to the 2026-09-08 "Fresher" ruling, taken on a **rendered sheet**: a CNC turner who had
+filed no work history still read `CNC turner · duration not stated · Siemens`. The owner: *"I made a
+resume now, and I didn't mention work history — 'duration not stated' showing instead of 'Fresher'.
+Fix that."*
+
+**Why the first ruling did not cover him.** It made "Fresher" reachable only for the pack's LOWEST
+tier rung. That sheet showed neither the `>= 2` depth answers nor the `<= 0` fresher answers, so his
+gate was either unanswered or at a higher rung — and in both cases the label withheld and §11 #3's
+text printed over a man the form HAD asked.
+
+**The rule now.** The tier gate is the only tenure question a form-first worker is ever asked (the
+universal `experience_years` ask never runs for him), so every rung of it prints, as the band that
+chip names: `0 → Fresher` (when no work history was filed) / `Under 1 yr` (when one was), `1 → Under
+1 yr`, `2 → 1–3 yrs`, `5 → 3–7 yrs`, `10 → 7+ yrs`. A worker who answered nothing and filed nothing
+reads "Fresher" — the owner's own definition. A stated figure still outranks every band.
+
+**Why it is not simply "no work history → Fresher", which is what was asked.** Read literally, that
+puts "Fresher" on a man who tapped *"7 saal se zyada"* and skipped the work-history screen — deleting
+seven years of his own stated experience from his own résumé, §8.3 broken in the direction that
+costs him the job. Printing his rung answers the complaint (nobody who answered should meet
+"duration not stated") without ever contradicting him. Asserted as its own test.
+
+**§11 #3 is narrowed, not repealed.** "Duration not stated" is now for the workers it was written
+for: a legacy chat profile with no pack — nobody asked — and a worker who HAS a work history whose
+dates he could not give. Printing "nobody asked" over an answer was not §11 #3 being honest; it was
+§11 #3 being wrong about its own subject.
+
+**A range, never a point figure.** `resume-employment-rows.ts` forbids reading this gate as a NUMBER
+of years ("10 yrs" for *"7 saal se zyada"*). "7+ yrs" respects that exactly: it is the chip, printed
+as the closed-vocabulary label it is, and it never reaches `experienceYears`, which stays sourced
+only from a number the worker gave. The value→band scale is pinned per role in
+`role-corpus-parity.guard.test.ts`, so a pack authored later that numbers its rungs differently goes
+red in CI instead of printing the wrong band on a résumé.
