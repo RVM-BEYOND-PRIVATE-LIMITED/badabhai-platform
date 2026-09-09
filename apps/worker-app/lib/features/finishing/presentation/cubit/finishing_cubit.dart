@@ -17,7 +17,14 @@ enum FinishingPage {
   documents,
   shiftAndType,
   cities,
-  salaryEducation,
+  // #1471 — salary + education used to be ONE page carrying FIVE questions
+  // (salary band, credential, council, year, institute). It did not fit any
+  // handset, so the worker had to scroll a form they cannot read to find the
+  // button. Split into three: the money question, the two education chip
+  // questions, then the two education text fields.
+  salary,
+  education,
+  educationDetail,
   history,
 }
 

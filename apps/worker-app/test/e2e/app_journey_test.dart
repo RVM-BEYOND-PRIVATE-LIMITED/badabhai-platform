@@ -43,6 +43,7 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
 
 import '../core/auth/fakes.dart';
 
@@ -233,16 +234,16 @@ void main() {
     await _pumpUntil(tester, find.text('Haan, sahi hai'));
     await tester.tap(find.text('Haan, sahi hai'));
 
-    // ── 6b. FINISHING FORM (#1296) — the five closed-set pages now sit between
-    //     the profile confirm and the résumé generate. Every field is optional,
-    //     so walk straight through: the chip vocabulary loads from MockApiClient
-    //     (wait for page one), then advance the four chip pages and finish on the
-    //     work-history page. "Aage badhein" advances; the last page's CTA is
-    //     "Ho gaya", which persists the (empty) writes and continues to Building.
+    // ── 6b. FINISHING FORM (#1296) — the closed-set pages sit between the
+    //     profile confirm and the résumé generate. Every field is optional, so
+    //     walk straight through: the chip vocabulary loads from MockApiClient
+    //     (wait for page one), then advance to the work-history page.
+    //     "Aage badhein" advances; the last page's CTA is "Ho gaya", which
+    //     persists the (empty) writes and continues to Building.
     await _pumpUntil(tester, find.text('Aage badhein'));
-    // Six pages (#1296 + the #1298 salary/education page) → five advances, then
-    // the work-history page's "Ho gaya" persists the (empty) writes.
-    for (int i = 0; i < 5; i++) {
+    // Driven off the enum so a page split cannot silently strand this walk —
+    // #1471 turned the one salary+education page into three.
+    for (int i = 0; i < FinishingPage.values.length - 1; i++) {
       await tester.tap(find.text('Aage badhein'));
       await tester.pump();
       await tester.pump();
