@@ -196,6 +196,35 @@ void main() {
       expect(find.byIcon(Icons.star_rounded), findsNWidgets(4));
     });
 
+    // Regression: marking the active slot by making it FULL SIZE silently
+    // killed the fill-pop. The active slot is the only one a digit ever lands
+    // in, so if it is already at 1.0 the digit changes no scale at all — and
+    // the pop is the one piece of feedback a worker who cannot see the digit
+    // gets. The ring and the caret mark it instead; neither is a size.
+    testWidgets('the active EMPTY slot stays small, so the fill-pop survives',
+        (WidgetTester tester) async {
+      BbPinView.debugDeterministicCaret = true;
+      addTearDown(() => BbPinView.debugDeterministicCaret = false);
+
+      double scaleAt(int i) => tester
+          .widgetList<AnimatedScale>(find.byType(AnimatedScale))
+          .elementAt(i)
+          .scale;
+
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 1, focused: true)),
+      ));
+      // Slot 1 is active and empty — small, with room to pop.
+      expect(scaleAt(1), lessThan(1.0));
+      expect(scaleAt(0), 1.0);
+
+      // The digit lands there: THAT is the pop, and it must be a real change.
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 2, focused: true)),
+      ));
+      expect(scaleAt(1), 1.0);
+    });
+
     testWidgets('the caret takes the error tint with the rest of the row',
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(
@@ -231,14 +260,19 @@ void main() {
         home: Scaffold(body: BbPinView(length: 4, filled: 0, focused: true)),
       ));
 
+      // A HARD toggle, never a fade: driving the opacity linearly left a 2.5px
+      // bar part-transparent for most of its life, which reads as a smudge.
+      // On for the first 500ms half, off for the second — the Android caret's
+      // own rhythm, and the rhythm the worker already knows.
       expect(caretOpacity(tester), 1.0);
       await tester.pump(const Duration(milliseconds: 250));
-      expect(caretOpacity(tester), closeTo(0.5, 0.05));
-      await tester.pump(const Duration(milliseconds: 250));
-      expect(caretOpacity(tester), closeTo(0.0, 0.05));
-      // reverse:true — it comes back rather than staying dark.
-      await tester.pump(const Duration(milliseconds: 250));
-      expect(caretOpacity(tester), closeTo(0.5, 0.05));
+      expect(caretOpacity(tester), 1.0);
+      await tester.pump(const Duration(milliseconds: 300)); // 550ms — past half
+      expect(caretOpacity(tester), 0.0);
+      await tester.pump(const Duration(milliseconds: 300)); // 850ms — still off
+      expect(caretOpacity(tester), 0.0);
+      await tester.pump(const Duration(milliseconds: 300)); // 1150ms — cycled
+      expect(caretOpacity(tester), 1.0);
     });
 
     testWidgets('freezing the blink still PAINTS the caret, fully opaque',

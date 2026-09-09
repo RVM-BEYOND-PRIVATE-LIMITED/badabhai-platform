@@ -227,69 +227,82 @@ class BbSetPinFormState extends State<BbSetPinForm> {
       children: <Widget>[
         Text(label, style: AppTypography.eyebrow(color: AppColors.textMuted)),
         const SizedBox(height: AppSpacing.s3),
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: widget.busy ? null : () => _focusRow(controller, focus),
-          child: Stack(
-            alignment: Alignment.center,
-            children: <Widget>[
-              BbPinView(
-                length: kPinLength,
-                filled: controller.text.length,
-                // #1463 — this is what puts the ring and the caret on the row
-                // the worker is actually typing into.
-                focused: focus.hasFocus,
-              ),
-              // The real capture surface. TRANSPARENT, NOT COLLAPSED (#1463):
-              // it used to be a 1x1 box under Opacity(0), which the OS could
-              // barely treat as a field — the same trap the OTP screen calls
-              // out ("a collapsed field cannot be tapped or long-pressed").
-              // Filling the row instead gives the keyboard a real target the
-              // worker can hit anywhere along the boxes.
-              //
-              // The digits are masked TWICE over: obscureText replaces them
-              // with bullets, and the text colour is fully transparent on top
-              // of that. The boxes below remain the only thing on screen, and
-              // they only ever receive a COUNT.
-              Positioned.fill(
-                child: TextField(
-                  key: fieldKey,
-                  controller: controller,
-                  focusNode: focus,
-                  enabled: !widget.busy,
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  obscureText: true,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  autofillHints: const <String>[],
-                  // A PIN is not copy/paste material: no selection handles, no
-                  // toolbar, nothing that could lift it to the clipboard.
-                  enableInteractiveSelection: false,
-                  // Flutter's own caret would sit at the CENTRE of the row,
-                  // nowhere near the box being filled. BbPinView paints the
-                  // caret in the active slot instead.
-                  showCursor: false,
-                  cursorColor: Colors.transparent,
-                  style: const TextStyle(color: Colors.transparent),
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(kPinLength),
-                  ],
-                  decoration: const InputDecoration(
-                    counterText: '',
-                    filled: false,
-                    isCollapsed: true,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    disabledBorder: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                  ),
+        // NO GestureDetector wrapper. The capture field below spans the whole
+        // row, so it takes every tap itself and focuses itself — an onTap here
+        // could never fire, and a dead tap handler is worse than none because
+        // it reads as the thing that makes tapping work. `_focusRow` still runs
+        // on every path that moves focus in CODE (first mount, the auto-advance,
+        // both dialogs, reset), which is where parking the caret at the end of
+        // the row actually matters.
+        Stack(
+          alignment: Alignment.center,
+          children: <Widget>[
+            BbPinView(
+              length: kPinLength,
+              filled: controller.text.length,
+              // #1463 — this is what puts the ring and the caret on the row
+              // the worker is actually typing into.
+              focused: focus.hasFocus,
+            ),
+            // The real capture surface. TRANSPARENT, NOT COLLAPSED (#1463):
+            // it used to be a 1x1 box under Opacity(0), which the OS could
+            // barely treat as a field — the same trap the OTP screen calls
+            // out ("a collapsed field cannot be tapped or long-pressed").
+            // Filling the row instead gives the keyboard a real target the
+            // worker can hit anywhere along the boxes.
+            //
+            // The digits are masked TWICE over: obscureText replaces them
+            // with bullets, and the text colour is fully transparent on top
+            // of that. The boxes below remain the only thing on screen, and
+            // they only ever receive a COUNT.
+            Positioned.fill(
+              child: TextField(
+                key: fieldKey,
+                controller: controller,
+                focusNode: focus,
+                enabled: !widget.busy,
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                obscureText: true,
+                enableSuggestions: false,
+                autocorrect: false,
+                // NULL, not an empty list. Flutter builds a DISABLED
+                // AutofillConfiguration only for null; an empty list is
+                // still "not null", so it built an ENABLED one carrying
+                // `currentEditingValue` — handing the PIN itself to the
+                // platform autofill service (see
+                // EditableText.textInputConfiguration).
+                autofillHints: null,
+                // The IME must not learn a credential. Flutter defaults this
+                // to true and obscureText does not change it, so a keyboard
+                // was free to fold the PIN into its personalised model.
+                enableIMEPersonalizedLearning: false,
+                // A PIN is not copy/paste material: no selection handles, no
+                // toolbar, nothing that could lift it to the clipboard.
+                enableInteractiveSelection: false,
+                // Flutter's own caret would sit at the CENTRE of the row,
+                // nowhere near the box being filled. BbPinView paints the
+                // caret in the active slot instead.
+                showCursor: false,
+                cursorColor: Colors.transparent,
+                style: const TextStyle(color: Colors.transparent),
+                inputFormatters: <TextInputFormatter>[
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(kPinLength),
+                ],
+                decoration: const InputDecoration(
+                  counterText: '',
+                  filled: false,
+                  isCollapsed: true,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ],
     );
