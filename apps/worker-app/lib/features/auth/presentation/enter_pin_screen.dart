@@ -57,12 +57,14 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
-  /// True during the brief pop-beat after the 4th digit, before the PIN is
-  /// submitted — input is frozen so a stray tap can't corrupt the PIN mid-beat.
-  bool _submitting = false;
+  /// Identifies the pending submit so a backspace can CANCEL it (#1466).
+  /// Bumping this orphans the in-flight `_onDigit` continuation, which checks
+  /// the token after its delay and returns rather than unlocking.
+  int _submitToken = 0;
 
   Future<void> _onDigit(String d) async {
-    if (_submitting) return;
+    // Length alone guards a stray 5th tap during the pop-beat; `_submitting`
+    // deliberately does NOT gate input any more (see [_onBackspace]).
     if (_pin.length >= kPinLength) return;
     setState(() => _pin += d);
     if (_pin.length < kPinLength) return;
@@ -73,16 +75,22 @@ class _EnterPinViewState extends State<_EnterPinView> {
     // correct PIN. Instead the keypad is swapped for a loader (build) while the
     // unlock is in flight, and the dots are cleared ONLY on a wrong PIN, after
     // the worker has acknowledged it (see [_showError]).
-    _submitting = true;
+    final int token = ++_submitToken;
     await Future<void>.delayed(BbPinView.fillPopSettle);
-    if (!mounted) return;
-    _submitting = false;
+    // Cancelled by a backspace while the pop was still running — the worker
+    // caught their own typo, so do NOT spend an attempt on it.
+    if (!mounted || token != _submitToken) return;
     context.read<EnterPinCubit>().unlock(_pin);
   }
 
+  /// #1466 — a mistyped LAST digit used to be unfixable: input froze for the
+  /// fill-pop and the PIN submitted itself 300ms later, spending one of the
+  /// five attempts before the lockout on a typo the worker had already seen.
+  /// Backspace now works at every moment the keypad is on screen, and doing it
+  /// during the pop-beat cancels the pending submit outright.
   void _onBackspace() {
-    if (_submitting) return;
     if (_pin.isEmpty) return;
+    _submitToken++; // orphan any pending submit
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
 
@@ -145,6 +153,12 @@ class _EnterPinViewState extends State<_EnterPinView> {
                           length: kPinLength,
                           filled: _pin.length,
                           error: error,
+                          // #1466 — every PIN surface shows where the next
+                          // digit lands. The keypad below is the input and it
+                          // is on screen whenever a digit can be typed, so the
+                          // row is "focused" exactly while the verify is not
+                          // in flight.
+                          focused: !state.isSubmitting,
                         ),
                         // The wrong-PIN reason now lives in the centred dialog
                         // (see [_showError]) — no tiny inline line here.
