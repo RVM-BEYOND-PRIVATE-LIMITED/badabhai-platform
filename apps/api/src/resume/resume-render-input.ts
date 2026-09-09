@@ -374,18 +374,13 @@ function buildUndegraded(
   // happened to produce a résumé container must not get a different headline from one whose did
   // not.
   //
-  // IT IS NOW THE WHOLE ANSWER TO "HOW LONG?" FOR A FORM-FIRST WORKER, not a special case for
-  // freshers (owner ruling 2026-09-09, on a rendered sheet that still read "CNC turner · duration
-  // not stated · Siemens"). The role's tier gate is the only tenure question that worker is ever
-  // asked — the universal `experience_years` ask never runs for him, which is why `employedYears`
-  // exists below — so every rung of it now prints, as the band it names. `tenureStatusLabel`
-  // owns the order and the reasoning.
-  //
-  // `filedNoWorkHistory` DECIDES ONE THING ONLY: whether the LOWEST rung reads "Fresher" or
-  // "Under 1 yr". It is not a gate on the whole label. A man who tapped "7 saal se zyada" and
-  // skipped the work-history screen prints "7+ yrs" either way — printing "Fresher" over him
-  // would delete seven years of his own stated experience, which is §8.3 broken in the direction
-  // that costs him the job.
+  // IT IS ONE WORD FOR ONE WORKER, and never a figure (owner ruling 2026-09-09). Total experience
+  // is `employedYears` — the sum of the work history the worker filled in — so the only thing
+  // left for a LABEL to say is that there is no work history to sum, which is what "Fresher"
+  // means. A revision earlier the same day read the tier gate's rungs and printed them as bands;
+  // the ruling rejected that outright ("it is not a range taken from any question"), and the rung
+  // now does one thing only, negatively: it withholds the word from a worker whose own form
+  // claims a year or more, so the sheet neither calls him a fresher nor invents a figure for him.
   //
   // "NO WORK HISTORY" MEANS ZONE 4 WILL PRINT NONE OF ITS THREE SHAPES, not merely that
   // `worker_employment` is empty. Zone 4 renders EITHER the two-level employment blocks OR the
@@ -404,8 +399,23 @@ function buildUndegraded(
   // so a dead query costs Zone 4 rather than the whole PDF; taking that `[]` as "he filed
   // nothing" would let an infrastructure miss print "Fresher" over a man with twelve years of
   // employer blocks he simply could not be shown. `employmentsUnavailable` is how the caller says
-  // it did not look, and the lowest rung then reads "Under 1 yr" — true of him whatever the read
-  // did, and never a claim the failure invented.
+  // it did not look, and the sheet then says "duration not stated" — exactly what it said before
+  // the query died, and never a claim the failure invented.
+  // THE TOTAL THE WORKER'S OWN WORK HISTORY ADDS UP TO (owner ruling 2026-09-09).
+  //
+  // "It is calculated from the work history that is filled by the individual and the total
+  // calculated from the work history itself" — 1 yr 2 mo + 10 mo + 2 yrs is 4 years, and that is
+  // the whole definition of total experience.
+  //
+  // HOISTED ABOVE THE BRANCH, WHICH IS THE FIX. It was computed here and handed to
+  // `fromResumeProfile` ALONE, so the sum reached the résumé-container path and nothing else —
+  // while the legacy return below composed `years: draft.experience.total_years` and never
+  // consulted it. A form-first worker takes the legacy branch by construction (the trade form
+  // runs no extraction, so there is no container), which made the twenty-one-role population
+  // exactly the population whose filled-in work history was discarded: three fully dated jobs and
+  // a headline reading "duration not stated". Measured on the owner's own example, both paths,
+  // before and after.
+  const employedYears = totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null);
   const filedNoWorkHistory =
     !hasEmployments &&
     (draft.resume_profile?.experiences.length ?? 0) === 0 &&
@@ -535,7 +545,7 @@ function buildUndegraded(
       tenureLabel,
       tradeSheet?.qualification,
       hasEmployments,
-      totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null),
+      employedYears,
       {
         educationHeadline,
         // R15 §1 — THE FIVE STARVED SLOTS, AND THE POPULATION IS WHY THEY WENT FIRST.
@@ -619,7 +629,12 @@ function buildUndegraded(
     // layout whose top 22% exists to carry exactly that line.
     ...buildVerdictLine({
       role: legacyRole,
-      years: draft.experience.total_years,
+      // THE WORK-HISTORY SUM REACHES THIS BRANCH AT LAST — see `employedYears` above. Same
+      // expression the container path uses, so the two cannot disagree about a worker's tenure:
+      // a stated total still outranks the sum (R8 §1, and the under-representation gate), and
+      // where he stated none — which is every form-first worker, because the universal
+      // `experience_years` ask never runs for him — the sum of his own dated jobs is the answer.
+      years: renderedTotalYears(draft.experience.total_years, employedYears),
       // R16 §2 — Q17, RULED. ONE EXPRESSION, BOTH BRANCHES.
       //
       // These read `… : legacyMachines` on one branch and `… : skillChips` on the other, so with
@@ -793,7 +808,10 @@ function buildUndegraded(
       draft.location_preference.current_city ??
       draft.location_preference.preferred_cities[0] ??
       null,
-    experienceYears: draft.experience.total_years,
+    // ONE TOTAL ON THIS BRANCH TOO. The Verdict Line above and this slot are two renderings of
+    // one fact, and computing them from different expressions is how a sheet ends up saying
+    // "4 yrs" at the top and nothing three lines down.
+    experienceYears: renderedTotalYears(draft.experience.total_years, employedYears),
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
     // default renders this line byte-for-byte as it does today; see `humanizeAvailability`.
@@ -1262,13 +1280,11 @@ function cleanScalar(value: string | null): string | null {
  * here — `tenurePhrase` maps a bare 0 to no number, pinned by a test. Whether it should mean
  * "fresher" is a wording ruling; recorded in the gap table, not taken.
  *
- * ANSWERED IN PRACTICE, THOUGH NOT IN THIS FUNCTION, BY THE 2026-09-09 RULING. What the sheet
- * prints for that worker is no longer the unknown text: `tenureStatusLabel` reads his role form's
- * tier rung and prints the band it names ("Fresher", "Under 1 yr", "1–3 yrs" …), which is a
- * closed-vocabulary label carrying his own answer rather than a reading of a bare number. This
- * function still receives `number | null` and still cannot tell a stated zero from an absent
- * answer — the ruling above is where it was — but the worker it was about now gets a line that
- * says something.
+ * ANSWERED IN PRACTICE, THOUGH NOT IN THIS FUNCTION, BY THE 2026-09-09 RULING. That worker has
+ * filed no work history — there is nothing for `employedYears` to sum — so the sheet prints
+ * "Fresher", a closed-vocabulary word for the absence rather than a reading of his bare zero.
+ * This function still receives `number | null` and still cannot tell a stated zero from an absent
+ * answer, so the ruling above is exactly where it was.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
   const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;

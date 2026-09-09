@@ -171,11 +171,11 @@ export interface RoleFresherVocabulary {
    * office declares one.
    *
    * WHAT ABSENCE MEANS SINCE THE 2026-09-09 RULING, because it is no longer "the headline keeps
-   * saying 'duration not stated'". A role without this field still never gets the word from its
-   * lowest rung ALONE — the bound above is intact — but `tenureStatusLabel` now prints that rung
-   * as the band it names, so the sheet reads "Under 1 yr" for him, and "Fresher" only when he has
-   * also filed no work history at all. Declaring this field is still the only way a role says the
-   * word is the worker's OWN, unconditionally.
+   * saying 'duration not stated'". Total experience is the SUM of the worker's filled-in work
+   * history, and a worker with no work history at all reads "Fresher" whether or not his role
+   * declares this field — his rung is then read only to WITHHOLD the word if it claims a year or
+   * more. Declaring this field is still the only way a role says the word is the worker's OWN,
+   * unconditionally: a declared chip prints it even beside an employment history.
    *
    * IT IS A STATUS LABEL, NOT A TENURE FIGURE. `resume-employment-rows.ts` forbids reading this
    * gate as a NUMBER of years — its rungs are thresholds (0 / 2 / 5 / 10), and printing "10 yrs"

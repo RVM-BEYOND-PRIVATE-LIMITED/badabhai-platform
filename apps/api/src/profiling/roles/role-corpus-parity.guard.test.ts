@@ -128,15 +128,16 @@ describe("every enabled role agrees with the pack corpus", () => {
   });
 
   it("the tier gate's SCALE is the one the sheet prints — the premise the tenure band rests on", () => {
-    // OWNER RULINGS 2026-09-08 / 09, made falsifiable. `tenureStatusLabel` turns the stored rung
-    // into the band the résumé prints ("1–3 yrs", "7+ yrs"), and it can only key on the VALUE —
-    // `worker_attributes` never stores the option_key. So the key→value pairing IS the contract,
-    // and it is pinned here rather than trusted.
+    // OWNER RULINGS 2026-09-08 / 09, made falsifiable. The résumé never PRINTS this rung — total
+    // experience is the sum of the worker's work history — but `tenureStatusLabel` reads it to
+    // decide whether to withhold "Fresher" from a worker who filed no history, and it can only key
+    // on the VALUE: `worker_attributes` never stores the option_key. So the key→value pairing IS
+    // the contract, and it is pinned here rather than trusted.
     //
-    // WHAT BREAKS IF IT DRIFTS. A pack that spells "1-3 saal" as 3 prints no band at all (the
-    // renderer drops a value it does not know, which is the safe direction); one that spells
-    // "7 saal se zyada" as 2 prints "1–3 yrs" over a senior man, which is not. Both are invisible
-    // at runtime — the sheet renders either way.
+    // WHAT BREAKS IF IT DRIFTS. A pack that spells "7 saal se zyada" as 0 would have the sheet
+    // call a senior man who skipped the work-history screen a fresher; one that spells "1 saal se
+    // kam" as 5 would withhold the word from a genuine fresher. Both are invisible at runtime —
+    // the sheet renders either way.
     const SCALE: Readonly<Record<string, number>> = {
       fresher_course: 0,
       one_to_three: 2,

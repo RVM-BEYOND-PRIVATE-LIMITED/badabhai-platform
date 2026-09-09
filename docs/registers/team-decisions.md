@@ -432,3 +432,51 @@ as the closed-vocabulary label it is, and it never reaches `experienceYears`, wh
 only from a number the worker gave. The value→band scale is pinned per role in
 `role-corpus-parity.guard.test.ts`, so a pack authored later that numbers its rungs differently goes
 red in CI instead of printing the wrong band on a résumé.
+
+### 2026-09-09 (later) — Total experience is the SUM of the work history, and the bands are withdrawn
+**Supersedes the entry above it**, which was wrong about where the figure comes from. The owner, on
+reading it: *"This is not how experience is calculated, it is not a range taken from any question.
+It is calculated from the work history that is filled by the individual and the total calculated
+from the work history itself"* — 1 yr 2 mo + 10 mo + 2 yrs is 4 years.
+
+**What was measured before changing anything**, on that exact example as three dated employments:
+
+| path | headline |
+| --- | --- |
+| `totalEmployedYears` (raw) | `4` — the arithmetic was always right |
+| container branch (chat interview) | `CNC Turner · 4 yrs · turning` |
+| **legacy branch (form-first)** | **`CNC Turner · duration not stated`** |
+
+**That is the whole defect.** `employedYears` was computed above the branch and handed to
+`fromResumeProfile` alone; the legacy return composed `years: draft.experience.total_years` and
+never consulted the sum. A form-first worker takes the legacy branch by construction — the trade
+form runs no extraction, so there is no container — which made the twenty-one-role population
+exactly the population whose filled-in work history was discarded. Both branches now read
+`renderedTotalYears(stated, employedYears)`, so they cannot disagree about one worker's tenure, and
+a stated total still outranks the sum (R8 §1 and the under-representation gate are untouched).
+
+**The bands are gone.** The earlier entry's `1–3 yrs` / `7+ yrs`, read off the pack's tier gate, are
+exactly the range-from-a-question the ruling rejects. The rung is now read for ONE purpose and it is
+negative: it withholds "Fresher" from a worker whose own form claims a year or more, so the sheet
+neither calls a self-declared seven-year man a fresher nor invents a figure for him. Nothing derived
+from that question reaches the page, and the four band strings are out of the fabrication gate's
+vocabulary — if one ever appears in a printed atom again, the gate going red is the correct outcome.
+
+**"Fresher" survives, and now it is simply true.** No work history means nothing for the sum to
+find. It is bounded to pack workers (a legacy chat profile was never asked), withheld from a worker
+who claims a year or more, and withheld when the work-history read FAILED rather than came back
+empty — an infrastructure miss must not put the word on a man's résumé.
+
+**One cost is pinned rather than fixed: a partially-dated history voids the whole total.**
+`totalEmployedYears` is all-or-nothing by design ("a total that quietly omits the employments whose
+dates the worker could not give is a false total"), so two dated jobs plus one undated print
+"duration not stated" and lose 2 yrs 10 mo of real, dated experience. That is now asserted in
+`resume-fresher-rows.test.ts` so it is a decision somebody makes on purpose rather than a behaviour
+that drifts. **Open for the owner**, and it will recur at the form layer.
+
+**Coordination:** the separate work-experience question (`<role>_experience`, the mandatory first
+item of each `qp_*` pack) is under review for deletion in a parallel session. This change is correct
+either way — with the gate gone, the sum is simply the only source left, and the withhold rule goes
+inert. That session also measured that deleting the gate item *shows* the 87 items currently gated
+on it rather than hiding them (a turner's form goes 11 → 17 screens), which is the opposite of the
+intent and is with the owner.

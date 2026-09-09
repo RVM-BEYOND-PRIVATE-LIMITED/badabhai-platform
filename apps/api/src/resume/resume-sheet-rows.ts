@@ -54,8 +54,7 @@ export function buildVerdictLine(facts: {
    */
   axes?: readonly string[];
   /**
-   * A CLOSED-VOCABULARY TENURE STATUS the worker's own form stated — "Fresher", "1–3 yrs", "7+
-   * yrs" (§6.2).
+   * A CLOSED-VOCABULARY TENURE STATUS — "Fresher", and today nothing else (§6.2).
    *
    * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes it additive rather than a new
    * rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
@@ -65,10 +64,10 @@ export function buildVerdictLine(facts: {
    * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. This function maps
    * every falsy/absent number to "duration not stated" and must keep doing so — §11 #3 requires
    * the sheet to SAY an unknown is unknown. What this parameter carries is not an inference about
-   * an unknown but the worker's OWN ANSWER to the one tenure question his form makes mandatory,
-   * rendered as the band that chip names ({@link tenureStatusLabel} owns the provenance and the
-   * order). Handing this function a bare 0 still yields "duration not stated": the number has no
-   * provenance, and only the caller knows whether a rung was tapped.
+   * an unknown but the fact that there is no work history to sum, which is what "Fresher" says
+   * ({@link tenureStatusLabel} owns the provenance). It is NEVER a tenure figure or a band: the
+   * figure is the sum of the worker's own dated employments and reaches this function as
+   * `years`. Handing this a bare 0 still yields "duration not stated".
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
