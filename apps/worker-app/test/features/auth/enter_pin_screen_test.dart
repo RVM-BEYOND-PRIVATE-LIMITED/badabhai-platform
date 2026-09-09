@@ -124,6 +124,29 @@ void main() {
       verify(() => manager.unlockWithPin('3927')).called(1);
     });
 
+    // #1469 — the cubit stays in `failure` until the NEXT attempt resolves, so
+    // painting the row off that status alone left the cleared retry row (and
+    // its caret) crimson through the whole corrective retype: the app kept
+    // shouting about a mistake the worker was already fixing.
+    testWidgets('the wrong-PIN tint clears once the worker acknowledges it',
+        (WidgetTester tester) async {
+      when(() => manager.unlockWithPin(any()))
+          .thenThrow(const AuthFailure(AuthErrorCode.pinVerifyFailed));
+      await pumpScreen(tester);
+
+      await enterPin(tester, '3927');
+      await tester.pump(BbPinView.fillPopSettle);
+      await tester.pumpAndSettle();
+      expect(tester.widget<BbPinView>(find.byType(BbPinView)).error, isTrue);
+
+      await tester.tap(find.text('Theek hai'));
+      await tester.pumpAndSettle();
+
+      // Cleared AND neutral — the retype starts on a row that is not an error.
+      expect(filledDots(tester), 0);
+      expect(tester.widget<BbPinView>(find.byType(BbPinView)).error, isFalse);
+    });
+
     testWidgets('backspace works at every point, not only below 4 digits',
         (WidgetTester tester) async {
       when(() => manager.unlockWithPin(any())).thenAnswer((_) async {});
