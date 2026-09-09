@@ -365,3 +365,35 @@ as something withheld. The follow-up that would end the inference is a **corpus*
 renderer one: give the eight non-drafting packs a real bottom rung ("koi tajurba nahi" beside "1
 saal se kam", the shape `qp_cad_drafting` already has) and declare it as `fresher.tenureValue`.
 Route 1 then covers every role and route 2 can be deleted.
+
+### 2026-09-08 — The worker picks his own PIN: no strength policy, client or server (#1462)
+*"The worker chooses their own PIN. No strength policy, client or server. `1234`, `1111`, `0000` —
+all must be accepted."* The API's weak-PIN denylist (`PinHasher.isWeakPin` + `WEAK_PINS`, plus the
+all-same-digit and consecutive-run rules) is **deleted**, not flagged off — a switch nobody may turn
+on is dead config. `PinService.assertPinPolicy` now enforces the exact-length format gate and
+nothing else; that gate stays because a 3-digit typo is a malformed value, not a choice.
+
+**Why it is safe to drop.** ADR-0026's first principle is PIN-never-authenticates-from-scratch — the
+PIN unlocks a session on a device the worker already OTP-bound — so the attacker a denylist imagines
+already holds the handset. Everything that actually bites him is untouched: the slow-KDF hash,
+`PIN_MAX_ATTEMPTS` + exponential lockout, the durable force-OTP escalation that survives a Redis
+flush, device binding, and the step-up OTP on reset.
+
+**The two halves, and where each one actually is.** #1462 was raised by Frontend, who has removed
+the app-side block **in their own tree** — it is NOT on `main`. As `main` stands,
+`bb_set_pin_form.dart` still calls `_blockWeakPin()`, which clears the field and never invokes
+`onConfirmed`, so `1234` cannot be submitted from the shipped app at all. **This API change is
+therefore a no-op for the shipped client until Frontend's half lands** — and the moment it lands
+without this one, a worker who types `1234` gets past the client and hits a server 400 surfaced as
+"PIN set nahi hua", a dead end where there used to be an explanation. That is the sequencing the
+issue is about, and it is why the API half should not wait. Recorded as an amendment on
+[ADR-0026](../decisions/0026-production-worker-auth-pin-and-tiered-sessions.md); the worker-app half
+(`weak_pin.dart` and the set-PIN block) is Frontend's and is not in the API change.
+
+**Residual risk, measured and accepted — see R25 in [risks-register.md](./risks-register.md).** The
+security gate put a number on it: against the one attacker who reaches the PIN screen (unlocked
+handset, bound refresh token, SIM removed or SMS unreachable), 25 guesses against the public top-25
+PIN list is ~25-30% success versus ~0.25% uniform. Accepted, because that same attacker holding the
+handset *with* its SIM has a deterministic bypass through `/auth/pin/reset/request` → OTP →
+`reset/confirm`, and one who can read `flutter_secure_storage` skips the PIN entirely via
+`POST /auth/token/refresh`.
