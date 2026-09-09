@@ -1009,11 +1009,10 @@ describe("ResumeRenderProcessor — a failed work-history read is not a fresher 
     });
   });
 
-  it("falls back to the BAND, never the word, when that read THREW", () => {
-    // Same worker, same rung, same empty array — but nobody looked. Since the 2026-09-09 ruling
-    // the lowest rung reads "Under 1 yr" wherever it cannot read "Fresher", which is true of him
-    // whatever the query did — and the assertion that matters is unchanged: a failed read must
-    // not put the word on his sheet.
+  it("falls back to the honest unknown when that read THREW", () => {
+    // Same worker, same rung, same empty array — but nobody looked. The assertion that matters is
+    // unchanged and is the fail-closed rule: an infrastructure miss must not put the word on his
+    // sheet. He may have twelve years of employer blocks that simply could not be read.
     const { proc, renderer } = setup({
       fullName: NAME_TOKEN,
       tradeSheet: TURNER,
@@ -1022,7 +1021,7 @@ describe("ResumeRenderProcessor — a failed work-history read is not a fresher 
     });
     return proc.process(makeJob()).then(() => {
       const input = renderer.renderPdf.mock.calls[0]![0];
-      expect(input.headlineLine).toContain("Under 1 yr");
+      expect(input.headlineLine).toContain("duration not stated");
       expect(input.headlineLine).not.toMatch(/fresher/i);
     });
   });
