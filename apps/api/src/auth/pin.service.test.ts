@@ -5,6 +5,7 @@ import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { PinService, type VerifyPinInput } from "./pin.service";
 import { PinHasher, CURRENT_PIN_PEPPER_VERSION } from "./pin-hasher.service";
+import { PinSetSchema, PinResetConfirmSchema } from "./pin.dto";
 import {
   WorkerAccountDeletedException,
   WORKER_ACCOUNT_DELETED_CODE,
@@ -95,14 +96,16 @@ function makeHasher() {
 }
 
 /** A mutable in-memory `worker_credentials` row + a PinRepository double over it. */
-function makeCred(over: Partial<{
-  pinHash: string;
-  pepperVersion: number;
-  failedAttempts: number;
-  lockedUntil: Date | null;
-  lockoutCycles: number;
-  otpCycleCount: number;
-}> = {}) {
+function makeCred(
+  over: Partial<{
+    pinHash: string;
+    pepperVersion: number;
+    failedAttempts: number;
+    lockedUntil: Date | null;
+    lockoutCycles: number;
+    otpCycleCount: number;
+  }> = {},
+) {
   return {
     workerId: WORKER,
     pinHash: `pin$${GOOD_PIN}`,
@@ -214,8 +217,7 @@ function build(opts: BuildOpts = {}) {
   const events = { emit } as never;
   const hasher = makeHasher();
 
-  const credInitial =
-    opts.cred === undefined ? makeCred() : opts.cred; // undefined → default row; null → no PIN
+  const credInitial = opts.cred === undefined ? makeCred() : opts.cred; // undefined → default row; null → no PIN
   const pins = makePins(credInitial);
 
   const resolved =
@@ -426,7 +428,10 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
   it("a correct PIN on a trusted device clears throttle, mints a session, emits pin_verified", async () => {
     const { svc, redis, pins, sessions, emit } = build();
     // Seed a stale transient throttle to prove SUCCESS clears it.
-    redis.store.set(`pin_throttle:${WORKER}:${DEVICE}`, JSON.stringify({ failed: 2, lockedUntil: null, cycle: 0 }));
+    redis.store.set(
+      `pin_throttle:${WORKER}:${DEVICE}`,
+      JSON.stringify({ failed: 2, lockedUntil: null, cycle: 0 }),
+    );
 
     const res = await svc.verifyPin(verifyInput(), ctx);
 
@@ -724,7 +729,9 @@ describe("PinService.verifyPin — throttle / lockout ladder", () => {
         // (a) The durable otp_cycle_count stays 0 on every non-final step (the #168-#2 fix); the
         // force-OTP counter is NOT touched until the final cycle.
         expect(pins.repo.incrementOtpCycle).not.toHaveBeenCalled();
-        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(0);
+        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(
+          0,
+        );
         expect(pins.state.row!.lockoutCycles).toBe(nextCycle);
 
         // (b) A SUBSEQUENT verify is NOT pre-scrypt force-OTP'd: expire the transient window and
@@ -1212,6 +1219,40 @@ describe("PinService — every emitted event is PII-free (no PIN / hash / finger
           `${event.event_name}.${key} is not a scalar`,
         ).toBe(true);
       }
+    }
+  });
+});
+
+/**
+ * THE SECOND PLACE A STRENGTH RULE COULD COME BACK (#1462).
+ *
+ * `pin-hasher.service.test.ts` scans `PinHasher`'s prototype, which catches a re-added
+ * `isWeakPin` at the definition. It cannot see a rule added as a `.refine()` on the WIRE schema —
+ * a one-line change in `pin.dto.ts` that would reject `1234` with a 400 before the service is
+ * ever reached, and would look like validation rather than policy. So the DTO is asserted too:
+ * the boundary must accept every PIN the ruling names, on both endpoints that carry one.
+ */
+describe("the PIN wire schema carries no strength rule either (#1462)", () => {
+  const guessable = ["0000", "1111", "1234", "4321", "2580", "6969", "9876"];
+
+  it("PinSetSchema accepts every guessable PIN", () => {
+    for (const pin of guessable) {
+      expect(PinSetSchema.safeParse({ pin }).success, `${pin} must parse`).toBe(true);
+    }
+  });
+
+  it("PinResetConfirmSchema accepts them too", () => {
+    for (const pin of guessable) {
+      const body = { phone: "+919876543210", otp: "123456", pin };
+      expect(PinResetConfirmSchema.safeParse(body).success, `${pin} must parse`).toBe(true);
+    }
+  });
+
+  it("and still refuses a malformed one at the wire", () => {
+    // The 4-8 digit RANGE is the wire's job; the exact PIN_LENGTH is the service's. Both are
+    // format, neither is strength.
+    for (const pin of ["123", "123456789", "12a4", ""]) {
+      expect(PinSetSchema.safeParse({ pin }).success, `${pin} must not parse`).toBe(false);
     }
   });
 });
