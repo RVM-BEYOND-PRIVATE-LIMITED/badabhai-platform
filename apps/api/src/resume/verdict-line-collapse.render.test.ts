@@ -159,7 +159,13 @@ const SEGMENTS: readonly SegmentRule[] = [
     line: "headline",
     present: /6 yrs/,
     collapses: false,
-    substitute: /duration not stated/,
+    // THE SUBSTITUTE IS NOW THE WORKER'S OWN ANSWER, not §11 #3's text (owner ruling 2026-09-09).
+    // This fixture is a `qp_cnc_turning` worker with no work history and no tier-gate answer —
+    // the shape the ruling was taken on — so the segment substitutes "Fresher". The PROPERTY
+    // under test is unchanged and is the point: the years segment never collapses silently,
+    // because a headline with no tenure on it reads as something withheld. "duration not stated"
+    // is still pinned for the workers it is still for, in `resume-fresher-rows.test.ts`.
+    substitute: /Fresher/,
     // ONE PLACE ON BOTH BRANCHES. `statedYears` is read off `draft.experience.total_years` even
     // on the container path, because the résumé container has no field for it — so dropping a
     // container-shaped key here would have "passed" while the segment still rendered.

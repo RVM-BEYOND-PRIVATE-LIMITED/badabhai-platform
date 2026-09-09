@@ -127,6 +127,48 @@ describe("every enabled role agrees with the pack corpus", () => {
     }
   });
 
+  it("the tier gate's SCALE is the one the sheet prints — the premise the tenure band rests on", () => {
+    // OWNER RULINGS 2026-09-08 / 09, made falsifiable. `tenureStatusLabel` turns the stored rung
+    // into the band the résumé prints ("1–3 yrs", "7+ yrs"), and it can only key on the VALUE —
+    // `worker_attributes` never stores the option_key. So the key→value pairing IS the contract,
+    // and it is pinned here rather than trusted.
+    //
+    // WHAT BREAKS IF IT DRIFTS. A pack that spells "1-3 saal" as 3 prints no band at all (the
+    // renderer drops a value it does not know, which is the safe direction); one that spells
+    // "7 saal se zyada" as 2 prints "1–3 yrs" over a senior man, which is not. Both are invisible
+    // at runtime — the sheet renders either way.
+    const SCALE: Readonly<Record<string, number>> = {
+      fresher_course: 0,
+      one_to_three: 2,
+      three_to_seven: 5,
+      over_seven: 10,
+    };
+    for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+      const pack = loadPack(descriptor.packId);
+      const gate = pack.items.find((i) => i.question_key === descriptor.tenureQuestionKey);
+      const options = (gate?.options ?? []) as { option_key: string; value_number?: number }[];
+      for (const option of options) {
+        // `under_one` is the one rung whose value is NOT portable, and that is the whole trap this
+        // file exists for: 1 on the pack that has a fresher chip below it, 0 on the eight that do
+        // not. The descriptor is what says which, so the assertion reads it rather than guessing.
+        const expected =
+          option.option_key === "under_one"
+            ? (descriptor.fresher?.tenureValue ?? -1) === 0
+              ? 1
+              : 0
+            : SCALE[option.option_key];
+        expect(
+          expected,
+          `${descriptor.kind}: the gate offers an unknown rung "${option.option_key}" — the sheet has no band for it`,
+        ).toBeDefined();
+        expect(
+          option.value_number,
+          `${descriptor.kind}: "${option.option_key}" stores ${option.value_number}, and the sheet reads ${expected}`,
+        ).toBe(expected);
+      }
+    }
+  });
+
   it("the tier gate's LOWEST rung stores 0 — the premise the Fresher label rests on", () => {
     // OWNER RULING 2026-09-08, made falsifiable. `fresherTenureLabel` reads the gate's stored
     // value and treats 0 as "no work experience" for a worker who has filed no work history —

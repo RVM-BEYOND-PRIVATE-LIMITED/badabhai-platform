@@ -130,128 +130,148 @@ const TENURE_GATE: Readonly<Record<string, string>> = Object.fromEntries(
 );
 
 /**
- * The tier-gate value every pack's LOWEST rung stores — the rung the packs themselves treat as
- * "fresher".
+ * THE TIER GATE's SCALE, as every pack in the corpus writes it: stored value → the English the
+ * sheet prints.
  *
- * NOT A GUESS ABOUT THE CORPUS, AND IT IS ASSERTED. `role-corpus-parity.guard.test.ts` pins the
- * lowest rung of every ENABLED role's gate at 0, so a pack authored later whose scale starts
- * somewhere else goes red there rather than silently printing the wrong word here. (Enabled is
- * all it can pin: twelve of the twenty-one declared roles have no pack file yet, and each is
- * covered by that guard the day its pack lands.)
+ * WHY A VALUE MAP AND NOT AN OPTION-KEY MAP, which is what one would reach for first. The
+ * renderer never sees `option_key` — `worker_attributes` stores the option's VALUE and nothing
+ * else (`pack-registry.service.ts::toOption` resolves `value_text ?? value_number ?? value_bool`),
+ * so the value is the only thing there is to key on. That is also the trap this file has always
+ * documented: the same number does not mean the same rung on every pack, which is why 0 is
+ * DELIBERATELY ABSENT from this table and resolved by the caller against the role's own
+ * declaration.
  *
- * WHAT THE PACKS AGREE WITH, AND WHAT THEY DO NOT — stated exactly, because the difference is the
- * whole risk in this rule. The packs DO treat rung 0 as the fresher tier: `iti_workshop_machines`,
- * `trade_test_status` and `iti_project_work` are served behind `<tenure gate> <= 0` on the
- * machining packs, which is why a `under_one` worker is the one asked about his ITI workshop at
- * all. They do NOT contain a chip in which he SAYS he has no experience — outside
- * `qp_cad_drafting` the bottom rung reads "1 saal se kam", less than a year rather than none. So
- * this is an inference from an ask-gate, not a claim the worker made, and the 2026-09-08 ruling
- * is what authorises it. See the ROUTE 2 note on `fresherTenureLabel` for what bounds it and for
- * the follow-up that would put the word back on the worker's own words.
+ * PINNED IN CI RATHER THAN TRUSTED. `role-corpus-parity.guard.test.ts` asserts, for every enabled
+ * role, that the gate's options are exactly this scale AND that each option_key sits on the value
+ * this table assumes — so a pack authored later that spells "1-3 saal" as 3 goes red there
+ * instead of printing the wrong band on a worker's résumé.
+ *
+ * A RANGE, NEVER A POINT FIGURE. `resume-employment-rows.ts` forbids reading this gate as a
+ * NUMBER of years — printing "10 yrs" for "7 saal se zyada" would be a figure nobody stated — and
+ * that prohibition is exactly what this respects: "7+ yrs" is the chip the worker tapped, printed
+ * as the closed-vocabulary label it is (§8's first permitted source). It never reaches
+ * `experienceYears`, which is a number and stays sourced only from a number the worker gave.
  */
-const NO_EXPERIENCE_RUNG = 0;
+const TENURE_RUNG_LABELS: Readonly<Record<number, string>> = {
+  1: "Under 1 yr",
+  2: "1–3 yrs",
+  5: "3–7 yrs",
+  10: "7+ yrs",
+};
 
 /**
- * "Fresher", when this worker's own form says he has no work experience — otherwise null.
+ * The tier-gate value every pack's LOWEST rung stores.
  *
- * WHY THE SHEET NEEDS THIS AT ALL (§6.2, and it is the ratified page). The CAD draughtsman's
- * reference sheet leads "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
- * SolidWorks, Fusion 360", and the renderer could not produce the word: the tenure segment had
- * exactly two outputs, "N yrs" and "duration not stated". Pooja's status IS captured — she taps
- * `fresher_course`, stored as 0 — but nothing carried it to the headline, so the highest-volume
- * role in the programme printed "duration not stated" over the worker the role exists for.
+ * IT MEANS TWO DIFFERENT THINGS AND THE CALLER RESOLVES WHICH. On `qp_cad_drafting` it is
+ * `fresher_course` — "course kiya hai, kaam ka tajurba nahi", a worker SAYING he has no
+ * experience, which is why that role declares it as {@link RoleFresherVocabulary.tenureValue}. On
+ * every other pack it is `under_one` — "1 saal se kam", less than a year rather than none.
  *
- * A STATUS LABEL, WHICH IS §8's FIRST PERMITTED SOURCE. It is a closed-vocabulary word, not a
- * derived figure and not a model's sentence.
- *
- * IT DOES NOT OUTRANK A STATED NUMBER. `tenurePhrase` consults it only where the segment would
- * have said "duration not stated"; a worker who also stated a total still prints his own figure.
- *
- * ── TWO ROUTES TO THE WORD, AND THE SECOND IS AN OWNER RULING (2026-09-08) ─────────────
- *
- * ROUTE 1 — THE DECLARED RUNG. A role whose pack has a rung that MEANS "fresher" declares it
- * ({@link RoleFresherVocabulary.tenureValue}); today that is `qp_cad_drafting` alone, whose
- * `fresher_course` rung reads "Course kiya hai, kaam ka tajurba nahi". Ungated, exactly as it
- * shipped: the worker said the word himself, so nothing else needs to be true.
- *
- * ROUTE 2 — THE LOWEST RUNG, FOR A WORKER WITH NO WORK HISTORY AT ALL. Owner ruling: "In resume
- * for freshers (someone not added work experience) 'duration not stated' is written, I want
- * 'Fresher' mentioned there." Twenty of the twenty-one roles have no `fresher_course` rung, so
- * route 1 could never fire for them and every genuine fresher on those forms printed the unknown
- * text over the top of his own résumé.
- *
- * IT IS THE RULE THIS FILE PREVIOUSLY REFUSED, AND THE REFUSAL IS ANSWERED RATHER THAN DELETED.
- * `RoleFresherVocabulary.tenureValue` records the objection: on the other packs the lowest rung
- * is `under_one` ("1 saal se kam"), so a bare "0 means fresher" rule would print "Fresher" over a
- * man with eleven months on a shop floor and delete real experience from his own sheet. That
- * objection is met by the two conjuncts rather than waived:
- *
- *   • NO EMPLOYMENT ROWS — `hasEmployments` is false, i.e. the worker has added no work history.
- *     That is the owner's own definition of the worker this is for, and it is what keeps the
- *     word off a sheet that prints an employer block three rows down.
- *   • NO STATED FIGURE — enforced one level up in `tenurePhrase`, which reads a label only where
- *     there is no number at all. His eleven months print as "11 mo" the moment he states them.
- *
- * So the word appears only where the alternative is "duration not stated" on a worker who has
- * told us, through the one question his form makes mandatory, that he has under a year and no
- * job to show for it. §11 #3 still governs everyone else: a worker who answered any higher rung,
- * or whose pack is unknown, still gets the honest unknown.
- *
- * ── THE RESIDUAL RISK, STATED RATHER THAN LEFT TO BE DISCOVERED ───────────────────────
- *
- * THE ELEVEN-MONTH MAN ON A FORM-FIRST PATH CANNOT CURRENTLY CLEAR IT. "He states his months and
- * the figure wins" is true of the mechanism and not yet true of his product surface: the
- * universal `experience_years` ask never runs for a worker handed the form on his first message
- * (which is why `employedYears` exists as a fallback at all), the finishing form has no
- * experience key, and the only remaining channel is the dated employment rows — the very screen
- * this rule reads as empty. So for him "under a year, nothing filed" is not merely the trigger,
- * it is the whole of what the system knows, and he prints as "Fresher" alongside a genuine
- * pass-out. The owner ruling was taken with the alternative in view: today that same man prints
- * "duration not stated", which in this market reads as something withheld.
- *
- * THE FOLLOW-UP THAT WOULD END THE INFERENCE is a corpus change, not a renderer one: give the
- * eight non-drafting packs a real bottom rung — "koi tajurba nahi" beside "1 saal se kam", the
- * shape `qp_cad_drafting` already has — and declare it as {@link RoleFresherVocabulary.tenureValue}.
- * Route 1 then covers every role, this route can be deleted, and the word rests on a chip the
- * worker tapped rather than on a screen he skipped.
+ * WHAT THE PACKS AGREE WITH, AND WHAT THEY DO NOT — stated exactly, because the difference is the
+ * whole risk in reading it as "fresher". The packs DO treat this rung as the fresher tier:
+ * `iti_workshop_machines`, `trade_test_status` and `iti_project_work` are served behind
+ * `<tenure gate> <= 0` on the machining packs, which is why an `under_one` worker is the one asked
+ * about his ITI workshop at all. They do NOT contain a chip in which he says he has no experience.
+ * So on those packs the word is an inference from an ask-gate, and the 2026-09-08 ruling is what
+ * authorises it — bounded, as `tenureStatusLabel` sets out.
  */
-export function fresherTenureLabel(
+const LOWEST_RUNG = 0;
+
+/** What the lowest rung reads as for a worker who HAS filed a work history. */
+const UNDER_ONE_YEAR = TENURE_RUNG_LABELS[1]!;
+
+/**
+ * THE TENURE SEGMENT's STATUS TEXT — what §6.2's middle segment says when there is no figure.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * WHY THIS EXISTS AT ALL, AND WHY IT GREW (owner rulings 2026-09-08, then 2026-09-09).
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * The segment had exactly two outputs, "N yrs" and §11 #3's "duration not stated", and the second
+ * one was reaching workers it was never written for. §11 #3 is about a worker whose tenure NOBODY
+ * ASKED — but the 21-role forms ask every worker his tenure, in a MANDATORY question, and then
+ * printed "duration not stated" over the answer. The first ruling made the word "Fresher"
+ * reachable; the second came with a rendered sheet — a turner who had filed no work history,
+ * still reading "CNC turner · duration not stated · Siemens" — and said to fix it.
+ *
+ * SO THE RULE IS NOW "PRINT WHAT HE ANSWERED", not "print Fresher in one special case". The gate
+ * is the only tenure question a form-first worker is ever asked (the universal `experience_years`
+ * ask never runs for him — see `employedYears` in `resume-render-input.ts`), so his answer to it
+ * is the sheet's best and only source, and every rung of it is now printed:
+ *
+ *   rung 0  →  "Fresher"      when he filed no work history — the ruling
+ *              "Under 1 yr"   when he did — see below
+ *   rung 1  →  "Under 1 yr"   (`qp_cad_drafting`'s own `under_one`)
+ *   rung 2  →  "1–3 yrs"
+ *   rung 5  →  "3–7 yrs"
+ *   rung 10 →  "7+ yrs"
+ *
+ * THE SENIOR WORKER IS THE REASON IT IS NOT SIMPLY "NO WORK HISTORY → FRESHER". Read literally,
+ * the ruling would put "Fresher" on the sheet of a man who tapped "7 saal se zyada" and then
+ * skipped the work-history screen — deleting seven years of his own stated experience from his own
+ * résumé, which is §8.3's asymmetry rule broken in the direction that costs him the job. Printing
+ * his rung instead satisfies the ruling's actual complaint (no worker should meet "duration not
+ * stated" after answering) without ever contradicting him.
+ *
+ * ── THE ORDER, AND WHAT EACH STEP COSTS IF IT IS WRONG ────────────────────────────────
+ *
+ * 1. A DECLARED fresher rung — a role whose pack has a chip that SAYS "no experience"
+ *    ({@link RoleFresherVocabulary.tenureValue}, today `qp_cad_drafting` alone). Ungated by work
+ *    history, exactly as it shipped: he said the word himself.
+ * 2. THE ANSWERED RUNG, as its label. The lowest rung reads "Fresher" only when no work history
+ *    was filed; with employer blocks on the page it reads "Under 1 yr", because "Fresher" printed
+ *    three rows above a man's own job is a contradiction the sheet cannot defend.
+ * 3. NO RUNG ANSWERED, no work history filed, but a KNOWN PACK — "Fresher". This is the ruling
+ *    applied to the worker who skipped even the tenure question: he has told the form nothing and
+ *    filed no job, and the owner's definition of a fresher is exactly "someone not added work
+ *    experience". BOUNDED TO PACK WORKERS deliberately: a legacy chat-only profile with no pack
+ *    has not been asked any of this, and §11 #3 still governs it.
+ * 4. Otherwise null, and the caller prints "duration not stated" — which now means what it always
+ *    should have: nobody asked, or he has a work history whose dates he could not give.
+ *
+ * A STATED FIGURE STILL OUTRANKS EVERYTHING. `tenurePhrase` consults this only where there is no
+ * number at all, so a worker who states six months prints "6 mo" and never a band.
+ */
+export function tenureStatusLabel(
   packId: string | null,
   attributes: WorkerAttributeValues,
   /**
    * True when the worker's work history was READ and is EMPTY — never when it is merely absent.
    *
-   * THE DISTINCTION IS THE FAIL-CLOSED RULE, and it is why this is not `hasEmployments` negated.
-   * Both callers load `worker_employment` inside a try/catch that degrades to `[]`, because a
-   * failed read must cost Zone 4 and not the whole PDF. Under a naive negation that degrade also
-   * turns a twelve-year turner into a fresher on his own résumé — an infrastructure miss putting
-   * a claim on the page, which is the one thing the processor's own comments say must never
-   * happen. So the caller answers "did we actually look?", and a failure answers `false`: the
-   * sheet falls back to §11 #3's honest unknown, which is exactly what it printed yesterday.
-   *
-   * REQUIRED, NOT OPTIONAL, and that is the same argument `buildFresherRows`' `packId` makes: an
-   * optional flag defaulting either way would let a call site get the wrong rule by forgetting
-   * it, and both wrong rules are silent — `false` withholds the word from the workers the ruling
-   * is for, `true` prints it over a man with an employment history.
+   * THE DISTINCTION IS THE FAIL-CLOSED RULE. Both callers load `worker_employment` inside a
+   * try/catch that degrades to `[]`, because a failed read must cost Zone 4 and not the whole PDF.
+   * Under a naive negation that degrade would relabel a twelve-year turner "Fresher" on his own
+   * résumé — an infrastructure miss putting a claim on the page. So the caller answers "did we
+   * actually look?", and a failure answers `false`: the lowest rung then reads "Under 1 yr", which
+   * is true of him whatever the read did.
    */
   filedNoWorkHistory: boolean,
 ): string | null {
   if (packId === null) return null;
-  // STRICT EQUALITY ON A NUMBER, deliberately, on both routes. `pack-registry.service.ts::
-  // toOption` resolves `value_text ?? value_number ?? value_bool`, so a numeric rung arrives as
-  // a number; a string "0" would be a different pack shape and is not silently coerced into a
-  // fresher claim.
+
+  // STRICT EQUALITY ON A NUMBER throughout. `pack-registry.service.ts::toOption` resolves
+  // `value_text ?? value_number ?? value_bool`, so a numeric rung arrives as a number; a string
+  // "0" would be a different pack shape and is not silently coerced into a claim about a worker.
   const declared = FRESHER_TENURE[packId];
-  if (declared !== undefined && attributes[declared.question] === declared.value) {
-    return FRESHER_LABEL;
-  }
-  // ROUTE 2. A worker with employment rows has a history on the page and cannot be described as
-  // a fresher beside it, whatever rung he tapped — the contradiction resolves towards what he
-  // actually filed, never towards the label. A history we could not READ is treated the same way,
-  // and for a stronger reason: see the parameter.
-  if (!filedNoWorkHistory) return null;
   const gate = TENURE_GATE[packId];
-  return gate !== undefined && attributes[gate] === NO_EXPERIENCE_RUNG ? FRESHER_LABEL : null;
+  const answered = gate === undefined ? undefined : attributes[gate];
+
+  // 1. The role's own declared fresher chip.
+  if (declared !== undefined && answered === declared.value) return FRESHER_LABEL;
+
+  if (typeof answered === "number") {
+    // 2. The rung he tapped, as the band it names.
+    if (answered === LOWEST_RUNG) return filedNoWorkHistory ? FRESHER_LABEL : UNDER_ONE_YEAR;
+    return TENURE_RUNG_LABELS[answered] ?? null;
+  }
+
+  // 3. He answered nothing, on a form that asks. See the header.
+  //
+  // `gate === undefined` IS A PACK NO ROLE CLAIMS, and it takes the same exit as a null one. The
+  // ruling reads silence as "fresher" because the FORM asked and he skipped; a pack this registry
+  // has never heard of is not evidence that anything was asked at all.
+  if (gate === undefined) return null;
+  return filedNoWorkHistory ? FRESHER_LABEL : null;
 }
 
 /**
