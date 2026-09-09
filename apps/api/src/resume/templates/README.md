@@ -45,6 +45,17 @@ A shipped `<id>.v<n>.html` is immutable. To change a layout, add
 `<id>.v<n+1>.html` + a registry entry; don't mutate a version in use, so resumes
 that recorded an older `template_id`+version keep rendering identically.
 
+**`bb_trade.v1` is the standing exception, and the reason is mechanical rather than a licence.**
+`getResumeTemplate` resolves by **id only** — the registry holds one entry per id (see `classic`,
+whose v1/v2 files sit on disk while every render takes v3) — so a `bb_trade.v2` would re-point
+every existing `bb_trade` row at the new file exactly as an in-place edit does. It buys no
+isolation, and costs a 400-line duplicate plus a second copy of every structural guard. So this
+sheet is amended in place while it is pre-production, ADDITIVELY: #1403 added the `emp-more`
+region, the 2026-09-08 ruling added `{{location_line}}`, and both collapse when their slot is
+empty, so any sheet that does not supply them renders byte-identically. The day a stored resume
+must be re-renderable exactly as issued, that guarantee needs version-aware resolution in
+`registry.ts` — not a v2 file, which would not deliver it.
+
 ## Privacy
 
 No contact PII (phone/address/employer) appears in `classic`, `modern`, `minimal`
@@ -60,6 +71,14 @@ not global:
 - **Employer names render.** The value is captured by a worker-typed pack question and
   written straight to Postgres; it never passes through the AI service, whose
   pseudonymisation gateway still masks employers on every call.
+- **The worker's registered city and state render** under the name, on both audiences (owner
+  ruling 2026-09-08). `workers.current_city` / `current_state` are plaintext columns by an earlier
+  ruling — "cities as PII (→ a 20-point matching input; never redact)", 2026-07-31 — and the
+  Verdict Line has printed a city on both copies since this sheet shipped. Coarse by construction:
+  the columns hold a city and a state, never an address, a pincode or a coordinate. Both halves go
+  through `cleanScalar` on the way to the page, because the write side accepts free text — screen
+  one of onboarding may not refuse a worker whose city is outside the 36-hub gazetteer — so an
+  email shape or a 7+ digit run drops its half instead of printing on the employer's copy.
 - **Address and email still never render**, on any template. Nor does an unmasked phone
   number on the *public web profile* — a different surface, and that prohibition is
   absolute.
@@ -73,6 +92,7 @@ contract above:
 | slot | kind | notes |
 | ---- | ---- | ----- |
 | `{{phone}}`, `{{name_devanagari}}`, `{{trust_badge}}` | scalar | badge collapses when absent; no tier is hardcoded |
+| `{{location_line}}` | scalar | "Faridabad, Haryana" under the name, 9pt (owner ruling 2026-09-08). Composed by `buildLocationLine` from `workers.current_city` / `current_state` — the worker's own registration answer, **not** the snapshot's `{{location}}`. Collapses when he gave neither. |
 | `{{headline_line}}`, `{{subhead_line}}` | scalar | the two-line Verdict Line, composed by the mapper |
 | `{{cap_section_title}}` | **attribute** | per-trade heading, read back via `attr(data-title)` |
 | `{{#cap_chip_rows}}`, `{{#cap_tick_rows}}`, `{{#cap_fact_rows}}` | object regions | `{{label}}` + `{{#values}}` / `{{value}}` |
@@ -158,6 +178,29 @@ spill fitted on one page after all:
 So the real budget is **at least ~43.2 lines** for the worker audience, against the fitted
 `SHEET_LINE_BUDGET = 41`. Everything at or under 41 is safe with margin; a sheet between 41
 and ~43 may take a second page it did not need.
+
+**THE MASTHEAD GAINED A LINE AFTER THIS MEASUREMENT (owner ruling 2026-09-08).** `{{location_line}}`
+prints for every worker who registered a city, and the 68 renders above predate it. It has NOT been
+re-rendered; what follows is the line model, not WeasyPrint.
+
+The charge is one line. Measured from the stylesheet: `.loc` is 9 pt inheriting `line-height: 1.32`
+= 11.88 pt = 4.19 mm, plus `margin-top: 0.8 mm` = **4.99 mm** against the body line's 4.89 — an
+under-count of 0.10 mm, ~2% of a line, two orders of magnitude inside the 5 mm headroom floor.
+
+**Only shape 1 carries the fields in the fixtures**, so the matrix still measures the sheets these
+68 renders measured. The production delta is asserted separately, in `sheet-shape-matrix.test.ts`
+("the masthead location line's cost to the page"), which re-measures all fourteen shapes WITH the
+line. Three cross from one page to two, all of them synthetic stress shapes sitting at 40.19 lines:
+
+| sheet | before | with the line | why |
+| --- | --- | --- | --- |
+| `shape-11-worker` | 40.19, fits | 41.19, spills | nine employers; 0.81 lines of headroom was all it had |
+| `shape-05-employer` | fitted at stage 1 | spills at stage 0 | the "employers beyond three" collapse used to reach 41.19 exactly; now it cannot buy the page, so under the 2026-09-03 ruling the collapse is discarded and the sheet goes back uncompressed |
+| `shape-06-employer` | fitted at stage 1 | spills at stage 0 | same |
+
+The ratified corpus is unaffected — the real personas measure 24–37 lines against the 41-line
+budget — so this is confined to dense multi-employer profiles, which is what shapes 5, 6 and 11
+exist to represent, and it is the outcome the 2026-09-03 ruling prescribes rather than a defect.
 
 **`SHEET_LINE_BUDGET` was deliberately NOT raised on this evidence.** The measurement is 68
 fixtures on one font stack, and the cost of the two disagreements is a needless second page —

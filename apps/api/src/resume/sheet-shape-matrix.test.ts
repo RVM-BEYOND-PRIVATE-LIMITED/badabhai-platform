@@ -483,3 +483,110 @@ describe("shapes the guideline rules on by name", () => {
     expect(html.match(/<div class="sec [a-z-]+[^>]*><\/div>/g) ?? []).toHaveLength(5);
   });
 });
+
+/**
+ * WHAT THE MASTHEAD's LOCATION LINE COSTS THE PAGE (owner ruling 2026-09-08).
+ *
+ * THE FIXTURES DELIBERATELY DO NOT CARRY IT, and that decision is what makes this suite
+ * necessary rather than optional. `SHEET_SHAPES` is not only a set of content shapes: it is the
+ * CALIBRATION CORPUS behind the 68 WeasyPrint renders recorded in `templates/README.md`, and
+ * those renders measured these exact fourteen sheets. Adding a line to all of them would move
+ * every measured number at once and silently retire the evidence that the line model tells the
+ * truth. So shape 1 carries the fields (the fabrication gate needs one sheet that prints the
+ * line) and the other thirteen stay as they were measured.
+ *
+ * BUT PRODUCTION SHEETS ALL CARRY IT. `workers.current_city` is captured on the first onboarding
+ * screen beside the name, so the shipping sheet is ONE LINE LONGER than the sheet this matrix
+ * measures — and a difference between the fixture and the artifact is exactly the kind of thing
+ * that goes unnoticed until a worker's PDF has a second page nobody predicted. This suite is
+ * therefore the delta, asserted rather than described: it re-measures every shape WITH the line
+ * and pins which sheets change side.
+ *
+ * THE ANSWER, MEASURED: three synthetic stress shapes cross from one page to two. All three sit
+ * at 40.19 lines — inside a 41-line budget by less than a line — and every one of them is a
+ * dense multi-employer profile built to stress the page. Under the 2026-09-03 ruling that is the
+ * SANCTIONED outcome rather than a defect: no permitted compression can buy the page for them, so
+ * the sheet spills instead of shedding a row the ratified corpus prints. The ratified corpus
+ * itself is unaffected — `role-sheet-parity.render.test.ts` renders the real personas, which sit
+ * far below the budget.
+ */
+describe("the masthead location line's cost to the page (2026-09-08)", () => {
+  const LOCATED = { currentCity: "Faridabad", currentState: "Haryana" } as const;
+
+  /** Every sheet re-measured with the line production always supplies. */
+  const everyLocatedSheet = () =>
+    SHEET_SHAPES.flatMap((shape) =>
+      (["worker", "employer"] as const).map((audience) => {
+        const tradeSheet = withSheetQr(shape.tradeSheet);
+        return {
+          label: `shape ${shape.n}/${audience}`,
+          input: buildResumeRenderInput(
+            shape.snapshot,
+            shape.displayName,
+            "bb_trade",
+            null,
+            false,
+            audience,
+            tradeSheet === null
+              ? { packId: null, attributes: {}, ...LOCATED }
+              : { ...tradeSheet, ...LOCATED },
+          ),
+        };
+      }),
+    );
+
+  it("prints on every sheet once the caller supplies it, including the null-context shape", () => {
+    for (const { label, input } of everyLocatedSheet()) {
+      expect(input.locationLine, `${label}`).toBe("Faridabad, Haryana");
+    }
+  });
+
+  it("costs exactly one line on every shape, on both audiences", () => {
+    // MEASURED ON THE SLOT, NOT THROUGH THE LADDER, and the distinction is what makes the number
+    // meaningful. Re-rendering a shape with the fields supplied can move the sheet by MORE than
+    // one line — 5/employer moves by three — because crossing the budget also changes what the
+    // ladder does: a collapse that used to buy the page no longer does, so the fourth employer
+    // block comes back. That is the ladder's ruled behaviour, not the line's cost. Toggling the
+    // slot on one settled sheet isolates the charge itself.
+    for (const shape of SHEET_SHAPES) {
+      for (const audience of ["worker", "employer"] as const) {
+        const input = inputFor(shape, audience);
+        const delta =
+          sheetContentLines({ ...input, locationLine: "Faridabad, Haryana" }) -
+          sheetContentLines({ ...input, locationLine: null });
+        expect(delta, `shape ${shape.n}/${audience}: charged ${delta} lines`).toBeCloseTo(1, 5);
+      }
+    }
+  });
+
+  it("names the three sheets that cross to a second page because of it", () => {
+    // PINNED, so a fourth cannot appear unnoticed — and so the three that DO are a recorded
+    // consequence of the ruling rather than a discovery someone makes from a worker's PDF.
+    // All three are 40.19-line stress shapes: 11/worker (nine employers), and the payer copies of
+    // 5 and 6, whose "employers beyond three" collapse used to reach exactly 41.19 and now cannot.
+    const nowSpilling = everyLocatedSheet()
+      .filter((s) => s.input.degradationOverflows)
+      .map((s) => s.label);
+    const alreadySpilling = [
+      "shape 5/worker",
+      "shape 6/worker",
+      "shape 9/worker",
+      "shape 9/employer",
+    ];
+    expect(nowSpilling.filter((l) => !alreadySpilling.includes(l))).toEqual([
+      "shape 5/employer",
+      "shape 6/employer",
+      "shape 11/worker",
+    ]);
+  });
+
+  it("still never needs a third page", () => {
+    // The invariant that actually bounds the damage. A sheet spilling by less than a full page is
+    // the ruling working; one past that is content arriving where nobody has looked.
+    for (const { label, input } of everyLocatedSheet()) {
+      expect(input.degradationOverBudgetLines ?? 0, `${label}: past a second page`).toBeLessThan(
+        SHEET_LINE_BUDGET,
+      );
+    }
+  });
+});

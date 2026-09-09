@@ -123,7 +123,9 @@ describe("ResumeRenderer.buildResumeHtml — template binding + output encoding 
 
   it("resolves an unknown/empty templateId to the generic fallback (never throws)", () => {
     const renderer = makeRenderer();
-    expect(() => renderer.buildResumeHtml({ ...BASE_INPUT, templateId: "does-not-exist" })).not.toThrow();
+    expect(() =>
+      renderer.buildResumeHtml({ ...BASE_INPUT, templateId: "does-not-exist" }),
+    ).not.toThrow();
     const html = renderer.buildResumeHtml({ ...BASE_INPUT, templateId: null });
     expect(html.toLowerCase()).toContain("<!doctype html>");
     expect(html).toContain("Asha Kumari");
@@ -163,9 +165,12 @@ describe("ResumeRenderer.fillSlots — object regions (work history)", () => {
   };
 
   it("repeats the block once per job, resolving each token from THAT entry", () => {
-    const html = bind("<x>{{#experiences}}<li>{{role}}|{{duration}}|{{work}}</li>{{/experiences}}</x>", {
-      experiences: ENTRIES,
-    });
+    const html = bind(
+      "<x>{{#experiences}}<li>{{role}}|{{duration}}|{{work}}</li>{{/experiences}}</x>",
+      {
+        experiences: ENTRIES,
+      },
+    );
     expect(html).toContain("<li>VMC Operator|3.5 saal|Read drawings, machine setup</li>");
     expect(html).toContain("<li>Helper|1 saal|Loading, deburring</li>");
   });
@@ -173,7 +178,9 @@ describe("ResumeRenderer.fillSlots — object regions (work history)", () => {
   it("collapses to nothing when there is no work history", () => {
     // Every pre-v3 profile and every deterministic-only extraction is in this state, so an
     // empty region must vanish rather than leave an empty bullet behind.
-    const html = bind("<x>{{#experiences}}<li>{{role}}</li>{{/experiences}}</x>", { experiences: [] });
+    const html = bind("<x>{{#experiences}}<li>{{role}}</li>{{/experiences}}</x>", {
+      experiences: [],
+    });
     expect(html).toBe("<x></x>");
   });
 
@@ -226,7 +233,10 @@ describe("every registered template renders cleanly (v3 contract)", () => {
 
   for (const t of RESUME_TEMPLATES) {
     it(`${t.id} v${t.version}: leaves no unresolved token, with data or without`, () => {
-      for (const input of [{ ...RICH, templateId: t.id }, { ...BASE_INPUT, templateId: t.id }]) {
+      for (const input of [
+        { ...RICH, templateId: t.id },
+        { ...BASE_INPUT, templateId: t.id },
+      ]) {
         const html = makeRenderer().buildResumeHtml(input);
         // An unknown region name is DELETED silently; an unresolved scalar leaks braces. Either
         // way the worker gets a broken PDF and nothing else would tell us.
@@ -241,7 +251,12 @@ describe("every registered template renders cleanly (v3 contract)", () => {
       // ::before, where `:empty` can take it away with the section.
       const html = makeRenderer().buildResumeHtml({ ...RICH, templateId: t.id });
       const headings = html.match(/<h[1-6][^>]*>[^<]+<\/h[1-6]>/g) ?? [];
-      const seen = headings.map((h) => h.replace(/<[^>]+>/g, "").trim().toLowerCase());
+      const seen = headings.map((h) =>
+        h
+          .replace(/<[^>]+>/g, "")
+          .trim()
+          .toLowerCase(),
+      );
       expect(new Set(seen).size).toBe(seen.length);
     });
 
@@ -257,9 +272,57 @@ describe("every registered template renders cleanly (v3 contract)", () => {
       // The payer-facing disclosure ALWAYS passes expectedSalary null, so this is the common
       // production case. A "₹" written into the markup rather than into CSS would survive the
       // empty value and print alone.
-      const html = makeRenderer().buildResumeHtml({ ...RICH, templateId: t.id, expectedSalary: null });
+      const html = makeRenderer().buildResumeHtml({
+        ...RICH,
+        templateId: t.id,
+        expectedSalary: null,
+      });
       expect(html).not.toContain("40000");
       expect(html).not.toMatch(/₹\s*<\//);
     });
   }
+});
+
+describe("the masthead location line (owner ruling 2026-09-08)", () => {
+  const TRADE = { ...BASE_INPUT, templateId: "bb_trade", displayName: "Rohit Kumar" };
+
+  it("renders under the name, and only on the trade sheet", () => {
+    const html = makeRenderer().buildResumeHtml({
+      ...TRADE,
+      locationLine: "Faridabad, Haryana",
+    });
+    expect(html).toContain('<div class="loc">Faridabad, Haryana</div>');
+    // BELOW THE NAME AND ABOVE THE VERDICT LINE — the ruling is about where it sits, so the
+    // ORDER is asserted rather than just the presence of the string.
+    expect(html.indexOf("Rohit Kumar")).toBeLessThan(html.indexOf("Faridabad, Haryana"));
+    expect(html.indexOf("Faridabad, Haryana")).toBeLessThan(html.indexOf('class="verdict"'));
+
+    // The twelve older layouts carry no such slot; the same input renders them unchanged, and
+    // the trade sheet's `{{location_line}}` must never be confused with their `{{location}}`.
+    const classic = makeRenderer().buildResumeHtml({
+      ...BASE_INPUT,
+      locationLine: "Faridabad, Haryana",
+    });
+    expect(classic).not.toContain("Faridabad, Haryana");
+    expect(classic).toContain("Pune"); // its own `{{location}}` slot, untouched
+  });
+
+  it("collapses the line entirely when the worker gave no location", () => {
+    for (const input of [{ ...TRADE, locationLine: null }, { ...TRADE }]) {
+      const html = makeRenderer().buildResumeHtml(input);
+      // `.loc:empty { display: none }` needs the element to hold NOTHING — not a space, not a
+      // newline. An element with whitespace in it renders as a blank line under the name.
+      expect(html).toContain('<div class="loc"></div>');
+      expect(html).not.toMatch(/\{\{location_line\}\}/);
+    }
+  });
+
+  it("HTML-escapes it — a city is worker-typed text like every other slot", () => {
+    const html = makeRenderer().buildResumeHtml({
+      ...TRADE,
+      locationLine: "<script>alert(1)</script>, Haryana",
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
 });

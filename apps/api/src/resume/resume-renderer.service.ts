@@ -213,6 +213,20 @@ export interface ResumeRenderInput {
   /** `{{name_devanagari}}` — auto-transliterated. Needs a Devanagari font in the API image. */
   nameDevanagari?: string | null;
   /**
+   * `{{location_line}}` — "Faridabad, Haryana", under the name, in the masthead's small type.
+   *
+   * THE WORKER's OWN REGISTRATION ANSWER (owner ruling 2026-09-08), composed by
+   * `buildLocationLine` and supplied by the caller off the worker row — the same contract
+   * {@link phone} has, and for the same reason: the value lives on `workers`, not in the
+   * snapshot. On BOTH audiences: a city is a matching input rather than identity (2026-07-31
+   * ruling), and the Verdict Line has printed one on both copies since the sheet shipped.
+   *
+   * DISTINCT FROM {@link location}, which is the twelve older layouts' `{{location}}` slot fed
+   * from the profile snapshot. Two sources, two meanings, and merging them would put a model's
+   * reading of a conversation in the masthead.
+   */
+  locationLine?: string | null;
+  /**
    * `{{trust_badge}}` — the masthead's right-hand slot.
    *
    * EMPTY UNTIL BadaBhai Verified. The owner ruling is two tiers, and an unverified sheet shows
@@ -443,6 +457,7 @@ export class ResumeRenderer {
       // to the 18pt FLOOR rather than wrapping at 20pt, and is never truncated at any length.
       name_class: nameFitClass(input.displayName),
       name_devanagari: input.nameDevanagari ?? "",
+      location_line: input.locationLine ?? "",
       trust_badge: input.trustBadge ?? "",
       headline_line: input.headlineLine ?? "",
       subhead_line: input.subheadLine ?? "",

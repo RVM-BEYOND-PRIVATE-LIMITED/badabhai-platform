@@ -1,4 +1,5 @@
 import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import { titleCaseName } from "./resume-text-case";
 
 /**
  * The `bb_trade` sheet's composed lines and label/value rows. PURE — no I/O, no clock, no DI.
@@ -178,6 +179,51 @@ function availabilityPhrase(availability: string | null): string | null {
   const value = availability?.trim();
   if (!value) return null;
   return /^immediate/i.test(value) ? "available immediately" : `available in ${value}`;
+}
+
+/**
+ * THE MASTHEAD's LOCATION LINE — "Faridabad, Haryana" — printed under the worker's name, or null.
+ *
+ * WHY IT EXISTS (owner ruling 2026-09-08). "In all the 21 profiles, that is form-based profiling,
+ * there is nowhere that the current location of the candidate is asked but we do ask that while
+ * registering — show the current location just below the Full Name." The gap is real and it is
+ * structural: the trade form runs no extraction, so `worker_profiles.location_preference
+ * .current_city` is never written for a form-first worker (PARKED.md P-018) and the Verdict
+ * Line's city segment — the sheet's only location until now — collapsed for every one of them. A
+ * résumé with no place on it is unusable to a supervisor hiring for a specific plant.
+ *
+ * THE SOURCE IS THE WORKER's OWN FIRST-PARTY ANSWER, `workers.current_city` / `current_state`,
+ * typed on the onboarding screen beside his name (#1428) and read off the row by the caller. It
+ * is not derived, not inferred and never a model's reading of a conversation — §8's second
+ * permitted source, a value the worker stated.
+ *
+ * NOT PII, AND THAT IS AN OWNER RULING RATHER THAN A JUDGEMENT MADE HERE (2026-07-31, the Master
+ * Context DEAD LIST): "cities as PII (→ a 20-point matching input; never redact)". A state is
+ * coarser still. The columns hold plaintext for that reason, the Verdict Line has printed a city
+ * on both audiences since the sheet shipped, and this line is therefore audience-blind like every
+ * other trade fact — it is neither identity nor negotiating position. An ADDRESS remains
+ * prohibited on every template, and these two columns are documented as never holding one.
+ *
+ * A COMPOSITION OF TWO STATED VALUES, joined by the separator the design already uses for a place
+ * ("Rohtak, Haryana" on the employer rows). Each half is independently nullable, so a worker who
+ * gave only one still gets a line and never a dangling comma; a worker who gave neither gets no
+ * line at all rather than an empty one under his name.
+ *
+ * IT DOES NOT TOUCH THE VERDICT LINE. §6.2's subhead keeps composing its own city from the
+ * profile snapshot — a different source with a different meaning (where he is looking for work,
+ * as the interview recorded it) — so nothing ratified moves. The two agree for most workers and
+ * the masthead is simply the one that can speak for the form-first majority.
+ */
+export function buildLocationLine(location: {
+  city: string | null | undefined;
+  state: string | null | undefined;
+}): string | null {
+  // CASED AS PROPER NOUNS (owner ruling 2026-09-08), by the same helper and for the same reason
+  // Zone 4's employer line uses it: this is hand-typed on a phone on the first onboarding screen,
+  // so `faridabad` is ordinary input, and it prints directly under the worker's name. Only a
+  // LEADING lowercase letter is raised, so a state abbreviation the worker typed in capitals
+  // survives — see `resume-text-case.ts`.
+  return joinSegments([titleCaseName(location.city), titleCaseName(location.state)], ", ");
 }
 
 /**

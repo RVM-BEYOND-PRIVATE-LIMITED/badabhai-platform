@@ -148,6 +148,32 @@ describe("bb_trade.v1 — the locked trade sheet", () => {
     }
   });
 
+  it("carries the location line under the name, in a slot that COLLAPSES", () => {
+    // Owner ruling 2026-09-08 — the worker's registered city and state, directly under his name.
+    //
+    // THE FLUSH MARKUP IS THE WHOLE MECHANISM, exactly as it is for the section containers above:
+    // `.loc:empty` cannot match an element holding a space or a newline, so a worker who gave no
+    // location would get a blank line under his name on a sheet he hands to a supervisor.
+    expect(html).toContain('<div class="loc">{{location_line}}</div>');
+    expect(body).toMatch(/\.loc:empty\s*\{\s*display:\s*none/);
+
+    // POSITION IS THE RULING. Under the name (and its Devanagari line, so a name and its own
+    // transliteration stay adjacent) and above the Verdict Line, which §5.1 ranks first.
+    expect(html.indexOf("{{full_name}}")).toBeLessThan(html.indexOf("{{location_line}}"));
+    expect(html.indexOf("{{name_devanagari}}")).toBeLessThan(html.indexOf("{{location_line}}"));
+    expect(html.indexOf("{{location_line}}")).toBeLessThan(html.indexOf("{{headline_line}}"));
+
+    // SMALL, WHICH IS WHAT WAS ASKED FOR, AND NEVER SMALLER THAN THE SHEET's SMALLEST TYPE. 9pt
+    // is the section-label floor; anything under it stops surviving a photocopy, and a floor
+    // asserted here is a floor a later tidy-up cannot quietly lower.
+    const style = /<style>([^]*?)<\/style>/.exec(body)?.[1] ?? "";
+    const loc = /\.loc\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+    const pt = Number(/font-size:\s*([\d.]+)pt/.exec(loc)?.[1]);
+    expect(pt, "the location line has no pt font-size").toBeGreaterThanOrEqual(9);
+    expect(pt, "the location line is not smaller than the body — it must read as secondary").
+      toBeLessThan(10.5);
+  });
+
   it("meets every typographic floor the guideline makes binding", () => {
     // THE FAILURE THIS CATCHES IS INVISIBLE IN A DIFF. An earlier draft of this file was authored
     // in px — body 10.2px, name 22px, section label 8.4px — which is 7.6pt / 16.5pt / 6.3pt once

@@ -1,4 +1,5 @@
 import type { ResumeEmployment, ResumeRoleStint } from "./resume-renderer.service";
+import { titleCaseName } from "./resume-text-case";
 
 /**
  * ZONE 4 — WORK HISTORY. The `worker_employment` rows as the sheet prints them. PURE: no I/O,
@@ -168,7 +169,11 @@ function toEmployment(
     // predate it (see WorkerEmploymentRecord.id); every real DB-backed record has
     // one, since loadForResume selects `id: workerEmployment.id` unconditionally.
     id: record.id,
-    employer: record.employer,
+    // CASED AS A PROPER NOUN (owner ruling 2026-09-08). The employer is typed by hand on a phone,
+    // so `sandhar technologies pvt ltd` is ordinary input, and it prints on the line the eye runs
+    // down. Only leading lowercase letters are raised — `TVS` and `JBM` survive intact. See
+    // `resume-text-case.ts` for why this is a reshaping rather than a §8 fourth source.
+    employer: casedEmployer(record.employer),
     location_suffix: locationSuffix(record),
     // The separator is part of the value, exactly like `location_suffix`, so an absent role
     // cannot leave a stray dash on the page.
@@ -191,9 +196,31 @@ function toEmployment(
  * The template renders this immediately after the employer name with no separator of its own,
  * which is the only shape that makes a missing value cost nothing.
  */
+/**
+ * The employer column holds one value that is NOT a company name, and it must not be re-cased.
+ *
+ * §11 #4 spells its literal: a worker with no company to name — thekedar work, a site, piece work
+ * — gets "Contract work", resolved by capture. The 2026-09-08 casing ruling is about the name of
+ * a COMPANY the worker typed; a guideline literal is neither typed by him nor his employer's
+ * name, and re-casing it would quietly edit a reviewed string into "Contract Work".
+ *
+ * AN EXACT-MATCH SET, and deliberately one entry long. It is a list of the literals this system
+ * itself writes into that column, not a heuristic about which employer names look like labels —
+ * a heuristic there would be guessing about a worker's employer, which is the thing this file
+ * spends most of its length refusing to do.
+ */
+const SYSTEM_EMPLOYER_LABELS: ReadonlySet<string> = new Set(["Contract work"]);
+
+function casedEmployer(employer: string): string {
+  return SYSTEM_EMPLOYER_LABELS.has(employer.trim()) ? employer : titleCaseName(employer);
+}
+
 function locationSuffix(record: WorkerEmploymentRecord): string {
+  // CASED AS PROPER NOUNS, on the same ruling and for the same reason as the employer name above:
+  // `gurugram, haryana` is what a hand-typed city looks like. `UAE` and `MP` are untouched,
+  // because only a LEADING LOWERCASE letter is raised — see `resume-text-case.ts`.
   const where = [record.employerCity, record.employerState]
-    .map((v) => v?.trim())
+    .map((v) => titleCaseName(v?.trim()))
     .filter((v): v is string => Boolean(v))
     .join(", ");
   return where ? ` · ${where}` : "";
