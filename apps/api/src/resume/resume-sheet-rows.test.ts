@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAvailabilityRows,
+  buildLocationLine,
   buildQualificationRows,
   buildVerdictLine,
 } from "./resume-sheet-rows";
@@ -198,5 +199,42 @@ describe("qualification rows", () => {
     });
     expect(rows).toEqual([{ label: "Languages spoken", value: "Hindi" }]);
     expect(JSON.stringify(rows)).not.toMatch(/none|not stated|n\/a/i);
+  });
+});
+
+/**
+ * THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08).
+ *
+ * WHY THE RULE IS "COLLAPSE, NEVER APOLOGISE". Both columns are independently nullable — a manual
+ * entry can supply a city without a state — so every combination below is a real row shape, and
+ * the sheet must never answer a missing half with a separator, a placeholder, or a word. An empty
+ * line under a worker's name reads as a fact he refused to give.
+ */
+describe("the masthead location line", () => {
+  it("joins the worker's registered city and state the way the sheet writes a place", () => {
+    expect(buildLocationLine({ city: "Faridabad", state: "Haryana" })).toBe("Faridabad, Haryana");
+  });
+
+  it("prints the half it has, and never a dangling separator", () => {
+    expect(buildLocationLine({ city: "Faridabad", state: null })).toBe("Faridabad");
+    expect(buildLocationLine({ city: null, state: "Haryana" })).toBe("Haryana");
+    expect(buildLocationLine({ city: "  Rajkot  ", state: "   " })).toBe("Rajkot");
+  });
+
+  it("collapses to null when the worker gave neither — never an empty line, never a placeholder", () => {
+    for (const location of [
+      { city: null, state: null },
+      { city: undefined, state: undefined },
+      { city: "", state: "" },
+      { city: "   ", state: null },
+    ]) {
+      expect(buildLocationLine(location)).toBeNull();
+    }
+  });
+
+  it("states no city it was not given — the line is a join, never a lookup", () => {
+    // §8: the renderer may reshape what the worker said and may never add to it. A state is not
+    // inferred from a city here and must never be: "Faridabad" alone prints alone.
+    expect(buildLocationLine({ city: "Faridabad", state: null })).not.toMatch(/Haryana/);
   });
 });

@@ -156,6 +156,16 @@
       /* Devanagari renders on the worker's own copy; the employer copy gets Latin only. */
       .deva { font-size: 12pt; margin-top: 2.4mm; }
       .deva:empty { display: none; }
+      /* The worker's registered city and state, directly under his name (owner ruling
+         2026-09-08). SMALL AND QUIET ON PURPOSE: it is context for the name rather than a
+         claim, and the eye must carry on to the Verdict Line, which is the element §5.1 ranks
+         first. 9pt is the same size the section labels hold — the smallest type on this sheet
+         that is still legible after a photocopy, and the body's 10.5pt floor governs body
+         text, not the masthead's own lines (the bar and the footer are 8.6pt).
+         It sits BELOW the Devanagari line so a name and its own transliteration stay adjacent;
+         that line is empty today, so in production this lands flush under the Latin name. */
+      .loc { font-size: 9pt; color: var(--muted); margin-top: 0.8mm; }
+      .loc:empty { display: none; }
 
       /* ---- the Verdict Line ----------------------------------------------
          Two lines, ruled above and below, that must resolve the fit question inside a
@@ -271,6 +281,7 @@
       <div class="phone">{{phone}}</div>
     </div>
     <div class="deva">{{name_devanagari}}</div>
+    <div class="loc">{{location_line}}</div>
 
     <div class="verdict"><div class="headline">{{headline_line}}</div><div class="subhead">{{subhead_line}}</div></div>
 

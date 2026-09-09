@@ -1242,3 +1242,103 @@ describe("R8 §1 — total years prefers the mandatory ask over the sum beneath 
     expect(input.summary).toContain("8 years");
   });
 });
+
+/**
+ * THE MASTHEAD's LOCATION LINE, THROUGH THE MAPPER (owner ruling 2026-09-08).
+ *
+ * WHY IT IS ASSERTED ON BOTH SOURCE BRANCHES. `buildUndegraded` returns from two places — the
+ * résumé container and the legacy answer-map shape — and a slot set on only one of them goes
+ * missing for exactly the workers nobody renders in a test. That failure has happened repeatedly
+ * on this sheet (see `branch-parity.audit.test.ts`: `salary: null`, the axis segment, the shift
+ * fallback), always silently, so the parity is asserted rather than argued from where the code
+ * sits.
+ */
+describe("the masthead location line reaches the sheet", () => {
+  const LOCATION = { currentCity: "Faridabad", currentState: "Haryana" };
+
+  const inputFor = (
+    snapshot: Record<string, unknown>,
+    audience: "worker" | "employer",
+    trade: Record<string, unknown> = {},
+  ) =>
+    buildResumeRenderInput(snapshot, "Rohit Kumar", "bb_trade", null, false, audience, {
+      packId: null,
+      attributes: {},
+      ...LOCATION,
+      ...trade,
+    });
+
+  it("prints the worker's registered city and state on the LEGACY branch", () => {
+    expect(inputFor({ role_label: "CNC Turner" }, "worker").locationLine).toBe(
+      "Faridabad, Haryana",
+    );
+  });
+
+  it("prints it identically on the RÉSUMÉ CONTAINER branch", () => {
+    const container = {
+      resume_profile: { role_label: "CNC Turner", skills: ["turning"], current_city: "Rajkot" },
+    };
+    // NOTE THE DISAGREEMENT IN THE FIXTURE, and it is deliberate. The container's own
+    // `current_city` is the model's reading of a conversation and still composes the Verdict
+    // Line's city segment; the masthead prints the worker's own registration answer. Two
+    // sources, two lines, neither overwriting the other.
+    const input = inputFor(container, "worker");
+    expect(input.locationLine).toBe("Faridabad, Haryana");
+    expect(input.subheadLine).toContain("Rajkot");
+  });
+
+  it("crosses to the EMPLOYER copy — a city is a matching input, not identity", () => {
+    // The three things the payer copy withholds stay exactly three: the real name, the photo,
+    // the expected salary (owner ruling 2026-07-31 puts cities on the never-redact list).
+    const payer = inputFor({ role_label: "CNC Turner" }, "employer");
+    expect(payer.locationLine).toBe("Faridabad, Haryana");
+    expect(payer.photoDataUri).toBeNull();
+  });
+
+  it("collapses when the worker never gave one, on both branches", () => {
+    const legacy = buildResumeRenderInput(
+      { role_label: "CNC Turner" },
+      "Rohit Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      { packId: null, attributes: {} },
+    );
+    const container = buildResumeRenderInput(
+      { resume_profile: { role_label: "CNC Turner", skills: ["turning"] } },
+      "Rohit Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      { packId: null, attributes: {} },
+    );
+    expect(legacy.locationLine).toBeNull();
+    expect(container.locationLine).toBeNull();
+  });
+
+  it("is never dropped by the degradation ladder, however over budget the sheet is", () => {
+    // `NEVER_DROPPED` lists it, and a list is only a promise until something asserts it. This
+    // sheet is far past the budget and comes back spilling; the line survives.
+    const input = inputFor({ role_label: "CNC Turner" }, "worker", {
+      packId: "qp_cnc_turning",
+      attributes: {
+        turning_machine: ["cnc_lathe", "conventional_lathe"],
+        controller_brand: ["fanuc", "siemens"],
+        measuring_tools: ["vernier", "micrometer", "bore_gauge", "height_gauge"],
+        setting_operation: ["tool_offset", "first_piece", "job_setting", "tool_change"],
+        turning_operation: ["facing_od", "threading", "boring", "grooving", "knurling"],
+      },
+      qualification: {
+        educationHeadline: "ITI — Turner",
+        education: ["NCVT · 2018 · Govt. ITI, Faridabad"],
+        certifications: Array.from({ length: 100 }, (_, i) => `Certificate number ${i} in turning`),
+        languages: ["Hindi", "Haryanvi", "English"],
+        documents: ["Aadhaar", "PAN", "ITI certificate", "Bank passbook"],
+      },
+    });
+    expect(input.degradationOverflows).toBe(true);
+    expect(input.locationLine).toBe("Faridabad, Haryana");
+  });
+});

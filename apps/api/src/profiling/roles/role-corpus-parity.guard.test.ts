@@ -127,6 +127,31 @@ describe("every enabled role agrees with the pack corpus", () => {
     }
   });
 
+  it("the tier gate's LOWEST rung stores 0 — the premise the Fresher label rests on", () => {
+    // OWNER RULING 2026-09-08, made falsifiable. `fresherTenureLabel` reads the gate's stored
+    // value and treats 0 as "no work experience" for a worker who has filed no work history —
+    // which is the packs' own reading of it, since every fresher question in the corpus
+    // (`iti_workshop_machines`, `trade_test_status`, `iti_project_work`) is gated on
+    // `<tenure gate> <= 0`.
+    //
+    // WHAT BREAKS IF THIS DRIFTS. A pack authored later whose scale starts at 1 would put its
+    // lowest rung outside the rule and silently withhold the word from every fresher on that
+    // role; one that starts at -1 would hand it to a man who answered the rung above. Both are
+    // invisible at runtime — the sheet renders either way — so the scale is pinned here rather
+    // than trusted, in the same file that already pins the gate's type and mandatoriness.
+    for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+      const pack = loadPack(descriptor.packId);
+      const gate = pack.items.find((i) => i.question_key === descriptor.tenureQuestionKey);
+      const values = ((gate?.options ?? []) as { value_number?: number }[]).map(
+        (o) => o.value_number ?? Number.NaN,
+      );
+      expect(
+        Math.min(...values),
+        `${descriptor.kind}: the tier gate's lowest rung is not 0, so "Fresher" reads the wrong rung`,
+      ).toBe(0);
+    }
+  });
+
   it("no DECLARED role claims a pack that another role already owns", () => {
     // `assertRegistryIsCoherent` rejects duplicate `packId`s among descriptors. This is the other
     // direction: it also has to hold across the ROLES THAT ARE NOT YET ENABLED, because a

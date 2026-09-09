@@ -265,9 +265,15 @@ export class ResumeDisclosureService {
     // SEPARATE try/catch, and separate from the attributes load above: either source failing
     // must cost only its own section, never the whole disclosure.
     let employments: WorkerEmploymentRecord[] = [];
+    // AND WHETHER WE ACTUALLY LOOKED. Since the 2026-09-08 ruling an empty history is also what
+    // tells the tenure segment to print "Fresher", so this degrade's `[]` has to stay
+    // distinguishable from a worker who genuinely filed nothing. See
+    // `TradeSheetContext.employmentsUnavailable`.
+    let employmentsUnavailable = false;
     try {
       employments = await this.employments.loadForResume(workerId);
     } catch {
+      employmentsUnavailable = true;
       this.logger.warn(`could not load work history for worker ${workerId}; rendering without`);
     }
     if (employments.length > 0) {
@@ -298,6 +304,33 @@ export class ResumeDisclosureService {
     if (qualification !== undefined) {
       tradeSheet = { packId: null, attributes: {}, ...tradeSheet, qualification };
     }
+
+    // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08) — off the worker row already loaded
+    // above for the masked name, so it costs no extra query.
+    //
+    // IT CROSSES TO THE PAYER, on the same reasoning as the capability block and Zone 4. A city
+    // is a 20-point matching input and explicitly NOT PII (owner ruling 2026-07-31), the Verdict
+    // Line has printed one on this copy since the sheet shipped, and the columns are documented
+    // as never holding an address. The three things this surface withholds stay exactly three:
+    // the real name, the photo, the expected salary.
+    //
+    // UNCONDITIONAL, UNLIKE THE TWO MERGES ABOVE, and that is the point of writing it as its own
+    // statement: a worker with no employments and no credentials would otherwise still be holding
+    // whatever `loadTradeSheet` returned — including `null` when it threw — and would lose a fact
+    // that has nothing to do with either load. A context carrying `packId: null` and no
+    // attributes is the documented no-op the render worker already passes on that path.
+    tradeSheet = {
+      packId: null,
+      attributes: {},
+      ...tradeSheet,
+      currentCity: worker?.currentCity ?? null,
+      currentState: worker?.currentState ?? null,
+      // Unconditional for the same reason, and load-bearing for a different one: the merge above
+      // only runs when `employments.length > 0`, which is never true on the path where this flag
+      // matters. Without this line a failed history read would reach the mapper as a trustworthy
+      // empty array.
+      employmentsUnavailable,
+    };
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
     // their OWN resume only and must NEVER appear on the payer-facing disclosure

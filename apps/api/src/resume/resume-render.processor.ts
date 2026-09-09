@@ -189,9 +189,16 @@ export class ResumeRenderProcessor extends WorkerHost {
     // every existing résumé already renders. Reading it here is what lets the capture surface,
     // whenever it lands, flip workers over one at a time with no cutover.
     let employments: Awaited<ReturnType<WorkerEmploymentRepository["loadForResume"]>> = [];
+    // AND WHETHER WE ACTUALLY LOOKED. The catch below degrades to an empty array so a dead query
+    // costs Zone 4 rather than the whole PDF — but since the 2026-09-08 ruling an empty array is
+    // also what tells the tenure segment to print "Fresher", and a timeout must never put that
+    // word over a man with twelve years of employer blocks. See
+    // `TradeSheetContext.employmentsUnavailable`.
+    let employmentsUnavailable = false;
     try {
       employments = await this.employments.loadForResume(workerId);
     } catch {
+      employmentsUnavailable = true;
       this.logger.warn(
         `could not load work history for worker ${workerId}; rendering the fallback history`,
       );
@@ -265,6 +272,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       attributes: {},
       ...(loaded ?? {}),
       employments,
+      employmentsUnavailable,
       // #1350 item 4 — the renderer half of the kill switch. Flipping this false reverts every
       // resume to the worker's own words on the next render, with no deploy and no data loss.
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
@@ -280,6 +288,13 @@ export class ResumeRenderProcessor extends WorkerHost {
       // Devanagari is not transliterated yet; the slot stays null rather than printing the
       // Latin name twice. `nameDevanagari` is audience-gated inside the mapper regardless.
       nameDevanagari: null,
+      // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08) — off the worker row already
+      // loaded above for the name, the photo and the night-shift toggle, so it costs no extra
+      // query. PLAINTEXT COLUMNS, so unlike the name and the phone there is nothing to decrypt
+      // and no degrade to write: a city is a matching input rather than identity (2026-07-31
+      // ruling). A missing row leaves both halves null and the line collapses.
+      currentCity: worker?.currentCity ?? null,
+      currentState: worker?.currentState ?? null,
       // No verification tier exists in the schema yet, so the masthead's right slot collapses.
       // The unverified state must read as neutral, never as a warning.
       trustBadge: null,

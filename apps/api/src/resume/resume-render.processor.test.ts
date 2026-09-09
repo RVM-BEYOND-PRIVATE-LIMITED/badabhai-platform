@@ -200,6 +200,10 @@ function setup(
     // #947 — the worker's own "Night shift ke liye taiyaar" toggle, as the column stores it.
     // Undefined here means the column DEFAULT, which is what nearly every real row holds.
     nightShiftReady?: boolean;
+    // The worker's registered location (owner ruling 2026-09-08). Both halves independently
+    // nullable, exactly as the columns are.
+    currentCity?: string | null;
+    currentState?: string | null;
     // The worker's settled pack answers, and the failure mode of reading them.
     tradeSheet?: { packId: string | null; attributes: Record<string, unknown> };
     attrThrows?: boolean;
@@ -232,6 +236,8 @@ function setup(
       fullName: opts.fullName ?? null,
       phoneE164: opts.phoneToken === undefined ? PHONE_TOKEN : opts.phoneToken,
       resumeNightShiftReady: opts.nightShiftReady ?? false,
+      currentCity: opts.currentCity ?? null,
+      currentState: opts.currentState ?? null,
     })),
   };
   const pii = {
@@ -923,5 +929,99 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(res).toEqual({ rendered: false });
     expect(storage.uploadPdf).not.toHaveBeenCalled();
     expect(resumes.markRenderFailed).toHaveBeenCalledOnce(); // final attempt, render enabled
+  });
+});
+
+/**
+ * THE MASTHEAD's LOCATION LINE — the wiring, not the composition (owner ruling 2026-09-08).
+ *
+ * `resume-sheet-rows.test.ts` proves the two halves are joined correctly. These prove the value
+ * REACHES the mapper: `workers.current_city` has been written by the onboarding screen since
+ * #1428 and read by nothing on this path, which is precisely how the trade form ended up
+ * producing résumés with no place on them.
+ */
+describe("ResumeRenderProcessor — the worker's registered location (2026-09-08)", () => {
+  it("reads city and state off the worker row and puts them under the name", async () => {
+    // No extra query — the same row already fetched for the name, the photo and the toggle.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      currentCity: "Faridabad",
+      currentState: "Haryana",
+    });
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].locationLine).toBe("Faridabad, Haryana");
+  });
+
+  it("prints the half the worker gave, and nothing when he gave neither", async () => {
+    const cityOnly = setup({ fullName: NAME_TOKEN, currentCity: "Rajkot" });
+    await cityOnly.proc.process(makeJob());
+    expect(cityOnly.renderer.renderPdf.mock.calls[0]![0].locationLine).toBe("Rajkot");
+
+    // A worker who registered before the screen existed has neither column set. His sheet loses
+    // the line and gains nothing in its place — never a placeholder, never an empty row.
+    const neither = setup({ fullName: NAME_TOKEN });
+    await neither.proc.process(makeJob());
+    expect(neither.renderer.renderPdf.mock.calls[0]![0].locationLine).toBeNull();
+  });
+
+  it("survives a failed trade-attribute load — a city has nothing to do with that query", async () => {
+    // The processor's own rule, stated on the context it builds: a failure must cost its own
+    // section and nothing else. The location rides the same context, so it is worth asserting
+    // that the degrade does not take it down with the capability block.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      attrThrows: true,
+      currentCity: "Faridabad",
+      currentState: "Haryana",
+    });
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].locationLine).toBe("Faridabad, Haryana");
+  });
+});
+
+/**
+ * THE FAIL-CLOSED HALF OF THE 2026-09-08 "FRESHER" RULING.
+ *
+ * `resume-fresher-rows.test.ts` proves the label reads the right rung. This proves the processor
+ * tells the mapper WHETHER IT LOOKED — the distinction that keeps a database failure from
+ * relabelling a worker. Both facts arrive as the same empty array, so nothing else can tell them
+ * apart, and the failure is silent by construction: the render succeeds either way.
+ */
+describe("ResumeRenderProcessor — a failed work-history read is not a fresher (2026-09-08)", () => {
+  const TURNER = {
+    packId: "qp_cnc_turning",
+    attributes: { turning_experience: 0, turning_machine: ["cnc_lathe"] },
+  };
+  // A snapshot with NO stated total, because a stated figure outranks the label and the shared
+  // SNAPSHOT carries five years — which is the correct behaviour, asserted in
+  // `resume-fresher-rows.test.ts`, and would make these two assertions vacuous.
+  const NO_YEARS = { ...DEFAULT_ROW, sourceProfileSnapshot: { role_label: "CNC Turner" } };
+
+  it("prints Fresher when the history was read and the worker genuinely filed none", () => {
+    // The worker the ruling is for: he tapped the lowest rung and has no employment rows.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      tradeSheet: TURNER,
+      resume: NO_YEARS,
+    });
+    return proc.process(makeJob()).then(() => {
+      expect(renderer.renderPdf.mock.calls[0]![0].headlineLine).toContain("Fresher");
+    });
+  });
+
+  it("falls back to the honest unknown when that read THREW", () => {
+    // Same worker, same rung, same empty array — but nobody looked. §11 #3's text is what the
+    // sheet printed yesterday and what it must keep printing when a query dies.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      tradeSheet: TURNER,
+      resume: NO_YEARS,
+      empThrows: true,
+    });
+    return proc.process(makeJob()).then(() => {
+      const input = renderer.renderPdf.mock.calls[0]![0];
+      expect(input.headlineLine).toContain("duration not stated");
+      expect(input.headlineLine).not.toMatch(/fresher/i);
+    });
   });
 });

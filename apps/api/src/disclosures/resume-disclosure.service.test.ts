@@ -45,6 +45,14 @@ interface SetupOpts {
   weeklyPayers?: number;
   renderNull?: boolean; // renderPdf degrades to null
   nightShiftReady?: boolean; // #947 — the worker's own toggle, as the column stores it
+  // The worker's registered location (owner ruling 2026-09-08), as the plaintext columns store it.
+  currentCity?: string | null;
+  currentState?: string | null;
+  // Makes the trade-attribute read throw, so the degrade around it can be asserted.
+  attrThrows?: boolean;
+  // Makes the work-history read throw. Since the 2026-09-08 ruling that degrade must stay
+  // distinguishable from a worker who filed no jobs.
+  empThrows?: boolean;
   existing?: Record<string, unknown>; // existing disclosure row for idempotency
   // The worker's settled pack answers, which the payer DOES see — trade capability is neither
   // identity nor negotiating position.
@@ -113,6 +121,8 @@ function setup(opts: SetupOpts = {}) {
             fullName: "enc:" + REAL_NAME,
             deletionScheduledAt,
             resumeNightShiftReady: opts.nightShiftReady ?? false,
+            currentCity: opts.currentCity ?? null,
+            currentState: opts.currentState ?? null,
           }
         : undefined,
     ),
@@ -144,12 +154,19 @@ function setup(opts: SetupOpts = {}) {
   };
 
   // The trade capability block — read-only, and it degrades to absence if it throws.
+  // exercises that degrade: the failure must cost this section and nothing else on the sheet.
   const attributes = {
-    loadTradeSheet: vi.fn(async () => opts.tradeSheet ?? { packId: null, attributes: {} }),
+    loadTradeSheet: vi.fn(async () => {
+      if (opts.attrThrows) throw new Error("attr boom");
+      return opts.tradeSheet ?? { packId: null, attributes: {} };
+    }),
   };
   // Zone 4 — read-only on the same terms. Empty for every worker today.
   const employments = {
-    loadForResume: vi.fn(async () => opts.employments ?? []),
+    loadForResume: vi.fn(async () => {
+      if (opts.empThrows) throw new Error("employment boom");
+      return opts.employments ?? [];
+    }),
   };
   // Zone 5 (migration 0098) — read-only, degrades to absence. Empty by default, which
   // `qualificationFactsFrom` turns into `undefined`, so every assertion below sees exactly the
@@ -252,6 +269,54 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     // The masking around it is untouched — the toggle crossing is not a hole in the gate.
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
     expect(t.getRenderInput()?.photoDataUri).toBeNull();
+  });
+
+  it("2026-09-08: the worker's registered location reaches the payer, and the masking holds", async () => {
+    // THE AUDIENCE CALL, PINNED HERE FOR THE SAME REASON THE TOGGLE ABOVE IS. A city is on the
+    // owner's never-redact list (2026-07-31: "cities as PII → a 20-point matching input"), the
+    // Verdict Line has composed one on this copy since the sheet shipped, and a supervisor hires
+    // for one plant. The three things this surface withholds stay exactly three.
+    const t = setup({ currentCity: "Faridabad", currentState: "Haryana" });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.locationLine).toBe("Faridabad, Haryana");
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+  });
+
+  it("2026-09-08: the location survives a failed trade-attribute load", async () => {
+    // The regression this pins. The context is built by MERGING onto whatever `loadTradeSheet`
+    // returned, and that call has its own degrade — so a location merged inside one of the
+    // conditional blocks would vanish for a worker with no employments and no credentials, or
+    // whenever that query threw. It is set unconditionally; this is what says so.
+    const t = setup({ attrThrows: true, currentCity: "Rajkot", currentState: null });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.locationLine).toBe("Rajkot");
+  });
+
+  it("2026-09-08: a failed work-history read does not turn the worker into a fresher", async () => {
+    // THE SAME FAIL-CLOSED RULE THE RENDER WORKER HOLDS, asserted separately because this path
+    // builds its context by MERGING rather than by constructing it once — and the merge that
+    // carries the flag is the one that runs unconditionally. A twelve-year turner whose history
+    // could not be read must reach the payer as an unknown tenure, never as a fresher.
+    const t = setup({
+      empThrows: true,
+      tradeSheet: {
+        packId: "qp_cnc_turning",
+        attributes: { turning_experience: 0, turning_machine: ["cnc_lathe"] },
+      },
+    });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.headlineLine).not.toMatch(/fresher/i);
   });
 
   it("the payer DOES see the trade capability block, and the masking around it holds", async () => {

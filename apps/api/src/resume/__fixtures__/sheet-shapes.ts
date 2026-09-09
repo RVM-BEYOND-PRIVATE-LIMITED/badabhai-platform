@@ -173,6 +173,19 @@ export const SHEET_SHAPES: readonly SheetShape[] = [
     displayName: "Rohit Kumar",
     tradeSheet: {
       ...CHROME,
+      // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08), on THIS shape and not on CHROME.
+      //
+      // ON THIS ONE because it is the fresher — the worker both halves of that ruling are about —
+      // and because a slot that no fixture fills is a slot the fabrication gate cannot see.
+      //
+      // NOT ON CHROME, deliberately. Every shape would then gain a line, and the page-count
+      // evidence in templates/README.md was measured in WeasyPrint against these exact shapes:
+      // moving all fourteen would invalidate 68 real renders to exercise one string. Shape 1 is
+      // the sparsest sheet in the set (125 mm of blank page), so it is the one shape where the
+      // extra line cannot change a page count. Production sheets DO all carry it, which is why
+      // `sheetContentLines` charges it — see `DegradableSheet.locationLine`.
+      currentCity: "Faridabad",
+      currentState: "Haryana",
       packId: "qp_cnc_turning",
       attributes: {
         turning_machine: ["conventional_lathe"],

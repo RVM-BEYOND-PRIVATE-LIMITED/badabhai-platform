@@ -21,6 +21,7 @@ import {
   buildAvailabilityRows,
   buildDocumentRows,
   buildQualificationRows,
+  buildLocationLine,
   buildVerdictLine,
   formatSalaryBand,
 } from "./resume-sheet-rows";
@@ -109,6 +110,24 @@ export interface TradeSheetContext {
   readonly trustBadge?: string | null;
 
   /**
+   * THE WORKER's REGISTERED CITY AND STATE — `workers.current_city` / `current_state`, read off
+   * the row by the caller (owner ruling 2026-09-08). Composed into the masthead's location line.
+   *
+   * SAME CALLER CONTRACT AS `phone` AND `employments`, for a different reason: these columns are
+   * not encrypted — a city is a matching input rather than identity (2026-07-31 ruling) — but
+   * they live on `workers`, and this function is pure and sees only the profile snapshot. The
+   * snapshot cannot answer the question at all for the workers this exists for: the trade form
+   * runs no extraction, so `location_preference.current_city` is never written for any of them.
+   *
+   * NOT AUDIENCE-GATED, and deliberately unlike the name and the photo. The Verdict Line has
+   * composed a city on both copies since the sheet shipped; withholding the same fact from the
+   * masthead would be a distinction with no rule behind it. Both halves independently nullable —
+   * a manual entry can supply one without the other, and the line collapses when it has neither.
+   */
+  readonly currentCity?: string | null;
+  readonly currentState?: string | null;
+
+  /**
    * ZONE 4 — the two-level work history, employer names already DECRYPTED by the caller.
    *
    * SAME CONTRACT AS `phone`, and for the same reason: the ciphertext is on the row, the key is
@@ -117,6 +136,20 @@ export interface TradeSheetContext {
    * empty section.
    */
   readonly employments?: readonly WorkerEmploymentRecord[];
+  /**
+   * TRUE WHEN THE WORK-HISTORY READ FAILED — i.e. `employments` is empty because nobody looked.
+   *
+   * WITHOUT IT THE TWO CASES ARE THE SAME `[]`. Both callers wrap that read in a try/catch that
+   * degrades to an empty array, deliberately: a dead query must cost Zone 4 and never the whole
+   * PDF. But "this worker filed no jobs" and "we could not read his jobs" mean opposite things to
+   * the tenure segment since the 2026-09-08 ruling, and conflating them lets a database timeout
+   * print "Fresher" over a twelve-year turner. See `fresherTenureLabel`.
+   *
+   * IT CHANGES NOTHING ELSE ON THE SHEET. Zone 4 already renders from `employments`, so a failed
+   * read collapses the history exactly as it does today; this flag is read by the tenure segment
+   * alone, and absent (every existing caller) means "the array is trustworthy".
+   */
+  readonly employmentsUnavailable?: boolean;
   /**
    * The render clock, for closing an open-ended employment ("Jan 2023 – Present · 3 yrs 8 mo").
    *
@@ -209,6 +242,7 @@ type TradeCapabilitySlots = Pick<
   | "employmentsMore"
   | "phone"
   | "nameDevanagari"
+  | "locationLine"
   | "trustBadge"
   | "qrDataUri"
   | "qrCaption"
@@ -340,11 +374,42 @@ function buildUndegraded(
   // happened to produce a résumé container must not get a different headline from one whose did
   // not. Null for every role that declares no fresher rung, which is four of the five shipped.
   //
-  // NOT GATED ON `hasEmployments`. A worker who taps "course kiya hai, kaam ka tajurba nahi" and
-  // then files an employment row has contradicted himself; the tenure segment resolves that the
-  // way §8.3 requires — see `tenurePhrase`, where a stated figure wins outright — rather than by
-  // this line deciding which of his two answers to believe.
-  const tenureLabel = fresherTenureLabel(tradeSheet?.packId ?? null, vettedAttributes);
+  // `hasEmployments` IS PASSED, AND IT GATES ONE OF THE TWO ROUTES TO THE WORD. The DECLARED
+  // rung — a worker who tapped "course kiya hai, kaam ka tajurba nahi" — is his own statement and
+  // stays ungated: if he then files an employment row he has contradicted himself, and the tenure
+  // segment resolves that the way §8.3 requires, with a stated figure winning outright (see
+  // `tenurePhrase`), rather than by this line deciding which of his two answers to believe. The
+  // LOWEST-RUNG route added by the 2026-09-08 ruling is different in kind — it reads "under a
+  // year" as "fresher" — so it fires only for a worker who has filed no work history at all. See
+  // `fresherTenureLabel`.
+  //
+  // "NO WORK HISTORY" MEANS ZONE 4 WILL PRINT NONE OF ITS THREE SHAPES, not merely that
+  // `worker_employment` is empty. Zone 4 renders EITHER the two-level employment blocks OR the
+  // flat `resume_profile.experiences` list — the shape this file itself calls "the shape every
+  // profile in the database actually has today" — and reading only the first would print
+  // "Fresher" in the headline of a sheet whose Work history section lists the worker's own jobs
+  // three rows below it, on one page. That contradiction is the exact thing this gate exists to
+  // prevent, so it is computed from both sources. (The fresher TRAINING block is deliberately not
+  // counted: it is what a fresher's Zone 4 holds, not a work history.)
+  //
+  // READ OFF `draft.resume_profile` ABOVE THE BRANCH, which is safe in one direction that
+  // matters: a container carrying experiences is a container that carries values, so it is the
+  // container branch that runs, and this is the list that branch prints.
+  //
+  // AND A FAILED WORK-HISTORY READ IS NOT AN EMPTY ONE. Both callers degrade that read to `[]`
+  // so a dead query costs Zone 4 rather than the whole PDF; taking that `[]` as "he filed
+  // nothing" would let an infrastructure miss print "Fresher" over a man with twelve years of
+  // employer blocks he simply could not be shown. `employmentsUnavailable` is how the caller says
+  // it did not look, and it resolves to the honest unknown.
+  const filedNoWorkHistory =
+    !hasEmployments &&
+    (draft.resume_profile?.experiences.length ?? 0) === 0 &&
+    tradeSheet?.employmentsUnavailable !== true;
+  const tenureLabel = fresherTenureLabel(
+    tradeSheet?.packId ?? null,
+    vettedAttributes,
+    filedNoWorkHistory,
+  );
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -366,6 +431,25 @@ function buildUndegraded(
     // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
     // lives here rather than at the call site.
     nameDevanagari: audience === "worker" ? (tradeSheet?.nameDevanagari ?? null) : null,
+    // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08), composed HERE and above the branch
+    // for the same reason the capability block is: both mapper paths carry it, and a slot set on
+    // only one of them goes missing for exactly the workers nobody renders in a test. The
+    // composition itself — which half prints, and the separator — lives in `buildLocationLine`,
+    // beside every other line this sheet composes.
+    //
+    // EACH HALF THROUGH `cleanScalar`, exactly as the container path screens `rp.current_city`.
+    // The write-side DTO bounds these to 80 characters and refuses control characters and an
+    // all-digits string — but it deliberately does NOT resolve them against the gazetteer, because
+    // this is the first screen of onboarding and a worker in Patna may not be turned away over the
+    // name of the place he lives. So the column holds free text a worker typed, it is rendered
+    // from storage on every download, and it reaches the EMPLOYER copy. That is the exact shape
+    // `cleanScalar` exists for (#831): a 7+ digit run or an email drops its half and the line
+    // prints the other one, or collapses. A read-path backstop is the only thing rows written
+    // before any future write-side screen will ever see.
+    locationLine: buildLocationLine({
+      city: cleanScalar(tradeSheet?.currentCity ?? null),
+      state: cleanScalar(tradeSheet?.currentState ?? null),
+    }),
     trustBadge: tradeSheet?.trustBadge ?? null,
     qrDataUri: tradeSheet?.qrDataUri ?? null,
     qrCaption: tradeSheet?.qrCaption ?? null,

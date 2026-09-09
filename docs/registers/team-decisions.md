@@ -298,3 +298,70 @@ consequence, accepted: an env still running an empty allowlist drops to mock unt
 `AI_REAL_CALL_TASKS` is set — set `AI_REAL_CALL_TASKS=profile_extraction` in prod
 **before** the deploy carrying this change. See the production release runbook
 ("AI real calls went LIVE") for the deployed-vs-repo split.
+
+### 2026-09-08 — Résumé: "Fresher" for a worker with no work history, the registered location under the name, and proper-noun casing
+Three owner rulings on the `bb_trade` sheet. The first two are about what a **form-first** worker's
+page says about him when the pipeline has nothing to say; the third is about how what he typed is
+printed.
+
+**1. "Fresher" instead of "duration not stated."** The tenure segment had two outputs: a stated
+figure, or §11 #3's honest unknown. §6.2's status word was reachable only through a role that
+DECLARES a fresher rung (`RoleFresherVocabulary.tenureValue`), which is `qp_cad_drafting` and
+nothing else — so on the other twenty roles every genuine fresher printed "duration not stated"
+over the top of his own résumé. The ruling: *"In resume for Freshers (someone not added work
+experience) 'duration not stated' is written, I want 'Fresher' mentioned there."*
+Implemented as a SECOND, NARROWER route in `fresherTenureLabel`: the role's own tenure gate
+answered at its lowest rung (stored 0 — the same value every pack's fresher questions are gated
+on, `ask_if <tenure> <= 0`), **and** no `worker_employment` rows. A stated figure still wins
+outright, so the eleven-month man that the earlier refusal was written to protect keeps his
+experience the moment he records any of it — which is what makes this a bounded exception to §11
+#3's "never inferred" rather than a repeal of it. The premise that rung 0 is the lowest rung is
+pinned per role in `role-corpus-parity.guard.test.ts`.
+
+**2. The worker's registered city and state print under his name.** *"In all the 21 profiles, that
+is form-based profiling, there is nowhere that the current location of the candidate is asked but
+we do ask that while registering — show the current location just below the Full Name in small
+letter."* The gap was structural: the trade form runs no extraction, so
+`location_preference.current_city` is never written for a form-first worker (P-018) and the Verdict
+Line's city segment — the sheet's only location — collapsed for all of them. A résumé with no place
+on it cannot be acted on by a supervisor hiring for one plant. Source is
+`workers.current_city` / `current_state`, the first-party answer typed at onboarding (#1428), on
+BOTH audiences: a city is on the never-redact list (2026-07-31, *"cities as PII → a 20-point
+matching input"*) and the Verdict Line has printed one on the payer copy since the sheet shipped.
+The three things the employer copy withholds stay exactly three.
+*Not merged with the Verdict Line's city, deliberately:* that segment is the model's reading of a
+conversation and keeps composing from the snapshot. Two sources, two lines; a chat-extracted
+profile can therefore print its city twice, which is the accepted cost of leaving §6.2's ratified
+line untouched.
+
+**3. Company names and places print as proper nouns.** *"Work history where company name is there I
+want the first letter of each word in company letter to be capital. Also the location's first letter
+should be capital."* Employer names and cities are typed by hand on a phone, so `sandhar
+technologies pvt ltd` and `gurugram` are ordinary input, and printed verbatim they read as
+carelessness by the worker on the one document he hands across a gate. `titleCaseName`
+(`resume-text-case.ts`) raises a lowercase letter in a leading position and **never lowercases
+anything** — which is what keeps `TVS`, `JBM` and `L&T` from becoming `Tvs`, `Jbm` and `L&t`, a
+worse error than the one being fixed. Applied to the employer name, its city/state suffix and the
+new masthead line; NOT to role labels (`cnc turner` → `Cnc Turner` is a misspelt trade) or to the
+worker's own words, which are verbatim by contract. The §11 #4 literal "Contract work" is exempt —
+it is a guideline label, not a company the worker named. §8 is unaffected: the source and the word
+are unchanged, and the fabrication gate's containment is now case-insensitive to say so.
+
+**What the location line costs the page, measured.** The line model charges it 4.99 mm against a
+4.89 mm body line (9 pt × 1.32 + 0.8 mm margin), i.e. one line, under-counting by 2% of a line. On
+the fourteen-shape matrix that flips three synthetic stress sheets from one page to two —
+`shape-11-worker`, and the payer copies of 5 and 6, whose "employers beyond three" collapse used to
+reach exactly 41.19 lines and now cannot buy the page. The ratified corpus measures 24–37 lines and
+is unaffected. That outcome is the 2026-09-03 ruling working as written (spill rather than shed a
+ratified row), and it is asserted rather than described, in `sheet-shape-matrix.test.ts`.
+
+**The residual risk on ruling 1, recorded because it should not have to be rediscovered.** A
+form-first worker has no surface on which to state months: the universal `experience_years` ask
+never runs for him, the finishing form has no experience key, and the work-history screen is the one
+this rule reads as empty. So "under a year, nothing filed" is the whole of what the system knows
+about him, and an eleven-month operator prints as `Fresher` beside a genuine pass-out. The ruling
+was taken against the alternative he gets today — `duration not stated`, which in this market reads
+as something withheld. The follow-up that would end the inference is a **corpus** change, not a
+renderer one: give the eight non-drafting packs a real bottom rung ("koi tajurba nahi" beside "1
+saal se kam", the shape `qp_cad_drafting` already has) and declare it as `fresher.tenureValue`.
+Route 1 then covers every role and route 2 can be deleted.
