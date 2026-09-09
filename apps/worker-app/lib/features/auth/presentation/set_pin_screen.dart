@@ -15,12 +15,17 @@ import 'widgets/bb_set_pin_form.dart';
 /// screen together (no next-screen transition between them), driven by the OS
 /// numeric keyboard via [BbSetPinForm] — not a custom on-screen keypad.
 ///
-/// Every error the worker can hit is a CENTRED, blocking [showBbAlert]:
-///  - a guessable PIN (1111 / 1234) is a HARD CLIENT BLOCK, explained in a
-///    dialog ([BbSetPinForm] owns this).
+/// THE WORKER PICKS THEIR OWN PIN (#1464). There is NO strength gate on this
+/// client — 1234, 1111 and 0000 are all accepted and submitted. The screen
+/// used to hard-block a guessable first entry behind a dialog before the
+/// confirm row was ever reachable; that is gone.
+///
+/// Every error the worker can still hit is a CENTRED, blocking [showBbAlert]:
 ///  - a confirm mismatch clears both rows and explains in a dialog
-///    ([BbSetPinForm] owns this too).
+///    ([BbSetPinForm] owns this).
 ///  - a server rejection surfaces its full reason here and resets both rows.
+///    The API still runs its own weak-PIN denylist, so a guessable PIN comes
+///    back through THIS path until that policy is lifted (issue #1462).
 ///
 /// On success the manager authenticates; a new user continues onboarding
 /// (consent), a reset returns to the shell.

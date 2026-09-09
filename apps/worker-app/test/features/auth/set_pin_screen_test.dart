@@ -106,15 +106,20 @@ void main() {
     expect(cubit.submitted, <String>['1234']);
   });
 
-  testWidgets('an all-same PIN is accepted too', (WidgetTester tester) async {
-    await pumpScreen(tester);
-    await enterFirst(tester, '1111');
-    await enterConfirm(tester, '1111');
-    await tester.pump();
+  // Every PIN the old client-side heuristic used to reject, one test each —
+  // all-same, straight run, and the all-zero case.
+  for (final String pin in <String>['1111', '0000', '4321']) {
+    testWidgets('the guessable PIN $pin is accepted and submitted',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await enterFirst(tester, pin);
+      await enterConfirm(tester, pin);
+      await tester.pump();
 
-    expect(find.text('Yeh PIN aasan hai'), findsNothing);
-    expect(cubit.submitted, <String>['1111']);
-  });
+      expect(find.text('Yeh PIN aasan hai'), findsNothing);
+      expect(cubit.submitted, <String>[pin]);
+    });
+  }
 
   testWidgets('a mismatched confirm shows the mismatch dialog and clears both rows',
       (WidgetTester tester) async {
