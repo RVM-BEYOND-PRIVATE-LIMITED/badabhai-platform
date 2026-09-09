@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { type Database, workerEmployment, workerEmploymentRole } from "@badabhai/db";
+import { type Database, voiceNotes, workerEmployment, workerEmploymentRole } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -67,6 +67,7 @@ export class WorkerEmploymentRepository {
         startYm: string | null;
         endYm: string | null;
         workDone: string | null;
+        workDoneVoiceNoteId: string | null;
       }[];
     }[],
   ): Promise<{ replacedExisting: boolean }> {
@@ -106,6 +107,7 @@ export class WorkerEmploymentRepository {
             startYm: role.startYm,
             endYm: role.endYm,
             workDone: role.workDone,
+            workDoneVoiceNoteId: role.workDoneVoiceNoteId,
             // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
             // `sortOrder` follows one statement up, and for the same reason: a promotion in the
             // same month as its predecessor has no date to sort by, and re-deriving would
@@ -117,6 +119,31 @@ export class WorkerEmploymentRepository {
 
       return { replacedExisting: existing.length > 0 };
     });
+  }
+
+  /**
+   * Of `ids`, which voice notes actually belong to THIS worker.
+   *
+   * THE FOREIGN KEY IS NOT THE CHECK. `work_done_voice_note_id` references `voice_notes(id)`, so
+   * the database proves the clip EXISTS and nothing more — a worker who guessed or replayed
+   * another worker's note id would write a row whose provenance points at audio that is not
+   * theirs. The FK cannot express ownership because `voice_notes.worker_id` is on the other row.
+   *
+   * A SCOPED READ, NOT A JOIN ON THE WRITE. Returning the owned subset lets the SERVICE decide
+   * what an unowned id means (it fails the request closed) rather than this method silently
+   * dropping one, which would store a description whose recording quietly vanished.
+   *
+   * `voice_notes` is read here rather than through `VoiceService` on purpose: `ProfilesModule`
+   * importing `VoiceModule` would close a cycle (`VoiceModule` -> `ChatModule` -> `ProfilesModule`),
+   * and this is one scoped SELECT of two columns, not a reach into the voice layer's writes.
+   */
+  async findOwnedVoiceNoteIds(workerId: string, ids: readonly string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const rows = await this.db
+      .select({ id: voiceNotes.id })
+      .from(voiceNotes)
+      .where(and(eq(voiceNotes.workerId, workerId), inArray(voiceNotes.id, [...new Set(ids)])));
+    return new Set(rows.map((r) => r.id));
   }
 
   /**

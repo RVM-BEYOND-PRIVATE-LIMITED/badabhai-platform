@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uuidSchema } from "@badabhai/validators";
 
 /**
  * The post-interview work-history form (R4 Q1, ruled: "Option A, simplified").
@@ -56,11 +57,31 @@ const EmploymentRoleSchema = z
     /** Null means CURRENT for this stint — the worker still holds this title. */
     end_ym: yearMonth.nullable().default(null),
     work_done: z.string().trim().min(1).max(300).nullable().default(null),
+    /**
+     * The clip this stint's {@link work_done} was SPOKEN into, when the worker used the mic.
+     *
+     * OPTIONAL AND ADDITIVE. Every shipped client omits it and keeps working unchanged — the same
+     * widening discipline `roles` was added under. Absent means "typed", which is what every row
+     * written before this shipped means too.
+     *
+     * The text is still sent in `work_done` and is still the answer of record: the client puts the
+     * transcript in the box, the worker edits it if the ASR misheard, and what they submit is what
+     * the sheet prints. This id only records where the first draft came from — which is why it may
+     * accompany an EDITED description without lying.
+     */
+    work_done_voice_note_id: uuidSchema.nullable().default(null),
   })
   .strict()
   .refine((r) => r.end_ym === null || r.start_ym === null || r.end_ym >= r.start_ym, {
     message: "end_ym must not precede start_ym",
     path: ["end_ym"],
+  })
+  // A CLIP WITHOUT A DESCRIPTION IS NOT AN ANSWER. The transcript is what the worker submits; a
+  // recording whose text was cleared says the worker rejected it, and keeping the id would leave
+  // provenance pointing at a description that is not there.
+  .refine((r) => r.work_done !== null || r.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id requires work_done",
+    path: ["work_done_voice_note_id"],
   });
 
 const EmploymentEntrySchema = z
@@ -86,6 +107,8 @@ const EmploymentEntrySchema = z
      */
     role_label: z.string().trim().min(1).max(80).optional(),
     work_done: z.string().trim().min(1).max(300).nullable().default(null),
+    /** The shorthand's clip. See {@link EmploymentRoleSchema.work_done_voice_note_id}. */
+    work_done_voice_note_id: uuidSchema.nullable().default(null),
     /** Two or more titles at one employer — a promotion. See {@link EmploymentRoleSchema}. */
     roles: z.array(EmploymentRoleSchema).min(1).max(ROLES_PER_EMPLOYMENT_MAX).optional(),
   })
@@ -109,6 +132,15 @@ const EmploymentEntrySchema = z
   .refine((e) => e.roles === undefined || e.work_done === null, {
     message: "work_done belongs on each role when roles is used",
     path: ["work_done"],
+  })
+  // The clip travels with the description it produced, so it obeys the same two rules.
+  .refine((e) => e.roles === undefined || e.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id belongs on each role when roles is used",
+    path: ["work_done_voice_note_id"],
+  })
+  .refine((e) => e.work_done !== null || e.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id requires work_done",
+    path: ["work_done_voice_note_id"],
   });
 
 export const SetMyEmploymentSchema = z

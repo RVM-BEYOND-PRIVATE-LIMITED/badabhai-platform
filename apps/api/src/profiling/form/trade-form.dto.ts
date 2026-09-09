@@ -129,6 +129,21 @@ export const TradeFormSchemaResponse = z.object({
   /** Pinned, so an answer written against v1 is never replayed into a v2 form. */
   pack_id: z.string(),
   pack_version: z.number().int().positive(),
+  /**
+   * The interview that handed this worker the form — the same id every row the form writes
+   * already carries as provenance (`worker_pack_answer.chat_session_id`).
+   *
+   * SERVED BECAUSE THE MIC NEEDS IT. `POST /voice/upload` takes a `session_id` and `voice_notes`
+   * requires one (NOT NULL, referencing `chat_sessions`), so the work-history page cannot record
+   * a description without one. The client must not invent or cache it: the form is resumable
+   * after a cold start, and a stale id from a previous interview would file the clip under the
+   * wrong conversation.
+   *
+   * NOT A SECRET AND NOT A CAPABILITY. It is this worker's own session, the client already holds
+   * it on the chat surface, and every voice route re-derives the worker from the bearer token —
+   * so possessing it grants nothing the token does not already grant.
+   */
+  session_id: z.string().uuid(),
   sections: z.array(SectionSchema),
 });
 export type TradeFormSchemaResponse = z.infer<typeof TradeFormSchemaResponse>;

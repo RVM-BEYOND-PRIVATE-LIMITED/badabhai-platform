@@ -42,6 +42,30 @@ export class WorkerEmploymentService {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
+    // EVERY CLIP MUST BE THIS WORKER'S, PROVED BEFORE ANYTHING IS WRITTEN (§3 fail closed).
+    //
+    // The foreign key proves only that the note exists. `voice_notes.worker_id` lives on the
+    // other row, so ownership is unexpressible as a constraint and has to be checked here — a
+    // worker who replayed someone else's note id would otherwise store a description whose
+    // provenance points at another person's audio.
+    //
+    // 404, NOT 403, and never naming the id: telling an attacker "that note exists but is not
+    // yours" is the oracle the rest of this codebase refuses to be. Same shape as the ownership
+    // check on the voice read route.
+    const claimedNoteIds = dto.employments.flatMap((e) =>
+      e.roles !== undefined
+        ? e.roles.flatMap((r) => (r.work_done_voice_note_id ? [r.work_done_voice_note_id] : []))
+        : e.work_done_voice_note_id
+          ? [e.work_done_voice_note_id]
+          : [],
+    );
+    if (claimedNoteIds.length > 0) {
+      const owned = await this.employment.findOwnedVoiceNoteIds(workerId, claimedNoteIds);
+      if (claimedNoteIds.some((id) => !owned.has(id))) {
+        throw new NotFoundException("voice note not found");
+      }
+    }
+
     const rows = dto.employments.map((e) => ({
       employerNameEnc: this.pii.encrypt(e.employer_name),
       employerCity: e.employer_city,
@@ -67,6 +91,7 @@ export class WorkerEmploymentService {
               startYm: r.start_ym,
               endYm: r.end_ym,
               workDone: r.work_done,
+              workDoneVoiceNoteId: r.work_done_voice_note_id,
             }))
           : [
               {
@@ -74,6 +99,7 @@ export class WorkerEmploymentService {
                 startYm: e.start_ym,
                 endYm: e.end_ym,
                 workDone: e.work_done,
+                workDoneVoiceNoteId: e.work_done_voice_note_id,
               },
             ],
     }));
