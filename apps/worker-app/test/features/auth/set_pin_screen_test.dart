@@ -250,11 +250,33 @@ void main() {
       expect(field.style!.color, Colors.transparent);
       // No selection handles, no toolbar: a PIN must not reach the clipboard.
       expect(field.enableInteractiveSelection, isFalse);
+      // NULL, not an empty list. Flutter only builds a DISABLED
+      // AutofillConfiguration for null — an empty list is still "not null", so
+      // it shipped the PIN's own editing value to the autofill service.
+      expect(field.autofillHints, isNull);
+      // And the keyboard must not fold a credential into its learned model
+      // (Flutter defaults this true; obscureText does not change it).
+      expect(field.enableIMEPersonalizedLearning, isFalse);
       // And the digits still never reach the screen.
       for (final String d in <String>['3', '9', '2', '7']) {
         expect(find.text(d), findsNothing);
       }
     });
+  });
+
+  // 4 boxes x 56 plus their 8px side padding need 288, but a 320dp handset
+  // inside the 20px gutter offers 280 — an 8px RenderFlex overflow, yellow
+  // stripes and all, on the cheapest phones the product targets.
+  testWidgets('the narrowest handset (320dp) does not overflow',
+      (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await pumpScreen(tester);
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a short screen scrolls instead of overflowing',

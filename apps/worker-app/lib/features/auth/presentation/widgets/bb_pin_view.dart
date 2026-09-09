@@ -101,7 +101,14 @@ class BbPinView extends StatelessWidget {
     final Color borderOn = error ? AppColors.danger : AppColors.blue;
     const Color borderOff = AppColors.borderStrong;
     final int active = _activeIndex;
-    return Row(
+    // Four 56px boxes plus their 8px side padding need 288, but a 320dp
+    // handset inside the auth screens' 20px gutter offers 280 — an 8px
+    // RenderFlex overflow, complete with the yellow stripes, on the cheapest
+    // phones the product targets. scaleDown is inert at 360dp and above, so
+    // the design is untouched everywhere it already fitted.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
         for (int i = 0; i < length; i++)
@@ -109,9 +116,15 @@ class BbPinView extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s2),
             child: AnimatedScale(
               // Fill → overshoot then settle (the pop); empty → ease back down.
-              // The ACTIVE slot also sits full-size, so the box being typed
-              // into is the biggest thing in the row even while still empty.
-              scale: i < filled || i == active ? 1.0 : _emptyScale,
+              //
+              // The ACTIVE slot is deliberately NOT forced to full size. Doing
+              // that killed the pop outright: the slot about to be typed into
+              // was already at 1.0, so the digit landing in it changed no
+              // scale at all — and that slot is the ONLY one a digit ever
+              // lands in. The pop is the one piece of feedback a worker who
+              // cannot see the digit actually gets. The active slot is marked
+              // by its ring and its caret instead, neither of which is a size.
+              scale: i < filled ? 1.0 : _emptyScale,
               duration: Duration(milliseconds: i < filled ? 260 : 160),
               curve: i < filled ? Curves.easeOutBack : Curves.easeOut,
               child: AnimatedContainer(
@@ -136,6 +149,7 @@ class BbPinView extends StatelessWidget {
             ),
           ),
       ],
+      ),
     );
   }
 
@@ -184,9 +198,10 @@ class _BbPinCaret extends StatefulWidget {
 
 class _BbPinCaretState extends State<_BbPinCaret>
     with SingleTickerProviderStateMixin {
-  /// Flutter's own `_kCursorBlinkHalfPeriod`, so the PIN boxes blink at exactly
+  /// One full on-then-off cycle: two 500ms halves, so each half matches
+  /// Flutter's own `_kCursorBlinkHalfPeriod` and the PIN boxes blink at exactly
   /// the rate every other text field on the worker's device does.
-  static const Duration _halfPeriod = Duration(milliseconds: 500);
+  static const Duration _period = Duration(milliseconds: 1000);
 
   /// Built EAGERLY in [initState], never lazily. A `late final` initialiser
   /// that the frozen-caret path skips would instead run inside [dispose], and
@@ -197,9 +212,9 @@ class _BbPinCaretState extends State<_BbPinCaret>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: _halfPeriod);
+    _controller = AnimationController(vsync: this, duration: _period);
     if (!BbPinView.debugDeterministicCaret) {
-      _controller.repeat(reverse: true);
+      _controller.repeat();
     }
   }
 
@@ -214,9 +229,17 @@ class _BbPinCaretState extends State<_BbPinCaret>
     return FadeTransition(
       // Blink off (widget tests) still PAINTS the caret at full opacity — it is
       // present and assertable, it just stops scheduling frames.
+      // A HARD toggle, not a fade. Driving the opacity linearly made a 2.5px
+      // bar spend most of its life part-transparent, which reads as a smudge
+      // rather than a cursor; [Threshold] snaps it fully on for the first half
+      // of the cycle and fully off for the second, the way the Android caret
+      // the worker already knows behaves.
       opacity: BbPinView.debugDeterministicCaret
           ? const AlwaysStoppedAnimation<double>(1)
-          : _controller.drive(Tween<double>(begin: 1, end: 0)),
+          : _controller.drive(
+              Tween<double>(begin: 1, end: 0)
+                  .chain(CurveTween(curve: const Threshold(0.5))),
+            ),
       child: Container(
         key: kPinCaretKey,
         width: BbPinView.caretWidth,
