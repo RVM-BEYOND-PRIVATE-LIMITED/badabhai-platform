@@ -1258,16 +1258,17 @@ function cleanScalar(value: string | null): string | null {
  * stated total nor a datable job is a genuine unknown and §11 #3 requires the sheet to say so.
  * What is gone is the case where he stated it plainly and the sheet said nobody asked.
  *
- * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
- * decision made here — `tenurePhrase` maps a bare 0 to the unknown text, pinned by a test whose
- * comment reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
- * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ * A STATED ZERO STILL YIELDS NO FIGURE, and that is a live question rather than a decision made
+ * here — `tenurePhrase` maps a bare 0 to no number, pinned by a test. Whether it should mean
+ * "fresher" is a wording ruling; recorded in the gap table, not taken.
  *
- * STILL OPEN, AND NARROWED RATHER THAN ANSWERED. `buildVerdictLine.tenureLabel` now lets a worker
- * whose ROLE FORM carried a fresher rung print "Fresher" — a closed-vocabulary status label with
- * provenance, not a reading of a bare number. This function still receives `number | null` and
- * still cannot tell a stated zero from an absent answer, so the ruling above is exactly where it
- * was: untouched, and asserted untouched in `resume-sheet-rows.test.ts`.
+ * ANSWERED IN PRACTICE, THOUGH NOT IN THIS FUNCTION, BY THE 2026-09-09 RULING. What the sheet
+ * prints for that worker is no longer the unknown text: `tenureStatusLabel` reads his role form's
+ * tier rung and prints the band it names ("Fresher", "Under 1 yr", "1–3 yrs" …), which is a
+ * closed-vocabulary label carrying his own answer rather than a reading of a bare number. This
+ * function still receives `number | null` and still cannot tell a stated zero from an absent
+ * answer — the ruling above is where it was — but the worker it was about now gets a line that
+ * says something.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
   const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
