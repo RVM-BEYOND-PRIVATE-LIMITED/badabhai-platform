@@ -157,10 +157,23 @@ class TradeForm extends Equatable {
     required this.packId,
     required this.packVersion,
     required this.sections,
+    this.sessionId,
   });
 
   final String kind;
   final String packId;
+
+  /// The profiling session this form belongs to (`session_id`, #1472).
+  ///
+  /// SERVED BECAUSE THE MIC NEEDS IT: `POST /voice/upload` files a clip under a
+  /// session, and a spoken work description has to land in the one this form is
+  /// part of. NEVER cached and NEVER a chat session id — the form is resumable
+  /// across a cold start, so a stale id files the clip under the wrong
+  /// conversation. It is re-read from every schema response.
+  ///
+  /// Null on an older server that does not send it; the caller treats that as
+  /// "no mic", exactly like a 503.
+  final String? sessionId;
 
   /// Pinned so a client never replays an answer written against a different
   /// pack version — carried for parity with the wire contract even though
@@ -174,7 +187,8 @@ class TradeForm extends Equatable {
       .whereType<TradeFormQuestionStep>();
 
   @override
-  List<Object?> get props => <Object?>[kind, packId, packVersion, sections];
+  List<Object?> get props =>
+      <Object?>[kind, packId, packVersion, sections, sessionId];
 }
 
 /// One answer submitted via `POST /profiling/form/answer` — a discriminated
@@ -382,6 +396,7 @@ class TradeFormEmploymentEntry extends Equatable {
     this.startYm,
     this.endYm,
     this.workDone,
+    this.workDoneVoiceNoteId,
   });
 
   final String employerName;
@@ -395,6 +410,15 @@ class TradeFormEmploymentEntry extends Equatable {
   /// "YYYY-MM" or null. Null = CURRENT (still working here) — never "missing".
   final String? endYm;
   final String? workDone;
+
+  /// The clip [workDone] was SPOKEN into, when the worker used the mic (#1472).
+  ///
+  /// PROVENANCE ONLY — the text in [workDone] is still the answer of record and
+  /// still what prints on the résumé; the transcript is a draft the worker
+  /// edits. The server REFUSES an id without text
+  /// (`work_done_voice_note_id requires work_done`), so clearing the
+  /// description must clear this too — see [toJson].
+  final String? workDoneVoiceNoteId;
 
   bool get isComplete =>
       employerName.trim().isNotEmpty && roleLabel.trim().isNotEmpty;
@@ -416,6 +440,7 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? startYm = _sentinel,
     Object? endYm = _sentinel,
     Object? workDone = _sentinel,
+    Object? workDoneVoiceNoteId = _sentinel,
   }) {
     return TradeFormEmploymentEntry(
       employerName: employerName ?? this.employerName,
@@ -429,6 +454,9 @@ class TradeFormEmploymentEntry extends Equatable {
       startYm: startYm == _sentinel ? this.startYm : startYm as String?,
       endYm: endYm == _sentinel ? this.endYm : endYm as String?,
       workDone: workDone == _sentinel ? this.workDone : workDone as String?,
+      workDoneVoiceNoteId: workDoneVoiceNoteId == _sentinel
+          ? this.workDoneVoiceNoteId
+          : workDoneVoiceNoteId as String?,
     );
   }
 
@@ -445,6 +473,7 @@ class TradeFormEmploymentEntry extends Equatable {
       return (t == null || t.isEmpty) ? null : t;
     }
 
+    final String? work = trimOrNull(workDone);
     return <String, dynamic>{
       'employer_name': titleCaseName(employerName.trim()),
       'employer_city': trimOrNull(employerCity),
@@ -452,7 +481,14 @@ class TradeFormEmploymentEntry extends Equatable {
       'start_ym': startYm,
       'end_ym': endYm,
       'role_label': titleCaseName(roleLabel.trim()),
-      'work_done': trimOrNull(workDone),
+      'work_done': work,
+      // GATED ON THE TEXT, deliberately (#1472). The server refuses an id with
+      // no description — "work_done_voice_note_id requires work_done" — and
+      // refuses the WHOLE submission, so a worker who records a clip and then
+      // clears the box would lose their entire work history to a 400. The clip
+      // is provenance for a description; with no description it is provenance
+      // for nothing, so it is dropped here rather than sent.
+      'work_done_voice_note_id': work == null ? null : workDoneVoiceNoteId,
     };
   }
 
@@ -465,6 +501,7 @@ class TradeFormEmploymentEntry extends Equatable {
         startYm,
         endYm,
         workDone,
+        workDoneVoiceNoteId,
       ];
 }
 
