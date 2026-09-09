@@ -40,9 +40,16 @@ const String _kCityHint = 'Sheher ka naam likhein';
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 
-const String _kPayEduTitle = 'Salary aur padhai';
-const String _kPayEduSubtitle = 'Jo laagu ho, wahi bharein — sab optional hai.';
-const String _kSalaryMaxLabel = 'Mahine ki salary kitni chahte hain?';
+// #1471 — one "Salary aur padhai" page carried FIVE questions and had to be
+// scrolled. Three pages now, one idea each; every one stays optional.
+const String _kSalaryTitle = 'Mahine ki salary';
+const String _kSalarySubtitle = 'Jitni chahte hain, wahi chunein — optional hai.';
+
+const String _kEduTitle = 'ITI ya Diploma';
+const String _kEduSubtitle = 'Agar kiya hai to chunein — optional hai.';
+
+const String _kEduDetailTitle = 'Padhai ki detail';
+const String _kEduDetailSubtitle = 'Saal aur institute — optional hai.';
 const String _kCredentialLabel = 'Agar ITI ya Diploma hai to kaun sa?';
 const String _kCouncilLabel = 'Council / board';
 const String _kEduYearLabel = 'Kis saal poora hua';
@@ -231,7 +238,9 @@ class _WizardScaffold extends StatelessWidget {
     _kDocTitle,
     _kShiftTitle,
     _kCitiesTitle,
-    _kPayEduTitle,
+    _kSalaryTitle,
+    _kEduTitle,
+    _kEduDetailTitle,
     _kHistoryTitle,
   ];
   static const List<String> _subtitles = <String>[
@@ -239,7 +248,9 @@ class _WizardScaffold extends StatelessWidget {
     _kDocSubtitle,
     _kShiftSubtitle,
     _kCitiesSubtitle,
-    _kPayEduSubtitle,
+    _kSalarySubtitle,
+    _kEduSubtitle,
+    _kEduDetailSubtitle,
     _kHistorySubtitle,
   ];
 
@@ -341,8 +352,12 @@ class _PageBody extends StatelessWidget {
         );
       case FinishingPage.cities:
         return _CitiesPage(state: state);
-      case FinishingPage.salaryEducation:
-        return _SalaryEducationPage(state: state);
+      case FinishingPage.salary:
+        return _SalaryPage(state: state);
+      case FinishingPage.education:
+        return _EducationPage(state: state);
+      case FinishingPage.educationDetail:
+        return _EducationDetailPage(state: state);
       case FinishingPage.history:
         return _HistoryPage(state: state);
     }
@@ -559,14 +574,64 @@ class _ToggleRow extends StatelessWidget {
 /// captured. Salary is a single-select BAND (#1312) whose upper bound is sent as
 /// `salary_expected_max`; the year field is still range-guarded at the edge, so
 /// an out-of-range entry simply produces no year.
-class _SalaryEducationPage extends StatefulWidget {
-  const _SalaryEducationPage({required this.state});
+/// #1471 — the money question, alone. The band picker is the only thing on
+/// screen, so a worker who cannot read the labels still sees six options and a
+/// button without scrolling.
+class _SalaryPage extends StatelessWidget {
+  const _SalaryPage({required this.state});
   final FinishingState state;
+
   @override
-  State<_SalaryEducationPage> createState() => _SalaryEducationPageState();
+  Widget build(BuildContext context) {
+    return _SalaryBandChips(
+      selected: state.prefs.salaryExpectedMax,
+      onTap: context.read<FinishingCubit>().setSalaryMax,
+    );
+  }
 }
 
-class _SalaryEducationPageState extends State<_SalaryEducationPage> {
+/// The two education CHIP questions — what was studied, and under whom.
+/// Closed sets, so they answer in a tap each and fit together.
+class _EducationPage extends StatelessWidget {
+  const _EducationPage({required this.state});
+  final FinishingState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final FinishingCubit cubit = context.read<FinishingCubit>();
+    final WorkPreferences prefs = state.prefs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _SectionLabel(_kCredentialLabel),
+        _SingleChips(
+          labels: _kCredentials,
+          selected: prefs.educationCredential,
+          onTap: cubit.selectCredential,
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _SectionLabel(_kCouncilLabel),
+        _SingleChips(
+          labels: _kCouncils,
+          selected: prefs.educationCouncil,
+          onTap: cubit.selectCouncil,
+        ),
+      ],
+    );
+  }
+}
+
+/// The two education TEXT fields — year and institute. Kept together and kept
+/// LAST: they are the only ones that open a keyboard, which is what made the
+/// combined page unusable (the keyboard covered the questions above it).
+class _EducationDetailPage extends StatefulWidget {
+  const _EducationDetailPage({required this.state});
+  final FinishingState state;
+  @override
+  State<_EducationDetailPage> createState() => _EducationDetailPageState();
+}
+
+class _EducationDetailPageState extends State<_EducationDetailPage> {
   late final TextEditingController _year = TextEditingController(
       text: widget.state.prefs.educationYear?.toString() ?? '');
   late final TextEditingController _institute = TextEditingController(
@@ -588,30 +653,9 @@ class _SalaryEducationPageState extends State<_SalaryEducationPage> {
   @override
   Widget build(BuildContext context) {
     final FinishingCubit cubit = context.read<FinishingCubit>();
-    final WorkPreferences prefs = widget.state.prefs;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _SectionLabel(_kSalaryMaxLabel),
-        _SalaryBandChips(
-          selected: prefs.salaryExpectedMax,
-          onTap: cubit.setSalaryMax,
-        ),
-        const SizedBox(height: AppSpacing.s5),
-        _SectionLabel(_kCredentialLabel),
-        _SingleChips(
-          labels: _kCredentials,
-          selected: prefs.educationCredential,
-          onTap: cubit.selectCredential,
-        ),
-        const SizedBox(height: AppSpacing.s5),
-        _SectionLabel(_kCouncilLabel),
-        _SingleChips(
-          labels: _kCouncils,
-          selected: prefs.educationCouncil,
-          onTap: cubit.selectCouncil,
-        ),
-        const SizedBox(height: AppSpacing.s5),
         _SectionLabel(_kEduYearLabel),
         FinishingTextField(
           controller: _year,
