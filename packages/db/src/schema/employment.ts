@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  index,
   integer,
   pgTable,
   text,
@@ -10,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { voiceNotes } from "./chat";
 import { workers } from "./worker";
 
 /**
@@ -126,6 +128,26 @@ export const workerEmploymentRole = pgTable(
     /** "CNC turning, Fanuc · EN8, EN31 · automotive components". The worker's own description. */
     workDone: text("work_done"),
     /**
+     * The clip the worker SPOKE this description into, when they used the mic instead of typing.
+     *
+     * EVIDENCE, NOT THE VALUE — the same rule `profiling_voice_answer` states for a spoken pack
+     * answer. {@link workDone} stays the answer of record; this only says which recording produced
+     * it. Duplicating the transcript here would create a second description free to disagree with
+     * the one the sheet prints, and §8's fabrication gate measures against exactly one string.
+     *
+     * NULL IS THE ORDINARY STATE and always will be: every row written before this shipped, and
+     * every description a worker typed. Null means "typed, or we no longer hold the clip" — never
+     * "no description", which is {@link workDone} being null.
+     *
+     * `ON DELETE SET NULL`, matching `chat_messages.voice_note_id` exactly. The retention sweep
+     * exists to purge raw audio (`voice_notes_created_at_idx`, migration 0071), and a worker's
+     * work history must outlive the recording that produced it — a cascade here would delete the
+     * job itself when the clip aged out, which is the one outcome this column must never cause.
+     */
+    workDoneVoiceNoteId: uuid("work_done_voice_note_id").references(() => voiceNotes.id, {
+      onDelete: "set null",
+    }),
+    /**
      * The same description, rephrased into professional English by the model (#1350).
      *
      * A SECOND COLUMN, NEVER AN OVERWRITE. {@link workDone} stays the worker's actual words and
@@ -171,6 +193,11 @@ export const workerEmploymentRole = pgTable(
   (t) => [
     check("wer_role_label_chk", sql`length(btrim(${t.roleLabel})) BETWEEN 1 AND 80`),
     check("wer_work_done_len_chk", sql`${t.workDone} IS NULL OR length(${t.workDone}) <= 300`),
+    // THE RETENTION SWEEP'S INDEX, for the same reason `voice_notes_created_at_idx` exists.
+    // Postgres does not index a referencing column automatically, and `ON DELETE SET NULL` must
+    // find the referencing rows on every delete — so without this, purging a day of clips
+    // sequentially scans this table once per clip. Taken now, while it is cheap.
+    index("wer_work_done_voice_note_id_idx").on(t.workDoneVoiceNoteId),
     check(
       "wer_work_done_polished_len_chk",
       sql`${t.workDonePolished} IS NULL OR length(${t.workDonePolished}) <= 300`,

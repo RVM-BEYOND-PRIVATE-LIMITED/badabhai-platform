@@ -70,7 +70,7 @@ export class TradeFormService {
    * offline case — a worker on 2G in a shop floor basement — impossible rather than merely slow.
    */
   async schema(workerId: string): Promise<TradeFormSchemaResponse> {
-    const { kind } = await this.contextFor(workerId);
+    const { kind, sessionId } = await this.contextFor(workerId);
     const pack = await this.packFor(kind);
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const byKey = new Map(saved.map((row) => [row.questionKey, row]));
@@ -92,6 +92,7 @@ export class TradeFormService {
       kind,
       pack_id: pack.pack_id,
       pack_version: pack.version,
+      session_id: sessionId,
       sections: [
         {
           id: "capability",

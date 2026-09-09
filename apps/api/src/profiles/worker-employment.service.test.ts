@@ -9,8 +9,16 @@ const WORKER = "11111111-1111-4111-8111-111111111111";
 const CTX = { correlationId: "corr", requestId: "req" } as RequestContext;
 
 const EMPLOYER = "Sandhar Technologies Limited, Plant II";
+/** A clip this worker owns. */
+const VOICE_NOTE = "22222222-2222-4222-8222-222222222222";
+/** A real note id belonging to SOMEBODY ELSE — the IDOR this route must refuse. */
+const OTHERS_VOICE_NOTE = "33333333-3333-4333-8333-333333333333";
 
-function setup(stintsUpdated = 1, latestResume: unknown = null) {
+function setup(
+  stintsUpdated = 1,
+  latestResume: unknown = null,
+  ownedNoteIds: string[] = [VOICE_NOTE],
+) {
   // Typed explicitly. `vi.fn(async () => ...)` infers a ZERO-ARG signature, so `mock.calls[0][1]`
   // is a type error even though the call happens at runtime - the tests passed and tsc did not.
   type Row = {
@@ -22,6 +30,7 @@ function setup(stintsUpdated = 1, latestResume: unknown = null) {
       startYm: string | null;
       endYm: string | null;
       workDone: string | null;
+      workDoneVoiceNoteId: string | null;
     }[];
   };
   const replaceForWorker = vi.fn(async (_workerId: string, _rows: readonly Row[]) => ({
@@ -36,14 +45,20 @@ function setup(stintsUpdated = 1, latestResume: unknown = null) {
   // #1354 — the description-source write. Returns how many stints it updated; ZERO is the
   // not-this-worker's-employment answer, which the service must turn into a 404.
   const setPolishDeclined = vi.fn(async (_w: string, _e: string, _d: boolean) => stintsUpdated);
+  // The ownership read behind the mic (§3 fail closed). Returns only the ids this worker owns,
+  // exactly as the scoped SELECT does.
+  const findOwnedVoiceNoteIds = vi.fn(
+    async (_w: string, ids: readonly string[]) =>
+      new Set(ids.filter((id) => ownedNoteIds.includes(id))),
+  );
   const svc = new WorkerEmploymentService(
-    { replaceForWorker, setPolishDeclined } as never,
+    { replaceForWorker, setPolishDeclined, findOwnedVoiceNoteIds } as never,
     { findById: async () => ({ id: WORKER }), latestResume: async () => latestResume } as never,
     { encrypt } as never,
     { emit } as never,
     { add } as never,
   );
-  return { svc, replaceForWorker, emit, add, encrypt, setPolishDeclined };
+  return { svc, replaceForWorker, emit, add, encrypt, setPolishDeclined, findOwnedVoiceNoteIds };
 }
 
 const entry = (over: Record<string, unknown> = {}) => ({
@@ -148,14 +163,26 @@ describe("the work-history writer (R4 Q1)", () => {
           startYm: "2024-04",
           endYm: null,
           workDone: "Setting and first-piece",
+          workDoneVoiceNoteId: null,
         },
         {
           roleLabel: "CNC Turner",
           startYm: "2022-04",
           endYm: "2024-03",
           workDone: "Production turning",
+          workDoneVoiceNoteId: null,
         },
       ]);
+    });
+
+    it("carries the clip a stint's description was spoken into", async () => {
+      const spoken = promoted() as { roles: Record<string, unknown>[] };
+      spoken.roles[0]!.work_done_voice_note_id = VOICE_NOTE;
+      await h.svc.replaceForWorker(WORKER, parse([spoken]), CTX);
+      const written = h.replaceForWorker.mock.calls[0]![1];
+      expect(written[0]!.roles[0]!.workDoneVoiceNoteId).toBe(VOICE_NOTE);
+      // The stint the worker TYPED keeps a null, which is what distinguishes the two.
+      expect(written[0]!.roles[1]!.workDoneVoiceNoteId).toBeNull();
     });
 
     it("keeps each stint's OWN dates rather than the employment's", async () => {
@@ -299,5 +326,90 @@ describe("choosing which description prints (#1354)", () => {
     for (const secret of [EMPLOYER, "Manesar", "Haryana", EMPLOYMENT]) {
       expect(payload).not.toContain(secret);
     }
+  });
+});
+
+/**
+ * THE MIC ON THE WORK-HISTORY PAGE — the clip must be the worker's OWN.
+ *
+ * The foreign key proves the note exists and nothing else, because `voice_notes.worker_id` is on
+ * the other row. Ownership is therefore a service rule, and these are the tests that make it one.
+ */
+describe("a spoken work description", () => {
+  const spokenEntry = (noteId: string) => entry({ work_done_voice_note_id: noteId });
+
+  it("stores the clip id alongside the worker's own words", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(WORKER, parse([spokenEntry(VOICE_NOTE)]), CTX);
+    const written = h.replaceForWorker.mock.calls[0]![1];
+    expect(written[0]!.roles[0]!.workDoneVoiceNoteId).toBe(VOICE_NOTE);
+    // The transcript is still the answer of record — the id is evidence, never the value.
+    expect(written[0]!.roles[0]!.workDone).toBe("Twin-spindle lathes on steering housings");
+  });
+
+  it("REFUSES another worker's clip, and writes nothing", async () => {
+    const h = setup();
+    await expect(
+      h.svc.replaceForWorker(WORKER, parse([spokenEntry(OTHERS_VOICE_NOTE)]), CTX),
+    ).rejects.toThrow(/not found/i);
+    // Fail CLOSED: the whole submission is refused rather than the bad id being dropped, so a
+    // worker never silently loses the employer they just typed.
+    expect(h.replaceForWorker).not.toHaveBeenCalled();
+  });
+
+  it("404s rather than confirming the clip exists — no oracle", async () => {
+    const h = setup();
+    await expect(
+      h.svc.replaceForWorker(WORKER, parse([spokenEntry(OTHERS_VOICE_NOTE)]), CTX),
+    ).rejects.toThrow(/voice note not found/i);
+  });
+
+  it("checks ownership BEFORE the write, once, for every clip claimed", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(WORKER, parse([spokenEntry(VOICE_NOTE)]), CTX);
+    expect(h.findOwnedVoiceNoteIds).toHaveBeenCalledWith(WORKER, [VOICE_NOTE]);
+    expect(h.findOwnedVoiceNoteIds.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.replaceForWorker.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("does not touch the ownership read when nobody used the mic", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(WORKER, parse([entry()]), CTX);
+    expect(h.findOwnedVoiceNoteIds).not.toHaveBeenCalled();
+    expect(h.replaceForWorker.mock.calls[0]![1][0]!.roles[0]!.workDoneVoiceNoteId).toBeNull();
+  });
+
+  it("emits no clip id on the spine — it is worker-linked audio provenance", async () => {
+    const h = setup();
+    await h.svc.replaceForWorker(WORKER, parse([spokenEntry(VOICE_NOTE)]), CTX);
+    const payload = JSON.stringify(h.emit.mock.calls.at(-1)?.[0]?.payload ?? {});
+    expect(payload).not.toContain(VOICE_NOTE);
+  });
+});
+
+describe("the spoken-description contract", () => {
+  it("rejects a clip with no description — provenance for nothing", () => {
+    expect(() => parse([entry({ work_done: null, work_done_voice_note_id: VOICE_NOTE })])).toThrow(
+      /work_done_voice_note_id requires work_done/,
+    );
+  });
+
+  it("rejects a clip at the employment level when roles are used", () => {
+    expect(() =>
+      parse([
+        entry({
+          role_label: undefined,
+          work_done: null,
+          work_done_voice_note_id: VOICE_NOTE,
+          roles: [{ role_label: "CNC Turner", work_done: "Turning" }],
+        }),
+      ]),
+    ).toThrow(/work_done_voice_note_id belongs on each role/);
+  });
+
+  it("defaults to null, so every client that predates the mic keeps working", () => {
+    const parsed = parse([entry()]);
+    expect(parsed.employments[0]!.work_done_voice_note_id).toBeNull();
   });
 });

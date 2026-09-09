@@ -709,6 +709,13 @@
       "when": 1788587131759,
       "tag": "0100_lethal_phantom_reporter",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1788954562919,
+      "tag": "0101_charming_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,3 @@
+ALTER TABLE "worker_employment_role" ADD COLUMN "work_done_voice_note_id" uuid;--> statement-breakpoint
+ALTER TABLE "worker_employment_role" ADD CONSTRAINT "worker_employment_role_work_done_voice_note_id_voice_notes_id_fk" FOREIGN KEY ("work_done_voice_note_id") REFERENCES "public"."voice_notes"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "wer_work_done_voice_note_id_idx" ON "worker_employment_role" USING btree ("work_done_voice_note_id");

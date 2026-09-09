@@ -151,6 +151,15 @@ describe("TradeFormService", () => {
   vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
 
   describe("the schema", () => {
+    // THE MIC ON THE WORK-HISTORY PAGE DEPENDS ON THIS FIELD. `POST /voice/upload` takes a
+    // `session_id` and `voice_notes.session_id` is NOT NULL, so a form that does not serve one
+    // cannot record a spoken work description at all. Pinned so it is not dropped as unused.
+    it("serves the interview's session id, so the work-history mic has one to file a clip under", async () => {
+      const { service } = await makeService();
+      const schema = await service.schema(WORKER);
+      expect(schema.session_id).toBe(SESSION);
+    });
+
     it("asks the capability rows in the SHEET's array order, not the pack's and not by rank", async () => {
       const { service } = await makeService();
       const schema = await service.schema(WORKER);
