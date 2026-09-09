@@ -2,12 +2,20 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/widgets/feedback_fab.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 /// The floating Feedback button hides on the MINIMUM set: the pre-login auth
 /// screens (login, OTP, PIN — no session token yet), the splash, and the feedback
 /// page itself (anti-stack). It shows everywhere the worker is logged in,
 /// including the consent + name onboarding steps.
 void main() {
+  // #1466 — the unlock row now carries a BLINKING caret, and a perpetual blink
+  // keeps a frame scheduled forever, so every `pumpAndSettle` below would pump
+  // until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   group('showFeedbackOn', () {
     test('hidden on splash, the pre-login auth screens, chat routes, and self',
         () {

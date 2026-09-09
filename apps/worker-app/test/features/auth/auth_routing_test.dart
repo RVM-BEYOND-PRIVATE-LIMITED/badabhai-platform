@@ -19,6 +19,8 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 
 import '../../core/auth/fakes.dart';
 
@@ -121,6 +123,13 @@ Future<_Wired> _wire(
 }
 
 void main() {
+  // #1466 — the unlock row now carries a BLINKING caret, and a perpetual blink
+  // keeps a frame scheduled forever, so every `pumpAndSettle` below would pump
+  // until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   setUp(() {
     // A roomy canvas so the keypad + dots never clip under the test fallback font.
     // (Re-applied per test via tester.view.)
@@ -174,6 +183,35 @@ void main() {
         reason: 'the worker must be asked to CHOOSE a PIN');
     expect(find.text('PIN daalein'), findsNothing,
         reason: 'never ask for a PIN that was never set');
+  });
+
+  // #1466 — landing on set-PIN via #352 is only useful if the screen WORKS
+  // when it is reached that way. Reported as "user not able to type the PIN and
+  // not able to see the cursor or focus" on exactly this cold-start path.
+  testWidgets('the set-PIN screen reached by a cold start is focused, shows '
+      'the caret, and accepts digits', (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true, seedPinSet: false);
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN banayein'));
+
+    // The first row owns focus without the worker tapping anything, and says so.
+    final List<BbPinView> rows =
+        tester.widgetList<BbPinView>(find.byType(BbPinView)).toList();
+    expect(rows, hasLength(2));
+    expect(rows[0].focused, isTrue,
+        reason: 'the enter row must be live on arrival');
+    expect(rows[1].focused, isFalse);
+    expect(find.byKey(kPinCaretKey), findsOneWidget);
+
+    // And it actually takes digits.
+    await tester.enterText(find.byKey(kSetPinFirstFieldKey), '3927');
+    await tester.pump();
+    final List<BbPinView> after =
+        tester.widgetList<BbPinView>(find.byType(BbPinView)).toList();
+    expect(after[0].filled, 4);
+    // Four valid digits hand off to the confirm row — visibly.
+    expect(after[1].focused, isTrue);
   });
 
   testWidgets('cold start WITHOUT a refresh token -> phone login (/login)',

@@ -21,6 +21,13 @@ class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 /// filled through the verify, with a loader in place of the keypad; they clear
 /// ONLY on a wrong PIN, after the worker acknowledges it.
 void main() {
+  // #1466 — the unlock row now carries a BLINKING caret, and a perpetual blink
+  // keeps a frame scheduled forever, so every `pumpAndSettle` below would pump
+  // until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   late MockAuthSessionManager manager;
 
   setUp(() async {
@@ -52,6 +59,90 @@ void main() {
 
   int filledDots(WidgetTester tester) =>
       tester.widget<BbPinView>(find.byType(BbPinView)).filled;
+
+  // #1466 — "every screen or flow that has the PIN view must show the cursor
+  // and must be easy to edit if the wrong PIN is put in".
+  group('the cursor, and fixing a typo (#1466)', () {
+    Future<void> tapBackspace(WidgetTester tester) async {
+      await tester.tap(find.bySemanticsLabel(kBackspaceSemanticLabel));
+      await tester.pump();
+    }
+
+    testWidgets('the row shows a caret on the slot the next digit lands in',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+
+      expect(tester.widget<BbPinView>(find.byType(BbPinView)).focused, isTrue);
+      expect(find.byKey(kPinCaretKey), findsOneWidget);
+
+      await enterPin(tester, '39');
+      expect(filledDots(tester), 2);
+      // Still exactly one caret — it has moved with the worker, not multiplied.
+      expect(find.byKey(kPinCaretKey), findsOneWidget);
+    });
+
+    testWidgets('the caret goes away while the PIN is actually verifying',
+        (WidgetTester tester) async {
+      final Completer<void> verifying = Completer<void>();
+      when(() => manager.unlockWithPin(any()))
+          .thenAnswer((_) => verifying.future);
+      await pumpScreen(tester);
+
+      await enterPin(tester, '3927');
+      await tester.pump(BbPinView.fillPopSettle);
+      await tester.pump();
+
+      // Nothing can be typed during the verify, so nothing claims to be live.
+      expect(tester.widget<BbPinView>(find.byType(BbPinView)).focused, isFalse);
+      expect(find.byKey(kPinCaretKey), findsNothing);
+      verifying.complete();
+      await tester.pumpAndSettle();
+    });
+
+    // THE typo case. A mistyped LAST digit used to be unfixable: input froze
+    // for the fill-pop and the PIN submitted itself 300ms later, spending one
+    // of the five attempts before lockout on a mistake the worker had already
+    // spotted.
+    testWidgets('backspacing the 4th digit CANCELS the submit — no attempt is '
+        'spent on a typo', (WidgetTester tester) async {
+      when(() => manager.unlockWithPin(any())).thenAnswer((_) async {});
+      await pumpScreen(tester);
+
+      await enterPin(tester, '3928'); // last digit wrong
+      await tapBackspace(tester); // caught it, mid pop-beat
+
+      expect(filledDots(tester), 3);
+      // Let the cancelled submit's delay elapse in full.
+      await tester.pump(BbPinView.fillPopSettle);
+      await tester.pump();
+      verifyNever(() => manager.unlockWithPin(any()));
+
+      // And the corrected PIN still submits normally.
+      await enterPin(tester, '7');
+      await tester.pump(BbPinView.fillPopSettle);
+      await tester.pump();
+      verify(() => manager.unlockWithPin('3927')).called(1);
+    });
+
+    testWidgets('backspace works at every point, not only below 4 digits',
+        (WidgetTester tester) async {
+      when(() => manager.unlockWithPin(any())).thenAnswer((_) async {});
+      await pumpScreen(tester);
+
+      await enterPin(tester, '3927');
+      for (int i = 3; i >= 0; i--) {
+        await tapBackspace(tester);
+        expect(filledDots(tester), i);
+      }
+      await tester.pump(BbPinView.fillPopSettle);
+      await tester.pump();
+      verifyNever(() => manager.unlockWithPin(any()));
+      // An empty row cannot go negative.
+      await tapBackspace(tester);
+      expect(filledDots(tester), 0);
+      expect(tester.takeException(), isNull);
+    });
+  });
 
   testWidgets(
       'while the PIN verifies the dots STAY filled and a loader replaces the '
