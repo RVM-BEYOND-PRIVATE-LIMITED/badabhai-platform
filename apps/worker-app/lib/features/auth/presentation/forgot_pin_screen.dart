@@ -33,15 +33,19 @@ import 'widgets/bb_set_pin_form.dart';
 ///
 /// EVERY error on every step is a CENTRED, blocking [showBbAlert] with a single
 /// "Theek hai" button — a couldn't-send-OTP, a missing code, a bad/expired code,
-/// a guessable PIN, a confirm mismatch, a server weak-PIN. There is no tiny
-/// inline red text a first-time, low-literacy worker would scroll past.
+/// a confirm mismatch, a server weak-PIN. There is no tiny inline red text a
+/// first-time, low-literacy worker would scroll past.
 ///
 /// The backend verifies the OTP only at that final `/confirm` (there is no
 /// standalone reset-OTP verify), so a wrong/expired code surfaces there and
 /// returns the worker to the OTP step; a weak/format PIN re-collects the PIN. On
 /// success it routes to [Routes.pin] — the redirect bounces to /login if the
-/// worker is now loggedOut. A guessable PIN (1111 / 1234) is BLOCKED CLIENT-SIDE
-/// the moment it is entered, so it never reaches the confirm call.
+/// worker is now loggedOut.
+///
+/// THE WORKER PICKS THEIR OWN PIN (#1464). A guessable PIN is NOT blocked here
+/// — 1234 / 1111 / 0000 go straight to the confirm call. The API still runs its
+/// own denylist, so such a PIN comes back as [AuthErrorCode.pinWeak] and is
+/// handled below; that server policy is issue #1462.
 class ForgotPinScreen extends StatefulWidget {
   const ForgotPinScreen({super.key});
 
