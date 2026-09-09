@@ -119,10 +119,23 @@ class TradeFormQualificationsPage extends StatefulWidget {
 class TradeFormQualificationsPageState
     extends State<TradeFormQualificationsPage> {
   /// Page 0: certificates · 1: education credential+subject · 2: education
-  /// council · 3: kis saal poora hua+institute. Fixed — this marker's
-  /// sub-sections never change count at runtime (only the REPEATED rows
-  /// within education do, tracked separately below).
-  static const int pageCount = 4;
+  /// council · 3: kis saal poora hua+institute.
+  ///
+  /// DYNAMIC, and it has to be (#1465). Pages 2 and 3 render one row PER
+  /// education entry and carry no heading and no "add" affordance of their
+  /// own — those live on page 1. So a worker who adds no education used to
+  /// walk into two completely empty screens at the very end of the form, with
+  /// a full progress bar and an "Aage badhein" button under a blank body.
+  ///
+  /// With no education there is nothing for those two pages to ask, so they
+  /// do not exist. Adding an entry on page 1 brings them back. Same shape as
+  /// `TradeFormEmploymentPageState.pageCount`, which is driven by its own
+  /// entry list for exactly the same reason.
+  static const int _pagesWithoutEducation = 2;
+  static const int _pagesWithEducation = 4;
+
+  int get pageCount =>
+      _educations.isEmpty ? _pagesWithoutEducation : _pagesWithEducation;
 
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
@@ -153,25 +166,17 @@ class TradeFormQualificationsPageState
   /// State (which stays mounted for the marker's whole internal walk) is
   /// the same fix `TradeFormPreferencesPageState` already uses for its own
   /// (non-repeated) year/institute fields.
-  late final List<TextEditingController> _eduFieldControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.field ?? ''),
-  ];
-  late final List<TextEditingController> _eduYearControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.year?.toString() ?? ''),
-  ];
-  late final List<TextEditingController> _eduInstituteControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.institute ?? ''),
-  ];
-  late final List<String?> _eduYearErrors = <String?>[
-    for (final TextEditingController c in _eduYearControllers)
-      _yearErrorText(c.text),
-  ];
+  /// SEEDED IN [initState], not by a `late final` initialiser. These four are
+  /// derived from [_educations], and a lazy initialiser reads it whenever it
+  /// first happens to be touched — which for a list only some sub-pages render
+  /// can be INSIDE `_removeEducation`, after that method has already replaced
+  /// [_educations] with the shortened list. The list would then seed itself
+  /// one element short and the very next `removeAt` would throw a RangeError.
+  /// Building them up front removes the ordering hazard entirely.
+  late final List<TextEditingController> _eduFieldControllers;
+  late final List<TextEditingController> _eduYearControllers;
+  late final List<TextEditingController> _eduInstituteControllers;
+  late final List<String?> _eduYearErrors;
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -180,6 +185,22 @@ class TradeFormQualificationsPageState
   @override
   void initState() {
     super.initState();
+    _eduFieldControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.field ?? ''),
+    ];
+    _eduYearControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.year?.toString() ?? ''),
+    ];
+    _eduInstituteControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.institute ?? ''),
+    ];
+    _eduYearErrors = <String?>[
+      for (final TextEditingController c in _eduYearControllers)
+        _yearErrorText(c.text),
+    ];
     _loadOptions();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -317,6 +338,10 @@ class TradeFormQualificationsPageState
       _eduInstituteControllers.add(TextEditingController());
       _eduYearErrors.add(null);
     });
+    // The council and year+institute pages exist now — the wizard's footer is
+    // still showing the old count, and would otherwise offer "Submit karein"
+    // on what is no longer the last page.
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   void _updateEducation(int index, TradeFormEducationEntry entry) {
@@ -357,7 +382,13 @@ class TradeFormQualificationsPageState
       _eduYearControllers.removeAt(index).dispose();
       _eduInstituteControllers.removeAt(index).dispose();
       _eduYearErrors.removeAt(index);
+      // Removing the LAST education deletes pages 2 and 3 out from under a
+      // worker who may be standing on one of them. Clamp before the frame
+      // that would otherwise paint a page that no longer exists.
+      final int maxPage = pageCount - 1; // recomputed off the NEW _educations
+      if (_page > maxPage) _page = maxPage;
     });
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   @override
