@@ -127,17 +127,19 @@ describe("every enabled role agrees with the pack corpus", () => {
     }
   });
 
-  it("the tier gate's SCALE is the one the sheet prints — the premise the tenure band rests on", () => {
-    // OWNER RULINGS 2026-09-08 / 09, made falsifiable. The résumé never PRINTS this rung — total
-    // experience is the sum of the worker's work history — but `tenureStatusLabel` reads it to
-    // decide whether to withhold "Fresher" from a worker who filed no history, and it can only key
-    // on the VALUE: `worker_attributes` never stores the option_key. So the key→value pairing IS
-    // the contract, and it is pinned here rather than trusted.
+  it("the tier gate's SCALE is the one the FORM branches on — the premise the depth tiers rest on", () => {
+    // OWNER RULING 2026-09-09b, made falsifiable. The rung is a PROFILING-DEPTH CONTROL and
+    // nothing else: it decides how many questions the form asks, and it reaches the résumé
+    // nowhere at all (`tenureStatusLabel` no longer takes an attribute bag). What still reads it
+    // is every `ask_if` in the pack — `gte 2` and `gte 5` open the depth tiers, `lte 0` opens the
+    // three fresher items — and those predicates can only key on the VALUE, because
+    // `worker_attributes` never stores the option_key. So the key→value pairing IS the contract,
+    // and it is pinned here rather than trusted.
     //
-    // WHAT BREAKS IF IT DRIFTS. A pack that spells "7 saal se zyada" as 0 would have the sheet
-    // call a senior man who skipped the work-history screen a fresher; one that spells "1 saal se
-    // kam" as 5 would withhold the word from a genuine fresher. Both are invisible at runtime —
-    // the sheet renders either way.
+    // WHAT BREAKS IF IT DRIFTS. A pack that spells "7 saal se zyada" as 0 would serve a senior man
+    // the three ITI fresher questions and none of his own trade's depth; one that spells "1 saal
+    // se kam" as 5 would ask a fresher the setter-level questions and skip the workshop block that
+    // is his entire Zone 4. Both are invisible at runtime — the form serves either way.
     const SCALE: Readonly<Record<string, number>> = {
       fresher_course: 0,
       one_to_three: 2,
@@ -160,28 +162,31 @@ describe("every enabled role agrees with the pack corpus", () => {
             : SCALE[option.option_key];
         expect(
           expected,
-          `${descriptor.kind}: the gate offers an unknown rung "${option.option_key}" — the sheet has no band for it`,
+          `${descriptor.kind}: the gate offers an unknown rung "${option.option_key}" — no ask_if in the corpus branches on it`,
         ).toBeDefined();
         expect(
           option.value_number,
-          `${descriptor.kind}: "${option.option_key}" stores ${option.value_number}, and the sheet reads ${expected}`,
+          `${descriptor.kind}: "${option.option_key}" stores ${option.value_number}, and the pack's gates compare against ${expected}`,
         ).toBe(expected);
       }
     }
   });
 
-  it("the tier gate's LOWEST rung stores 0 — the premise the Fresher label rests on", () => {
-    // OWNER RULING 2026-09-08, made falsifiable. `fresherTenureLabel` reads the gate's stored
-    // value and treats 0 as "no work experience" for a worker who has filed no work history —
-    // which is the packs' own reading of it, since every fresher question in the corpus
-    // (`iti_workshop_machines`, `trade_test_status`, `iti_project_work`) is gated on
-    // `<tenure gate> <= 0`.
+  it("the tier gate's LOWEST rung stores 0 — the premise the fresher QUESTIONS rest on", () => {
+    // Every fresher question in the corpus (`iti_workshop_machines`, `trade_test_status`,
+    // `iti_project_work`) is gated on `<tenure gate> <= 0`, so the floor of the scale is what
+    // decides whether a fresher is asked the three items that become his entire Zone 4.
     //
-    // WHAT BREAKS IF THIS DRIFTS. A pack authored later whose scale starts at 1 would put its
-    // lowest rung outside the rule and silently withhold the word from every fresher on that
-    // role; one that starts at -1 would hand it to a man who answered the rung above. Both are
-    // invisible at runtime — the sheet renders either way — so the scale is pinned here rather
-    // than trusted, in the same file that already pins the gate's type and mandatoriness.
+    // NO LONGER A RÉSUMÉ PREMISE (owner ruling 2026-09-09b). This test used to say the label read
+    // the rung; it does not, and has not since `tenureStatusLabel` stopped taking an attribute
+    // bag. The word now follows from an empty work history alone. What survives is the form-side
+    // fact, which was always the stronger one.
+    //
+    // WHAT BREAKS IF THIS DRIFTS. A pack authored later whose scale starts at 1 would close the
+    // `lte 0` gate for everybody and serve its freshers nothing to fill Zone 4 with; one that
+    // starts at -1 would open it for a man with up to three years on a shop floor. Both are
+    // invisible at runtime — the form serves either way — so the scale is pinned here rather than
+    // trusted, in the same file that already pins the gate's type and mandatoriness.
     for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
       const pack = loadPack(descriptor.packId);
       const gate = pack.items.find((i) => i.question_key === descriptor.tenureQuestionKey);

@@ -156,32 +156,32 @@ export interface RoleFresherVocabulary {
    * The STORED VALUE of the tier-gate rung that means "no work experience at all", if this role's
    * pack has one.
    *
-   * WHY IT IS A NUMBER ON THE ROLE AND NOT A CONSTANT IN THE RENDERER, and this is the trap: the
-   * renderer sees the stored VALUE, never the option key, and the value 0 does not mean the same
-   * thing in two packs.
+   * IT NO LONGER REACHES THE RÉSUMÉ (owner ruling 2026-09-09b). "Restrict the total experience
+   * shown on the resume only to the work history details… if there is someone who has no work
+   * experience, no work history, then it will be considered as a fresher." `tenureStatusLabel`
+   * takes no attribute bag at all now: the word follows from an empty work history and from
+   * nothing else, so no role can declare its way into it or out of it. Two revisions read this
+   * field — one to PRINT a band, one to WITHHOLD the word — and the ruling rejected the premise
+   * under both.
+   *
+   * WHAT IT IS STILL FOR, AND IT IS THE FACT THAT MADE IT A ROLE-LEVEL FIELD IN THE FIRST PLACE:
+   * the value 0 does not mean the same thing in two packs.
    *
    *   `qp_cad_drafting`   `fresher_course` = 0  "Course kiya hai, kaam ka tajurba nahi"
    *                        `under_one`      = 1  "1 saal se kam"
    *   every other pack     `under_one`      = 0  "1 saal se kam"
    *
-   * A rule of "0 means fresher" would therefore print "Fresher" over a turner, a miller, a
-   * grinder or a part programmer with up to eleven months on a shop floor — deleting real
-   * experience from his own résumé, which is §8.3's asymmetry rule broken in the direction that
-   * costs him the job. Only the drawing office has a rung that says it, so only the drawing
-   * office declares one.
+   * That shift is what `role-corpus-parity.guard.test.ts` reads it for: it is the only thing in
+   * the registry that says which of the two scales a pack is on, and the pack's own `ask_if`
+   * gates (`lte 0` opens the three fresher items, `gte 2` and `gte 5` open the depth tiers) are
+   * authored against one of them. A drifted rung serves the wrong worker the wrong questions,
+   * silently, and this field is how the guard notices.
    *
-   * WHAT ABSENCE MEANS SINCE THE 2026-09-09 RULING, because it is no longer "the headline keeps
-   * saying 'duration not stated'". Total experience is the SUM of the worker's filled-in work
-   * history, and a worker with no work history at all reads "Fresher" whether or not his role
-   * declares this field — his rung is then read only to WITHHOLD the word if it claims a year or
-   * more. Declaring this field is still the only way a role says the word is the worker's OWN,
-   * unconditionally: a declared chip prints it even beside an employment history.
-   *
-   * IT IS A STATUS LABEL, NOT A TENURE FIGURE. `resume-employment-rows.ts` forbids reading this
-   * gate as a NUMBER of years — its rungs are thresholds (0 / 2 / 5 / 10), and printing "10 yrs"
-   * for "7 saal se zyada" would be a number nobody stated. That argument binds every rung except
-   * the lowest, which has no interior to be wrong about: a worker who taps "course kiya hai, kaam
-   * ka tajurba nahi" has stated his status exactly, and it renders as the word, never as a figure.
+   * IT IS A STATUS, NOT A TENURE FIGURE, and that rule outlives the label. `resume-employment-
+   * rows.ts` forbids reading this gate as a NUMBER of years — its rungs are thresholds
+   * (0 / 2 / 5 / 10), and printing "10 yrs" for "7 saal se zyada" would be a number nobody
+   * stated. Under the ruling above the sheet reads no rung at all, which is the same rule taken
+   * to its end.
    */
   readonly tenureValue?: number;
 }
@@ -242,12 +242,22 @@ export interface RoleFormDescriptor {
   readonly levelLadder: readonly string[];
   readonly detection: RoleDetectionTerms;
   /**
-   * The pack question whose answer is this role's own tenure claim.
+   * The pack question that gates this role's form — "Turning ka kitna tajurba hai?" and its
+   * twenty siblings.
    *
-   * WHY THE SHEET NEEDS IT (#1377). A worker can be handed the form on their very first message,
-   * so the universal interview's `experience_years` question may never be asked at all — while
-   * the form's own gate question ("Turning ka kitna tajurba hai?") is answered every single time
-   * and was then read by nothing. The headline's years figure falls back to this.
+   * IT SIZES THE QUESTIONNAIRE, AND THAT IS ITS WHOLE JOB (owner ruling 2026-09-09b). Every
+   * `ask_if` in the pack branches on it: `lte 0` opens the three fresher items that become a
+   * pass-out's entire Zone 4, `gte 2` and `gte 5` open the depth tiers a setter answers. It is
+   * mandatory and asked first on every enabled pack, which is what makes the rest of the form
+   * derivable from one tap.
+   *
+   * IT IS NOT A TENURE SOURCE, AND #1377 WAS WRONG TO MAKE IT ONE. That change had the headline's
+   * years figure fall back to this rung, on the reasoning that a worker handed the form on his
+   * first message never reaches the universal `experience_years` ask. The owner's ruling replaces
+   * the fallback rather than repairing it: total experience is the SUM of the work history the
+   * worker filed, and a worker who filed none reads "Fresher". A bracket tapped to size a form was
+   * never a claim about a career. `trade-form.service.ts` still reads this key — to hoist the
+   * question to the front of the form, which is the thing it is actually for.
    */
   readonly tenureQuestionKey: string;
   readonly fresher?: RoleFresherVocabulary;

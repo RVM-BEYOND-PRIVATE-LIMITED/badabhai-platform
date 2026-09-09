@@ -475,8 +475,54 @@ dates the worker could not give is a false total"), so two dated jobs plus one u
 that drifts. **Open for the owner**, and it will recur at the form layer.
 
 **Coordination:** the separate work-experience question (`<role>_experience`, the mandatory first
-item of each `qp_*` pack) is under review for deletion in a parallel session. This change is correct
-either way — with the gate gone, the sum is simply the only source left, and the withhold rule goes
-inert. That session also measured that deleting the gate item *shows* the 87 items currently gated
-on it rather than hiding them (a turner's form goes 11 → 17 screens), which is the opposite of the
-intent and is with the owner.
+item of each `qp_*` pack) was under review for deletion in a parallel session — **ruled the next
+day, and it stays** (see 2026-09-09b below). That session had measured that deleting the gate item
+*shows* the 87 items currently gated on it rather than hiding them, taking a turner's form from 11
+to 17 screens, which is the opposite of the intent; the owner's ruling keeps the question for
+exactly that reason and takes it off the résumé instead.
+
+### 2026-09-09b — The tier gate leaves the résumé entirely; no work history means Fresher, full stop
+**Closes the question the entry above left open**, and does it by rejecting the premise both earlier
+entries shared. Shown the four rungs of `qp_cnc_turning`'s gate, the owner: *"This is a different
+metric. It is for setting the number of questions in the profiling — I don't want to remove it. What
+I want instead is to fix the total experience shown on the resume to restrict only to the work
+history details. The work history calculation should be the core of the experience displayed on the
+resume top summary. If there is someone who has no work experience, no work history, then it will be
+considered as a fresher, and it should not become like duration not stated or some other text."*
+
+**Two rulings in one, and they pull apart cleanly.**
+
+1. **The tier gate stays in the form, and it is a profiling-depth control.** `turning_experience`
+   and its twenty siblings size the questionnaire: `lte 0` opens the three fresher items that become
+   a pass-out's whole Zone 4, `gte 2` and `gte 5` open the depth tiers a setter answers. That is
+   what it is for, it is mandatory and asked first on every enabled pack, and it is not going
+   anywhere.
+2. **It reaches the sheet nowhere at all.** `tenureStatusLabel` no longer takes an attribute bag —
+   the withhold rule is deleted, not narrowed — so the rung cannot be read because it cannot be
+   passed. §6.2's tenure segment is now composed from the work-history sum, or from the one word
+   for a worker who has no history, or from §11 #3's honest unknown. No pack answer enters it.
+
+**What this reverses, stated plainly.** The entry above withheld "Fresher" from a worker whose rung
+claimed a year or more, on §8.3: the sheet must not call a self-declared seven-year man a fresher.
+The owner overrules that on a factual ground rather than a stylistic one — a bracket a worker taps
+to size his own questionnaire was never a claim about his career, so there is nothing being
+contradicted. He now reads "Fresher", and the way he stops reading it is by filing the work history
+he has. That is a real trade-off and it is kept visible in its own test rather than buried.
+
+**The declared fresher chip loses its override too**, which is the same rule holding in the other
+direction. `qp_cad_drafting`'s *"course kiya hai, kaam ka tajurba nahi"* used to print the word
+UNCONDITIONALLY, including beside an employment block — a page reading "Fresher" three rows above
+two employers, which is the contradiction §6.2 exists to prevent. Her ratified sheet is unchanged:
+it carries no work history, so she reaches the word through the general rule.
+
+**What is left is one line.** A worker whose form pack is one a role actually serves, and whose work
+history was READ and is EMPTY, is a Fresher. Everyone else gets no label. The two bounds survive
+untouched, and both are fail-closed: a profile with no role pack is a legacy chat profile nobody
+handed a form to, and a work-history read that THREW is not an empty one — an infrastructure miss
+must never put a claim on a man's résumé.
+
+**Unchanged by this ruling**, and worth saying because it is the obvious next question: a STATED
+total still outranks the sum (`renderedTotalYears`). That figure is the universal `experience_years`
+ask — the worker's own sentence about his own career, in a free-form duration — not a bracket, and
+it never runs for a pure form-first worker anyway, which is why the sum is what fills his headline.
+The partially-dated cost pinned in the entry above is also still open and still all-or-nothing.
