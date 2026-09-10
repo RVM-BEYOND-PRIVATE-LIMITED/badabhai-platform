@@ -46,17 +46,17 @@ number. Every existing path into this platform was built so that document never 
 
 Nine, taken 2026-09-10. The reasoning attached to each is the reasoning that was actually used.
 
-| #      | Decision                                                                                              |
-| ------ | ----------------------------------------------------------------------------------------------------- |
-| **D1** | **Résumé upload is covered by the existing `profiling` consent purpose.** No tenth purpose is minted. |
-| **D2** | **Facts are prefilled; capability claims are suggested UNTICKED.**                                    |
-| **D3** | **PDF, DOCX and photo/scan (OCR) are all accepted.**                                                  |
-| **D4** | **Résumé text never prints on a BadaBhai résumé.** The upload is a draft-filler, never evidence.      |
-| **D5** | **The résumé is sent to the LLM with employer names intact.** See §3.                                 |
-| **D6** | **The uploaded file is retained permanently.**                                                        |
-| **D7** | **A stored answer always wins.** A résumé value that disagrees is offered, never applied.             |
-| **D8** | **Sign-up only** in v1 — no upload from the profile tab.                                              |
-| **D9** | **An unreadable file is said so plainly**, and the worker continues in Hinglish.                      |
+| #      | Decision                                                                                                                                            |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **D1** | **Résumé upload is covered by the existing `profiling` consent purpose.** No tenth purpose is minted.                                               |
+| **D2** | **Facts are prefilled; capability claims are suggested UNTICKED.**                                                                                  |
+| **D3** | **PDF, DOCX and photo/scan (OCR) are all accepted.**                                                                                                |
+| **D4** | **Résumé text never prints on a BadaBhai résumé.** The upload is a draft-filler, never evidence.                                                    |
+| **D5** | **The résumé is sent to the LLM entirely unmasked** — employer names, and (amended 2026-09-10) government identifiers, phone and email too. See §3. |
+| **D6** | **The uploaded file is retained permanently.**                                                                                                      |
+| **D7** | **A stored answer always wins.** A résumé value that disagrees is offered, never applied.                                                           |
+| **D8** | **Sign-up only** in v1 — no upload from the profile tab.                                                                                            |
+| **D9** | **An unreadable file is said so plainly**, and the worker continues in Hinglish.                                                                    |
 
 **D1 — why not a tenth purpose.** The `voice_processing` precedent
 ([packages/types/src/index.ts:56-74](../../packages/types/src/index.ts)) minted a separate purpose
@@ -121,10 +121,29 @@ The override applies to **one task type, one route, one input class, behind one 
   not extend to transcripts, chat turns, voice notes, or any value already stored.
 - Behind `RESUME_PARSE_RAW_TEXT_ENABLED`, default `false`. With the flag unset the route runs
   fully masked or not at all.
-- **Government identifiers, phone numbers and email addresses remain masked**, flag or no flag.
-  Parsing needs none of them: the platform already holds the worker's phone, and a PAN number
-  cannot fill a form field. What passes through raw is names, employers, dates, places, salaries
-  and free prose.
+- **Nothing is masked. The document goes to the model exactly as extracted** — amended by owner
+  ruling **2026-09-10**, superseding this ADR's first draft, which held back government
+  identifiers, phone numbers and email addresses. The owner's words: _"go fully raw no need to
+  hide anything to the ai right now."_
+
+**What that costs, recorded because an ADR that hides the cost is useless.** Engineering's
+narrowing was argued on two grounds and both still stand — they were heard and overruled, not
+missed:
+
+1. _It buys nothing for parsing._ No form field is filled by a PAN, and the platform already holds
+   the worker's phone. These identifiers are transmitted without a task that needs them.
+2. _Aadhaar and PAN are not the same class of fact as a name or an employer._ Aadhaar in
+   particular carries statutory handling constraints of its own (Aadhaar Act §29 on sharing and
+   storage) that a name does not, so this is not simply "more of the same personal data".
+
+Combined with ruling **D6** (permanent retention) the exposure is standing rather than transient:
+the source document is kept indefinitely and every parse of it transmits whatever it contains.
+
+**The `right now` in the ruling is load-bearing and is carried into the design.** This is the
+alpha posture, not a permanent property. The masking policy therefore lives behind
+`RESUME_PARSE_RAW_TEXT_ENABLED` rather than being compiled into the prompt builder, so tightening
+it later is a config change plus a test, not a re-plumb. RI-3 implements the flag as a switch
+between `default_masker` and `passthrough_masker`, and nothing else.
 
 `passthrough_masker`
 ([apps/ai-service/app/profiling/parse_masking.py](../../apps/ai-service/app/profiling/parse_masking.py))
@@ -140,7 +159,12 @@ of what a security review needs to examine.**
   storage key in any payload, log, or `ai_jobs` row.
 - The six parse gates still run, and still run **twice** — in the ai-service and again in Nest.
   Gate 6 (PII re-certification) is relaxed for this route's _inputs_; it is **not** relaxed for
-  what gets persisted.
+  what leaves the request. **A consequence RI-3 must handle deliberately:** with unmasked input,
+  the model can now return a real name, phone or PAN inside a parsed value, so Gate 6 stops being
+  a formality on this route and becomes the thing that decides what may be persisted and what may
+  be shown back. An identifier the model echoes into a field is dropped, not stored — the
+  document may reach the model, but a PAN must still never reach `worker_attributes`, an event, a
+  log, or the sheet.
 - A test that fails if the raw path is reachable with the flag unset. It must fail loudly and must
   not arm vacuously on an empty string — the `AI_INTERNAL_TOKEN` lesson (TD67).
 - `security-engineer` gate before RI-3 merges.
@@ -154,7 +178,7 @@ correctly halts. **The docblock is amended in the same change that lands this AD
 
 ### 3.5 The cost, stated plainly
 
-D5 combined with D6 (permanent retention) means employer names, dates and prose from every
+D5 combined with D6 (permanent retention) means the entire contents of every
 imported résumé are transmitted to a third-party model provider, and the source document is
 retained indefinitely. Account deletion is therefore **the only erasure path**, and its coverage
 becomes load-bearing in a way it was not before — hence the explicit erasure test in RI-1. This is
@@ -257,9 +281,9 @@ Four consequences, all of them good:
 
 ## 8. Open
 
-1. **Fully raw, or raw-except-identifiers?** §3.2 masks government IDs, phone and email. The owner
-   ruled "employer names included"; masking IDs is engineering's narrowing of that and is
-   reversible in one line.
+1. ~~**Fully raw, or raw-except-identifiers?**~~ **RULED 2026-09-10: fully raw.** Kept as a record
+   of what was asked rather than as an open item — see §3.2 for the ruling, the two arguments it
+   overruled, and the `right now` that makes it the alpha posture rather than a permanent property.
 2. **DPDP notice copy.** D1 blocks nothing, but the notice a worker reads still does not mention
    handing over a document. Best written in one pass alongside the outstanding `employer_sharing`
    and E4 copy.
