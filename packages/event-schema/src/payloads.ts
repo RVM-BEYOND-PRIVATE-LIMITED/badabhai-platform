@@ -7,6 +7,10 @@ import {
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
+  RESUME_EXTRACTION_METHODS,
+  RESUME_IMPORT_FAILURES,
+  RESUME_IMPORT_ROUTES,
+  RESUME_UPLOAD_MIME_TYPES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -3694,6 +3698,115 @@ export const ProfileFormCompletedPayload = z
   })
   .strict();
 export type ProfileFormCompletedPayload = z.infer<typeof ProfileFormCompletedPayload>;
+
+/**
+ * ══ RÉSUMÉ IMPORT (ADR-0041) ═══════════════════════════════════════════════════════════════
+ *
+ * FOUR EVENTS, AND THE HARDEST RULE ON THEM IS WHAT THEY MAY NOT CARRY. The subject here is a
+ * document holding a worker's name, address, email, every employer he has worked for and his
+ * past salaries — and under ruling D6 we keep it permanently. So: no filename, no storage key,
+ * no extracted value, no label, no model text. Ids, closed-set enums and counts only, and
+ * `.strict()` on every one so a later field cannot quietly add them back.
+ *
+ * Note especially that `mime` is a CLOSED ENUM and not a free string. A client-supplied
+ * content-type echoed onto the spine would be untrusted text in analytics; the value here is the
+ * one read back from Storage object-info and narrowed to the four types D3 accepts.
+ */
+
+/**
+ * A worker uploaded a résumé and we registered it. The bytes are stored; nothing is parsed yet.
+ *
+ * SEPARATE FROM `profile.resume_parsed` ON PURPOSE. Registration and extraction fail for
+ * completely different reasons — a failed upload is a network or a bucket problem, a failed
+ * parse is a document problem — and one event covering both would make "how many workers got
+ * their file to us" unanswerable, which is the first number worth knowing about this feature.
+ */
+export const ProfileResumeImportedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** Read back from Storage object-info at confirm — never the client's claim. */
+    mime: z.enum(RESUME_UPLOAD_MIME_TYPES),
+    /** Size in bytes. A magnitude, not content — it says nothing about who the worker is. */
+    byte_size: z.number().int().positive(),
+  })
+  .strict();
+export type ProfileResumeImportedPayload = z.infer<typeof ProfileResumeImportedPayload>;
+
+/**
+ * A résumé was read, and the worker was routed off the back of it.
+ *
+ * `route` and `form_kind` are here because the routing decision is otherwise unreproducible: it
+ * is deterministic on inputs (the model's two labels, the pinned occupation) that are never
+ * stored. Only 9 of 21 declared roles have a form at all, so "how often did an import actually
+ * reach one" is a real question about whether the feature earns its keep.
+ *
+ * `fields_extracted` vs `suggestions_offered` is deliberately two numbers. They differ by
+ * everything the gates threw away, and a widening gap is the earliest signal that the prompt has
+ * drifted — one number would hide exactly that.
+ */
+export const ProfileResumeParsedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    extraction_method: z.enum(RESUME_EXTRACTION_METHODS),
+    route: z.enum(RESUME_IMPORT_ROUTES),
+    /** Present only on the `form` route — see the table's `wri_form_kind_chk`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable(),
+    /** How many typed fields the model returned and the gates let through. */
+    fields_extracted: z.number().int().nonnegative(),
+    /** How many of those actually mapped onto a question this worker will be shown. */
+    suggestions_offered: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumeParsedPayload = z.infer<typeof ProfileResumeParsedPayload>;
+
+/**
+ * We could not read the document, and the worker was told so and sent on (ruling D9).
+ *
+ * THIS IS THE FEATURE'S QUALITY METRIC, not an error log. Ruling D3 accepts photographs of
+ * printed sheets, so a meaningful share of these will be `ocr_below_floor` and that is the
+ * number RI-7 exists to move. `extraction_method` is nullable because the commonest failures
+ * happen BEFORE a method is chosen — an encrypted PDF never gets that far.
+ */
+export const ProfileResumeParseFailedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** A closed reason. The model's own account of its failure is discarded unread. */
+    reason: z.enum(RESUME_IMPORT_FAILURES),
+    extraction_method: z.enum(RESUME_EXTRACTION_METHODS).nullable(),
+  })
+  .strict();
+export type ProfileResumeParseFailedPayload = z.infer<typeof ProfileResumeParseFailedPayload>;
+
+/**
+ * The worker looked at what we read out of his résumé and CONFIRMED some of it.
+ *
+ * THE ONE EVENT THAT MEASURES RULING D2. Everything above counts what the machine did; this
+ * counts what the worker agreed with, and the two are not the same fact. `offered` minus
+ * `accepted` is the parser's error rate as judged by the only person qualified to judge it.
+ *
+ * It is also the guard against the failure D2 was written to prevent. Capability chips arrive
+ * UNTICKED and a tick is the worker's own claim, so if acceptance ever ran near 100% that would
+ * not be a triumph — it would be evidence that workers are tapping past the screen, and that the
+ * suggestions have quietly become pre-ticked in effect if not in code.
+ */
+export const ProfileResumePrefillAppliedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** Where he confirmed them — the trade form, or the chat's batch-confirm turn. */
+    surface: z.enum(RESUME_IMPORT_ROUTES),
+    /** How many suggestions he was shown. */
+    offered: z.number().int().nonnegative(),
+    /** How many he actually accepted. Never assumed equal to `offered`. */
+    accepted: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumePrefillAppliedPayload = z.infer<
+  typeof ProfileResumePrefillAppliedPayload
+>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache

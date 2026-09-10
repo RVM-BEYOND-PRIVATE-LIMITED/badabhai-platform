@@ -996,6 +996,44 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileFormCompletedPayload,
   },
+
+  // ---- Résumé import (ADR-0041, phases RI-1 / RI-3 / RI-4) ----
+  //
+  // A FOUR-STEP FUNNEL, and it is four events rather than one because each step fails for its
+  // own reasons and the gaps between them are the only diagnosis available. Upload fails on a
+  // network or a bucket; the parse fails on the document; the prefill "fails" when a worker
+  // reads a suggestion and declines it, which is not a failure at all. One merged event would
+  // average those three into a number that answers nothing.
+  //
+  // Every payload is `.strict()` and carries ids, closed-set enums and counts ONLY. The subject
+  // is the densest personal document on the platform and ruling D6 keeps it permanently, so no
+  // filename, no storage key, no extracted value, no label and no model text reaches the spine.
+  // v1 throughout.
+  "profile.resume_imported": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeImportedPayload,
+  },
+  "profile.resume_parsed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeParsedPayload,
+  },
+  "profile.resume_parse_failed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeParseFailedPayload,
+  },
+  // The one that measures ruling D2: what the WORKER agreed with, as against what the machine
+  // proposed. `offered` minus `accepted` is the parser's error rate judged by the only person
+  // qualified to judge it — and an acceptance rate near 100% is a warning, not a triumph, since
+  // it would mean workers are tapping past the screen and the suggestions have become
+  // pre-ticked in effect if not in code.
+  "profile.resume_prefill_applied": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumePrefillAppliedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

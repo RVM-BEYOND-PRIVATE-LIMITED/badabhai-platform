@@ -57,6 +57,7 @@ import {
 import {
   workerPackAnswers,
 } from "./pack-answer";
+import { workerResumeImports } from "./resume-import";
 import {
   profilingVoiceAnswers,
   workerAttributes,
@@ -143,6 +144,7 @@ export * from "./skill-discovery";
 export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
+export * from "./resume-import";
 export * from "./profiling";
 export * from "./employment";
 export * from "./qualification";
@@ -297,6 +299,8 @@ export type QuestionPackOption = typeof questionPackOptions.$inferSelect;
 export type NewQuestionPackOption = typeof questionPackOptions.$inferInsert;
 export type WorkerPackAnswer = typeof workerPackAnswers.$inferSelect;
 export type NewWorkerPackAnswer = typeof workerPackAnswers.$inferInsert;
+export type WorkerResumeImport = typeof workerResumeImports.$inferSelect;
+export type NewWorkerResumeImport = typeof workerResumeImports.$inferInsert;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
 export type WorkerAiCostTotal = typeof workerAiCostTotals.$inferSelect;
@@ -372,6 +376,7 @@ export const schema = {
   questionPackItems,
   questionPackOptions,
   workerPackAnswers,
+  workerResumeImports,
   jobReach,
   matchConfig,
   paymentOrders,

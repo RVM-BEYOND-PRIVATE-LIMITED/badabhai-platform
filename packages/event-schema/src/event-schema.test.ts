@@ -3042,8 +3042,18 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 175 event names (174 prior + the answer text source set)", () => {
-    expect(EVENT_NAMES).toHaveLength(175);
+  it("exposes all 179 event names (175 prior + the four résumé-import steps)", () => {
+    expect(EVENT_NAMES).toHaveLength(179);
+    // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
+    // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
+    // network or a bucket, the parse fails on the document, and the prefill "fails" when a
+    // worker reads a suggestion and declines it — which is not a failure at all. Their payload
+    // discipline is asserted in their own describe block below; here we only pin that all four
+    // exist, because a funnel missing its middle step reads as a working funnel.
+    expect(isEventName("profile.resume_imported")).toBe(true);
+    expect(isEventName("profile.resume_parsed")).toBe(true);
+    expect(isEventName("profile.resume_parse_failed")).toBe(true);
+    expect(isEventName("profile.resume_prefill_applied")).toBe(true);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
@@ -4352,5 +4362,154 @@ describe("worker.location_recorded (#1428)", () => {
 
   it("rejects a non-boolean flag", () => {
     expect(validateEvent(located({ ...valid, city_recorded: "yes" })).success).toBe(false);
+  });
+});
+
+describe("résumé import (ADR-0041) — the funnel carries ids, enums and counts, never the document", () => {
+  const imported = (eventName: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: eventName,
+    event_version: 1,
+    occurred_at: "2026-09-10T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const uploaded = {
+    worker_id: UUID_A,
+    import_id: UUID_B,
+    mime: "application/pdf",
+    byte_size: 84_213,
+  };
+  const parsed = {
+    worker_id: UUID_A,
+    import_id: UUID_B,
+    extraction_method: "ocr",
+    route: "form",
+    form_kind: "cnc_turner",
+    fields_extracted: 11,
+    suggestions_offered: 7,
+  };
+
+  it("validates the four shapes", () => {
+    expect(validateEvent(imported("profile.resume_imported", uploaded)).success).toBe(true);
+    expect(validateEvent(imported("profile.resume_parsed", parsed)).success).toBe(true);
+    expect(
+      validateEvent(
+        imported("profile.resume_parse_failed", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          reason: "ocr_below_floor",
+          extraction_method: "ocr",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      validateEvent(
+        imported("profile.resume_prefill_applied", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          surface: "form",
+          offered: 7,
+          accepted: 4,
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("REFUSES the filename, and every other scrap of the document", () => {
+    // THE RULE THESE EVENTS EXIST UNDER. The subject is the densest personal document anyone on
+    // this platform owns — name, address, email, every employer, past salaries — and ruling D6
+    // keeps it permanently. `.strict()` is the only thing standing between that and analytics,
+    // and the pressure to add "just the filename for debugging" is exactly how it would go.
+    //
+    // A filename is not incidental: workers name these files after themselves. "Ramesh Kumar
+    // CV.pdf" is a full name on the event spine, arriving through a field nobody would think
+    // to review.
+    for (const smuggled of [
+      { filename: "Ramesh Kumar CV.pdf" },
+      { storage_key: `resume-uploads/${UUID_A}/abc.pdf` },
+      { employer_names: ["Sandhar Technologies"] },
+      { extracted_text: "CNC Turner, 5 years" },
+      { signed_url: "https://example.invalid/x" },
+    ]) {
+      expect(validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("REFUSES a free-text mime — the enum is what keeps a client's claim off the spine", () => {
+    // `mime` is read back from Storage object-info, never taken from the client's word. Pinning
+    // it as an enum means that even if that sourcing regressed, an attacker-chosen content-type
+    // string still could not ride onto the spine as untrusted text in analytics.
+    expect(
+      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        imported("profile.resume_imported", { ...uploaded, mime: "application/pdf; name=cv.pdf" }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("REFUSES an open-vocabulary failure reason", () => {
+    // The reason is BOTH shown to the worker (D9) and counted here, so an open string would be
+    // an untrusted value on a screen and a PII leak into analytics at once. Whatever the model
+    // says about its own failure is discarded unread; only these codes exist.
+    expect(
+      validateEvent(
+        imported("profile.resume_parse_failed", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          reason: "could not read 'Ramesh Kumar' resume",
+          extraction_method: null,
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("allows a null extraction_method on failure — the commonest failures precede the choice", () => {
+    // An encrypted or empty PDF never reaches a method. Requiring one would force the emit site
+    // to invent a value, and an invented `pdf_text` here would corrupt the one metric RI-7 is
+    // built to read.
+    expect(
+      validateEvent(
+        imported("profile.resume_parse_failed", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          reason: "encrypted_document",
+          extraction_method: null,
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("allows a null form_kind on the chat route, and a real one on the form route", () => {
+    // Only 9 of 21 declared roles have a form, so the chat route is the COMMON outcome and must
+    // be representable without inventing a kind. The pairing itself is enforced in the database
+    // by `wri_form_kind_chk`; the event only has to be able to express both.
+    expect(
+      validateEvent(imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }))
+        .success,
+    ).toBe(true);
+    expect(
+      validateEvent(imported("profile.resume_parsed", { ...parsed, form_kind: "not_a_trade" }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("REFUSES negative counts", () => {
+    expect(
+      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,
+    ).toBe(false);
   });
 });

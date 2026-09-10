@@ -1,4 +1,7 @@
 import { TradeFormController } from "./form/trade-form.controller";
+import { ResumeImportController } from "./resume-import/resume-import.controller";
+import { ResumeImportRepository } from "./resume-import/resume-import.repository";
+import { ResumeImportService } from "./resume-import/resume-import.service";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
 import "reflect-metadata";
@@ -91,6 +94,11 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // ADR-0041 RI-1 — the upload seam. `ResumeImportService` takes `StorageService` as a
+      // CONSTRUCTOR dependency, so a missing `StorageModule` import does not fail a metadata
+      // test either — it fails BOOT, which is the whole reason this list is pinned.
+      ResumeImportRepository,
+      ResumeImportService,
     ]);
   });
 
@@ -102,9 +110,14 @@ describe("ProfilingModule wiring", () => {
     // question known up front, answered in any order, resumable across sessions. Listed here
     // for the same reason the voice form is — a declared controller that AppModule does not
     // mount serves nothing, and the assertion below is the half that proves it does.
+    // Résumé import is the FOURTH surface and a third kind again — an upload rather than an
+    // interview or a form. It shares neither the turn machinery nor the answer table, and by
+    // ruling D2 it cannot write an answer at all: a parsed value is a suggestion until the
+    // worker confirms it, and confirming goes back through the trade form like any other answer.
     expect(getMeta("controllers", ProfilingModule)).toEqual([
       ProfilingController,
       TradeFormController,
+      ResumeImportController,
     ]);
   });
 
