@@ -21,6 +21,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
 import 'cubit/otp_verify_cubit.dart';
+import '../../../core/util/push_once.dart';
 
 /// How many cells the code is entered into. The API mints `OTP_LENGTH` digits
 /// (default 6); if that ever changes server-side this must follow, or the
@@ -187,7 +188,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         // /auth/* contract lands): replicate main's OTP→consent flow —
         // PUSH the consent gate, then the worker walks consent → name →
         // chat → profile → resume. No PIN; the auth redirect is inert.
-        context.push(Routes.consent);
+        context.pushOnce(Routes.consent);
       case OtpNext.setPin:
         // New user (gate ON) → choose a PIN before the shell.
         context.go(Routes.setPin);

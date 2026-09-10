@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../router.dart';
 import '../theme/app_colors.dart';
+import '../../core/util/push_once.dart';
 
 /// App-bar action that (re-)opens the Bada Bhai profiling chat — the chat-first
 /// "LLM" resume builder.
@@ -21,7 +21,7 @@ class BbChatAction extends StatelessWidget {
     return IconButton(
       tooltip: 'Bada Bhai se baat karein',
       icon: const Icon(Icons.forum_outlined, color: AppColors.brand),
-      onPressed: () => context.push(Routes.chatProfiling),
+      onPressed: () => context.pushOnce(Routes.chatProfiling),
     );
   }
 }

@@ -28,6 +28,7 @@ import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
 import 'widgets/job_deck.dart';
+import '../../../core/util/push_once.dart';
 
 /// Which [FilterSelection] dimension a [_FilterSuggestion] belongs to.
 enum _FilterDim { trade, city, experience, shift, pay }
@@ -372,7 +373,7 @@ class _FeedViewState extends State<_FeedView> {
     SwipeBloc bloc,
     FeedItem item,
   ) async {
-    final Object? result = await context.push(
+    final Object? result = await context.pushOnce(
       '${Routes.jobDetail}/${item.jobId}',
       extra: JobDetail(
         jobId: item.jobId,
@@ -511,7 +512,7 @@ class _FeedViewState extends State<_FeedView> {
         type: MaterialType.transparency,
         child: InkWell(
           key: const Key('feedSearchBar'),
-          onTap: () => context.push(Routes.jobSearch),
+          onTap: () => context.pushOnce(Routes.jobSearch),
           borderRadius: BorderRadius.circular(AppRadii.md),
           child: Container(
             height: AppSpacing.tap,

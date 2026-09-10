@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'cubit/kit_list_cubit.dart';
 import '../domain/interview_kit.dart';
+import '../../../core/util/push_once.dart';
 
 /// Interview-kit list (spec §5.3 / screens.jsx 231-249). Keeps the shell's
 /// bottom bar (no own bottomNavigationBar) — it sits inside the PROFILE tab
@@ -66,7 +66,7 @@ class _KitView extends StatelessWidget {
           icon: Icons.build_outlined,
           title: item.title,
           subtitle: item.subtitle,
-          onTap: () => context.push('${Routes.kitDetail}/${item.tradeKey}'),
+          onTap: () => context.pushOnce('${Routes.kitDetail}/${item.tradeKey}'),
         ),
       // Coming-soon stub for the alpha — the per-day interview checklist
       // (documents / dress / timing) is a follow-up; tapping just nudges.

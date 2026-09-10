@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import '../../swipe/domain/job_detail.dart';
 import 'cubit/applications_cubit.dart';
+import '../../../core/util/push_once.dart';
 
 /// "Applied jobs" (Profile → Applied jobs). Live-backed by GET /workers/me/applications
 /// (worker-scoped, PII-free); lists the worker's APPLY decisions newest-first — from
@@ -199,7 +200,7 @@ class _AppliedJobsView extends StatelessWidget {
         place: subtitle,
         metaRight: appliedRelativeLabel(job.createdAt),
       ),
-      onTitleTap: () => context.push(
+      onTitleTap: () => context.pushOnce(
         '${Routes.jobDetail}/${job.jobId}',
         extra: JobDetail(
           jobId: job.jobId,

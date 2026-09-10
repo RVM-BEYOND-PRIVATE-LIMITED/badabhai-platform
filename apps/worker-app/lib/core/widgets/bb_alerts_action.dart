@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../features/notifications/domain/notifications_repository.dart';
 import '../../router.dart';
@@ -7,6 +6,7 @@ import '../di/locator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import '../../core/util/push_once.dart';
 
 /// App-bar action that opens the Alerts / notifications screen.
 ///
@@ -44,7 +44,7 @@ class BbAlertsAction extends StatelessWidget {
   Widget _bell(BuildContext context, int unread) {
     return IconButton(
       tooltip: 'Alerts',
-      onPressed: () => context.push(Routes.alerts),
+      onPressed: () => context.pushOnce(Routes.alerts),
       icon: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[

@@ -30,7 +30,7 @@ const String _kNoFormBody =
 const String _kNoFormHeader = 'Form';
 
 /// The trade form (#1341) — sectioned, resumable, driven entirely by
-/// `GET /profiling/form`. Reached via `context.push(Routes.tradeForm)`; no
+/// `GET /profiling/form`. Reached via `context.pushOnce(Routes.tradeForm)`; no
 /// navigation is wired INTO this screen yet (that is #1340's handover card).
 class TradeFormScreen extends StatelessWidget {
   const TradeFormScreen({super.key});

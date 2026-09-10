@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/config/build_info.dart';
 import '../../../core/config/remote_config.dart';
@@ -21,6 +20,7 @@ import '../../../router.dart';
 import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
+import '../../../core/util/push_once.dart';
 
 /// Settings (spec §5.10). Most rows are inert for the alpha (a tap shows a
 /// "coming soon" snackbar). Account-delete is hidden for now; the DPDP
@@ -153,7 +153,7 @@ class _SettingsView extends StatelessWidget {
                 icon: Icons.person_add_alt_1_outlined,
                 title: 'Dost ko invite karein',
                 subtitle: 'Referral link share karein',
-                onTap: () => context.push(Routes.invite),
+                onTap: () => context.pushOnce(Routes.invite),
               ),
             BbListRow.setting(
               icon: Icons.chat,
@@ -173,7 +173,7 @@ class _SettingsView extends StatelessWidget {
               icon: Icons.devices_other_outlined,
               title: 'Aapke devices',
               subtitle: 'Logged-in devices dekhein · hatayein',
-              onTap: () => context.push(Routes.devices),
+              onTap: () => context.pushOnce(Routes.devices),
             ),
             BbListRow.setting(
               icon: Icons.verified_user_outlined,
