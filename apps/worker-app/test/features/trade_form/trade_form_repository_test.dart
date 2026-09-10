@@ -541,4 +541,68 @@ void main() {
       );
     });
   });
+
+  /// #1480 — A DEAD END FOR THE WORKER MUST NOT BE ONE FOR US.
+  ///
+  /// On 2026-09-10 every question of the CNC turner form failed with "Something went wrong"
+  /// and the app kept no trace of what it had seen, so the investigation needed SSH to the
+  /// box. These pin the two halves of the rule: an unactionable failure is REPORTED, and a
+  /// 400 — which the worker is told how to fix — is deliberately not.
+  group('TradeFormRepositoryImpl.submitAnswer — observability (#1480)', () {
+    ApiClient apiReturning(int status, String body) => ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async => http.Response(body, status)),
+        );
+
+    test('a 5xx is REPORTED as a non-fatal, carrying the status', () async {
+      final List<String> reasons = <String>[];
+      final List<Object> errors = <Object>[];
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        apiReturning(500, ''),
+        _session(),
+        reportNonFatal: (Object e, StackTrace s, {required String reason}) {
+          errors.add(e);
+          reasons.add(reason);
+        },
+      );
+
+      await expectLater(
+        repo.submitAnswer(
+          questionKey: 'turning_machine',
+          answer: const TradeFormAnswer.chips(<String>['cnc_lathe']),
+        ),
+        throwsA(isA<ServerFailure>()),
+      );
+
+      expect(reasons, <String>['trade_form_answer_failed']);
+      // The STATUS rides on the reported failure — the one fact the outage lacked.
+      expect((errors.single as ServerFailure).statusCode, 500);
+    });
+
+    test('a 400 is NOT reported — the worker is told what to change', () async {
+      final List<String> reasons = <String>[];
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        apiReturning(
+          400,
+          jsonEncode(<String, dynamic>{
+            'error': <String, dynamic>{'message': 'unknown option keys: xyz'}
+          }),
+        ),
+        _session(),
+        reportNonFatal: (Object e, StackTrace s, {required String reason}) =>
+            reasons.add(reason),
+      );
+
+      await expectLater(
+        repo.submitAnswer(
+          questionKey: 'turning_machine',
+          answer: const TradeFormAnswer.chips(<String>['xyz']),
+        ),
+        throwsA(isA<InvalidRequestFailure>()),
+      );
+
+      // Reporting pack-version skew would bury the real faults under it.
+      expect(reasons, isEmpty);
+    });
+  });
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:http/http.dart' as http;
 
 import '../../features/job_search/domain/job_search_item.dart';
@@ -1577,6 +1578,28 @@ class ApiClient {
       // bare 410 — or any other 410 — can never cause a false destructive logout.
       if (isWorkerAccountDeletedResponse(res.statusCode, errorBody)) {
         onAccountDeleted?.call();
+      }
+      // ── #1480 — THE ONE PLACE EVERY FAILED CALL PASSES THROUGH ────────────────
+      //
+      // On 2026-09-10 a worker got "Something went wrong. Please try again." on every
+      // question of the CNC turner form. That string was ALL anyone had: the status code
+      // existed on `ServerFailure.statusCode` and was never shown, and nothing anywhere
+      // printed the response body. Diagnosing it cost a day and needed SSH to the box.
+      //
+      // `_decode` is the single choke-point for outbound failures — the same reasoning that
+      // put the `x-app-build` stamp in `_headers` — so one line here covers every endpoint
+      // instead of one per repository.
+      //
+      // DEBUG BUILDS ONLY, AND THAT IS NOT CAUTION, IT IS THE PII RULE. An error body can
+      // carry a worker's own words back (a validation issue quotes the rejected value), and
+      // `debugPrint` in a release build writes to logcat, which any app on the device can
+      // read on older Androids. `kDebugMode` is compile-time, so the branch is tree-shaken
+      // out of release entirely rather than merely skipped.
+      if (kDebugMode) {
+        debugPrint(
+          '[api] ${res.request?.method ?? "?"} ${res.request?.url.path ?? "?"} '
+          '-> ${res.statusCode} ${res.body}',
+        );
       }
       throw ApiException(
         res.statusCode,
