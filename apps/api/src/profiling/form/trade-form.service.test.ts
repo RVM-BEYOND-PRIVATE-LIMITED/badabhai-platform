@@ -10,6 +10,9 @@ import { CNC_TURNER } from "../roles/cnc-turner.role";
 import { TradeFormSchemaResponse } from "./trade-form.dto";
 import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.service";
 
+/** Marker executor the repository doubles hand to a transaction callback. */
+const FAKE_TX = Symbol("fake-tx") as unknown as never;
+
 /**
  * ═══ THE TRADE FORM ═══
  *
@@ -104,14 +107,20 @@ function makeService(
   const packs = { loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)) };
   const answers = {
     listAnswers: vi.fn(async () => opts.saved ?? []),
-    upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer) => {
+    // ONE ANSWER IS TWO ROWS, so the service wraps both writes in one transaction. The double
+    // runs `cb` directly with a marker executor: there is no database here, so "atomic" is not a
+    // property this fake can hold — what it CAN hold is that both writes are attempted inside
+    // the callback, which the assertions on `written` and `upsertMany` already check.
+    withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
+    // `_tx` is captured, not used: the enrolment assertion below reads it off `mock.calls`.
+    upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer, _tx?: unknown) => {
       written.push(row);
     }),
   };
   // THE SHEET'S OWN SOURCE. Captured so the tests can assert that a form answer reaches
   // `worker_attributes` and not only `worker_pack_answer` — the capability zone reads the former,
   // and the handover switches off the extraction job that used to be its only writer.
-  const upsertMany = vi.fn(async (_rows: unknown[]) => 0);
+  const upsertMany = vi.fn(async (_rows: unknown[], _tx?: unknown) => 0);
   // The completion half of the form funnel. Captured rather than stubbed to a no-op so the tests
   // can assert BOTH directions: that finishing the form emits exactly once, and that answering a
   // question mid-form emits nothing.
@@ -133,7 +142,7 @@ function makeService(
     // contractually never-throwing, which is why the form can await it without a try/catch.
     { rebuildQuietly } as never,
   );
-  return { service, written, packs, chat, upsertMany, emitted, emit };
+  return { service, written, packs, chat, upsertMany, emitted, emit, answers };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -807,6 +816,55 @@ describe("TradeFormService", () => {
         total: 2,
       });
       expect(written).toHaveLength(1);
+    });
+  });
+/**
+   * ═══ ONE ANSWER IS TWO ROWS, AND THEY COMMIT TOGETHER ═══
+   *
+   * These two writes were separate autocommits, and the failure was silent AND unrecoverable:
+   * when the attribute write failed, the `worker_pack_answer` row still committed — so
+   * `answeredCount` counted the question, the rail advanced, the worker was told it saved, and
+   * `worker_attributes` (what the printed sheet and the matcher read) had nothing. Retrying could
+   * not repair it either, because `upsertAnswer` is idempotent and succeeds again every time.
+   *
+   * WHAT A MOCK CAN AND CANNOT PROVE. Atomicity is a database property and there is no database
+   * here — the real proof is `tests/e2e/trade-form.e2e.test.ts`, which runs this against Postgres.
+   * What IS provable here is enrolment: both writes receive the SAME executor the transaction
+   * handed out, rather than each opening its own. That is the thing the code change actually
+   * makes true, and it is what would regress if someone dropped a `tx` argument.
+   */
+  describe("the two writes are one unit of work", () => {
+    it("enrols BOTH writes in the same transaction", async () => {
+      const { service, answers, upsertMany } = await makeService();
+
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+
+      expect(answers.withTransaction).toHaveBeenCalledTimes(1);
+      // The executor the transaction handed out, and the one each write actually used.
+      const answerTx = answers.upsertAnswer.mock.calls[0]![1];
+      const attributeTx = upsertMany.mock.calls[0]![1];
+      expect(answerTx, "upsertAnswer ran outside the transaction").toBe(FAKE_TX);
+      expect(attributeTx, "upsertMany ran outside the transaction").toBe(FAKE_TX);
+      expect(answerTx).toBe(attributeTx);
+    });
+
+    it("does not open a transaction per write", async () => {
+      const { service, answers } = await makeService();
+
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      await service.answer(WORKER, {
+        question_key: "controller_brand",
+        answer: { kind: "chips", option_keys: ["k2"] },
+      });
+
+      // One per ANSWER, not one per row written.
+      expect(answers.withTransaction).toHaveBeenCalledTimes(2);
     });
   });
 });

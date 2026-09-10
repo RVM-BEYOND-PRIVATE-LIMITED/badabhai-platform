@@ -27,6 +27,9 @@ import {
 } from "./trade-form.dto";
 import { TradeFormService } from "./trade-form.service";
 
+/** Marker executor the repository doubles hand to a transaction callback. */
+const FAKE_TX = Symbol("fake-tx") as unknown as never;
+
 /**
  * ═══ EVERY SHIPPED ROLE, DRIVEN THROUGH ITS OWN FORM FROM FIRST FETCH TO LAST ANSWER ═══
  *
@@ -216,6 +219,9 @@ function harnessFor(role: RoleUnderTest): Harness {
   };
   const answers = {
     listAnswers: vi.fn(async () => [...rows.values()]),
+    // The service writes the answer row and its attribute row in ONE transaction; the double
+    // just runs the callback. See the note on the same field in `trade-form.service.test.ts`.
+    withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
     upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer) => {
       // Only the columns the readers read. `answerMapFromRows` and `questionScreen` between them
       // touch exactly these six, and storing more would invent a fidelity this double does not
