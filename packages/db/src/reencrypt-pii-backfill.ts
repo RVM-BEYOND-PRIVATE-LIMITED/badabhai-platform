@@ -60,6 +60,7 @@ import {
   payerOrgs,
   payers,
   workerEmployment,
+  workerResumeImports,
   workers,
 } from "./schema";
 
@@ -242,6 +243,23 @@ function buildTargets(db: Database): PiiTarget[] {
       "worker_employment",
       "employer_name_enc",
       "employerNameEnc",
+    ),
+    // ADR-0041 — the staged suggestions read out of an uploaded résumé. ONE encrypted column
+    // rather than an encrypted-leaf jsonb, so rotation is the same single-column job as every
+    // entry above rather than a walk over a nested shape.
+    //
+    // IT MATTERS MORE HERE THAN THE ROW COUNT SUGGESTS. Ruling D6 retains résumé imports
+    // PERMANENTLY — there is no expiry sweep and no post-parse delete — so these rows never age
+    // out of the estate the way a transient one would. An omission here would mean the old kid
+    // can never be retired for as long as any worker has ever uploaded a résumé, which is to
+    // say forever. The coverage guard caught exactly this, on the first run after the migration.
+    target(
+      workerResumeImports,
+      workerResumeImports.id,
+      workerResumeImports.suggestionsEnc,
+      "worker_resume_import",
+      "suggestions_enc",
+      "suggestionsEnc",
     ),
   ];
 }
