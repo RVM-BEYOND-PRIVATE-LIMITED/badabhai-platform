@@ -61,6 +61,17 @@ const PHONE = `+9100000${String(Math.floor(Math.random() * 100000)).padStart(5, 
 
 const PACK_ID = "qp_cnc_turning";
 
+/**
+ * The DPDP consent every profiling route is gated on (P0 auth+consent gate).
+ *
+ * A freshly minted worker has NOT consented, and `/profiling/form` answers
+ * `403 "worker has not accepted consent"` — which is the gate working, not a defect. Mirrors
+ * `phase1-onboarding.e2e.test.ts:75-76`; both must name the same version, because the gate
+ * compares against the CURRENT one and a stale constant here would 403 the whole suite.
+ */
+const CONSENT_VERSION = "2026-06-01";
+const PURPOSES = ["profiling", "resume_generation"] as const;
+
 interface Resp {
   status: number;
   body: any;
@@ -74,6 +85,38 @@ interface Resp {
  * body ARE the assertions — a helper that threw would turn "the server returned 500 saying X"
  * into a stack trace pointing at the helper.
  */
+interface FormQuestion {
+  question_key: string;
+  answer_type: string;
+  options: { option_key: string; label_text: string }[];
+}
+
+/**
+ * Every question in a served form, found by WALKING the response rather than pattern-matching it.
+ *
+ * The first version of this file scraped the JSON with regexes and one of them was silently
+ * unmatchable: it assumed `answer_type` followed `question_key` directly, when `prompt_text` and
+ * `why_text` sit between them (`FormQuestionSchema`). A regex that never matches makes a test
+ * skip rather than fail, which is the one failure mode a coverage test must not have.
+ *
+ * Walks blind to the section/screen nesting, so a layout change moves the questions without
+ * breaking the finder.
+ */
+function questionsIn(node: unknown, found: FormQuestion[] = []): FormQuestion[] {
+  if (Array.isArray(node)) {
+    for (const child of node) questionsIn(child, found);
+    return found;
+  }
+  if (node !== null && typeof node === "object") {
+    const o = node as Record<string, unknown>;
+    if (typeof o.question_key === "string" && Array.isArray(o.options)) {
+      found.push(o as unknown as FormQuestion);
+    }
+    for (const value of Object.values(o)) questionsIn(value, found);
+  }
+  return found;
+}
+
 async function call(
   method: string,
   path: string,
@@ -121,6 +164,17 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
     workerId = login.body.worker_id as string;
     token = login.body.access_token as string;
 
+    // CONSENT BEFORE ANYTHING ELSE. Every profiling route is behind the P0 auth+consent gate, and
+    // a minted worker has not consented — the first version of this file skipped it and got
+    // `403 "worker has not accepted consent"` on all five cases.
+    const consent = await call(
+      "POST",
+      "/consent/accept",
+      { consent_version: CONSENT_VERSION, purposes: PURPOSES },
+      token,
+    );
+    expect(consent.status, `POST /consent/accept -> ${JSON.stringify(consent.body)}`).toBe(201);
+
     // THE HANDOVER, WRITTEN DIRECTLY. Driving the interview until the model names a CNC turner
     // would make this suite depend on model output, which is exactly the coupling the rest of
     // the e2e suite avoids. `contextFor` reads one thing — `conversation_state.form_kind` on the
@@ -158,14 +212,14 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
 
   it("SAVES A SINGLE-SELECT — value in answer_text, attribute value_kind 'text'", async () => {
     const form = await call("GET", "/profiling/form", undefined, token);
-    const flat = JSON.stringify(form.body);
-    // The question and an option key the SERVED pack actually defines — never a literal, so a
-    // pack revision moves this test with it instead of failing on a stale slug.
-    const q = /"question_key":"(turning_experience)"[\s\S]{0,4000}?"option_key":"([a-z_]+)"/.exec(
-      flat,
+    // Taken from the SERVED pack, never a literal, so a pack revision moves this test with it
+    // instead of failing on a stale slug.
+    const single = questionsIn(form.body).find(
+      (q) => q.answer_type === "single_select" && q.options.length > 0,
     );
-    expect(q, "turning_experience with at least one option must be in the served schema").not.toBeNull();
-    const [, questionKey, optionKey] = q!;
+    expect(single, "the served pack must contain a single_select with options").toBeTruthy();
+    const questionKey = single!.question_key;
+    const optionKey = single!.options[0]!.option_key;
 
     const res = await call(
       "POST",
@@ -207,25 +261,25 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
 
   it("SAVES A MULTI-SELECT — values in answer_option_keys, attribute value_kind 'text_list'", async () => {
     const form = await call("GET", "/profiling/form", undefined, token);
-    const flat = JSON.stringify(form.body);
-    // The first MULTI-select in the served pack, whichever it is. Its two option keys exercise
-    // the `text_list` half of `wa_value_present_chk`, which the single-select above cannot.
-    const m =
-      /"question_key":"([a-z_]+)","answer_type":"multi_select"[\s\S]{0,4000}?"option_key":"([a-z_]+)"[\s\S]{0,2000}?"option_key":"([a-z_]+)"/.exec(
-        flat,
-      );
-    if (!m) {
-      // Reported rather than silently skipped: "this pack has no multi-select" is a real answer,
-      // and a test that quietly asserts nothing is worse than one that says why.
-      console.warn("no multi_select with two options in the served pack — half this path untested");
-      return;
-    }
-    const [, questionKey, first, second] = m;
+    // The first MULTI-select in the served pack. Its two option keys exercise the `text_list`
+    // half of `wa_value_present_chk`, which the single-select above cannot reach.
+    const multi = questionsIn(form.body).find(
+      (q) => q.answer_type === "multi_select" && q.options.length >= 2,
+    );
+    // ASSERTED, NOT SKIPPED. `qp_cnc_turning` has multi-selects, so their absence means the pack
+    // or the serving changed — and a test that quietly returns when its subject is missing is how
+    // half a write path goes uncovered while the suite stays green.
+    expect(multi, "the served pack must contain a multi_select with two options").toBeTruthy();
+    const questionKey = multi!.question_key;
+    const [first, second] = multi!.options;
 
     const res = await call(
       "POST",
       "/profiling/form/answer",
-      { question_key: questionKey, answer: { kind: "chips", option_keys: [first, second] } },
+      {
+        question_key: questionKey,
+        answer: { kind: "chips", option_keys: [first!.option_key, second!.option_key] },
+      },
       token,
     );
     expect(res.status, `POST /profiling/form/answer -> ${JSON.stringify(res.body)}`).toBe(200);
@@ -250,11 +304,12 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
    */
   it("re-answering the same question corrects the row instead of duplicating it", async () => {
     const form = await call("GET", "/profiling/form", undefined, token);
-    const flat = JSON.stringify(form.body);
-    const q = /"question_key":"(turning_experience)"[\s\S]{0,4000}?"option_key":"([a-z_]+)"/.exec(
-      flat,
+    const single = questionsIn(form.body).find(
+      (q) => q.answer_type === "single_select" && q.options.length > 0,
     );
-    const [, questionKey, optionKey] = q!;
+    expect(single, "the served pack must contain a single_select with options").toBeTruthy();
+    const questionKey = single!.question_key;
+    const optionKey = single!.options[0]!.option_key;
 
     for (let i = 0; i < 2; i++) {
       const res = await call(
