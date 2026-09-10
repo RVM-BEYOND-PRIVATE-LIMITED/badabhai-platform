@@ -1064,8 +1064,14 @@ describe("buildResumeRenderInput — uncertified scalars in a stored container (
 
   it("a 4-digit pay-like number in a scalar is NOT treated as a phone", () => {
     // The digit-run threshold is 7+, so ordinary numerals in free text survive.
+    //
+    // THE `G` MOVED IN #1434, THE DIGIT DID NOT — and the digit is what this test is about.
+    // `role_label` is now cased on its way to the headline (`titleCaseRoleLabel`), so the
+    // expectation reads "Grade" where it once read "grade". "Operator grade 3" names no declared
+    // role, so it takes the casing fallback rather than a vocabulary hit. What this test asserts
+    // is unchanged and still asserted: the `3` and the `21` are both still there.
     const input = build({ role_label: "Operator grade 3", current_city: "Sector 21" });
-    expect(input.canonicalRole).toBe("Operator grade 3");
+    expect(input.canonicalRole).toBe("Operator Grade 3");
     expect(input.location).toBe("Sector 21");
   });
 });
