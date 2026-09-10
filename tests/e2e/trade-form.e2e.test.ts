@@ -245,8 +245,24 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
     expect(saved!.status).toBe("answered");
     expect(saved!.source).toBe("form");
     expect(saved!.packId).toBe(PACK_ID);
-    // A single-select stores its VALUE here, not its key, and not in answer_option_keys.
-    expect(saved!.answerText).toBeTruthy();
+
+    // EXACTLY ONE VALUE COLUMN, WHICHEVER IT IS — the contract `wpa_answer_shape_chk` enforces,
+    // rather than a guess at which one.
+    //
+    // THE FIRST VERSION ASSERTED `answerText` AND WAS WRONG, and the reason is worth keeping:
+    // the first single-select in this pack is the TIER GATE, whose options carry `value_number`
+    // (the #776 trap — a tier-gate option must set value_number and nothing else, or every
+    // `gte` in the pack evaluates false forever). So its answer lands in `answer_number`. Pinning
+    // a column here would make this test a statement about which question happens to come first.
+    const populated = [
+      saved!.answerText,
+      saved!.answerNumber,
+      saved!.answerBool,
+      saved!.answerOptionKeys,
+    ].filter((v) => v !== null && v !== undefined);
+    expect(populated.length, "an answered row must populate exactly one value column").toBe(1);
+    // ...but NOT the list column: that one belongs to multi-select, and storing a single-select
+    // there is the exact shape the form's own comment says it used to get wrong.
     expect(saved!.answerOptionKeys).toBeNull();
 
     const attrs = await client.db
@@ -255,8 +271,17 @@ describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
       .where(eq(workerAttributes.workerId, workerId));
     const attr = attrs.find((a) => a.attributeKey === questionKey);
     expect(attr, "no worker_attributes row was written — the capability zone stays empty").toBeTruthy();
-    expect(attr!.valueKind).toBe("text");
-    expect(attr!.valueText).toBeTruthy();
+    // `value_kind` NAMES the populated column and exactly one is populated — `wa_value_present_chk`
+    // in assertion form, so the row is self-consistent whichever type the question turned out to be.
+    const byKind: Record<string, unknown> = {
+      text: attr!.valueText,
+      number: attr!.valueNumber,
+      boolean: attr!.valueBool,
+      text_list: attr!.valueTextList,
+    };
+    expect(Object.keys(byKind)).toContain(attr!.valueKind);
+    expect(byKind[attr!.valueKind], `value_kind=${attr!.valueKind} but that column is empty`).not.toBeNull();
+    expect(attr!.valueKind).not.toBe("text_list");
   });
 
   it("SAVES A MULTI-SELECT — values in answer_option_keys, attribute value_kind 'text_list'", async () => {
