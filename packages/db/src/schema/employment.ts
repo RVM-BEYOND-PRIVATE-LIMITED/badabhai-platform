@@ -30,6 +30,18 @@ import { workers } from "./worker";
  * before any model sees a transcript. There is no field for one and nothing upstream could fill
  * it. The value arrives instead from a question the WORKER TYPES, written straight to Postgres,
  * never through the AI service — owner ruling 2026-08-28. The gateway mask is unchanged.
+ *
+ * NARROWED 2026-09-10 BY `docs/decisions/0041-resume-import-and-prefill.md` §3, AND ONLY THERE.
+ * A worker may now upload his OWN résumé, and on that one path the employer name does cross the
+ * AI service: the extracted document is sent to the model with employer names intact, behind
+ * `RESUME_PARSE_RAW_TEXT_ENABLED` (default false), for the `resume_parse` task and no other.
+ * Government identifiers, phone numbers and email addresses stay masked even there.
+ *
+ * EVERY OTHER PATH IS UNCHANGED, and that is why this note lives here and not only in the ADR.
+ * An employer name reaching this table from the interview, the trade form or the finishing form
+ * is still worker-typed and still never sees a model. So if you are reading this because you
+ * found code handing an employer name to the AI service, check WHICH ROUTE it is on before
+ * calling it a defect: exactly one is authorised, and every other one is the bug you suspected.
  */
 
 /**
