@@ -282,8 +282,6 @@ export class ResumeDisclosureService {
         attributes: {},
         ...tradeSheet,
         employments,
-        // The employer-facing copy honours the same kill switch as the worker's own (#1350).
-        polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
         asOf: new Date(),
       };
     }
@@ -330,6 +328,19 @@ export class ResumeDisclosureService {
       // matters. Without this line a failed history read would reach the mapper as a trustworthy
       // empty array.
       employmentsUnavailable,
+      // THE KILL SWITCH, ALSO UNCONDITIONAL — and moved here for exactly the reason the line
+      // above gives. It used to be set only inside `employments.length > 0`, so a FRESHER got
+      // `undefined`, which fails closed correctly but meant the employer's copy of his sheet
+      // printed the raw Hinglish training description while the worker's own copy printed the
+      // English. Same worker, same stored rewrite, two different pages. Zone 4 now has a rewrite
+      // on BOTH its branches (#1350, and the 2026-09-09 owner report for the fresher block), so
+      // the switch that governs it belongs on both too.
+      //
+      // NOTHING IS POLISHED ON THIS PATH, deliberately: this surface reads what the render
+      // already stored and never calls a model, so opening a disclosure cannot make the platform
+      // spend. A worker whose sheet has not been re-rendered since shows his own words, which is
+      // what this surface showed before either ruling.
+      polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
     };
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for

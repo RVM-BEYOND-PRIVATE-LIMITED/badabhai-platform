@@ -170,6 +170,10 @@ describe("every task type that can spend is either emitted or named as unledgere
       "resume_generation",
       "skill_embedding",
       "stt_transcription",
+      // #1350's work-history rewrite. It was routed and billing long before it was nameable
+      // here — `work_history_polish` was missing from `aiTaskType`, so this coverage check could
+      // not even see the gap. Emitter wired in `WorkHistoryPolishService.polishOne`.
+      "work_history_polish",
     ]);
   });
 

@@ -1,0 +1,2 @@
+ALTER TABLE "worker_attributes" ADD COLUMN "value_text_polished" text;--> statement-breakpoint
+ALTER TABLE "worker_attributes" ADD CONSTRAINT "wa_value_text_polished_chk" CHECK ("worker_attributes"."value_text_polished" IS NULL OR ("worker_attributes"."value_kind" = 'text' AND length("worker_attributes"."value_text_polished") <= 300));

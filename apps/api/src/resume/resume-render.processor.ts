@@ -12,6 +12,7 @@ import { WorkerEmploymentRepository } from "../profiles/worker-employment.reposi
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import { qualificationFactsFrom } from "./resume-qualification-rows";
+import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
 import { FontResolutionError } from "../common/pdf/font-resolution";
@@ -231,6 +232,50 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // #1350, EXTENDED TO THE FRESHER BLOCK (owner report 2026-09-09) — REPHRASE THE ONE
+    // FREE-TEXT ANSWER ZONE 4 PRINTS WHEN THERE IS NO EMPLOYMENT HISTORY.
+    //
+    // A fresher's work history IS his ITI training, and its only worker-written segment was
+    // printing exactly as typed — "kuch nhi banaya, bas knowledge he mujhe" on the sheet an
+    // employer reads. He is also the worker with the least on his page, so the one segment that
+    // is his own words is the one carrying the most weight.
+    //
+    // ONLY WHEN THERE IS NO EMPLOYMENT, which is the same one-or-the-other rule the mapper
+    // applies to Zone 4 (`hasEmployments` in `resume-render-input.ts`): the two blocks are
+    // mutually exclusive on the page, so this can never add a call to a render that already
+    // polished stints. AT MOST ONE CALL, and only until it is stored.
+    //
+    // ONE KEY, DELIBERATELY. `iti_project_work` is the only free-text item in any enabled role
+    // pack; every other worker-typed value on this sheet is a proper noun or a job title, and a
+    // model may not restate either — see `TradeSheetContext.polishedAttributes`.
+    //
+    // NEVER THROWS INTO THE RENDER, on the same contract as the stint polish above.
+    let polishedAttributes: Readonly<Record<string, string>> = loaded?.polishedAttributes ?? {};
+    if (employments.length === 0) {
+      try {
+        const rewritten = await this.polish.polishAttribute(
+          workerId,
+          ITI_PROJECT_WORK_KEY,
+          loaded?.attributes?.[ITI_PROJECT_WORK_KEY] as string | null | undefined,
+          // THE CONTEXT LABEL, which is what the prompt calls `role_label`. It is a constant here
+          // rather than the worker's trade: this block is training, and telling the model the man
+          // is a "CNC Turner" invites it to write the sentence a turner would have written.
+          "ITI trainee",
+          { correlationId: job.data.correlationId, requestId: job.data.requestId },
+          this.config,
+          polishedAttributes[ITI_PROJECT_WORK_KEY],
+        );
+        if (rewritten !== null) {
+          polishedAttributes = { ...polishedAttributes, [ITI_PROJECT_WORK_KEY]: rewritten };
+        }
+      } catch (err) {
+        this.logger.warn(
+          `fresher work-description polish failed for worker ${workerId}; rendering the ` +
+            `worker's own words (${err instanceof Error ? err.message : "unknown"})`,
+        );
+      }
+    }
+
     // THE WORKER'S OWN TURNS — a FIFTH independent load, on the same degrade as the four above.
     // It feeds two rules and neither is worth a failed render: without it the quote block
     // collapses (a sheet with one less section, which is what every sheet has today) and the
@@ -276,6 +321,9 @@ export class ResumeRenderProcessor extends WorkerHost {
       // #1350 item 4 — the renderer half of the kill switch. Flipping this false reverts every
       // resume to the worker's own words on the next render, with no deploy and no data loss.
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
+      // The rewrite of the fresher block's one free-text answer, read by the mapper under the
+      // same kill switch. Empty for every worker with an employment history — see above.
+      polishedAttributes,
       // `undefined` WHEN THE WORKER HAS NO ROWS, and that is load-bearing rather than a tidy
       // default: Zone 5 resolves with `??`, so an empty ARRAY would assert "this worker has no
       // certificates" and suppress whatever the extraction found. See `qualificationFactsFrom`.

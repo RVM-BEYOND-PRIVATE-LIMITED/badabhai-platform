@@ -186,6 +186,35 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
         )
+    if task_type == "work_history_polish":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE RESUME BUDGET DELIBERATELY. The answer is one line the route itself caps
+            # at 300 characters, wrapped in `{"work_done": "..."}`, so this is already slack. A
+            # tighter budget would buy nothing and add a failure mode: a truncated candidate loses
+            # the closing brace, fails the contract, and degrades to null exactly like a rejected
+            # rewrite — i.e. it prints as Hinglish.
+            max_output_tokens=settings.ai_resume_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings — the same ruling `profile_parse` states
+            # four branches up, and this route needed its own branch for exactly the reason that
+            # one documents: without it, it fell through to the resume defaults and ran at 0.4.
+            #
+            # WHY 0.4 WAS THE WRONG NUMBER HERE, AND WHAT IT COST. `ai_resume_temperature` is
+            # tuned for RESUME GENERATION, which writes prose and wants variety. This route
+            # rewrites one sentence under a list of prohibitions and is explicitly licensed to
+            # answer null when it cannot. Sampling does not make that rewrite better; it makes the
+            # NULL DECISION A COIN FLIP, independently, once per stint. That is precisely the
+            # reported defect: a worker with two employers got professional English on one line
+            # and his own Hinglish on the other, from a single render, because the same prompt
+            # over comparable inputs was sampled twice.
+            #
+            # It is also the determinism this sheet needs everywhere else: a re-render of an
+            # unchanged history must not quietly reword a description an employer already read.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_resume_max_retries,
+        )
     return TaskRoute(
         task_type,
         default_tier,

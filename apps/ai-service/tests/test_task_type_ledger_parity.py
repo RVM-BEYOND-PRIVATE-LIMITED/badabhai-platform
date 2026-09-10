@@ -54,9 +54,22 @@ def test_every_spending_task_type_can_be_ledgered():
 
 
 def test_the_router_task_types_are_ledgerable_too():
-    """The three `model_config.TaskType` values plus the two routed-but-unlisted ones."""
+    """EVERY route the model router can dispatch, not just the ones `TaskType` happens to name.
+
+    THIS TEST HAD THE SAME HOLE IT EXISTS TO CLOSE. It read `model_config.TaskType.__args__`,
+    a three-member Literal, while dispatch is driven by `_ROUTE_SHAPES` — which carries six.
+    `profile_parse` and `domain_match` were saved only because they are hand-listed in the enum;
+    `work_history_polish` was not, and it spent real money on every resume render with no
+    `ai.cost_recorded` to show for it.
+
+    Reading the DISPATCH TABLE is what makes this executable rather than aspirational: a route
+    added to `_ROUTE_SHAPES` is a route that can spend, and it now has to be nameable on the day
+    it is added rather than on the day somebody notices the ledger is short.
+    """
     from app.ai import model_config
 
-    routed = set(json.loads(json.dumps(list(model_config.TaskType.__args__))))
+    routed = set(model_config._ROUTE_SHAPES) | set(
+        json.loads(json.dumps(list(model_config.TaskType.__args__)))
+    )
     missing = routed - _ledgerable_task_types()
     assert not missing, f"routed task types missing from the cost enum: {sorted(missing)}"

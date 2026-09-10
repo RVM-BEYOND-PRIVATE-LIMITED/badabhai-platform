@@ -923,6 +923,12 @@ const aiTaskType = z.enum([
   // Routed, but never in this enum until now — the interview's ONE LLM call.
   "profile_parse",
   "domain_match",
+  // THE WORK-HISTORY REWRITE (#1350). Routed in `model_config._ROUTE_SHAPES` and charged like
+  // any other call — once per employment stint for every worker who files a history, and once
+  // more for a fresher's training description — and it was unnameable here, so every rupee of
+  // it produced no `ai.cost_recorded` at all. Exactly the `profile_parse` failure this enum's
+  // own comment describes, on the next route to arrive.
+  "work_history_polish",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",

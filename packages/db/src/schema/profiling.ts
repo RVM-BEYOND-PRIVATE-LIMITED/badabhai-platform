@@ -114,6 +114,34 @@ export const workerAttributes = pgTable(
      */
     valueNumber: numeric("value_number", { precision: 14, scale: 4 }),
     valueText: text("value_text"),
+    /**
+     * {@link valueText} rephrased into professional English by the model (#1350), or null.
+     *
+     * A SECOND COLUMN BESIDE THE ANSWER, NEVER A SECOND ROW. The obvious home for a rewrite in an
+     * EAV table is another `attribute_key` — and it is the wrong one. This table is the record of
+     * WHAT THE WORKER ANSWERED: the matcher reads it ("which workers have attribute X"), the
+     * profiling events carry its keys, and `source` admits only `answer_map` or `llm_parse`.
+     * A model-composed sentence filed as an attribute would be a worker answer nobody gave,
+     * indexed and matched against as though he had. Here it is unmistakably derived data, and
+     * every reader that does not know about it is unaffected.
+     *
+     * WHY THIS COLUMN EXISTS AT ALL. Zone 4 for a fresher is his ITI training, and its one
+     * free-text segment (`iti_project_work`) printed exactly as typed — "kuch nhi banaya, bas
+     * knowledge he mujhe" on a resume an employer reads. The employment path has had a rewrite
+     * since #1350; the fresher path, whose worker is the one with the least on his page, had
+     * none. Owner report, 2026-09-09.
+     *
+     * NULL IS THE ORDINARY STATE AND THE SAFE ANSWER, exactly as for
+     * `worker_employment_role.work_done_polished`: a reader falls back to {@link valueText} and
+     * must never read null as an empty answer. CLEARED WHEN THE ANSWER CHANGES — the upsert on
+     * `wa_worker_key_uq` writes this back to null with the new text, so an edited answer is
+     * re-polished rather than carrying yesterday's rewrite of a different sentence.
+     *
+     * TEXT ANSWERS ONLY. A slug, a number and a boolean are closed vocabulary; there is nothing
+     * to rephrase and sending one to a model would be the §8 violation this whole column is
+     * carefully scoped to avoid. The CHECK below enforces it rather than trusting every writer.
+     */
+    valueTextPolished: text("value_text_polished"),
     /** `multi_select` answers. A JSONB array of strings; empty array is a legitimate answer. */
     valueTextList: jsonb("value_text_list").$type<string[]>(),
     source: text("source").$type<ProfileValueSource>().notNull().default("answer_map"),
@@ -159,6 +187,15 @@ export const workerAttributes = pgTable(
     check(
       "wa_value_text_list_shape_chk",
       sql`${t.valueTextList} IS NULL OR jsonb_typeof(${t.valueTextList}) = 'array'`,
+    ),
+    // A rewrite only exists for a TEXT answer, and it is bounded by the same 300 characters the
+    // work-history rewrite is — the sheet gives this one line either way. See
+    // {@link workerAttributes.valueTextPolished}; the rule is enforced here rather than left to
+    // every writer, because a polish attached to a slug is the §8 violation the column is scoped
+    // to avoid and a constraint is the only place that scope cannot be forgotten.
+    check(
+      "wa_value_text_polished_chk",
+      sql`${t.valueTextPolished} IS NULL OR (${t.valueKind} = 'text' AND length(${t.valueTextPolished}) <= 300)`,
     ),
     // Pinned together or not at all — half a pin cannot say which questions were asked.
     check(

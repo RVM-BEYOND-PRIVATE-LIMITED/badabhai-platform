@@ -90,6 +90,40 @@ const PROFILE_JOB_TIMEOUT_MS = 25_000;
 const PROFILING_TURN_TIMEOUT_MS = 13_000;
 
 /**
+ * The transport budget for ONE work-history polish call (#1350).
+ *
+ * THE SAME INVERSION `PROFILING_TURN_TIMEOUT_MS` DOCUMENTS, found a third time and with the
+ * widest gap yet. This call passed no `timeoutMs`, so it took `post`'s 8 s default while the far
+ * side bounds the identical route at 20 s (`profiling_extract_deadline_seconds`,
+ * `apps/ai-service/app/routers/profiling.py`). Twelve seconds of the ai-service's own budget were
+ * unreachable from here by construction: every polish that took 8-20 s was aborted client-side,
+ * and Starlette does not cancel a running handler on client disconnect — so the far side finished
+ * the rewrite, charged the spend ledger, and returned it to a closed socket.
+ *
+ * WHY THAT INVERSION IS EXPENSIVE ON THIS ROUTE IN PARTICULAR — IT PRODUCES A HALF-POLISHED
+ * SHEET. `WorkHistoryPolishService.polish` walks a worker's stints SEQUENTIALLY, each with its own
+ * `AbortController`, and a null costs only THAT stint its rewrite. So latency variance inside the
+ * 8-20 s band does not degrade a resume uniformly; it degrades it PER ENTRY. The reported defect
+ * is exactly that shape: one employer's line printed the model's English and the other printed the
+ * worker's raw Hinglish, on the same page, from the same render. The first stint in the loop is
+ * the one that pays TCP+TLS setup, provider cold start and prompt resolution, which is why the
+ * entry a worker reads FIRST is the one most likely to be missing its rewrite.
+ *
+ * 23 s = the far side's 20 s deadline plus 3 s for request serialisation, the privacy gate, prompt
+ * resolution and both HTTP hops. It is the SAME ratio `parseProfile` and `llmTurn` use. IF
+ * `profiling_extract_deadline_seconds` MOVES, THIS MOVES WITH IT — a bound that drops back below
+ * it silently restores the inversion, and the only symptom is resumes that are quietly Hinglish in
+ * places.
+ *
+ * NOBODY IS WAITING ON THIS ONE. It runs inside the resume-render BullMQ job, off the request
+ * path, which is the same shape as the extraction calls given 25 s — the "a render must not wait
+ * on it" note this replaces was a chat-shaped judgement applied to a queue job. The aggregate is
+ * bounded separately, in the polisher's own loop, so raising the per-call budget cannot turn a
+ * four-employer history into a four-times-longer render.
+ */
+const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
+
+/**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
  *
  * Deliberately ONE field. The ai-service's health payload is rich (spend, caps,
@@ -563,13 +597,14 @@ export class AiService {
     input: WorkHistoryPolishInput,
     ctx?: AiRequestContext,
   ): Promise<WorkHistoryPolishOutput | null> {
-    // The DEFAULT budget, not the queue-side one: this rewrites a single sentence, and a
-    // render must not wait on it the way a whole-transcript extraction legitimately does.
+    // ABOVE THE FAR SIDE'S OWN DEADLINE, so the SEMANTIC bound wins the race and a slow rewrite
+    // arrives instead of being aborted into a null that prints as Hinglish. See
+    // {@link WORK_HISTORY_POLISH_TIMEOUT_MS} for why the 8 s default was the wrong number here.
     return this.post(
       "/profiling/work-history/polish",
       input,
       WorkHistoryPolishOutputSchema,
-      undefined,
+      WORK_HISTORY_POLISH_TIMEOUT_MS,
       ctx,
     );
   }

@@ -156,6 +156,16 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   profile_parse: true,
   // Rendered FROM a finished profile, not spent to produce one (₹5.629 of the ₹77.4583).
   resume_generation: false,
+  // THE SAME SIDE OF THE RATIO AS `resume_generation`, AND FOR THE SAME REASON (#1350). The
+  // work-history rewrite reads a description the worker had ALREADY given — it adds nothing to
+  // the stored profile and changes no matching input; it only decides how that answer reads on
+  // the printed sheet. The interview was over before this ran.
+  //
+  // NOT ₹0 LIKE THE THREE BELOW, so this classification is load-bearing rather than a placeholder:
+  // it fires once per employment stint for every worker who files a history, and once more for a
+  // fresher's training description. Counted as profiling, it would inflate the cost-per-profile
+  // with spend that produced no profile.
+  work_history_polish: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

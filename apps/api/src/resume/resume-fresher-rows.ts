@@ -100,6 +100,18 @@ const TRAINING_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
 const DEFAULT_TRAINING_LABEL = "ITI workshop training";
 
 /**
+ * The one free-text answer in this block, and the only attribute key on the whole sheet that a
+ * model may restate.
+ *
+ * EXPORTED SO THE RENDER WORKER AND THIS FILE CANNOT DISAGREE about which answer gets rewritten.
+ * The polisher reads this key to decide what to send; this file reads it to decide what to print.
+ * A literal in each place is the sort of pair that drifts silently — the rewrite would be
+ * computed for one key and looked up under another, and the only symptom would be a fresher's
+ * sheet that is still Hinglish for no visible reason.
+ */
+export const ITI_PROJECT_WORK_KEY = "iti_project_work";
+
+/**
  * Every pack a role form actually serves.
  *
  * THE BOUND ON THE RULING BELOW, and the only fact about a role this file still reads. A profile
@@ -211,6 +223,19 @@ export function buildFresherRows(
    */
   packId: string | null,
   attributes: WorkerAttributeValues,
+  /**
+   * The model's rewrite of the free-text segment, and whether it may print (#1350).
+   *
+   * STILL PURE. The rewrite is computed by the render worker and handed in, exactly as
+   * `work_done_polished` is handed to {@link buildEmploymentBlock} — this file does no I/O and
+   * calls no model, so the §8 reasoning in the header holds unchanged: every value it JOINS is a
+   * closed-vocabulary label or the worker's text, and the choice of WHICH worker text is made by
+   * the caller under the kill switch.
+   */
+  opts: {
+    readonly polished?: Readonly<Record<string, string>>;
+    readonly polishEnabled?: boolean;
+  } = {},
 ): ResumeExperienceLine[] {
   const workshopMachines = packId === null ? undefined : WORKSHOP_MACHINES[packId];
   const tradeTests = packId === null ? undefined : TRADE_TEST[packId];
@@ -221,7 +246,20 @@ export function buildFresherRows(
     .filter((v): v is string => Boolean(v))
     .slice(0, MAX_WORKSHOP_MACHINES);
   const tradeTest = tradeTests?.[scalar(attributes.trade_test_status) ?? ""] ?? null;
-  const project = scalar(attributes.iti_project_work);
+  // ── THE ONE SEGMENT OF THIS BLOCK THE WORKER WROTE HIMSELF ──────────────────────────────
+  //
+  // The machines and the trade-test clause above are closed-vocabulary labels, already English.
+  // This is free text, typed or dictated in answer to "ITI me kya banaya tha? Apne shabdon me
+  // bataiye" — and until the 2026-09-09 owner report it printed exactly as typed, so a fresher's
+  // entire work history read "kuch nhi banaya, bas knowledge he mujhe" to an employer.
+  //
+  // THE REWRITE WHEN THERE IS ONE AND THE SWITCH IS ON, his own words otherwise — the identical
+  // rule, and the identical fail-closed default, that `workLine` applies to an employment's
+  // description. His own words are never overwritten and are what every degrade prints.
+  const ownProject = scalar(attributes.iti_project_work);
+  const polishedProject =
+    opts.polishEnabled === true ? scalar(opts.polished?.[ITI_PROJECT_WORK_KEY]) : null;
+  const project = polishedProject ?? ownProject;
 
   // The whole block, as one entry. A fresher has one training period, not several, and giving
   // each fact its own row would spend three lines of a zone that has 24% of the page on a worker

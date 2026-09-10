@@ -77,6 +77,53 @@ export class WorkerEmploymentRepository {
         .from(workerEmployment)
         .where(eq(workerEmployment.workerId, workerId));
 
+      // ── WHAT THE DELETE WOULD OTHERWISE TAKE WITH IT ────────────────────────────────────
+      //
+      // This endpoint has REPLACE semantics over the whole history, and the roles cascade — so
+      // every save re-created every stint with a fresh id, `work_done_polished` NULL and
+      // `work_done_polish_declined` back at its default. Two things were being destroyed by a
+      // worker doing nothing worse than adding a second employer:
+      //
+      //   1. THE POLISH. Every stint's rewrite was thrown away and had to be bought again on the
+      //      next render — N model calls to restore text that had not changed, and, until that
+      //      render lands, a sheet that prints Hinglish where it printed English yesterday.
+      //   2. THE WORKER'S REFUSAL (#1354), which is worse, because it is not merely re-earned.
+      //      A cleared decline is EXACTLY the state the polisher reads as "not done yet", so the
+      //      next render silently rewrote a description the worker had explicitly chosen to keep
+      //      in his own words. That is the defect `work-history-own-words.test.ts` exists to
+      //      prevent, arriving through a door that test does not watch.
+      //
+      // KEYED ON THE TEXT, NEVER ON POSITION. `sort_order` shifts the moment an employer is
+      // added, removed or reordered — and adding a most-recent employer at slot 0, which pushes
+      // everything down, is the ordinary case — so a slot match would carry nothing in exactly
+      // the situation this exists for, and could migrate one employer's refusal onto another's
+      // sentence. The description IS the identity here: the rewrite is a presentation of that
+      // text, so an unchanged description keeps its rewrite and an EDITED one arrives with a null
+      // polish and is re-polished for free, which is the behaviour `WorkHistoryPolishService`
+      // already documents.
+      const carried = new Map<string, { polished: string | null; declined: boolean }>();
+      for (const row of await tx
+        .select({
+          workDone: workerEmploymentRole.workDone,
+          workDonePolished: workerEmploymentRole.workDonePolished,
+          workDonePolishDeclined: workerEmploymentRole.workDonePolishDeclined,
+        })
+        .from(workerEmploymentRole)
+        .innerJoin(workerEmployment, eq(workerEmploymentRole.employmentId, workerEmployment.id))
+        .where(eq(workerEmployment.workerId, workerId))) {
+        const key = row.workDone?.trim();
+        if (!key) continue;
+        if (row.workDonePolished === null && !row.workDonePolishDeclined) continue;
+        // FIRST WRITER WINS on a duplicate description, and the tie cannot matter: the two rows
+        // carry the same text, so they would have earned the same rewrite.
+        if (!carried.has(key)) {
+          carried.set(key, {
+            polished: row.workDonePolished,
+            declined: row.workDonePolishDeclined,
+          });
+        }
+      }
+
       await tx.delete(workerEmployment).where(eq(workerEmployment.workerId, workerId));
       if (rows.length === 0) return { replacedExisting: existing.length > 0 };
 
@@ -101,19 +148,27 @@ export class WorkerEmploymentRepository {
 
       await tx.insert(workerEmploymentRole).values(
         inserted.flatMap((employment, index) =>
-          rows[index]!.roles.map((role, roleIndex) => ({
-            employmentId: employment.id,
-            roleLabel: role.roleLabel,
-            startYm: role.startYm,
-            endYm: role.endYm,
-            workDone: role.workDone,
-            workDoneVoiceNoteId: role.workDoneVoiceNoteId,
-            // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
-            // `sortOrder` follows one statement up, and for the same reason: a promotion in the
-            // same month as its predecessor has no date to sort by, and re-deriving would
-            // reshuffle stints between renders and make every regenerated PDF a false diff.
-            sortOrder: roleIndex,
-          })),
+          rows[index]!.roles.map((role, roleIndex) => {
+            // See the read above the delete. An unchanged description keeps the rewrite it
+            // already earned AND the worker's decision about it; a changed one matches nothing
+            // and is re-polished on the next render, which is the documented behaviour.
+            const kept = carried.get(role.workDone?.trim() ?? "");
+            return {
+              employmentId: employment.id,
+              roleLabel: role.roleLabel,
+              startYm: role.startYm,
+              endYm: role.endYm,
+              workDone: role.workDone,
+              workDoneVoiceNoteId: role.workDoneVoiceNoteId,
+              workDonePolished: kept?.polished ?? null,
+              workDonePolishDeclined: kept?.declined ?? false,
+              // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
+              // `sortOrder` follows one statement up, and for the same reason: a promotion in the
+              // same month as its predecessor has no date to sort by, and re-deriving would
+              // reshuffle stints between renders and make every regenerated PDF a false diff.
+              sortOrder: roleIndex,
+            };
+          }),
         ),
       );
 
