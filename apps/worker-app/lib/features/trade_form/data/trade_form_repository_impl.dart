@@ -166,6 +166,10 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       kind: json['kind'] as String? ?? '',
       packId: json['pack_id'] as String? ?? '',
       packVersion: (json['pack_version'] as num?)?.toInt() ?? 0,
+      // #1472 — re-read from EVERY schema response, never cached: the form is
+      // resumable across a cold start, and a stale id files a spoken work
+      // description under the wrong conversation.
+      sessionId: json['session_id'] as String?,
       sections: rawSections
           .whereType<Map<dynamic, dynamic>>()
           .map((Map<dynamic, dynamic> s) => _parseSection(s.cast<String, dynamic>()))

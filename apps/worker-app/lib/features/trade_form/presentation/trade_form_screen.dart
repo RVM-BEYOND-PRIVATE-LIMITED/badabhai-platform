@@ -14,6 +14,7 @@ import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
 import 'widgets/trade_form_preferences_page.dart';
 import 'widgets/trade_form_progress_bar.dart';
+import '../domain/spoken_work_description.dart';
 import 'widgets/trade_form_qualifications_page.dart';
 import 'widgets/trade_form_question_body.dart';
 
@@ -504,6 +505,14 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       return TradeFormEmploymentPage(
         key: _empKey,
         enabled: enabled,
+        // #1472 — the spoken work description. Resolved HERE, not inside the
+        // card: the page's own tests wire a bare locator, and a widget that
+        // reached into get_it would break them. Null when the voice graph is
+        // not registered, which the mic renders as "no mic".
+        micRecorder: locator.isRegistered<SpokenWorkDescriptionRecorder>()
+            ? locator<SpokenWorkDescriptionRecorder>()
+            : null,
+        sessionId: state.sessionId,
         // #1429 — the SAME options fetch the preferences marker uses; it
         // carries the state catalogue + the state-tagged city gazetteer.
         loadOptions: cubit.loadPreferenceOptions,
