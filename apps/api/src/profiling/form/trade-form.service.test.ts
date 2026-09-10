@@ -867,4 +867,110 @@ describe("TradeFormService", () => {
       expect(answers.withTransaction).toHaveBeenCalledTimes(2);
     });
   });
+/**
+ * ═══ MUTUALLY EXCLUSIVE QUESTIONS NEVER REACH A WORKER TOGETHER (#1413 §3) ═══
+ *
+ * `qp_cad_drafting` asks a draughtsman with experience which sectors he has DRAWN for, and a
+ * fresher which he STUDIED. The two are complements on one gate — `drafting_experience >= 2`
+ * against `<= 1` — so exactly one is ever his question.
+ *
+ * #1413 reported that both are visible on the first fetch, and that is TRUE OF THE PAYLOAD:
+ * `form-eligibility`'s rule is that an UNRESOLVED gate shows the question, deliberately, so the
+ * form is never shorter than the truth. What stops the worker seeing both is a chain of three
+ * separate changes that no test held together:
+ *
+ *   1. #1377/#1378 — `orderBySheet` hoists every mandatory item and the tenure gate to the FRONT,
+ *      so `drafting_experience` is asked before the pair it gates.
+ *   2. `schema_stale` — answering a key that appears in any `ask_if`/`skip_if` tells the client
+ *      the screen list it holds is now stale (`gateKeysOf`).
+ *   3. #1382 — the client re-fetches on that flag rather than walking its stale list.
+ *
+ * Break any one and the worker is asked both, or asked the wrong one. These assert the two links
+ * this service owns; the third is the Flutter cubit's `_resyncAfterStaleSchema`.
+ */
+describe("#1413 §3 — the drafting-sector pair", () => {
+  const DRAFTING: QuestionPack = {
+    ...PACK,
+    pack_id: "qp_cad_drafting",
+    family_id: "fam_cad_drafting",
+    items: [
+      // Deliberately LAST in the pack's own order, so a service that did not hoist it would
+      // serve it after the two questions it governs — the exact defect #1377 fixed.
+      item({
+        question_key: "cad_software",
+        answer_type: "multi_select",
+        options: options(4),
+      }),
+      item({
+        question_key: "sector_drawn",
+        answer_type: "multi_select",
+        options: options(4),
+        ask_if: { op: "gte", left: { field: "drafting_experience" }, right: { const: 2 } },
+      }),
+      item({
+        question_key: "sector_studied",
+        answer_type: "multi_select",
+        options: options(4),
+        ask_if: { op: "lte", left: { field: "drafting_experience" }, right: { const: 1 } },
+      }),
+      item({
+        question_key: "drafting_experience",
+        answer_type: "single_select",
+        is_mandatory: true,
+        options: [
+          { option_key: "k0", label_text: "Fresher", value: 0, implies_skill_id: null, is_none_of_above: false },
+          { option_key: "k5", label_text: "5 saal", value: 5, implies_skill_id: null, is_none_of_above: false },
+        ],
+      }),
+    ] as QuestionPackItem[],
+  };
+
+  const keysOf = (schema: { sections: { screens: unknown[] }[] }) =>
+    schema.sections
+      .flatMap((s) => s.screens)
+      .filter((s): s is { question: { question_key: string } } =>
+        typeof s === "object" && s !== null && "question" in s)
+      .map((s) => s.question.question_key);
+
+  it("asks the GATE before either question it gates", async () => {
+    const { service } = await makeService({ pack: DRAFTING });
+    const keys = keysOf(await service.schema(WORKER));
+    // The pack lists it last; the form must not.
+    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_drawn"));
+    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_studied"));
+    expect(keys[0]).toBe("drafting_experience");
+  });
+
+  it("EXACTLY ONE of the pair survives once the gate is answered", async () => {
+    for (const [rung, expected, gone] of [
+      [5, "sector_drawn", "sector_studied"],
+      [0, "sector_studied", "sector_drawn"],
+    ] as const) {
+      const { service } = await makeService({
+        pack: DRAFTING,
+        saved: [
+          answered({
+            questionKey: "drafting_experience",
+            answerOptionKeys: null,
+            answerNumber: rung,
+          }),
+        ],
+      });
+      const keys = keysOf(await service.schema(WORKER));
+      expect(keys, `rung ${rung} must keep ${expected}`).toContain(expected);
+      expect(keys, `rung ${rung} must drop ${gone}`).not.toContain(gone);
+    }
+  });
+
+  it("shows BOTH while the gate is unanswered — the deliberate fail-open", async () => {
+    // NOT A BUG, and pinned so it is not "fixed" into a silent drop. An unresolved gate shows the
+    // question so the form is never SHORTER than the truth; the ordering and staleness rules
+    // above are what stop a worker reaching them. Removing this would hide a fresher's own
+    // question from him whenever the gate write failed.
+    const { service } = await makeService({ pack: DRAFTING });
+    const keys = keysOf(await service.schema(WORKER));
+    expect(keys).toContain("sector_drawn");
+    expect(keys).toContain("sector_studied");
+  });
+});
 });
