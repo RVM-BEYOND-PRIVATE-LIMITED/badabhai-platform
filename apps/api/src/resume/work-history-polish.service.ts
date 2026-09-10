@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 
 import { AiService } from "../ai/ai.service";
 import type { AiRequestContext } from "../ai/ai.service";
+import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
@@ -66,6 +67,7 @@ export class WorkHistoryPolishService {
     private readonly ai: AiService,
     private readonly employments: WorkerEmploymentRepository,
     private readonly attributes: WorkerAttributesRepository,
+    private readonly aiCost: AiCostRecorder,
   ) {}
 
   /**
@@ -225,6 +227,33 @@ export class WorkHistoryPolishService {
         },
         ctx,
       );
+
+      // LEDGER THE SPEND (#738's rule, applied to the route that arrived without it).
+      //
+      // `ai_metadata` was being dropped on the floor here, so a route that bills on EVERY stint
+      // of EVERY worker's history produced no `ai.cost_recorded`, no totals accrual and nothing
+      // in the admin cost dashboard — the exact failure `ai-cost-coverage.test.ts` exists to
+      // catch, and it could not see this route until the task type became nameable.
+      //
+      // RECORDED WHATEVER THE ANSWER WAS, including a null rewrite: a declined or rejected
+      // polish still burned tokens, and a ledger that only counts the successes understates the
+      // cost of the ones that fail. `record` returns early on a null `meta`, which is the mock
+      // and transport-failure case where there is genuinely nothing to bill.
+      //
+      // ATTRIBUTED TO THE WORKER, WITH NO SESSION, on the same reasoning `ResumeService` states
+      // for `resume_generation`: a resume is rendered from a confirmed profile, possibly days
+      // and several interviews after any of them, so naming one session would be a guess dressed
+      // as a fact. `record` swallows its own failures — an observability write must never cost a
+      // worker their resume.
+      await this.aiCost.record(
+        out?.ai_metadata ?? null,
+        "work_history_polish",
+        null,
+        ctx.correlationId ?? "",
+        ctx.requestId ?? "",
+        { workerId },
+      );
+
       const text = out?.work_done?.trim();
       return text ? text : null;
     } catch (err) {

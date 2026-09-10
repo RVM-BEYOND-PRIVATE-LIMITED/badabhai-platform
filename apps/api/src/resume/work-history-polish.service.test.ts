@@ -63,6 +63,7 @@ function setup(opts: { polished?: string | null; throws?: boolean; saveThrows?: 
     { polishWorkHistory } as never,
     { savePolishedDescriptions } as never,
     { saveAttributePolish } as never,
+    { record: vi.fn(async () => undefined) } as never,
   );
   return { svc, polishWorkHistory, savePolishedDescriptions, saveAttributePolish };
 }

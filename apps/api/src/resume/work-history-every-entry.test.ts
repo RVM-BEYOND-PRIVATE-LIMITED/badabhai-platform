@@ -77,6 +77,7 @@ function setup(byInput: Readonly<Record<string, string | null>>) {
     { polishWorkHistory } as never,
     { savePolishedDescriptions } as never,
     { saveAttributePolish } as never,
+    { record: vi.fn(async () => undefined) } as never,
   );
   return { svc, polishWorkHistory, savePolishedDescriptions, saveAttributePolish };
 }
