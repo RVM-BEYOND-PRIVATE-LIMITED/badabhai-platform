@@ -1,6 +1,7 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
+import { titleCaseRoleLabel } from "./resume-text-case";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
@@ -823,7 +824,14 @@ function buildUndegraded(
     //
     // A free-text label, never a taxonomy id, so it can only ever reach the printed headline —
     // matching and ranking still read the canonical ids, which stay null.
-    canonicalRole: trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label,
+    // #1434 — ONLY THE LAST BRANCH IS CASED, and that asymmetry is the point. The first two are
+    // reviewed vocabulary that is already correct ("VMC Operator", "CNC Turner"); the third is the
+    // model's own free text and is the only one that ever printed "CNC turner". See
+    // `titleCaseRoleLabel` for why this is not `titleCaseName`.
+    canonicalRole:
+      trade?.display_name ??
+      resolveId(draft.canonical_role_id) ??
+      titleCaseRoleLabel(draft.role_label),
     // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
     // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
     // the split the current city was prepended to that list, so for every profile
@@ -1009,7 +1017,12 @@ function fromResumeProfile(
   // `experiences` needs no pass of its own: `_certified()` in the ai-service has always dropped
   // an entry whose role/duration/work carries blocked text, so stored entries are already
   // covered. It is the SCALARS that were never gated.
-  const roleLabel = cleanScalar(rp.role_label);
+  // CASED AT THE SOURCE, for the same reason the certification above is (#1434). The container's
+  // `role_label` is the same model free text as the legacy branch's, and all three consumers below
+  // are display surfaces — the Verdict Line's `role`, `canonicalRole`, and `summaryFor`. Casing at
+  // one of them and not the others is how "CNC turner" would survive on the sheet it was reported
+  // on while disappearing from the one beside it.
+  const roleLabel = titleCaseRoleLabel(cleanScalar(rp.role_label));
   const domainLabel = cleanScalar(rp.domain_label);
 
   // THE BAND (R10 R-1). The container carries one figure — `ResumeProfileSchema.expected_salary`
