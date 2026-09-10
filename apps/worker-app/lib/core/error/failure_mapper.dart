@@ -26,7 +26,21 @@ Failure mapError(Object error) {
       401 => const UnauthorizedFailure(),
       403 => const ConsentRequiredFailure(),
       429 => const RateLimitedFailure(),
-      _ => ServerFailure(error.statusCode),
+      // #1480 — THE CODE IS ALREADY ON THE OBJECT; IT WAS JUST NEVER PRINTED.
+      //
+      // `ServerFailure` has carried `statusCode` since it was written, and its default
+      // message throws it away. So a worker reporting "Something went wrong" gave us nothing
+      // to act on, and neither did the screenshot — the one number that would have told us
+      // whether to look at the service, at Redis, or at his token was in the app the whole
+      // time. Composed HERE rather than in the constructor because a `const` default cannot
+      // interpolate a field; same reason, and the same shape, as the 400 case above.
+      //
+      // HINGLISH, matching `RateLimitedFailure` below it rather than the English default it
+      // replaces — this is a string a worker reads on his own phone.
+      _ => ServerFailure(
+        error.statusCode,
+        'Kuch takneeki dikkat hai (${error.statusCode}). Thodi der baad koshish karein.',
+      ),
     };
   }
 
