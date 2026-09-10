@@ -204,34 +204,55 @@ export class TradeFormService {
     if (row === null) {
       throw new BadRequestException(`${item.question_key} produced no storable answer`);
     }
-    await this.answers.upsertAnswer(row);
-
+    // ═══ BOTH ROWS OR NEITHER ═══
+    //
     // THE SHEET'S OWN SOURCE. `projectProfile` is the interview's projector, run over this one
     // record: same crosswalk, same typing, same `attributeKey`, so the sheet cannot tell which
     // surface an answer arrived through. An attribute-less question (target_kind: none) simply
     // yields nothing and writes nothing.
+    //
+    // ONE TRANSACTION, BECAUSE ONE ANSWER IS TWO ROWS. These were two separate autocommits, and
+    // the failure mode is silent and unrecoverable: when the attribute write failed, the
+    // `worker_pack_answer` row still committed — so `answeredCount` below counted the question,
+    // the progress rail advanced, the worker was told it saved, and `worker_attributes` (what the
+    // printed sheet and the matcher read) had nothing. Every 18 items in `qp_cnc_turning` are
+    // `target_kind: attribute`, so this is the ordinary path, not an edge.
+    //
+    // RETRYING COULD NOT REPAIR IT. `upsertAnswer` is idempotent and succeeds again on every
+    // retry, so the pair never converges — the worker re-taps, sees success, and the capability
+    // zone stays empty forever. Fail-closed (§3) says the answer either lands whole or not at
+    // all, and a worker who sees an error and re-taps must be able to fix it.
+    //
+    // `projectProfile` IS PURE AND RUNS OUTSIDE THE TRANSACTION deliberately: it touches no
+    // database, and holding a transaction open across work that cannot fail on the database is
+    // how a hot path acquires lock time it does not need.
     const { attributes } = projectProfile([record]);
-    if (attributes.length > 0) {
-      await this.attributes.upsertMany(
-        attributes.map((attribute) => ({
-          workerId,
-          attributeKey: attribute.attributeKey,
-          valueKind: attribute.valueKind,
-          valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
-          valueNumber: attribute.valueKind === "number" ? String(attribute.value as number) : null,
-          valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
-          valueTextList:
-            attribute.valueKind === "text_list"
-              ? [...(attribute.value as readonly string[])]
-              : null,
-          source: attribute.source,
-          questionKey: attribute.attributeKey,
-          packId: pack.pack_id,
-          packVersion: pack.version,
-          sessionId: ctx.sessionId,
-        })),
-      );
-    }
+    await this.answers.withTransaction(async (tx) => {
+      await this.answers.upsertAnswer(row, tx);
+      if (attributes.length > 0) {
+        await this.attributes.upsertMany(
+          attributes.map((attribute) => ({
+            workerId,
+            attributeKey: attribute.attributeKey,
+            valueKind: attribute.valueKind,
+            valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
+            valueNumber:
+              attribute.valueKind === "number" ? String(attribute.value as number) : null,
+            valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
+            valueTextList:
+              attribute.valueKind === "text_list"
+                ? [...(attribute.value as readonly string[])]
+                : null,
+            source: attribute.source,
+            questionKey: attribute.attributeKey,
+            packId: pack.pack_id,
+            packVersion: pack.version,
+            sessionId: ctx.sessionId,
+          })),
+          tx,
+        );
+      }
+    });
 
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const answers = answerMapFromRows(saved);

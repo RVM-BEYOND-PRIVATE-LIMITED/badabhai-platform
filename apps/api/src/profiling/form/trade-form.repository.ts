@@ -37,15 +37,38 @@ export class TradeFormRepository {
   }
 
   /**
+   * Run `cb` inside one Drizzle transaction — the same shape `AdminActionsRepository` uses.
+   *
+   * The service needs it because ONE answer is two rows in two tables, not one row: this table
+   * and `worker_attributes`. See {@link upsertAnswer}.
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
+  /**
    * Write one answer.
    *
-   * NOT IN A TRANSACTION, unlike the interview's flush. A form answer is a single row and its own
-   * unit of work: the worker taps "aage badhein" and that question is saved whatever happens to
-   * the next one. The interview batches because a partial transcript is worse than none; a
-   * partially-filled form is the ordinary state of a form.
+   * ═══ ONE ANSWER IS TWO ROWS, AND THEY MUST COMMIT TOGETHER ═══
+   *
+   * THIS COMMENT USED TO SAY THE OPPOSITE, and the reasoning was wrong rather than merely
+   * outdated. It read: *"NOT IN A TRANSACTION… A form answer is a single row and its own unit of
+   * work… a partially-filled form is the ordinary state of a form."* The first clause is false.
+   * A form answer is a row HERE and a row in `worker_attributes` (`trade-form.service.ts`
+   * projects every answer through `projectProfile` — all 18 items in `qp_cnc_turning` are
+   * `target_kind: attribute`), and the two were separate autocommits.
+   *
+   * A PARTIALLY-FILLED FORM IS ORDINARY; A PARTIALLY-SAVED ANSWER IS NOT. When the second write
+   * failed, this table kept the row the progress rail counts while `worker_attributes` — what the
+   * printed sheet and the matcher actually read — did not. The worker is told the question is
+   * answered, the capability zone stays empty, and RETRYING CANNOT CONVERGE: this upsert succeeds
+   * again every time, so the pair never lands. Fail-closed says both or neither.
+   *
+   * `tx` lets the caller enrol this write in that transaction; passing nothing keeps the old
+   * standalone behaviour for any caller that genuinely writes one row.
    */
-  async upsertAnswer(row: NewWorkerPackAnswer): Promise<void> {
-    await this.db
+  async upsertAnswer(row: NewWorkerPackAnswer, tx?: Database): Promise<void> {
+    await (tx ?? this.db)
       .insert(workerPackAnswers)
       .values(row)
       .onConflictDoUpdate({
