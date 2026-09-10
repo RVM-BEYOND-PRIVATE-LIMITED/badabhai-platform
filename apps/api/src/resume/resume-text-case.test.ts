@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { titleCaseName } from "./resume-text-case";
+import { titleCaseName, titleCaseRoleLabel } from "./resume-text-case";
 import { buildEmploymentBlock } from "./resume-employment-rows";
 import { buildLocationLine } from "./resume-sheet-rows";
+import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 
 /**
  * PROPER-NOUN CASING (owner ruling 2026-09-08).
@@ -125,5 +126,57 @@ describe("the ruling on the printed sheet", () => {
   it("cases the masthead location line the same way", () => {
     expect(buildLocationLine({ city: "faridabad", state: "haryana" })).toBe("Faridabad, Haryana");
     expect(buildLocationLine({ city: "new delhi", state: null })).toBe("New Delhi");
+  });
+});
+
+/**
+ * #1434 — THE HEADLINE'S ROLE, whose author is the model rather than the worker.
+ *
+ * The reported defect is one screenshot — "CNC turner · 6 yrs 4 mo" — but the interesting half of
+ * this suite is the input NEXT to it. `titleCaseName` fixes the reported string and breaks its
+ * neighbour, which is why `titleCaseRoleLabel` resolves against the reviewed role vocabulary
+ * before it falls back to casing at all.
+ */
+describe("titleCaseRoleLabel — the model's free-text role", () => {
+  it("fixes the reported headline", () => {
+    expect(titleCaseRoleLabel("CNC turner")).toBe("CNC Turner");
+  });
+
+  it("ALSO fixes the input a casing rule alone gets wrong", () => {
+    // THE WHOLE REASON THIS IS NOT `titleCaseName`. That function never lowercases, so it turns
+    // "CNC turner" into "CNC Turner" correctly — and turns an all-lowercase "cnc turner" into
+    // "Cnc Turner", a misspelt trade on the one page a worker hands across a factory gate. The
+    // vocabulary lookup is what makes both inputs land on the reviewed spelling.
+    expect(titleCaseName("cnc turner")).toBe("Cnc Turner"); // the hazard, pinned
+    expect(titleCaseRoleLabel("cnc turner")).toBe("CNC Turner"); // what we actually print
+  });
+
+  it("prints the reviewed spelling for every declared role, however the model cased it", () => {
+    for (const descriptor of ROLE_FORM_DESCRIPTORS) {
+      const name = descriptor.displayName;
+      expect(titleCaseRoleLabel(name.toLowerCase())).toBe(name);
+      expect(titleCaseRoleLabel(name.toUpperCase())).toBe(name);
+      expect(titleCaseRoleLabel(`  ${name}  `)).toBe(name);
+    }
+  });
+
+  it("MATCHES THE WHOLE LABEL, never a substring — §8", () => {
+    // A worker who is a "CNC turner helper" is not a CNC Turner, and rewriting him into one would
+    // be the renderer adding a claim. He keeps his own words, cased and nothing more.
+    expect(titleCaseRoleLabel("cnc turner helper")).toBe("Cnc Turner Helper");
+    expect(titleCaseRoleLabel("assistant welder")).toBe("Assistant Welder");
+  });
+
+  it("cases a trade we have no descriptor for, and never lowercases an acronym", () => {
+    expect(titleCaseRoleLabel("tandoor cook")).toBe("Tandoor Cook");
+    expect(titleCaseRoleLabel("ITI instructor")).toBe("ITI Instructor");
+    expect(titleCaseRoleLabel("HVAC technician")).toBe("HVAC Technician");
+  });
+
+  it("is null-safe and leaves Devanagari alone", () => {
+    expect(titleCaseRoleLabel(null)).toBeNull();
+    expect(titleCaseRoleLabel(undefined)).toBeUndefined();
+    expect(titleCaseRoleLabel("")).toBe("");
+    expect(titleCaseRoleLabel("वेल्डर")).toBe("वेल्डर");
   });
 });
