@@ -30,6 +30,7 @@ import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
+import '../../../core/util/push_once.dart';
 
 /// How close to the bottom (px) the worker must be for a freshly-received bot
 /// message to auto-scroll. Beyond this, we surface the "new message" pill
@@ -693,7 +694,7 @@ class _ChatViewState extends State<_ChatView> {
     if (_openingTradeForm) return;
     setState(() => _openingTradeForm = true);
     try {
-      await context.push(Routes.tradeForm);
+      await context.pushOnce(Routes.tradeForm);
     } finally {
       // The worker can back out of the form and return to this (dead) chat
       // session — re-arm so the card stays tappable rather than permanently
@@ -712,7 +713,7 @@ class _ChatViewState extends State<_ChatView> {
     if (_openingPreview) return;
     setState(() => _openingPreview = true);
     try {
-      await context.push(Routes.profilePreview);
+      await context.pushOnce(Routes.profilePreview);
     } finally {
       // Confirming the profile leaves via `go(/building)` — this screen is gone
       // by then, hence the mounted check before re-arming the button.
@@ -842,7 +843,7 @@ class _ChatViewState extends State<_ChatView> {
         // only the position differs.
         actions: <Widget>[
           TextButton(
-            onPressed: () => context.push(
+            onPressed: () => context.pushOnce(
               Routes.feedback,
               extra: GoRouterState.of(context).uri.path,
             ),

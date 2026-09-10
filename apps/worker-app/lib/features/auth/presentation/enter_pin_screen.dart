@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -14,6 +13,7 @@ import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
+import '../../../core/util/push_once.dart';
 
 /// PIN length the app uses everywhere (set + unlock). Single source so the dot
 /// count and the auto-submit threshold never drift.
@@ -195,7 +195,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
                           ),
                         const Spacer(flex: 1),
                         TextButton(
-                          onPressed: () => context.push(Routes.forgotPin),
+                          onPressed: () => context.pushOnce(Routes.forgotPin),
                           child: Text(
                             // After enough soft fails, nudge toward the reset flow.
                             state.suggestForgot

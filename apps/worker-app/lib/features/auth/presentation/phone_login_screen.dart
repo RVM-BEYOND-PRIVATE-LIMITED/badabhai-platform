@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
@@ -13,6 +12,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../router.dart';
 import 'cubit/phone_login_cubit.dart';
 import 'otp_verify_screen.dart';
+import '../../../core/util/push_once.dart';
 
 class PhoneLoginScreen extends StatelessWidget {
   const PhoneLoginScreen({super.key});
@@ -72,7 +72,7 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
           // #336 — carry the server's resend cooldown across, so the OTP
           // screen opens with the countdown already running instead of an
           // armed button the server will reject.
-          context.push(
+          context.pushOnce(
             Routes.otpVerify,
             extra: OtpVerifyArgs(phone: state.phone, resendIn: state.resendIn),
           );

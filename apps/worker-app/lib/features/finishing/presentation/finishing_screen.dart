@@ -16,6 +16,7 @@ import '../../voice_form/presentation/widgets/voice_dot_rail.dart';
 import '../domain/finishing_models.dart';
 import 'cubit/finishing_cubit.dart';
 import 'widgets/employer_card.dart';
+import '../../../core/util/tap_guard.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart. ----
@@ -471,6 +472,9 @@ class _CitiesPage extends StatefulWidget {
 class _CitiesPageState extends State<_CitiesPage> {
   final TextEditingController _city = TextEditingController();
 
+  /// #1474 — a double-tap used to add the same city twice.
+  final TapGuard _addGuard = TapGuard();
+
   @override
   void dispose() {
     _city.dispose();
@@ -507,7 +511,7 @@ class _CitiesPageState extends State<_CitiesPage> {
               label: '+',
               variant: BbButtonVariant.secondary,
               size: BbButtonSize.md,
-              onPressed: _add,
+              onPressed: _addGuard.wrap(_add),
             ),
           ],
         ),

@@ -9,6 +9,7 @@ import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_text_field.dart';
+import '../../../../core/util/tap_guard.dart';
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
@@ -136,6 +137,13 @@ class TradeFormQualificationsPageState
 
   int get pageCount =>
       _educations.isEmpty ? _pagesWithoutEducation : _pagesWithEducation;
+
+  /// #1474 — one guard per add button. A worker who taps twice because the new
+  /// card appended BELOW the fold got two identical cards; the second tap is
+  /// now dropped. Held in State on purpose: a guard built in `build()` would
+  /// forget every tap it ever saw.
+  final TapGuard _addCertGuard = TapGuard();
+  final TapGuard _addEduGuard = TapGuard();
 
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
@@ -473,7 +481,7 @@ class TradeFormQualificationsPageState
             size: BbButtonSize.md,
             iconLeft: Icons.add,
             block: true,
-            onPressed: _addCertificate,
+            onPressed: _addCertGuard.wrap(_addCertificate),
           ),
       ],
     );
@@ -554,7 +562,7 @@ class TradeFormQualificationsPageState
             size: BbButtonSize.md,
             iconLeft: Icons.add,
             block: true,
-            onPressed: _addEducation,
+            onPressed: _addEduGuard.wrap(_addEducation),
           ),
       ],
     );

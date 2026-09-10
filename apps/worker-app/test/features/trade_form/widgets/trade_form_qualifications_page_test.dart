@@ -78,6 +78,48 @@ void main() {
     expect(find.text('Aur ek entry jodein'), findsOneWidget);
   });
 
+  // #1474 — the reported screenshot: TWO identical "Kis saal poora hua /
+  // Institute ka naam" cards. The add button appends a card BELOW the fold, so
+  // nothing appears to happen and a worker on a cheap handset taps again —
+  // and both taps were honoured.
+  testWidgets('a DOUBLE-TAP on "add another" adds ONE education, not two',
+      (WidgetTester tester) async {
+    final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
+    key.currentState!.goToNextPage(); // -> the page that owns the add button
+    await tester.pump();
+
+    await tester.tap(find.text('Aur ek entry jodein'));
+    await tester.tap(find.text('Aur ek entry jodein'));
+    await tester.pump();
+
+    // Two entries would make it a four-page marker and paint two cards on the
+    // year+institute page — exactly the screenshot.
+    expect(key.currentState!.pageCount, 4);
+    key.currentState!.goToNextPage();
+    key.currentState!.goToNextPage();
+    await tester.pump();
+    expect(find.text('Kis saal poora hua'), findsOneWidget,
+        reason: 'a double-tap must not create a second education card');
+  });
+
+  testWidgets('two DELIBERATE taps, spaced apart, still add two educations',
+      (WidgetTester tester) async {
+    // The guard must never block a worker who genuinely wants two entries.
+    final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);
+    key.currentState!.goToNextPage();
+    await tester.pump();
+
+    await tester.tap(find.text('Aur ek entry jodein'));
+    await tester.pump(const Duration(seconds: 1)); // past the guard window
+    await tester.tap(find.text('Aur ek entry jodein'));
+    await tester.pump();
+
+    key.currentState!.goToNextPage();
+    key.currentState!.goToNextPage();
+    await tester.pump();
+    expect(find.text('Kis saal poora hua'), findsNWidgets(2));
+  });
+
   testWidgets('adding an education brings the two education pages back',
       (WidgetTester tester) async {
     final GlobalKey<TradeFormQualificationsPageState> key = await pump(tester);

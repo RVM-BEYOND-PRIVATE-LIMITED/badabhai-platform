@@ -14,6 +14,7 @@ import '../../domain/spoken_work_description.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_text_field.dart';
 import 'trade_form_work_mic.dart';
+import '../../../../core/util/tap_guard.dart';
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
@@ -141,6 +142,9 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       List<TradeFormEmploymentEntry>.of(
         widget.initialEntries ?? const <TradeFormEmploymentEntry>[],
       );
+
+  /// #1474 — a double-tap used to add two identical employer cards.
+  final TapGuard _addGuard = TapGuard();
 
   int _page = 0;
 
@@ -292,7 +296,7 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
           size: BbButtonSize.md,
           iconLeft: Icons.add,
           block: true,
-          onPressed: _add,
+          onPressed: _addGuard.wrap(_add),
         ),
       );
     }

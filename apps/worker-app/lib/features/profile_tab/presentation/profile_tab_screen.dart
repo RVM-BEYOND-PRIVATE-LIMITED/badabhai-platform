@@ -23,6 +23,7 @@ import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_strength_card.dart';
 import '../domain/profile_summary.dart';
+import '../../../core/util/push_once.dart';
 
 /// The tabbed Profile (spec §5.9) — distinct from the profiling ProfilePreview.
 /// Header + strength card + the Interview-kit shortcut (the kit routes are
@@ -240,7 +241,7 @@ class _ProfileTabView extends StatelessWidget {
                 tooltip: 'Settings',
                 icon: const Icon(Icons.settings_outlined,
                     color: AppColors.onBlue),
-                onPressed: () => context.push(Routes.settings),
+                onPressed: () => context.pushOnce(Routes.settings),
               ),
             ],
           ),
@@ -440,7 +441,7 @@ class _ProfileTabView extends StatelessWidget {
             icon: Icons.quiz_outlined,
             title: 'Interview kit',
             subtitle: '15 sawaal + jawaab',
-            onTap: () => context.push(Routes.kit),
+            onTap: () => context.pushOnce(Routes.kit),
           ),
           const Divider(
             height: 1,
@@ -451,7 +452,7 @@ class _ProfileTabView extends StatelessWidget {
             icon: Icons.work_history,
             title: 'Applied jobs',
             subtitle: 'Aapki apply ki gayi jobs',
-            onTap: () => context.push(Routes.appliedJobs),
+            onTap: () => context.pushOnce(Routes.appliedJobs),
           ),
           if (showInvite) ...<Widget>[
             const Divider(
@@ -463,7 +464,7 @@ class _ProfileTabView extends StatelessWidget {
               icon: Icons.person_add_alt_1_outlined,
               title: 'Dost ko invite karein',
               subtitle: 'Referral link share karein',
-              onTap: () => context.push(Routes.invite),
+              onTap: () => context.pushOnce(Routes.invite),
             ),
           ],
         ],

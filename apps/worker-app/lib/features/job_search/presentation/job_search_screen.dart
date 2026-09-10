@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -19,6 +18,7 @@ import '../../swipe/domain/job_detail.dart';
 import '../domain/job_search_item.dart';
 import 'cubit/job_search_cubit.dart';
 import 'cubit/job_search_state.dart';
+import '../../../core/util/push_once.dart';
 
 /// The Indeed-style job SEARCH screen: a worker types a title/skill ("CNC
 /// operator") and a location ("Kota, Rajasthan") and sees matching OPEN jobs.
@@ -133,7 +133,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
   /// redirect requires a [JobDetail] as `extra`). No queue to prune here, so the
   /// pop result is ignored.
   void _openDetail(JobSearchItem item) {
-    context.push(
+    context.pushOnce(
       '${Routes.jobDetail}/${item.jobId}',
       extra: JobDetail(
         jobId: item.jobId,
