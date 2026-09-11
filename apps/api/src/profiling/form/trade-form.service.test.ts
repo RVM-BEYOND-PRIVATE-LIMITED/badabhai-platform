@@ -94,7 +94,13 @@ const PACK: QuestionPack = {
 };
 
 function makeService(
-  opts: { formKind?: unknown; saved?: WorkerPackAnswer[]; pack?: QuestionPack | null } = {},
+  opts: {
+    formKind?: unknown;
+    saved?: WorkerPackAnswer[];
+    pack?: QuestionPack | null;
+    /** ADR-0041 RI-4 — what a résumé staged for this worker, keyed by question key. */
+    suggestions?: ReadonlyMap<string, unknown>;
+  } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
   const chat = {
@@ -141,6 +147,10 @@ function makeService(
     // from the matching layer is that it is called with the worker id. `rebuildQuietly` is
     // contractually never-throwing, which is why the form can await it without a try/catch.
     { rebuildQuietly } as never,
+    // ADR-0041 RI-4. THE DEFAULT IS AN EMPTY MAP, and that is the point: a worker who uploaded
+    // nothing is the case every other test in this file is about, and the form they assert on
+    // must be byte-for-byte the form he sees today.
+    { forWorker: async () => opts.suggestions ?? new Map() } as never,
   );
   return { service, written, packs, chat, upsertMany, emitted, emit, answers };
 }
@@ -973,4 +983,99 @@ describe("#1413 §3 — the drafting-sector pair", () => {
     expect(keys).toContain("sector_studied");
   });
 });
+});
+
+describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the question it is about", () => {
+  const suggestion = (text: string) => ({
+    values: { option_keys: [], text, number: null, bool: null },
+    source: "resume" as const,
+    confidence: 0.88,
+  });
+
+  it("a worker who uploaded NOTHING sees every question with `suggestion: null`", async () => {
+    // THE INVARIANT THE WHOLE FEATURE SHIPS UNDER. The no-résumé path is the one that ships
+    // today, and it must stay byte for byte what it was — an additive field that is always
+    // present and always null is exactly that.
+    const { service } = makeService();
+    const schema = await service.schema(WORKER);
+    const questions = schema.sections
+      .flatMap((section) => section.screens)
+      .filter((screen) => screen.type === "question");
+
+    expect(questions.length).toBeGreaterThan(0); // vacuity: there ARE questions to check
+    for (const screen of questions) {
+      expect(screen).toHaveProperty("suggestion", null);
+    }
+  });
+
+  it("a staged suggestion reaches the question it targets, and only that one", async () => {
+    const { service } = makeService({
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    });
+    const schema = await service.schema(WORKER);
+    const questions = schema.sections
+      .flatMap((section) => section.screens)
+      .filter((screen) => screen.type === "question");
+
+    const targeted = questions.find((screen) => screen.question.question_key === "turning_machine");
+    expect(targeted?.suggestion?.values.text).toBe("CNC Lathe");
+    // Every OTHER question is untouched — a suggestion is not a form-wide banner.
+    for (const screen of questions) {
+      if (screen.question.question_key !== "turning_machine") {
+        expect(screen.suggestion).toBeNull();
+      }
+    }
+  });
+
+  it("a STORED ANSWER is served BYTE FOR BYTE what it would be with no résumé (ruling D7)", async () => {
+    // D7 says a stored answer always wins, and the way that is expressed here is that nothing
+    // overwrites anything. Asserting a hard-coded option list would pin the FIXTURE; asserting
+    // the answer is identical with and without a suggestion pins the RULE — if a suggestion
+    // ever altered a served answer by any byte, this fails and nothing else would.
+    const saved = [answered({ questionKey: "turning_machine", answerOptionKeys: ["k1"] })];
+    const withoutResume = await makeService({ saved }).service.schema(WORKER);
+    const withResume = await makeService({
+      saved,
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    }).service.schema(WORKER);
+
+    type Screen = Awaited<ReturnType<TradeFormService["schema"]>>["sections"][number]["screens"][number];
+    type QuestionScreen = Extract<Screen, { type: "question" }>;
+    const answerFor = (schema: Awaited<ReturnType<TradeFormService["schema"]>>) =>
+      schema.sections
+        .flatMap((section) => section.screens)
+        .find(
+          (candidate): candidate is QuestionScreen =>
+            candidate.type === "question" && candidate.question.question_key === "turning_machine",
+        );
+
+    const plain = answerFor(withoutResume);
+    const suggested = answerFor(withResume);
+
+    expect(plain?.answer).not.toBeNull(); // vacuity: there IS a stored answer to preserve
+    expect(suggested?.answer).toEqual(plain?.answer);
+    // And the suggestion sits BESIDE it rather than instead of it — the worker sees both and
+    // settles the disagreement himself, which is the only place it can honestly be settled.
+    expect(suggested?.suggestion?.values.text).toBe("CNC Lathe");
+    expect(plain?.suggestion).toBeNull();
+  });
+
+  it("a suggestion carries NO status — it is not an answer and cannot be read as one", async () => {
+    // Ruling D2. A capability chip arrives highlighted and UNTICKED; a suggestion that arrived
+    // shaped like a SavedAnswer is one client bug away from being rendered as settled.
+    const { service } = makeService({
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    });
+    const schema = await service.schema(WORKER);
+    const screen = schema.sections
+      .flatMap((section) => section.screens)
+      .find(
+        (candidate): candidate is Extract<typeof candidate, { type: "question" }> =>
+          candidate.type === "question" && candidate.question.question_key === "turning_machine",
+      );
+
+    expect(screen?.suggestion).not.toBeNull();
+    expect(screen?.suggestion).not.toHaveProperty("status");
+    expect(Object.keys(screen!.suggestion!).sort()).toEqual(["confidence", "source", "values"]);
+  });
 });

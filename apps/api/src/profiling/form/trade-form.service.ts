@@ -21,6 +21,10 @@ import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { descriptorForKind } from "../roles/role-registry";
 import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
+import {
+  ResumeSuggestionReader,
+  type ResumeSuggestion,
+} from "../resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,
@@ -60,6 +64,11 @@ export class TradeFormService {
     // M1 — the matching layer's rebuild, enqueued when the form completes. READ-ONLY as far as
     // this service is concerned: it hands over a worker id and never learns what was derived.
     private readonly workerSkills: WorkerSkillsService,
+    // ADR-0041 RI-4. READ-ONLY, and the only thing this service asks it for is what a résumé
+    // suggested — never whether one exists, never its storage key. A form must render
+    // identically for a worker who uploaded nothing, which is the invariant the whole feature
+    // ships under.
+    private readonly resumeSuggestions: ResumeSuggestionReader,
   ) {}
 
   /**
@@ -83,6 +92,11 @@ export class TradeFormService {
     const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
       items.filter((item) => isFormQuestionVisible(item, answers));
 
+    // FAILS SOFT, DELIBERATELY. A suggestion is a convenience; the form is the worker's actual
+    // task. If the import row is unreadable or its payload will not decrypt he gets today's
+    // form rather than an error — the same posture ruling D9 sets for every other résumé path.
+    const suggestions = await this.resumeSuggestions.forWorker(workerId);
+
     const { ordered, leftover } = this.orderBySheet(pack, kind);
     const capabilityTitle =
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
@@ -98,7 +112,7 @@ export class TradeFormService {
           id: "capability",
           title: capabilityTitle,
           screens: visible(ordered).map((item) =>
-            this.questionScreen(item, byKey.get(item.question_key)),
+            this.questionScreen(item, byKey.get(item.question_key), suggestions),
           ),
         },
         {
@@ -116,7 +130,7 @@ export class TradeFormService {
           title: SECTION_TITLES.qualifications,
           screens: [
             ...visible(leftover).map((item) =>
-              this.questionScreen(item, byKey.get(item.question_key)),
+              this.questionScreen(item, byKey.get(item.question_key), suggestions),
             ),
             // ZONE 5's CREDENTIALS (migration 0098). A MARKER, like the two above:
             // `PUT /workers/me/qualifications` owns the vocabulary, the caps and the
@@ -525,7 +539,11 @@ export class TradeFormService {
     return { ordered, leftover: [...byKey.values()] };
   }
 
-  private questionScreen(item: QuestionPackItem, saved: WorkerPackAnswer | undefined) {
+  private questionScreen(
+    item: QuestionPackItem,
+    saved: WorkerPackAnswer | undefined,
+    suggestions: ReadonlyMap<string, ResumeSuggestion>,
+  ) {
     return {
       type: "question" as const,
       question: {
@@ -555,6 +573,11 @@ export class TradeFormService {
               bool: saved.answerBool,
             }
           : null,
+      // RULING D7 IN ONE LINE: a stored answer always wins, and this does not touch it. The
+      // suggestion is served WHETHER OR NOT the question is already answered — the worker sees
+      // what his résumé said beside what he told us, and decides. Suppressing it when an answer
+      // exists would quietly hide a disagreement he is the only one able to settle.
+      suggestion: suggestions.get(item.question_key) ?? null,
     };
   }
 

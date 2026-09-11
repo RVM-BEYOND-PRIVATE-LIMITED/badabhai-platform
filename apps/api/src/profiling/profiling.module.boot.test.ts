@@ -3,6 +3,9 @@ import { ResumeImportController } from "./resume-import/resume-import.controller
 import { ResumeImportRepository } from "./resume-import/resume-import.repository";
 import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
+import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
 import "reflect-metadata";
@@ -106,6 +109,16 @@ describe("ProfilingModule wiring", () => {
       // invisible to a metadata test and fails BOOT. One new module edge has already made
       // this app fail to boot while typecheck, lint and every unit test passed.
       ResumeParseService,
+      // ADR-0041 RI-4 — the routing leg and the two things it needed wiring for. Same reason
+      // again, and this list has now caught it once: `ResumeRouteService` takes
+      // `PackRegistryService`, `OccupationService`, `PiiCryptoService` and `EventsService`,
+      // `ResumeSuggestionReader` is a CONSTRUCTOR dependency of `TradeFormService` (so its
+      // absence breaks the FORM, not the résumé feature), and `ResumeImportProcessor` is the
+      // only thing that ever calls the parse at all — without it the queue fills and nothing
+      // drains it, which no other test in this repository can see.
+      ResumeRouteService,
+      ResumeSuggestionReader,
+      ResumeImportProcessor,
     ]);
   });
 

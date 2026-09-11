@@ -118,6 +118,36 @@ export interface PushJobData {
   deviceIds: string[];
 }
 
+/**
+ * ADR-0041 résumé-import parse queue.
+ *
+ * A QUEUE AND NOT A DIRECT CALL, for the reason every other AI path here is one: reading a
+ * document means downloading it, rasterising it, possibly running OCR over it and then one
+ * model call. That is tens of seconds on a scanned photograph, and the worker who uploaded it
+ * is holding a phone waiting for a 201. The confirm route registers the row and returns; this
+ * queue does the reading.
+ *
+ * A LOST JOB IS A STUCK IMPORT, NOT A CORRUPT ONE. The row sits at `uploaded`, `GET :importId`
+ * keeps answering, and the worker is never blocked — ruling D9's "never a dead end" is served
+ * by the client carrying on into the chat, not by this job succeeding.
+ */
+export const RESUME_IMPORT_PARSE_QUEUE = "resume-import-parse";
+
+/**
+ * Payload for one résumé parse (refs only, no PII).
+ *
+ * TWO IDS AND THE TRACING PAIR — no storage key, no mime, no filename. The processor loads the
+ * row itself, which is also what makes the job safe to retry: everything it needs is in
+ * Postgres, so nothing about the worker's document ever sits in Redis.
+ */
+export interface ResumeImportParseJobData {
+  importId: string;
+  workerId: string;
+  /** Tracing ids carried from the originating HTTP request. */
+  correlationId: string;
+  requestId: string;
+}
+
 /** Payload enqueued for an async profile-extraction job (refs only, no PII). */
 export interface ProfileExtractionJobData {
   workerId: string;

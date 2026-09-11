@@ -57,6 +57,23 @@ const SavedAnswerSchema = z.object({
   bool: z.boolean().nullable(),
 });
 
+/**
+ * A résumé's contribution to one question. Mirrors the saved-answer VALUE shape exactly, minus
+ * the one field that would make it a claim.
+ */
+const ResumeSuggestionSchema = z.object({
+  values: z.object({
+    option_keys: z.array(z.string()),
+    text: z.string().nullable(),
+    number: z.number().nullable(),
+    bool: z.boolean().nullable(),
+  }),
+  /** Closed today, and a union tomorrow: RI-5's chat surface offers the same values. */
+  source: z.literal("resume"),
+  /** The model's own number, carried through unaltered — never a floor, never a filter. */
+  confidence: z.number().min(0).max(1),
+});
+
 const ScreenSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("question"),
@@ -72,6 +89,24 @@ const ScreenSchema = z.discriminatedUnion("type", [
      */
     ui: z.object({ searchable: z.boolean() }),
     answer: SavedAnswerSchema.nullable(),
+    /**
+     * What the worker's uploaded résumé said about this question (ADR-0041 RI-4).
+     *
+     * ADDITIVE AND DEFAULTED, so a client that never reads it renders exactly today's form —
+     * that is the property that lets the server land this before the app does, and it is the
+     * same argument `schema_stale` makes one screen down.
+     *
+     * NOT AN ANSWER, AND SHAPED SO IT CANNOT BE MISTAKEN FOR ONE. `answer` carries a `status`;
+     * this does not, because a suggestion has no status — nobody has said anything yet. Ruling
+     * D2 turns on that distinction: facts render PREFILLED and capability chips render
+     * HIGHLIGHTED BUT UNTICKED, and a tick stays the worker's own claim. If this ever arrived
+     * with a status, one client bug away is a form that reports a man's résumé as his answers.
+     *
+     * A QUESTION MAY CARRY BOTH. Ruling D7 — a stored answer always wins — is expressed here
+     * rather than in code: the `answer` is served exactly as it was, and the suggestion simply
+     * sits beside it. Nothing overwrites anything.
+     */
+    suggestion: ResumeSuggestionSchema.nullable().default(null),
   }),
   /**
    * The closed-set preferences page — availability, salary band, cities, shift, languages,

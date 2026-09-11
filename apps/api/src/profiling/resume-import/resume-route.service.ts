@@ -74,17 +74,20 @@ export class ResumeRouteService {
 
     // (2) THE DETERMINISTIC ROUTER, used exactly as the interview uses it.
     //
-    //     `workerText` IS THE VETO'S EXTRA EVIDENCE and is deliberately the same two labels
-    //     rather than the résumé's lines. The router reads it only to WITHHOLD a handover,
-    //     never to cause one — but the document's full text is not ours to widen that with:
-    //     a résumé listing a VMC under "machines used at a previous employer" would veto a
-    //     turning form the worker genuinely belongs on. The labels are what the model actually
-    //     concluded he does.
+    //     `workerText` IS DELIBERATELY NOT PASSED, and the first draft of this call did pass it
+    //     — the two labels, joined. A mutation proved that argument dead: the veto haystack is
+    //     built from those same labels already, so handing them over a second time changed
+    //     nothing, and the test that claimed to cover it was passing for another reason.
+    //
+    //     The parameter exists for text the router may read ONLY to withhold a handover, and
+    //     the tempting candidate here is the résumé's own lines. That would be wrong: a
+    //     document listing a VMC under a previous employer's machines would veto the turning
+    //     form a worker genuinely belongs on, and the veto cannot be argued with. The two
+    //     labels are what the model actually concluded he DOES, and they are already in.
     const formKind = routeToTradeForm({
       draft: { domain_label: domainLabel, role_label: roleLabel, skills: [], experiences: [] },
       occupationFamilyId: pinned.familyId,
       occupationLabel: pinned.label,
-      workerText: [roleLabel, domainLabel].filter((text): text is string => text !== null).join(" "),
     });
 
     const route: ResumeImportRouteName = formKind === null ? "chat" : "form";

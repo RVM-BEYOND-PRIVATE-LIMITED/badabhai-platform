@@ -52,13 +52,17 @@ function setup(configOverrides: Partial<ServerConfig> = {}) {
     RESUME_UPLOAD_MAX_BYTES: 10 * 1024 * 1024,
     ...configOverrides,
   } as ServerConfig;
+  // ADR-0041 RI-4 — the parse queue the confirm path enqueues onto. A spy, because what these
+  // tests assert is the CONFIRM's behaviour; that the enqueue happened is asserted directly.
+  const parseQueue = { add: vi.fn(async () => ({ id: "job-1" })) };
   const svc = new ResumeImportService(
     imports as unknown as ResumeImportRepository,
     events as unknown as EventsService,
     storage as unknown as StorageService,
     config,
+    parseQueue as never,
   );
-  return { svc, imports, events, storage };
+  return { parseQueue, svc, imports, events, storage };
 }
 
 describe("ResumeImportService — dormancy covers EVERY door, not just the mint", () => {
@@ -257,5 +261,61 @@ describe("ResumeImportService — retries and ownership", () => {
     const res = await svc.confirm(WORKER, { storage_path: KEY }, CTX);
     expect(JSON.stringify(res)).not.toContain("resume-uploads");
     expect(JSON.stringify(res)).not.toContain(WORKER);
+  });
+});
+
+describe("ResumeImportService — the reading happens off the request path (RI-4)", () => {
+  it("a confirmed upload ENQUEUES the parse, carrying refs and the tracing pair only", async () => {
+    const { svc, parseQueue } = setup();
+    await svc.confirm(WORKER, { storage_path: KEY }, CTX);
+
+    expect(parseQueue.add).toHaveBeenCalledTimes(1);
+    const [, payload] = parseQueue.add.mock.calls[0]! as unknown as [string, Record<string, unknown>];
+    expect(payload).toEqual({
+      importId: "import-1",
+      workerId: WORKER,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+    // NOTHING ABOUT THE DOCUMENT SITS IN REDIS. No storage key, no mime, no byte size — the
+    // processor loads the row itself, which is also what makes the job safe to retry.
+    expect(Object.keys(payload).sort()).toEqual([
+      "correlationId",
+      "importId",
+      "requestId",
+      "workerId",
+    ]);
+  });
+
+  it("a queue outage does NOT fail the confirm — the upload really did succeed", async () => {
+    // Turning a Redis outage into a 500 here would tell a worker his upload failed when the
+    // object is stored, the row is registered and the event is emitted. He would re-upload a
+    // document we already hold. The import simply stays at `uploaded` and he continues in chat.
+    const { svc, parseQueue, imports, events } = setup();
+    parseQueue.add.mockRejectedValueOnce(new Error("redis unreachable"));
+
+    const result = await svc.confirm(WORKER, { storage_path: KEY }, CTX);
+
+    expect(result).toBeDefined();
+    expect(imports.create).toHaveBeenCalledTimes(1);
+    expect(events.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a RETRIED confirm does not enqueue a second reading of the same document", async () => {
+    // The row already exists, so the early return fires before the enqueue. A second job would pay
+    // for a second model call on one document — the duplicate charge `markParsing` exists to
+    // stop, caught one layer earlier and for free.
+    const { svc, parseQueue, imports } = setup();
+    imports.findByStorageKey.mockResolvedValueOnce({
+      id: "existing",
+      workerId: WORKER,
+      status: "uploaded",
+      storageKey: KEY,
+      mime: "application/pdf",
+      byteSize: 1000,
+    });
+
+    await svc.confirm(WORKER, { storage_path: KEY }, CTX);
+    expect(parseQueue.add).not.toHaveBeenCalled();
   });
 });

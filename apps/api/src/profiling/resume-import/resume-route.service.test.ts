@@ -104,19 +104,25 @@ describe("the deterministic router decides, and the résumé only supplies its i
     );
   });
 
-  it("'CNC Turner cum VMC Operator' falls through to the chat, as it does in the interview", async () => {
+  it("'CNC Turner cum VMC Operator' is VETOED to chat — and the same label without the conflict is not", async () => {
     // THE CONFLICT VETO, reached through a résumé instead of a spoken turn. Nothing in this
-    // phase knows what a VMC is — the routing table already did, which is the entire reason
-    // this phase needed no new decision logic.
-    const { svc } = setup();
-    const result = await svc.route(
+    // phase knows what a VMC is; the routing table already did.
+    //
+    // THE POSITIVE CONTROL IS THE TEST. "Chat" is also what an empty haystack produces, so
+    // asserting the veto alone passes when the label never reaches the router at all — a
+    // mutation nulling `role_label` proved exactly that. The pair distinguishes them: same
+    // worker, same everything, one word removed, and the route must change.
+    const vetoed = await setup().svc.route(
       WORKER,
       parsedDraft({ role_label: field("CNC Turner cum VMC Operator") }),
       CTX,
     );
+    const clean = await setup().svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
 
-    expect(result.route).toBe("chat");
-    expect(result.formKind).toBeNull();
+    expect(vetoed.route).toBe("chat");
+    expect(vetoed.formKind).toBeNull();
+    expect(clean.route).toBe("form");
+    expect(clean.formKind).toBe("cnc_turner");
   });
 
   it("a résumé with no role at all routes to chat rather than guessing", async () => {
@@ -156,7 +162,7 @@ describe("DEGRADES, NEVER FAILS (ruling D9)", () => {
     const { svc, events, imports } = setup();
     const result = await svc.route(
       WORKER,
-      { status: "failed", importId: IMPORT, reason: "extraction_empty" },
+      { status: "failed", importId: IMPORT, reason: "empty_document" },
       CTX,
     );
 
