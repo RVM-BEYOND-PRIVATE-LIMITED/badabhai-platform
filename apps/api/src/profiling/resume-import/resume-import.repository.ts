@@ -9,6 +9,7 @@ import {
 import type {
   ResumeExtractionMethodName,
   ResumeImportFailureName,
+  ResumeImportRouteName,
 } from "@badabhai/types";
 import { DATABASE } from "../../database/database.module";
 
@@ -145,6 +146,41 @@ export class ResumeImportRepository {
         status: "failed",
         failureReason: reason,
         extractionMethod: extractionMethod as ResumeExtractionMethodName | null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workerResumeImports.id, id));
+  }
+
+  /**
+   * The routing decision and the staged suggestions, written together (ADR-0041 RI-4).
+   *
+   * ONE WRITE, BECAUSE THE CONSTRAINTS ARE BICONDITIONAL. `wri_form_kind_chk` requires
+   * `form_kind` to be present exactly when `route = 'form'`, and `wri_suggestions_chk` requires
+   * `status = 'parsed'` before `suggestions_enc` may hold anything. Splitting this into two
+   * updates would mean a moment where the row is legal but wrong, and a failure between them
+   * would leave a routed import with nothing to offer.
+   *
+   * `suggestionsEnc` ARRIVES ALREADY ENCRYPTED. This class takes a token, never a payload — the
+   * plaintext carries employer names and role titles lifted from the worker's document, and a
+   * repository that accepted the object would be one refactor away from writing it plain. The
+   * encryption boundary is the service's, and the type here is what keeps it there.
+   */
+  async markRouted(
+    id: string,
+    routing: {
+      route: ResumeImportRouteName;
+      formKind: string | null;
+      suggestionsEnc: string | null;
+    },
+  ): Promise<void> {
+    await this.db
+      .update(workerResumeImports)
+      .set({
+        route: routing.route,
+        // NULLED, NOT OMITTED, on the chat route. The CHECK is an equivalence in both
+        // directions, so leaving a stale `form_kind` behind on a re-route would fail the write.
+        formKind: routing.route === "form" ? routing.formKind : null,
+        suggestionsEnc: routing.suggestionsEnc,
         updatedAt: new Date(),
       })
       .where(eq(workerResumeImports.id, id));

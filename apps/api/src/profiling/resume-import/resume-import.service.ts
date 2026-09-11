@@ -1,3 +1,5 @@
+import { InjectQueue } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
 import {
   BadRequestException,
   Inject,
@@ -19,6 +21,10 @@ import { SERVER_CONFIG } from "../../config/config.module";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { StorageService } from "../../storage/storage.service";
+import {
+  RESUME_IMPORT_PARSE_QUEUE,
+  type ResumeImportParseJobData,
+} from "../../queue/queue.constants";
 import { ResumeImportRepository } from "./resume-import.repository";
 import {
   extensionForResumeMime,
@@ -60,6 +66,8 @@ export class ResumeImportService {
     private readonly events: EventsService,
     private readonly storage: StorageService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    @InjectQueue(RESUME_IMPORT_PARSE_QUEUE)
+    private readonly parseQueue: Queue<ResumeImportParseJobData>,
   ) {}
 
   /**
@@ -163,6 +171,30 @@ export class ResumeImportService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+
+    // THE READING HAPPENS OFF THE REQUEST PATH (ADR-0041 RI-4). Downloading, rasterising,
+    // possibly running OCR and then one model call is tens of seconds on a photographed sheet,
+    // and the worker is holding a phone waiting for this response.
+    //
+    // ENQUEUE FAILURE IS NOT CONFIRM FAILURE. The object is stored, the row is registered and
+    // `profile.resume_imported` has been emitted — all of that is true whether or not Redis is
+    // reachable. Turning a queue outage into a 500 here would tell the worker his upload failed
+    // when it did not, and would leave him re-uploading a document we already hold. He is never
+    // blocked either way: the client polls `GET :importId`, and a row that never leaves
+    // `uploaded` sends him into the chat, which is the no-résumé path ruling D9 guarantees.
+    try {
+      await this.parseQueue.add("parse", {
+        importId: row.id,
+        workerId,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `résumé parse enqueue failed for import ${row.id}; the import stays at 'uploaded' and ` +
+          `the worker continues in the chat: ${(error as Error).message}`,
+      );
+    }
 
     // Never the key, never the filename, never the size in a way that identifies the document.
     this.logger.log(`résumé import registered for worker ${workerId.slice(0, 8)}…`);

@@ -1,7 +1,9 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { RESUME_RENDER_QUEUE,
+  RESUME_IMPORT_PARSE_QUEUE,
+} from "../queue/queue.constants";
 import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -27,6 +29,9 @@ import { ResumeImportController } from "./resume-import/resume-import.controller
 import { ResumeImportRepository } from "./resume-import/resume-import.repository";
 import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
+import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -97,6 +102,10 @@ import { ResumeParseService } from "./resume-import/resume-parse.service";
     // gives for not opening one: a second client would make the envelope and the transcript two
     // keys with two TTLs, free to disagree about whether an interview exists.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // ADR-0041 RI-4 — the queue that actually reads an uploaded document. Registered for real
+    // here (unlike the line above, which only borrows the Redis client): `ResumeImportService`
+    // enqueues onto it and `ResumeImportProcessor` consumes it in-process.
+    BullModule.registerQueue({ name: RESUME_IMPORT_PARSE_QUEUE }),
     // ADR-0041 RI-1 — signed upload URLs and object-info for the private résumé-uploads
     // bucket. A PLAIN import, not a forwardRef: `StorageModule` is a leaf that imports only
     // `ConfigModule` and reaches nothing here, so the edge is acyclic. `VoiceModule` takes it
@@ -127,6 +136,9 @@ import { ResumeParseService } from "./resume-import/resume-parse.service";
     ResumeImportRepository,
     ResumeImportService,
     ResumeParseService,
+    ResumeRouteService,
+    ResumeSuggestionReader,
+    ResumeImportProcessor,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator],
 })
