@@ -293,6 +293,18 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  /// #1492 — the answer-level twin of the route above. A no-op for the same
+  /// reason: mock mode has no polish pipeline to re-source, so the only honest
+  /// thing to model is the round-trip latency.
+  @override
+  Future<void> setAnswerTextSource({
+    required String attributeKey,
+    required bool ownWords,
+    required String authToken,
+  }) async {
+    await _delay();
+  }
+
   /// ADR-0032 mock photo state — session-local, no network, no bytes stored.
   bool _mockHasPhoto = false;
 

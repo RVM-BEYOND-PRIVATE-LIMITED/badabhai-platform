@@ -533,12 +533,20 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
 /// wrote. Stateful for exactly the same reason that one is: the reveal is a
 /// LOCAL toggle and must not reset every time the tab rebuilds.
 ///
-/// NO "keep my words" button, deliberately. The decline is a column on the
-/// employment role (`work_done_polish_declined`); the attribute equivalent for
-/// this path needs a migration, so there is nowhere to persist his refusal
-/// yet. Showing a button that silently failed would be worse than showing
-/// none — he would believe he had kept his words. The reveal ships now; the
-/// refusal follows the backend change.
+/// THE REFUSAL SHIPS TOO now (#1492). #1476 gave him only the reveal, because
+/// at the time there was no column and no route to call — a button that
+/// silently failed would have been worse than none, since he would have
+/// believed he had kept his words. Migration 0103 and
+/// `PUT /workers/me/answers/:attributeKey/text-source` both landed, so he can
+/// act on the comparison rather than only look at it.
+///
+/// ONE-WAY FROM HERE, and deliberately symmetric with #1354: after a refusal
+/// the server has nothing left to compare, so `work_own_words` and
+/// `own_words_key` both drop out of the next document and the affordance
+/// disappears. The employment path behaves identically. A change-your-mind
+/// toggle would need the document to carry the declined STATE rather than just
+/// the comparison — a backend change, on both paths at once, not something to
+/// fake here.
 class _TrainingEntry extends StatefulWidget {
   const _TrainingEntry({required this.line});
 
@@ -550,6 +558,32 @@ class _TrainingEntry extends StatefulWidget {
 
 class _TrainingEntryState extends State<_TrainingEntry> {
   bool _revealed = false;
+
+  /// True while the refusal is in flight, so a second tap cannot fire it twice.
+  bool _pending = false;
+
+  Future<void> _keepOwnWords() async {
+    final String? key = widget.line.ownWordsKey;
+    if (key == null || _pending) return;
+    setState(() => _pending = true);
+    try {
+      await context.read<ResumeCubit>().setAnswerTextSource(key, ownWords: true);
+      if (!mounted) return;
+      // Nothing left to compare once the printed line already IS his own
+      // words — collapse rather than leave a panel showing two equal strings.
+      setState(() => _revealed = false);
+    } on Failure catch (f) {
+      // He tapped a deliberate choice about a sentence carrying his name. A
+      // failed write must surface honestly, never look like it silently
+      // worked — the same rule `_EmploymentEntry._choose` follows.
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(failureReason(f).reason)));
+    } finally {
+      if (mounted) setState(() => _pending = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -585,13 +619,19 @@ class _TrainingEntryState extends State<_TrainingEntry> {
         ],
         // Nothing to compare ⇒ nothing extra. No affordance, no greyed
         // placeholder — the same rule the employment entry follows.
-        if (line.hasOwnWords) ...<Widget>[
+        //
+        // `canRefuseRewrite`, not `hasOwnWords`: the words AND the address
+        // arrive together or not at all (see the DTO), so this is the one
+        // condition — and it keeps the button off screen in the impossible
+        // state where a comparison has no key to send the refusal to.
+        if (line.canRefuseRewrite) ...<Widget>[
           const SizedBox(height: AppSpacing.s2),
           _OwnWordsChoice(
             revealed: _revealed,
-            pending: false,
+            pending: _pending,
             ownWordsText: line.workOwnWords!,
             onToggle: () => setState(() => _revealed = !_revealed),
+            onKeep: _keepOwnWords,
           ),
         ],
       ],

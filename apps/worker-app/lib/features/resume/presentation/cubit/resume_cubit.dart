@@ -466,4 +466,23 @@ class ResumeCubit extends Cubit<ResumeState> {
       document: reloaded ?? state.document,
     ));
   }
+
+  /// #1492 — the answer-level twin of [setEmploymentDescriptionSource], for the
+  /// fresher's training sentence. Same enqueue-then-reload race, so the same
+  /// [_loadDocumentWithRetry] guard.
+  Future<void> setAnswerTextSource(
+    String attributeKey, {
+    required bool ownWords,
+  }) async {
+    await _repo.setAnswerTextSource(attributeKey, ownWords: ownWords);
+    if (isClosed) return;
+    final ResumeDocument? reloaded = await _loadDocumentWithRetry();
+    if (isClosed) return;
+    emit(ResumeState(
+      status: state.status,
+      resumeText: state.resumeText,
+      nightShiftReady: state.nightShiftReady,
+      document: reloaded ?? state.document,
+    ));
+  }
 }
