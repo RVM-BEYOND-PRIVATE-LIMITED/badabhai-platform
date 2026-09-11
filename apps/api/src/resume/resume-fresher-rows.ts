@@ -235,6 +235,16 @@ export function buildFresherRows(
   opts: {
     readonly polished?: Readonly<Record<string, string>>;
     readonly polishEnabled?: boolean;
+    /**
+     * Attribute keys whose rewrite the worker REFUSED (#1485) — `worker_attributes.
+     * value_text_polished_declined`, as the sparse set `loadTradeSheet` returns.
+     *
+     * ABSENT MEANS NOBODY OBJECTED, which is the ordinary case and is safe here for a reason
+     * worth stating: this function cannot print a refused rewrite it was never given. The polish
+     * arrives through `polished` and a degraded caller that has neither map prints his own words,
+     * which is the answer §8 guaranteed.
+     */
+    readonly declined?: ReadonlySet<string>;
   } = {},
 ): ResumeExperienceLine[] {
   const workshopMachines = packId === null ? undefined : WORKSHOP_MACHINES[packId];
@@ -257,8 +267,16 @@ export function buildFresherRows(
   // rule, and the identical fail-closed default, that `workLine` applies to an employment's
   // description. His own words are never overwritten and are what every degrade prints.
   const ownProject = scalar(attributes.iti_project_work);
+  // A REFUSAL OUTRANKS A REWRITE (#1485), and it is read HERE and not only at the polisher — the
+  // same two-gate shape `workLine` has for an employment, and for the same reason the kill switch
+  // is read at both ends: gating only the polisher leaves every rewrite that was ALREADY stored
+  // printing forever, so a worker who refused one would keep seeing it until somebody NULLed a
+  // column. His own words are never overwritten, so this fallback costs nothing.
+  const refused = opts.declined?.has(ITI_PROJECT_WORK_KEY) === true;
   const polishedProject =
-    opts.polishEnabled === true ? scalar(opts.polished?.[ITI_PROJECT_WORK_KEY]) : null;
+    opts.polishEnabled === true && !refused
+      ? scalar(opts.polished?.[ITI_PROJECT_WORK_KEY])
+      : null;
   const project = polishedProject ?? ownProject;
 
   // The whole block, as one entry. A fresher has one training period, not several, and giving
@@ -292,7 +310,16 @@ export function buildFresherRows(
       work,
       // Omitted when nothing was rewritten, so a client can tell "he wrote this" from "this was
       // rewritten into the same words" without a second field to mean it.
-      ...(ownWork !== "" && ownWork !== work ? { work_own_words: ownWork } : {}),
+      //
+      // THE KEY TRAVELS WITH THE COMPARISON AND ONLY WITH IT (#1485). It is what a client sends to
+      // `PUT /workers/me/answers/:attributeKey/text-source` to refuse the rewrite, and there is
+      // nothing to refuse on a line that was not rewritten — so the pair appears together or not
+      // at all, and a client never holds an address for a choice it cannot offer. Emitting it
+      // unconditionally would put a usable write target on every fresher's sheet, including those
+      // no model has touched.
+      ...(ownWork !== "" && ownWork !== work
+        ? { work_own_words: ownWork, own_words_key: ITI_PROJECT_WORK_KEY }
+        : {}),
     },
   ];
 }

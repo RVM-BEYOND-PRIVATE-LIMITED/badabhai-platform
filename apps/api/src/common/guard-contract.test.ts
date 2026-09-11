@@ -21,6 +21,13 @@ import { PricingController } from "../pricing/pricing.controller";
 import { AiJobsController } from "../profiles/ai-jobs.controller";
 import { WorkerAiJobsController } from "../profiles/worker-ai-jobs.controller";
 import { ProfilesController } from "../profiles/profiles.controller";
+// #1485 — this controller's own route, and the THREE worker-write siblings in `profiles` that
+// this contract has never covered. All four guard sets were read from each controller's current
+// @UseGuards, not assumed.
+import { WorkerAnswerSourceController } from "../profiles/worker-answer-source.controller";
+import { WorkerEmploymentController } from "../profiles/worker-employment.controller";
+import { WorkerPreferencesController } from "../profiles/worker-preferences.controller";
+import { WorkerQualificationsController } from "../profiles/worker-qualifications.controller";
 import { ReachController } from "../reach/reach.controller";
 import { PaceController } from "../pace/pace.controller";
 import { ResumeController } from "../resume/resume.controller";
@@ -259,6 +266,37 @@ const CONTRACT: ControllerContract[] = [
   { name: "WorkerAiJobs", ctor: WorkerAiJobsController, routes: { get: [C, W] } },
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
+  // #1485 — the worker's say over a model's rewrite of one of his own free-text answers. A WRITE
+  // that names a row from the path, so the authz posture is the load-bearing half: the key is
+  // allow-listed by a Zod pipe, the worker comes from the token, and ownership is proved inside the
+  // UPDATE. The guards are what stop an unauthenticated caller reaching any of that.
+  {
+    name: "WorkerAnswerSource",
+    ctor: WorkerAnswerSourceController,
+    routes: { setAnswerTextSource: [C, W] },
+  },
+  // ── THREE WORKER-WRITE CONTROLLERS THIS CONTRACT DID NOT COVER ──────────────────────────
+  //
+  // Found while adding the route above, which is their direct sibling. This file calls itself "the
+  // single source of truth for which guards protect every route", and these three — every one of
+  // them a consent-gated write of the worker's own profile, one of them the #1354 mitigation route
+  // — were outside it, so dropping a @UseGuards from any of them would have been a silent green.
+  // Added here rather than filed, because the gap is four lines wide and sits under this change.
+  {
+    name: "WorkerEmployment",
+    ctor: WorkerEmploymentController,
+    routes: { setMyEmployment: [C, W], setDescriptionSource: [C, W] },
+  },
+  {
+    name: "WorkerPreferences",
+    ctor: WorkerPreferencesController,
+    routes: { options: [C, W], setMyPreferences: [C, W] },
+  },
+  {
+    name: "WorkerQualifications",
+    ctor: WorkerQualificationsController,
+    routes: { options: [C, W], setMyQualifications: [C, W] },
+  },
   { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
   // PACE (ADR-0021) — ops-internal, guarded 2026-08-01. These were the LAST two
   // unauthenticated non-auth routes in the API: `alerts` served live supply intelligence

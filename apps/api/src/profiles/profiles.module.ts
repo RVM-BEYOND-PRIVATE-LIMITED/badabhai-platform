@@ -11,6 +11,8 @@ import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { WorkerTranscriptRepository } from "./worker-transcript.repository";
 import { WorkerEmploymentService } from "./worker-employment.service";
+import { WorkerAnswerSourceController } from "./worker-answer-source.controller";
+import { WorkerAnswerSourceService } from "./worker-answer-source.service";
 import { WorkerEmploymentController } from "./worker-employment.controller";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { WorkerPreferencesController } from "./worker-preferences.controller";
@@ -67,6 +69,10 @@ import {
     AiJobsController,
     WorkerAiJobsController,
     WorkerEmploymentController,
+    // #1485 — the fresher's say over a rewrite of his own training sentence. A separate
+    // controller from the employment one because its subject is a profiling ANSWER, and the worker
+    // it exists for has no employment at all. See its docstring.
+    WorkerAnswerSourceController,
     WorkerPreferencesController,
     WorkerQualificationsController,
   ],
@@ -88,6 +94,10 @@ import {
     // this adds a provider and no module edge.
     WorkerTranscriptRepository,
     WorkerEmploymentService,
+    // Writes `worker_attributes.value_text_polished_declined` through the repository already
+    // provided above, and re-renders through `RESUME_RENDER_QUEUE` already registered above — so
+    // this adds a provider and no module edge.
+    WorkerAnswerSourceService,
     // R6 §4 — the finishing form's closed-set page. Writes `worker_attributes` through the
     // repository already provided above, so this adds a provider and no module edge.
     WorkerPreferencesService,

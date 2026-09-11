@@ -63,6 +63,23 @@ export class WorkerAttributesRepository {
           // cost of dropping it is one model call on the next render. Same doctrine as the four
           // value columns above: every column this upsert owns is overwritten, never left stale.
           valueTextPolished: sqlExcluded("value_text_polished"),
+          // CARRIED WHEN THE ANSWER DID NOT CHANGE, RESET WHEN IT DID — and the asymmetry with
+          // the line above is the point, not an inconsistency. The polish is derived data worth
+          // one model call; the REFUSAL is the worker's decision and is not re-earned.
+          //
+          // Clearing it unconditionally would be the #1354 defect arriving through this door:
+          // `value_text_polished` is already NULLed above, a null polish is exactly what the
+          // polisher reads as "not done yet", and a cleared decline would let the next render
+          // silently rewrite the sentence the worker had explicitly chosen to keep. Re-submitting
+          // a form without touching that answer is the ordinary way to reach this.
+          //
+          // KEYED ON THE TEXT, NEVER ON THE ROW — the same rule `replaceForWorker` applies across
+          // a history replace, for the same reason: a refusal is about a SENTENCE. An EDITED answer
+          // is a different sentence, so it arrives un-refused and is re-polished for free, which
+          // is the behaviour the column documents. `IS NOT DISTINCT FROM` rather than `=` because
+          // both sides are nullable and NULL = NULL is NULL, which this CASE would read as a
+          // changed answer and quietly revoke the decision.
+          valueTextPolishedDeclined: sql`CASE WHEN ${workerAttributes.valueText} IS NOT DISTINCT FROM excluded.value_text THEN ${workerAttributes.valueTextPolishedDeclined} ELSE false END`,
           source: sqlExcluded("source"),
           questionKey: sqlExcluded("question_key"),
           packId: sqlExcluded("pack_id"),
@@ -125,6 +142,7 @@ export class WorkerAttributesRepository {
     packId: string | null;
     attributes: Record<string, unknown>;
     polishedAttributes: Record<string, string>;
+    declinedAttributes: ReadonlySet<string>;
   }> {
     const rows = await this.db
       .select({
@@ -134,6 +152,7 @@ export class WorkerAttributesRepository {
         valueNumber: workerAttributes.valueNumber,
         valueText: workerAttributes.valueText,
         valueTextPolished: workerAttributes.valueTextPolished,
+        valueTextPolishedDeclined: workerAttributes.valueTextPolishedDeclined,
         valueTextList: workerAttributes.valueTextList,
         packId: workerAttributes.packId,
         updatedAt: workerAttributes.updatedAt,
@@ -148,6 +167,11 @@ export class WorkerAttributesRepository {
     // from an answer at every one of those readers. Sparse by construction — a key appears here
     // only when a rewrite exists, so `polished[k] ?? attributes[k]` is the whole fallback.
     const polishedAttributes: Record<string, string> = {};
+    // A THIRD COLLECTION, AND A SET RATHER THAN A MAP, because the only question any reader has
+    // is membership: did this worker refuse the rewrite of this key (#1485). SPARSE on the same
+    // terms as `polishedAttributes` — a key appears only when the answer is yes — so a reader that
+    // does not know about refusals is unaffected, and `!declined.has(k)` is the whole gate.
+    const declinedAttributes = new Set<string>();
     let packId: string | null = null;
     let newest = -Infinity;
     for (const r of rows) {
@@ -171,6 +195,12 @@ export class WorkerAttributesRepository {
           if (r.valueTextPolished !== null && r.valueTextPolished.trim() !== "") {
             polishedAttributes[r.attributeKey] = r.valueTextPolished;
           }
+          // RECORDED EVEN WHEN THE REWRITE IS GONE. A refusal outlives the polish it was about:
+          // the upsert NULLs `value_text_polished` on every re-answer while carrying this flag
+          // over unchanged text, so the ordinary state of a refused row is "declined, no polish".
+          // Gating this on a present rewrite would drop exactly that row and let the polisher
+          // treat it as unfinished work.
+          if (r.valueTextPolishedDeclined) declinedAttributes.add(r.attributeKey);
       }
       const at = r.updatedAt?.getTime() ?? 0;
       if (r.packId && at > newest) {
@@ -178,7 +208,7 @@ export class WorkerAttributesRepository {
         packId = r.packId;
       }
     }
-    return { packId, attributes, polishedAttributes };
+    return { packId, attributes, polishedAttributes, declinedAttributes };
   }
 
   /**
@@ -210,6 +240,62 @@ export class WorkerAttributesRepository {
       )
       .returning({ id: workerAttributes.id });
     return updated.length > 0;
+  }
+
+  /**
+   * Record the worker's choice of WHICH text prints for one free-text answer (#1485).
+   *
+   * THE MITIGATION FOR THE SECTION-8 OVERRIDE ON THE FRESHER PATH, in one statement. #1350 lets a
+   * model rewrite `iti_project_work` and print it on the sheet an employer reads; ADR-0039 records
+   * that no test can assert the absence of a plausible-but-false sentence. Only the worker knows
+   * whether one is true, and a fresher had no way to say so — `setPolishDeclined` addresses an
+   * employment row and he has none. This is that route's twin for an attribute.
+   *
+   * OWNERSHIP IS PROVED IN THE STATEMENT, not checked before it. The attribute key comes from the
+   * client, so `worker_id` is in the WHERE: a worker naming a key he has never answered updates
+   * zero rows and is told nothing about whether anyone else has. A read-then-write would be the
+   * same query twice with a race between them.
+   *
+   * SCOPED TO A TEXT ANSWER, which is belt on the `wa_value_text_polished_declined_chk` brace.
+   * Matching zero rows returns 0 and becomes a 404; the constraint would have raised instead, and
+   * an exception is not the answer to a worker naming the wrong key.
+   *
+   * THE REWRITE IS LEFT WHERE IT IS. Declining does not destroy `value_text_polished`, so a worker
+   * who changes his mind costs nothing — the same reason `setPolishDeclined` sets a flag rather
+   * than clearing a column.
+   *
+   * `updated_at` IS DELIBERATELY NOT STAMPED, and that is not an oversight to tidy up later.
+   * {@link loadTradeSheet} elects the sheet's `packId` as the `pack_id` of the row with the
+   * greatest `updated_at` — its docstring calls that "the interview the worker actually just
+   * finished". A REFUSAL IS NOT AN INTERVIEW. A worker holding rows from two role packs (the ITI
+   * questions are gated on that trade's tenure, so a second pack answered with experience does not
+   * re-ask them) would otherwise have this PUT re-point the whole sheet at the older trade: the
+   * template, the workshop-machine labels and the training role label all key off `packId`. A
+   * route that chooses which of two sentences prints must not choose the trade.
+   *
+   * `saveAttributePolish` above leaves the column alone for the same reason, as does #1354's
+   * `WorkerEmploymentRepository.setPolishDeclined`. Nothing stamps it on a plain UPDATE either —
+   * the column carries `defaultNow()` and no `$onUpdate`, so the three writers agree.
+   *
+   * Returns how many rows were updated: zero means not this worker's answer, or no such answer.
+   */
+  async setTextPolishDeclined(
+    workerId: string,
+    attributeKey: string,
+    declined: boolean,
+  ): Promise<number> {
+    const updated = await this.db
+      .update(workerAttributes)
+      .set({ valueTextPolishedDeclined: declined })
+      .where(
+        and(
+          eq(workerAttributes.workerId, workerId),
+          eq(workerAttributes.attributeKey, attributeKey),
+          eq(workerAttributes.valueKind, "text"),
+        ),
+      )
+      .returning({ id: workerAttributes.id });
+    return updated.length;
   }
 }
 

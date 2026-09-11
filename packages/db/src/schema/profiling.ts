@@ -142,6 +142,35 @@ export const workerAttributes = pgTable(
      * carefully scoped to avoid. The CHECK below enforces it rather than trusting every writer.
      */
     valueTextPolished: text("value_text_polished"),
+    /**
+     * The worker LOOKED at {@link valueTextPolished} and chose his own words instead (#1485).
+     *
+     * KEPT BESIDE THE REWRITE RATHER THAN CLEARING IT, which is the whole reason this is a column
+     * and not the absence of one. A refusal expressed by NULLing `value_text_polished` is
+     * indistinguishable from "not polished yet" — exactly the state the polisher reads as work to
+     * do — so the next render would silently rewrite the sentence the worker had just refused, and
+     * nothing would report it. `worker_employment_role.work_done_polish_declined` is this column
+     * for an employment, and carries the same argument at more length.
+     *
+     * WHY A FRESHER NEEDS HIS OWN. #1354 gave a worker this choice per employment. A fresher HAS
+     * no employment: his Zone 4 is his ITI training, and its one worker-written segment
+     * (`iti_project_work`) could be rewritten by a model with no way for him to refuse. He is
+     * also the worker with the least else on his page, so that one sentence carries the most.
+     *
+     * FALSE IS THE ORDINARY STATE AND THE SAFE ONE — it means "the worker has not objected", which
+     * is what every row written before this column holds and what a reader may always assume.
+     *
+     * SURVIVES A RE-ANSWER ONLY WHEN THE ANSWER DID NOT CHANGE. The upsert on `wa_worker_key_uq`
+     * keeps this flag when `value_text` is unchanged and resets it when it is not: a refusal is
+     * about a SENTENCE, so an edited answer arrives un-refused and is re-polished, while
+     * re-submitting the same text must not quietly revoke the worker's decision. That is the same
+     * text-keyed rule `WorkerEmploymentRepository.replaceForWorker` applies across a history
+     * replace, and for the same reason.
+     *
+     * TEXT ANSWERS ONLY, on the same CHECK and the same reasoning as {@link valueTextPolished}:
+     * there is nothing to refuse on a slug, because nothing may rephrase one.
+     */
+    valueTextPolishedDeclined: boolean("value_text_polished_declined").notNull().default(false),
     /** `multi_select` answers. A JSONB array of strings; empty array is a legitimate answer. */
     valueTextList: jsonb("value_text_list").$type<string[]>(),
     source: text("source").$type<ProfileValueSource>().notNull().default("answer_map"),
@@ -196,6 +225,14 @@ export const workerAttributes = pgTable(
     check(
       "wa_value_text_polished_chk",
       sql`${t.valueTextPolished} IS NULL OR (${t.valueKind} = 'text' AND length(${t.valueTextPolished}) <= 300)`,
+    ),
+    // A REFUSAL ONLY EXISTS FOR A TEXT ANSWER, for the same reason the rewrite above does: a slug
+    // is closed vocabulary, nothing may rephrase one, and so there is nothing to refuse. Enforced
+    // here rather than trusted to every writer — the repository scopes its UPDATE to
+    // `value_kind = 'text'` as belt, and this is the brace that cannot be forgotten.
+    check(
+      "wa_value_text_polished_declined_chk",
+      sql`${t.valueTextPolishedDeclined} = false OR ${t.valueKind} = 'text'`,
     ),
     // Pinned together or not at all — half a pin cannot say which questions were asked.
     check(

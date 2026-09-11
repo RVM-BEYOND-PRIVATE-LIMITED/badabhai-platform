@@ -195,6 +195,21 @@ export interface TradeSheetContext {
   readonly polishedAttributes?: Readonly<Record<string, string>>;
 
   /**
+   * Attribute keys whose rewrite the WORKER REFUSED (#1485) —
+   * `worker_attributes.value_text_polished_declined`, as `loadTradeSheet` returns it.
+   *
+   * THE MITIGATION, NOT A SETTING. {@link polishEnabled} is ours and reverts every rewrite at once;
+   * this is his, and reverts exactly the sentence he objected to. ADR-0039 records that no test can
+   * assert the absence of a plausible-but-false rewrite — only the worker can, and on the fresher
+   * path this set is how he does.
+   *
+   * SPARSE, AND ABSENT MEANS NOBODY OBJECTED. A key appears only when the answer is yes, so a
+   * degraded caller passing neither this nor {@link polishedAttributes} prints what the worker
+   * typed — the conservative answer, and the one the sheet printed before #1350.
+   */
+  readonly declinedAttributes?: ReadonlySet<string>;
+
+  /**
    * ZONE 5 — Qualification, documents and languages.
    *
    * CALLER-SUPPLIED FOR THE SAME REASON THE CAPABILITY BLOCK IS PACK-SUPPLIED: the résumé
@@ -393,6 +408,7 @@ function buildUndegraded(
         // training description is his entire Zone 4; before this it printed exactly as typed.
         polished: tradeSheet?.polishedAttributes,
         polishEnabled: tradeSheet?.polishEnabled ?? false,
+        declined: tradeSheet?.declinedAttributes,
       });
   // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
   // `preferences` are: both mapper paths compose the Verdict Line, and a worker whose interview

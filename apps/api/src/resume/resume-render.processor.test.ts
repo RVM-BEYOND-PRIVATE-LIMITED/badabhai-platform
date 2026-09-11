@@ -6,6 +6,7 @@ import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
+import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -205,8 +206,24 @@ function setup(
     currentCity?: string | null;
     currentState?: string | null;
     // The worker's settled pack answers, and the failure mode of reading them.
-    tradeSheet?: { packId: string | null; attributes: Record<string, unknown> };
+    tradeSheet?: {
+      packId: string | null;
+      attributes: Record<string, unknown>;
+      // #1350 — the rewrites already stored against this worker's answers, exactly as
+      // `loadTradeSheet` returns them. A re-render reads them rather than paying for them again.
+      polishedAttributes?: Readonly<Record<string, string>>;
+      // #1485 — the answers whose rewrite he REFUSED, as the SPARSE set the repository returns:
+      // a key is present only when `value_text_polished_declined` is true. Omitted is the
+      // ordinary case and means nobody objected.
+      declinedAttributes?: ReadonlySet<string>;
+    };
     attrThrows?: boolean;
+    // #1350 item 4 — `WORK_HISTORY_POLISH_ENABLED`. Off by default, which is production and is
+    // what every test written before the ruling assumes.
+    polishEnabled?: boolean;
+    // What `polishAttribute` answers with. `undefined` is the pass-through null — "no rewrite,
+    // print the worker's own words" — which is what the disabled polisher returns.
+    attributePolish?: string | null;
     // `null` simulates a worker row with no phone ciphertext; omit for the normal case.
     phoneToken?: string | null;
     // Zone 4 — seeded `worker_employment` rows, and the failure mode of reading them.
@@ -288,8 +305,31 @@ function setup(
       return opts.workerSaid ?? [];
     }),
   };
+  // #1350 — the one service on this list that may call a model. `polish` is a pass-through: these
+  // tests are about the render lifecycle and the polisher has its own suite, and returning the
+  // records unchanged is exactly what the disabled path does.
+  //
+  // `polishAttribute` IS A SPY RATHER THAN A STUB, because #1485's whole subject is whether it is
+  // REACHED. Every parameter is typed: `vi.fn(async () => null)` infers a zero-arg signature and
+  // `mock.calls[0]![1]` is then a tsc error while the test itself passes.
+  const polish = {
+    polish: vi.fn(async (_workerId: string, records: readonly WorkerEmploymentRecord[]) => records),
+    polishAttribute: vi.fn(
+      async (
+        _workerId: string,
+        _attributeKey: string,
+        _ownText: string | null | undefined,
+        _contextLabel: string,
+        _ctx: { correlationId?: string; requestId?: string },
+        _config: ServerConfig,
+        _alreadyPolished: string | null | undefined,
+      ): Promise<string | null> => opts.attributePolish ?? null,
+    ),
+  };
   const config = {
     RESUME_RENDER_ENABLED: opts.renderEnabled ?? true,
+    // #1350 item 4 — the renderer half of the kill switch, and the gate the refusal rides on.
+    WORK_HISTORY_POLISH_ENABLED: opts.polishEnabled ?? false,
   } as ServerConfig;
 
   const proc = new ResumeRenderProcessor(
@@ -302,13 +342,21 @@ function setup(
     employments as unknown as WorkerEmploymentRepository,
     qualifications as unknown as WorkerQualificationsRepository,
     transcript as unknown as WorkerTranscriptRepository,
-    // #1350 — a pass-through by default. These tests are about the render lifecycle, and the
-    // polish is off unless WORK_HISTORY_POLISH_ENABLED is set; its own behaviour has its own
-    // suite. Returning the records unchanged is exactly what the disabled path does.
-    { polish: async (_w: string, r: unknown) => r } as never,
+    polish as never,
     config,
   );
-  return { proc, resumes, workers, pii, renderer, storage, attributes, employments, transcript };
+  return {
+    proc,
+    resumes,
+    workers,
+    pii,
+    renderer,
+    storage,
+    attributes,
+    employments,
+    transcript,
+    polish,
+  };
 }
 
 /**
@@ -1024,5 +1072,242 @@ describe("ResumeRenderProcessor — a failed work-history read is not a fresher 
       expect(input.headlineLine).toContain("duration not stated");
       expect(input.headlineLine).not.toMatch(/fresher/i);
     });
+  });
+});
+
+/**
+ * #1485 — A FRESHER'S REFUSAL, AT THE PROCESSOR. The wiring, not the filter.
+ *
+ * `resume-fresher-rows.test.ts` proves the mapper drops a refused rewrite, and the repository's
+ * own suite proves the flag survives a re-answer. What only this file can see is whether the
+ * PROCESSOR reads the set at all — and there are two places it has to, for the same reason the
+ * kill switch is read twice:
+ *
+ *   1. THE SPEND GATE, before `polishAttribute`. The refusal clears no column, and `upsertMany`
+ *      NULLs `value_text_polished` on every re-answer — so the ORDINARY state of a refused answer
+ *      is "declined, no rewrite", which is precisely the shape that call treats as work to do.
+ *      Without the gate his decision survives until the next re-render and no further, and he is
+ *      billed for the model call that overrules him.
+ *   2. THE USE GATE, on the context handed to the mapper. Gating only (1) leaves a rewrite that
+ *      was ALREADY stored printing for ever, so a worker who refused one would keep reading it
+ *      until somebody NULLed a column by hand.
+ *
+ * EVERY "must not happen" HERE IS PAIRED with the same inputs and an EMPTY refusal set. A gate
+ * test alone passes just as well against a processor that stopped polishing altogether.
+ */
+describe("ResumeRenderProcessor — a fresher's refused rewrite (#1485)", () => {
+  const OWN = "kuch nhi banaya, bas knowledge he mujhe";
+  const POLISHED = "Completed ITI workshop training with hands-on machine exposure.";
+
+  // The worker the ruling is for: a turning pass-out who answered all three fresher questions.
+  const FRESHER_SHEET = {
+    packId: "qp_cnc_turning",
+    attributes: {
+      iti_workshop_machines: ["conventional_lathe"],
+      trade_test_status: "passed",
+      iti_project_work: OWN,
+    },
+  };
+
+  // NO `resume_profile`, which is not incidental: the trade form runs no extraction, so a
+  // form-first fresher has no résumé container and takes the legacy mapper branch by
+  // construction. That is the branch his Zone 4 has to reach, so it is the one asserted on.
+  const NO_DRAFT = { ...DEFAULT_ROW, sourceProfileSnapshot: { role_label: "CNC Turner" } };
+
+  /** The fresher block as the renderer received it, or `undefined` when none was built. */
+  function fresherLine(renderer: ReturnType<typeof setup>["renderer"]) {
+    return renderer.renderPdf.mock.calls[0]![0].experiences[0];
+  }
+
+  it("does NOT send a refused answer to the model, empty polish column and all", async () => {
+    // His refusal is the only record of the decision — no column was cleared by it — so a render
+    // that reads `value_text_polished IS NULL` as "still to do" overrules him and charges him for
+    // the privilege. The set is what says otherwise.
+    const { proc, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: { ...FRESHER_SHEET, declinedAttributes: new Set([ITI_PROJECT_WORK_KEY]) },
+      attributePolish: POLISHED,
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).not.toHaveBeenCalled();
+  });
+
+  it("DOES send the very same answer when nobody refused", async () => {
+    // The discriminating half. Identical worker, identical pack answers, an EMPTY set — and
+    // without it the assertion above would hold just as well against a processor that had stopped
+    // polishing the fresher block at all.
+    const { proc, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: { ...FRESHER_SHEET, declinedAttributes: new Set() },
+      attributePolish: POLISHED,
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).toHaveBeenCalledTimes(1);
+    // The one key a model may restate, and the worker's own sentence as the thing to restate.
+    expect(polish.polishAttribute.mock.calls[0]![1]).toBe(ITI_PROJECT_WORK_KEY);
+    expect(polish.polishAttribute.mock.calls[0]![2]).toBe(OWN);
+  });
+
+  it("hands the model his sentence, a CONSTANT label, and nothing identifying", async () => {
+    // The other half of the un-refused call, and the reason a refusal is worth gating at all: this
+    // is a billed model call over the worker's own text. Two processor decisions are pinned.
+    //
+    // THE LABEL IS A CONSTANT, NOT HIS TRADE. This block is training — telling the model the man
+    // is a "CNC Turner" invites it to write the sentence a turner would have written, which is the
+    // fabrication §8 forbids and which no later assertion could detect.
+    //
+    // AND THE STORED REWRITE TRAVELS, so the polisher can decline to re-ask. Dropping it would
+    // re-bill every worker on every render while the refusal gate quietly guarded nothing.
+    const { proc, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: {
+        ...FRESHER_SHEET,
+        polishedAttributes: { [ITI_PROJECT_WORK_KEY]: "Previously rewritten." },
+        declinedAttributes: new Set(),
+      },
+    });
+    await proc.process(makeJob());
+
+    const call = polish.polishAttribute.mock.calls[0]!;
+    expect(call[0]).toBe(WORKER_ID);
+    expect(call[1]).toBe(ITI_PROJECT_WORK_KEY);
+    expect(call[2]).toBe(OWN);
+    expect(call[3]).toBe("ITI trainee");
+    expect(call[6]).toBe("Previously rewritten.");
+
+    // NO PII REACHES THE BOUNDARY. The worker id is the pseudonymous ref the spend is traced
+    // against; his name, his token and his number are all on the row this processor just read, and
+    // nothing but this assertion stops a later edit adding one "for context".
+    const sent = JSON.stringify([call[0], call[1], call[2], call[3], call[4], call[6]]);
+    for (const secret of [NAME_TOKEN, REAL_NAME, REAL_PHONE, PHONE_TOKEN]) {
+      expect(sent).not.toContain(secret);
+    }
+    // AND THE SHAPE IS CLOSED, so a payload that GROWS a field fails rather than passing the loop
+    // above by being something the loop was never told to look for.
+    expect(call[4]).toEqual({ correlationId: "c", requestId: "r" });
+  });
+
+  it("refusing a DIFFERENT key does not buy silence on this one", async () => {
+    // The gate must read the KEY, not the emptiness of the set. A membership test swapped for
+    // `size === 0` would let any unrelated refusal — a key a future pack declines — suppress the
+    // rewrite of an answer the worker never objected to.
+    const { proc, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: { ...FRESHER_SHEET, declinedAttributes: new Set(["some_other_answer"]) },
+      attributePolish: POLISHED,
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops printing a rewrite that was ALREADY stored before he refused it", async () => {
+    // THE SECOND GATE. The spend gate above cannot reach this worker: his polish is already in the
+    // column, so nothing would be spent and nothing would be called — and the rewrite would print
+    // on every sheet for ever. The refusal has to ride the context to the mapper as well.
+    const { proc, renderer, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: {
+        ...FRESHER_SHEET,
+        polishedAttributes: { [ITI_PROJECT_WORK_KEY]: POLISHED },
+        declinedAttributes: new Set([ITI_PROJECT_WORK_KEY]),
+      },
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).not.toHaveBeenCalled();
+
+    const line = fresherLine(renderer)!;
+    expect(line.work).toContain(OWN);
+    expect(line.work).not.toContain(POLISHED);
+    // AND NOTHING TO REFUSE, because the printed line IS his own words now. The reveal and its
+    // write target travel together or not at all (#1476/#1485), so a client is never handed an
+    // address for a choice it cannot offer.
+    expect(line.work_own_words).toBeUndefined();
+    expect(line.own_words_key).toBeUndefined();
+  });
+
+  it("prints that same stored rewrite, with its reveal, when he has NOT refused", async () => {
+    // The discriminating half of the use gate. Same stored polish, same switch, empty set — so
+    // the test above cannot be passing because the rewrite never reached the page at all.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: {
+        ...FRESHER_SHEET,
+        polishedAttributes: { [ITI_PROJECT_WORK_KEY]: POLISHED },
+        declinedAttributes: new Set(),
+      },
+    });
+    await proc.process(makeJob());
+
+    const line = fresherLine(renderer)!;
+    expect(line.work).toContain(POLISHED);
+    expect(line.work_own_words).toContain(OWN);
+    // The address the app sends back to `PUT /workers/me/answers/:attributeKey/text-source`.
+    expect(line.own_words_key).toBe(ITI_PROJECT_WORK_KEY);
+  });
+
+  it("treats a row with no refusal flag at all as a worker who never objected", async () => {
+    // The sparse set is the repository's real shape — a key is absent for every un-refused row,
+    // and a pre-migration corpus carries no keys whatsoever. That must read as consent to the
+    // rewrite, exactly as it did before the column existed, and never as a refusal that silently
+    // switches every fresher's sheet back to Hinglish.
+    const { proc, renderer, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: { ...FRESHER_SHEET, polishedAttributes: { [ITI_PROJECT_WORK_KEY]: POLISHED } },
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).toHaveBeenCalledTimes(1);
+    expect(fresherLine(renderer)!.work).toContain(POLISHED);
+  });
+
+  it("still renders when the attribute read THREW, and prints nothing it could have refused", async () => {
+    // The degrade the whole context is built on, now that the gate reads a field off a nullable
+    // load. `?? new Set()` is the line under test: a `.has()` on a null `loaded` would throw
+    // OUTSIDE the attribute try/catch and cost the worker the entire PDF — the failure the six
+    // independent loads exist to make impossible.
+    //
+    // NOTHING PRINTS EITHER WAY, which is why this degrade cannot leak a refused rewrite: with no
+    // attributes there is no pack, so the fresher block does not build at all.
+    const { proc, renderer, storage } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      attrThrows: true,
+      attributePolish: POLISHED,
+    });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ rendered: true });
+    expect(storage.uploadPdf).toHaveBeenCalledOnce();
+    expect(renderer.renderPdf.mock.calls[0]![0].experiences).toEqual([]);
+  });
+
+  it("never polishes a fresher answer for a worker who HAS employment history", async () => {
+    // The pre-existing one-or-the-other rule, re-asserted beside the refusal gate because they now
+    // share the one `if`. A worker with stints has no fresher block on the page, so a model call
+    // for one is spend with no possible destination — and a refusal must not be what is holding it
+    // back, because he never gave one.
+    const { proc, polish } = setup({
+      fullName: NAME_TOKEN,
+      resume: NO_DRAFT,
+      polishEnabled: true,
+      tradeSheet: FRESHER_SHEET,
+      employments: SPILLING_EMPLOYMENTS,
+      attributePolish: POLISHED,
+    });
+    await proc.process(makeJob());
+    expect(polish.polishAttribute).not.toHaveBeenCalled();
   });
 });

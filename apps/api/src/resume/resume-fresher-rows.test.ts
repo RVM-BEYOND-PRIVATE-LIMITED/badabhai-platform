@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFresherRows, tenureStatusLabel } from "./resume-fresher-rows";
+import { DECLINABLE_ATTRIBUTE_KEYS } from "../profiles/worker-answer-source.dto";
+import { buildFresherRows, ITI_PROJECT_WORK_KEY, tenureStatusLabel } from "./resume-fresher-rows";
 import { buildResumeRenderInput } from "./resume-render-input";
 
 /**
@@ -363,5 +364,175 @@ describe("buildFresherRows — work_own_words (#1476)", () => {
       trade_test_status: "not_yet",
     });
     expect(rows).toEqual([]);
+  });
+});
+
+/**
+ * #1485 — THE FRESHER'S REFUSAL, the half #1476 could not give him.
+ *
+ * #1476 put the comparison on the sheet: he could SEE the rewrite beside the sentence he typed,
+ * and could do nothing about it. #1354 gave an EMPLOYED worker a per-employment refusal, and a
+ * fresher has no employment — so the one sentence on his sheet that he wrote himself was the one
+ * sentence he could not take back. `worker_attributes.value_text_polished_declined` records that
+ * decision, and `loadTradeSheet` hands it here as the sparse `declined` set.
+ *
+ * THE REFUSAL IS READ AT THE USE SITE AND NOT ONLY AT THE POLISHER, which is why these tests sit
+ * against the printer. Gating only the polisher stops NEW rewrites while every rewrite ALREADY in
+ * `value_text_polished` keeps printing on every re-render — forever, or until somebody NULLs a
+ * column by hand. That is the defect the kill switch hit in #1350 item 4, and the reason both
+ * gates are read at this end: his decision takes effect on the next render, not on a backfill.
+ */
+describe("buildFresherRows — a refusal outranks a rewrite (#1485)", () => {
+  const OWN = "kuch nhi banaya, bas knowledge he mujhe";
+  const POLISHED = "Completed workshop training with hands-on machine exposure.";
+  const BASE = {
+    iti_workshop_machines: ["conventional_lathe"],
+    trade_test_status: "passed",
+    iti_project_work: OWN,
+  };
+  const PREFIX = "Conventional lathe · Trade test passed · ";
+  /** A STORED rewrite, present in every case below. Which one PRINTS is the whole question. */
+  const WITH_POLISH = {
+    polishEnabled: true,
+    polished: { [ITI_PROJECT_WORK_KEY]: POLISHED },
+  } as const;
+  const REFUSED: ReadonlySet<string> = new Set([ITI_PROJECT_WORK_KEY]);
+
+  it("prints HIS sentence when he refused, with the rewrite sitting right there in the map", () => {
+    // THE ONE THAT MATTERS. The rewrite is stored and the kill switch is ON; nothing about the
+    // polish changed, only his answer to "is this what you did?". Nobody else is in a position to
+    // know whether a sentence about this man's own training is true.
+    const rows = buildFresherRows("qp_cnc_turning", BASE, { ...WITH_POLISH, declined: REFUSED });
+    expect(rows[0]!.work).toBe(PREFIX + OWN);
+    expect(rows[0]!.work).not.toContain(POLISHED);
+  });
+
+  it("prints the REWRITE on the same inputs without the refusal — the discriminating case", () => {
+    // Without this the test above would pass against a build that had stopped reading `polished`
+    // altogether: "his own words printed" is also what a dead polish lookup produces.
+    expect(buildFresherRows("qp_cnc_turning", BASE, WITH_POLISH)[0]!.work).toBe(PREFIX + POLISHED);
+  });
+
+  it("suppresses only the key he named — a refusal on another answer is not his", () => {
+    // `declined` is a sparse set over the whole attribute bag, so the lookup has to be BY KEY. A
+    // membership test that degraded to "is the set non-empty" would revoke a rewrite the worker
+    // never objected to, and no assertion above would notice.
+    const rows = buildFresherRows("qp_cnc_turning", BASE, {
+      ...WITH_POLISH,
+      declined: new Set(["some_other_answer"]),
+    });
+    expect(rows[0]!.work).toBe(PREFIX + POLISHED);
+  });
+
+  it("needs no refusal set at all — an absent one means nobody objected", () => {
+    // Fail-closed does not need this direction: the function cannot print a refused rewrite it was
+    // never handed, and a degraded caller with neither map prints his own words, which is what §8
+    // guaranteed before any of this shipped.
+    expect(buildFresherRows("qp_cnc_turning", BASE, { polishEnabled: true })[0]!.work).toBe(
+      PREFIX + OWN,
+    );
+  });
+
+  it("ships own_words_key with the comparison, addressing the answer that was rewritten", () => {
+    const row = buildFresherRows("qp_cnc_turning", BASE, WITH_POLISH)[0]!;
+    expect(row.work).toBe(PREFIX + POLISHED);
+    expect(row.work_own_words).toBe(PREFIX + OWN);
+    expect(row.own_words_key).toBe(ITI_PROJECT_WORK_KEY);
+  });
+
+  it("withholds own_words_key in EVERY state where there is nothing to refuse", () => {
+    // THE PAIR TRAVELS TOGETHER OR NOT AT ALL. The key is the write target a client sends to
+    // `PUT /workers/me/answers/:attributeKey/text-source`, so emitting it on a line no model
+    // touched puts a usable address on a fresher's sheet for a choice the client cannot offer.
+    // The refused row is the subtle member of the list: after a refusal his own words ARE what
+    // printed, so there is no second sentence to compare and nothing left to address.
+    const cases: readonly (readonly [string, Parameters<typeof buildFresherRows>[2]])[] = [
+      ["no rewrite exists", { polishEnabled: true }],
+      [
+        "rewrite came back identical",
+        { polishEnabled: true, polished: { [ITI_PROJECT_WORK_KEY]: OWN } },
+      ],
+      ["kill switch off", { ...WITH_POLISH, polishEnabled: false }],
+      ["he already refused", { ...WITH_POLISH, declined: REFUSED }],
+    ];
+    for (const [name, opts] of cases) {
+      const row = buildFresherRows("qp_cnc_turning", BASE, opts)[0]!;
+      expect(row.work, name).toBe(PREFIX + OWN);
+      expect(row.work_own_words, name).toBeUndefined();
+      expect(row.own_words_key, name).toBeUndefined();
+      // Present-or-absent, not merely undefined: one field must never ship without the other.
+      expect("own_words_key" in row, name).toBe("work_own_words" in row);
+    }
+  });
+
+  it("emits the two fields as one unit, so their agreement is not the agreement of absence", () => {
+    // The positive half of the invariant above, which would otherwise be satisfied by a build that
+    // emits neither field ever.
+    const row = buildFresherRows("qp_cnc_turning", BASE, WITH_POLISH)[0]!;
+    expect("own_words_key" in row).toBe(true);
+    expect("work_own_words" in row).toBe(true);
+  });
+
+  it("differs from the printed line in EXACTLY the last ' · ' segment, and a refusal prints it", () => {
+    // The property work-history-own-words.test.ts:23 pins, re-pinned on the path a refusal takes.
+    // The machines are joined with the SAME separator as the segments, so a client cannot take the
+    // line apart to find the span that changed: it gets both whole lines or nothing it can trust.
+    // And what the refusal then prints is EXACTLY the own-words line he was shown — the worker
+    // chooses between two strings he saw, not between a string and a rebuild of it.
+    const shown = buildFresherRows("qp_cnc_turning", BASE, WITH_POLISH)[0]!;
+    const work = shown.work.split(" · ");
+    const own = shown.work_own_words!.split(" · ");
+    expect(own).toHaveLength(work.length);
+    expect(own.slice(0, -1)).toEqual(work.slice(0, -1));
+    expect(own.at(-1)).toBe(OWN);
+    expect(work.at(-1)).toBe(POLISHED);
+
+    const refused = buildFresherRows("qp_cnc_turning", BASE, {
+      ...WITH_POLISH,
+      declined: REFUSED,
+    })[0]!;
+    expect(refused.work).toBe(shown.work_own_words);
+  });
+
+  it("still returns NOTHING when the worker answered none of the fresher questions", () => {
+    // A refusal is not a source of rows. §11 #1's heading collapses exactly as it does for a
+    // worker who filled nothing in.
+    expect(
+      buildFresherRows(
+        "qp_cnc_turning",
+        { iti_workshop_machines: [], trade_test_status: "not_yet" },
+        { ...WITH_POLISH, declined: REFUSED },
+      ),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * THE DRIFT GUARD BETWEEN THE SHEET AND THE ROUTE (#1485).
+ *
+ * The sheet emits `own_words_key` as the address a client PUTs to; the route validates
+ * `:attributeKey` against `DECLINABLE_ATTRIBUTE_KEYS` and 400s on anything else. Those are two
+ * lists in two files with nothing but intent holding them together, and either direction of drift
+ * is silent in production: a route that addresses a key the sheet never offers is a write surface
+ * nobody asked for, and a sheet that offers a key the route rejects hands the worker a refusal
+ * button that 400s. This is the join, and it fails when either side moves alone.
+ */
+describe("the declinable allow-list and the sheet name the same key", () => {
+  it("DECLINABLE_ATTRIBUTE_KEYS contains the key the fresher block emits", () => {
+    expect(DECLINABLE_ATTRIBUTE_KEYS).toContain(ITI_PROJECT_WORK_KEY);
+  });
+
+  it("and the key a REAL row carries is one the route would accept", () => {
+    // Read off an emitted line rather than the constant, so a renderer that started writing some
+    // other key into the field fails here too.
+    const row = buildFresherRows(
+      "qp_cnc_turning",
+      {
+        iti_workshop_machines: ["conventional_lathe"],
+        iti_project_work: "kuch nhi banaya, bas knowledge he mujhe",
+      },
+      { polishEnabled: true, polished: { [ITI_PROJECT_WORK_KEY]: "Trained on a lathe." } },
+    )[0]!;
+    expect(DECLINABLE_ATTRIBUTE_KEYS).toContain(row.own_words_key);
   });
 });

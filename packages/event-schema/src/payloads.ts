@@ -107,6 +107,34 @@ export const WorkerEmploymentRecordedPayload = z
   })
   .strict();
 
+// The worker chose WHICH text prints for one free-text answer of his — his own words, or the
+// model's rewrite of them (#1485).
+//
+// A SEPARATE EVENT RATHER THAN REUSING `worker.employment_recorded`, which is what the #1354
+// employment route emits for the same decision. That payload counts EMPLOYERS, and this is the
+// path for a worker who has none: emitting `employer_count: 1` for a fresher would write a fact
+// into the audit trail that is not true. Two different subjects, two events.
+//
+// PII-FREE, AND NEITHER TEXT TRAVELS — not the worker's sentence and not the rewrite of it. The
+// whole point of the route is that one of them may be false, and an audit trail does not need to
+// know which words were involved to record that he made the choice.
+//
+// `attribute_key` IS A QUESTION KEY, NOT AN ANSWER — closed vocabulary from the pack corpus, on
+// exactly the shape `wa_attribute_key_chk` enforces on the column, so no free text can reach the
+// spine through it. Shaped rather than enumerated so that a second free-text item in a future pack
+// needs no schema edit: widening a shipped payload is the mutation §3 forbids.
+export const WorkerAnswerTextSourceSetPayload = z
+  .object({
+    worker_id: uuidSchema,
+    attribute_key: z
+      .string()
+      .regex(/^[a-z_]+$/)
+      .max(40),
+    /** Which text he chose to print. `own_words` is a refusal of the rewrite. */
+    source: z.enum(["own_words", "polished"]),
+  })
+  .strict();
+
 // R6 §4 — the worker answered the finishing form's closed-set page (languages, documents,
 // shift, job type, preferred cities, relocation, accommodation).
 //
