@@ -87,7 +87,12 @@ ignoredBuiltDependencies:
 # already on the 2.x major) — no app code uses it directly (no FileInterceptor),
 # so this is a safe same-major patch that clears the advisory.
 overrides:
-  multer: ">=2.2.0"
+  # DEP-6 (2026-09-11): was ">=2.2.0", and the tree sat on exactly 2.2.0. GHSA-qfvm-cv95-jqjf
+  # and GHSA-535w-7cp7-47q4 (both HIGH, DoS via crafted multipart field names) are patched at
+  # 2.3.0. Reached through `@nestjs/platform-express`, which is the request path — apps/api
+  # parses no multipart body today (uploads go straight to Supabase Storage through a signed
+  # URL), but the parser is mounted and a floor is cheaper than that argument staying true.
+  multer: ">=2.3.0"
   # DEP-2 (2026-07-17). Both are TRANSITIVE and build/dev-time only; their parents pin
   # the vulnerable lines, so a range-keyed override is the only lever short of bumping
   # the parents (deferred: drizzle-kit rides the drizzle-orm bump, TD49).
@@ -141,7 +146,12 @@ overrides:
   # and the advisory stayed live behind a rule that looked like it covered it. Reached only
   # through `@nestjs/cli` > `@angular-devkit/core` > `ajv` (24 paths, all build-tooling).
   fast-uri@<3.1.6: "^3.1.6"
-  js-yaml@<4.3.1: "^4.3.1"
+  # DEP-6 (2026-09-11). SUPERSEDES `<4.3.1: ^4.3.1`, and for the THIRD time in this file
+  # the same reason: GHSA on <4.3.2 is newer than the floor, `^4.3.1` is satisfied by
+  # 4.3.1 itself, so pnpm never bumped and the rule that looked like it covered the
+  # package had quietly stopped. See `fast-uri` and `nanoid` above for instances one and
+  # two. A version-keyed override is a snapshot of one advisory, not a standing policy.
+  js-yaml@<4.3.2: "^4.3.2"
   # DEP-4 (2026-08-17). SUPERSEDES the DEP-3 floor above (was `<3.3.17: ^3.3.17`):
   # GHSA-2v37-7h3g-55p8 (HIGH, custom generators can loop indefinitely when size is
   # zero) is patched at 3.3.18, one patch version past the DEP-3 floor — `^3.3.17`
@@ -152,7 +162,13 @@ overrides:
   # SUPERSEDES the DEP-2 floor above (was `<8.5.10: >=8.5.10`): GHSA on <8.5.18 is newer
   # than that entry, and leaving both would be two rules for one package.
   postcss@<8.5.18: "^8.5.18"
-  sharp@<0.35.0: "^0.35.0"
+  # DEP-6 (2026-09-11). SUPERSEDES `<0.35.0: ^0.35.0` — instance four, and the one that
+  # matters most. GHSA-g89c-p67h-r497 / GHSA-2jg2-4ch7-h545 are libheif decode flaws
+  # patched at 0.35.4; the tree sat on 0.35.3. The DEP-3 note above already singled sharp
+  # out as "the one with a plausible live path" because `next/image` optimization decodes
+  # images and worker photos are served from Supabase — so this is an image decoder on a
+  # request path, not build tooling, and it had been uncovered since the floor was written.
+  sharp@<0.35.4: "^0.35.4"
   shell-quote@<1.8.5: "^1.8.5"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
