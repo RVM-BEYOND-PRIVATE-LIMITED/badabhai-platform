@@ -57,6 +57,11 @@ PROFILE_PARSE = "profile-parse"
 # to a prompt edit -- which matters more here than anywhere, because the fabrication gate can no
 # longer prove this field and the prompt is what bounds it.
 WORK_HISTORY_POLISH = "worker-work-history-polish"
+# ADR-0041 RI-3. Versioned like the rest, and it matters here for a reason the others do
+# not have: this prompt is the only one that reads a document the worker did not write for
+# us, under a masking policy the owner can flip. "Which prompt version, under which
+# posture, produced this import?" has to be answerable from one generation record.
+RESUME_PARSE = "resume-parse"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -202,8 +207,10 @@ def install_default_prompts() -> None:
         work_history_polish_prompt,
     )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from ..resume_import.parse_prompt import RESUME_PARSE_SYSTEM_PROMPT
 
     register(INTERVIEW_TURN, interview_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)
+    register(RESUME_PARSE, lambda: RESUME_PARSE_SYSTEM_PROMPT)

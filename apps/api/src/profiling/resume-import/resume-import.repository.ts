@@ -6,6 +6,10 @@ import {
   type WorkerResumeImport,
   type NewWorkerResumeImport,
 } from "@badabhai/db";
+import type {
+  ResumeExtractionMethodName,
+  ResumeImportFailureName,
+} from "@badabhai/types";
 import { DATABASE } from "../../database/database.module";
 
 /**
@@ -69,5 +73,80 @@ export class ResumeImportRepository {
       .where(eq(workerResumeImports.storageKey, storageKey))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * `uploaded` -> `parsing`, and ONLY from `uploaded`.
+   *
+   * THE WHERE CLAUSE IS THE LOCK. Two deliveries of the same queue job would otherwise both
+   * read `uploaded`, both call the AI service, and both bill for reading one document — the
+   * cheapest duplicate charge to make and the hardest to notice, because both succeed and the
+   * second simply overwrites the first. A conditional UPDATE lets the database decide which
+   * delivery wins; the loser gets zero rows back and stops.
+   */
+  async markParsing(id: string): Promise<boolean> {
+    const rows = await this.db
+      .update(workerResumeImports)
+      .set({ status: "parsing", updatedAt: new Date() })
+      .where(and(eq(workerResumeImports.id, id), eq(workerResumeImports.status, "uploaded")))
+      .returning({ id: workerResumeImports.id });
+    return rows.length > 0;
+  }
+
+  /**
+   * The extraction facts, which can only come from the ai-service — apps/api never sees the
+   * document, so there is nowhere else for `extraction_method`, `page_count` or
+   * `ocr_confidence` to be learned.
+   *
+   * NO SUGGESTIONS WRITTEN HERE. `wri_suggestions_chk` permits a `parsed` row with none, and
+   * that is the correct RI-3 state: a parse has happened and nothing has been offered to the
+   * worker yet. Ruling D2 — a suggestion becomes a claim only when he confirms it — is what
+   * makes the intermediate state safe to persist.
+   */
+  async markParsed(
+    id: string,
+    facts: {
+      extractionMethod: string | null;
+      pageCount: number | null;
+      ocrConfidence: number | null;
+    },
+  ): Promise<void> {
+    await this.db
+      .update(workerResumeImports)
+      .set({
+        status: "parsed",
+        extractionMethod: facts.extractionMethod as ResumeExtractionMethodName | null,
+        pageCount: facts.pageCount,
+        // `wri_ocr_confidence_chk` ties the score to the method, so a non-OCR parse must
+        // carry none. Writing one anyway would be a number nothing computed, which a later
+        // reader would average.
+        ocrConfidence: facts.extractionMethod === "ocr" ? facts.ocrConfidence : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workerResumeImports.id, id));
+  }
+
+  /**
+   * `failed`, with the reason the CHECK constraint requires.
+   *
+   * `wri_failure_reason_chk` is a BICONDITIONAL — a failed row must carry a reason and a
+   * non-failed row must not — so these two columns can only ever be written together. That is
+   * the constraint doing its job: a failure nobody can explain is not a state this table
+   * permits.
+   */
+  async markFailed(
+    id: string,
+    reason: ResumeImportFailureName,
+    extractionMethod: string | null,
+  ): Promise<void> {
+    await this.db
+      .update(workerResumeImports)
+      .set({
+        status: "failed",
+        failureReason: reason,
+        extractionMethod: extractionMethod as ResumeExtractionMethodName | null,
+        updatedAt: new Date(),
+      })
+      .where(eq(workerResumeImports.id, id));
   }
 }

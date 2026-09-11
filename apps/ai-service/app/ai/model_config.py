@@ -68,6 +68,12 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # response is parsed as a `ProfileParseOutput` — a prose preamble would exhaust the budget and
     # lose the whole overlay.
     "profile_parse": ("capable", True),
+    # ADR-0041 RI-3. CAPABLE, and json_mode on, for the same reason `profile_parse` is:
+    # the task is citation under a strict schema, where a weaker model does not answer
+    # worse so much as it stops citing — and an uncited value is one the gates drop, so a
+    # cheap tier here buys nothing but rejections. Real calls still need
+    # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
+    "resume_parse": ("capable", True),
     "resume_generation": ("cheap", False),
     # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
     # retrieval has already narrowed thousands of occupations to ten labelled lines, so
@@ -167,6 +173,23 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # different salary. This is also why the route needs its own branch at all — without
             # one it fell through to the resume defaults below and would have run a citation task
             # at temperature 0.4.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "resume_parse":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `profile_parse`. The output is one object
+            # per requested field plus one per job held, each carrying a quoted span, so it
+            # scales with the résumé rather than being a fixed-size answer.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. Reading a value off a document has
+            # exactly one right result; sampling would let a re-import of the SAME file
+            # return a different employer or a different year. It also needs its own branch
+            # for the reason `profile_parse` documents: without one it falls through to the
+            # resume-GENERATION defaults and runs a citation task at 0.4.
             temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,

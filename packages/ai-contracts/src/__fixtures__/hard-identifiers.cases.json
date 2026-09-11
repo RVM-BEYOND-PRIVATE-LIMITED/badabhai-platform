@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "ADR-0041 RI-3. The hard-identifier wall exists in TWO languages — Python",
+    "(`app/pseudonymize.contains_hard_identifier`, gate 6 on the ai-service) and TypeScript",
+    "(`apps/api/src/profiling/resume-import/resume-parse-gates.ts`, the re-check before",
+    "anything is persisted). Two implementations of one privacy rule is a drift hazard, and",
+    "the usual fix — read the other language's source and compare — does not work here: the",
+    "credential-id pattern uses an inline `(?i:...)` group that JavaScript has no syntax for,",
+    "so the regexes cannot be identical even when the BEHAVIOUR is.",
+    "",
+    "So this file pins the behaviour instead, and both suites read it. A case added here",
+    "fails whichever side has not implemented it. `expected` is the class name, or null when",
+    "the value must be PERMITTED — and the permitted half is the half that matters most:",
+    "ADR-0041 D5 authorises employer names, and certifying résumé values with the full",
+    "pseudonymization gateway would reject nearly every honest value while the ruling says to",
+    "keep them. A wall that refuses the honest cases is a wall someone deletes."
+  ],
+  "cases": [
+    { "text": "ABCDE1234F", "expected": "pan" },
+    { "text": "PAN: ABCDE1234F", "expected": "pan" },
+    { "text": "1234 5678 9012", "expected": "aadhaar" },
+    { "text": "123456789012", "expected": "aadhaar" },
+    { "text": "9876543210", "expected": "phone" },
+    { "text": "Mob: 98765 43210", "expected": "phone" },
+    { "text": "+91 9876543210", "expected": "phone" },
+    { "text": "ramesh.kumar@example.com", "expected": "email" },
+    { "text": "Email me at r@x.co.in", "expected": "email" },
+    { "text": "Roll No: AB123456", "expected": "credential_id" },
+    { "text": "Registration number 2019ME4417", "expected": "credential_id" },
+
+    { "text": "Tata Motors Ltd", "expected": null },
+    { "text": "Bharat Forge Limited", "expected": null },
+    { "text": "Mahindra & Mahindra", "expected": null },
+    { "text": "Stainless Steel", "expected": null },
+    { "text": "Diploma Mechanical Engineering", "expected": null },
+    { "text": "CNC Turner", "expected": null },
+    { "text": "VMC Operator (Fanuc)", "expected": null },
+    { "text": "Pune", "expected": null },
+    { "text": "Maharashtra", "expected": null },
+    { "text": "25000", "expected": null },
+    { "text": "1200000", "expected": null },
+    { "text": "2019-2023", "expected": null },
+    { "text": "0.02 mm tolerance", "expected": null },
+    { "text": "", "expected": null }
+  ]
+}

@@ -2,6 +2,7 @@ import { TradeFormController } from "./form/trade-form.controller";
 import { ResumeImportController } from "./resume-import/resume-import.controller";
 import { ResumeImportRepository } from "./resume-import/resume-import.repository";
 import { ResumeImportService } from "./resume-import/resume-import.service";
+import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
 import "reflect-metadata";
@@ -99,6 +100,12 @@ describe("ProfilingModule wiring", () => {
       // test either — it fails BOOT, which is the whole reason this list is pinned.
       ResumeImportRepository,
       ResumeImportService,
+      // ADR-0041 RI-3 — the parse leg. `ResumeParseService` takes `AiService`,
+      // `AiCostRecorder` and `EventsService` as CONSTRUCTOR dependencies, so this entry is
+      // pinned here for the same reason as the two above: a missing module import is
+      // invisible to a metadata test and fails BOOT. One new module edge has already made
+      // this app fail to boot while typecheck, lint and every unit test passed.
+      ResumeParseService,
     ]);
   });
 

@@ -637,3 +637,69 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
         if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):
             kept.append(label)
     return kept
+
+
+# ---------------------------------------------------------------------------
+# HARD IDENTIFIERS — the floor that no ruling has moved
+# ---------------------------------------------------------------------------
+
+#: The identifier classes that may never reach a stored value, an event, a log or the
+#: résumé sheet — whatever a ruling permits into a PROMPT.
+#:
+#: WHY THIS EXISTS, AND WHY IT IS NOT `pseudonymize`. ADR-0041 D5 sends an uploaded
+#: résumé to the model FULLY UNMASKED, and §3.3 spells out the consequence: the model
+#: can now return a real name, phone or PAN inside a parsed VALUE. Gate 6 in
+#: `profiling/parse_gates.py` is what stops such a value being stored — so on that route
+#: gate 6 stops being a formality and becomes the thing that decides what is persisted.
+#:
+#: It cannot use the full gateway to do it. `pseudonymize` masks employer names, person
+#: names and money amounts as well, and D5 EXPLICITLY authorises employer names into
+#: `employer_name_enc`. Worse, `_EMPLOYER_RE` over-fires on ordinary trade vocabulary —
+#: "Stainless Steel" and "Diploma Mechanical Engineering" both come back as
+#: `[EMPLOYER_1]` (see `certified_clean_skill_labels`, which exists to rescue exactly
+#: that). Certifying résumé values with the full gateway would therefore reject nearly
+#: every honest value while the ruling says to keep them.
+#:
+#: So this is a NARROWING of gate 6 for one route, not a disabling of it: the identity
+#: classes a signed ruling moved are permitted, and the classes it did not move are
+#: refused. Nothing here is affected by `RESUME_PARSE_RAW_TEXT_ENABLED` — that flag
+#: governs what reaches the MODEL, and this governs what reaches the DATABASE. Two
+#: different questions, and collapsing them into one masker is the single most likely
+#: way to turn the raw-input flag into a silent PII leak.
+HARD_IDENTIFIER_CLASSES: tuple[str, ...] = (
+    "pan",
+    "aadhaar",
+    "phone",
+    "email",
+    "credential_id",
+)
+
+
+def contains_hard_identifier(text: str) -> str | None:
+    """Which class of hard identifier appears in ``text``, or ``None``. Never raises.
+
+    DELIBERATELY EXCLUDES the residual-digit net (seven or more consecutive digits) that
+    the full gateway applies. A salary is seven or eight digits and is a legitimate
+    résumé value — a fact the D-1 money carve-out above already had to establish once,
+    after that net blocked workers who typed an annual figure. `_PHONE_RE` still catches
+    9-13 digit runs, and Aadhaar has its own
+    shape, so no identifier escapes through that exclusion — only amounts pass.
+
+    Order is cheapest-first and the classes do overlap (a 12-digit Aadhaar also matches
+    the phone net); the first match names it, and which label wins never changes the
+    decision, only the counter it lands in.
+    """
+    try:
+        if _PAN_RE.search(text):
+            return "pan"
+        if _AADHAAR_RE.search(text):
+            return "aadhaar"
+        if _PHONE_RE.search(text):
+            return "phone"
+        if _EMAIL_RE.search(text):
+            return "email"
+        if _CREDENTIAL_ID_RE.search(text):
+            return "credential_id"
+    except Exception:  # pragma: no cover - defensive; a scanner error must fail CLOSED
+        return "scanner_error"
+    return None

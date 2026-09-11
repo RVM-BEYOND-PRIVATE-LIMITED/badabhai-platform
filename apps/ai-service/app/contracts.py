@@ -1614,3 +1614,92 @@ class JobPostingChatTurnOutput(BaseModel):
     # the frozen contract for the rephrase seam.
     ai_metadata: AICallMetadata | None = None
     pseudonymization_metadata: PseudonymizationMeta | None = None
+
+
+# --- Résumé import (ADR-0041, RI-3) -----------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts`; `tests/test_contract_parity.py`
+# reads that file and fails if the two drift.
+#
+# DELIBERATELY NOT A REUSE OF `ExperienceEntry`. That model is `extra="forbid"` and
+# carries no employer field at all, because the 2026-08-28 ruling put employer names on
+# a path that never touches the AI service. ADR-0041 D5 overrides that for ONE route,
+# and the override has to be visible in the type rather than smuggled through a model
+# whose own docstring says the opposite.
+
+
+class ResumeLine(BaseModel):
+    """One citable line of the uploaded document.
+
+    `i` is `app/resume_import/extract.Line.index` and is what the model cites. It is
+    preserved across masking drops and never renumbered, so gate 1 resolves a citation
+    by `i` and never by list position — exactly as the interview transcript does.
+    """
+
+    i: AskCount
+    text: str = Field(min_length=1)
+
+
+class ResumeParseInput(BaseModel):
+    """Parse an uploaded résumé into typed, cited fields.
+
+    NO ANSWER MAP, and that is the shape of the feature rather than an omission: this
+    call happens BEFORE the interview, so there is no recorded answer to type or to
+    disagree with. Gate 4 is therefore a no-op here by construction. Precedence between
+    a résumé suggestion and an answer the worker later gives is RI-4's staging layer
+    (ruling D7 — a stored answer always wins), not this wall's.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so the
+    résumé's text never passes through apps/api at all.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    target_fields: list[TargetField] = Field(default_factory=list)
+    language: str | None = None
+
+
+class ResumeEmployment(BaseModel):
+    """One job read off the résumé, with the line it was read from.
+
+    `employer_name` is the field ADR-0041 D5 exists to permit. Everything about it is
+    gated the same way a scalar field is — cited, type-checked, and refused outright if
+    it carries a hard identifier — so "permitted" means "permitted through the wall",
+    never "waved past it".
+    """
+
+    employer_name: str | None = None
+    role_title: str | None = None
+    start_year: int | None = Field(default=None, ge=1950, le=2100)
+    end_year: int | None = Field(default=None, ge=1950, le=2100)
+    evidence: EvidenceSpan
+
+
+class ResumeParseOutput(BaseModel):
+    """What survived both walls, plus how the text was recovered.
+
+    The extraction facts (`extraction_method`, `page_count`, `ocr_confidence`) ride on
+    the response because `worker_resume_import` stores them and apps/api never sees the
+    document — this is the only place they can come from. They are counts and a score,
+    never text.
+    """
+
+    fields: dict[str, ParsedField | None] = Field(default_factory=dict)
+    employments: list[ResumeEmployment] = Field(default_factory=list)
+    unparsed_field_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+    extraction_method: str | None = None
+    page_count: int | None = None
+    ocr_confidence: float | None = None
+    line_count: int = 0
+
+    #: A value from `RESUME_IMPORT_FAILURES` (packages/types) when nothing usable came
+    #: back, else None. Closed vocabulary: it is shown to the worker AND counted on an
+    #: event, so an open string here would be untrusted text on a screen and a PII leak
+    #: into analytics at once.
+    failure_reason: str | None = None
+
+    ai_metadata: AICallMetadata | None = None
