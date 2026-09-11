@@ -52,6 +52,14 @@ import {
   toPackOption,
 } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
+import {
+  confirmableFacts,
+  confirmedValues,
+  confirmPrompt,
+  readConfirmReply,
+  RESUME_CONFIRM_OPTIONS,
+} from "./resume-confirm";
+import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
@@ -429,6 +437,10 @@ export class ProfilingOrchestrator {
     private readonly chat: ChatRepository,
     private readonly events: EventsService,
     private readonly llm: LlmTurnService,
+    // ADR-0041 RI-5. READ-ONLY, and narrow by construction: the only questions this class can
+    // ask it are "is there something a résumé wants to confirm" and "what was it". It cannot
+    // learn that a document exists, cannot read its key, and cannot write.
+    private readonly resumeSuggestions: ResumeSuggestionReader,
   ) {}
 
   /**
@@ -1107,6 +1119,48 @@ export class ProfilingOrchestrator {
       // Past the clarify bound: fall through to ordinary selection and move the interview on.
     }
 
+    // --- The résumé batch-confirm, settled (ADR-0041 RI-5) ------------------
+    //
+    // BEFORE ANY ANSWER CLASS, because the bubble on screen is not a pack question: there is no
+    // `servedQuestionKey`, so `askedItem` is null and the ordinary capture above found nothing to
+    // write. Running after it would let a "haan" fall through to cross-question filling and be
+    // read as an answer to something else.
+    //
+    // AFTER the abusive branch, which outranks everything.
+    if (next.resumeConfirm?.state === "pending") {
+      // CAPTURED BEFORE `next` IS REASSIGNED. Reading it off `next` afterwards loses the
+      // narrowing, and re-narrowing with a `!` would be asserting something the compiler had
+      // just been told to forget.
+      const confirmImportId = next.resumeConfirm.importId;
+      const reply = readConfirmReply(input.text);
+      // SETTLED WHATEVER HE SAID, including "unclear". The offer is spent — re-asking it would
+      // spend a second ask on a question he has already been given once, and the questions it
+      // covers are all still in the engine's queue where they belong.
+      next = { ...next, resumeConfirm: { importId: confirmImportId, state: "settled" } };
+
+      if (reply === "accept") {
+        const staged = await this.resumeSuggestions.forImport(input.workerId, confirmImportId);
+        // RE-DERIVED AGAINST THE ANSWER MAP AS IT IS NOW, not against the list that was shown.
+        // A worker can answer one of these questions between the offer and his reply — on the
+        // voice surface the two are separate submissions — and D7 says his answer wins.
+        const facts = confirmableFacts(staged, items, answers);
+        for (const value of confirmedValues(facts)) {
+          answers = recordAnswer(answers, value, turn);
+        }
+        next = withAnswers(next, answers);
+        await this.recordPrefillApplied(input, confirmImportId, staged.size, facts.length);
+      } else {
+        // COUNTED AS OFFERED AND ZERO ACCEPTED. A decline is the measurement this event exists
+        // for — `offered` minus `accepted` is the parser's error rate as judged by the only
+        // person qualified to judge it, and dropping the zero would delete every negative
+        // result from that number.
+        const staged = await this.resumeSuggestions.forImport(input.workerId, confirmImportId);
+        await this.recordPrefillApplied(input, confirmImportId, staged.size, 0);
+      }
+      // FALL THROUGH to ordinary selection, so the next question arrives in the SAME bubble.
+      // Returning here would cost the worker a round trip to be told "theek hai" and nothing else.
+    }
+
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
@@ -1404,6 +1458,65 @@ export class ProfilingOrchestrator {
     // construction. AFTER the re-pin above, so the pack is still resolved and still pinned; see
     // {@link selectableEnginePacks} for why an interview Phase A led stops selecting from it.
     engine = selectableEnginePacks(next, engine);
+
+    // --- The résumé batch-confirm, offered (ADR-0041 RI-5) ------------------
+    //
+    // BEFORE THE ENGINE PICKS, and exactly once. Six questions a résumé already answered become
+    // one ask instead of six — which is the only place in the whole feature where the 28-ask
+    // budget is actually recovered, and the reason this phase exists.
+    //
+    // AFTER identify and after Phase A's settlement, both deliberately: the pack must be pinned
+    // (so the facts resolve against the questions this worker will really be asked) and anything
+    // he has already said must be in `answers` (so D7 can keep it out of the offer).
+    //
+    // NOT WHEN THE TURN IS CAPPED. Past `MAX_ENGINE_TURNS` the interview is closing, and opening
+    // a new question there would be an ask the worker can no longer spend.
+    if (next.resumeConfirm === null && !capped) {
+      const offer = await this.resumeSuggestions.pendingForChat(input.workerId);
+      const facts = offer ? confirmableFacts(offer.suggestions, items, answers) : [];
+
+      if (offer && facts.length > 0) {
+        next = {
+          ...next,
+          resumeConfirm: { importId: offer.importId, state: "pending" },
+          // IT SPENDS AN ASK, AND MUST. It is a question; the worker can decline it; and a
+          // budget that stopped counting what he was asked would stop describing the thing
+          // `chat.session_abandoned` measures. Six asks become one, never zero.
+          engineAsks: next.engineAsks + 1,
+          // NO `servedQuestionKey`. This question belongs to no pack — the same reason the
+          // disambiguation offer above claims none — and naming one would make the next turn's
+          // `askedItem` lookup capture "haan" as that question's answer.
+          servedQuestionKey: null,
+          clarifyCount: 0,
+        };
+        return this.turn(buffer, next, input, {
+          reply: confirmPrompt(facts),
+          // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped clients
+          // know, so a new value would reach a build in the field as an unrenderable turn. This
+          // IS an ask: a question with two chips, answered like any other single-select.
+          kind: "ask",
+          questionKey: null,
+          options: [...RESUME_CONFIRM_OPTIONS],
+          whyText: null,
+          answerType: "single_select",
+          // An ask CAN cross a checkpoint boundary, but this one is the interview's own opening
+          // move and there is nothing yet to checkpoint.
+          checkpointDue: false,
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+        });
+      }
+
+      // NOTHING TO OFFER — recorded as settled rather than left null, so this does not re-run a
+      // storage read and a decrypt on every remaining turn of the interview.
+      if (offer) next = { ...next, resumeConfirm: { importId: offer.importId, state: "settled" } };
+    }
+
     const decision = nextQuestion(toEngineState(next, turn), engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
@@ -1939,6 +2052,53 @@ export class ProfilingOrchestrator {
    * a worker back into an interview that had correctly decided to end, to protect a telemetry
    * row. The log line is the fallback record.
    */
+  /**
+   * The worker looked at what his résumé said and settled it (ADR-0041 RI-5).
+   *
+   * THE ONE EVENT THAT MEASURES RULING D2. Everything upstream counts what the MACHINE did;
+   * this counts what the worker AGREED WITH, and the two are not the same fact. `offered` minus
+   * `accepted` is the parser's error rate as judged by the only person qualified to judge it.
+   *
+   * EMITTED ON A DECLINE TOO, with `accepted: 0`. A funnel that only records agreement has no
+   * denominator — and if acceptance ever ran near 100% that would not be a triumph, it would be
+   * evidence that workers are tapping past the bubble, which is a thing this number can only
+   * show if the zeros are in it.
+   *
+   * NEVER FAILS THE TURN. The answers are already durable in the envelope; a worker must not
+   * lose a confirmed prefill because an event INSERT hit a connection blip.
+   */
+  private async recordPrefillApplied(
+    input: TurnInput,
+    importId: string,
+    offered: number,
+    accepted: number,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.resume_prefill_applied",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "worker", subject_id: input.workerId },
+        payload: {
+          worker_id: input.workerId,
+          import_id: importId,
+          surface: "chat",
+          offered,
+          accepted,
+        },
+        // ONCE PER IMPORT. The offer is made once and settled once, and a retried turn must not
+        // report a second confirmation of the same document.
+        idempotencyKey: `profile.resume_prefill_applied:${importId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the résumé prefill confirmation for import ${importId} was not recorded; the answers ` +
+          `stand but RI-7 cannot see them: ${(error as Error).message}`,
+      );
+    }
+  }
+
   private async recordFormHandoff(
     envelope: ProfilingEnvelope,
     input: TurnInput,

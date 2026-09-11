@@ -115,6 +115,14 @@ function makeWorld(
     pinThrows?: boolean;
     /** Retrieval came back ambiguous: chips on screen instead of a pack question (#695). */
     identifyOffer?: { prompt: string; options: QuestionPackOption[] } | null;
+    /**
+     * ADR-0041 RI-5 — what a parsed résumé staged for this worker, keyed by question key.
+     *
+     * ABSENT IS THE DEFAULT AND THE DEFAULT IS NO OFFER, which is what every other test in this
+     * file depends on: the interview they assert must be byte for byte the one a worker without
+     * a résumé gets.
+     */
+    resumeOffer?: { importId: string; suggestions: Map<string, unknown> } | null;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -185,6 +193,11 @@ function makeWorld(
   // `leads()` returning false is the whole of "off" as far as the orchestrator can tell.
   const llm = { leads: () => false, take: vi.fn(async () => null) };
 
+  const resumeSuggestions = {
+    pendingForChat: vi.fn(async () => opts.resumeOffer ?? null),
+    forImport: vi.fn(async () => opts.resumeOffer?.suggestions ?? new Map()),
+  };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
@@ -192,6 +205,9 @@ function makeWorld(
     chat as never,
     events as never,
     llm as never,
+  
+    // ADR-0041 RI-5. NO PENDING OFFER unless a test asks for one — see `resumeOffer`.
+    resumeSuggestions as never,
   );
   return {
     orchestrator,
@@ -201,6 +217,7 @@ function makeWorld(
     identify,
     chat,
     events,
+    resumeSuggestions,
     storedPin: () => pinned,
   };
 }
@@ -2116,5 +2133,201 @@ describe("a replayed turn is the SAME response, not a stripped one", () => {
     expect(replay.progress).toEqual(first.progress);
     expect(replay.whyText).toBe(first.whyText);
     expect(replay.answerType).toBe(first.answerType);
+  });
+});
+
+describe("ADR-0041 RI-5 — one ask that settles what a résumé already told us", () => {
+  const IMPORT_ID = "33333333-3333-4333-8333-333333333333";
+
+  const suggestion = (values: Record<string, unknown>) => ({
+    values: { option_keys: [], text: null, number: null, bool: null, ...values },
+    source: "resume",
+    confidence: 0.9,
+  });
+
+  const withResume = () =>
+    makeWorld({
+      resumeOffer: {
+        importId: IMPORT_ID,
+        suggestions: new Map<string, unknown>([
+          ["q_city", suggestion({ text: "Pune" })],
+          ["q_years", suggestion({ number: 7 })],
+        ]),
+      },
+    });
+
+  const prefillEvents = (events: { emit: { mock: { calls: unknown[][] } } }) =>
+    events.emit.mock.calls
+      .map((call) => call[0] as { event_name: string; payload: Record<string, unknown> })
+      .filter((event) => event.event_name === "profile.resume_prefill_applied");
+
+  it("offers the facts as ONE bubble with two chips, instead of two questions", async () => {
+    // THE WHOLE POINT OF THE PHASE. Two questions become one ask.
+    const { orchestrator } = withResume();
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.reply).toBe("Resume se ye mila: Pune · 7. Sahi hai?");
+    expect(result.kind).toBe("ask");
+    expect(result.answerType).toBe("single_select");
+    expect(result.options.map((option) => option.option_key)).toEqual([
+      "resume_confirm_yes",
+      "resume_confirm_no",
+    ]);
+    // NO QUESTION KEY. The bubble belongs to no pack, so naming one would make the next turn
+    // capture "haan" as that question's answer.
+    expect(result.questionKey).toBeNull();
+  });
+
+  it("SPENDS AN ASK — the budget still describes what the worker was asked", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+    expect(store.get(SESSION)?.profiling?.resumeConfirm).toEqual({
+      importId: IMPORT_ID,
+      state: "pending",
+    });
+  });
+
+  it("a worker with NO résumé gets the ordinary first question, unchanged", async () => {
+    // The invariant the whole feature ships under.
+    const { orchestrator } = makeWorld();
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.reply).not.toContain("Resume se");
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("'haan' writes every offered fact AND serves the next question in the same bubble", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    const result = await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const byKey = new Map(answers.map((record) => [record.question_key, record]));
+    expect(byKey.get("q_city")?.value_normalized).toBe("Pune");
+    expect(byKey.get("q_years")?.value_normalized).toBe(7);
+    expect(byKey.get("q_city")?.status).toBe("answered");
+    // AND the interview moved on in the same breath — no round trip to be told "theek hai".
+    expect(result.reply).not.toContain("Resume se");
+  });
+
+  it("the confirmed answer carries NO document text and NO document evidence (ruling D4)", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const confirmed = answers.filter((record) => record.status === "answered");
+    expect(confirmed.length).toBeGreaterThan(0); // vacuity: there ARE records to inspect
+    for (const record of confirmed) {
+      expect(record.value_raw).toBeNull();
+      expect(record.evidence).toBeNull();
+    }
+  });
+
+  it("'nahi' writes NOTHING and drops straight back to the ordinary sequence", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    const result = await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(answers.filter((record) => record.status === "answered")).toEqual([]);
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("an UNREADABLE reply writes nothing — it is never taken as a yes", async () => {
+    // The worst failure available to this turn is writing several answers off a sentence
+    // nobody understood.
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("matlab kya", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(answers.filter((record) => record.status === "answered")).toEqual([]);
+  });
+
+  it("is offered ONCE — a settled offer is never re-asked", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+    const third = await orchestrator.takeTurn(say("Pune", new Date(T0.getTime() + 120_000)));
+
+    expect(third.reply).not.toContain("Resume se");
+    expect(store.get(SESSION)?.profiling?.resumeConfirm?.state).toBe("settled");
+  });
+
+  it("emits the prefill event on a DECLINE too, with accepted: 0", async () => {
+    // `offered` minus `accepted` is the parser's error rate as judged by the only person
+    // qualified to judge it. A funnel that records only agreement has no denominator.
+    const { orchestrator, events } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+
+    const emitted = prefillEvents(events);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.payload).toMatchObject({ surface: "chat", offered: 2, accepted: 0 });
+  });
+
+  it("emits offered AND accepted on a yes, and no document text with them", async () => {
+    const { orchestrator, events } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const emitted = prefillEvents(events);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.payload).toMatchObject({ offered: 2, accepted: 2 });
+    expect(JSON.stringify(emitted[0]!.payload)).not.toContain("Pune");
+  });
+
+  it("re-derives against the answer map AS IT IS NOW, so a stored answer is never overwritten", async () => {
+    // A worker can answer one of these questions between the offer and his reply — on the voice
+    // surface the two are separate submissions. Ruling D7 says his answer wins, and the only way
+    // to honour that is to rebuild the list at settle time rather than trust the one shown.
+    //
+    // Found by a mutation with no test to fail: pointing `confirmableFacts` at an empty answer
+    // map changed nothing anywhere, which meant this property was never being checked.
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+
+    const buffered = store.get(SESSION)!;
+    store.set(SESSION, {
+      ...buffered,
+      profiling: {
+        ...buffered.profiling!,
+        answerMap: [
+          {
+            question_key: "q_city",
+            target_field: "current_city",
+            value_raw: "Mumbai",
+            value_normalized: "Mumbai",
+            status: "answered",
+            evidence: null,
+            turn: 1,
+            history: [],
+          },
+        ],
+      },
+    });
+
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const byKey = new Map(answers.map((record) => [record.question_key, record]));
+    // HIS city stands; the résumé's is not written over it.
+    expect(byKey.get("q_city")?.value_normalized).toBe("Mumbai");
+    // And the fact he had NOT answered still lands, so the turn was not wasted.
+    expect(byKey.get("q_years")?.value_normalized).toBe(7);
+  });
+
+  it("an import with nothing to offer costs no ask and no bubble", async () => {
+    const { orchestrator, store } = makeWorld({
+      resumeOffer: { importId: IMPORT_ID, suggestions: new Map<string, unknown>() },
+    });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.questionKey).toBe("q_city");
+    // Recorded as settled so the read is not repeated on every remaining turn.
+    expect(store.get(SESSION)?.profiling?.resumeConfirm?.state).toBe("settled");
   });
 });

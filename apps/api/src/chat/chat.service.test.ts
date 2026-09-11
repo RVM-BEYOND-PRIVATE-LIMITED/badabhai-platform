@@ -54,6 +54,7 @@ const PIN = {
 /** The engine's envelope at the end of a complete interview. */
 function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
   return {
+    resumeConfirm: null,
     rev: 4,
     phase: "close",
     occupation: PIN,

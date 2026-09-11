@@ -326,6 +326,10 @@ function makeWorld(
     chat as never,
     events as never,
     llm as never,
+  
+    // ADR-0041 RI-5. NO PENDING OFFER is the case every test in this file is about: the
+    // interview these assert on must be byte for byte the one a worker without a résumé gets.
+    { pendingForChat: async () => null, forImport: async () => new Map() } as never,
   );
   return { orchestrator, store, llm, events, identify };
 }

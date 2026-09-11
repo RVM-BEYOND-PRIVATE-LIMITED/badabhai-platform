@@ -50,6 +50,10 @@ const ANSWER: AnswerRecord = {
  * being tested for.
  */
 const FULL: ProfilingEnvelope = {
+  // ADR-0041 RI-5. A NON-NULL value on purpose: this fixture exists to prove every field
+  // survives the round trip, and a null would round-trip through any narrower that dropped
+  // the field entirely.
+  resumeConfirm: { importId: "11111111-1111-4111-8111-111111111111", state: "pending" },
   rev: 12,
   phase: "universal_tail",
   occupation: PIN,
