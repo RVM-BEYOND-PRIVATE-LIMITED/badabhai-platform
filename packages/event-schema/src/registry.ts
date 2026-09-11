@@ -37,6 +37,18 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerEmploymentRecordedPayload,
   },
+  // #1485 — the worker looked at a model's rewrite of one of his own free-text answers and said
+  // which one prints. `own_words` is a refusal, and it is the ONLY mitigation the section-8
+  // override in #1350 has on the fresher path: ADR-0039 records that no test can assert the absence
+  // of a plausible-but-false sentence, so what is audited here is that he was able to say so.
+  //
+  // NOT more fields on `worker.employment_recorded`, which the #1354 route reuses for the same
+  // decision about an employment. A fresher has no employment, and that payload counts them. v1.
+  "worker.answer_text_source_set": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerAnswerTextSourceSetPayload,
+  },
   "worker.preferences_recorded": {
     version: 1,
     domain: "worker",

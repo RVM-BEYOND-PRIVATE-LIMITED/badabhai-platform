@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 174 event names (173 prior + the worker location recorded)", () => {
-    expect(EVENT_NAMES).toHaveLength(174);
+  it("exposes all 175 event names (174 prior + the answer text source set)", () => {
+    expect(EVENT_NAMES).toHaveLength(175);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
@@ -3052,6 +3052,13 @@ describe("registry", () => {
     // R5 1.2 — the worker recorded his own work history. PII-FREE by shape: counts and a
     // boolean, never the employer name the feature is about, and never the city.
     expect(isEventName("worker.employment_recorded")).toBe(true);
+    // #1485 — the worker chose which text prints for one free-text answer of his. PII-FREE by
+    // shape AND deliberately by omission: NEITHER his sentence nor the model's rewrite of it
+    // travels. The point of the route is that one of the two may be false, and recording that he
+    // made the choice does not require knowing the words. `attribute_key` is a pack
+    // question key on the same closed shape the column enforces, so no free text can arrive
+    // through it.
+    expect(isEventName("worker.answer_text_source_set")).toBe(true);
     // R6 §4 — the finishing form's closed-set page. PII-FREE by shape AND deliberately by
     // omission: it carries only how many keys were written and cleared. Each individual answer
     // is a closed-vocabulary label and would be harmless alone; the SET of them — languages

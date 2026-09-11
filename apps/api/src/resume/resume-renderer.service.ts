@@ -42,6 +42,21 @@ export interface ResumeExperienceLine {
    * same words" -- the rule `ResumeEmployment.work_own_words` already follows.
    */
   work_own_words?: string;
+  /**
+   * WHAT A CLIENT SENDS BACK to refuse the rewrite in {@link work_own_words} (#1485) — the
+   * `worker_attributes.attribute_key` of the one segment a model may rewrite, which for this block
+   * is always `iti_project_work`.
+   *
+   * THE FRESHER'S ANSWER TO `ResumeEmployment.id`. That route (`PUT /workers/me/employment/
+   * :employmentId/description-source`) addresses an employment ROW, and a fresher has none: his
+   * Zone 4 is derived from his pack answers, so the addressable thing is the ANSWER. It is a
+   * closed-vocabulary question key, never worker text — see `wa_attribute_key_chk`.
+   *
+   * NOT A TEMPLATE SLOT, exactly like {@link work_own_words}, and PRESENT ONLY WITH IT: a line
+   * nothing rewrote has nothing to refuse, and shipping an address for a choice the client cannot
+   * offer would invite one to be offered.
+   */
+  own_words_key?: string;
 }
 
 export interface ResumeRenderInput {

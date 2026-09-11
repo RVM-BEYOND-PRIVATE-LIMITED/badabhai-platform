@@ -1,0 +1,72 @@
+-- ===========================================================================
+-- 0103 — THE WORKER MAY REFUSE A MODEL'S REWRITE OF HIS OWN ANSWER (#1485)
+--
+-- ONE BOOLEAN COLUMN on `worker_attributes`, NOT NULL DEFAULT false, plus the CHECK that scopes
+-- it to text answers. Nothing is dropped, nothing is renamed, no shipped column changes meaning,
+-- and every existing row is already valid at the default — which is also the SAFE value, because
+-- false means "the worker has not objected".
+--
+-- WHAT IT IS FOR. #1350 lets a model rephrase a worker's own free-text answer and print it on the
+-- sheet an employer reads (ADR-0039, a §8 override). #1354 gave a worker the right to refuse that
+-- per EMPLOYMENT, on `worker_employment_role.work_done_polish_declined` (0097). A FRESHER HAS NO
+-- EMPLOYMENT: his Zone 4 is his ITI training, assembled from pack answers, and its one
+-- worker-written segment (`iti_project_work`) could be rewritten with no way for him to refuse.
+-- This column is 0097 for an answer, and it is the only mitigation that single sentence has.
+--
+-- A FLAG AND NOT A CLEARED `value_text_polished`. A refusal expressed by NULLing the rewrite is
+-- indistinguishable from "not polished yet", which is exactly the state the polisher reads as work
+-- to do — so the next render would silently rewrite the sentence he had just refused. Keeping the
+-- rewrite also means changing his mind costs no second model call.
+--
+-- ── ORDER: APPLY BEFORE DEPLOY ──────────────────────────────────────────────────────────────
+-- Not advisory here, and the failure is not subtle. THREE statements name
+-- `value_text_polished_declined` after this commit, and none of them tolerates its absence:
+--
+--   1. `upsertMany` — THE WORST ONE, and the one easiest to miss, because the column appears only
+--      in its ON CONFLICT SET (the new CASE) and in the column list drizzle emits for every
+--      column. Postgres rejects the statement at parse-analysis, so it fails on a plain first
+--      INSERT as well as on a conflict. Its three callers have NO catch between them and the
+--      client:
+--        * `trade-form.service.ts` — inside `answers.withTransaction`. Every trade-form answer tap
+--          500s, and for `qp_cnc_turning` all 18 items are `target_kind: attribute`, so that is
+--          the whole form.
+--        * `worker-preferences.service.ts` — the finishing form's closed-set page.
+--        * `profile-extraction.processor.ts` — documented ALLOWED TO THROW, so the job fails and
+--          retries until the SQL lands. Nothing is lost; nothing completes either.
+--   2. `loadTradeSheet` — an EXPLICIT select list, on the résumé render path and the payer
+--      disclosure path. This one DEGRADES: all three callers wrap it in their own try/catch, so
+--      the cost is a collapsed capability section and a `classic` layout rather than a failed
+--      render. Note the résumé generated inside the window keeps `classic` on its row until
+--      something re-renders it — the degrade is visible, not self-erasing.
+--   3. `setTextPolishDeclined` — the worker's own PUT. 500s, and correctly so: a route that
+--      appeared to accept his refusal without recording it is worse than one plainly unavailable.
+--
+-- So the pre-migration blast radius is THE WHOLE WORKER ATTRIBUTE WRITE PATH, not one new route.
+-- This repo deploys api automatically on merge to main and does NOT run migrations in that job.
+-- The 2026-09-10 form outage was this exact gap, through door (1). Run it first.
+--
+-- TIMING (the DDL, as distinct from deploy ORDER).
+--
+--   `ADD COLUMN ... boolean DEFAULT false NOT NULL` is metadata-only on PG 11+ — no table rewrite,
+--   the default is materialised on read.
+--
+--   `ADD CONSTRAINT ... CHECK` WITHOUT `NOT VALID` IS A FULL HEAP SCAN, not a catalog write, and it
+--   holds ACCESS EXCLUSIVE for the whole of it — every reader and writer of `worker_attributes`
+--   blocks. That is fine at today's row count and is why this ships as one statement; it is NOT
+--   fine as a general rule, and the split is the standard one if this table grows: ADD the
+--   constraint `NOT VALID` (catalog only, brief lock), then `VALIDATE CONSTRAINT` in a second
+--   migration under SHARE UPDATE EXCLUSIVE, which does not block reads or writes.
+--
+-- ROLLBACK. Reverse order, and safe with the app live ONLY after the api is reverted — while the
+-- old api is running it SELECTs the column:
+--
+--   ALTER TABLE "worker_attributes" DROP CONSTRAINT "wa_value_text_polished_declined_chk";
+--   ALTER TABLE "worker_attributes" DROP COLUMN "value_text_polished_declined";
+--
+-- LOSSLESS FOR THE ANSWER. Dropping this column discards refusals and NOTHING ELSE: `value_text`
+-- is the worker's own words and is never written here, `value_text_polished` is untouched. What a
+-- rollback costs is that a worker who refused a rewrite would see it printed again — so revert the
+-- api first, which reverts the reader too.
+-- ===========================================================================
+ALTER TABLE "worker_attributes" ADD COLUMN "value_text_polished_declined" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "worker_attributes" ADD CONSTRAINT "wa_value_text_polished_declined_chk" CHECK ("worker_attributes"."value_text_polished_declined" = false OR "worker_attributes"."value_kind" = 'text');

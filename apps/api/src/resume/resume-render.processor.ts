@@ -251,7 +251,17 @@ export class ResumeRenderProcessor extends WorkerHost {
     //
     // NEVER THROWS INTO THE RENDER, on the same contract as the stint polish above.
     let polishedAttributes: Readonly<Record<string, string>> = loaded?.polishedAttributes ?? {};
-    if (employments.length === 0) {
+    // A REFUSAL IS NOT AN ABSENCE (#1485) — the same filter `WorkHistoryPolishService.polish`
+    // applies to a declined stint, on the work-list this block IS. The worker's refusal clears no
+    // column, and the upsert NULLs `value_text_polished` on every re-answer, so the ordinary state
+    // of a refused answer is "declined, no rewrite" — which is exactly what the call below treats
+    // as work to do. Without this line his decision would survive until the next re-render and no
+    // further, and he would be billed for the model call that overruled him.
+    //
+    // ABSENT WHEN THE ATTRIBUTE LOAD FAILED, and that cannot print a rewrite he refused: a null
+    // `loaded` is a render with no attributes at all, so the fresher block does not build.
+    const declinedAttributes: ReadonlySet<string> = loaded?.declinedAttributes ?? new Set();
+    if (employments.length === 0 && !declinedAttributes.has(ITI_PROJECT_WORK_KEY)) {
       try {
         const rewritten = await this.polish.polishAttribute(
           workerId,
@@ -324,6 +334,10 @@ export class ResumeRenderProcessor extends WorkerHost {
       // The rewrite of the fresher block's one free-text answer, read by the mapper under the
       // same kill switch. Empty for every worker with an employment history — see above.
       polishedAttributes,
+      // HIS REFUSAL, read by the mapper at the USE site as well as by the gate above — the
+      // two-gate shape `workLine` has for an employment. Explicit rather than left to the
+      // `...loaded` spread, because the gate above already had to resolve it.
+      declinedAttributes,
       // `undefined` WHEN THE WORKER HAS NO ROWS, and that is load-bearing rather than a tidy
       // default: Zone 5 resolves with `??`, so an empty ARRAY would assert "this worker has no
       // certificates" and suppress whatever the extraction found. See `qualificationFactsFrom`.
