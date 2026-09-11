@@ -119,13 +119,15 @@ class ResumeDocumentView extends StatelessWidget {
     return _SheetSectionShell(
       title: 'Work History',
       icon: Icons.work_history_outlined,
+      // ONE CHILD PER VISUAL ROW, and no spacers of our own (#1475). The shell
+      // already puts [AppSpacing.s3] between every pair of children — so a
+      // spacer handed in AS a child got padded on BOTH sides, and two
+      // employments ended up three gaps apart instead of one. Spacing belongs
+      // to the shell; a caller that also supplies it is double-counting.
       children: <Widget>[
-        for (final ResumeEmploymentDto e in doc.employments) ...<Widget>[
+        for (final ResumeEmploymentDto e in doc.employments)
           _EmploymentEntry(employment: e),
-          if (e != doc.employments.last) const SizedBox(height: AppSpacing.s3),
-        ],
-        if (doc.employmentsMore != null && doc.employmentsMore!.isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+        if (doc.employmentsMore != null && doc.employmentsMore!.isNotEmpty)
           Text(
             doc.employmentsMore!,
             style: AppTypography.body(
@@ -133,7 +135,6 @@ class ResumeDocumentView extends StatelessWidget {
               color: AppColors.textMuted,
             ),
           ),
-        ],
       ],
     );
   }
@@ -210,6 +211,10 @@ class _SheetSectionShell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
+              // The shell owns ALL inter-row spacing (#1475). Callers hand it
+              // one child per visual row and never a spacer — a spacer passed
+              // in as a child is treated as a row here and padded on both
+              // sides, which is what tripled the gap on the work-history zone.
               for (int i = 0; i < children.length; i++) ...<Widget>[
                 if (i > 0) const SizedBox(height: AppSpacing.s3),
                 children[i],
