@@ -14,6 +14,20 @@
     session-mint (a privileged role with `mfa_enrolled=false` mints no session). [must-fix #1 resolved]
   - **OQ-2 (onboarding default) → invite-then-activate;** `admin_users.status` defaults to
     `pending` (mirrors `payers`) — a created-but-unactivated admin authenticates to nothing.
+    - **ACTIVATE half implemented 2026-09-11 (was missing).** ADMIN-1 shipped only the INVITE
+      half: the `pending` row was created and nothing in the codebase ever moved it to
+      `active` (`AdminRepository.markActive` had no production caller). Since only an
+      `'active'` admin may authenticate, every invite ever issued was a dead end — the invitee
+      requested a login code and got the same neutral failure an unknown address gets.
+      `POST /admin/invites/accept` is now that missing transition: a single-use, 48h,
+      HMAC-at-rest accept token (`admin_users.invite_token_hash` / `invite_expires_at`,
+      migration 0103) that the invitee redeems to become `active`. It is PUBLIC on the same
+      grounds as the login routes — the invitee has no session yet, and the token is the
+      credential — and it deliberately mints **no session**: the newly active admin still
+      signs in through the ordinary OTP → TOTP-enrolment path, so OQ-1's MFA-at-session-mint
+      rule keeps exactly one door. The raw token reaches only the invite email and the
+      one-time `accept_url` returned to the inviting super_admin (an owner decision, so
+      onboarding works with no email provider configured); it is never logged or evented.
   - **OQ-6 (kill-switch surface) → RECONCILED, NOT a blanket "enable from portal".** The owner
     asked for admin control/visibility over the provider flags. Per **§2 #5 + §7 (invariants
     override a casual instruction — CLAUDE.md preamble)** the portal will: (a) **DISPLAY** the

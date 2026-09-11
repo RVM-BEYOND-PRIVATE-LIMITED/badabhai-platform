@@ -730,6 +730,13 @@
       "when": 1789106773400,
       "tag": "0103_plain_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1789113079744,
+      "tag": "0104_jittery_celestials",
+      "breakpoints": true
     }
   ]
 }

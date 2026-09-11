@@ -1063,6 +1063,28 @@ export const serverEnvSchema = z.object({
   // without a migration.
   MEMBER_INVITE_MAX_PER_ORG: z.coerce.number().int().positive().default(25),
 
+  // ADMIN invites — the accept-link onboarding for a new admin (ADR-0025 OQ-2 finally wired).
+  // The invite flow has ALWAYS created a `pending` admin row; until now nothing could turn it
+  // into an `active` one, so an invited admin could never authenticate. These three knobs
+  // carry the accept link that closes that gap.
+  //
+  // Base URL of the admin-web accept page (e.g. https://admin.badabhai.in/invite/accept). The
+  // single-use RAW token is appended as `?token=…`. Deliberately NOT defaulted to a localhost
+  // URL: a wrong base silently mints links that point at the wrong origin, and the invite
+  // response echoes the link to the inviting super_admin anyway, so an unset base degrades to
+  // a clearly-fake `mock://` link rather than a plausible-but-broken one.
+  ADMIN_INVITE_ACCEPT_URL: z.string().url().optional(),
+  // How long an accept link stays valid. Shorter than the payer org-invite TTL on purpose:
+  // this link grants ADMIN access, so a forgotten invite sitting in a mailbox is a standing
+  // privilege-escalation surface. Re-inviting the same address refreshes the token.
+  ADMIN_INVITE_TTL_HOURS: z.coerce.number().int().positive().default(48),
+  // Master gate for REAL delivery of the admin invite email, mirroring MEMBER_INVITES_ENABLE_REAL
+  // and defaulting FALSE. With it off the MOCK mailer logs an email-hash prefix and sends
+  // nothing — but the accept flow is still fully live, because the invite response returns the
+  // link to the inviting super_admin to share out-of-band. booleanFromString so a falsey
+  // string stays OFF (fail-safe to mock).
+  ADMIN_INVITES_ENABLE_REAL: booleanFromString,
+
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
   // Node API does NOT make LLM calls (it forwards to the AI service), so these are
@@ -1761,6 +1783,32 @@ export function realMemberInvitesBlockedReason(config: ServerConfig): string | n
 
 export function areRealMemberInvitesEnabled(config: ServerConfig): boolean {
   return realMemberInvitesBlockedReason(config) === null;
+}
+
+/**
+ * Guard for the "real admin invite email" path — the direct analogue of
+ * {@link realMemberInvitesBlockedReason}, and blocked for the same three reasons: the master
+ * gate is off, the shared email provider is not configured, or there is no accept URL to put
+ * in the link.
+ *
+ * Returning the REASON rather than a boolean is what makes a mock-mode surprise diagnosable:
+ * "ADMIN_INVITES_ENABLE_REAL is false" and "EMAIL provider is not configured" are different
+ * operator problems that a bare `false` would flatten into one mystery.
+ *
+ * Unlike the payer member-invite gate, a blocked reason here is NOT an onboarding outage: the
+ * invite response returns the accept link to the inviting super_admin, so admins can still be
+ * onboarded by sharing it out-of-band. This gate decides only whether an email is ALSO sent.
+ */
+export function realAdminInvitesBlockedReason(config: ServerConfig): string | null {
+  if (!config.ADMIN_INVITES_ENABLE_REAL) return "ADMIN_INVITES_ENABLE_REAL is false";
+  const emailBlocked = emailProviderBlockedReason(config);
+  if (emailBlocked) return emailBlocked;
+  if (!config.ADMIN_INVITE_ACCEPT_URL) return "ADMIN_INVITE_ACCEPT_URL is not set";
+  return null;
+}
+
+export function areRealAdminInvitesEnabled(config: ServerConfig): boolean {
+  return realAdminInvitesBlockedReason(config) === null;
 }
 
 /**

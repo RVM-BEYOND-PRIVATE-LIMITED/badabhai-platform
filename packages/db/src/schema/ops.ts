@@ -329,12 +329,32 @@ export const adminUsers = pgTable(
     // that one is genuinely ephemeral and TTL-bounded by design.
     mfaSecretEnc: text("mfa_secret_enc"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    // The invite accept-link secret, stored ONLY as a keyed HMAC (mirrors
+    // payer_member_invites.invite_token_hash). The RAW token exists in exactly two places:
+    // the invite email body and the one-time invite response to the inviting super_admin.
+    // It is NEVER logged, evented, or readable back — an accept resolves the row by hashing
+    // the presented token and comparing, so a database reader cannot mint an acceptance.
+    //
+    // NULLABLE and SINGLE-USE: it is cleared on accept, so a consumed link stops resolving.
+    // Every admin created before this column existed (and every bootstrap super_admin, which
+    // is born 'active') has none — which is exactly right, since only a 'pending' row is
+    // acceptable. NULL therefore means "no outstanding invite", not "missing data".
+    inviteTokenHash: text("invite_token_hash"),
+    // When the accept link stops working. Checked at accept time, so an expired invite is
+    // indistinguishable from an unknown one (no-oracle 404). Cleared alongside the hash.
+    inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // Login lookup/dedup: email_hash is the unique key (mirrors payers_email_hash_uq).
     uniqueIndex("admin_users_email_hash_uq").on(t.emailHash),
+    // The accept lookup is BY token hash, so it needs its own unique index — unique because
+    // two admins sharing an invite secret would make the accept target ambiguous. Partial
+    // (WHERE NOT NULL) so the many consumed/never-invited rows, all NULL, do not collide.
+    uniqueIndex("admin_users_invite_token_hash_uq")
+      .on(t.inviteTokenHash)
+      .where(sql`${t.inviteTokenHash} IS NOT NULL`),
     // Pin the role union at the DB (mirrors VACANCY_BANDS-style CHECKs in this schema).
     check(
       "admin_users_role_chk",

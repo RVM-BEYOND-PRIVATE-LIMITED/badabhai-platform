@@ -118,7 +118,16 @@ describe("Admin spine-immutability build-blocker (must-fix #3)", () => {
 
 describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
   // The ONLY public admin routes — the external untrusted auth boundary (IP-rate-limited).
-  const PUBLIC_ROUTES = new Set(["requestLogin", "verifyLogin", "verifyMfa"]);
+  //
+  // `acceptInvite` joins the set deliberately, and on the same footing as the login routes:
+  // its caller is an invited admin who has no session yet (that is what they are there to
+  // obtain), so there is nothing for AdminAuthGuard to check. What it presents instead is a
+  // 256-bit single-use token, hashed at rest and expiring in 48h — a credential, not an open
+  // door. It does NOT mint a session, so it cannot be used to skip the MFA gate.
+  //
+  // Adding a name here is a SECURITY decision, which is the whole point of this test: the
+  // list is the reviewable record of every route reachable without a session.
+  const PUBLIC_ROUTES = new Set(["requestLogin", "verifyLogin", "verifyMfa", "acceptInvite"]);
 
   // Discover the route handlers on the admin auth controller (its own enumerable methods).
   const proto = AdminAuthController.prototype as unknown as Record<string, unknown>;
@@ -144,7 +153,7 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
     }
   });
 
-  it("the public set is exactly {requestLogin, verifyLogin, verifyMfa} — no unguarded privileged route", () => {
+  it("the public set is exactly {requestLogin, verifyLogin, verifyMfa, acceptInvite} — no unguarded privileged route", () => {
     const unguarded = routeMethods.filter(
       (m) => !effectiveGuards(AdminAuthController, m).includes(AdminAuthGuard.name),
     );

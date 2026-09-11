@@ -16,7 +16,11 @@ export type ResolvedEmailTransport = "zeptomail" | "smtp";
  * line. A free-text purpose would eventually carry a name or an address into the log.
  */
 export type EmailPrincipal = "worker" | "payer" | "agency" | "admin";
-export type EmailPurpose = "login_code" | "team_invite";
+// `admin_invite` is deliberately NOT folded into `team_invite`: the two differ in blast
+// radius, and the whole point of a closed purpose vocabulary is that a triage line
+// distinguishes them. `principal=admin purpose=admin_invite status=failed` says an admin
+// onboarding link did not arrive — a different incident from a payer teammate invite.
+export type EmailPurpose = "login_code" | "team_invite" | "admin_invite";
 
 export interface EmailMessage {
   /** The recipient address. Used to send and to derive a log hash — never logged raw. */
