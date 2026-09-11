@@ -654,6 +654,38 @@ class ApiClient {
     );
   }
 
+  /// PUT /workers/me/answers/:attributeKey/text-source (#1492, migration 0103) —
+  /// the same choice as [setEmploymentDescriptionSource], for a free-text ANSWER
+  /// rather than a work-history entry. The fresher's `iti_project_work` sentence
+  /// is the case it exists for: he has no employments, so the #1354 affordance
+  /// had nothing to hang on, and he could see his training sentence rewritten
+  /// without being able to refuse it.
+  ///
+  /// THE BODY IS BYTE-IDENTICAL to the employment route's, deliberately — one
+  /// shape to learn, not two. `own_words` is the refusal; `polished` puts the
+  /// rewrite back.
+  ///
+  /// [attributeKey] comes from the document's `own_words_key`, never a hardcoded
+  /// string: the server allow-lists which answers may be re-sourced, and a key
+  /// it rejects is a 400. A key that is not this worker's, or does not exist, is
+  /// a 404 — the same no-existence-oracle contract, surfaced as [ApiException]
+  /// rather than a silent no-op.
+  ///
+  /// The write ENQUEUES a résumé re-render server-side; nothing is parsed back.
+  /// The caller re-fetches [getResumeDocument], this app's usual
+  /// write-then-reload convention.
+  Future<void> setAnswerTextSource({
+    required String attributeKey,
+    required bool ownWords,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/answers/$attributeKey/text-source',
+      <String, dynamic>{'source': ownWords ? 'own_words' : 'polished'},
+      authToken: authToken,
+    );
+  }
+
   /// PUT /workers/me/work-preferences (#1296) — the closed-set finishing pages.
   /// [fields] is the already-built body: an ABSENT key leaves the stored value
   /// alone, an empty list clears that row ("none of these"), and a `null` scalar

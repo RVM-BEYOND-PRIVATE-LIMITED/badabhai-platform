@@ -18,6 +18,7 @@ import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.da
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_document_view.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
@@ -116,6 +117,7 @@ void main() {
           role: 'ITI workshop training',
           work: printed,
           workOwnWords: own,
+          ownWordsKey: 'iti_project_work',
         )),
       );
 
@@ -140,6 +142,7 @@ void main() {
           role: 'ITI workshop training',
           work: printed,
           workOwnWords: own,
+          ownWordsKey: 'iti_project_work',
         )),
       );
       await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
@@ -150,10 +153,31 @@ void main() {
       expect(find.text(own), findsNothing);
     });
 
-    // No decline exists for this path yet — `work_done_polish_declined` is a
-    // column on the employment role. A button that silently failed to keep his
-    // words would be worse than none: he would believe he had kept them.
-    testWidgets('offers NO keep-my-words button it cannot honour',
+    // #1492 — the refusal. #1476 shipped the reveal alone because there was no
+    // route to call; migration 0103 and the answers text-source route landed,
+    // so he can now act on the comparison instead of only looking at it.
+    testWidgets('with a key, he can REFUSE the rewrite',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: printed,
+          workOwnWords: own,
+          ownWordsKey: 'iti_project_work',
+        )),
+      );
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      expect(find.text('Apne shabd rakhein'), findsOneWidget);
+    });
+
+    // The words and the address arrive together or not at all. A comparison
+    // with no key is an impossible state — and if it ever happened, offering a
+    // button with nowhere to send the refusal would be worse than offering
+    // none, so the reveal stays and the button does not appear.
+    testWidgets('a comparison with NO key reveals but offers no button',
         (WidgetTester tester) async {
       await pumpDoc(
         tester,
@@ -163,10 +187,9 @@ void main() {
           workOwnWords: own,
         )),
       );
-      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
-      await tester.pump();
 
-      expect(find.text('Apne shabd rakhein'), findsNothing);
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing,
+          reason: 'no key means nothing to act on, so nothing is offered');
     });
 
     testWidgets('a worker WITH employments gets no training zone',
@@ -664,6 +687,92 @@ void main() {
       expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
       expect(find.text('Likha hua version chhupayein'), findsNothing);
       expect(find.text(rewritten.workOwnWords!), findsNothing);
+    });
+
+    // #1492 — the FRESHER's refusal, tapped through the real screen so the
+    // route is actually called. The reveal alone shipped in #1476; the button
+    // had nowhere to send a refusal until migration 0103 and the answers
+    // text-source route landed.
+    testWidgets(
+        'the fresher refusing his rewrite calls setAnswerTextSource with the '
+        'key from the DOCUMENT, and the affordance then goes away',
+        (WidgetTester tester) async {
+      const ResumeExperienceLineDto rewrittenTraining = ResumeExperienceLineDto(
+        role: 'ITI workshop training',
+        work: 'Conventional lathe · Completed workshop training with '
+            'hands-on machine exposure.',
+        workOwnWords:
+            'Conventional lathe · kuch nhi banaya, bas knowledge he mujhe',
+        ownWordsKey: 'iti_project_work',
+      );
+      // After the refusal the server has nothing left to compare, so BOTH
+      // work_own_words and own_words_key drop out — symmetric with #1354.
+      const ResumeExperienceLineDto refusedTraining = ResumeExperienceLineDto(
+        role: 'ITI workshop training',
+        work: 'Conventional lathe · kuch nhi banaya, bas knowledge he mujhe',
+      );
+
+      TradeSheetResumeDocument trainingDoc(ResumeExperienceLineDto line) =>
+          TradeSheetResumeDocument(
+            header: const ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+            trade: 'cnc_turner',
+            experiences: <ResumeExperienceLineDto>[line],
+          );
+
+      int loadCalls = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        loadCalls++;
+        return loadCalls == 1
+            ? trainingDoc(rewrittenTraining)
+            : trainingDoc(refusedTraining);
+      });
+      when(() => repo.setAnswerTextSource(any(),
+          ownWords: any(named: 'ownWords'))).thenAnswer((_) async {});
+      await pumpDocument(tester);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(BbButton, 'Apne shabd rakhein'));
+      await tester.pumpAndSettle();
+
+      // The key comes from the DOCUMENT, never hardcoded — the server
+      // allow-lists which answers may be re-sourced, and a rejected key is 400.
+      verify(() => repo.setAnswerTextSource('iti_project_work',
+          ownWords: true)).called(1);
+      // Nothing left to compare, so nothing left to offer.
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
+      expect(find.text('Apne shabd rakhein'), findsNothing);
+    });
+
+    testWidgets('a failed refusal SURFACES, never looks like it worked',
+        (WidgetTester tester) async {
+      const ResumeExperienceLineDto rewrittenTraining = ResumeExperienceLineDto(
+        role: 'ITI workshop training',
+        work: 'Rewritten sentence for the employer.',
+        workOwnWords: 'kuch nhi banaya, bas knowledge he mujhe',
+        ownWordsKey: 'iti_project_work',
+      );
+      when(() => repo.loadResumeDocument()).thenAnswer(
+        (_) async => const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          experiences: <ResumeExperienceLineDto>[rewrittenTraining],
+        ),
+      );
+      when(() => repo.setAnswerTextSource(any(),
+              ownWords: any(named: 'ownWords')))
+          .thenThrow(const NetworkFailure());
+      await pumpDocument(tester);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(BbButton, 'Apne shabd rakhein'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      // And the choice is still there to retry.
+      expect(find.text('Apne shabd rakhein'), findsOneWidget);
     });
 
     testWidgets(

@@ -61,4 +61,17 @@ abstract interface class ResumeRepository {
     String employmentId, {
     required bool ownWords,
   });
+
+  /// The same choice for a free-text ANSWER rather than a work-history entry
+  /// (#1492) — the fresher's `iti_project_work` sentence is the case it exists
+  /// for, since he has no employments for the route above to address.
+  ///
+  /// [attributeKey] comes from the document's `own_words_key`, never a
+  /// hardcoded string: the server allow-lists which answers may be re-sourced.
+  /// Propagates a [Failure] for the same reason as the employment route — the
+  /// worker tapped a deliberate choice about a sentence carrying their name.
+  Future<void> setAnswerTextSource(
+    String attributeKey, {
+    required bool ownWords,
+  });
 }

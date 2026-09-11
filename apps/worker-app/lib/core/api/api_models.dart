@@ -1280,6 +1280,7 @@ class ResumeExperienceLineDto extends Equatable {
     this.duration = '',
     this.work = '',
     this.workOwnWords,
+    this.ownWordsKey,
   });
 
   final String role;
@@ -1301,6 +1302,21 @@ class ResumeExperienceLineDto extends Equatable {
   /// comparison is line against line.
   final String? workOwnWords;
 
+  /// The answer this line's rewrite belongs to — the `:attributeKey` the
+  /// refusal route takes (#1492). `"iti_project_work"` for the fresher today.
+  ///
+  /// PRESENT EXACTLY WHEN [workOwnWords] IS: together or not at all. A line
+  /// nothing rewrote has nothing to refuse, so there is no state holding an
+  /// address with no comparison to show, and none holding a comparison with no
+  /// address. Read it from here rather than hardcoding the key — the server
+  /// allow-lists which answers may be re-sourced, and a key it rejects is a 400.
+  final String? ownWordsKey;
+
+  /// True when the worker can actually ACT on the comparison — both the words
+  /// to show and the address to send the refusal to.
+  bool get canRefuseRewrite =>
+      hasOwnWords && ownWordsKey != null && ownWordsKey!.isNotEmpty;
+
   /// True when [work] is a rewrite and there is something to show the worker.
   /// Server omits [workOwnWords] when the two are equal, so this is a null
   /// check, not a string compare.
@@ -1313,10 +1329,12 @@ class ResumeExperienceLineDto extends Equatable {
         duration: json['duration'] as String? ?? '',
         work: json['work'] as String? ?? '',
         workOwnWords: json['work_own_words'] as String?,
+        ownWordsKey: json['own_words_key'] as String?,
       );
 
   @override
-  List<Object?> get props => <Object?>[role, duration, work, workOwnWords];
+  List<Object?> get props =>
+      <Object?>[role, duration, work, workOwnWords, ownWordsKey];
 }
 
 /// The masthead both document formats share — name / phone / trust badge
