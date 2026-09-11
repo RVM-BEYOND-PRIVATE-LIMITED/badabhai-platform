@@ -35,6 +35,22 @@ export const AdminMfaVerifySchema = z
 export type AdminMfaVerifyDto = z.infer<typeof AdminMfaVerifySchema>;
 
 /**
+ * Redeem an invite accept link (POST /admin/invites/accept).
+ *
+ * The token alone — deliberately no email field. Asking for the address would add nothing
+ * (the token already identifies exactly one pending row) while turning the endpoint into an
+ * email-enumeration oracle and giving a phisher a reason to collect one. The bound is 128 so
+ * an oversized body is rejected before it reaches a hash: the mint is 43 base64url chars, and
+ * the range leaves room to widen TOKEN_BYTES without a DTO change.
+ */
+export const AdminInviteAcceptSchema = z
+  .object({
+    token: z.string().trim().min(20).max(128),
+  })
+  .strict();
+export type AdminInviteAcceptDto = z.infer<typeof AdminInviteAcceptSchema>;
+
+/**
  * Response of POST /admin/login/request and POST /admin/login/verify when MFA is still
  * pending. DELIBERATELY account-state-INDEPENDENT for `login/request` (XB-H no-enumeration):
  * a caller cannot tell a known from an unknown email. The code is delivered ONLY out-of-band
@@ -69,6 +85,21 @@ export interface AdminSessionResponse {
   expires_in_seconds: number;
   admin_id: string;
   role: AdminRole;
+}
+
+/**
+ * Response of POST /admin/invites/accept. PII-FREE: the opaque admin id and role only.
+ *
+ * NO SESSION IS RETURNED, by design. Accepting proves mailbox control and makes the account
+ * real; it does not bypass the second factor. `next: "sign_in"` tells the client to send the
+ * now-active admin to the ordinary login, where TOTP enrolment happens exactly as it does for
+ * every other admin — one way into a session, not two.
+ */
+export interface AdminInviteAcceptedResponse {
+  admin_id: string;
+  role: AdminRole;
+  status: "active";
+  next: "sign_in";
 }
 
 /** Response of POST /admin/refresh. */

@@ -6,6 +6,7 @@ import { EventsService } from "../events/events.service";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
+import { AdminInviteService } from "./admin-invite.service";
 import type {
   AdminActionResult,
   AdminChangeRoleDto,
@@ -27,6 +28,11 @@ export const ADMIN_ACTION_CODES = {
   worker_flagged: "worker_flagged",
   worker_unflagged: "worker_unflagged",
   admin_invited: "admin_invited",
+  // The invitee redeeming their accept link (pending → active). Recorded as its own code, and
+  // with the accepting admin as BOTH actor and target: they are the only principal in the
+  // request (the accept is unauthenticated — the token is the proof), and an audit trail that
+  // attributed the activation to the original inviter would misstate who acted and when.
+  admin_invite_accepted: "admin_invite_accepted",
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
   admin_mfa_reset: "admin_mfa_reset",
@@ -106,6 +112,9 @@ export class AdminActionsService {
     private readonly events: EventsService,
     // ADR-0037 — suspension must revoke every live payer session immediately.
     private readonly sessions: PayerSessionService,
+    // The accept-link seam (mint / hash / expire / render / deliver). Holds every rule about
+    // where a raw invite token may travel.
+    private readonly invites: AdminInviteService,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
@@ -397,30 +406,98 @@ export class AdminActionsService {
 
   /**
    * Invite a new admin (status defaults 'pending' — invite-then-activate). The email is
-   * ADMIN-class PII: encrypted at rest in admin_users, NEVER echoed into the event/response.
-   * Returns the new opaque admin id (the audit target). A duplicate email surfaces as a 23505
-   * from the repository — mapped to a value-free conflict (no enumeration of which email).
+   * ADMIN-class PII: encrypted at rest in admin_users, NEVER echoed into the event.
+   * A duplicate email surfaces as a 23505 from the repository — mapped to a value-free
+   * conflict (no enumeration of which email).
+   *
+   * WHAT CHANGED, AND WHY IT HAD TO: this flow previously created the `pending` row and
+   * stopped. Nothing in the codebase ever moved an admin from `pending` to `active`
+   * (`markActive` had no production caller), and only an `'active'` admin may authenticate —
+   * so every invite ever issued was a dead end: the invitee requested a login code and got
+   * the same neutral failure an unknown address gets, forever. The invite now mints a
+   * single-use accept token that {@link AdminAuthService.acceptInvite} redeems for exactly
+   * that missing transition.
+   *
+   * The RAW token leaves this method by two paths and no others: the invite email, and the
+   * one-time `accept_url` in the response to the inviting super_admin. The second path is a
+   * deliberate owner decision — it makes onboarding work with no email provider configured,
+   * which is the alpha posture — and it is why only `manage_admins` (super_admin) can reach
+   * this route. Only the HMAC is persisted; neither the token nor the link is ever logged or
+   * evented.
+   *
+   * Delivery is best-effort and NON-FATAL: the invite is already committed and evented when
+   * the mailer runs, so a send failure is logged (PII-free) and the caller still receives the
+   * link to share out-of-band. Failing the request instead would roll nothing back — the
+   * admin row would be committed — and would hand the super_admin an error for an invite that
+   * actually exists, with no way to retrieve its link.
    */
-  async inviteAdmin(adminId: string, dto: AdminInviteDto, ctx: RequestContext): Promise<{ admin_id: string }> {
-    return this.admins.withTransaction(async (tx) => {
-      let created: { id: string };
-      try {
-        created = await this.admins.create({ role: dto.role, email: dto.email }, tx);
-      } catch (err) {
-        if (isUniqueViolation(err)) throw new ConflictException("An admin with that email already exists");
-        throw err;
-      }
+  async inviteAdmin(
+    adminId: string,
+    dto: AdminInviteDto,
+    ctx: RequestContext,
+  ): Promise<{ admin_id: string; accept_url: string; expires_at: string }> {
+    // Minted OUTSIDE the transaction: it is pure randomness, and holding a DB transaction open
+    // across a CSPRNG call buys nothing.
+    const rawToken = this.invites.mintToken();
+    const expiresAt = this.invites.expiryFrom(new Date());
+
+    const created = await this.admins.withTransaction(async (tx) => {
+      const row = await this.createOrRefreshInvite(dto, rawToken, expiresAt, tx);
       // The target of an admin-management action is the affected admin (the admin_session subject).
       await this.emitAction(
         adminId,
         ADMIN_ACTION_CODES.admin_invited,
         "admin_session",
-        created.id,
+        row.id,
         ctx,
         tx,
       );
-      return { admin_id: created.id };
+      return row;
     });
+
+    const acceptUrl = this.invites.buildAcceptUrl(rawToken);
+    await this.invites.deliver(dto.email, acceptUrl, created.id);
+
+    return {
+      admin_id: created.id,
+      accept_url: acceptUrl,
+      expires_at: expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Insert the invited admin, or refresh the token of one who is STILL PENDING.
+   *
+   * Re-inviting matters in practice: the 48h link lapses, or the first email never arrived,
+   * and without this the super_admin would be permanently stuck on a 409 for an address that
+   * can never be used. The refresh is guarded on `status = 'pending'` in the repository, so
+   * an ACTIVE or SUSPENDED admin's email still conflicts — re-pointing a live admin account
+   * at a fresh accept link would be an account-takeover primitive, not a convenience.
+   */
+  private async createOrRefreshInvite(
+    dto: AdminInviteDto,
+    rawToken: string,
+    expiresAt: Date,
+    tx: Database,
+  ): Promise<{ id: string }> {
+    const inviteTokenHash = this.invites.hashToken(rawToken);
+    try {
+      return await this.admins.create(
+        { role: dto.role, email: dto.email, inviteTokenHash, inviteExpiresAt: expiresAt },
+        tx,
+      );
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const refreshed = await this.admins.refreshInvite(
+        this.admins.emailHash(dto.email),
+        { role: dto.role, inviteTokenHash, inviteExpiresAt: expiresAt },
+        tx,
+      );
+      // No pending row matched → the address belongs to an active/suspended admin. Value-free
+      // so the response never confirms WHICH email is taken.
+      if (!refreshed) throw new ConflictException("An admin with that email already exists");
+      return refreshed;
+    }
   }
 
   /**

@@ -225,10 +225,22 @@ describe("AdminRepository.findById — opaque id lookup", () => {
 // ---------------------------------------------------------------------------
 // create — encrypts email at rest + stores keyed hash; role/status within the enum set.
 // ---------------------------------------------------------------------------
+
+/**
+ * The accept-token fields every invite now carries. Fixed values, because these tests are
+ * about the PII discipline of the email columns — the token lifecycle is covered separately.
+ * `inviteTokenHash` is a stand-in for the HMAC the service computes; the repository never
+ * sees a raw token, which is itself part of the contract asserted below.
+ */
+const INVITE_FIELDS = {
+  inviteTokenHash: "hmac-of-raw-token",
+  inviteExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+
 describe("AdminRepository.create — encrypted-at-rest invite (PII never plaintext)", () => {
   it("persists email_enc as CIPHERTEXT + email_hash as the keyed HMAC — never plaintext", async () => {
     const { repo, inserts } = makeRepo();
-    const out = await repo.create({ role: "ops_admin", email: EMAIL });
+    const out = await repo.create({ role: "ops_admin", email: EMAIL, ...INVITE_FIELDS });
 
     expect(out).toEqual({ id: ADMIN_ID }); // returns the opaque id ONLY — never the email
     expect(inserts).toHaveLength(1);
@@ -247,7 +259,7 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
 
   it("omits status so the DB default ('pending') applies — invite-then-activate", async () => {
     const { repo, inserts } = makeRepo();
-    await repo.create({ role: "support", email: EMAIL });
+    await repo.create({ role: "support", email: EMAIL, ...INVITE_FIELDS });
     const values = inserts[0]!.values!;
     // No client-supplied status → DB default 'pending' (a created admin authenticates to nothing).
     expect("status" in values).toBe(false);
@@ -256,7 +268,7 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
   it("persists ONLY a role within the allowed enum set for every allowed role", async () => {
     for (const role of ALLOWED_ROLES) {
       const { repo, inserts } = makeRepo();
-      await repo.create({ role, email: `${role}@badabhai.in` });
+      await repo.create({ role, email: `${role}@badabhai.in`, ...INVITE_FIELDS });
       const values = inserts[0]!.values!;
       expect(ALLOWED_ROLES).toContain(values.role as AdminRole);
       expect(values.role).toBe(role);
@@ -270,8 +282,8 @@ describe("AdminRepository.create — encrypted-at-rest invite (PII never plainte
   it("normalizes the email before encrypt+hash so casing cannot create a duplicate identity", async () => {
     const a = makeRepo();
     const b = makeRepo();
-    await a.repo.create({ role: "analyst", email: "MiXeD.Case@BadaBhai.IN" });
-    await b.repo.create({ role: "analyst", email: "  mixed.case@badabhai.in " });
+    await a.repo.create({ role: "analyst", email: "MiXeD.Case@BadaBhai.IN", ...INVITE_FIELDS });
+    await b.repo.create({ role: "analyst", email: "  mixed.case@badabhai.in ", ...INVITE_FIELDS });
     // Same identity → same dedup hash regardless of input casing/whitespace.
     expect(a.inserts[0]!.values!.emailHash).toBe(b.inserts[0]!.values!.emailHash);
   });

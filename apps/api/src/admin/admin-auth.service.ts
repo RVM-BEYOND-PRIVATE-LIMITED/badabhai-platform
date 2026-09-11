@@ -6,6 +6,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { AdminRepository } from "./admin.repository";
 import { AdminOtpService } from "./admin-otp.service";
+import { AdminInviteService } from "./admin-invite.service";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminMfaSecretStore } from "./admin-mfa.store";
 import { generateTotpEnrollment, verifyTotp } from "./admin-mfa";
@@ -13,7 +14,9 @@ import type {
   AdminLoginRequestDto,
   AdminLoginVerifyDto,
   AdminMfaVerifyDto,
+  AdminInviteAcceptDto,
   AdminAuthCodeResponse,
+  AdminInviteAcceptedResponse,
   AdminMfaRequiredResponse,
   AdminSessionResponse,
   AdminRefreshResponse,
@@ -52,6 +55,9 @@ export class AdminAuthService {
     private readonly sessions: AdminSessionService,
     private readonly mfaStore: AdminMfaSecretStore,
     private readonly events: EventsService,
+    // Needed for exactly one thing here: hashing a presented accept token so the raw value is
+    // never compared, logged, or held beyond the lookup.
+    private readonly invites: AdminInviteService,
   ) {}
 
   /** POST /admin/login/request — issue a code; NO-ENUMERATION across known/unknown emails. */
@@ -150,6 +156,53 @@ export class AdminAuthService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+  }
+
+  /**
+   * POST /admin/invites/accept — PUBLIC. Redeem a single-use invite link: `pending` → `active`.
+   *
+   * This is the transition that never existed. `admin_users.status` has defaulted to 'pending'
+   * since ADMIN-1 and only an 'active' row may authenticate, but nothing ever flipped it, so
+   * every invited admin was permanently unable to sign in. The accept token is what closes
+   * that loop, and it is deliberately the ONLY thing that does.
+   *
+   * WHY UNAUTHENTICATED: the invitee has no account yet — that is the entire point — so there
+   * is no session to present. The token IS the credential: 256 bits of CSPRNG entropy, mailed
+   * to the address the invite was addressed to, stored only as a keyed HMAC, single-use, and
+   * expiring in 48h. Possession proves control of that mailbox, which is exactly what the
+   * login OTP proves on every subsequent sign-in.
+   *
+   * WHAT IT DELIBERATELY DOES NOT DO: it does not mint a session and it does not enrol MFA.
+   * Accepting makes the account real; the invitee then signs in through the ordinary, already
+   * tested path (request code → verify → TOTP enrolment → session), so the MFA-at-session-mint
+   * invariant (must-fix #1) is untouched and there is no second, weaker way into a session.
+   *
+   * NO-ORACLE: unknown, expired, already-consumed and non-pending all return the SAME 401 as
+   * a bad login code. A distinguishable 404 would let someone probe which links had been
+   * issued, and the neutral failure matches how `login/verify` already behaves.
+   */
+  async acceptInvite(dto: AdminInviteAcceptDto, ctx: RequestContext): Promise<AdminInviteAcceptedResponse> {
+    // The single guarded UPDATE both matches and consumes the token, so two concurrent
+    // redemptions of one link cannot both win.
+    const account = await this.admins.acceptInvite(this.invites.hashToken(dto.token), new Date());
+    if (!account) throw new UnauthorizedException("This invite link is invalid or has expired");
+
+    await this.events.emit({
+      event_name: "admin.action_performed",
+      actor: { actor_type: "admin", actor_id: account.id },
+      subject: { subject_type: "admin_session", subject_id: account.id },
+      payload: {
+        admin_id: account.id,
+        action_code: "admin_invite_accepted",
+        target_type: "admin_session",
+        target_id: account.id,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    // Opaque id + role only. The invitee's email never appears here, and neither does the token.
+    return { admin_id: account.id, role: account.role, status: "active", next: "sign_in" };
   }
 
   // ---------------------------------------------------------------------------
