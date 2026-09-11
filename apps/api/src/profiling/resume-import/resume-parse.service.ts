@@ -55,7 +55,14 @@ export class ResumeParseService {
       return { status: "already_settled", importStatus: row.status };
     }
 
-    await this.imports.markParsing(importId);
+    // THE RETURN VALUE IS THE LOCK, and discarding it made the repository's documented
+    // concurrency control a comment. `markParsing` is a conditional UPDATE `WHERE status =
+    // 'uploaded'`; the loser of two concurrent deliveries gets zero rows back and must STOP.
+    // Without this check both deliveries read `uploaded` at the line above, both called the
+    // AI service, and both billed for reading one document.
+    if (!(await this.imports.markParsing(importId))) {
+      return { status: "already_settled", importStatus: "parsing" };
+    }
 
     const out = await this.ai.parseResume(
       {

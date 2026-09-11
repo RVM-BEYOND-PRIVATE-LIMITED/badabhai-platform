@@ -548,10 +548,17 @@ export class AiService {
   /**
    * Read an uploaded résumé into typed, cited values (ADR-0041 RI-3).
    *
-   * SENDS A KEY, NEVER THE DOCUMENT. The ai-service fetches and extracts the object itself, so
-   * the résumé's text never enters this process, its logs or its error paths. That is a
-   * privacy property, not a division of labour: the extraction libraries live over there
-   * anyway, and shipping bytes across would widen the blast radius for nothing.
+   * SENDS A KEY, NEVER THE DOCUMENT. The ai-service fetches and extracts the object itself,
+   * so the résumé is never transported here. That is a privacy property, not a division of
+   * labour: the extraction libraries live over there anyway, and shipping bytes across would
+   * widen the blast radius for nothing.
+   *
+   * WHAT DOES ARRIVE, PRECISELY. Not "no résumé text" — an earlier version of this comment
+   * said that and it was wrong. Each accepted field carries an `evidence.quote`, which IS a
+   * literal span of the document. Every one of those spans is certified by gate 6 on the far
+   * side (`_carries_identifier`) and again here (`applyResumeParseGates`), so what arrives is
+   * document text that has passed the hard-identifier wall twice — never arbitrary document
+   * text. The distinction matters because RI-4 persists this payload.
    *
    * `null` MEANS UNREACHABLE AND ONLY THAT. Every semantic failure — an unset bucket, a
    * password, an unreadable scan, a blown deadline, an off-contract model reply — comes back

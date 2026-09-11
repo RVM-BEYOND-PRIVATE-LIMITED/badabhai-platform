@@ -49,6 +49,13 @@ function field(value: unknown, quote = "CNC Turner"): ParsedField {
   };
 }
 
+const ROLE: TargetField = {
+  field_id: "role_label",
+  type: "string",
+  enum: null,
+  unit: null,
+  required: false,
+};
 const CITY: TargetField = {
   field_id: "current_city",
   type: "string",
@@ -88,6 +95,21 @@ describe("the hard-identifier wall agrees with the ai-service, case for case", (
 
   it.each(loadCases())("$text -> $expected", ({ text, expected }) => {
     expect(containsHardIdentifier(text)).toBe(expected);
+  });
+
+  it("the class list is exactly this — widening it is a privacy decision", () => {
+    // `long_digit_run` and `gstin` were added after the RI-3 security review measured the
+    // 14+ digit band uncovered: a bank account and an ESIC number had nothing looking at
+    // them while the docstring claimed "nothing escapes".
+    expect([...HARD_IDENTIFIER_CLASSES].sort()).toEqual([
+      "aadhaar",
+      "credential_id",
+      "email",
+      "gstin",
+      "long_digit_run",
+      "pan",
+      "phone",
+    ]);
   });
 
   it("every class the fixture expects is one this side declares", () => {
@@ -199,5 +221,75 @@ describe("employment rows", () => {
     // and refusing it would silently halve the coverage this feature exists to deliver.
     const { kept } = filterEmployments([employment({ employer_name: null })]);
     expect(kept).toHaveLength(1);
+  });
+});
+
+describe("the cited SPAN — H1 from the RI-3 security review", () => {
+  it("drops a field whose VALUE is clean but whose QUOTE carries a phone number", () => {
+    // `checkPii` certifies a field's VALUE. On the interview route that is complete by
+    // construction — the transcript was pseudonymized before the model saw it. Here, with the
+    // far side's raw-text policy on, a quote is a literal substring of an unmasked résumé
+    // line, and the line most likely to be cited for `current_city` is the header.
+    const header = "Ramesh Kumar | CNC Turner | Pune | 9876543210";
+    const result = applyResumeParseGates({ current_city: field("Pune", header) }, [CITY]);
+
+    expect(result.accepted.current_city).toBeUndefined();
+    expect(result.rejections.some((r) => r.gate === "pii")).toBe(true);
+  });
+
+  it("keeps a field whose quote is clean — a span check that refuses everything is no check", () => {
+    const result = applyResumeParseGates(
+      { current_city: field("Pune", "CNC Turner, Pune, 5 years") },
+      [CITY],
+    );
+    expect(result.accepted.current_city?.value).toBe("Pune");
+  });
+
+  it("drops an employment row whose SPAN carries a phone number", () => {
+    const line = "Tata Motors Ltd | CNC Turner | 2019-2023 | 9876543210";
+    const { kept, rejected } = filterEmployments([
+      employment({ evidence: { message_index: 0, quote: line } }),
+    ]);
+    expect(kept).toHaveLength(0);
+    expect(rejected).toBe(1);
+  });
+});
+
+describe("two fields citing the SAME line — M4 from the RI-3 security review", () => {
+  it("both survive; the first version dropped the second one", () => {
+    // THE ORDINARY CASE, not the adversarial one. A résumé header line yields `current_city`,
+    // `role_label` and `experience_years` together.
+    //
+    // The first version of `applyResumeParseGates` built a transcript from each field's OWN
+    // quote and handed it to `applyParseGates`, whose `lineAt` resolves with
+    // `find(line => line.i === messageIndex)` — FIRST MATCH WINS. Two entries with the same
+    // `i` and different text meant field #2 was checked against field #1's quote, failed
+    // `quote_not_in_message`, and was dropped by the second wall after the far side had
+    // accepted it against the real document.
+    const line = "CNC Turner, Pune, 5 years experience";
+    const result = applyResumeParseGates(
+      {
+        current_city: field("Pune", line),
+        role_label: field("CNC Turner", line),
+        experience_years: field(5, line),
+      },
+      [CITY, ROLE, YEARS],
+    );
+
+    expect(Object.keys(result.accepted).sort()).toEqual([
+      "current_city",
+      "experience_years",
+      "role_label",
+    ]);
+    expect(result.rejections).toHaveLength(0);
+  });
+
+  it("reports no provenance or role rejection at all — those gates cannot run here", () => {
+    // If either ever appears in this list, somebody has re-introduced a wall this side has no
+    // evidence store for, and its verdicts would be noise attributed to the far side.
+    const result = applyResumeParseGates({ current_city: field("Pune", "Pune") }, [CITY]);
+    expect(result.rejections.every((r) => r.gate !== "provenance" && r.gate !== "role")).toBe(
+      true,
+    );
   });
 });

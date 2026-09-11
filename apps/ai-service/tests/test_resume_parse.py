@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -197,6 +198,28 @@ def test_the_raw_text_flag_does_NOT_disable_gate_6(monkeypatch):
     assert "fields_rejected" in out.notes
 
 
+def test_gate_6_ITSELF_still_refuses_a_PAN_when_the_span_is_clean(monkeypatch):
+    """THE ISOLATING VERSION, and it exists because the test above stopped isolating.
+
+    Fixing H1 added a span check that runs AFTER the gates. In the test above the quote also
+    carries the PAN, so that check catches it — which means the test kept passing even with
+    gate 6 pointed at the input policy. Measured by mutation, not guessed: a test that passes
+    for a second reason is a test that has stopped guarding the first one.
+
+    Here the QUOTE is clean and only the VALUE carries the PAN, so nothing but gate 6 can
+    refuse it. If someone wires `certify=` to the raw-text policy, this goes red.
+    """
+    out, router = run_parse(
+        texts=[f"CNC Turner Pune PAN {PAN}"],
+        reply=model_reply({"current_city": field_at(0, "CNC Turner", f"PAN {PAN}")}),
+        monkeypatch=monkeypatch,
+        resume_parse_raw_text_enabled=True,
+    )
+
+    assert PAN in router.prompt_text, "vacuity: the raw flag must have sent the PAN"
+    assert out.fields == {}, "gate 6 must refuse a PAN in the VALUE, span or no span"
+
+
 def test_with_the_flag_off_the_document_reaches_the_model_masked(monkeypatch):
     _, router = run_parse(
         texts=[f"Ramesh Kumar {PHONE} CNC Turner"],
@@ -293,7 +316,19 @@ def test_the_certifier_never_rewrites_the_value():
 
 
 def test_the_hard_identifier_classes_are_a_closed_set():
-    assert set(HARD_IDENTIFIER_CLASSES) == {"pan", "aadhaar", "phone", "email", "credential_id"}
+    """Widening this set is a privacy decision, so it should require touching a test that
+    says so. `long_digit_run` and `gstin` were added after the RI-3 security review measured
+    the 14+ digit band uncovered — a bank account and an ESIC number had nothing looking at
+    them, while the docstring said "no identifier escapes"."""
+    assert set(HARD_IDENTIFIER_CLASSES) == {
+        "pan",
+        "aadhaar",
+        "phone",
+        "email",
+        "credential_id",
+        "long_digit_run",
+        "gstin",
+    }
 
 
 def test_an_employer_name_survives_to_the_response(monkeypatch):
@@ -735,10 +770,56 @@ def test_the_bucket_default_matches_the_api_side_character_for_character():
     assert py_default == "", "both must be the FAIL-CLOSED value, not an agreed guess"
 
 
-def test_the_raw_text_flag_is_off_in_every_committed_file():
-    """The §1 guard: the raw path must be unreachable by default and must never arm
-    vacuously on an empty string."""
+def test_the_raw_text_flag_defaults_to_off():
+    """Renamed, because the first version of this test was called
+    `test_the_raw_text_flag_is_off_in_every_committed_file` and read no committed file at all —
+    its whole body was this one assertion about the pydantic default. Adding
+    `RESUME_PARSE_RAW_TEXT_ENABLED: "true"` to a compose file would have left it green while
+    the name promised otherwise. The scan it promised is the test below."""
     assert Settings(_env_file=None).resume_parse_raw_text_enabled is False
+
+
+def test_the_flag_is_armed_in_no_committed_file():
+    """THE GUARD ADR-0041 §3.3 ACTUALLY ASKED FOR.
+
+    D5 permits an unmasked résumé to reach the model. Arming that is a decision a person takes
+    once, visibly, on a box — never a line that rides in on a deploy. So the name may appear in
+    a committed file only as prose: a comment explaining the posture, never an assignment
+    setting it.
+
+    Scans rather than trusting a default, because the default is not what would arm it.
+    """
+    # `os.walk` WITH IN-PLACE PRUNING, not `rglob`. `rglob` enumerates every path and only
+    # then lets the caller skip it, so a filter on `node_modules` still WALKS the pnpm store —
+    # hundreds of thousands of entries, per glob. Pruning `dirnames` stops the descent.
+    skip = {"node_modules", ".git", ".venv", "dist", ".next", "build", ".turbo", "__pycache__"}
+    suffixes = (".yml", ".yaml", ".env", ".example", ".sh")
+
+    hits: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
+        dirnames[:] = [name for name in dirnames if name not in skip]
+        for filename in filenames:
+            if not filename.endswith(suffixes):
+                continue
+            path = Path(dirpath) / filename
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for number, line in enumerate(text.splitlines(), start=1):
+                stripped = line.strip()
+                if "RESUME_PARSE_RAW_TEXT_ENABLED" not in stripped:
+                    continue
+                # A comment may NAME it; only an assignment can ARM it.
+                if stripped.startswith("#"):
+                    continue
+                hits.append(f"{path.relative_to(REPO_ROOT)}:{number}: {stripped}")
+
+    assert not hits, (
+        "RESUME_PARSE_RAW_TEXT_ENABLED is assigned in a committed file:\n  "
+        + "\n  ".join(hits)
+        + "\nADR-0041 section 3.3: the raw-text posture is armed on the box, by a person, once."
+    )
 
 
 # ===========================================================================
@@ -818,3 +899,79 @@ def test_the_hard_identifier_wall_agrees_with_the_typescript_side_case_for_case(
         if contains_hard_identifier(c["text"]) != c["expected"]
     ]
     assert not mismatches, f"python disagrees with the shared fixture: {mismatches}"
+
+
+# ===========================================================================
+# 9. The cited SPAN — found by the RI-3 security review, not by the tests above
+# ===========================================================================
+
+
+def test_a_clean_value_with_a_dirty_SPAN_is_dropped(monkeypatch):
+    """H1. THE CASE THIS FILE ORIGINALLY MISSED.
+
+    `apply_parse_gates` certifies a field's VALUE. On the interview route that is complete by
+    construction — the transcript was pseudonymized before the model saw it, so a quote cannot
+    carry what the value cannot. This route breaks that assumption: with the raw-text policy
+    on, a quote is a literal substring of an unmasked résumé line.
+
+    And the line most likely to be cited for `current_city` is the header, which on a real
+    résumé carries the name, the phone and sometimes the PAN. The value ("Pune") is clean and
+    passes gate 6; the span beside it was riding out uncertified.
+    """
+    header = f"Ramesh Kumar | CNC Turner | Pune | {PHONE} | PAN {PAN}"
+    out, router = run_parse(
+        texts=[header],
+        reply=model_reply({"current_city": field_at(0, header, "Pune")}),
+        monkeypatch=monkeypatch,
+        resume_parse_raw_text_enabled=True,
+    )
+
+    assert PHONE in router.prompt_text, "vacuity: the raw flag must have sent the line"
+    assert out.fields == {}, "a field whose cited span carries a phone must not survive"
+
+
+def test_a_clean_value_with_a_clean_span_still_survives(monkeypatch):
+    """The other half. A span check that refuses everything is not a span check."""
+    out, _ = run_parse(
+        texts=["CNC Turner, Pune, 5 years"],
+        reply=model_reply({"current_city": field_at(0, "CNC Turner, Pune, 5 years", "Pune")}),
+        monkeypatch=monkeypatch,
+        resume_parse_raw_text_enabled=True,
+    )
+    assert out.fields["current_city"].value == "Pune"
+
+
+def test_an_employment_row_whose_SPAN_carries_a_phone_is_dropped(monkeypatch):
+    """Same omission, same fix, on the other path. An employment row's quote is the résumé
+    line it was read from — and on a real résumé that line carries the employer AND the
+    contact details printed beside it."""
+    line = f"Tata Motors Ltd | CNC Turner | 2019-2023 | {PHONE}"
+    out, _ = run_parse(
+        texts=[line],
+        reply=model_reply(
+            employments=[
+                {
+                    "employer_name": "Tata Motors Ltd",
+                    "role_title": "CNC Turner",
+                    "start_year": 2019,
+                    "end_year": 2023,
+                    "evidence": {"message_index": 0, "quote": line},
+                }
+            ]
+        ),
+        monkeypatch=monkeypatch,
+        resume_parse_raw_text_enabled=True,
+    )
+    assert out.employments == []
+
+
+def test_the_hard_identifier_wall_covers_the_14_digit_band(monkeypatch):
+    """M1. `_PHONE_RE` is bounded ABOVE at 13 digits and the residual-digit net is excluded,
+    so a bank account (9-18 digits) and an ESIC number (17) had nothing looking at them."""
+    from app.pseudonymize import contains_hard_identifier
+
+    assert contains_hard_identifier("50100123456789") == "long_digit_run"
+    assert contains_hard_identifier("123456789012345678") == "long_digit_run"
+    # …and a salary, which is what the exclusion exists to protect, is untouched.
+    assert contains_hard_identifier("1200000") is None
+    assert contains_hard_identifier("500000") is None

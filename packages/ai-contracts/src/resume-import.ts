@@ -30,6 +30,8 @@
 
 import { z } from "zod";
 
+import { RESUME_IMPORT_FAILURES } from "@badabhai/types";
+
 import { AICallMetadataSchema } from "./common";
 import { EvidenceSpanSchema, TargetFieldSchema, ParsedFieldSchema } from "./oie";
 
@@ -58,13 +60,26 @@ export type ResumeLine = z.infer<typeof ResumeLineSchema>;
  * RI-4's staging layer (ruling D7 — a stored answer always wins), not to this contract.
  *
  * THE API SENDS A KEY, NOT THE DOCUMENT. The ai-service fetches and extracts the object
- * itself, so the résumé's text never passes through this process, its logs or its error
- * paths. The extraction libraries live over there; sending bytes would buy nothing and widen
- * the blast radius.
+ * itself, so the résumé is never transported to the API. The extraction libraries live over
+ * there; sending bytes would buy nothing and widen the blast radius.
+ *
+ * THE RESPONSE IS A DIFFERENT MATTER, and an earlier version of this docblock glossed it.
+ * Every accepted field carries an `evidence.quote` — a literal span of the document — and
+ * every such span is certified against the hard-identifier wall on BOTH sides before it can
+ * reach a caller. Document text does cross; uncertified document text does not.
  */
 export const ResumeParseInputSchema = z.object({
   schema_version: z.literal("resume.v1").default("resume.v1"),
-  /** Pseudonymous worker reference — never a raw worker id. */
+  /**
+   * The reference the far side attributes SPEND to, and the Langfuse user dimension.
+   *
+   * IN PRACTICE THIS IS THE WORKER'S UUID, like every other caller in this repo
+   * (`profile-extraction.processor.ts`, `llm-turn.service.ts`, `work-history-polish.service.ts`,
+   * `voice-transcription.service.ts`). An earlier version of this comment said "never a raw
+   * worker id", which the only caller contradicted on the same branch — a docstring nobody can
+   * act on is worse than none. A UUID identifies a row in our database and nothing about a
+   * person; what makes it safe is that it travels with no name, phone or document beside it.
+   */
   worker_ref: z.string().min(1),
   /** The private-bucket object key minted by `POST /profiling/resume-import/upload-url`. */
   storage_key: z.string().min(1),
@@ -118,8 +133,15 @@ export const ResumeParseOutputSchema = z.object({
    * else null. Closed vocabulary, because the reason is BOTH shown to the worker (ruling D9)
    * and counted on an event — an open string here would be untrusted text on a screen and a
    * PII leak into analytics at once.
+   *
+   * `z.enum` RATHER THAN `z.string()`, AND THE DIFFERENCE IS NOT COSMETIC. `ResumeParseService`
+   * writes this to `worker_resume_import.failure_reason` — a plain `text` column whose CHECK is
+   * a presence biconditional and not a vocabulary — BEFORE the event schema would have
+   * validated it. With an open string, a far-side bug putting free text here persisted it to
+   * the database and showed it to the worker, and only THEN threw on the event. Closing it at
+   * the transport boundary means the bad value never becomes a row.
    */
-  failure_reason: z.string().nullable().default(null),
+  failure_reason: z.enum(RESUME_IMPORT_FAILURES).nullable().default(null),
 
   /** `null` on every degraded path: a fabricated zero-cost record is worse than an absent one. */
   ai_metadata: AICallMetadataSchema.nullable().default(null),

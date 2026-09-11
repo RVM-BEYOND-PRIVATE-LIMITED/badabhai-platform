@@ -1658,7 +1658,12 @@ class ResumeParseInput(BaseModel):
     storage_key: str = Field(min_length=1)
     mime: str = Field(min_length=1)
     target_fields: list[TargetField] = Field(default_factory=list)
-    language: str | None = None
+    #: BOUNDED, unlike `ProfileParseInput.language`, and matching the TypeScript mirror's
+    #: `min(2).max(35)`. This is the one request field that reaches a trace attribute without
+    #: passing through the masker, so an unbounded string here would be a free-text channel
+    #: into observability. `build_resume_parse_messages` shape-checks it again before the
+    #: prompt; this bounds what can be STORED even where the prompt drops it.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
 
 
 class ResumeEmployment(BaseModel):

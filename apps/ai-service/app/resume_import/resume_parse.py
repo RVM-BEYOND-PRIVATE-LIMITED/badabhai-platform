@@ -11,7 +11,14 @@ Nothing reaches the model before `mask`, and nothing reaches the response before
 WHY THE SERVICE FETCHES ITS OWN DOCUMENT. apps/api could download the object and post the
 text, and then the résumé's full contents would pass through the API process, its logs and
 its error paths — for no gain, since the extraction libraries live here. This way the
-document's text exists in exactly one process and leaves it only as gated values.
+document's text exists in exactly one process and leaves it only as gated values AND their
+gated spans.
+
+THAT LAST CLAUSE WAS MISSING AND THE SENTENCE WAS FALSE. `apply_parse_gates` certifies a
+field's VALUE; the `evidence.quote` beside it rode out uncertified, and with the raw-text
+flag on a quote is verbatim résumé text. A security review found it; `_carries_identifier`
+below is the fix. Stated here rather than only at the fix, because this docstring is what a
+reader trusts when deciding whether they need to look.
 
 DEGRADES, NEVER FAILS (ruling D9). Every branch below returns a valid `ResumeParseOutput`
 carrying a `failure_reason` from the closed vocabulary. There is no path that costs a
@@ -180,6 +187,13 @@ async def parse_resume(
                     masked, body.target_fields, body.language, system_prompt=system_prompt
                 ),
                 mock_response=fallback,
+                # A LITERAL, WHERE OTHER PRIVACY-SENSITIVE ROUTES DERIVE IT — and deliberately.
+                # Elsewhere the flag answers "did the masker refuse anything?", because a
+                # blocked message means text the gateway would not mask. Here the masker never
+                # blocks the call: `mask_resume_lines` DROPS an un-maskable line and keeps the
+                # rest, so there is no blocked state left to derive from by the time this runs.
+                # What authorises the call is the policy chosen at step 3 — masked, or
+                # ruling-authorised raw — and that decision has already been made and recorded.
                 real_call_allowed=True,
                 user_ref=body.worker_ref,
                 prompt=prompt,
@@ -235,6 +249,34 @@ async def parse_resume(
         target_fields=body.target_fields,
         certify=resume_value_certifier,
     )
+    # GATE 6 OVER THE SPAN, WHICH `apply_parse_gates` DOES NOT DO.
+    #
+    # `check_pii` certifies `parsed.value` and nothing else. On the interview route that is
+    # complete by construction: the transcript was pseudonymized before the model saw it, so
+    # a quote is a substring of already-masked text and cannot carry what the value cannot.
+    #
+    # THIS ROUTE BREAKS THAT ASSUMPTION. With `RESUME_PARSE_RAW_TEXT_ENABLED` on, a quote is a
+    # literal substring of an UNMASKED résumé line — and the prompt asks for a substring while
+    # models routinely return the whole line. The line most likely to be cited for
+    # `current_city` or `role_label` is the header: `Ramesh Kumar | CNC Turner | Pune |
+    # 9876543210 | PAN ABCDE1234F`. The VALUE ("Pune") passes gate 6 cleanly; the phone and the
+    # PAN would have ridden out beside it in `evidence.quote`.
+    #
+    # Found by the RI-3 security review, not by this file's own tests, which asserted only on
+    # values. The claim in the module docstring — "leaves it only as gated values" — was false
+    # until this ran, and is true now.
+    certified = {
+        field_id: parsed
+        for field_id, parsed in gated.accepted.items()
+        if not _carries_identifier(parsed.evidence.quote)
+    }
+    spans_rejected = len(gated.accepted) - len(certified)
+    if spans_rejected:
+        stage.notes.append("fields_rejected")
+        logger.info(
+            "resume_import.spans_rejected", extra={"extra": {"rejected": spans_rejected}}
+        )
+
     if gated.rejections:
         stage.notes.append("fields_rejected")
         logger.info(
@@ -251,7 +293,7 @@ async def parse_resume(
         )
 
     return _response(
-        stage, body.target_fields, fields=gated.accepted, employments=employments
+        stage, body.target_fields, fields=certified, employments=employments
     )
 
 
@@ -352,10 +394,20 @@ def _employment_carries_identifier(entry: ResumeEmployment) -> bool:
     "Altered" is the load-bearing half of gate 6 everywhere else; it is now the load-bearing
     half here too.
     """
-    for text in (entry.employer_name, entry.role_title):
+    # THE CITED SPAN IS ONE OF THE STRINGS, and it was missing from this tuple until the
+    # RI-3 security review. An employment row's quote is the line it was read from — on a
+    # résumé that is the line carrying the employer AND, very often, the contact details
+    # printed beside it.
+    for text in (entry.employer_name, entry.role_title, entry.evidence.quote):
         if text is None:
             continue
         blocked, certified = resume_value_certifier(text)
         if blocked or certified != text:
             return True
     return False
+
+
+def _carries_identifier(text: str) -> bool:
+    """Gate 6 for one string, blocked-or-altered, the same test `check_pii` applies."""
+    blocked, certified = resume_value_certifier(text)
+    return blocked or certified != text

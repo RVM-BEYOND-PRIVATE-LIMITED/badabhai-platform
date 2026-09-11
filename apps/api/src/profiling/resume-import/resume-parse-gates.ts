@@ -24,7 +24,9 @@
  *   6. PII        — RUNS, AND IT IS THE POINT. This process is the one that WRITES, so the
  *                   last check before persistence belongs here. It is also the gate D5's
  *                   §3.3 singles out: the document may reach the model, but a PAN must never
- *                   reach `worker_attributes`, an event, a log, or the sheet.
+ *                   reach `worker_attributes`, an event, a log, or the sheet. It runs over
+ *                   the field's VALUE and over its cited SPAN — see `applyResumeParseGates`
+ *                   for why the span needs its own check on this route and on no other.
  *
  * Do not "fix" 1 and 2 by shipping the lines across. That trade — a real second provenance
  * wall in exchange for the whole résumé's text entering this process, its logs and its error
@@ -34,7 +36,15 @@
 
 import type { ParsedField, ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 
-import { applyParseGates, type GateResult, type PiiCertifier } from "../parse-gates";
+import {
+  checkPii,
+  checkTypeRange,
+  checkVocabulary,
+  type GateId,
+  type GateResult,
+  type PiiCertifier,
+  type Rejection,
+} from "../parse-gates";
 
 /**
  * The identifier classes that may never reach a stored value, an event, a log or the sheet.
@@ -59,15 +69,72 @@ export const HARD_IDENTIFIER_CLASSES = [
   "phone",
   "email",
   "credential_id",
+  // Added after the RI-3 security review measured the first draft's claim wrong: the phone
+  // pattern is bounded ABOVE at 13 digits, and the residual-digit net that used to cover
+  // everything longer is the thing this wall deliberately excludes. A bank account (9-18
+  // digits) and an ESIC number (17) walked straight through.
+  "long_digit_run",
+  // A GSTIN embeds a PAN with no word boundary either side, so PAN_RE misses it.
+  "gstin",
 ] as const;
 export type HardIdentifierClass = (typeof HARD_IDENTIFIER_CLASSES)[number];
 
 const PAN_RE = /\b[A-Z]{5}\d{4}[A-Z]\b/;
 const AADHAAR_RE = /\b\d{4}\s?\d{4}\s?\d{4}\b/;
-// DIGIT-COUNT based, not character-count based, and mirroring the far side's separator set:
-// a phone split on any character ("9876.543.210", "(98765)43210") must not slip through.
-const PHONE_SEPARATORS = "\\s.\\-()_,/\\\\";
+
+// DIGIT-COUNT based, not character-count based, and mirroring `_PHONE_SEPARATORS` in
+// `apps/ai-service/app/pseudonymize.py` CHARACTER FOR CHARACTER.
+//
+// THE FIRST VERSION CLAIMED TO MIRROR IT AND DID NOT, in both directions: it was missing
+// `;` `|` and the whole Unicode set (dash family, bullets, zero-width joiners, the
+// Devanagari dandas that Hindi ASR emits), and it ADDED `/` and `\` which the far side does
+// not have. So `98765;43210` blocked over there only and `98765/43210` blocked here only —
+// and the 25-case fixture that is the stated reason a source-comparison test was not written
+// contained no separator but a space, so it verified none of the divergence. The fixture now
+// carries those cases; this set is what makes them pass.
+//
+// `/` AND `\` ARE DELIBERATELY ABSENT rather than added to both. They are absent from the
+// gateway's set too (a known R30 residual), and widening the SHARED pattern is a change to
+// what the interview masks — not something a résumé PR gets to do. The fixture records
+// `98765/43210` as permitted on both sides so the gap is a known, pinned fact rather than a
+// difference of opinion between two files.
+const PHONE_SEPARATORS =
+  "\\s.,\\-()_;|" +
+  "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u00ad" + // dash family + soft hyphen
+  "\u00b7\u2022" + // separator-ish punctuation
+  "\u0964\u0965\u0970"; // Devanagari danda, double danda, abbreviation sign
 const PHONE_RE = new RegExp(`(?<!\\d)\\d(?:[${PHONE_SEPARATORS}]*\\d){8,12}(?!\\d)`);
+// Fourteen or more. The floor that cannot collide with money: a salary is 7-8 digits and the
+// range ceiling is six figures, while a bank account, an ESIC number and a PF number are all
+// 14+.
+const LONG_DIGIT_RUN_RE = new RegExp(`(?<!\\d)\\d(?:[${PHONE_SEPARATORS}]*\\d){13,}(?!\\d)`);
+// `27ABCDE1234F1Z5` — two state digits, a PAN, then three more characters. The PAN sits
+// inside a longer alphanumeric run, so PAN_RE's word boundaries never match it.
+const GSTIN_RE = /\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b/;
+
+// ZERO-WIDTH AND INVISIBLE CHARACTERS ARE REMOVED BEFORE MATCHING, not listed as separators.
+//
+// They used to sit in the separator class beside the dashes, which ESLint's
+// `no-misleading-character-class` correctly rejects — a joined sequence inside a class does
+// not mean what it looks like. Stripping first is what the rule wants AND is strictly
+// stronger: the class only ever helped the two digit-run patterns, while this helps PAN,
+// Aadhaar and email as well. `9876<ZWJ>543210` was never going to be a legitimate value.
+//
+// The far side strips the same set in `contains_hard_identifier`, so the shared fixture keeps
+// pinning ONE behaviour rather than two that happen to agree on the cases written down.
+//
+// ALTERNATION, NOT A CHARACTER CLASS, and for the rule's own reason rather than to silence
+// it: inside a class, `\u200c\u200d` sitting adjacent reads as a joined sequence, which is
+// precisely the ambiguity `no-misleading-character-class` exists to flag. Written as
+// alternatives there is nothing to misread \u2014 each branch is one code point.
+const INVISIBLE_RE = /\u200b|\u200c|\u200d|\u2060|\ufeff/g;
+// Cued identifiers the interview's CREDENTIAL_ID_RE does not name. Cue-based rather than
+// shape-based because these shapes are ambiguous: a passport number `M1234567` is
+// indistinguishable from a part number, and a date of birth from the date range a résumé
+// prints on every line of its work history. The digit lookahead is what stops `\baccount\b`
+// plus the next word refusing "Account Manager", which is a job a real worker holds.
+const RESUME_CUED_ID_RE =
+  /\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|a\/c|account|dob|date\s+of\s+birth)\b\s*(?:no\.?|number|num|id|#)?\s*[:-]?\s*(?=[A-Za-z0-9/-]{0,24}\d)[A-Za-z0-9][A-Za-z0-9/-]{4,}/i;
 const EMAIL_RE =
   /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
 // Masked on their CUE rather than their shape — a roll or registration number has no shape
@@ -79,18 +146,24 @@ const CREDENTIAL_ID_RE =
 /**
  * Which class of hard identifier appears in `text`, or null. Never throws.
  *
- * DELIBERATELY EXCLUDES the residual-digit net (seven or more consecutive digits) the full
- * gateway applies. A salary is seven or eight digits and is a legitimate résumé value.
- * `PHONE_RE` still catches 9-13 digit runs and Aadhaar has its own shape, so nothing escapes
- * through that exclusion — only amounts pass.
+ * DELIBERATELY EXCLUDES the residual-digit net AT SEVEN that the full gateway applies. A
+ * salary is seven or eight digits and is a legitimate résumé value.
+ *
+ * The first draft stopped there and said "nothing escapes through that exclusion — only
+ * amounts pass". Measured false by the RI-3 security review: `PHONE_RE` is bounded above at
+ * 13 digits and anchored on both sides, so a 14+ digit run matched nothing at any offset.
+ * `LONG_DIGIT_RUN_RE` is the floor that closes it without touching salaries.
  */
-export function containsHardIdentifier(text: string): HardIdentifierClass | "scanner_error" | null {
+export function containsHardIdentifier(raw: string): HardIdentifierClass | "scanner_error" | null {
   try {
+    const text = raw.replace(INVISIBLE_RE, "");
     if (PAN_RE.test(text)) return "pan";
     if (AADHAAR_RE.test(text)) return "aadhaar";
     if (PHONE_RE.test(text)) return "phone";
     if (EMAIL_RE.test(text)) return "email";
-    if (CREDENTIAL_ID_RE.test(text)) return "credential_id";
+    if (CREDENTIAL_ID_RE.test(text) || RESUME_CUED_ID_RE.test(text)) return "credential_id";
+    if (GSTIN_RE.test(text)) return "gstin";
+    if (LONG_DIGIT_RUN_RE.test(text)) return "long_digit_run";
   } catch {
     // A scanner error must fail CLOSED. Refusing one honest value costs coverage; admitting
     // one identifier costs the worker something they cannot take back.
@@ -117,41 +190,79 @@ export const resumeValueCertifier: PiiCertifier = (text: string) => ({
 /**
  * Re-gate the scalar fields of a résumé parse before anything is persisted.
  *
- * `answer_map` and `transcript` are EMPTY, and both emptinesses are load-bearing rather than
- * lazy:
- *
- *   `answer_map: []`  — no interview has happened, so gate 4 has nothing to disagree with.
- *                       Precedence between a résumé suggestion and an answer the worker later
- *                       gives is ruling D7, enforced by RI-4's staging layer, not here.
- *   `transcript: []`  — this process never sees the document. Gate 1 will therefore reject
- *                       EVERY field for `message_index_out_of_range`, which is why
- *                       `applyResumeParseGates` does not use gate 1's verdict and this
- *                       function is not a re-run of the provenance wall. See the module
- *                       docblock: pretending otherwise would be the dangerous half.
+ * THREE GATES, NAMED: vocabulary, type/range, and PII over both the value and its cited span.
+ * Gate 4 has no answer map to consult (no interview has happened; precedence is ruling D7 and
+ * RI-4's staging layer). Gates 1 and 2 have no evidence store and are ABSENT — not faked, not
+ * approximated. The module docblock argues why that is the right trade.
  */
 export function applyResumeParseGates(
   fields: Record<string, ParsedField | null>,
-  targetFields: TargetField[],
+  targetFields: readonly TargetField[],
 ): GateResult {
-  // Gates 1 and 2 are unusable without an evidence store, so the FAR side is the only
-  // provenance wall and this call is scoped to what it can actually decide. Passing each
-  // field's own quote back as a one-line transcript is what makes gate 1 and 2 pass
-  // trivially here — which is honest (the far side already checked the real line) and is
-  // documented rather than hidden, because a gate that always passes must never be counted
-  // as coverage.
-  const transcript = Object.values(fields)
-    .filter((field): field is ParsedField => field != null)
-    .map((field) => ({
-      i: field.evidence.message_index,
-      role: "worker" as const,
-      text: field.evidence.quote,
-    }));
+  // RUNS THE THREE GATES DIRECTLY RATHER THAN CALLING `applyParseGates`, and that is the
+  // point of this function rather than a shortcut around it.
+  //
+  // THE FIRST VERSION DID CALL IT, with a transcript built from each field's OWN quote — the
+  // exact construction the module docblock above names as the wall that always passes. That
+  // was not merely dishonest, it was a live defect: `lineAt` in `parse-gates.ts` resolves a
+  // citation with `find(line => line.i === messageIndex)`, FIRST MATCH WINS. Two fields
+  // citing the same résumé line produced two entries with the same `i` and different text, so
+  // field #2 was checked against field #1's quote, failed `quote_not_in_message`, and was
+  // DROPPED — after the far side had accepted it against the real document. A header line
+  // yielding `current_city`, `role_label` and `experience_years` together is the ORDINARY
+  // case, so the ordinary case lost two of three fields and logged it as "dropped by the
+  // second wall", pointing whoever investigated at the ai-service.
+  //
+  // Passing an empty transcript instead does not work either: `applyParseGates` returns at
+  // the first failing gate, so every field would stop at `provenance` and gate 6 — the gate
+  // this side exists to run — would never execute. Hence the explicit loop. The gate
+  // FUNCTIONS are still the shared ones, so the rules cannot drift; only the composition
+  // differs, because only three of the six have an input on this side.
+  const accepted: Record<string, ParsedField> = {};
+  const rejections: Rejection[] = [];
 
-  return applyParseGates(
-    { fields },
-    { answer_map: [], transcript, target_fields: targetFields },
-    resumeValueCertifier,
-  );
+  for (const [fieldId, field] of Object.entries(fields)) {
+    // A null field is the model saying "I looked and found nothing citable" — an honest
+    // answer, not a rejection.
+    if (field == null) continue;
+
+    const reject = (gate: GateId, reason: Rejection["reason"]) =>
+      rejections.push({ fieldId, gate, reason });
+
+    const vocabulary = checkVocabulary(fieldId, targetFields);
+    if (vocabulary) {
+      reject("vocabulary", vocabulary);
+      continue;
+    }
+
+    const target = targetFields.find((t) => t.field_id === fieldId);
+    const typeRange = checkTypeRange(fieldId, field.value, target);
+    if (typeRange) {
+      reject("type_range", typeRange);
+      continue;
+    }
+
+    const valuePii = checkPii(field.value, resumeValueCertifier);
+    if (valuePii) {
+      reject("pii", valuePii);
+      continue;
+    }
+
+    // THE CITED SPAN, which `checkPii` is never given on any route because on every OTHER
+    // route it cannot carry anything the value cannot — the transcript was pseudonymized
+    // before the model saw it. Here, with the far side's raw-text policy on, a quote is a
+    // literal substring of an UNMASKED résumé line, and the line most likely to be cited for
+    // `current_city` is the header carrying the phone number and the PAN.
+    const spanPii = checkPii(field.evidence.quote, resumeValueCertifier);
+    if (spanPii) {
+      reject("pii", spanPii);
+      continue;
+    }
+
+    accepted[fieldId] = field;
+  }
+
+  return { accepted, rejections, disagreements: [] };
 }
 
 /**
@@ -173,7 +284,11 @@ export function filterEmployments(entries: ResumeEmployment[]): {
     // BOTH strings, not just the employer name. `role_title` is as capable of carrying a
     // phone number, and a model handed an unmasked document will occasionally put a whole
     // contact line into whichever field it thought the line was about.
-    const strings = [entry.employer_name, entry.role_title].filter(
+    // THE CITED SPAN IS ONE OF THE STRINGS. It was missing here until the RI-3 security
+    // review: an employment row's quote is the résumé line it was read from, and on a real
+    // résumé that line carries the employer AND, very often, the contact details printed
+    // beside it. Certifying the name while shipping the line it came from is no wall at all.
+    const strings = [entry.employer_name, entry.role_title, entry.evidence.quote].filter(
       (value): value is string => typeof value === "string",
     );
     const certified = strings.map((value) => resumeValueCertifier(value));

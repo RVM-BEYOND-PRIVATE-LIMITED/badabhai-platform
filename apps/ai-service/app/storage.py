@@ -65,6 +65,24 @@ async def download_object(
     if not bucket:
         raise RuntimeError(f"{what} fetch failed: no bucket configured ({bucket_var})")
 
+    # TRAVERSAL, AND THIS REQUEST CARRIES THE SERVICE-ROLE KEY.
+    #
+    # `quote(..., safe="/")` leaves `.` and `/` untouched, and httpx normalises dot segments
+    # before sending — so `../../avatars/other-worker/photo.png` resolves OUT of the bucket
+    # and fetches an arbitrary object with full service-role authority. Measured, not
+    # theorised.
+    #
+    # Nothing untrusted reaches this today from either caller: apps/api validates the résumé
+    # key against a fully anchored full-shape regex over a server-minted UUID path, and the
+    # voice leg is minted the same way. This is defence in depth on a credential that has no
+    # depth behind it — the check costs one comparison and removes the need for every future
+    # caller to be perfect.
+    #
+    # HERE rather than in either caller, and rather than in the pydantic contract, for the
+    # reason the bucket guard below already states: check the input where it is CONSUMED.
+    if ".." in object_key.split("/") or object_key.startswith("/") or "\\" in object_key:
+        raise RuntimeError(f"{what} fetch failed: refusing a traversal in the object key")
+
     quoted = urllib.parse.quote(object_key, safe="/")
     url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{quoted}"
     headers = {"Authorization": f"Bearer {settings.supabase_service_role_key}"}

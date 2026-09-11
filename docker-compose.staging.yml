@@ -724,9 +724,15 @@ services:
       #
       # RESUME_PARSE_RAW_TEXT_ENABLED IS DELIBERATELY ABSENT FROM THIS FILE. ADR-0041 D5
       # permits the unmasked document to reach the model; arming it is a decision a person
-      # takes once, visibly, on the box — not a line that rides in on a deploy. The default
-      # is false in packages/config and in app/config.py, and `tests/test_resume_parse.py`
-      # asserts it is false in every committed file.
+      # takes once, visibly, on the box — not a line that rides in on a deploy.
+      #
+      # IT IS AN ai-service SETTING AND NOTHING ELSE. An earlier version of this note claimed
+      # "the default is false in packages/config and in app/config.py"; there is no such key
+      # in packages/config, because apps/api never reads it — only the service that builds the
+      # prompt does. `app/config.py` is the whole story.
+      #
+      # `test_the_flag_is_armed_in_no_committed_file` scans this file and every other one for
+      # the name, so adding it here turns the suite RED rather than quietly arming the policy.
       RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;

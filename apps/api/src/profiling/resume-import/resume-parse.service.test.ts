@@ -187,6 +187,22 @@ describe("ResumeParseService", () => {
     expect(aiCost.record).not.toHaveBeenCalled();
   });
 
+  it("the LOSER of two concurrent deliveries stops instead of billing a second time", async () => {
+    // `markParsing` is a conditional UPDATE `WHERE status = 'uploaded'`. Its boolean IS the
+    // lock, and the first version of this service discarded it — so both deliveries read
+    // `uploaded`, both called the AI service, and both billed for reading one document. The
+    // repository's own docblock claimed the loser "gets zero rows back and stops"; nothing
+    // made that true until this check existed.
+    const { svc, imports, ai, aiCost } = setup({});
+    imports.markParsing.mockResolvedValue(false);
+
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(result).toEqual({ status: "already_settled", importStatus: "parsing" });
+    expect(ai.parseResume).not.toHaveBeenCalled();
+    expect(aiCost.record).not.toHaveBeenCalled();
+  });
+
   it("an import belonging to another worker is simply not found", async () => {
     // `findForWorker` is worker-scoped BY CONSTRUCTION — the repository exposes no method
     // that can fetch this row by id alone, so the ownership check is the type system's
