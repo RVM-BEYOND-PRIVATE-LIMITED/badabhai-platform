@@ -17,6 +17,12 @@ const String _kTextSubmit = 'Aage badhein';
 const String _kTextHint = 'Yahan likhein';
 const String _kDeclineLabel = 'Pata nahi';
 
+/// #1499 — the ONE line that introduces whatever a worker's uploaded résumé
+/// said about this question. The wording is the ruling's own: it states where
+/// the value came from and then ASKS, because a suggestion is a question and a
+/// screen that presents it as a finding gets agreement instead of an answer.
+const String _kSuggestionConfirm = 'Aapke resume mein ye tha — sahi hai';
+
 /// Renders ONE `type: "question"` screen and reports the worker's answer.
 ///
 /// - **not searchable** → [VoiceChoiceChips] directly (byte-identical
@@ -99,10 +105,40 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     // once here from the saved answer is correct and never goes stale.
     final VoiceQuestion q = widget.step.question;
     if (q.kind == VoiceQuestionKind.open) {
-      _text = widget.step.answer?.text ?? '';
+      // RULING D2 + D7 (#1499): a stored answer ALWAYS wins, and only when
+      // there is none does a résumé FACT prefill the field. A fact is safe to
+      // prefill because it is a transcription a worker can see is wrong; an
+      // option key is not, which is why nothing seeds `_selected` below.
+      _text = widget.step.answer?.text ?? _suggestedFactText() ?? '';
     } else if (q.isMultiSelect) {
       _selected = _seedOptionKeys(widget.step.answer, q.options);
     }
+  }
+
+  /// The résumé's fact for this question as text, or null when it offered no
+  /// fact (a chip or boolean pointer is NOT a fact — ruling D2).
+  ///
+  /// A number is formatted without a trailing `.0`: the server's `number` is a
+  /// double on the wire, and "3.0 saal" in a field a worker is meant to confirm
+  /// reads like a machine talking.
+  String? _suggestedFactText() {
+    final TradeFormSuggestion? s = widget.step.suggestion;
+    if (s == null) return null;
+    final String? text = s.text?.trim();
+    if (text != null && text.isNotEmpty) return text;
+    final double? number = s.number;
+    if (number == null) return null;
+    return number == number.roundToDouble()
+        ? number.toInt().toString()
+        : number.toString();
+  }
+
+  /// Option keys to HIGHLIGHT — never to tick. Null when there are none, so the
+  /// chip widgets keep their pre-#1499 behaviour untouched.
+  List<String>? get _suggestedKeys {
+    final List<String> keys =
+        widget.step.suggestion?.optionKeys ?? const <String>[];
+    return keys.isEmpty ? null : keys;
   }
 
   bool get _hasSubmitButton {
@@ -152,6 +188,20 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
                 if (q.whyText != null && q.whyText!.trim().isNotEmpty) ...<Widget>[
                   const SizedBox(height: AppSpacing.s2),
                   _WhyText(text: q.whyText!),
+                ],
+                if (widget.step.hasSuggestion) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s3),
+                  _SuggestionConfirm(
+                    // Shown even when a saved answer exists — ruling D7 says
+                    // the answer wins, not that the résumé is hidden. A worker
+                    // who changed his mind is entitled to see what he is
+                    // disagreeing with.
+                    factText: _suggestedFactText(),
+                    // The chips/boolean hint needs no restatement here: it is
+                    // already visible as the highlight on the options below,
+                    // and printing an option key or a "Haan" beside them would
+                    // be the same claim twice.
+                  ),
                 ],
                 const SizedBox(height: AppSpacing.s4),
                 IgnorePointer(
@@ -214,7 +264,11 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         // Boolean/number answers never reach this branch (`answer_type` maps
         // them to `boolean`/never ships `number` — see `VoiceQuestionKind`'s
         // `_kind` mapping), so `text` is the only field this widget renders.
-        initialText: widget.step.answer?.text,
+        // #1499 — a résumé FACT prefills ONLY when nothing is stored; the
+        // stored answer always wins (ruling D7), exactly as `initState` seeds
+        // `_text`. The two must agree or the field and the submit gate
+        // disagree about what is in it.
+        initialText: widget.step.answer?.text ?? _suggestedFactText(),
         onChanged: (String v) => setState(() => _text = v),
         onSubmitPressed: _submit,
       );
@@ -223,6 +277,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       return _SearchableChoiceBody(
         key: ValueKey<String>('${q.id}-searchable'),
         step: widget.step,
+        suggestedKeys: _suggestedKeys,
         onSubmitChips: widget.onSubmitChips,
         onSelectionChanged: q.isMultiSelect
             ? (List<String> s) => setState(() => _selected = s)
@@ -236,6 +291,13 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       // mount. Harmless for boolean/single-select, which never read this
       // list. See `_seedOptionKeys` for the declined/none-of-above case.
       initialSelected: _seedOptionKeys(widget.step.answer, q.options),
+      // #1499, RULING D2 — HIGHLIGHTED, NEVER TICKED. Deliberately a separate
+      // parameter from `initialSelected` above: merging them is the one-line
+      // change that would put a capability on a man's profile that he never
+      // claimed, because a screen that already looks answered gets submitted
+      // unread.
+      suggestedKeys: _suggestedKeys,
+      suggestedBoolean: widget.step.suggestion?.boolValue,
       onChips: widget.onSubmitChips,
       onBoolean: widget.onSubmitBoolean,
       // The trade form pins its OWN submit button below (see
@@ -274,6 +336,57 @@ List<String> _seedOptionKeys(
   return answer.optionKeys;
 }
 
+/// #1499 — the résumé's contribution, introduced honestly and as a QUESTION.
+///
+/// It is a banner rather than a badge on the field because a worker has to
+/// understand WHY something he did not type is sitting in front of him before
+/// he can sensibly agree or disagree with it. [factText] is shown when the
+/// résumé offered a fact; for a chip or boolean hint the banner carries the
+/// line alone and the highlight on the options below is the "ye".
+///
+/// The confidence number is deliberately absent: it is observability, not copy.
+/// A percentage on screen invites a worker to argue with a number instead of
+/// answering the question.
+class _SuggestionConfirm extends StatelessWidget {
+  const _SuggestionConfirm({this.factText});
+
+  final String? factText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: AppColors.haldiTint,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        // Hairline, never a shadow.
+        border: Border.all(color: AppColors.haldi),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            _kSuggestionConfirm,
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              weight: FontWeight.w700,
+              color: AppColors.ink800,
+            ),
+          ),
+          if (factText != null && factText!.isNotEmpty) ...<Widget>[
+            const SizedBox(height: AppSpacing.s1),
+            Text(
+              factText!,
+              style: AppTypography.body(color: AppColors.ink900),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _WhyText extends StatelessWidget {
   const _WhyText({required this.text});
   final String text;
@@ -302,9 +415,14 @@ class _SearchableChoiceBody extends StatefulWidget {
     required this.step,
     required this.onSubmitChips,
     required this.onSelectionChanged,
+    this.suggestedKeys,
   });
 
   final TradeFormQuestionStep step;
+
+  /// #1499, ruling D2 — passed straight through to
+  /// [BbSearchableMultiSelect.suggestedKeys]. NEVER seeded into `_selected`.
+  final List<String>? suggestedKeys;
 
   /// Single-select-via-search submits immediately (see [_onChanged]) — this
   /// is the only path that still calls it directly. Multi-select submits
@@ -374,6 +492,7 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
     return BbSearchableMultiSelect(
       options: options,
       selectedKeys: _selected,
+      suggestedKeys: widget.suggestedKeys,
       onChanged: _onChanged,
       resetKey: q.id,
     );

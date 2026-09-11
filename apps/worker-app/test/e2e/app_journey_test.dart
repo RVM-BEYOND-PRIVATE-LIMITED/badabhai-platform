@@ -212,6 +212,16 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Continue'));
 
+    // ── 4c. THE THREE DOORS (#1499) — `/name` now hands here instead of
+    //     straight to the chat. This journey walks DOOR 3 ("mere paas resume
+    //     nahi hai"), which must be byte-for-byte the old handover: one tap,
+    //     no request, and the chat's own first turn is the first thing the
+    //     network sees. Door 1 is not walked here — it needs a document picker,
+    //     which has no platform channel in a widget-test host; it has its own
+    //     tests in `test/features/resume_import/`. ──
+    await _pumpUntil(tester, find.text('Mere paas resume nahi hai'));
+    await tester.tap(find.text('Mere paas resume nahi hai'));
+
     // ── 5. CHAT — send one message (exercises ChatRepository.sendMessage), then
     //     build the profile. ──
     //     After ONE message the mock engine has not reported extraction_ready

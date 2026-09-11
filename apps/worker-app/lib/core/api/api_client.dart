@@ -1212,6 +1212,82 @@ class ApiClient {
   }) =>
       _post('/profiling/form/answer', body, authToken: authToken);
 
+  // ---- Résumé import (#1499 / ADR-0041 RI-1..RI-4) ------------------------
+  // Worker-authed + consent-gated (`profiling` purpose — the SAME consent the
+  // chat already holds, so no new permission is asked for).
+  //
+  // NOTHING HERE IS LIVE UNTIL `RESUME_UPLOADS_BUCKET` IS SET SERVER-SIDE, and
+  // it defaults to empty on every box today. Both write routes answer 503 while
+  // it is unset, which is the state the caller must handle FIRST rather than
+  // last: the honest degrade is "upload not available, continue in Hinglish",
+  // never a dead end (ruling D9).
+
+  /// POST /profiling/resume-import/upload-url — mint a signed slot for ONE
+  /// résumé document. [mime] is a DECLARATION that picks the object key's
+  /// extension and nothing else (the server re-reads the real content type
+  /// from Storage at confirm time and refuses a mismatch); it must be one of
+  /// the four types ruling D3 accepts, and the server 400s anything else.
+  ///
+  /// PRIVACY: the returned `upload_url` is a BEARER CREDENTIAL — PUT to it and
+  /// drop it. Never logged, never persisted, never on an event.
+  ///
+  /// A 503 means résumé uploads are not enabled server-side — the caller maps
+  /// it to the honest "upload door is closed" state BEFORE any bytes leave the
+  /// device.
+  Future<SignedUploadTicket> createResumeUploadUrl({
+    required String mime,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/profiling/resume-import/upload-url',
+      <String, dynamic>{'mime': mime},
+      authToken: authToken,
+    );
+    return SignedUploadTicket.fromJson(json);
+  }
+
+  /// POST /profiling/resume-import — register the object just PUT. [storagePath]
+  /// is the mint's `storage_path`, UNCHANGED: the server tests it against the
+  /// full shape it minted for this worker and 400s anything else, so there is
+  /// nothing to gain by touching it.
+  ///
+  /// IDEMPOTENT ON THE KEY — a retry after a lost response returns the original
+  /// row rather than failing, which is exactly what a worker on a weak uplink
+  /// needs. So a caller may safely re-confirm.
+  ///
+  /// Deliberately carries no `mime` and no byte size: the server measures the
+  /// object itself, because a client that states its own size can defeat the
+  /// size cap by lying.
+  Future<ResumeImportDto> confirmResumeImport({
+    required String storagePath,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/profiling/resume-import',
+      <String, dynamic>{'storage_path': storagePath},
+      authToken: authToken,
+    );
+    return ResumeImportDto.fromJson(json);
+  }
+
+  /// GET /profiling/resume-import/:importId — poll one import. `status` walks
+  /// `uploaded` → `parsing` → `parsed` | `failed`, and `route` is NULL until a
+  /// parse has actually run.
+  ///
+  /// A 404 covers BOTH not-found and not-yours, on purpose (no existence oracle
+  /// for another worker's imports) — so the caller must treat it as "this
+  /// import is unreachable", never as "wait and retry".
+  Future<ResumeImportDto> getResumeImport({
+    required String importId,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/profiling/resume-import/$importId',
+      authToken: authToken,
+    );
+    return ResumeImportDto.fromJson(json);
+  }
+
   /// Fetches a registered voice note + its transcript once STT has landed
   /// (GET /voice/:voiceNoteId — WorkerAuthGuard). Worker-scoped: requires
   /// [authToken]; the server checks the note belongs to the token's worker.

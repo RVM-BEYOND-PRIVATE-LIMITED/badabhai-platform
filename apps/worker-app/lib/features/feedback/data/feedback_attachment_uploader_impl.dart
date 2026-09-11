@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/session/session_repository.dart';
+import '../../../core/storage/signed_object_put.dart';
 import '../domain/feedback_attachment_uploader.dart';
 
 /// REAL feedback-image upload: mint a signed slot on the API, then PUT the
@@ -22,17 +23,17 @@ class RealFeedbackAttachmentUploader implements FeedbackAttachmentUploader {
     Duration putTimeout = defaultPutTimeout,
   })  : _api = api,
         _session = session,
-        _client = client ?? http.Client(),
-        _putTimeout = putTimeout;
+        _put = SignedObjectPut(client: client, timeout: putTimeout);
 
   /// A 1600px JPEG at q80 is a few hundred KB; 30s covers a 2G/EDGE uplink
   /// without parking the worker forever (the photo/voice-leg rationale).
-  static const Duration defaultPutTimeout = Duration(seconds: 30);
+  static const Duration defaultPutTimeout = SignedObjectPut.defaultTimeout;
 
   final ApiClient _api;
   final SessionRepository _session;
-  final http.Client _client;
-  final Duration _putTimeout;
+
+  /// The shared byte PUT (#1499) — this class no longer owns a copy of it.
+  final SignedObjectPut _put;
 
   @override
   Future<String> upload(Uint8List bytes) async {
@@ -40,30 +41,13 @@ class RealFeedbackAttachmentUploader implements FeedbackAttachmentUploader {
     if (token == null) throw const UnauthorizedFailure();
     final PhotoUploadTicket ticket =
         await _api.mintFeedbackAttachmentUploadUrl(authToken: token);
-    await _put(uploadUrl: ticket.uploadUrl, bytes: bytes);
+    await _put.send(
+      uploadUrl: ticket.uploadUrl,
+      bytes: bytes,
+      contentType: 'image/jpeg',
+      what: 'feedback image',
+    );
     return ticket.storagePath;
-  }
-
-  Future<void> _put({
-    required String uploadUrl,
-    required Uint8List bytes,
-  }) async {
-    final http.Response res = await _client
-        .put(
-          Uri.parse(uploadUrl),
-          headers: const <String, String>{'content-type': 'image/jpeg'},
-          body: bytes,
-        )
-        .timeout(
-          _putTimeout,
-          onTimeout: () =>
-              throw ApiException(408, 'feedback image upload timed out'),
-        );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      // Generic on purpose: the signed url embeds a token and the storage body
-      // could echo it — neither may reach a log or the UI.
-      throw ApiException(res.statusCode, 'feedback image upload failed');
-    }
   }
 }
 

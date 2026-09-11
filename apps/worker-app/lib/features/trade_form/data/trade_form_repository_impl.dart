@@ -243,6 +243,7 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
               ? (json['ui'] as Map)['searchable'] == true
               : false,
           answer: _parseSavedAnswer(json['answer']),
+          suggestion: _parseSuggestion(json['suggestion']),
         );
       case 'preferences':
         return const TradeFormPreferencesStep();
@@ -325,6 +326,36 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       number: (a['number'] as num?)?.toDouble(),
       boolValue: a['bool'] as bool?,
     );
+  }
+
+  /// `suggestion: null` — which is what the server sends until a résumé has
+  /// been parsed — reads as null here, and so does a malformed object. NEVER
+  /// coerced into a [TradeFormSavedAnswer]: a suggestion has no status, and
+  /// manufacturing one would put a résumé's guesses on a worker's profile as
+  /// his own claims (ruling D2, #1499).
+  ///
+  /// A missing `confidence` reads as 0 rather than dropping the suggestion: the
+  /// number is observability, not a gate, so its absence must not lose the one
+  /// thing the worker can actually use.
+  TradeFormSuggestion? _parseSuggestion(Object? raw) {
+    if (raw is! Map) return null;
+    final Map<String, dynamic> s = raw.cast<String, dynamic>();
+    final Object? rawValues = s['values'];
+    if (rawValues is! Map) return null;
+    final Map<String, dynamic> v = rawValues.cast<String, dynamic>();
+    final TradeFormSuggestion suggestion = TradeFormSuggestion(
+      optionKeys: (v['option_keys'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[],
+      text: v['text'] as String?,
+      number: (v['number'] as num?)?.toDouble(),
+      boolValue: v['bool'] as bool?,
+      confidence: (s['confidence'] as num?)?.toDouble() ?? 0,
+    );
+    // Nothing to say is the same as saying nothing — one null for the renderer
+    // to branch on instead of two.
+    return suggestion.isEmpty ? null : suggestion;
   }
 
   TradeFormAnswerResult _parseAnswerResult(Map<String, dynamic> json) {

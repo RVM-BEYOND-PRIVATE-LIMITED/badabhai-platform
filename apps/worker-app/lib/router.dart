@@ -20,6 +20,7 @@ import 'features/auth/presentation/devices_screen.dart';
 import 'features/consent/presentation/consent_screen.dart';
 import 'features/name/presentation/name_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
+import 'features/resume_import/presentation/resume_upload_screen.dart';
 import 'features/voice/presentation/voice_note_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
@@ -66,6 +67,11 @@ class Routes {
 
   static const String consent = '/consent';
   static const String name = '/name'; // "Your name" step (after consent, before chat)
+
+  /// The three-door résumé-upload step (#1499, ADR-0041 RI-6) — sits BETWEEN
+  /// [name] and [chatProfiling], which is where [name] used to hand over
+  /// directly. Two of its three doors are that same handover, unchanged.
+  static const String resumeUpload = '/resume-upload';
 
   /// Referral invite (A3) — pushed full-screen from Profile / Settings.
   static const String invite = '/invite';
@@ -168,6 +174,7 @@ GoRouter buildAppRouter() => _buildRouter();
 const Set<String> _onboardingRoutes = <String>{
   Routes.consent,
   Routes.name,
+  Routes.resumeUpload,
   Routes.chatProfiling,
   Routes.profilePreview,
   Routes.finishing,
@@ -448,6 +455,10 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.name,
         builder: (_, __) => const NameScreen(),
+      ),
+      GoRoute(
+        path: Routes.resumeUpload,
+        builder: (_, __) => const ResumeUploadScreen(),
       ),
       GoRoute(
         path: Routes.chatProfiling,

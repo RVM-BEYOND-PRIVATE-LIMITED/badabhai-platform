@@ -177,6 +177,20 @@ dependencies:
   # the plugin's pod — no extra Info.plist keys beyond the camera/photos usage
   # strings image_picker already requires.
   image_cropper: ^9.1.0
+  # #1499 / ADR-0041 — the résumé-upload door. A worker's résumé is a PDF, a
+  # DOCX, or a photograph of a printed sheet, and only the last of those is
+  # something `image_picker` can reach; the document types need the platform
+  # document picker (Android ACTION_OPEN_DOCUMENT / iOS UIDocumentPicker), which
+  # is what this wraps. Both pickers stay wired: image_picker for the camera
+  # door, this one for files already on the phone.
+  #
+  # Deliberately OUT, same reasoning as `record`/`image_picker` above:
+  #   - permission_handler — the system document picker grants per-file access
+  #     on both platforms and needs no runtime permission (and on Android the
+  #     legacy READ_EXTERNAL_STORAGE path is exactly what SAF replaced).
+  # CONFIGURED with `withData: false`: the picked path is read by us, so the
+  # plugin must not also buffer the whole document into memory.
+  file_picker: ^8.1.7
   flutter_tts: ^4.2.5
   geolocator: ^14.0.2
   geocoding: ^5.0.0

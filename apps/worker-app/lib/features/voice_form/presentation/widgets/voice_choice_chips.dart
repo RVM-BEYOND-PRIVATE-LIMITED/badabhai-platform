@@ -77,6 +77,8 @@ class VoiceChoiceChips extends StatefulWidget {
     this.isFinalStep = false,
     this.showSubmitButton = true,
     this.onMultiSelectionChanged,
+    this.suggestedKeys,
+    this.suggestedBoolean,
   });
 
   final VoiceQuestion question;
@@ -116,6 +118,22 @@ class VoiceChoiceChips extends StatefulWidget {
   /// does, via [TradeFormQuestionBody]). Meaningless for boolean/single-
   /// select, which never touch `_selected`.
   final ValueChanged<List<String>>? onMultiSelectionChanged;
+
+  /// #1499, ruling D2 — option keys an uploaded résumé pointed at, rendered
+  /// HIGHLIGHTED BUT UNTICKED ([BbChip.suggested]).
+  ///
+  /// NEVER MERGED INTO [initialSelected], and that separation is the entire
+  /// point: pre-ticking these would submit a capability the worker never
+  /// claimed the moment he presses the submit button on a screen that already
+  /// looks answered. They are a hint about where to look, and a tick stays his
+  /// own act. DEFAULT NULL, unchanged for every existing caller.
+  final List<String>? suggestedKeys;
+
+  /// #1499 — the same hint for a BOOLEAN question: highlights
+  /// [kVoiceBooleanYes] or [kVoiceBooleanNo] without answering it. A yes/no on
+  /// these packs is a capability claim ("kya aap drawing padh sakte hain"), so
+  /// it is a hint for exactly the reason [suggestedKeys] is.
+  final bool? suggestedBoolean;
 
   @override
   State<VoiceChoiceChips> createState() => VoiceChoiceChipsState();
@@ -175,13 +193,26 @@ class VoiceChoiceChipsState extends State<VoiceChoiceChips> {
     return _single(q);
   }
 
+  /// True when the résumé pointed at this option key. Never consulted for
+  /// selection — only for paint.
+  bool _isSuggested(String key) =>
+      widget.suggestedKeys?.contains(key) ?? false;
+
   Widget _boolean() {
     return Wrap(
       spacing: AppSpacing.s2,
       runSpacing: AppSpacing.s2,
       children: <Widget>[
-        BbChip(label: kVoiceBooleanYes, onTap: () => widget.onBoolean(true)),
-        BbChip(label: kVoiceBooleanNo, onTap: () => widget.onBoolean(false)),
+        BbChip(
+          label: kVoiceBooleanYes,
+          suggested: widget.suggestedBoolean == true,
+          onTap: () => widget.onBoolean(true),
+        ),
+        BbChip(
+          label: kVoiceBooleanNo,
+          suggested: widget.suggestedBoolean == false,
+          onTap: () => widget.onBoolean(false),
+        ),
       ],
     );
   }
@@ -194,6 +225,7 @@ class VoiceChoiceChipsState extends State<VoiceChoiceChips> {
         for (final VoiceChoice c in q.options)
           BbChip(
             label: c.label,
+            suggested: _isSuggested(c.key),
             onTap: () => widget.onChips(<String>[c.key]),
           ),
       ],
@@ -212,6 +244,10 @@ class VoiceChoiceChipsState extends State<VoiceChoiceChips> {
               BbChip(
                 label: c.label,
                 selected: _selected.contains(c.key),
+                // Both at once is fine and is ruling D7 rendered: a chip the
+                // worker has chosen paints SELECTED, a chip only the résumé
+                // pointed at paints as a hint, and the two are never confused.
+                suggested: _isSuggested(c.key),
                 onTap: () => _toggle(c.key),
               ),
           ],
