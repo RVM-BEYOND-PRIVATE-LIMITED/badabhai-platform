@@ -25,6 +25,23 @@ export interface ResumeExperienceLine {
   role: string;
   duration: string;
   work: string;
+  /**
+   * The SAME line built from the worker's own words, when a rewrite is what `work` holds (#1476).
+   *
+   * NOT A TEMPLATE SLOT -- no layout prints it, and none should. It exists so a CLIENT can show a
+   * worker what the printed sentence was rewritten from and let him refuse it, which is the same
+   * mitigation `ResumeEmployment.work_own_words` carries for an employment: no test can assert the
+   * absence of a plausible-but-false sentence, and only the worker knows whether one is true.
+   *
+   * COMPOSED THROUGH THE SAME JOINER as `work`, in the same pass -- never by a second walk. The
+   * fresher block is a ` · `-joined composite of workshop machines, the trade-test clause and his
+   * own project sentence, so two independently-built strings would differ in ways the rewrite did
+   * not cause, and the client cannot take the line apart to find the segment that changed.
+   *
+   * OMITTED when it equals `work`, so a client can tell "not rewritten" from "rewritten to the
+   * same words" -- the rule `ResumeEmployment.work_own_words` already follows.
+   */
+  work_own_words?: string;
 }
 
 export interface ResumeRenderInput {

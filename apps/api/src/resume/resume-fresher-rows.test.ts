@@ -275,3 +275,93 @@ describe("total experience is the sum of the work history, on BOTH branches", ()
     expect(input.experienceYears).toBeNull();
   });
 });
+
+/**
+ * #1476 — the fresher's own words, beside the rewrite.
+ *
+ * #1350 lets a model rewrite the `iti_project_work` sentence, and until now the worker had no way
+ * to see what it was rewritten FROM: the reveal #1354 built was wired to an employment block, and
+ * a fresher has none. This is the data half of closing that asymmetry.
+ *
+ * THE COMPARISON HAS TO BE HONEST, which is why `work_own_words` is composed through the SAME
+ * joiner as `work` in the same pass. The block is a ` · `-joined composite of machines, the
+ * trade-test clause and his project sentence — and the machines are joined with that same
+ * separator, so a client cannot take the line apart to find the segment that changed. It gets
+ * both whole lines or it gets nothing it can trust.
+ */
+describe("buildFresherRows — work_own_words (#1476)", () => {
+  const OWN = "kuch nhi banaya, bas knowledge he mujhe";
+  const POLISHED = "Completed workshop training with hands-on machine exposure.";
+  const BASE = {
+    iti_workshop_machines: ["conventional_lathe"],
+    trade_test_status: "passed",
+    iti_project_work: OWN,
+  };
+
+  it("is ABSENT when nothing was rewritten", () => {
+    // Nothing to compare, so nothing to offer — the same rule the employment block follows.
+    const rows = buildFresherRows("qp_cnc_turning", BASE);
+    expect(rows[0]!.work).toContain(OWN);
+    expect(rows[0]!.work_own_words).toBeUndefined();
+  });
+
+  it("carries the WHOLE line from his own words when the project was rewritten", () => {
+    const rows = buildFresherRows("qp_cnc_turning", BASE, {
+      polishEnabled: true,
+      polished: { iti_project_work: POLISHED },
+    });
+
+    // What prints for the employer.
+    expect(rows[0]!.work).toBe(
+      "Conventional lathe · Trade test passed · " + POLISHED,
+    );
+    // What he actually wrote, through the SAME joiner — so the ONLY difference between the two
+    // strings is the segment the rewrite touched.
+    expect(rows[0]!.work_own_words).toBe(
+      "Conventional lathe · Trade test passed · " + OWN,
+    );
+  });
+
+  it("differs from work in EXACTLY the rewritten segment, nothing else", () => {
+    const rows = buildFresherRows("qp_cnc_turning", BASE, {
+      polishEnabled: true,
+      polished: { iti_project_work: POLISHED },
+    });
+    const work = rows[0]!.work.split(" · ");
+    const own = rows[0]!.work_own_words!.split(" · ");
+
+    // Same shape, same count: a second independent walk would not guarantee this.
+    expect(own).toHaveLength(work.length);
+    // Every segment but the last is identical.
+    expect(own.slice(0, -1)).toEqual(work.slice(0, -1));
+    expect(own.at(-1)).toBe(OWN);
+    expect(work.at(-1)).toBe(POLISHED);
+  });
+
+  it("is absent when the kill switch is off, because his words are what printed", () => {
+    // WORK_HISTORY_POLISH_ENABLED off ⇒ `work` already holds his own sentence.
+    const rows = buildFresherRows("qp_cnc_turning", BASE, {
+      polishEnabled: false,
+      polished: { iti_project_work: POLISHED },
+    });
+    expect(rows[0]!.work).toContain(OWN);
+    expect(rows[0]!.work_own_words).toBeUndefined();
+  });
+
+  it("is absent when the rewrite came back identical to his own words", () => {
+    // "rewritten to the same words" must read as "not rewritten" to the client.
+    const rows = buildFresherRows("qp_cnc_turning", BASE, {
+      polishEnabled: true,
+      polished: { iti_project_work: OWN },
+    });
+    expect(rows[0]!.work_own_words).toBeUndefined();
+  });
+
+  it("still says nothing when the worker answered nothing at all", () => {
+    const rows = buildFresherRows("qp_cnc_turning", {
+      iti_workshop_machines: [],
+      trade_test_status: "not_yet",
+    });
+    expect(rows).toEqual([]);
+  });
+});

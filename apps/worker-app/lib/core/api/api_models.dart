@@ -1279,21 +1279,44 @@ class ResumeExperienceLineDto extends Equatable {
     this.role = '',
     this.duration = '',
     this.work = '',
+    this.workOwnWords,
   });
 
   final String role;
   final String duration;
   final String work;
 
+  /// The SAME line built from the worker's own words, when a rewrite is what
+  /// [work] holds (#1476). Null when nothing was rewritten.
+  ///
+  /// A fresher's training block is the one place a model rewrites a sentence
+  /// about a worker who has no employments to carry the #1354 reveal — so
+  /// without this he could not see what his own sheet was rewritten from.
+  ///
+  /// WHOLE LINES, never a span. The block is a ` · `-joined composite of
+  /// workshop machines, the trade-test clause and his project sentence, and
+  /// the machines are joined with that same separator — so the client must
+  /// not take it apart to find the segment that changed. The server composes
+  /// both lines through the same joiner in the same pass; the only honest
+  /// comparison is line against line.
+  final String? workOwnWords;
+
+  /// True when [work] is a rewrite and there is something to show the worker.
+  /// Server omits [workOwnWords] when the two are equal, so this is a null
+  /// check, not a string compare.
+  bool get hasOwnWords =>
+      workOwnWords != null && workOwnWords!.trim().isNotEmpty;
+
   factory ResumeExperienceLineDto.fromJson(Map<String, dynamic> json) =>
       ResumeExperienceLineDto(
         role: json['role'] as String? ?? '',
         duration: json['duration'] as String? ?? '',
         work: json['work'] as String? ?? '',
+        workOwnWords: json['work_own_words'] as String?,
       );
 
   @override
-  List<Object?> get props => <Object?>[role, duration, work];
+  List<Object?> get props => <Object?>[role, duration, work, workOwnWords];
 }
 
 /// The masthead both document formats share — name / phone / trust badge
@@ -1686,6 +1709,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
     this.sections = const <ResumeDocumentSectionDto>[],
     this.employments = const <ResumeEmploymentDto>[],
     this.employmentsMore,
+    this.experiences = const <ResumeExperienceLineDto>[],
   });
 
   final String trade;
@@ -1699,6 +1723,16 @@ class TradeSheetResumeDocument extends ResumeDocument {
   /// "and 2 more" when the block budget truncated the printed history. Null
   /// when nothing was truncated.
   final String? employmentsMore;
+
+  /// The TRAINING block a fresher has instead of a work history (#1476).
+  ///
+  /// The sheet did not carry this before, and the omission had a cost: the
+  /// fresher's `iti_project_work` sentence printed on the PDF an employer
+  /// reads while his own resume tab showed nothing of it — so the one person
+  /// able to say whether a sentence about his training is true never saw it.
+  ///
+  /// Empty for a worker who has [employments]; the two are alternatives.
+  final List<ResumeExperienceLineDto> experiences;
 
   factory TradeSheetResumeDocument.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic>? rawHeadline =
@@ -1723,6 +1757,10 @@ class TradeSheetResumeDocument extends ResumeDocument {
           .map(ResumeEmploymentDto.fromJson)
           .toList(growable: false),
       employmentsMore: json['employmentsMore'] as String?,
+      experiences: (json['experiences'] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<Map<String, dynamic>>()
+          .map(ResumeExperienceLineDto.fromJson)
+          .toList(growable: false),
     );
   }
 
@@ -1734,6 +1772,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
         sections,
         employments,
         employmentsMore,
+        experiences,
       ];
 }
 

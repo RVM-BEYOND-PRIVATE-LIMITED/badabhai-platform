@@ -45,10 +45,14 @@ class ResumeDocumentView extends StatelessWidget {
         if (section.hasRows) _SheetSection(section: section),
     ];
     final Widget? employmentsBlock = _employmentsSection(document);
+    final Widget? trainingBlock = _trainingSection(document);
 
     final List<Widget> body = <Widget>[
       ...sectionWidgets,
       if (employmentsBlock != null) employmentsBlock,
+      // A fresher has training INSTEAD of a work history, never both, so this
+      // sits where the history would have been rather than after it.
+      if (trainingBlock != null) trainingBlock,
     ];
 
     for (int i = 0; i < body.length; i++) {
@@ -105,6 +109,31 @@ class ResumeDocumentView extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+
+  /// The fresher's TRAINING block — the zone he has instead of a work history
+  /// (#1476).
+  ///
+  /// The sheet did not carry this at all before: `experiences` was a field of
+  /// the generic document only, so a fresher's `iti_project_work` sentence
+  /// printed on the PDF an employer reads while his own resume tab showed
+  /// nothing of it. He is the only person who can say whether a sentence about
+  /// his own training is true, and he is the worker with the least else on his
+  /// page — so he could neither see it nor question it.
+  ///
+  /// Null (no heading, nothing shown) when there is no training block, which
+  /// is every worker who has employments.
+  Widget? _trainingSection(TradeSheetResumeDocument doc) {
+    if (doc.experiences.isEmpty) return null;
+    return _SheetSectionShell(
+      title: 'Training',
+      icon: Icons.school_outlined,
+      // One child per visual row, no spacers — the shell owns spacing (#1475).
+      children: <Widget>[
+        for (final ResumeExperienceLineDto line in doc.experiences)
+          _TrainingEntry(line: line),
       ],
     );
   }
@@ -497,6 +526,79 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
 /// printed line was rewritten: a quiet link that reveals [ownWordsText]
 /// (the worker's own words, unrewritten), then an EQUALLY-WEIGHTED button to
 /// keep them over the polish. Deliberately never [BbButtonVariant.danger] (or
+/// One training block on the sheet, with the reveal beside it (#1476).
+///
+/// The fresher's counterpart to `_EmploymentEntry`: the printed line, and —
+/// only when a model rewrote it — a quiet link to see the sentence he actually
+/// wrote. Stateful for exactly the same reason that one is: the reveal is a
+/// LOCAL toggle and must not reset every time the tab rebuilds.
+///
+/// NO "keep my words" button, deliberately. The decline is a column on the
+/// employment role (`work_done_polish_declined`); the attribute equivalent for
+/// this path needs a migration, so there is nowhere to persist his refusal
+/// yet. Showing a button that silently failed would be worse than showing
+/// none — he would believe he had kept his words. The reveal ships now; the
+/// refusal follows the backend change.
+class _TrainingEntry extends StatefulWidget {
+  const _TrainingEntry({required this.line});
+
+  final ResumeExperienceLineDto line;
+
+  @override
+  State<_TrainingEntry> createState() => _TrainingEntryState();
+}
+
+class _TrainingEntryState extends State<_TrainingEntry> {
+  bool _revealed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final ResumeExperienceLineDto line = widget.line;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (line.role.isNotEmpty)
+          Text(
+            line.role,
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              weight: FontWeight.w700,
+            ),
+          ),
+        if (line.duration.isNotEmpty)
+          Text(
+            line.duration,
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              color: AppColors.textMuted,
+            ),
+          ),
+        if (line.work.isNotEmpty) ...<Widget>[
+          const SizedBox(height: AppSpacing.s1),
+          Text(
+            line.work,
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+        // Nothing to compare ⇒ nothing extra. No affordance, no greyed
+        // placeholder — the same rule the employment entry follows.
+        if (line.hasOwnWords) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          _OwnWordsChoice(
+            revealed: _revealed,
+            pending: false,
+            ownWordsText: line.workOwnWords!,
+            onToggle: () => setState(() => _revealed = !_revealed),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// any warning styling) — keeping one's own words is a first-class choice,
 /// not a downgrade, and needs no "are you sure".
 class _OwnWordsChoice extends StatelessWidget {
@@ -505,14 +607,21 @@ class _OwnWordsChoice extends StatelessWidget {
     required this.pending,
     required this.ownWordsText,
     required this.onToggle,
-    required this.onKeep,
+    this.onKeep,
   });
 
   final bool revealed;
   final bool pending;
   final String ownWordsText;
   final VoidCallback onToggle;
-  final VoidCallback onKeep;
+
+  /// Null when the choice cannot be PERSISTED yet, which is the fresher's
+  /// training block today (#1476): the sheet now shows him what his sentence
+  /// was rewritten from, but there is no per-worker decline for that path —
+  /// `work_done_polish_declined` is a column on the employment role, and the
+  /// attribute equivalent needs a migration. A button that silently failed to
+  /// keep his words would be worse than no button, so it is simply absent.
+  final VoidCallback? onKeep;
 
   @override
   Widget build(BuildContext context) {
@@ -547,14 +656,16 @@ class _OwnWordsChoice extends StatelessWidget {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.s3),
-                BbButton(
-                  label: 'Apne shabd rakhein',
-                  onPressed: onKeep,
-                  variant: BbButtonVariant.tonal,
-                  size: BbButtonSize.md,
-                  loading: pending,
-                ),
+                if (onKeep != null) ...<Widget>[
+                  const SizedBox(height: AppSpacing.s3),
+                  BbButton(
+                    label: 'Apne shabd rakhein',
+                    onPressed: onKeep,
+                    variant: BbButtonVariant.tonal,
+                    size: BbButtonSize.md,
+                    loading: pending,
+                  ),
+                ],
               ],
             ),
           ),
@@ -594,12 +705,20 @@ class _RevealLink extends StatelessWidget {
             children: <Widget>[
               Icon(icon, size: 18, color: AppColors.textBrand),
               const SizedBox(width: AppSpacing.s1),
-              Text(
-                label,
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  weight: FontWeight.w700,
-                  color: AppColors.textBrand,
+              // FLEXIBLE, and it has to be: "Aapke apne shabdon mein dekhein"
+              // beside its icon overflowed a 360dp phone by 128px — a real
+              // RenderFlex error on the narrowest handset the product targets.
+              // The existing tests never saw it because a widget test's default
+              // surface is 800dp wide. It wraps to a second line now rather
+              // than being clipped.
+              Flexible(
+                child: Text(
+                  label,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    weight: FontWeight.w700,
+                    color: AppColors.textBrand,
+                  ),
                 ),
               ),
             ],

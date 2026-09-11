@@ -140,6 +140,18 @@ export interface TradeSheetResumeDocument extends ResumeDocumentBase {
   readonly employments: readonly ResumeEmployment[];
   /** "and 2 more" when the block budget truncated the history. */
   readonly employmentsMore: string | null;
+  /**
+   * The TRAINING block a fresher has instead of a work history (#1476).
+   *
+   * Carried on the sheet as well as on the generic document, because it was not before and the
+   * omission had a cost: a fresher's `iti_project_work` sentence printed on the PDF an employer
+   * reads while his OWN resume tab showed nothing of it -- so the one person able to say whether
+   * a sentence about his training is true could not see it, let alone refuse it.
+   *
+   * Empty for a worker who has employments; the two are alternatives, never both (see
+   * `resume-render-input.ts`'s `experiences`).
+   */
+  readonly experiences: ResumeRenderInput["experiences"];
 }
 
 export type ResumeDocument = GenericResumeDocument | TradeSheetResumeDocument;
@@ -215,5 +227,6 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
     ],
     employments: input.employments ?? [],
     employmentsMore: input.employmentsMore ?? null,
+    experiences: input.experiences,
   };
 }
