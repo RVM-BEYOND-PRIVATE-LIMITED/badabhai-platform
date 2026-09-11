@@ -159,7 +159,7 @@ describe("every task type that can spend is either emitted or named as unledgere
   it("finds the real emitter call sites — without this the coverage check is vacuous", () => {
     // `emittedTaskTypes` reads source text, so a moved file, a renamed method or a reformat that
     // outruns the window would quietly return an empty set and make the classification test below
-    // pass by finding nothing to classify. Pin the seven that exist today (#745 added three;
+    // pass by finding nothing to classify. Pin the eight that exist today (#745 added three;
     // `profiling_chat_turn` was always the seventh and the matcher simply could not see it).
     const emitted = emittedTaskTypes();
     expect([...emitted].sort()).toEqual([
@@ -168,6 +168,10 @@ describe("every task type that can spend is either emitted or named as unledgere
       "profile_parse",
       "profiling_chat_turn",
       "resume_generation",
+      // ADR-0041 RI-3's résumé import. Emitter wired in `ResumeParseService.parse`, in the
+      // SAME change that routed the task — which is the lesson the `work_history_polish`
+      // entry below was written to record after the fact, applied in advance this time.
+      "resume_parse",
       "skill_embedding",
       "stt_transcription",
       // #1350's work-history rewrite. It was routed and billing long before it was nameable

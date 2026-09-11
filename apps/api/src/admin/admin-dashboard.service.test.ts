@@ -279,6 +279,12 @@ describe("AI cost — what a finished profile costs", () => {
       "profiling_chat_turn",
       "profile_extraction",
       "profile_parse",
+      // ADR-0041 RI-3. On the SAME side of the ratio as the three above and the opposite side
+      // from `resume_generation`, despite the shared word: that one renders a sheet from a
+      // finished profile, this one reads an uploaded document to BUILD one. Counting it is
+      // what keeps the feature's own claim honest — "importing is cheaper than interviewing"
+      // is only measurable if the import's rupees are inside cost-per-profile.
+      "resume_parse",
     ]);
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
     // …and the response says which set it used, so the split is auditable from the wire.

@@ -961,6 +961,10 @@ const aiTaskType = z.enum([
   // it produced no `ai.cost_recorded` at all. Exactly the `profile_parse` failure this enum's
   // own comment describes, on the next route to arrive.
   "work_history_polish",
+  // THE RESUME IMPORT PARSE (ADR-0041 RI-3). Routed in `model_config._ROUTE_SHAPES` and
+  // charged once per uploaded document. Added in the SAME change that routes it, which is
+  // the lesson the two entries above were each written to record after the fact.
+  "resume_parse",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",

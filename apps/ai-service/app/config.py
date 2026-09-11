@@ -686,6 +686,50 @@ class Settings(BaseSettings):
     # unset variable now means "unset" on both sides rather than "unset here, guessed there".
     voice_notes_bucket: str = ""
 
+    # The uploaded-résumé bucket (ADR-0041). EMPTY BY DEFAULT, and empty is the FAIL-CLOSED
+    # state on both sides: `RESUME_UPLOADS_BUCKET` in packages/config/src/server.ts also
+    # defaults to "" and `tests/test_resume_parse.py` reads that file and asserts the two
+    # agree character for character.
+    #
+    # THE PARITY TEST IS NOT CEREMONY. Two services reading ONE variable name and
+    # disagreeing about what "unset" means is a defect this repo has already shipped once:
+    # `voice_notes_bucket` above used to default to the literal "worker-voice-notes" while
+    # the API defaulted to "", so arming one side alone was silent TOTAL failure — uploads
+    # landed in bucket X, this service fetched from bucket Y, every job failed closed, and
+    # /health stayed green on both because neither reports a bucket. Matching defaults make
+    # that divergence structurally impossible rather than merely unlikely.
+    resume_uploads_bucket: str = ""
+
+    # ADR-0041 D5, amended 2026-09-10: the résumé goes to the model FULLY UNMASKED.
+    #
+    # OFF BY DEFAULT AND OFF IN EVERY COMMITTED FILE. Arming it is a deployment decision
+    # taken once, visibly, by a person — the same posture as `AI_ENABLE_REAL_CALLS`. With
+    # it false the route behaves exactly like every other: `default_masker` runs the full
+    # pseudonymization gateway over each line before the prompt is built.
+    #
+    # WHAT IT DOES NOT DO, and this is the whole reason it is one flag and not a mode: it
+    # has NO effect on what may be STORED. Gate 6 on this route certifies every parsed
+    # value with `resume_value_certifier`, which takes no policy argument and cannot be
+    # pointed at this setting — see `app/resume_import/parse_policy.py`, which is the file
+    # to read before changing anything here. ADR-0041 §3.3: "a PAN must still never reach
+    # `worker_attributes`, an event, a log, or the sheet."
+    #
+    # The ruling's own "right now" is why this is a switch at all rather than a masking
+    # step deleted from the prompt builder: tightening the policy later must be a config
+    # change plus a test, never a re-plumb.
+    resume_parse_raw_text_enabled: bool = False
+
+    # Extraction is local and deterministic but NOT instant: a scanned PDF is rasterized
+    # and OCR'd page by page, seconds each, before the model is called at all. So this
+    # bound covers real CPU work plus one LLM call, which is why it is several times
+    # `profile_parse_deadline_seconds` — that one bounds a call and nothing else.
+    #
+    # A WORKER IS NOT WAITING INSIDE THIS REQUEST. apps/api runs the import on a queue and
+    # polls, so expiry costs a retry rather than a stalled screen. Degrading is cheap and
+    # named: the import fails with `parse_deadline_exceeded` and ruling D9 drops the worker
+    # into the ordinary Hinglish flow.
+    resume_parse_deadline_seconds: float = Field(default=90.0, gt=0.0, le=300.0)
+
     # Observability (Langfuse). Optional — tracing is silently disabled if either
     # key is missing, so local dev never depends on Langfuse being configured.
     langfuse_public_key: str | None = None

@@ -11,11 +11,35 @@
  * receives only the structured profile — the backend re-attaches the worker's
  * real name when assembling the final artifact, so the name never reaches the
  * AI service.
+ *
+ * ONE EXCEPTION, NARROW AND SIGNED: `resume-import.ts`. `ResumeEmploymentSchema`
+ * carries an employer name, authorised by ruling D5 of
+ * `docs/decisions/0041-resume-import-and-prefill.md` §3 (amended 2026-09-10) and
+ * ONLY there — a worker's UPLOADED résumé reaches the model unmasked behind
+ * `RESUME_PARSE_RAW_TEXT_ENABLED`. That file states the override in full and names
+ * what it does NOT move: a PAN, an Aadhaar number, a phone or an email must still
+ * never reach a stored value, an event, a log or the sheet, and the far side's
+ * certifier enforces that independently of the flag. Every other contract in this
+ * package is unchanged — an employer name a worker TYPES still goes straight to
+ * Postgres and never through this service.
  */
 
 // PUBLIC SURFACE — this file is a pure barrel. Every name is re-exported
 // explicitly (never `export *`) so the package boundary stays auditable and
 // module-internal helpers cannot leak into it.
+
+export {
+  ResumeLineSchema,
+  ResumeParseInputSchema,
+  ResumeEmploymentSchema,
+  ResumeParseOutputSchema,
+} from "./resume-import";
+export type {
+  ResumeLine,
+  ResumeParseInput,
+  ResumeEmployment,
+  ResumeParseOutput,
+} from "./resume-import";
 
 export {
   ConversationMessageSchema,

@@ -154,6 +154,18 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   profiling_chat_turn: true,
   profile_extraction: true,
   profile_parse: true,
+  // THE RESUME IMPORT PARSE (ADR-0041 RI-3) — `true`, and on the opposite side of the ratio
+  // from `resume_generation` despite the shared word in the name. That one RENDERS a sheet
+  // from a finished profile; this one READS an uploaded document to BUILD one, before the
+  // interview has even started. It is spent to produce a profile, which is exactly what this
+  // map asks.
+  //
+  // It also EARNS its place in the numerator in a way the others do not: the whole claim of
+  // the feature is that importing a résumé is cheaper than interviewing for the same facts.
+  // Classified `false`, the import's cost would vanish from cost-per-profile and that
+  // comparison would flatter itself — the spend would be real and invisible. RI-7 is the
+  // phase that has to answer whether the trade is worth it, and it needs this rupee counted.
+  resume_parse: true,
   // Rendered FROM a finished profile, not spent to produce one (₹5.629 of the ₹77.4583).
   resume_generation: false,
   // THE SAME SIDE OF THE RATIO AS `resume_generation`, AND FOR THE SAME REASON (#1350). The

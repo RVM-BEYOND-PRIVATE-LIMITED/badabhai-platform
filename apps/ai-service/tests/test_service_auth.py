@@ -215,6 +215,12 @@ class TestServiceAuthEnabled:
         # two above and is gated identically. It is also the one route in this service licensed
         # to COMPOSE printed text -- section 8 is overridden for that field by owner ruling -- so
         # if this line ever needs deleting, read ADR-0039 before deleting the route.
+        #
+        # 14 -> 15 with ADR-0041 RI-3: POST /resume/parse, which READS an uploaded resume
+        # (as opposed to /resume/generate, which writes one). It is the most sensitive entry
+        # point in this list: D5 permits the document to reach the model UNMASKED behind
+        # RESUME_PARSE_RAW_TEXT_ENABLED, so an ungated route here would accept a document
+        # from anyone and parse it under that posture.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -227,6 +233,7 @@ class TestServiceAuthEnabled:
             "/profiling/work-history/polish",
             "/pseudonymize",
             "/resume/generate",
+            "/resume/parse",
             "/skills/canonicalize",
             "/skills/retag-plan",
             "/voice/transcribe",

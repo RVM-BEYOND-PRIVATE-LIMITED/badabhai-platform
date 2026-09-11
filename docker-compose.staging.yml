@@ -352,9 +352,11 @@ services:
       # Setting it arms the upload path AND the account-deletion prefix sweep in one act —
       # there is deliberately no ordering in which résumés can exist while erasure is dormant.
       #
-      # api-only FOR NOW. RI-2 gives the ai-service its own pass-through in the same commit
-      # that adds the pydantic field, because a compose var with no field behind it is exactly
-      # how VOICE_NOTES_BUCKET went split-brain between the two services.
+      # NO LONGER api-only: the ai-service block declares the same name (RI-3, together with
+      # the `resume_uploads_bucket` pydantic field, which is the pairing that matters — a
+      # compose var with no field behind it, or a field with no var, is exactly how
+      # VOICE_NOTES_BUCKET went split-brain between the two services). RI-1 predicted this
+      # would land in RI-2; RI-2 shipped no config at all, so it landed one phase later.
       RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
       # Safe schema default (10 MiB); passed through to be TUNABLE from the box, not to arm
       # anything. Sized for a phone photo of a printed sheet, not for a text-layer PDF.
@@ -714,6 +716,24 @@ services:
       VOICE_NOTES_BUCKET: ${VOICE_NOTES_BUCKET:-}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+      # ---- ADR-0041 RESUME IMPORT. The other half of the api declaration above, landing
+      # in the same change for the reason the V8 note gives: this service fetches and
+      # extracts the uploaded document itself, so the résumé's text never passes through
+      # the api at all — and that only works if both sides agree which bucket it is in.
+      #
+      # RESUME_PARSE_RAW_TEXT_ENABLED IS DELIBERATELY ABSENT FROM THIS FILE. ADR-0041 D5
+      # permits the unmasked document to reach the model; arming it is a decision a person
+      # takes once, visibly, on the box — not a line that rides in on a deploy.
+      #
+      # IT IS AN ai-service SETTING AND NOTHING ELSE. An earlier version of this note claimed
+      # "the default is false in packages/config and in app/config.py"; there is no such key
+      # in packages/config, because apps/api never reads it — only the service that builds the
+      # prompt does. `app/config.py` is the whole story.
+      #
+      # `test_the_flag_is_armed_in_no_committed_file` scans this file and every other one for
+      # the name, so adding it here turns the suite RED rather than quietly arming the policy.
+      RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
       # the per-task allowlist below still gates it (`tts_synthesis` / `stt_transcription` are

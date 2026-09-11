@@ -8,6 +8,20 @@ model and always returns ``(content, AICallMetadata)``.
 INVARIANTS:
 - Messages passed here MUST already be pseudonymized. The router does NOT
   pseudonymize; that is enforced by the endpoint before the router is reached.
+
+  ONE SIGNED EXCEPTION, ADDED 2026-09-10:
+  ``/resume/parse`` (ADR-0041 §3, ruling D5 as amended) may pass an UNMASKED
+  uploaded résumé, behind ``RESUME_PARSE_RAW_TEXT_ENABLED`` — default false, and
+  set in no committed file. It is still the ENDPOINT that decides: that route
+  selects its masker explicitly in ``app/resume_import/parse_policy.py``, which is
+  where the argument lives. The router's own contract is unchanged — it masks
+  nothing and never did — and every other endpoint still masks before reaching it.
+  Recorded here because a reader who finds unmasked text arriving from that route
+  is supposed to be able to tell an authorised path from a defect.
+
+  The tracer is NOT part of the exception: ``_mask`` below runs ``pseudonymize``
+  over everything handed to the SDK regardless of which masker the endpoint chose,
+  so a trace cannot carry what the prompt carries.
 - The router NEVER raises for model failures — it falls back to ``mock_response``
   so the worker flow always completes (fail-safe, while LLM calls fail-closed).
 """

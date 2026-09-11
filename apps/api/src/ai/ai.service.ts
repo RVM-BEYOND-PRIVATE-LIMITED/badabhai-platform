@@ -12,6 +12,7 @@ import {
   JobPostingChatTurnOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
+  ResumeParseOutputSchema,
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
   WorkHistoryPolishOutputSchema,
@@ -24,6 +25,8 @@ import {
   type PseudonymizationOutput,
   type ProfileParseInput,
   type ProfileParseOutput,
+  type ResumeParseInput,
+  type ResumeParseOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
@@ -122,6 +125,28 @@ const PROFILING_TURN_TIMEOUT_MS = 13_000;
  * four-employer history into a four-times-longer render.
  */
 const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
+
+/**
+ * ADR-0041 RI-3. The LONGEST transport budget in this file, and it is not covering a slow
+ * model — it is covering REAL LOCAL WORK. `/resume/parse` downloads the object, then
+ * rasterizes and OCRs a scanned PDF page by page (seconds each) BEFORE it calls anything.
+ * A budget sized like the others would abort a perfectly healthy import of a photographed
+ * résumé, which is the common case for this user base and the whole reason ruling D3
+ * accepted photographs.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE (`RESUME_PARSE_DEADLINE_SECONDS`, 90 s), deliberately and
+ * for the reason {@link parseProfile} spells out: whichever bound fires first decides what the
+ * caller learns. The ai-service's deadline degrades to a healthy 200 carrying
+ * `parse_deadline_exceeded` — named, countable, attributable — while an abort here produces a
+ * bare null the processor can only report as "unreachable". The informative failure has to be
+ * the reachable one, so the transport budget sits ABOVE the semantic one.
+ *
+ * NOBODY IS BLOCKED ON THIS ONE, and unlike the note on {@link parseProfile} that is actually
+ * true here: the import runs on a queue and the client polls `GET
+ * /profiling/resume-import/:id`. Ruling D9 is the backstop — an import that never completes
+ * costs the worker a sentence of Hinglish, never the flow.
+ */
+const RESUME_PARSE_TIMEOUT_MS = 100_000;
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -516,6 +541,46 @@ export class AiService {
       input,
       ProfileParseOutputSchema,
       PROFILE_JOB_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Read an uploaded résumé into typed, cited values (ADR-0041 RI-3).
+   *
+   * SENDS A KEY, NEVER THE DOCUMENT. The ai-service fetches and extracts the object itself,
+   * so the résumé is never transported here. That is a privacy property, not a division of
+   * labour: the extraction libraries live over there anyway, and shipping bytes across would
+   * widen the blast radius for nothing.
+   *
+   * WHAT DOES ARRIVE, PRECISELY. Not "no résumé text" — an earlier version of this comment
+   * said that and it was wrong. Each accepted field carries an `evidence.quote`, which IS a
+   * literal span of the document. Every one of those spans is certified by gate 6 on the far
+   * side (`_carries_identifier`) and again here (`applyResumeParseGates`), so what arrives is
+   * document text that has passed the hard-identifier wall twice — never arbitrary document
+   * text. The distinction matters because RI-4 persists this payload.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT. Every semantic failure — an unset bucket, a
+   * password, an unreadable scan, a blown deadline, an off-contract model reply — comes back
+   * as a healthy 200 carrying a `failure_reason` from the closed vocabulary, because the far
+   * side degrades rather than fails (ruling D9). So a null here is genuinely "the AI service
+   * did not answer", and the caller records `parse_unavailable` rather than blaming the
+   * worker's file.
+   *
+   * THE RESPONSE IS GATED AGAIN BEFORE ANYTHING IS PERSISTED. The six gates already ran on the
+   * far side; `resume-parse-gates.ts` runs them here too. Two walls that agree are worth more
+   * than one wall that is trusted — and on this route the far wall runs under a masking policy
+   * the owner can flip, which is exactly when a second opinion is worth having.
+   */
+  async parseResume(
+    input: ResumeParseInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeParseOutput | null> {
+    return this.post(
+      "/resume/parse",
+      input,
+      ResumeParseOutputSchema,
+      RESUME_PARSE_TIMEOUT_MS,
       ctx,
     );
   }
