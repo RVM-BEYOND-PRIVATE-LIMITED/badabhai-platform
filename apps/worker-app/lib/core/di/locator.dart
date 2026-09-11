@@ -50,6 +50,10 @@ import '../../features/voice/data/speech_dictation_impl.dart';
 import '../../features/voice/data/speech_reader_impl.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
 import '../../features/voice/data/voice_pipeline_impl.dart';
+import '../../features/resume_import/data/file_picker_resume_document_picker.dart';
+import '../../features/resume_import/data/resume_importer_impl.dart';
+import '../../features/resume_import/domain/resume_document_picker.dart';
+import '../../features/resume_import/domain/resume_importer.dart';
 import '../../features/voice/domain/speech_dictation.dart';
 import '../../features/voice/domain/speech_reader.dart';
 import '../../features/voice/domain/voice_note_repository.dart';
@@ -426,6 +430,25 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       uploader: locator<VoiceStorageUploader>(),
       api: locator<ApiClient>(),
     ),
+  );
+  // #1499 / ADR-0041 RI-6 — the résumé-upload door between /name and /chat.
+  //
+  // TWO SEAMS, not one: the PICKER is a platform channel (mock mode must never
+  // open a document picker) and the IMPORTER is the four-step network dance.
+  // Splitting them is what lets a widget test drive a rejected pick without a
+  // fake network, and a cubit test drive a dormant bucket without a fake picker.
+  locator.registerLazySingleton<ResumeDocumentPicker>(
+    () => kUseMocks
+        ? MockResumeDocumentPicker()
+        : const FilePickerResumeDocumentPicker(),
+  );
+  locator.registerLazySingleton<ResumeImporter>(
+    () => kUseMocks
+        ? MockResumeImporter()
+        : ResumeImporterImpl(
+            api: locator<ApiClient>(),
+            session: locator<SessionRepository>(),
+          ),
   );
   locator.registerLazySingleton<VoiceTranscriptResolver>(
     () => kUseMocks

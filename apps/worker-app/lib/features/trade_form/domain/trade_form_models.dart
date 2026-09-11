@@ -57,6 +57,76 @@ class TradeFormSavedAnswer extends Equatable {
       <Object?>[status, optionKeys, text, number, boolValue];
 }
 
+/// What the worker's UPLOADED RÉSUMÉ said about one question (#1499, ADR-0041
+/// RI-4, `GET /profiling/form` → `screens[].suggestion`).
+///
+/// ── IT IS NOT AN ANSWER, AND IT IS SHAPED SO IT CANNOT BE MISTAKEN FOR ONE ──
+///
+/// [TradeFormSavedAnswer] carries a [TradeFormAnswerStatus]; this deliberately
+/// does not, because a suggestion HAS no status — nobody has said anything yet.
+/// The server's DTO makes the same omission for the same reason, and the whole
+/// of ruling D2 turns on it. Never construct a [TradeFormSavedAnswer] from one
+/// of these.
+///
+/// ── RULING D2, WHICH IS THE ONLY RULE THAT MATTERS HERE ─────────────────────
+///
+/// FACTS RENDER PREFILLED. CAPABILITY CHIPS RENDER HIGHLIGHTED BUT UNTICKED.
+///
+/// A name, a duration, a project description read off a résumé can be dropped
+/// into a field: it is a transcription, and a wrong one is visibly wrong and
+/// easily corrected. An option key cannot, because "a pre-ticked chip puts a
+/// capability on a man's profile that he never claimed" — and he will submit
+/// the screen without reading it, because it looks done. So [optionKeys] and
+/// [boolValue] are POINTERS for the renderer, never selections. See
+/// `TradeFormQuestionBody`, which is where the distinction is enforced.
+///
+/// ── A QUESTION MAY CARRY BOTH THIS AND AN ANSWER ────────────────────────────
+///
+/// Ruling D7: the stored answer always wins, and both are shown. Nothing here
+/// overwrites anything; the suggestion simply sits beside the answer.
+class TradeFormSuggestion extends Equatable {
+  const TradeFormSuggestion({
+    required this.confidence,
+    this.optionKeys = const <String>[],
+    this.text,
+    this.number,
+    this.boolValue,
+  });
+
+  /// Option keys the résumé pointed at. HIGHLIGHTED, NEVER TICKED.
+  final List<String> optionKeys;
+
+  /// A fact read off the document — safe to prefill.
+  final String? text;
+
+  /// A fact read off the document — safe to prefill.
+  final double? number;
+
+  /// HIGHLIGHTED, NEVER TICKED: a yes/no on this form is a capability claim
+  /// ("kya aap drawing padh sakte hain"), not a transcribed fact.
+  final bool? boolValue;
+
+  /// The model's own number, carried through unaltered — never a floor and
+  /// never a filter. The server does not threshold it and neither does this
+  /// client: a low-confidence suggestion is still worth showing a worker, who
+  /// is the one qualified to say whether it is right. Held for observability
+  /// rather than for display; a percentage on screen would invite a worker to
+  /// argue with a number instead of answering a question.
+  final double confidence;
+
+  /// True when there is a FACT to prefill. Chip/boolean pointers deliberately
+  /// do not count — see ruling D2 in the class doc.
+  bool get hasPrefillableFact =>
+      (text != null && text!.trim().isNotEmpty) || number != null;
+
+  bool get isEmpty =>
+      optionKeys.isEmpty && text == null && number == null && boolValue == null;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[optionKeys, text, number, boolValue, confidence];
+}
+
 /// One entry of `sections[].screens[]`, in the SERVER'S ORDER — the client
 /// walks this list verbatim and never re-sorts it (the order is the résumé's
 /// own field order, read off the shipped trade map).
@@ -71,6 +141,7 @@ class TradeFormQuestionStep extends TradeFormStep {
     required this.question,
     required this.searchable,
     this.answer,
+    this.suggestion,
   });
 
   final VoiceQuestion question;
@@ -85,10 +156,23 @@ class TradeFormQuestionStep extends TradeFormStep {
   /// been answered.
   final TradeFormSavedAnswer? answer;
 
+  /// What an uploaded résumé said about this question (#1499), or null — which
+  /// is what every question carries until a résumé has actually been parsed,
+  /// and therefore what every question carries on every box today.
+  ///
+  /// ADDITIVE: a build that ignores this renders exactly the form it rendered
+  /// before, which is the property that let the server land the field first.
+  final TradeFormSuggestion? suggestion;
+
   bool get isAnswered => answer != null;
 
+  /// True when the résumé has something to offer on this question AND it is
+  /// worth rendering. An empty suggestion object is treated as none at all.
+  bool get hasSuggestion => suggestion != null && !suggestion!.isEmpty;
+
   @override
-  List<Object?> get props => <Object?>[question, searchable, answer];
+  List<Object?> get props =>
+      <Object?>[question, searchable, answer, suggestion];
 }
 
 /// `type: "preferences"` — a MARKER naming where the closed-set preferences

@@ -28,12 +28,26 @@ class BbChip extends StatelessWidget {
     this.icon,
     this.labelWeight,
     this.onDark = false,
+    this.suggested = false,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onTap;
   final IconData? icon;
+
+  /// HIGHLIGHTED BUT UNTICKED (#1499, ruling D2) — a soft haldi wash behind a
+  /// haldi hairline, with the ordinary ink label.
+  ///
+  /// This is a POINTER, not a state: "your résumé mentioned this one". It must
+  /// stay visibly distinct from [selected] (solid haldi + deep-blue label),
+  /// because "a pre-ticked chip puts a capability on a man's profile that he
+  /// never claimed" — a worker reads a filled chip as done and submits the
+  /// screen without looking. [selected] therefore always WINS the paint: a chip
+  /// he has actually chosen never dims back to a hint.
+  ///
+  /// DEFAULT FALSE, so every existing call site renders exactly as before.
+  final bool suggested;
 
   /// Overrides the label weight. Defaults to the chip's usual bold (`w700`); the
   /// profiling chat's answer chips pass a normal weight so they read exactly like
@@ -47,15 +61,25 @@ class BbChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Selected is always the haldi pill with a deep-blue label (kit selected).
+    // `suggested` only paints when NOT selected — see its own doc.
+    final bool hint = suggested && !selected;
     final Color background = selected
         ? AppColors.haldi
-        : (onDark ? Colors.white.withValues(alpha: 0.14) : AppColors.surfaceCard);
+        : hint
+            ? AppColors.haldiTint
+            : (onDark
+                ? Colors.white.withValues(alpha: 0.14)
+                : AppColors.surfaceCard);
     final Color borderColor = selected
         ? AppColors.haldi
-        : (onDark ? Colors.transparent : AppColors.borderStrong);
+        : hint
+            ? AppColors.haldi
+            : (onDark ? Colors.transparent : AppColors.borderStrong);
     final Color foreground = selected
         ? AppColors.onHaldi
-        : (onDark ? AppColors.onBlue : AppColors.textPrimary);
+        : hint
+            ? AppColors.textPrimary
+            : (onDark ? AppColors.onBlue : AppColors.textPrimary);
 
     return Material(
       color: Colors.transparent,
