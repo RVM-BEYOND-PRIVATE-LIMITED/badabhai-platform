@@ -1,6 +1,6 @@
 import { Global, Module, type OnModuleDestroy, Inject, Logger } from "@nestjs/common";
 import { createDbClient, type Database, type DbClient } from "@badabhai/db";
-import type { ServerConfig } from "@badabhai/config";
+import { resolveDbPoolMax, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 
 /** DI token for the Drizzle `Database` instance (use in repositories). */
@@ -25,7 +25,12 @@ export const DB_CLIENT = "DB_CLIENT";
     {
       provide: DB_CLIENT,
       inject: [SERVER_CONFIG],
-      useFactory: (config: ServerConfig): DbClient => createDbClient(config.DATABASE_URL),
+      // Pool size is an ENVIRONMENT decision, not a constant baked into the data layer: the
+      // target is usually a SHARED Supabase pooler whose client cap is global across every
+      // process pointed at it. See resolveDbPoolMax for why one number cannot serve both a
+      // developer machine and production.
+      useFactory: (config: ServerConfig): DbClient =>
+        createDbClient(config.DATABASE_URL, { max: resolveDbPoolMax(config) }),
     },
     {
       provide: DATABASE,
