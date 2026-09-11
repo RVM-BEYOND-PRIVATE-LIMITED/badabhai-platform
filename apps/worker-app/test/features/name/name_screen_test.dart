@@ -13,6 +13,7 @@ import 'package:badabhai_worker_app/features/name/presentation/name_screen.dart'
 import 'package:badabhai_worker_app/router.dart';
 
 const String _kChatMarker = 'CHAT_SCREEN_MARKER';
+const String _kResumeUploadMarker = 'RESUME_UPLOAD_SCREEN_MARKER';
 
 /// Copy the prompt shows in each of its two roles (#1462).
 const String _kSubmitPromptTitle = 'Location reh gayi';
@@ -51,6 +52,14 @@ Future<void> _pump(
     initialLocation: '/name',
     routes: <RouteBase>[
       GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
+      // #1499 — `/name` now hands to the three-door résumé step, not straight
+      // to the chat. BOTH are registered here: the résumé step because it is
+      // where a successful submit actually lands, and the chat because two of
+      // that screen's three doors still go there.
+      GoRoute(
+        path: Routes.resumeUpload,
+        builder: (_, __) => const Scaffold(body: Text(_kResumeUploadMarker)),
+      ),
       GoRoute(
         path: Routes.chatProfiling,
         builder: (_, __) => const Scaffold(body: Text(_kChatMarker)),

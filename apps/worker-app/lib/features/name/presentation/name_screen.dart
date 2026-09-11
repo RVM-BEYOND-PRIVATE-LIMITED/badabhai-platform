@@ -298,7 +298,13 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
           // submit. Onboarding is a one-way sequence; each completed step
           // replaces the last rather than stacking. (ProfilePreviewScreen
           // already does the same with go(Routes.building).)
-          context.go(Routes.chatProfiling);
+          //
+          // #1499 — hands to the three-door résumé step rather than straight to
+          // the chat. Two of those three doors ARE this line's old destination,
+          // reached with the same request sequence, so a worker who has no
+          // résumé (or does not want to use it) walks the identical path he
+          // walked before the screen existed.
+          context.go(Routes.resumeUpload);
         } else if (state.status == NameStatus.failed) {
           ScaffoldMessenger.of(context)
             ..clearSnackBars()

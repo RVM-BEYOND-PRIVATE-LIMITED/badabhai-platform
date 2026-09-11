@@ -1031,15 +1031,21 @@ class VoiceUploadResult extends Equatable {
   List<Object?> get props => <Object?>[voiceNoteId, durationSeconds];
 }
 
-/// Result of POST /voice/upload-url (A2-storage). The server mints a
-/// worker-scoped storage slot: [storagePath] (`voice-notes/<workerId>/<uuid>.m4a`
-/// — the exact value POST /voice/upload expects back) plus a short-lived signed
-/// [uploadUrl] the clip bytes are PUT to.
+/// ONE shape for every signed upload slot this app is handed — voice clips,
+/// profile photos, feedback attachments and résumés all mint the same
+/// `{storage_path, upload_url, expires_in}` triple, because they all go through
+/// `StorageService.createSignedUploadUrl` server-side.
 ///
-/// PRIVACY: [uploadUrl] embeds a signing token — never log or persist it; use it
-/// immediately and re-mint on expiry. [storagePath] is PII-free (opaque ids).
-class VoiceUploadTicket extends Equatable {
-  const VoiceUploadTicket({
+/// [storagePath] is the server-chosen object key and the exact value the
+/// matching register/confirm route expects back. [uploadUrl] is where the bytes
+/// are PUT.
+///
+/// PRIVACY: [uploadUrl] IS A BEARER CREDENTIAL. It embeds a signing token, so it
+/// is never logged, never persisted, never put on an event and never shown —
+/// use it immediately and re-mint on expiry. [storagePath] is PII-free (opaque
+/// ids) and safe to carry.
+class SignedUploadTicket extends Equatable {
+  const SignedUploadTicket({
     required this.storagePath,
     required this.uploadUrl,
     required this.expiresInSeconds,
@@ -1049,8 +1055,8 @@ class VoiceUploadTicket extends Equatable {
   final String uploadUrl;
   final int expiresInSeconds;
 
-  factory VoiceUploadTicket.fromJson(Map<String, dynamic> json) =>
-      VoiceUploadTicket(
+  factory SignedUploadTicket.fromJson(Map<String, dynamic> json) =>
+      SignedUploadTicket(
         storagePath: json['storage_path'] as String? ?? '',
         uploadUrl: json['upload_url'] as String? ?? '',
         expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
@@ -1059,6 +1065,12 @@ class VoiceUploadTicket extends Equatable {
   @override
   List<Object?> get props => <Object?>[storagePath, uploadUrl, expiresInSeconds];
 }
+
+/// Result of POST /voice/upload-url (A2-storage) — `storagePath` is
+/// `voice-notes/<workerId>/<uuid>.m4a`, the exact value POST /voice/upload
+/// expects back. An ALIAS of [SignedUploadTicket], not a second shape: the two
+/// were field-for-field identical and one of them had to be the other.
+typedef VoiceUploadTicket = SignedUploadTicket;
 
 /// Result of GET /voice/:voiceNoteId — the registered clip + its transcript once
 /// the STT job has landed. [transcriptText] (source language) is preferred over
@@ -2003,32 +2015,10 @@ class QualificationOptionsDto extends Equatable {
   List<Object?> get props => <Object?>[educationCredential, educationCouncil];
 }
 
-/// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the
-/// profile-photo bytes. Mirrors [VoiceUploadTicket].
-///
-/// PRIVACY: [uploadUrl] embeds a signing token — never log or persist it; use it
-/// immediately and re-mint on expiry. [storagePath] is PII-free (opaque ids).
-class PhotoUploadTicket extends Equatable {
-  const PhotoUploadTicket({
-    required this.storagePath,
-    required this.uploadUrl,
-    required this.expiresInSeconds,
-  });
-
-  final String storagePath;
-  final String uploadUrl;
-  final int expiresInSeconds;
-
-  factory PhotoUploadTicket.fromJson(Map<String, dynamic> json) =>
-      PhotoUploadTicket(
-        storagePath: json['storage_path'] as String? ?? '',
-        uploadUrl: json['upload_url'] as String? ?? '',
-        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
-      );
-
-  @override
-  List<Object?> get props => <Object?>[storagePath, uploadUrl, expiresInSeconds];
-}
+/// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for
+/// the profile-photo bytes. An ALIAS of [SignedUploadTicket], same argument as
+/// [VoiceUploadTicket].
+typedef PhotoUploadTicket = SignedUploadTicket;
 
 /// Worker's current profile + latest resume (GET /workers/:id/profile). Used to
 /// restore the session's profileId (and reuse an already-generated resume) for a
@@ -2289,3 +2279,99 @@ class InterviewKitContentDto extends Equatable {
         hinglishNote,
       ];
 }
+
+// ---- Résumé import (#1499 / ADR-0041) ------------------------------------
+// The three flat wire shapes of `POST /profiling/resume-import/upload-url`,
+// `POST /profiling/resume-import` and `GET /profiling/resume-import/:id`.
+// Flat enough to parse here rather than in the feature (unlike the trade
+// form's nested tree, which the feature owns).
+
+/// Where an import has got to, server-side. `uploaded` → `parsing` →
+/// `parsed` | `failed`, with `discarded` reserved for an import the worker's
+/// erasure removed.
+///
+/// [unknown] exists because this list can grow server-side and a value this
+/// build has never heard of must not crash a worker mid-onboarding — it reads
+/// as "not a terminal state I can act on", which sends him to the chat.
+enum ResumeImportStatus { uploaded, parsing, parsed, failed, discarded, unknown }
+
+/// Which surface the server decided the worker should land on.
+///
+/// NULL UNTIL PARSING FINISHES, so this is nullable on [ResumeImportDto] and
+/// must never be defaulted to one of the two values while the import is still
+/// in flight — a default would send the worker somewhere before the decision
+/// that picks it has been made.
+enum ResumeImportRoute { form, chat }
+
+/// `{import_id, status, route, form_kind, failure_reason}` — the single shape
+/// both `POST /profiling/resume-import` and `GET /profiling/resume-import/:id`
+/// return.
+///
+/// NOTE WHAT IS ABSENT, on purpose, mirroring the server's own docblock: no
+/// storage key and no extracted content. The client already holds the key from
+/// the mint, and a field that exists is a field that ends up in a log.
+///
+/// [failureReason] is a CLOSED server vocabulary (`no_text_layer`,
+/// `ocr_below_floor`, …) and is NEVER rendered: it is machine cause, not worker
+/// copy. The screen maps any failure to one honest line (ruling D9). It is
+/// carried here only so a caller can tell "failed" from "still going".
+class ResumeImportDto extends Equatable {
+  const ResumeImportDto({
+    required this.importId,
+    required this.status,
+    this.route,
+    this.formKind,
+    this.failureReason,
+  });
+
+  final String importId;
+  final ResumeImportStatus status;
+  final ResumeImportRoute? route;
+
+  /// The trade-form pack the résumé routed to, when [route] is
+  /// [ResumeImportRoute.form]. Null otherwise — only 9 of 21 trades have a
+  /// form at all, so null here is the ordinary case rather than an error.
+  final String? formKind;
+  final String? failureReason;
+
+  /// True once the server will never change this row again — the only point at
+  /// which polling may stop.
+  bool get isTerminal =>
+      status == ResumeImportStatus.parsed ||
+      status == ResumeImportStatus.failed ||
+      status == ResumeImportStatus.discarded;
+
+  bool get hasFailed =>
+      status == ResumeImportStatus.failed ||
+      status == ResumeImportStatus.discarded;
+
+  factory ResumeImportDto.fromJson(Map<String, dynamic> json) => ResumeImportDto(
+        importId: json['import_id'] as String? ?? '',
+        status: _resumeImportStatus(json['status'] as String?),
+        route: _resumeImportRoute(json['route'] as String?),
+        formKind: json['form_kind'] as String?,
+        failureReason: json['failure_reason'] as String?,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[importId, status, route, formKind, failureReason];
+}
+
+ResumeImportStatus _resumeImportStatus(String? raw) => switch (raw) {
+      'uploaded' => ResumeImportStatus.uploaded,
+      'parsing' => ResumeImportStatus.parsing,
+      'parsed' => ResumeImportStatus.parsed,
+      'failed' => ResumeImportStatus.failed,
+      'discarded' => ResumeImportStatus.discarded,
+      _ => ResumeImportStatus.unknown,
+    };
+
+/// Anything that is not one of the two known routes — INCLUDING null, which is
+/// what the server sends until a parse has actually run — is null here. Never
+/// guessed at.
+ResumeImportRoute? _resumeImportRoute(String? raw) => switch (raw) {
+      'form' => ResumeImportRoute.form,
+      'chat' => ResumeImportRoute.chat,
+      _ => null,
+    };

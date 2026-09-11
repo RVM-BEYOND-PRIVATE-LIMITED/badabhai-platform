@@ -6,8 +6,14 @@ flow runs end-to-end before the backend is wired.
 
 ## Flow / screens
 
-`Splash → PhoneLogin → OtpVerify → Consent → ChatProfiling → (VoiceNote) →
-ProfilePreview → ResumePreview`
+`Splash → PhoneLogin → OtpVerify → SetPin → Consent → Name → ResumeUpload →
+ChatProfiling → (VoiceNote) → ProfilePreview → Finishing | TradeForm →
+Building → Resume`
+
+`ResumeUpload` (#1499) is the three-door step: upload a résumé, talk in
+Hinglish, or say there is no résumé. The two "no" doors are the handover
+`Name` made directly before that screen existed — same route, same request
+sequence, pinned by a test.
 
 ```
 lib/
@@ -19,7 +25,8 @@ lib/
     api/api_client.dart   # PLACEHOLDER API client (mock; no HTTP dep yet)
     state/app_state.dart  # ChangeNotifier holding ids (no raw PII beyond phone)
   features/
-    splash/  auth/  consent/  chat/  voice/  profile/  resume/
+    splash/  auth/  consent/  name/  resume_import/  chat/  voice/
+    profile/  resume/  trade_form/  finishing/
 test/
   widget_test.dart
 ```

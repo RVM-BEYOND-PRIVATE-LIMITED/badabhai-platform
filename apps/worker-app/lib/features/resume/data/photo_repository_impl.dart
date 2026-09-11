@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
+import '../../../core/storage/signed_object_put.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/photo_repository.dart';
 
@@ -14,34 +15,23 @@ import '../domain/photo_repository.dart';
 /// thrown message carries the url/token/body.
 class RealPhotoUploader implements PhotoUploader {
   RealPhotoUploader({http.Client? client, Duration putTimeout = defaultPutTimeout})
-      : _client = client ?? http.Client(),
-        _putTimeout = putTimeout;
+      : _put = SignedObjectPut(client: client, timeout: putTimeout);
 
   /// A 1024px JPEG is a few hundred KB; 30s covers a 2G/EDGE uplink without
   /// parking the worker on a spinner forever (the voice-leg rationale).
-  static const Duration defaultPutTimeout = Duration(seconds: 30);
+  static const Duration defaultPutTimeout = SignedObjectPut.defaultTimeout;
 
-  final http.Client _client;
-  final Duration _putTimeout;
+  /// The shared byte PUT (#1499) — this class no longer owns a copy of it.
+  final SignedObjectPut _put;
 
   @override
-  Future<void> put({required String uploadUrl, required Uint8List bytes}) async {
-    final http.Response res = await _client
-        .put(
-          Uri.parse(uploadUrl),
-          headers: const <String, String>{'content-type': 'image/jpeg'},
-          body: bytes,
-        )
-        .timeout(
-          _putTimeout,
-          onTimeout: () => throw ApiException(408, 'photo upload timed out'),
-        );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      // Generic on purpose: the signed url embeds a token and the storage body
-      // could echo it — neither may reach a log or the UI.
-      throw ApiException(res.statusCode, 'photo upload failed');
-    }
-  }
+  Future<void> put({required String uploadUrl, required Uint8List bytes}) =>
+      _put.send(
+        uploadUrl: uploadUrl,
+        bytes: bytes,
+        contentType: 'image/jpeg',
+        what: 'photo',
+      );
 }
 
 /// MOCK photo byte-PUT: no network, no bytes stored — mock mode's guarantee.

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../../../core/api/api_client.dart';
+import '../../../core/storage/signed_object_put.dart';
 import '../../../core/error/failure.dart';
 import '../domain/voice_models.dart';
 import '../domain/voice_pipeline.dart';
@@ -31,17 +32,17 @@ class RealVoiceStorageUploader implements VoiceStorageUploader {
     http.Client? client,
     Duration putTimeout = defaultPutTimeout,
   })  : _api = api,
-        _client = client ?? http.Client(),
-        _putTimeout = putTimeout;
+        _put = SignedObjectPut(client: client, timeout: putTimeout);
 
   /// Cap on the signed-url PUT. 30s (not the usual ~8s): a full 120s AAC-LC
   /// mono clip is ~1–2MB, and our workers are often on 2G/EDGE uplinks — but a
   /// STALLED socket must not park them on the Processing spinner forever.
-  static const Duration defaultPutTimeout = Duration(seconds: 30);
+  static const Duration defaultPutTimeout = SignedObjectPut.defaultTimeout;
 
   final ApiClient _api;
-  final http.Client _client;
-  final Duration _putTimeout;
+
+  /// The shared byte PUT (#1499) — this class no longer owns a copy of it.
+  final SignedObjectPut _put;
 
   @override
   Future<String> upload(RecordedClip clip, {required String authToken}) async {
@@ -58,24 +59,12 @@ class RealVoiceStorageUploader implements VoiceStorageUploader {
       }
 
       final Uint8List bytes = await File(clip.path).readAsBytes();
-      final http.Response res = await _client
-          .put(
-            Uri.parse(ticket.uploadUrl),
-            headers: const <String, String>{'content-type': 'audio/mp4'},
-            body: bytes,
-          )
-          // mapError turns the 408 into an honest, retryable ServerFailure —
-          // no url/token in the message (the signed url must never leak).
-          .timeout(
-            _putTimeout,
-            onTimeout: () =>
-                throw ApiException(408, 'voice clip upload timed out'),
-          );
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        // Generic message on purpose: the signed url embeds a token and the
-        // storage body could echo it — neither may reach a log or the UI.
-        throw ApiException(res.statusCode, 'voice clip upload failed');
-      }
+      await _put.send(
+        uploadUrl: ticket.uploadUrl,
+        bytes: bytes,
+        contentType: 'audio/mp4',
+        what: 'voice clip',
+      );
       return ticket.storagePath;
     } finally {
       // Success OR failure, raw audio never outlives the upload attempt: the
