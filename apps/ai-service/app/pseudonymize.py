@@ -749,10 +749,10 @@ def contains_hard_identifier(text: str) -> str | None:
     digits and Aadhaar has its own
     shape, so no identifier escapes through that exclusion — only amounts pass.
 
-    A PERSON NAME IS KNOWINGLY NOT IN THIS SET, AND THAT IS AN OPEN OWNER QUESTION.
-    ADR-0041 section 3.3 says the model "can now return a real name, phone or PAN inside a
-    parsed value" and that such a value must be dropped. Phone and PAN are covered here; a
-    name is not, so `role_label = "Ramesh Kumar - CNC Turner"` passes.
+    A PERSON NAME IS KNOWINGLY NOT IN THIS SET. RULED 2026-09-11 (Prakash), and ADR-0041
+    section 3.3 now says so in those words rather than the opposite.
+    Phone and PAN are covered here; a name is not, so `role_label = "Ramesh Kumar - CNC
+    Turner"` passes, and that is the recorded, signed posture rather than a gap nobody saw.
 
     The obvious fix — certify with the full gateway and permit only employer-and-amount masks
     — was MEASURED before being rejected, and it does neither of the things it appears to:
@@ -769,10 +769,13 @@ def contains_hard_identifier(text: str) -> str | None:
 
     So there is no reliable person-name detector in this codebase to narrow to, and shipping
     one that misses the common case while breaking salaries would be worse than the gap. The
-    honest resolution is an owner ruling: either section 3.3 is amended to say a name is
-    knowingly not dropped on this route, or a detector is built and measured first. Logged as
-    open question 2 in the ADR. Do not "fix" this by pointing gate 6 at the full gateway
-    without re-running the measurement above.
+    two honest options were put to the owner — amend 3.3, or gate the launch on building a
+    detector — and 2026-09-11 ruled the first: the name a worker sees is his own, on his own
+    record, going to a model that already receives the whole document under D5.
+
+    DO NOT "FIX" THIS by pointing gate 6 at the full gateway without re-running the
+    measurement above. If a real name detector is ever built, HERE is where it gets wired in
+    — one new class in this function — and nothing else has to change.
 
     Order is cheapest-first and the classes do overlap (a 12-digit Aadhaar also matches
     the phone net); the first match names it, and which label wins never changes the

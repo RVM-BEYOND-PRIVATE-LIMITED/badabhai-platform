@@ -57,6 +57,13 @@ import {
  * `certified_clean_skill_labels` exists on the far side at all. Certifying résumé values with
  * the full gateway would reject nearly every honest value while the ruling says to keep them.
  *
+ * WHAT THAT NARROWING KNOWINGLY LETS THROUGH: a person's name. RULED 2026-09-11 (Prakash) and
+ * recorded in ADR-0041 §3.3, which used to claim the opposite. The gateway's name detection is
+ * cue-based and returns "Ramesh Kumar" unchanged, so widening to it would not catch the name and
+ * WOULD mask a worker's stated salary — measured, not assumed; the numbers are in
+ * `contains_hard_identifier`'s docstring on the far side. A name here is the worker's own, on his
+ * own record. If a detector is ever built, it goes in the list below and nowhere else.
+ *
  * MIRRORS `contains_hard_identifier` in `apps/ai-service/app/pseudonymize.py`. The two are
  * pinned to each other by `packages/ai-contracts/src/__fixtures__/hard-identifiers.cases.json`,
  * which BOTH suites read — behaviour rather than source, because the credential-id pattern
