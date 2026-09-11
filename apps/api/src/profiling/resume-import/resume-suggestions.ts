@@ -1,7 +1,5 @@
 import type { ParsedField, QuestionPackItem } from "@badabhai/ai-contracts";
 
-import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
-
 /**
  * Where a parsed résumé field lands on the form, and — just as importantly — where it does not
  * (ADR-0041 RI-4).
@@ -12,7 +10,7 @@ import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
  * worker answered, and the field simply never reaches his profile. Here the failure would be
  * quieter still, because a suggestion that never appears looks identical to a résumé that did
  * not mention the thing. As data it can be checked for exhaustiveness, and
- * {@link RESUME_SUGGESTION_TARGETS} is asserted against {@link RESUME_PARSE_TARGET_FIELDS} in
+ * {@link RESUME_SUGGESTION_TARGETS} is asserted against `RESUME_PARSE_TARGET_FIELDS` in
  * the test — so adding a ninth parse field turns the build red rather than quietly extracting
  * something nobody shows the worker.
  *
