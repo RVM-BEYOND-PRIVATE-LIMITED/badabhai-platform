@@ -131,6 +131,31 @@ export const serverEnvSchema = z.object({
   // screen are different sensitivity classes and get different retention and different
   // mime allowlists; sharing one bucket would fuse those two decisions forever.
   WORKER_FEEDBACK_ATTACHMENTS_BUCKET: z.string().default(""),
+  // ADR-0041 (RI-1) — private Storage bucket for a résumé a worker UPLOADS. Storage Mode A,
+  // backend-only, server-chosen opaque key `resume-uploads/{workerId}/{uuid}.{pdf|docx|jpg|png}`.
+  //
+  // A DIFFERENT BUCKET FROM EVERY OTHER ONE, and deliberately so. This is the densest single
+  // artefact of personal data a worker owns — name, address, email, employers, past salaries,
+  // sometimes a PAN or Aadhaar — and under ruling D6 it is retained PERMANENTLY. Its mime
+  // allowlist (pdf/docx/jpeg/png) and its size cap are therefore its own decisions, and sharing
+  // a bucket with photos or feedback would fuse three different retention postures forever.
+  //
+  // EMPTY DEFAULT IS THE FEATURE'S OFF SWITCH, not a placeholder: while unset, the mint, the
+  // confirm and the parse enqueue all 503 (dormancy covers every door — the #1245 lesson, where
+  // only the mint checked the bucket and rows could still be registered for audio that had
+  // nowhere to live). Setting it arms the account-deletion prefix sweep in the same act, so
+  // there is no window where résumés exist and erasure is dormant.
+  //
+  // NOT the résumés BadaBhai generates — those live in `RESUMES_BUCKET` and are outbound. This
+  // one is inbound and is never rendered, never served to a payer, and never printed on a sheet.
+  RESUME_UPLOADS_BUCKET: z.string().default(""),
+  // ADR-0041 (RI-1) — hard ceiling on an uploaded résumé, checked against Storage object-info at
+  // confirm (the signed URL cannot constrain what the client actually PUTs). 10 MiB: a text-layer
+  // PDF is tens of KB, but D3 accepts a PHOTO of a printed sheet, and a modern phone camera JPEG
+  // is routinely 4-8 MB. Sized for that, not for the PDF. The bucket carries its own
+  // `file_size_limit` as the outer wall; this is the inner one, and both are needed — the bucket
+  // stops the bytes arriving, this stops a row being registered for an object that slipped past.
+  RESUME_UPLOAD_MAX_BYTES: positiveIntFromString(10 * 1024 * 1024),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,

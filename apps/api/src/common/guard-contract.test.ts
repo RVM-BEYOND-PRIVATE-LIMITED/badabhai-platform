@@ -69,6 +69,7 @@ import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
 import { PinController } from "../auth/pin.controller";
 import { ProfilingController } from "../profiling/profiling.controller";
+import { ResumeImportController } from "../profiling/resume-import/resume-import.controller";
 import { ResumeDisclosureController } from "../disclosures/resume-disclosure.controller";
 import { OccupationController } from "../occupation/occupation.controller";
 import { InterviewKitsController } from "../interview-kit/interview-kits.controller";
@@ -677,6 +678,16 @@ const CONTRACT: ControllerContract[] = [
       finalize: [C, W],
     },
   },
+  // ADR-0041 — résumé import. Worker-authed and consent-gated at the CLASS level, so all three
+  // routes inherit the pair. Note there is deliberately NO `@RequireConsentPurpose`: ruling D1
+  // put résumé upload under the existing `profiling` purpose rather than minting a tenth one,
+  // against the `voice_processing` precedent. If a later change adds a purpose decorator here,
+  // it is settling a signed ruling and belongs in an ADR, not in a controller.
+  {
+    name: "ResumeImport",
+    ctor: ResumeImportController,
+    routes: { createUploadUrl: [C, W], confirm: [C, W], get: [C, W] },
+  },
   {
     name: "ResumeDisclosure",
     ctor: ResumeDisclosureController,
@@ -778,6 +789,11 @@ describe("API authz contract — guards on every controller route", () => {
       // #997 — not an AI surface, but it carries the SAME class-level pair and so the same
       // ordering hazard: `ConsentGuard` reads `req.worker`, which `WorkerAuthGuard` attaches.
       { name: "WorkerFeedback", ctor: WorkerFeedbackController },
+      // ADR-0041 — the upload seam. Same class-level pair, same ordering hazard, and one more
+      // reason to pin it here: this controller registers a pointer to the densest personal
+      // document on the platform, so a `ConsentGuard` that ran before `WorkerAuthGuard` had
+      // attached `req.worker` would fail open on the one surface least able to afford it.
+      { name: "ResumeImport", ctor: ResumeImportController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

@@ -1052,6 +1052,7 @@ describe("the erasure records what each store actually reported (#712)", () => {
       `voice-notes/${WORKER_ID}/`,
       `photos/${WORKER_ID}/`,
       `feedback-attachments/${WORKER_ID}/`,
+      `resume-uploads/${WORKER_ID}/`,
       `${WORKER_ID}/`,
     ]);
     for (const leg of auditOf(h).legs) {

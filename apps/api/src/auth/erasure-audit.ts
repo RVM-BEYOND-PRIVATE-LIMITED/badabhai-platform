@@ -44,6 +44,13 @@ export type ErasureLeg =
   // different env vars, and a DSAR record that fused them could report a sweep that only one
   // of the two buckets actually received.
   | "feedback_attachment_prefix"
+  // ADR-0041 — the résumé a worker UPLOADED. Its own leg, and the one on this list whose
+  // absence would be unrecoverable: ruling D6 retains these objects PERMANENTLY, so no
+  // expiry sweep or post-parse delete will ever touch them and THIS is the only erasure
+  // path the bucket has. Fusing it into `resume_objects` — which sweeps the résumés
+  // BadaBhai GENERATES, in a different bucket — would let a DSAR record report a sweep
+  // that the inbound bucket never received, for the densest personal document we hold.
+  | "resume_upload_prefix"
   | "conversation_prefix"
   | "transcript_buffer";
 

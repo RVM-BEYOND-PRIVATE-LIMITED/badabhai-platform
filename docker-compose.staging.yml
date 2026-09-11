@@ -343,6 +343,22 @@ services:
       # anything — the same reason every other cap in this file is passed through.
       FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: ${FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR:-}
       FEEDBACK_ATTACHMENT_MAX_BYTES: ${FEEDBACK_ATTACHMENT_MAX_BYTES:-}
+      # ADR-0041 (RI-1) — private bucket for a résumé a worker UPLOADS. `:-` NOT `:?`, like
+      # every other bucket here: a `${VAR:?}` in ANY service breaks `config` and `pull` for
+      # EVERY other service in the file, which nearly bricked a live deploy once already.
+      #
+      # EMPTY IS THE SAFE STATE AND IS THE DEFAULT. Empty means the mint, the confirm and the
+      # parse enqueue all 503, so the whole feature is inert and no worker can reach it.
+      # Setting it arms the upload path AND the account-deletion prefix sweep in one act —
+      # there is deliberately no ordering in which résumés can exist while erasure is dormant.
+      #
+      # api-only FOR NOW. RI-2 gives the ai-service its own pass-through in the same commit
+      # that adds the pydantic field, because a compose var with no field behind it is exactly
+      # how VOICE_NOTES_BUCKET went split-brain between the two services.
+      RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
+      # Safe schema default (10 MiB); passed through to be TUNABLE from the box, not to arm
+      # anything. Sized for a phone photo of a printed sheet, not for a text-layer PDF.
+      RESUME_UPLOAD_MAX_BYTES: ${RESUME_UPLOAD_MAX_BYTES:-}
 
       # ---- BL-22: 12 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
       #

@@ -9,6 +9,7 @@ import { EventsModule } from "../events/events.module";
 import { MatchModule } from "../match/match.module";
 import { OccupationModule } from "../occupation/occupation.module";
 import { ProfilesModule } from "../profiles/profiles.module";
+import { StorageModule } from "../storage/storage.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -22,6 +23,9 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { ResumeImportController } from "./resume-import/resume-import.controller";
+import { ResumeImportRepository } from "./resume-import/resume-import.repository";
+import { ResumeImportService } from "./resume-import/resume-import.service";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -92,12 +96,22 @@ import { TradeFormService } from "./form/trade-form.service";
     // gives for not opening one: a second client would make the envelope and the transcript two
     // keys with two TTLs, free to disagree about whether an interview exists.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // ADR-0041 RI-1 — signed upload URLs and object-info for the private résumé-uploads
+    // bucket. A PLAIN import, not a forwardRef: `StorageModule` is a leaf that imports only
+    // `ConfigModule` and reaches nothing here, so the edge is acyclic. `VoiceModule` takes it
+    // the same way for the same reason.
+    StorageModule,
   ],
   // THREE SURFACES, and the third is a different KIND of thing. Chat and the voice form are
   // interviews reaching one turn engine; the trade form is a form -- every question known up
   // front, answered in any order, resumable across sessions -- so it shares the pack, the
   // answer table and the question shape, and shares no turn machinery at all.
-  controllers: [ProfilingController, TradeFormController],
+  // FOUR SURFACES NOW. Chat and the voice form are interviews reaching one turn engine; the
+  // trade form is a form; and résumé import is a third kind again — an UPLOAD, which shares
+  // neither the turn machinery nor the answer table. It writes only its own row, and cannot
+  // touch a worker's answers by construction (ADR-0041 D2): a parsed value is a suggestion
+  // until he confirms it, and confirming it goes through `TradeFormController` like any other.
+  controllers: [ProfilingController, TradeFormController, ResumeImportController],
   providers: [
     PackRepository,
     PackCacheService,
@@ -109,6 +123,8 @@ import { TradeFormService } from "./form/trade-form.service";
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    ResumeImportRepository,
+    ResumeImportService,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator],
 })
