@@ -1,6 +1,7 @@
 # ADR-0041: Résumé import — parse an uploaded document, route it, and prefill the profile
 
-- **Status:** **Accepted** — owner rulings taken 2026-09-10. Signature block at the foot.
+- **Status:** **Accepted and signed** — owner rulings taken 2026-09-10, the person-name ruling
+  in §3.3 taken 2026-09-11, signed 2026-09-11. Signature block at the foot.
 - **Date:** 2026-09-10
 - **Owner:** CEO / Prakash
 - **Amends, narrowly and only as scoped in §3:** [CLAUDE.md](../../CLAUDE.md) §2 _Privacy First_
@@ -160,11 +161,44 @@ of what a security review needs to examine.**
 - The six parse gates still run, and still run **twice** — in the ai-service and again in Nest.
   Gate 6 (PII re-certification) is relaxed for this route's _inputs_; it is **not** relaxed for
   what leaves the request. **A consequence RI-3 must handle deliberately:** with unmasked input,
-  the model can now return a real name, phone or PAN inside a parsed value, so Gate 6 stops being
-  a formality on this route and becomes the thing that decides what may be persisted and what may
+  the model can now return a real identifier inside a parsed value, so Gate 6 stops being a
+  formality on this route and becomes the thing that decides what may be persisted and what may
   be shown back. An identifier the model echoes into a field is dropped, not stored — the
   document may reach the model, but a PAN must still never reach `worker_attributes`, an event, a
-  log, or the sheet.
+  log, or the sheet. **Both the value and the cited span are certified**; RI-3's security review
+  found the span riding out uncontrolled, which is the failure this bullet used to describe
+  incorrectly.
+
+- **What Gate 6 refuses, stated exactly, because an earlier draft of this section overstated it.**
+  The wall is `contains_hard_identifier`, and it refuses seven classes: PAN, Aadhaar, phone,
+  email, cued credential ids (passport, voter, GSTIN, UAN, ESIC, PF, IFSC, account, DOB), digit
+  runs of 14 or more, and bare GSTIN. **A person's name is NOT among them, and is knowingly not
+  dropped.** This paragraph used to say a name was; it was not, and saying so made the document
+  the least reliable thing in the review.
+
+  **RULED 2026-09-11 (Prakash), option (a) of the open question this replaces: record it, do not
+  gate on it.** The reasons, measured rather than assumed:
+
+  | input | `pseudonymize()` returns |
+  |---|---|
+  | `Ramesh Kumar` | `Ramesh Kumar` — **unchanged** |
+  | `My name is Ramesh Kumar` | `My name is [PERSON_1]` |
+  | `1200000` | `[AMOUNT_1]` |
+
+  The gateway's name detection is **cue-based**, and a résumé prints a bare name with no cue in
+  front of it. Certifying résumé values through the full gateway would therefore refuse a worker's
+  own stated salary while still admitting the name it was meant to catch. The gazetteer that would
+  have caught a bare name is recorded measured-dead (R32 — 487 probes, 348 leaks). There is no
+  reliable person-name detector in this codebase to narrow to, so the honest choice was between
+  saying so and blocking the feature behind building one.
+
+  **The exposure this leaves, stated plainly.** A worker's own name may survive into his own
+  `role_label` or a suggestion staged against his own profile. It is his name, on his record,
+  visible to him — and D5 already sends the whole document, name included, to the model, so this
+  adds no new recipient. It is not a new egress path: the four conditions above are unchanged —
+  traces stay pseudonymized, events stay counts-only, and the résumé never prints on the sheet
+  (D4) — so a name reaches no sink it could not already reach. If a name detector is ever built,
+  this bullet is where it gets wired in, and gate 6 is the single place that has to change.
 - A test that fails if the raw path is reachable with the flag unset. It must fail loudly and must
   not arm vacuously on an empty string — the `AI_INTERNAL_TOKEN` lesson (TD67).
 - `security-engineer` gate before RI-3 merges.
@@ -271,7 +305,10 @@ Four consequences, all of them good:
 - **Dormant on arrival.** `RESUME_UPLOADS_BUCKET` defaults to `""` and the three processing
   routes 503 until it is armed, exactly as voice and photo do.
 - **New dependencies** in the ai-service: `pypdf`, `python-docx`, `pytesseract`, `Pillow`,
-  `pymupdf`, plus the `tesseract-ocr` binary and `eng`/`hin` traineddata in the image.
+  `pypdfium2`, plus the `tesseract-ocr` binary and `eng`/`hin` traineddata in the image.
+  **`pypdfium2` rather than the `pymupdf` an earlier draft named**: PyMuPDF is AGPL-3.0, which a
+  closed-source service cannot take on, while pypdfium2 is Apache-2.0/BSD-3. Same job —
+  rasterizing a page so Tesseract can read it — with a licence we can actually ship.
 - **Erasure is load-bearing** (§3.5): `deleteByPrefix("resume-uploads/{workerId}/")` in
   `AccountDeletionService`, with its own test.
 - **Prefill coverage is unmeasured and must not be claimed.** 15 of 18 CNC-turning items are
@@ -284,12 +321,18 @@ Four consequences, all of them good:
 1. ~~**Fully raw, or raw-except-identifiers?**~~ **RULED 2026-09-10: fully raw.** Kept as a record
    of what was asked rather than as an open item — see §3.2 for the ruling, the two arguments it
    overruled, and the `right now` that makes it the alpha posture rather than a permanent property.
-2. **DPDP notice copy.** D1 blocks nothing, but the notice a worker reads still does not mention
+2. ~~**A person name is not dropped, and §3.3 said it should be.**~~ **RULED 2026-09-11: it is
+   knowingly not dropped, and §3.3 now says so.** Raised by the RI-3 security review; kept here as
+   a record of what was asked rather than as an open item. The measurement that decided it, and
+   the exposure it leaves, are in §3.3 beside the wall itself rather than here, so the next reader
+   hits them where the decision is enforced.
+
+3. **DPDP notice copy.** D1 blocks nothing, but the notice a worker reads still does not mention
    handing over a document. Best written in one pass alongside the outstanding `employer_sharing`
    and E4 copy.
 
 ---
 
 ```
-Signed (CEO / Prakash): .......................  Date: .................
+Signed (CEO / Prakash): Prakash Kantumutchu          Date: 2026-09-11
 ```
