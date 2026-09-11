@@ -42,6 +42,183 @@ void main() {
   // and `_SheetSectionShell` treats every child as a visual row and pads both
   // sides of it. Visible on the owner's sheet as a blank band between two
   // employers.
+  // #1476 — a fresher has TRAINING instead of a work history, and the sheet did
+  // not carry it at all: `experiences` was a field of the generic document
+  // only. So his `iti_project_work` sentence printed on the PDF an employer
+  // reads while his own tab showed nothing of it — the one person who can say
+  // whether a sentence about his training is true never saw it.
+  group('the fresher training zone, and his own words (#1476)', () {
+    Future<void> pumpDoc(
+      WidgetTester tester,
+      TradeSheetResumeDocument document,
+    ) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      tester.view.physicalSize = const Size(1080, 3600);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ResumeDocumentView(document: document),
+          ),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    const String own = 'Conventional lathe · Trade test passed · '
+        'kuch nhi banaya, bas knowledge he mujhe';
+    const String printed = 'Conventional lathe · Trade test passed · '
+        'Completed workshop training with hands-on machine exposure.';
+
+    TradeSheetResumeDocument docWith(ResumeExperienceLineDto line) =>
+        TradeSheetResumeDocument(
+          header: const ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          experiences: <ResumeExperienceLineDto>[line],
+        );
+
+    testWidgets('the training block now RENDERS on the sheet',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: own,
+        )),
+      );
+
+      expect(find.text('Training'), findsOneWidget);
+      expect(find.text('ITI workshop training'), findsOneWidget);
+      expect(find.text(own), findsOneWidget);
+    });
+
+    testWidgets('no rewrite ⇒ no reveal, no greyed placeholder',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: own,
+        )),
+      );
+
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
+    });
+
+    testWidgets('a rewrite offers the reveal, and it shows his OWN line',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: printed,
+          workOwnWords: own,
+        )),
+      );
+
+      // What the employer reads is on the page.
+      expect(find.text(printed), findsOneWidget);
+      // His own words are behind a deliberate tap, not shouted.
+      expect(find.text(own), findsNothing);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      expect(find.text('Aapke shabdon mein'), findsOneWidget);
+      expect(find.text(own), findsOneWidget);
+      // Both lines are visible together — that IS the comparison.
+      expect(find.text(printed), findsOneWidget);
+    });
+
+    testWidgets('the reveal collapses again', (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: printed,
+          workOwnWords: own,
+        )),
+      );
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+      await tester.tap(find.text('Likha hua version chhupayein'));
+      await tester.pump();
+
+      expect(find.text(own), findsNothing);
+    });
+
+    // No decline exists for this path yet — `work_done_polish_declined` is a
+    // column on the employment role. A button that silently failed to keep his
+    // words would be worse than none: he would believe he had kept them.
+    testWidgets('offers NO keep-my-words button it cannot honour',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        docWith(const ResumeExperienceLineDto(
+          role: 'ITI workshop training',
+          work: printed,
+          workOwnWords: own,
+        )),
+      );
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      expect(find.text('Apne shabd rakhein'), findsNothing);
+    });
+
+    testWidgets('a worker WITH employments gets no training zone',
+        (WidgetTester tester) async {
+      // The two are alternatives, never both.
+      await pumpDoc(
+        tester,
+        const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[
+            ResumeEmploymentDto(
+              id: 'emp-1',
+              employer: 'RVM Cad',
+              when: 'Jan 2023 – Present',
+              work: 'Operates CNC lathe.',
+            ),
+          ],
+        ),
+      );
+
+      expect(find.text('Work History'), findsOneWidget);
+      expect(find.text('Training'), findsNothing);
+    });
+
+    testWidgets('the employment reveal still offers its keep button',
+        (WidgetTester tester) async {
+      // The shared panel went optional-button; the path that CAN persist must
+      // not have lost it.
+      await pumpDoc(
+        tester,
+        const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[
+            ResumeEmploymentDto(
+              id: 'emp-1',
+              employer: 'RVM Cad',
+              when: 'Jan 2023 – Present',
+              work: 'Operated CNC lathe delivering precision components.',
+              workOwnWords: 'CNC lathe chalata tha',
+            ),
+          ],
+        ),
+      );
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      expect(find.text('Apne shabd rakhein'), findsOneWidget);
+    });
+  });
+
   group('the work-history zone spaces its entries ONCE (#1475)', () {
     Future<void> pumpDoc(
       WidgetTester tester,

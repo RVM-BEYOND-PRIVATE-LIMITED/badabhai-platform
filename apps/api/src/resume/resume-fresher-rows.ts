@@ -264,10 +264,20 @@ export function buildFresherRows(
   // The whole block, as one entry. A fresher has one training period, not several, and giving
   // each fact its own row would spend three lines of a zone that has 24% of the page on a worker
   // whose page is already the sparsest we produce.
-  const work = [machines.join(" · "), tradeTest, project]
-    .map((v) => v?.trim())
-    .filter((v): v is string => Boolean(v))
-    .join(" · ");
+  const compose = (projectSegment: string | null): string =>
+    [machines.join(" · "), tradeTest, projectSegment]
+      .map((v) => v?.trim())
+      .filter((v): v is string => Boolean(v))
+      .join(" · ");
+
+  const work = compose(project);
+  // THE SAME LINE FROM HIS OWN WORDS (#1476), through the SAME joiner and the same filter, so the
+  // only thing that can differ between the two strings is the segment the rewrite touched. Built
+  // here rather than by a second walk for the reason `buildEmploymentBlock` gives: a comparison
+  // between two independently-composed strings shows differences the rewrite did not cause -- and
+  // the client must not take a ` · `-joined line apart to guess which span changed, because the
+  // machines are joined with that same separator.
+  const ownWork = compose(ownProject);
 
   if (work === "") return [];
   return [
@@ -280,6 +290,9 @@ export function buildFresherRows(
       // it is a block that has no duration by nature. An empty string collapses the span.
       duration: "",
       work,
+      // Omitted when nothing was rewritten, so a client can tell "he wrote this" from "this was
+      // rewritten into the same words" without a second field to mean it.
+      ...(ownWork !== "" && ownWork !== work ? { work_own_words: ownWork } : {}),
     },
   ];
 }
