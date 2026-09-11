@@ -58,11 +58,44 @@ WORKDIR /app
 # alone therefore installs the base runtime set too, but the base file must be
 # present for that include to resolve.
 #
-# No build toolchain (gcc/python3-dev) is installed: every dependency here
-# publishes manylinux cp312 wheels (fastapi/pydantic-core/uvicorn[standard]'s
-# uvloop+httptools/httpx/redis/langfuse/anthropic), so the image stays slim and
-# free of a compiler. If a future dep ships sdist-only, add the toolchain in a
-# BUILDER stage and copy the site-packages out — do not leave gcc in the runtime.
+# ---- THE ONE SYSTEM PACKAGE (ADR-0041 / RI-2) ----
+# Tesseract, and it is here rather than in requirements.txt because `pytesseract`
+# is a WRAPPER, not an engine: it shells out to the `tesseract` binary, and a pip
+# install of the wrapper alone produces a service that imports cleanly and cannot
+# OCR anything. Ruling D3 accepts a photographed résumé — the common case for
+# this user base — so a container without this cannot do the job it was deployed
+# for.
+#
+# LOCAL OCR IS THE WHOLE POINT, not an implementation detail. Sending the page to
+# a cloud vision API would be easier and would add a sub-processor handling
+# worker documents, reopening a decision the owner already took, and would break
+# the text-only AI boundary (`Message = dict[str, str]` in app/ai/router.py).
+# Nothing that reaches a model here is ever an image.
+#
+# BOTH LANGUAGE PACKS, DELIBERATELY. `eng+hin` is what app/resume_import/extract.py
+# asks for; a résumé written in English by a Hindi speaker routinely carries both
+# scripts. If either traineddata file is missing, Tesseract ERRORS — extraction
+# then degrades to `parse_unavailable` with a WARNING rather than silently
+# reading half the page, so dropping one of these lines is loud, not subtle.
+#
+# `--no-install-recommends` keeps the graphics/scanner recommendations out (they
+# roughly triple the cost for nothing we use), and the apt lists are removed in
+# the SAME layer or they persist in the image regardless.
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y \
+       tesseract-ocr \
+       tesseract-ocr-eng \
+       tesseract-ocr-hin \
+  && rm -rf /var/lib/apt/lists/*
+
+# STILL no build toolchain (gcc/python3-dev): every dependency here publishes
+# manylinux cp312 wheels (fastapi/pydantic-core/uvicorn[standard]'s
+# uvloop+httptools/httpx/redis/langfuse/anthropic, and RI-2's
+# pypdf/pypdfium2/python-docx/pytesseract/Pillow), so the image stays free of a
+# compiler. That is why pypdfium2 rasterizes PDFs here and PyMuPDF does not —
+# see requirements.txt for the licence half of that argument. If a future dep
+# ships sdist-only, add the toolchain in a BUILDER stage and copy the
+# site-packages out — do not leave gcc in the runtime.
 COPY requirements.txt requirements-ai.txt ./
 RUN pip install --no-cache-dir -r requirements-ai.txt
 

@@ -151,6 +151,12 @@ jobs:
               # while shipping a stale mirror to production. A green check is not evidence
               # that the gate for the thing you changed actually ran.
               - 'packages/profiling-lexicon/**'
+              # The job's own definition. The same argument the e2e filter below makes for
+              # itself, and it became load-bearing when this job grew an apt-get step (RI-2's
+              # tesseract install). Without this line a PR that edits ONLY that step skips the
+              # very job it edits: the workflow change ships unvalidated, and the suite it was
+              # meant to arm goes on silently skipping its OCR tests.
+              - '.github/workflows/ci.yml'
             e2e:
               - 'apps/api/**'
               - 'packages/**'
@@ -975,6 +981,32 @@ jobs:
           # `working-directory` default does not apply to it — hence the full path.
           cache: "pip"
           cache-dependency-path: apps/ai-service/requirements*.txt
+
+      # ---- THE OCR LEG HAS A SYSTEM DEPENDENCY, AND A SKIP IS NOT COVERAGE ----
+      # `pytesseract` is a wrapper around the `tesseract` BINARY, so without this
+      # step every OCR test in tests/test_resume_extract.py skips and the job
+      # reports green having never once exercised the path ADR-0041's ruling D3
+      # accepts a photographed résumé through. That is the "green check that gated
+      # nothing" failure class, and it is why this is an install rather than a
+      # tolerated skip.
+      #
+      # `fonts-dejavu-core` is not decoration: the OCR fixtures are DRAWN by
+      # Pillow, whose built-in bitmap font is 11px and illegible to Tesseract. With
+      # no TrueType face on the box the fixtures would be unreadable by
+      # construction and the tests would fail for a reason that has nothing to do
+      # with the extractor.
+      #
+      # `test_the_ocr_leg_is_actually_exercised_in_ci` asserts all of this from
+      # inside the suite when CI=true — so deleting this step turns the suite RED
+      # instead of quietly turning it vacuous. GitHub Actions always sets CI=true.
+      #
+      # Both language packs, matching the Dockerfile: extract.py asks Tesseract for
+      # `eng+hin`, and a missing traineddata file is an error, not a fallback.
+      - name: Install Tesseract (the OCR tests are skipped without it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin fonts-dejavu-core
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
