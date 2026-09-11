@@ -122,6 +122,10 @@ function makeWorld(
     events as never,
     // The correction path never takes a turn, so the LLM seam is unreachable from here.
     { leads: () => false } as never,
+  
+    // ADR-0041 RI-5. NO PENDING OFFER is the case every test in this file is about: the
+    // interview these assert on must be byte for byte the one a worker without a résumé gets.
+    { pendingForChat: async () => null, forImport: async () => new Map() } as never,
   );
   return { orchestrator, chat, events, saved, inserted, messagesInserted };
 }

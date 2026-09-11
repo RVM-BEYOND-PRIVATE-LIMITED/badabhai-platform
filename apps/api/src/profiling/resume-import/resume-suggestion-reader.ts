@@ -36,26 +36,65 @@ export class ResumeSuggestionReader {
     private readonly crypto: PiiCryptoService,
   ) {}
 
+  /**
+   * The import whose facts the CHAT should offer to confirm, or `null` (ADR-0041 RI-5).
+   *
+   * THREE CONDITIONS, ALL REQUIRED, and each rules out a different wrong offer:
+   *
+   *   - `status === "parsed"` — an import still being read has nothing to show, and a FAILED one
+   *     has nothing to show ever.
+   *   - `route === "chat"` — a worker handed to a trade form sees his suggestions BESIDE the
+   *     questions (RI-4). Offering them here as well would ask him to confirm the same facts
+   *     twice, once blind and once in context.
+   *   - a non-empty payload — an offer with nothing in it is a spent ask that asks nothing.
+   *
+   * Returns the id ALONGSIDE the suggestions because the caller stores the id, not the facts:
+   * the envelope must not carry a worker's trade, city and salary in clear through Redis.
+   */
+  async pendingForChat(
+    workerId: string,
+  ): Promise<{ importId: string; suggestions: ReadonlyMap<string, ResumeSuggestion> } | null> {
+    try {
+      const row = await this.imports.findLatestForWorker(workerId);
+      if (!row || row.status !== "parsed" || row.route !== "chat") return null;
+
+      const suggestions = this.decode(row.suggestionsEnc);
+      return suggestions.size > 0 ? { importId: row.id, suggestions } : null;
+    } catch (error) {
+      // SOFT, like every other read here. A worker whose import row is unreadable gets the
+      // ordinary interview — which is the interview he would have had with no résumé at all.
+      this.logger.warn(
+        `résumé confirm offer unavailable for worker ${workerId.slice(0, 8)}…: ` +
+          `${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /** The suggestions staged against one specific import, by id. */
+  async forImport(workerId: string, importId: string): Promise<ReadonlyMap<string, ResumeSuggestion>> {
+    try {
+      const row = await this.imports.findForWorker(importId, workerId);
+      // WORKER-SCOPED, like every read on that repository. An id from an envelope is still an id
+      // from outside this class, and there is no method here that could fetch another worker's
+      // row even if one were somehow supplied.
+      if (!row) return new Map();
+      return this.decode(row.suggestionsEnc);
+    } catch (error) {
+      this.logger.warn(
+        `résumé suggestions unreadable for import ${importId}: ${(error as Error).message}`,
+      );
+      return new Map();
+    }
+  }
+
   async forWorker(workerId: string): Promise<ReadonlyMap<string, ResumeSuggestion>> {
     const empty = new Map<string, ResumeSuggestion>();
     try {
       // THE MOST RECENT IMPORT, not all of them. A worker who uploads twice has corrected
       // himself, and merging both would resurrect what the second upload was meant to replace.
       const row = await this.imports.findLatestForWorker(workerId);
-      if (!row || row.suggestionsEnc === null) return empty;
-
-      const parsed: unknown = JSON.parse(this.crypto.decrypt(row.suggestionsEnc));
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return empty;
-
-      // VALIDATED ON THE WAY OUT, not trusted because we wrote it. This blob was written by an
-      // earlier deploy and will be read by later ones; a shape that has drifted must degrade to
-      // "no suggestion" rather than reach the response and fail its own contract on the way to
-      // the worker.
-      const out = new Map<string, ResumeSuggestion>();
-      for (const [questionKey, value] of Object.entries(parsed)) {
-        if (isSuggestion(value)) out.set(questionKey, value);
-      }
-      return out;
+      return row ? this.decode(row.suggestionsEnc) : empty;
     } catch (error) {
       this.logger.warn(
         `résumé suggestions unreadable for worker ${workerId.slice(0, 8)}…; serving the form ` +
@@ -63,6 +102,29 @@ export class ResumeSuggestionReader {
       );
       return empty;
     }
+  }
+
+  /**
+   * One encrypted column → validated suggestions.
+   *
+   * VALIDATED ON THE WAY OUT, not trusted because we wrote it. This blob was written by an
+   * earlier deploy and will be read by later ones; a shape that has drifted must degrade to "no
+   * suggestion" rather than reach a response and fail its own contract in front of the worker.
+   *
+   * SHARED BY ALL THREE READERS ON PURPOSE — the form's, the chat offer's and the by-id one.
+   * Three copies of this validation would be three chances for one of them to accept a shape
+   * the others reject, and the one that accepted it would be the one that shipped it onward.
+   */
+  private decode(token: string | null): ReadonlyMap<string, ResumeSuggestion> {
+    const out = new Map<string, ResumeSuggestion>();
+    if (token === null) return out;
+
+    const parsed: unknown = JSON.parse(this.crypto.decrypt(token));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return out;
+    for (const [questionKey, value] of Object.entries(parsed)) {
+      if (isSuggestion(value)) out.set(questionKey, value);
+    }
+    return out;
   }
 }
 

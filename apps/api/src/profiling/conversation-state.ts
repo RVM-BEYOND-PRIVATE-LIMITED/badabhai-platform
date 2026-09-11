@@ -632,6 +632,28 @@ export interface ProfilingEnvelope {
    * the rest of the profile. An interview reaches stage done without a form every day.
    */
   readonly formKind: TradeFormKind | null;
+
+  /**
+   * The résumé batch-confirm offer (ADR-0041 RI-5) — `null` before it is considered at all.
+   *
+   * THREE STATES, NOT TWO, and the third is why this is an object rather than a boolean.
+   * `null` means "not looked at yet"; `pending` means the bubble is on screen and the next
+   * inbound settles it; `settled` means it has been asked and answered and must NEVER be
+   * asked again. Collapsing `settled` back to `null` would re-offer the same facts on the
+   * turn after a worker said "nahi", which is the one response that plainly means stop.
+   *
+   * IT CARRIES AN ID, NOT THE FACTS. The suggestions live encrypted on `worker_resume_import`
+   * and are re-read when the offer is served or settled. Copying them here would put a
+   * worker's trade, city and salary into the transcript buffer in clear, for no gain — the
+   * row is one indexed read away and is the single source of truth either way.
+   */
+  readonly resumeConfirm: ResumeConfirmState | null;
+}
+
+/** See {@link ProfilingEnvelope.resumeConfirm}. */
+export interface ResumeConfirmState {
+  readonly importId: string;
+  readonly state: "pending" | "settled";
 }
 
 /**
@@ -724,6 +746,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: true,
+  resumeConfirm: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -761,6 +784,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    resumeConfirm: null,
   };
 }
 
@@ -828,6 +852,22 @@ function narrowOffer(value: unknown): OfferedChip[] {
     });
   }
   return chips;
+}
+
+/**
+ * The résumé confirm offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, not toward silence. A value this cannot read — written by a build
+ * that shaped it differently, or truncated — narrows to `null`, which means "not considered
+ * yet" and costs at most one extra offer. Narrowing it to `settled` instead would silently
+ * withhold a turn the worker was entitled to, and nothing anywhere would say so.
+ */
+function narrowResumeConfirm(value: unknown): ResumeConfirmState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.importId !== "string" || v.importId.length === 0) return null;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  return { importId: v.importId, state: v.state };
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -1017,6 +1057,12 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // engine they started on. Trusting the stored string instead would let a stale value from
     // a retired form route a live worker into a surface that no longer exists.
     formKind: TRADE_FORM_KINDS.find((candidate) => candidate === v.formKind) ?? null,
+    // ABSENT READS AS null — "never considered" — which is right for every envelope in flight
+    // across the deploy that adds this field. Those interviews get the offer considered once on
+    // their next turn, which is the same thing a fresh interview gets. An unreadable value also
+    // reads as null rather than as `settled`: the failure that costs a worker an offer he never
+    // saw is worse than the one that offers it once more than intended.
+    resumeConfirm: narrowResumeConfirm(v.resumeConfirm),
   };
 }
 
