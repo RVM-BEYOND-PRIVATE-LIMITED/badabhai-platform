@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
+import 'package:badabhai_worker_app/core/theme/app_spacing.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
@@ -36,6 +37,113 @@ class MockProfileRepository extends Mock implements ProfileRepository {}
 ///    only exists for `trade_sheet`, so that fallback can only be observed on
 ///    the real screen, not on the view in isolation.
 void main() {
+  // #1475 — two employments were separated by roughly THREE gaps instead of
+  // one: `_employmentsSection` spread its own SizedBox into the children list,
+  // and `_SheetSectionShell` treats every child as a visual row and pads both
+  // sides of it. Visible on the owner's sheet as a blank band between two
+  // employers.
+  group('the work-history zone spaces its entries ONCE (#1475)', () {
+    Future<void> pumpDoc(
+      WidgetTester tester,
+      TradeSheetResumeDocument document,
+    ) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      tester.view.physicalSize = const Size(1080, 3600);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ResumeDocumentView(document: document),
+          ),
+        ),
+      ));
+      await tester.pump();
+    }
+
+    const ResumeEmploymentDto first = ResumeEmploymentDto(
+      id: 'emp-1',
+      employer: 'RVM Cad',
+      when: 'Jan 2023 – Present',
+      work: 'Operates CNC lathe for precision turned parts.',
+    );
+    const ResumeEmploymentDto second = ResumeEmploymentDto(
+      id: 'emp-2',
+      employer: 'Sanaya Technology',
+      when: 'Jan 2021 – Dec 2022',
+      work: 'Ran milling machines on production batches.',
+    );
+
+    /// The blank band between the bottom of one employer block and the top of
+    /// the next — measured, not counted.
+    double gapBetweenEmployers(WidgetTester tester) {
+      final Rect a = tester.getRect(find.text('RVM Cad'));
+      final Rect b = tester.getRect(find.text('Sanaya Technology'));
+      // The first entry's own rows sit under its employer line; measure from
+      // the LAST thing in that entry to the next employer line.
+      final Rect aWork =
+          tester.getRect(find.text('Operates CNC lathe for precision turned parts.'));
+      expect(a.top, lessThan(b.top));
+      return b.top - aWork.bottom;
+    }
+
+    testWidgets('two employments are ONE gap apart, not three',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[first, second],
+        ),
+      );
+
+      // One shell gap is AppSpacing.s3 (12). The bug rendered ~3x that plus
+      // the entry's own internal padding, so a generous ceiling still fails
+      // loudly on a regression while tolerating the entry's own trailing box.
+      final double gap = gapBetweenEmployers(tester);
+      expect(gap, lessThan(AppSpacing.s3 * 2.5),
+          reason: 'work-history entries must not be triple-spaced');
+    });
+
+    testWidgets('the section still hands the shell one child per visual row',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[first, second],
+          employmentsMore: '+2 aur',
+        ),
+      );
+
+      // Everything still renders — the fix removed spacers, not content.
+      expect(find.text('RVM Cad'), findsOneWidget);
+      expect(find.text('Sanaya Technology'), findsOneWidget);
+      expect(find.text('+2 aur'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a single employment renders with no trailing gap',
+        (WidgetTester tester) async {
+      await pumpDoc(
+        tester,
+        const TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[first],
+        ),
+      );
+
+      expect(find.text('RVM Cad'), findsOneWidget);
+      expect(find.text('Sanaya Technology'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('ResumeDocumentView — trade_sheet row styles', () {
     Future<void> pumpView(
       WidgetTester tester,
