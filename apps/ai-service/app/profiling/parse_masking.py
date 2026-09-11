@@ -54,9 +54,23 @@ def passthrough_masker(text: str) -> tuple[bool, str]:
     masking line — is worse in the way that matters: it would drift from the shipped handler,
     and then the thing being measured would stop being the thing that ships.
 
-    IT REACHES NO REAL WORKER. Selecting it requires ``AI_SYNTHETIC_PERSONA_MODE``, and the only
-    routes that can select it are registered ONLY when that reason is set (``main.py``). The
-    real-worker routes name ``default_masker`` directly and cannot be pointed at this one.
+    IT REACHED NO REAL WORKER UNTIL 2026-09-10, AND NOW IT REACHES EXACTLY ONE ROUTE.
+    ``docs/decisions/0041-resume-import-and-prefill.md`` §3 (ruling D5, amended) authorises
+    ``/resume/parse`` to select this masker for a REAL worker's uploaded résumé, behind
+    ``RESUME_PARSE_RAW_TEXT_ENABLED`` (default false, and set in no committed file). The
+    argument for it is in ``app/resume_import/parse_policy.py``; read that before changing
+    anything here.
+
+    EVERY OTHER ROUTE IS UNCHANGED. The synthetic-persona routes still require
+    ``AI_SYNTHETIC_PERSONA_MODE`` and are still registered only when it is set; every
+    real-worker route other than the résumé parse still names ``default_masker`` directly and
+    still cannot be pointed at this one. Two callers, one of them flag-gated and signed for —
+    not an open door.
+
+    WHAT THE RULING DID NOT MOVE, because this is the paragraph a reader will use to justify
+    the next widening: it moved what may reach the MODEL. Gate 6 still decides what may be
+    STORED, and on that route it runs ``resume_value_certifier``, which takes no policy
+    argument and cannot be pointed at this function.
 
     WHY BYPASSING IS THE POINT rather than a convenience. Personas are invented — invented names,
     phones, employers, cities — so masking them measures the gateway, which already has its own

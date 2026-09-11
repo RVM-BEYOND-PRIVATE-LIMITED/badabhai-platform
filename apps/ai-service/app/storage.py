@@ -25,11 +25,26 @@ from .config import Settings
 _TIMEOUT_SECONDS = 20.0
 
 
-async def download_object(settings: Settings, object_key: str, *, bucket: str) -> bytes:
+async def download_object(
+    settings: Settings,
+    object_key: str,
+    *,
+    bucket: str,
+    what: str = "voice audio",
+    bucket_var: str = "VOICE_NOTES_BUCKET",
+) -> bytes:
     """Download the private object ``bucket/object_key`` and return its raw bytes.
 
     Raises ``RuntimeError`` (PII-free message) if storage is unconfigured, on a
     transport error, or on a non-2xx response. Never logs the bytes or the key.
+
+    ``what`` / ``bucket_var`` NAME THE CALLER IN THE ERROR, and they are parameters
+    rather than hardcoded strings because there are now two callers: voice audio and, per
+    ADR-0041 RI-3, an uploaded résumé. Every message this function raises is PII-free and
+    therefore says nothing except which leg failed — so a résumé fetch reporting "voice
+    audio fetch failed: no bucket configured (VOICE_NOTES_BUCKET)" would send whoever
+    reads it to arm the wrong variable. The defaults keep the original caller and its
+    tests byte-identical (``tests/test_stt.py`` matches on ``VOICE_NOTES_BUCKET``).
     """
     if not settings.storage_configured:
         raise RuntimeError("supabase storage not configured (SUPABASE_URL / SERVICE_ROLE_KEY)")
@@ -48,7 +63,25 @@ async def download_object(settings: Settings, object_key: str, *, bucket: str) -
     # the provider leg without storage at all — a guard further up broke that path over a value
     # it never reads. Check the input where it is consumed, not where it is passed.
     if not bucket:
-        raise RuntimeError("voice audio fetch failed: no bucket configured (VOICE_NOTES_BUCKET)")
+        raise RuntimeError(f"{what} fetch failed: no bucket configured ({bucket_var})")
+
+    # TRAVERSAL, AND THIS REQUEST CARRIES THE SERVICE-ROLE KEY.
+    #
+    # `quote(..., safe="/")` leaves `.` and `/` untouched, and httpx normalises dot segments
+    # before sending — so `../../avatars/other-worker/photo.png` resolves OUT of the bucket
+    # and fetches an arbitrary object with full service-role authority. Measured, not
+    # theorised.
+    #
+    # Nothing untrusted reaches this today from either caller: apps/api validates the résumé
+    # key against a fully anchored full-shape regex over a server-minted UUID path, and the
+    # voice leg is minted the same way. This is defence in depth on a credential that has no
+    # depth behind it — the check costs one comparison and removes the need for every future
+    # caller to be perfect.
+    #
+    # HERE rather than in either caller, and rather than in the pydantic contract, for the
+    # reason the bucket guard below already states: check the input where it is CONSUMED.
+    if ".." in object_key.split("/") or object_key.startswith("/") or "\\" in object_key:
+        raise RuntimeError(f"{what} fetch failed: refusing a traversal in the object key")
 
     quoted = urllib.parse.quote(object_key, safe="/")
     url = f"{settings.supabase_url}/storage/v1/object/{bucket}/{quoted}"
@@ -59,10 +92,10 @@ async def download_object(settings: Settings, object_key: str, *, bucket: str) -
             resp = await client.get(url, headers=headers)
         except httpx.HTTPError:
             # Never surface the exception detail (URL/key could appear there).
-            raise RuntimeError("voice audio fetch failed (transport error)") from None
+            raise RuntimeError(f"{what} fetch failed (transport error)") from None
 
     if resp.status_code < 200 or resp.status_code >= 300:
         # Never include the bytes or the response body — status only.
-        raise RuntimeError(f"voice audio fetch failed with status {resp.status_code}")
+        raise RuntimeError(f"{what} fetch failed with status {resp.status_code}")
 
     return resp.content

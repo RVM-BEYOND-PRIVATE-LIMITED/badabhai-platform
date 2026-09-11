@@ -26,6 +26,7 @@ import { TradeFormService } from "./form/trade-form.service";
 import { ResumeImportController } from "./resume-import/resume-import.controller";
 import { ResumeImportRepository } from "./resume-import/resume-import.repository";
 import { ResumeImportService } from "./resume-import/resume-import.service";
+import { ResumeParseService } from "./resume-import/resume-parse.service";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -125,6 +126,7 @@ import { ResumeImportService } from "./resume-import/resume-import.service";
     TradeFormService,
     ResumeImportRepository,
     ResumeImportService,
+    ResumeParseService,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator],
 })
