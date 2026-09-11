@@ -77,6 +77,24 @@ export const serverEnvSchema = z.object({
 
   // Core datastores
   DATABASE_URL: z.string().url().default("postgresql://badabhai:badabhai@localhost:5432/badabhai"),
+  // postgres.js pool size. Was hardcoded to 10 in `createDbClient`, which is not a safe
+  // constant when the target is a SHARED Supabase pooler: session mode caps TOTAL clients
+  // (15 on the current plan) across every process pointed at it — every developer's API, and
+  // the deployed services. One API instance claiming 10 is two-thirds of that budget.
+  //
+  // The failure this fixes is NOT "slow": postgres.js opens a new connection when its pool has
+  // none free, and a refusal there REJECTS THE QUERY rather than waiting for one of its own
+  // idle connections. So a write fails outright while the process holds perfectly usable idle
+  // connections. Transactional writes are hit first and hardest, because `sql.begin` must hold
+  // a connection for the whole transaction — which is why admin invite (create + event in one
+  // transaction, required for atomicity) broke while single-statement reads kept working.
+  //
+  // Keep it at or below your fair share of the pooler's limit. Deliberately NOT defaulted
+  // here: the sane value differs by environment (production owns its database and wants the
+  // full pool; a developer shares one pooler with the whole team and wants a small slice), and
+  // a single default cannot be right for both. {@link resolveDbPoolMax} applies that rule, so
+  // an unset value is a supported state rather than something every developer must configure.
+  DB_POOL_MAX: z.coerce.number().int().positive().max(100).optional(),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
 
   // Supabase (backend only). `optionalSecret`, NOT a bare `.optional()` — see its definition:
@@ -1808,6 +1826,32 @@ export function realMemberInvitesBlockedReason(config: ServerConfig): string | n
 
 export function areRealMemberInvitesEnabled(config: ServerConfig): boolean {
   return realMemberInvitesBlockedReason(config) === null;
+}
+
+/** Pool size for a developer machine — a slice of a shared pooler, not the whole budget. */
+export const DEV_DB_POOL_MAX = 3;
+/** Pool size where the process owns its database connections. */
+export const PROD_DB_POOL_MAX = 10;
+
+/**
+ * The postgres.js pool size to use: an explicit DB_POOL_MAX when set, else a default chosen by
+ * environment.
+ *
+ * WHY THIS IS NOT ONE CONSTANT. Production owns its database and wants a full pool. A developer
+ * points at the SHARED Supabase pooler, whose session-mode cap (15 on the current plan) is
+ * global across every process aimed at it — every teammate's API plus the deployed services. A
+ * single dev API claiming 10 takes two-thirds of that budget, and the rest of the team then
+ * cannot open a connection at all.
+ *
+ * The failure mode this prevents is a hard error, not slowness: postgres.js opens a new
+ * connection when its pool has none free, and a refusal there REJECTS THE QUERY instead of
+ * waiting on one of its own idle connections. Holding a pool bigger than the slots actually
+ * available therefore converts a busy pooler into failed writes. Transactional writes break
+ * first, because `sql.begin` holds a connection for the whole transaction.
+ */
+export function resolveDbPoolMax(config: ServerConfig): number {
+  if (config.DB_POOL_MAX !== undefined) return config.DB_POOL_MAX;
+  return config.NODE_ENV === "production" ? PROD_DB_POOL_MAX : DEV_DB_POOL_MAX;
 }
 
 /**
