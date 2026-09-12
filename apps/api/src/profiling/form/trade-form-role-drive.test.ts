@@ -216,6 +216,7 @@ function harnessFor(role: RoleUnderTest): Harness {
     loadForFamily: vi.fn(async (familyId: string) =>
       familyId === role.familyId ? role.pack : null,
     ),
+    loadUniversal: vi.fn(async () => null),
   };
   const answers = {
     listAnswers: vi.fn(async () => [...rows.values()]),
@@ -263,6 +264,8 @@ function harnessFor(role: RoleUnderTest): Harness {
     // so this returns an empty map: the form these tests assert on must be byte-for-byte
     // the form a worker without a résumé sees.
     { forWorker: async () => new Map() } as never,
+    // ADR-0041 RI-4 fallback. Not exercised here — the import fallback is tested separately.
+    { findLatestForWorker: async () => undefined } as never,
   );
   return { service, rows, attributes, events };
 }

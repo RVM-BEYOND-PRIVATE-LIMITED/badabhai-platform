@@ -25,6 +25,7 @@ import {
   ResumeSuggestionReader,
   type ResumeSuggestion,
 } from "../resume-import/resume-suggestion-reader";
+import { ResumeImportRepository } from "../resume-import/resume-import.repository";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,
@@ -69,6 +70,11 @@ export class TradeFormService {
     // identically for a worker who uploaded nothing, which is the invariant the whole feature
     // ships under.
     private readonly resumeSuggestions: ResumeSuggestionReader,
+    // ADR-0041 RI-4 fallback. When a worker reaches the form through résumé upload rather than
+    // an interview, `chat_sessions` has no `form_kind`. The résumé-import row carries it, and
+    // this is the only service that needs to read it — giving it the repository would also
+    // hand it the storage key, the mime and the write path, which the form must never have.
+    private readonly resumeImports: ResumeImportRepository,
   ) {}
 
   /**
@@ -102,6 +108,18 @@ export class TradeFormService {
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
       "Machines, controllers & capability";
 
+    // ADR-0041 RI-4 — universal pack items carry the questions résumé suggestions actually
+    // target (experience_years, current_city, salary_expected, education, availability). Without
+    // loading the universal pack, those suggestions are generated but never attached to any
+    // question screen — the trade pack's questions have different keys. Loading the universal
+    // items and appending them to the form ensures the suggestions land beside the questions
+    // they match, and renders identically for a worker with no résumé (no suggestion object).
+    const universalPack = await this.packs.loadUniversal(Date.now());
+    const tradeKeys = new Set(pack.items.map((item) => item.question_key));
+    const universalItems = (universalPack?.items ?? []).filter(
+      (item) => !tradeKeys.has(item.question_key),
+    );
+
     return {
       kind,
       pack_id: pack.pack_id,
@@ -111,9 +129,16 @@ export class TradeFormService {
         {
           id: "capability",
           title: capabilityTitle,
-          screens: visible(ordered).map((item) =>
-            this.questionScreen(item, byKey.get(item.question_key), suggestions),
-          ),
+          screens: [
+            ...visible(ordered).map((item) =>
+              this.questionScreen(item, byKey.get(item.question_key), suggestions),
+            ),
+            // Universal items (experience, city, salary, education, availability) appended after
+            // trade items. No `ask_if` filtering: universal items are never gated.
+            ...universalItems.map((item) =>
+              this.questionScreen(item, byKey.get(item.question_key), suggestions),
+            ),
+          ],
         },
         {
           id: "terms",
@@ -176,12 +201,27 @@ export class TradeFormService {
   ): Promise<TradeFormAnswerResponse> {
     const ctx = await this.contextFor(workerId);
     const pack = await this.packFor(ctx.kind);
-    const item = pack.items.find((candidate) => candidate.question_key === dto.question_key);
-    // A KEY THIS PACK DOES NOT DEFINE IS A 400, NOT A DROP. Dropping is the silent-truncation
+
+    // SEARCH BOTH PACKS. The form serves trade AND universal items (ADR-0041 RI-4), so a
+    // worker may answer a universal question (experience_years, current_city, etc.) that the
+    // trade pack does not define. The answer is stored under the TRADE pack's id — universal
+    // items are supplementary to the form, not a separate pack.
+    const universalPack = await this.packs.loadUniversal(Date.now());
+    const tradeKeys = new Set(pack.items.map((item) => item.question_key));
+    const universalItems = (universalPack?.items ?? []).filter(
+      (item) => !tradeKeys.has(item.question_key),
+    );
+    const item =
+      pack.items.find((candidate) => candidate.question_key === dto.question_key) ??
+      universalItems.find((candidate) => candidate.question_key === dto.question_key);
+
+    // A KEY NEITHER PACK DEFINES IS A 400, NOT A DROP. Dropping is the silent-truncation
     // shape: the worker taps, the client shows it saved, and the sheet never mentions it. A named
     // rejection lets a version-skewed client say so.
     if (!item) {
-      throw new BadRequestException(`question_key ${dto.question_key} is not in ${pack.pack_id}`);
+      throw new BadRequestException(
+        `question_key ${dto.question_key} is not in ${pack.pack_id} or the universal pack`,
+      );
     }
 
     // ── ONE ANSWER, TWO DESTINATIONS, ONE NORMALISATION ────────────────────────────────
@@ -424,23 +464,39 @@ export class TradeFormService {
    * is dropped the moment the interview flushes, so the session row is the only thing that still
    * knows — and re-running the router here would make the answer depend on labels this service
    * does not have.
+   *
+   * FALLBACK: When a worker reaches the form through résumé upload (ADR-0041 RI-4) rather than
+   * an interview, `chat_sessions` has no `form_kind` — the résumé-import path writes it to
+   * `worker_resume_import.form_kind` instead. This fallback reads the most recent routed import
+   * and uses its `form_kind`. The `sessionId` is null because no interview produced this handover;
+   * both `worker_pack_answer.chat_session_id` and `worker_attributes.session_id` are nullable
+   * columns that accept null as honest provenance ("from a résumé, not from a conversation").
    */
-  private async contextFor(workerId: string): Promise<{ kind: TradeFormKind; sessionId: string }> {
+  private async contextFor(workerId: string): Promise<{ kind: TradeFormKind; sessionId: string | null }> {
+    // PRIMARY: read from the interview handover (existing path, unchanged).
     const session = await this.chat.findLatestSessionByWorker(workerId);
     const state = (session?.conversationState ?? null) as { form_kind?: unknown } | null;
     const stored = state?.form_kind;
     const kind = TRADE_FORM_KINDS.find((candidate) => candidate === stored);
-    if (!kind || !session) {
-      // NOT AN EMPTY FORM. A worker who reaches this URL without a handover has either never
-      // interviewed or is not on a trade that has a form, and serving them a CNC turner's
-      // eighteen questions would be worse than telling them there is nothing here.
-      throw new NotFoundException("this worker has not been handed a trade form");
+    if (kind && session) {
+      return { kind, sessionId: session.id };
     }
-    // THE INTERVIEW THAT HANDED THEM HERE, carried onto every row this form writes. Honest
-    // provenance rather than a null: `worker_pack_answer.chat_session_id` and
-    // `worker_attributes.session_id` both mean "which conversation produced this", and for a
-    // form answer the truthful answer is the interview that routed the worker to the form.
-    return { kind, sessionId: session.id };
+
+    // FALLBACK: read from the most recent résumé import routed to a form. A worker who uploaded
+    // a résumé and was routed to a form has no chat session yet — the form IS the next step.
+    const importRow = await this.resumeImports.findLatestForWorker(workerId);
+    if (importRow && importRow.route === "form" && importRow.formKind) {
+      const importKind = TRADE_FORM_KINDS.find((candidate) => candidate === importRow.formKind);
+      if (importKind) {
+        // Null sessionId: honest provenance. Both tables accept null.
+        return { kind: importKind, sessionId: null };
+      }
+    }
+
+    // NEITHER PATH PRODUCED A FORM. A worker who reaches this URL without a handover has either
+    // never interviewed or is not on a trade that has a form, and serving them a CNC turner's
+    // eighteen questions would be worse than telling them there is nothing here.
+    throw new NotFoundException("this worker has not been handed a trade form");
   }
 
   private async packFor(kind: TradeFormKind): Promise<QuestionPack> {

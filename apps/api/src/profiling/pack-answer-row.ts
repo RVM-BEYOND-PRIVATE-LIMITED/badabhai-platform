@@ -47,7 +47,7 @@ export function typedAnswerColumns(
 
 export interface PackAnswerRowInput {
   readonly workerId: string;
-  readonly sessionId: string;
+  readonly sessionId: string | null;
   readonly packId: string;
   readonly packVersion: number;
   readonly record: AnswerRecord;

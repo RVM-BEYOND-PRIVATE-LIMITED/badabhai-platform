@@ -110,7 +110,10 @@ function makeService(
         opts.formKind === undefined ? { form_kind: "cnc_turner" } : { form_kind: opts.formKind },
     })),
   };
-  const packs = { loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)) };
+  const packs = {
+    loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)),
+    loadUniversal: vi.fn(async () => null),
+  };
   const answers = {
     listAnswers: vi.fn(async () => opts.saved ?? []),
     // ONE ANSWER IS TWO ROWS, so the service wraps both writes in one transaction. The double
@@ -151,6 +154,9 @@ function makeService(
     // nothing is the case every other test in this file is about, and the form they assert on
     // must be byte-for-byte the form he sees today.
     { forWorker: async () => opts.suggestions ?? new Map() } as never,
+    // ADR-0041 RI-4 fallback. Not exercised by these tests — the form-kind-from-import path is
+    // covered by the role-drive suite; here we stub a no-op that returns undefined (no import).
+    { findLatestForWorker: async () => undefined } as never,
   );
   return { service, written, packs, chat, upsertMany, emitted, emit, answers };
 }
