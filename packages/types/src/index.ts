@@ -72,6 +72,29 @@ export const CONSENT_PURPOSES = [
   // notice copy ships and workers actually opt in — the same dormant posture `employer_sharing`,
   // `whatsapp_messaging` and `agent_activity_visibility` already hold.
   "voice_processing",
+  // E0 — the IN-APP RELAY (ADR/owner ruling docs/decisions/E0_RELAY_DECISION_2026-09.md §A,
+  // signed 2026-09-07). `employer_sharing` authorises DISCLOSING a worker's routed contact
+  // to a paying party; it does NOT authorise MESSAGING him over the resulting channel. Those
+  // are two things a person would expect to be asked about separately, so they are asked
+  // separately.
+  //
+  // WHY IT IS MINTED NOW, BEFORE THE NOTICE COPY OR ANY CLIENT WANTS IT — this is the part a
+  // later session will want to re-litigate. The enum's commonest rule for splitting a purpose
+  // is EGRESS TO A THIRD PARTY (`whatsapp_messaging` because the phone reaches Meta,
+  // `voice_processing` because the clip reaches a processor). The in-app relay has NO egress,
+  // so on that rule alone it would not have earned a split — but `agent_activity_visibility`
+  // already splits on a non-egress rationale, and the DEADLINE is what decided it: no worker
+  // holds `employer_sharing` today and E4 already owes a full re-consent, so this purpose
+  // costs one sentence in copy that does not yet exist if it lands now, and a SECOND
+  // re-consent over an already-opted-in base if it lands later. That is the `model_training`
+  // decision taken deliberately a second time.
+  //
+  // Dormant on arrival, and that is the house pattern rather than an exception: a purpose no
+  // client requests fails closed for every worker, so the relay routes stay shut until E4's
+  // notice copy ships and workers opt in. `employer_sharing`, `whatsapp_messaging`,
+  // `agent_activity_visibility` and `voice_processing` all held exactly this posture.
+  // Requesting it from a client is E4's work and must not happen before the copy.
+  "employer_messaging",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
