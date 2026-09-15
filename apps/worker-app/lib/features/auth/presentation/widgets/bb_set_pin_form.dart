@@ -33,8 +33,18 @@ const Key kSetPinConfirmFieldKey = Key('bb_set_pin_confirm_field');
 /// shows a COUNT (as a star per filled box). Both buffers are LOCAL widget
 /// state, dropped the moment they are handed to [onConfirmed].
 ///
-/// Owns the mismatch dialog end-to-end. [onConfirmed] fires exactly once, with
-/// the confirmed PIN, as soon as both rows are 4 digits and the two match.
+/// Owns the mismatch dialog end-to-end. In the default mode [onConfirmed] fires
+/// exactly once, with the confirmed PIN, as soon as both rows are 4 digits and
+/// the two match.
+///
+/// BUTTON MODE ([submitOnComplete] false) — the onboarding kit puts an explicit
+/// "Save PIN & Continue" under the rows, so nothing is sent until the worker
+/// presses it. A mismatch is still caught the moment the confirm row fills (a
+/// dialog after the tap would be a slower way to say the same thing); a match
+/// instead drops the keyboard and reports [onReadyChanged] true, and the caller's
+/// button calls [BbSetPinFormState.submit]. Editing either row afterwards reports
+/// false again, so the button can never submit a pair that no longer matches.
+/// Forgot-PIN keeps the default and is unchanged.
 /// There is NO strength gate here (#1464): any 4 digits the worker picks are
 /// accepted by this form.
 class BbSetPinForm extends StatefulWidget {
@@ -45,6 +55,12 @@ class BbSetPinForm extends StatefulWidget {
     required this.onConfirmed,
     this.busy = false,
     this.busyCaption = 'PIN set kar rahe hain…',
+    this.pinStyle = BbPinSlotStyle.josh,
+    this.labelStyle,
+    this.rowGap = AppSpacing.s7,
+    this.submitOnComplete = true,
+    this.onReadyChanged,
+    this.showBusySpinner = true,
   });
 
   /// Eyebrow label above the first row (e.g. 'PIN DAALEIN').
@@ -64,6 +80,26 @@ class BbSetPinForm extends StatefulWidget {
 
   final String busyCaption;
 
+  /// Which design the two rows wear. Defaults to the app-wide look.
+  final BbPinSlotStyle pinStyle;
+
+  /// Style for the two row labels. Null keeps the app-wide eyebrow.
+  final TextStyle? labelStyle;
+
+  /// Vertical space between the enter row and the confirm row.
+  final double rowGap;
+
+  /// True (default): a matching pair calls [onConfirmed] immediately. False:
+  /// the caller submits via [BbSetPinFormState.submit] — see the class doc.
+  final bool submitOnComplete;
+
+  /// Button mode only: whether both rows currently hold the SAME complete PIN.
+  final ValueChanged<bool>? onReadyChanged;
+
+  /// Whether [busy] also paints the spinner + caption under the rows. The
+  /// onboarding kit shows progress on its button instead.
+  final bool showBusySpinner;
+
   @override
   State<BbSetPinForm> createState() => BbSetPinFormState();
 }
@@ -77,6 +113,18 @@ class BbSetPinFormState extends State<BbSetPinForm> {
   /// True while an alert dialog is open, so a rapid tap or a rebuild can't
   /// stack a second dialog on top of the first.
   bool _dialogOpen = false;
+
+  /// Button mode: both rows hold the same complete PIN right now.
+  bool _ready = false;
+
+  /// Whether the caller may submit — both rows full and equal.
+  bool get isReady => _ready;
+
+  void _setReady(bool value) {
+    if (_ready == value) return;
+    _ready = value;
+    widget.onReadyChanged?.call(value);
+  }
 
   @override
   void initState() {
@@ -132,7 +180,18 @@ class BbSetPinFormState extends State<BbSetPinForm> {
 
   void _onFirstChanged() {
     setState(() {}); // repaint the row's boxes as digits land
-    if (_firstCtrl.text.length < kPinLength) return;
+    if (_firstCtrl.text.length < kPinLength) {
+      _setReady(false);
+      return;
+    }
+    // Button mode only: the worker went BACK and re-typed the first row while
+    // the confirm row was already full. Judge the pair again instead of jumping
+    // focus onto a row that is already complete. (The default mode submits the
+    // instant the pair matches, so it can never be in this state.)
+    if (!widget.submitOnComplete && _confirmCtrl.text.length == kPinLength) {
+      _onConfirmChanged();
+      return;
+    }
     // NO client-side strength gate (#1464 — owner ruling): the worker may pick
     // ANY 4 digits, 1234 and 1111 included. The screen used to hard-block a
     // guessable PIN here with a dialog; that is gone. The server still runs its
@@ -147,12 +206,32 @@ class BbSetPinFormState extends State<BbSetPinForm> {
 
   void _onConfirmChanged() {
     setState(() {});
-    if (_confirmCtrl.text.length < kPinLength) return;
+    if (_confirmCtrl.text.length < kPinLength) {
+      _setReady(false);
+      return;
+    }
     if (_confirmCtrl.text != _firstCtrl.text) {
+      _setReady(false);
       _mismatch();
       return;
     }
     final String pin = _firstCtrl.text;
+    _firstFocus.unfocus();
+    _confirmFocus.unfocus();
+    if (widget.submitOnComplete) {
+      widget.onConfirmed(pin);
+      return;
+    }
+    _setReady(true);
+  }
+
+  /// Button mode: hand the confirmed PIN to [BbSetPinForm.onConfirmed]. A no-op
+  /// unless both rows hold the same complete PIN at the moment of the tap — the
+  /// check is repeated here rather than trusted from [isReady], so a tap that
+  /// races an edit cannot submit a stale pair.
+  void submit() {
+    final String pin = _firstCtrl.text;
+    if (pin.length != kPinLength || _confirmCtrl.text != pin) return;
     _firstFocus.unfocus();
     _confirmFocus.unfocus();
     widget.onConfirmed(pin);
@@ -199,14 +278,14 @@ class BbSetPinFormState extends State<BbSetPinForm> {
           controller: _firstCtrl,
           focus: _firstFocus,
         ),
-        const SizedBox(height: AppSpacing.s7),
+        SizedBox(height: widget.rowGap),
         _row(
           label: widget.confirmLabel,
           fieldKey: kSetPinConfirmFieldKey,
           controller: _confirmCtrl,
           focus: _confirmFocus,
         ),
-        if (widget.busy) ...<Widget>[
+        if (widget.busy && widget.showBusySpinner) ...<Widget>[
           const SizedBox(height: AppSpacing.s6),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.s4),
@@ -225,7 +304,11 @@ class BbSetPinFormState extends State<BbSetPinForm> {
   }) {
     return Column(
       children: <Widget>[
-        Text(label, style: AppTypography.eyebrow(color: AppColors.textMuted)),
+        Text(
+          label,
+          style: widget.labelStyle ??
+              AppTypography.eyebrow(color: AppColors.textMuted),
+        ),
         const SizedBox(height: AppSpacing.s3),
         // NO GestureDetector wrapper. The capture field below spans the whole
         // row, so it takes every tap itself and focuses itself — an onTap here
@@ -243,6 +326,7 @@ class BbSetPinFormState extends State<BbSetPinForm> {
               // #1463 — this is what puts the ring and the caret on the row
               // the worker is actually typing into.
               focused: focus.hasFocus,
+              style: widget.pinStyle,
             ),
             // The real capture surface. TRANSPARENT, NOT COLLAPSED (#1463):
             // it used to be a 1x1 box under Opacity(0), which the OS could

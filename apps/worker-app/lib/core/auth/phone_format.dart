@@ -26,3 +26,26 @@ String toE164(String national) =>
 /// of.
 bool isCompleteNationalNumber(String national) =>
     national.replaceAll(RegExp(r'\D'), '').length == kNationalNumberDigits;
+
+/// DISPLAY ONLY: renders an Indian mobile the way the onboarding kit writes it,
+/// `+91 98765 43210`. Accepts E.164 (`+919876543210`) or the bare 10 digits.
+///
+/// Anything that is not a recognisable Indian mobile comes back UNCHANGED —
+/// an unfamiliar number shown as-is beats one silently reshaped into a
+/// different number.
+///
+/// NEVER send the result anywhere. The wire format is [toE164]; this string has
+/// spaces in it precisely because it is for human eyes.
+String formatIndianPhoneForDisplay(String phone) {
+  final String digits = phone.replaceAll(RegExp(r'\D'), '');
+  final String national;
+  if (digits.length == kNationalNumberDigits) {
+    national = digits;
+  } else if (digits.length == kNationalNumberDigits + 2 &&
+      digits.startsWith('91')) {
+    national = digits.substring(2);
+  } else {
+    return phone;
+  }
+  return '$kIndiaDialCode ${national.substring(0, 5)} ${national.substring(5)}';
+}

@@ -47,9 +47,10 @@
          throwing store to "no token" — defense in depth, because a backup can still
          be restored from an older install made while this flag was still on. -->
     <application
-        android:label="badabhai_worker_app"
+        android:label="Worker App"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_badabhai"
+        android:roundIcon="@mipmap/ic_launcher_badabhai_round"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="false">

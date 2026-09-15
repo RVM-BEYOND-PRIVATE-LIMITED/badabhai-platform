@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/widgets/bb_chip.dart';
-import '../../../../core/widgets/bb_toggle.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../domain/finishing_models.dart';
+import 'finishing_controls.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs. Scanned by
 // persona_neutrality_test.dart. ----
@@ -29,6 +26,7 @@ const String _kWorkHint = 'Jaise: Naye parts banate the aur quality check karte 
 const String _kNotStated = 'Nahi bataya';
 const String _kPickYear = 'Saal chunein';
 const String _kPickMonth = 'Mahina chunein';
+const String _kRemove = 'Hataayein';
 
 const int _kWorkDoneMax = 300;
 
@@ -37,9 +35,17 @@ const List<String> _kMonths = <String>[
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-/// A themed text field for the finishing form — the app has no wrapped field
-/// widget, so this mirrors the shared filled-surface decoration used elsewhere.
-/// A persistent [Semantics] label keeps TalkBack meaningful after the hint
+/// The kit's form-field label — Inter, muted, sentence case (these labels are
+/// whole questions, so the kit's uppercase micro-label would hurt reading).
+TextStyle finishingFieldLabelStyle() => OnboardingTypography.inter(
+      size: 13,
+      weight: FontWeight.w600,
+      color: OnboardingColors.ink600,
+    );
+
+/// A themed text field for the finishing form, in the master kit's input
+/// style: white, 48px floor, 10 radius, `borderDefault` hairline, yellow focus
+/// ring. A persistent [Semantics] label keeps TalkBack meaningful after the hint
 /// disappears on input (low-literacy accessibility).
 class FinishingTextField extends StatelessWidget {
   const FinishingTextField({
@@ -65,6 +71,12 @@ class FinishingTextField extends StatelessWidget {
   final int? maxLength;
   final int maxLines;
 
+  static OutlineInputBorder _border(Color color, double width) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
+        borderSide: BorderSide(color: color, width: width),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -78,24 +90,23 @@ class FinishingTextField extends StatelessWidget {
         keyboardType: keyboardType,
         maxLength: maxLength,
         maxLines: maxLines,
-        style: AppTypography.body(size: AppTypography.sizeBase),
+        cursorColor: OnboardingColors.shiftBlue,
+        style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
         decoration: InputDecoration(
           hintText: hint,
           filled: true,
-          fillColor: AppColors.surfaceCard,
+          fillColor: OnboardingColors.paperWhite,
           counterText: maxLength == null ? null : '',
-          hintStyle: AppTypography.body(
-              size: AppTypography.sizeBase, color: AppColors.textFaint),
-          contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.borderSubtle),
+          hintStyle: OnboardingTypography.inter(
+              size: 14, color: OnboardingColors.ink500),
+          constraints: const BoxConstraints(
+            minHeight: OnboardingLayout.tapTarget,
           ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
-          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          border: _border(OnboardingColors.borderDefault, 1.2),
+          enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
+          focusedBorder: _border(OnboardingColors.borderActive, 1.5),
         ),
       ),
     );
@@ -103,7 +114,7 @@ class FinishingTextField extends StatelessWidget {
 }
 
 /// One repeating employer card (#1296) — the only page with typing. Company name
-/// + role are required; city/state, a month-only start/end, and a short work
+/// + role are required; state/city, a month-only start/end, and a short work
 /// summary are optional. "Abhi yahin kaam kar rahe hain" maps to `end_ym: null`
 /// (current), never a missing answer.
 class EmployerCard extends StatefulWidget {
@@ -171,119 +182,134 @@ class _EmployerCardState extends State<EmployerCard> {
   Widget build(BuildContext context) {
     final EmploymentEntry e = widget.entry;
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 16),
       decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        border: Border.all(color: AppColors.borderSubtle),
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: widget.onRemove,
-              icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
-              tooltip: 'Hataayein',
-              constraints:
-                  const BoxConstraints(minWidth: AppSpacing.tap, minHeight: 32),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-          _label(_kNameLabel),
-          FinishingTextField(
-            controller: _name,
-            hint: _kNameHint,
-            label: _kNameLabel,
-            onChanged: (v) => _push(e.copyWith(employerName: v)),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kRoleLabel),
-          FinishingTextField(
-            controller: _role,
-            hint: _kRoleHint,
-            label: _kRoleLabel,
-            onChanged: (v) => _push(e.copyWith(roleLabel: v)),
-          ),
-          const SizedBox(height: AppSpacing.s3),
+          // The first label shares its row with the remove control, so the 48px
+          // remove target costs no extra height of its own.
           Row(
             children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _label(_kCityLabel),
-                    FinishingTextField(
-                      controller: _city,
-                      hint: _kCityLabel,
-                      label: _kCityLabel,
-                      onChanged: (v) => _push(e.copyWith(employerCity: v)),
-                    ),
-                  ],
+              Expanded(child: Text(_kNameLabel, style: finishingFieldLabelStyle())),
+              IconButton(
+                onPressed: widget.onRemove,
+                icon: const Icon(Icons.close_rounded,
+                    size: 20, color: OnboardingColors.ink600),
+                tooltip: _kRemove,
+                constraints: const BoxConstraints(
+                  minWidth: OnboardingLayout.tapTarget,
+                  minHeight: OnboardingLayout.tapTarget,
                 ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _label(_kStateLabel),
-                    FinishingTextField(
-                      controller: _state,
-                      hint: _kStateLabel,
-                      label: _kStateLabel,
-                      textInputAction: TextInputAction.done,
-                      onChanged: (v) => _push(e.copyWith(employerState: v)),
-                    ),
-                  ],
-                ),
+                padding: EdgeInsets.zero,
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kStartLabel),
-          _YearMonthField(
-            value: e.startYm,
-            onPicked: (String? ym) => _push(e.copyWith(startYm: ym)),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(_kStillWorking,
-                    style: AppTypography.body(size: AppTypography.sizeSm)),
-              ),
-              BbToggle(
-                value: _stillWorking,
-                semanticLabel: _kStillWorking,
-                onChanged: (bool on) {
-                  setState(() => _stillWorking = on);
-                  // "Still working" is end_ym: null; turning it off clears the
-                  // end so the picker starts empty (a real end month, if given).
-                  _push(e.copyWith(endYm: null));
-                },
-              ),
-            ],
-          ),
-          if (!_stillWorking) ...<Widget>[
-            const SizedBox(height: AppSpacing.s1),
-            _label(_kEndLabel),
-            _YearMonthField(
-              value: e.endYm,
-              onPicked: (String? ym) => _push(e.copyWith(endYm: ym)),
+          // Everything below the header row keeps the card's 16px right inset
+          // (the row above uses 8 so the close glyph sits near the corner).
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                FinishingTextField(
+                  controller: _name,
+                  hint: _kNameHint,
+                  label: _kNameLabel,
+                  onChanged: (v) => _push(e.copyWith(employerName: v)),
+                ),
+                const SizedBox(height: 14),
+                _label(_kRoleLabel),
+                FinishingTextField(
+                  controller: _role,
+                  hint: _kRoleHint,
+                  label: _kRoleLabel,
+                  onChanged: (v) => _push(e.copyWith(roleLabel: v)),
+                ),
+                const SizedBox(height: 14),
+                // Master spec: State (Rajya) ALWAYS precedes Sheher (City).
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _label(_kStateLabel),
+                          FinishingTextField(
+                            controller: _state,
+                            hint: _kStateLabel,
+                            label: _kStateLabel,
+                            onChanged: (v) =>
+                                _push(e.copyWith(employerState: v)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _label(_kCityLabel),
+                          FinishingTextField(
+                            controller: _city,
+                            hint: _kCityLabel,
+                            label: _kCityLabel,
+                            // Last text field of the pair now, so it closes
+                            // the keyboard (the next control is a picker).
+                            textInputAction: TextInputAction.done,
+                            onChanged: (v) =>
+                                _push(e.copyWith(employerCity: v)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _label(_kStartLabel),
+                _YearMonthField(
+                  value: e.startYm,
+                  onPicked: (String? ym) => _push(e.copyWith(startYm: ym)),
+                ),
+                const SizedBox(height: 14),
+                FinishingToggleRow(
+                  label: _kStillWorking,
+                  value: _stillWorking,
+                  color: OnboardingColors.chipBg,
+                  onChanged: (bool on) {
+                    setState(() => _stillWorking = on);
+                    // "Still working" is end_ym: null; turning it off clears the
+                    // end so the picker starts empty (a real end month, if given).
+                    _push(e.copyWith(endYm: null));
+                  },
+                ),
+                if (!_stillWorking) ...<Widget>[
+                  const SizedBox(height: 14),
+                  _label(_kEndLabel),
+                  _YearMonthField(
+                    value: e.endYm,
+                    onPicked: (String? ym) => _push(e.copyWith(endYm: ym)),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                _label(_kWorkLabel),
+                FinishingTextField(
+                  controller: _work,
+                  hint: _kWorkHint,
+                  label: _kWorkLabel,
+                  maxLength: _kWorkDoneMax,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.newline,
+                  onChanged: (v) => _push(e.copyWith(workDone: v)),
+                ),
+              ],
             ),
-          ],
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kWorkLabel),
-          FinishingTextField(
-            controller: _work,
-            hint: _kWorkHint,
-            label: _kWorkLabel,
-            maxLength: _kWorkDoneMax,
-            maxLines: 3,
-            textInputAction: TextInputAction.newline,
-            onChanged: (v) => _push(e.copyWith(workDone: v)),
           ),
         ],
       ),
@@ -291,10 +317,8 @@ class _EmployerCardState extends State<EmployerCard> {
   }
 
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.s1),
-        child: Text(text,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, weight: FontWeight.w700)),
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text, style: finishingFieldLabelStyle()),
       );
 }
 
@@ -321,39 +345,55 @@ class _YearMonthField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool set = value != null;
-    return InkWell(
-      onTap: () => _open(context),
-      borderRadius: BorderRadius.circular(AppRadii.md),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: AppSpacing.tap),
-        padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          border: Border.all(color: AppColors.borderSubtle),
-        ),
-        child: Row(
-          children: <Widget>[
-            const Icon(Icons.event_outlined,
-                size: 20, color: AppColors.textMuted),
-            const SizedBox(width: AppSpacing.s2),
-            Expanded(
-              child: Text(
-                _display(),
-                style: AppTypography.body(
-                  size: AppTypography.sizeBase,
-                  color: set ? AppColors.textPrimary : AppColors.textFaint,
+    final BorderRadius radius =
+        BorderRadius.circular(OnboardingRadii.nameField);
+    return Material(
+      color: OnboardingColors.paperWhite,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: const BorderSide(color: OnboardingColors.borderDefault, width: 1.2),
+      ),
+      child: InkWell(
+        onTap: () => _open(context),
+        borderRadius: radius,
+        child: ConstrainedBox(
+          constraints:
+              const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
+          child: Padding(
+            padding: EdgeInsets.only(left: 14, right: set ? 0 : 14),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.event_outlined,
+                    size: 20, color: OnboardingColors.ink600),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      _display(),
+                      style: set
+                          ? OnboardingTypography.inter(
+                              size: 14, weight: FontWeight.w500)
+                          : OnboardingTypography.inter(
+                              size: 14, color: OnboardingColors.ink500),
+                    ),
+                  ),
                 ),
-              ),
+                if (set)
+                  IconButton(
+                    onPressed: () => onPicked(null),
+                    tooltip: _kRemove,
+                    icon: const Icon(Icons.close_rounded,
+                        size: 18, color: OnboardingColors.ink600),
+                    constraints: const BoxConstraints(
+                      minWidth: OnboardingLayout.tapTarget,
+                      minHeight: OnboardingLayout.tapTarget,
+                    ),
+                    padding: EdgeInsets.zero,
+                  ),
+              ],
             ),
-            if (set)
-              GestureDetector(
-                onTap: () => onPicked(null),
-                child: const Icon(Icons.close,
-                    size: 18, color: AppColors.textMuted),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -362,10 +402,11 @@ class _YearMonthField extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final String? picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: OnboardingColors.paperWhite,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg)),
+        borderRadius:
+            BorderRadius.vertical(top: Radius.circular(OnboardingRadii.card)),
       ),
       builder: (BuildContext ctx) => const _YearMonthSheet(),
     );
@@ -392,41 +433,48 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, AppSpacing.s5,
-            AppSpacing.gutter, AppSpacing.s5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(_year == null ? _kPickYear : _kPickMonth,
-                style: AppTypography.display(size: AppTypography.sizeLg)),
-            const SizedBox(height: AppSpacing.s4),
-            if (_year == null)
-              Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
-                children: <Widget>[
-                  for (int y = _latestYear; y > _latestYear - _span; y--)
-                    BbChip(
-                      label: '$y',
-                      onTap: () => setState(() => _year = y),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        child: Center(
+          heightFactor: 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: OnboardingLayout.maxContentWidth,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Text(_year == null ? _kPickYear : _kPickMonth,
+                    style: OnboardingTypography.anek(size: 18)),
+                const SizedBox(height: 14),
+                // 45 year chips are taller than a small handset: the grid
+                // scrolls inside the sheet instead of overflowing it.
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: <Widget>[
+                        if (_year == null)
+                          for (int y = _latestYear; y > _latestYear - _span; y--)
+                            FinishingChip(
+                              label: '$y',
+                              onTap: () => setState(() => _year = y),
+                            )
+                        else
+                          for (int m = 1; m <= 12; m++)
+                            FinishingChip(
+                              label: _kMonths[m - 1],
+                              onTap: () => Navigator.of(context).pop(
+                                  '${_year!}-${m.toString().padLeft(2, '0')}'),
+                            ),
+                      ],
                     ),
-                ],
-              )
-            else
-              Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
-                children: <Widget>[
-                  for (int m = 1; m <= 12; m++)
-                    BbChip(
-                      label: _kMonths[m - 1],
-                      onTap: () => Navigator.of(context).pop(
-                          '${_year!}-${m.toString().padLeft(2, '0')}'),
-                    ),
-                ],
-              ),
-          ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

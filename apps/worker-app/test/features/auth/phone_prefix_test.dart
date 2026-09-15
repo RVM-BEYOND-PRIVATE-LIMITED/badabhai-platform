@@ -65,13 +65,23 @@ void main() {
     ) async {
       await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
 
-      // Rendered by the field, not held in the controller.
-      expect(find.text('+91 '), findsOneWidget);
+      // Rendered as a separate Text beside the single field, not held in the
+      // controller and not part of the field's own subtree.
+      final Finder prefix = find.text('+91');
+      expect(prefix, findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(TextField), matching: prefix),
+        findsNothing,
+      );
+      final TextField field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isEmpty);
 
       // A worker mashing backspace on an empty field cannot remove it.
       await tester.enterText(find.byType(TextField), '');
       await tester.pump();
-      expect(find.text('+91 '), findsOneWidget);
+      expect(prefix, findsOneWidget);
+      expect(field.controller!.text, isNot(contains('+91')));
     });
 
     testWidgets('accepts digits only, capped at 10', (

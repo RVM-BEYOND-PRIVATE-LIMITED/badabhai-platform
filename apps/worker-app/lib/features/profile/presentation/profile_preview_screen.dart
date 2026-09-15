@@ -1,21 +1,30 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/education_label.dart';
-import '../../../core/widgets/bb_app_bar.dart';
-import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bottom_bar_inset.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
 import 'cubit/profile_cubit.dart';
+
+/// Corner radius of one confirm-row card (Master UI Kit: "white r14 cards").
+const double _kConfirmRowRadius = 14;
+
+/// Corner radius of the outlined secondary button — matches the 12px radius of
+/// [QuestionnaireBottomBar]'s yellow next button it sits beside.
+const double _kSecondaryButtonRadius = 12;
 
 class ProfilePreviewScreen extends StatelessWidget {
   const ProfilePreviewScreen({super.key});
@@ -29,8 +38,58 @@ class ProfilePreviewScreen extends StatelessWidget {
   }
 }
 
-class _ProfileView extends StatelessWidget {
+/// Stateful ONLY to own the bottom-bar measurement for the Feedback FAB inset.
+///
+/// #1071 — this screen used to sit in a [BbScaffold], which measured its bottom
+/// bar and published the height to [bottomBarInset] so the app-wide Feedback
+/// FAB (shown on this route) floats clear of the confirm actions. The kit layout
+/// needs a raw [Scaffold] (full-bleed Shift Blue header, canvas background, the
+/// kit's own docked white bar), so the same measure-and-publish discipline is
+/// kept here — copied from `BbScaffold._publishInset`, exactly as
+/// `ChatProfilingScreen` does for #1364.
+class _ProfileView extends StatefulWidget {
   const _ProfileView();
+
+  @override
+  State<_ProfileView> createState() => _ProfileViewState();
+}
+
+class _ProfileViewState extends State<_ProfileView> {
+  /// Anchors the docked bottom bar so its rendered height can be measured.
+  final GlobalKey _bottomBarKey = GlobalKey();
+
+  /// Whether the previous build carried the bottom bar; `null` before the first
+  /// build. Mirrors BbScaffold's rule: publish on the first build, then only
+  /// while a bar is shown or on the build that removes it — a no-bar → no-bar
+  /// rebuild writes nothing.
+  bool? _hadBottomBar;
+
+  @override
+  void dispose() {
+    // This page is leaving; stop claiming its bottom-bar height. DEFERRED to
+    // after the frame, same reason as `BbScaffold.dispose`: writing the
+    // (listened) notifier synchronously here would markNeedsBuild the FAB
+    // overlay mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) => bottomBarInset.value = 0);
+    super.dispose();
+  }
+
+  /// Publishes this page's bottom-bar height to [bottomBarInset] (0 when it has
+  /// none). The FAB adds the system safe-area inset itself, while
+  /// [QuestionnaireBottomBar] paints that inset inside its own box — so it is
+  /// subtracted here, keeping the published value "above the safe area" exactly
+  /// as BbScaffold's measurement was.
+  void _syncBottomInset({required bool hasBar, required double systemInset}) {
+    final bool? hadBar = _hadBottomBar;
+    _hadBottomBar = hasBar;
+    if (hadBar != null && !hasBar && !hadBar) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final double measured = _bottomBarKey.currentContext?.size?.height ?? 0;
+      bottomBarInset.value =
+          hasBar ? math.max(0, measured - systemInset) : 0;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,82 +131,84 @@ class _ProfileView extends StatelessWidget {
       builder: (BuildContext context, ProfileState state) {
         final bool isReady = state.status == ProfileStatus.ready ||
             state.status == ProfileStatus.confirmed;
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Your profile'),
-          // Kit 04 CONFIRM actions: [Badlo outline] + [Haan, sahi hai primary].
-          // "Badlo" routes back to the chat to change details (the app's edit
-          // path); "Haan, sahi hai" confirms + generates the resume.
-          bottomBar: isReady
-              ? Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: BbButton(
-                        label: 'Badlo',
-                        variant: BbButtonVariant.outline,
-                        block: true,
-                        onPressed: () => _backToChat(context),
-                      ),
+        _syncBottomInset(
+          hasBar: isReady,
+          systemInset: MediaQuery.paddingOf(context).bottom,
+        );
+        // Back arrow exactly when the old AppBar implied one (the route can be
+        // dismissed), doing exactly what its back button did.
+        final bool canGoBack =
+            ModalRoute.of(context)?.impliesAppBarDismissal ?? false;
+        return Scaffold(
+          backgroundColor: OnboardingColors.canvasBg,
+          body: Column(
+            children: <Widget>[
+              ShiftBlueHeader(
+                // The ready view asks its question in the header; every other
+                // status keeps the screen's plain title.
+                title: isReady ? 'Yeh sahi hai?' : 'Your profile',
+                subtitle:
+                    isReady ? 'Neeche di gayi jaankari confirm karein.' : null,
+                onBack: canGoBack ? () => Navigator.maybePop(context) : null,
+              ),
+              Expanded(
+                child: SafeArea(
+                  top: false,
+                  child: switch (state.status) {
+                    ProfileStatus.extracting => _buildWaiting(),
+                    // #1344 (scoped) — the brief post-confirm trade-form
+                    // pre-check. A plain spinner with no caption, the same
+                    // content the shared status view's loading mode showed —
+                    // no new status copy is invented for it.
+                    ProfileStatus.routing => const _ProgressPanel(),
+                    ProfileStatus.failed => _buildFailed(context, state),
+                    ProfileStatus.draft => _buildDraft(context),
+                    ProfileStatus.ready ||
+                    ProfileStatus.confirmed =>
+                      _buildProfile(context, state.summary),
+                  },
+                ),
+              ),
+            ],
+          ),
+          // Kit 04 CONFIRM actions: [Badlo outline] + [Haan, sahi hai primary],
+          // docked outside the scroll. "Badlo" routes back to the chat to change
+          // details (the app's edit path); "Haan, sahi hai" confirms + generates
+          // the resume. No SUNIE listen button — this screen has no audio.
+          bottomNavigationBar: isReady
+              ? KeyedSubtree(
+                  key: _bottomBarKey,
+                  child: QuestionnaireBottomBar(
+                    nextLabel: 'Haan, sahi hai',
+                    // #360 — on 2G this request can run the full 15s timeout.
+                    // An unbound button looked dead, so the worker tapped
+                    // repeatedly at the last step of the flow and gave up.
+                    isLoading: state.confirming,
+                    onNext: context.read<ProfileCubit>().confirm,
+                    leading: _SecondaryButton(
+                      label: 'Badlo',
+                      onPressed: () => _backToChat(context),
                     ),
-                    const SizedBox(width: AppSpacing.s3),
-                    Expanded(
-                      flex: 2,
-                      child: BbButton(
-                        label: 'Haan, sahi hai',
-                        block: true,
-                        // #360 — on 2G this request can run the full 15s timeout.
-                        // An unbound button looked dead, so the worker tapped
-                        // repeatedly at the last step of the flow and gave up.
-                        loading: state.confirming,
-                        onPressed: context.read<ProfileCubit>().confirm,
-                      ),
-                    ),
-                  ],
+                  ),
                 )
               : null,
-          body: switch (state.status) {
-            ProfileStatus.extracting => _buildWaiting(),
-            // #1344 (scoped) — the brief post-confirm trade-form pre-check.
-            // Reuses BbStatusView's own spinner mode rather than inventing a
-            // new loading widget, matching how `failed`/`draft` already reuse
-            // BbStatusView for this screen's other status views.
-            ProfileStatus.routing => const BbStatusView.loading(),
-            ProfileStatus.failed => _buildFailed(context, state),
-            ProfileStatus.draft => _buildDraft(context),
-            ProfileStatus.ready ||
-            ProfileStatus.confirmed =>
-              _buildProfile(context, state.summary),
-          },
         );
       },
     );
   }
 
   Widget _buildWaiting() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const CircularProgressIndicator(),
-          const SizedBox(height: AppSpacing.s6),
-          Text(
-            'Bada Bhai is preparing your profile…',
-            textAlign: TextAlign.center,
-            style: AppTypography.display(size: AppTypography.sizeMd),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'This takes a few seconds. Please wait.',
-            textAlign: TextAlign.center,
-            style: AppTypography.body(color: AppColors.textSecondary),
-          ),
-        ],
-      ),
+    return const _ProgressPanel(
+      title: 'Bada Bhai is preparing your profile…',
+      caption: 'This takes a few seconds. Please wait.',
     );
   }
 
   Widget _buildFailed(BuildContext context, ProfileState state) {
-    return BbStatusView(
+    return _StatusPanel(
       icon: failureReason(state.failure).icon,
+      iconColor: OnboardingColors.errorRed,
+      iconBackground: OnboardingColors.errorBg,
       title: 'Profile taiyaar nahi ho payi.',
       subtitle: failureReason(state.failure).reason,
       // TWO ways out, never a dead-end loop. "Try again" re-runs extraction —
@@ -156,25 +217,20 @@ class _ProfileView extends StatelessWidget {
       // AI-down job that never yields a profile), and re-running would loop
       // forever with no progress. So the worker always has the honest escape:
       // back to chat to add more detail (which #502 redraws intact).
-      action: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          BbButton(
-            label: 'Try again',
-            block: true,
-            iconLeft: Icons.refresh_rounded,
-            onPressed: context.read<ProfileCubit>().extract,
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          BbButton(
-            label: 'Chat pe wapas jaayein',
-            block: true,
-            variant: BbButtonVariant.ghost,
-            iconLeft: Icons.chat_bubble_outline,
-            onPressed: () => _backToChat(context),
-          ),
-        ],
-      ),
+      actions: <Widget>[
+        PrimaryActionButton(
+          label: 'Try again',
+          showArrow: false,
+          onPressed: context.read<ProfileCubit>().extract,
+        ),
+        const SizedBox(height: 12),
+        _SecondaryButton(
+          label: 'Chat pe wapas jaayein',
+          icon: Icons.chat_bubble_outline,
+          expand: true,
+          onPressed: () => _backToChat(context),
+        ),
+      ],
     );
   }
 
@@ -183,17 +239,20 @@ class _ProfileView extends StatelessWidget {
   /// draft confirmed becomes a near-empty resume. Be honest about why, and route
   /// the worker back to chat to say more (their transcript is redrawn by #502).
   Widget _buildDraft(BuildContext context) {
-    return BbStatusView(
+    return _StatusPanel(
       icon: Icons.edit_note_outlined,
+      iconColor: OnboardingColors.shiftBlue,
+      iconBackground: OnboardingColors.cardIconBg,
       title: 'Thodi aur detail chahiye.',
       subtitle: 'Bada Bhai aapki poori profile banane ke liye thoda aur jaanna '
           'chahta hai. Chaliye do-teen baatein aur bata dijiye.',
-      action: BbButton(
-        label: 'Chat pe wapas jaayein',
-        block: true,
-        iconLeft: Icons.chat_bubble_outline,
-        onPressed: () => _backToChat(context),
-      ),
+      actions: <Widget>[
+        PrimaryActionButton(
+          label: 'Chat pe wapas jaayein',
+          showArrow: false,
+          onPressed: () => _backToChat(context),
+        ),
+      ],
     );
   }
 
@@ -210,16 +269,17 @@ class _ProfileView extends StatelessWidget {
   }
 
   /// Renders the REAL extracted profile read back from the summary route, as the
-  /// kit 04 CONFIRM sheet content: a "Yeh sahi hai?" title over label→value rows,
-  /// each editable row carrying an edit glyph (tap → back to chat to change it).
-  /// Every value is actual data or an honest "being finalised" note — never a
-  /// fabricated placeholder (the worker confirms what they can actually see).
+  /// kit 04 CONFIRM content: the "Yeh sahi hai?" question lives in the header,
+  /// over one card per label→value fact, each editable card carrying an edit
+  /// glyph (tap → back to chat to change it). Every value is actual data or an
+  /// honest "being finalised" note — never a fabricated placeholder (the worker
+  /// confirms what they can actually see).
   Widget _buildProfile(BuildContext context, ProfileSummary? summary) {
     final List<Widget> rows = <Widget>[];
     if (summary == null) {
       // Extraction succeeded but the summary read missed. Be honest — no fake
       // rows — and still let the worker confirm (the profile does exist).
-      rows.add(const _ConfirmRow(label: 'Profile', value: 'Ready', last: true));
+      rows.add(const _ConfirmRow(label: 'Profile', value: 'Ready'));
     } else {
       final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
           ? summary.tradeLabel!
@@ -242,44 +302,33 @@ class _ProfileView extends StatelessWidget {
         if (education != null)
           (label: 'Education', value: education, editable: true),
       ];
-      for (int i = 0; i < specs.length; i++) {
-        final ({String label, String value, bool editable}) s = specs[i];
+      for (final ({String label, String value, bool editable}) s in specs) {
         rows.add(_ConfirmRow(
           label: s.label,
           value: s.value,
-          last: i == specs.length - 1,
           onEdit: s.editable ? () => _backToChat(context) : null,
         ));
       }
     }
 
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
-      children: <Widget>[
-        Text('Yeh sahi hai?',
-            style: AppTypography.display(
-                size: AppTypography.sizeLg, color: AppColors.blue)),
-        const SizedBox(height: AppSpacing.s2),
-        Text('Neeche di gayi jaankari confirm karein.',
-            style: AppTypography.body(color: AppColors.textSecondary)),
-        const SizedBox(height: AppSpacing.s4),
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.surfaceCard,
-            border: Border.all(color: AppColors.borderSubtle),
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
-          child: Column(children: rows),
-        ),
-        if (summary == null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          Text(
-            'Details abhi dikh nahi paa rahe — aap confirm karke aage badh sakte hain.',
-            style: AppTypography.body(color: AppColors.textSecondary),
-          ),
+    return OnboardingBody(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          for (int i = 0; i < rows.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: 10),
+            rows[i],
+          ],
+          if (summary == null) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(
+              'Details abhi dikh nahi paa rahe — aap confirm karke aage badh sakte hain.',
+              style: OnboardingTypography.bodyMuted(),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -295,72 +344,235 @@ String? _educationLabel(ProfileSummary s) {
   return parts.isEmpty ? null : parts.join(' • ');
 }
 
-/// One kit 04 CONFIRM sheet row: `label` on the left, `value` on the right with
-/// an optional edit glyph. A bottom hairline separates rows (the design system's
-/// only separation tool) except on the [last] row. When [onEdit] is set the whole
-/// row is the tap target (≥48px), routing back to the chat to change the fact.
+/// One kit 04 CONFIRM fact as its own white r14 card with a `borderDefault`
+/// hairline: the `label` as a field micro-label over the `value`, with an
+/// optional edit glyph. When [onEdit] is set the whole card is the tap target
+/// (≥48px), routing back to the chat to change the fact.
 class _ConfirmRow extends StatelessWidget {
   const _ConfirmRow({
     required this.label,
     required this.value,
     this.onEdit,
-    this.last = false,
   });
 
   final String label;
   final String value;
   final VoidCallback? onEdit;
-  final bool last;
 
   @override
   Widget build(BuildContext context) {
-    final Widget row = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: AppSpacing.tap),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s3),
-        decoration: last
-            ? null
-            : const BoxDecoration(
-                border: Border(
-                    bottom: BorderSide(color: AppColors.divider)),
-              ),
+    final Widget content = ConstrainedBox(
+      constraints:
+          const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
-            Text(label,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    color: AppColors.textSecondary)),
-            const SizedBox(width: AppSpacing.s3),
-            Flexible(
-              child: Row(
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: <Widget>[
-                  Flexible(
-                    child: Text(value,
-                        textAlign: TextAlign.end,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.body(
-                            size: AppTypography.sizeMd,
-                            weight: FontWeight.w600)),
+                  Text(label, style: OnboardingTypography.fieldMicroLabel()),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: OnboardingTypography.inter(
+                      size: 16,
+                      weight: FontWeight.w600,
+                      height: 1.3,
+                    ),
                   ),
-                  if (onEdit != null) ...<Widget>[
-                    const SizedBox(width: AppSpacing.s2),
-                    const Icon(Icons.edit, size: 16, color: AppColors.blue),
-                  ],
                 ],
               ),
             ),
+            if (onEdit != null) ...<Widget>[
+              const SizedBox(width: 12),
+              const Icon(
+                Icons.edit,
+                size: 18,
+                color: OnboardingColors.shiftBlue,
+              ),
+            ],
           ],
         ),
       ),
     );
 
-    if (onEdit == null) return row;
-    return InkWell(onTap: onEdit, child: row);
+    return Material(
+      color: OnboardingColors.paperWhite,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_kConfirmRowRadius),
+        side: const BorderSide(color: OnboardingColors.borderDefault),
+      ),
+      child: onEdit == null ? content : InkWell(onTap: onEdit, child: content),
+    );
   }
 }
 
+/// The kit's white outlined secondary action: shiftBlue border, r12, 48px tall,
+/// shiftBlue Anek label (and optional leading icon). Sized to its label unless
+/// [expand], so it can sit as [QuestionnaireBottomBar.leading] beside the yellow
+/// next button.
+class _SecondaryButton extends StatelessWidget {
+  const _SecondaryButton({
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.expand = false,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final IconData? icon;
+  final bool expand;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: SizedBox(
+        height: OnboardingLayout.tapTarget,
+        width: expand ? double.infinity : null,
+        child: OutlinedButton(
+          // Same light haptic the replaced BbButton fired on every variant.
+          onPressed: () {
+            HapticFeedback.lightImpact();
+            onPressed();
+          },
+          style: OutlinedButton.styleFrom(
+            backgroundColor: OnboardingColors.paperWhite,
+            foregroundColor: OnboardingColors.shiftBlue,
+            side: const BorderSide(color: OnboardingColors.shiftBlue, width: 1.5),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            minimumSize: const Size(OnboardingLayout.tapTarget,
+                OnboardingLayout.tapTarget),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_kSecondaryButtonRadius),
+            ),
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (icon != null) ...<Widget>[
+                  Icon(icon, size: 20, color: OnboardingColors.shiftBlue),
+                  const SizedBox(width: 8),
+                ],
+                Text(label, style: OnboardingTypography.buttonLabel()),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A centred shiftBlue spinner with an optional [title] and [caption] beneath —
+/// the extracting and routing views. Scrolls, so a large system font on a small
+/// phone never overflows.
+class _ProgressPanel extends StatelessWidget {
+  const _ProgressPanel({this.title, this.caption});
+
+  final String? title;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingBody(
+      fillViewport: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          const CircularProgressIndicator(
+            color: OnboardingColors.shiftBlue,
+            strokeWidth: 3,
+          ),
+          if (title != null) ...<Widget>[
+            const SizedBox(height: 24),
+            Text(
+              title!,
+              textAlign: TextAlign.center,
+              style: OnboardingTypography.questionHeadline(
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+          ],
+          if (caption != null) ...<Widget>[
+            const SizedBox(height: 8),
+            Text(
+              caption!,
+              textAlign: TextAlign.center,
+              style: OnboardingTypography.bodyMuted(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A centred icon disc + title + subtitle + actions — the failed and draft
+/// views, in kit colours. Scrolls, so it never overflows on a small phone.
+class _StatusPanel extends StatelessWidget {
+  const _StatusPanel({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBackground,
+    required this.title,
+    required this.subtitle,
+    required this.actions,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBackground;
+  final String title;
+  final String subtitle;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return OnboardingBody(
+      fillViewport: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Center(
+            child: Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: iconBackground,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 36, color: iconColor),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: OnboardingTypography.questionHeadline(
+              color: OnboardingColors.shiftBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: OnboardingTypography.body(color: OnboardingColors.ink600),
+          ),
+          const SizedBox(height: 24),
+          ...actions,
+        ],
+      ),
+    );
+  }
+}

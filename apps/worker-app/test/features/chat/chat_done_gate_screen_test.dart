@@ -154,9 +154,11 @@ void main() {
 
       expect(tester.getSize(find.text(kChatDoneNotReadyLabel)).height,
           greaterThan(0));
+      // The not-ready CTA is now the kit's yellow PrimaryActionButton, which
+      // is an ElevatedButton (it was a secondary OutlinedButton before).
       final Finder cta = find.ancestor(
         of: find.text(kChatDoneNotReadyLabel),
-        matching: find.byType(OutlinedButton),
+        matching: find.byType(ElevatedButton),
       );
       expect(tester.getSize(cta).height, greaterThanOrEqualTo(48));
 

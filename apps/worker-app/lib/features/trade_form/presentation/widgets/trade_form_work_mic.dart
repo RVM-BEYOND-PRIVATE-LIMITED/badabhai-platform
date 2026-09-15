@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/error/failure.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
 import '../../domain/spoken_work_description.dart';
 
@@ -149,11 +147,13 @@ class _TradeFormWorkMicState extends State<TradeFormWorkMic> {
       _MicPhase.working => kWorkMicWorkingLabel,
     };
     final bool live = _phase == _MicPhase.recording;
+    final Color ink =
+        live ? OnboardingColors.errorRed : OnboardingColors.shiftBlue;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const SizedBox(height: AppSpacing.s2),
+        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
@@ -163,33 +163,27 @@ class _TradeFormWorkMicState extends State<TradeFormWorkMic> {
                 : null,
             icon: Icon(
               live ? Icons.stop_circle_rounded : Icons.mic_rounded,
-              color: live ? AppColors.danger : AppColors.blue,
+              color: ink,
             ),
             label: Text(
               label,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
+              style: OnboardingTypography.inter(
+                size: 13,
                 weight: FontWeight.w600,
-                color: live ? AppColors.danger : AppColors.blue,
+                color: ink,
               ),
             ),
             style: TextButton.styleFrom(
               // The worker tap floor; a mic that is hard to hit is no mic.
-              minimumSize: const Size(0, AppSpacing.tap),
+              minimumSize: const Size(0, OnboardingLayout.tapTarget),
             ),
           ),
         ),
         if (_note != null)
           Padding(
             key: kWorkMicStatusKey,
-            padding: const EdgeInsets.only(top: AppSpacing.s1),
-            child: Text(
-              _note!,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
-              ),
-            ),
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(_note!, style: OnboardingTypography.bodyMuted()),
           ),
       ],
     );

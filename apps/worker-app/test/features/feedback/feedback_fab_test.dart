@@ -5,9 +5,10 @@ import 'package:badabhai_worker_app/router.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 /// The floating Feedback button hides on the MINIMUM set: the pre-login auth
-/// screens (login, OTP, PIN — no session token yet), the splash, and the feedback
-/// page itself (anti-stack). It shows everywhere the worker is logged in,
-/// including the consent + name onboarding steps.
+/// screens (login, OTP, PIN — no session token yet), the splash, the feedback
+/// page itself (anti-stack), and the screens that carry their own Feedback
+/// action (chat routes, the name step). It shows everywhere else the worker is
+/// logged in, including the consent onboarding step.
 void main() {
   // #1466 — the unlock row now carries a BLINKING caret, and a perpetual blink
   // keeps a frame scheduled forever, so every `pumpAndSettle` below would pump
@@ -17,8 +18,9 @@ void main() {
   tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
   group('showFeedbackOn', () {
-    test('hidden on splash, the pre-login auth screens, chat routes, and self',
-        () {
+    test(
+        'hidden on splash, the pre-login auth screens, chat routes, the name '
+        'step, and self', () {
       for (final String path in <String>[
         '/', // splash
         Routes.phoneLogin,
@@ -29,15 +31,16 @@ void main() {
         Routes.feedback, // don't offer feedback from the feedback page
         Routes.chatProfiling, // header owns Feedback here instead
         Routes.badaBhai, // same screen, same reason
+        Routes.name, // bottom bar owns a Feedback pill here instead
       ]) {
         expect(showFeedbackOn(path), isFalse, reason: 'must hide on $path');
       }
     });
 
-    test('shown across the logged-in app (incl. consent + name onboarding)', () {
+    test('shown across the logged-in app (incl. consent onboarding)', () {
       for (final String path in <String>[
         Routes.consent,
-        Routes.name,
+        Routes.resumeUpload,
         Routes.jobs,
         Routes.resume,
         Routes.profile,
@@ -73,7 +76,7 @@ void main() {
         Routes.consent, // the only route reachable in that state
         Routes.resume,
         Routes.jobs,
-        Routes.name,
+        Routes.resumeUpload,
       ]) {
         expect(showFeedbackOn(path, consentAccepted: false), isFalse,
             reason: 'the router would swallow a push from $path');

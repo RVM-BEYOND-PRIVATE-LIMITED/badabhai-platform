@@ -57,9 +57,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(find.byType(ConsentScreen), findsOneWidget);
-    expect(find.byIcon(Icons.arrow_back), findsOneWidget,
+    expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsOneWidget,
         reason: 'a worker pushed here mid-report must be able to decline and '
             'go back to the paragraph they were writing');
+    expect(find.byTooltip('Wapas'), findsOneWidget);
   });
 
   testWidgets('the ONBOARDING arrival is untouched — no back button (#381)', (
@@ -75,6 +76,7 @@ void main() {
     // Consent is a gate you pass through once, not a page to browse. This is
     // also the half that proves the marker is READ rather than the back arrow
     // simply always being there.
-    expect(find.byIcon(Icons.arrow_back), findsNothing);
+    expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
+    expect(find.byTooltip('Wapas'), findsNothing);
   });
 }

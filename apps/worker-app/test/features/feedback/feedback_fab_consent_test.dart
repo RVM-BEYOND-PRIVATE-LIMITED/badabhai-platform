@@ -122,10 +122,11 @@ void main() {
     await tester.pumpWidget(const BadaBhaiApp());
     await _pumpUntil(tester, find.text('PIN daalein'));
     await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('Your privacy'));
+    await _pumpUntil(tester, find.text('YOUR PRIVACY'));
 
-    // On the consent gate — the only route reachable in this state.
-    expect(find.text('Your privacy'), findsOneWidget);
+    // On the consent gate (the kit's 'YOUR PRIVACY' top bar) — the only route
+    // reachable in this state.
+    expect(find.text('YOUR PRIVACY'), findsOneWidget);
     expect(find.text('Feedback'), findsNothing,
         reason: 'a button whose push the router swallows must not be offered');
   });

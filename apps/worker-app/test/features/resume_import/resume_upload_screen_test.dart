@@ -72,13 +72,14 @@ Future<GoRouter> _pump(
   WidgetTester tester, {
   required ResumeDocumentPicker picker,
   required ResumeImporter importer,
+  Size size = const Size(900, 1900),
 }) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   locator.registerLazySingleton<ResumeDocumentPicker>(() => picker);
   locator.registerLazySingleton<ResumeImporter>(() => importer);
 
-  tester.view.physicalSize = const Size(900, 1900);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -124,9 +125,42 @@ void main() {
         importer: _FakeImporter(const ResumeImportRoutedToChat()),
       );
 
+      expect(find.text('Resume hai aapke paas?'), findsOneWidget);
       expect(find.text(_kDoorUpload), findsOneWidget);
       expect(find.text(_kDoorChat), findsOneWidget);
       expect(find.text(_kDoorNoResume), findsOneWidget);
+    });
+
+    testWidgets(
+        'on a 320x568 phone at 2.0 text the doors scroll instead of '
+        'overflowing, and the last one still works', (
+      WidgetTester tester,
+    ) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+        size: const Size(320, 568),
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.scrollUntilVisible(
+        find.text(_kDoorNoResume),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(tester.takeException(), isNull);
+      // Still a worker-sized target at the smallest screen and largest text.
+      expect(
+        tester.getSize(find.byKey(const Key('resume_door_no_resume'))).height,
+        greaterThanOrEqualTo(48),
+      );
+
+      await tester.tap(find.text(_kDoorNoResume));
+      await tester.pumpAndSettle();
+      expect(_where(router), Routes.chatProfiling);
     });
   });
 

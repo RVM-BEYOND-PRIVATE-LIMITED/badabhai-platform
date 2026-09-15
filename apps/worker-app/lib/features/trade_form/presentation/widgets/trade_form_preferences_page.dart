@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_client.dart'
     show CityOptionDto, WorkPrefOptionsDto;
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/widgets/bb_button.dart';
-import '../../../../core/widgets/bb_chip.dart';
-import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
-import '../../../../core/widgets/bb_toggle.dart';
+import '../../../../core/session/known_worker_facts_store.dart' show WorkerFact;
+import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/widgets/onboarding/form_flow_parts.dart';
+import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
+import '../../../../core/widgets/onboarding/option_icons.dart';
+import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../domain/trade_form_models.dart';
+import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
+
+/// The tile glyph for one option card, from its slug and label.
+typedef _OptionIcon = IconData Function(String optionKey, String label);
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
@@ -20,12 +23,15 @@ const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
-const String _kStateLabel = 'State';
+const String _kStateLabel = 'State (Rajya)';
+const String _kCityLabel = 'Sheher (City)';
 const String _kPickStateLabel = 'STATE CHUNEIN';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kCityNotFoundError =
     'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
 const String _kCityAddedToast = 'Sheher add ho gaya';
+const String _kLoadError = 'Kuch gadbad ho gayi. Dobara koshish karein.';
+const String _kRetry = 'Dobara koshish karein';
 
 /// The tap-to-add suggestion row shows at most this many cities at once —
 /// mirrors `_kMaxSuggestionChips` on the qualifications page's certificate
@@ -36,6 +42,10 @@ const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 const String _kSalaryLabel = 'Mahine ki salary kitni chahte hain?';
 const String _kOptionalNote = 'Jo laagu ho, wahi bharein — sab optional hai.';
+
+/// The marker's short internal pages, in walk order — see
+/// [TradeFormPreferencesPageState.pageCount].
+enum _PrefsPage { languages, documents, shift, jobType, cities, terms }
 
 const Map<int, String> _kSalaryBands = <int, String>{
   15000: '₹10–15 hazaar',
@@ -50,11 +60,18 @@ const Map<int, String> _kSalaryBands = <int, String>{
 /// `PUT /workers/me/work-preferences` owns. #1384 item 2 split what was
 /// originally ONE long scrollable page (rather than `features/finishing`'s
 /// five-page wizard — that feature is out of scope here; see
-/// `trade_form_models.dart`'s doc on the deliberate duplication) into FOUR
-/// short INTERNAL pages, walked via [goToNextPage]/[goToPreviousPage] — see
+/// `trade_form_models.dart`'s doc on the deliberate duplication) into short
+/// INTERNAL pages, walked via [goToNextPage]/[goToPreviousPage] — see
 /// this class' own doc for why the pagination lives entirely inside this
 /// widget rather than growing `TradeFormCubit.flatSteps`. Every field stays
 /// optional; this is a scroll-length change, not a scope cut.
+///
+/// Painted with the Master UI Kit: closed-set lists are kit option cards
+/// (multi-select → [MultiSelectQuestionCard], single-select →
+/// [SingleSelectQuestionCard]), the state picker is [OnboardingSelectField],
+/// and the two yes/no preferences are kit switch rows. Every label and option
+/// still comes from the server's options response (or, for salary, the
+/// existing [_kSalaryBands]).
 class TradeFormPreferencesPage extends StatefulWidget {
   const TradeFormPreferencesPage({
     super.key,
@@ -63,7 +80,14 @@ class TradeFormPreferencesPage extends StatefulWidget {
     required this.onSave,
     this.initialPreferences,
     this.onPageChanged,
+    this.knownFacts = const <WorkerFact>{},
   });
+
+  /// Facts the worker already gave in the chat (`TradeFormState.knownFacts`).
+  /// "Ask once, skip if known": the shift and cities pages are dropped, and the
+  /// salary question hidden, for a fact recorded here. A skipped field is never
+  /// touched, so the save leaves the chat's stored answer alone.
+  final Set<WorkerFact> knownFacts;
 
   final Future<WorkPrefOptionsDto> Function() loadOptions;
   final bool enabled;
@@ -110,7 +134,24 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// (`EDUCATION_CREDENTIALS` here vs `EDUCATION_QUALIFICATIONS` there). The
   /// qualifications marker is the one kept; backend cleanup of the now-dead
   /// `work_preferences.education_*` columns is tracked for Prakash.
-  static const int pageCount = 6;
+  ///
+  /// Six pages at most; fewer when the chat already recorded the shift or the
+  /// preferred cities (see [TradeFormPreferencesPage.knownFacts]).
+  int get pageCount => _pages.length;
+
+  late final List<_PrefsPage> _pages = <_PrefsPage>[
+    for (final _PrefsPage page in _PrefsPage.values)
+      if (!_isKnown(page)) page,
+  ];
+
+  bool _isKnown(_PrefsPage page) => switch (page) {
+        _PrefsPage.shift => widget.knownFacts.contains(WorkerFact.shift),
+        _PrefsPage.cities =>
+          widget.knownFacts.contains(WorkerFact.preferredCities),
+        _ => false,
+      };
+
+  bool get _salaryKnown => widget.knownFacts.contains(WorkerFact.salary);
 
   WorkPrefOptionsDto? _options;
   String? _loadError;
@@ -158,7 +199,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _loadError = 'Kuch gadbad ho gayi. Dobara koshish karein.');
+      setState(() => _loadError = _kLoadError);
     }
   }
 
@@ -173,12 +214,26 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   void save() => widget.onSave(_prefs);
 
   /// No page on this marker can be entered wrong any more — every field is
-  /// closed-set chips/toggles/a resolved-city picker. (The one free-typed
+  /// closed-set cards/toggles/a resolved-city picker. (The one free-typed
   /// field that COULD fail, the education year, left with the education
   /// pages — see `pageCount`'s doc.) Checked by `_WizardScaffoldState` before
   /// [goToNextPage]/[save] for every marker, so this stays a real method
   /// rather than being dropped from the shared interface.
   String? currentPageError() => null;
+
+  /// What the wizard's listen button reads on the CURRENT internal page: that
+  /// page's visible question heading(s) — app copy only, never a value the
+  /// worker picked or typed.
+  String currentPageSpeech() => switch (_pages[_page]) {
+        _PrefsPage.languages => '$_kLangLabel\n$_kOptionalNote',
+        _PrefsPage.documents => '$_kDocLabel\n$_kOptionalNote',
+        _PrefsPage.shift => _kShiftLabel,
+        _PrefsPage.jobType => _kJobTypeLabel,
+        _PrefsPage.cities => '$_kCitiesLabel\n$_kCitiesSubtitle',
+        _PrefsPage.terms => _salaryKnown
+            ? '$_kRelocateLabel\n$_kAccommodationLabel'
+            : '$_kRelocateLabel\n$_kAccommodationLabel\n$_kSalaryLabel',
+      };
 
   void goToNextPage() {
     if (isLastPage) return;
@@ -202,27 +257,13 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   Widget build(BuildContext context) {
     final WorkPrefOptionsDto? options = _options;
     if (_loadError != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(_loadError!, style: AppTypography.body(size: AppTypography.sizeBase)),
-          const SizedBox(height: AppSpacing.s3),
-          BbButton(
-            label: 'Dobara koshish karein',
-            variant: BbButtonVariant.secondary,
-            onPressed: _load,
-          ),
-        ],
+      return TradeFormRetryBlock(
+        message: _loadError!,
+        retryLabel: _kRetry,
+        onRetry: _load,
       );
     }
-    if (options == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(AppSpacing.s6),
-          child: CircularProgressIndicator(color: AppColors.blue),
-        ),
-      );
-    }
+    if (options == null) return const TradeFormSpinner();
     return IgnorePointer(
       ignoring: !widget.enabled,
       child: Opacity(
@@ -233,32 +274,32 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   }
 
   Widget _pageContent(WorkPrefOptionsDto options) {
-    switch (_page) {
-      case 0:
+    switch (_pages[_page]) {
+      case _PrefsPage.languages:
         return _languagesPage(options);
-      case 1:
+      case _PrefsPage.documents:
         return _documentsPage(options);
-      case 2:
+      case _PrefsPage.shift:
         return _shiftPage(options);
-      case 3:
+      case _PrefsPage.jobType:
         return _jobTypePage(options);
-      case 4:
+      case _PrefsPage.cities:
         return _citiesPage(options);
-      default:
+      case _PrefsPage.terms:
         return _relocateAccommodationSalaryPage();
     }
   }
 
   Widget _languagesPage(WorkPrefOptionsDto options) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(_kOptionalNote,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kLangLabel),
-        _multiChips(options.languages, _prefs.languages,
+        const TradeFormHeading(title: _kLangLabel, subtitle: _kOptionalNote),
+        const SizedBox(height: FormFlowLayout.whyToHintGap),
+        const FormHintChip(text: kTradeFormMultiSelectHint),
+        const SizedBox(height: FormFlowLayout.hintToOptionsGap),
+        // Screen 18 — a clean multi-select list, no subtext.
+        _multiCards(options.languages, _prefs.languages, _languageIcon,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 languages: _toggled(_prefs.languages, slug)))),
       ],
@@ -267,14 +308,14 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   Widget _documentsPage(WorkPrefOptionsDto options) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(_kOptionalNote,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kDocLabel),
-        _multiChips(options.documentsReady, _prefs.documentsReady,
+        const TradeFormHeading(title: _kDocLabel, subtitle: _kOptionalNote),
+        const SizedBox(height: FormFlowLayout.whyToHintGap),
+        const FormHintChip(text: kTradeFormMultiSelectHint),
+        const SizedBox(height: FormFlowLayout.hintToOptionsGap),
+        _multiCards(options.documentsReady, _prefs.documentsReady,
+            documentOptionIcon,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 documentsReady: _toggled(_prefs.documentsReady, slug)))),
       ],
@@ -283,10 +324,11 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   Widget _shiftPage(WorkPrefOptionsDto options) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _label(_kShiftLabel),
-        _singleChips(options.shift, _prefs.shift,
+        const TradeFormHeading(title: _kShiftLabel),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
+        _singleCards(options.shift, _prefs.shift, shiftOptionIcon,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 shift: _prefs.shift == slug ? null : slug))),
       ],
@@ -295,14 +337,33 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   Widget _jobTypePage(WorkPrefOptionsDto options) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _label(_kJobTypeLabel),
-        _singleChips(options.jobType, _prefs.jobType,
+        const TradeFormHeading(title: _kJobTypeLabel),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
+        _singleCards(options.jobType, _prefs.jobType, jobTypeOptionIcon,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 jobType: _prefs.jobType == slug ? null : slug))),
       ],
     );
+  }
+
+  /// Opens the kit's searchable state sheet over the server's own state
+  /// catalogue — the same pick-then-clear-the-city behaviour the old dropdown
+  /// field had (#1429).
+  Future<void> _pickState(WorkPrefOptionsDto options) async {
+    final String? state = await showOnboardingPicker(
+      context,
+      title: _kStateLabel,
+      options: options.states,
+      selected: _cityState,
+    );
+    if (state == null || !mounted) return;
+    setState(() {
+      _cityState = state;
+      _city.clear();
+      _cityError = null;
+    });
   }
 
   Widget _citiesPage(WorkPrefOptionsDto options) {
@@ -310,66 +371,73 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
     final List<CityOptionDto> suggestions = _matchingCities(options);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _label(_kCitiesLabel),
-        Text(_kCitiesSubtitle,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s3),
+        const TradeFormHeading(
+          title: _kCitiesLabel,
+          subtitle: _kCitiesSubtitle,
+        ),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
         // The add row itself IS this section's "add another" affordance —
         // there's no per-city card to hide, so the row disappears at the
         // cap, same convention as `kTradeFormMaxCertificates`/
         // `kTradeFormMaxEducations`'s add button.
         if (!atCityCap) ...<Widget>[
           // State-then-city cascade (#1429): the state list picks which
-          // state's cities the search below offers — no "+" add button, a
-          // worker cannot enter a custom city (the server's gazetteer is
-          // closed, #1406/#1410), so the ONLY way to add one is picking a
-          // suggestion chip below (or hitting the keyboard's "Done", which
-          // resolves the same exact-match check a "+" button would have).
-          _label(_kStateLabel),
-          BbSearchableDropdownField(
-            placeholder: _kPickStateLabel,
-            options: options.states,
-            selected: _cityState,
-            onSelected: (String state) => setState(() {
-              _cityState = state;
-              _city.clear();
-              _cityError = null;
-            }),
+          // state's cities the search below offers — State ALWAYS precedes
+          // Sheher. No "+" add button, a worker cannot enter a custom city
+          // (the server's gazetteer is closed, #1406/#1410), so the ONLY way
+          // to add one is picking a suggestion chip below (or hitting the
+          // keyboard's "Done", which resolves the same exact-match check a
+          // "+" button would have).
+          const TradeFormFieldLabel(_kStateLabel),
+          OnboardingSelectField(
+            value: _cityState ?? '',
+            hint: _kPickStateLabel,
+            semanticLabel: _kStateLabel,
+            onTap: () => _pickState(options),
           ),
           if (_cityState != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
+            const SizedBox(height: 14),
+            const TradeFormFieldLabel(_kCityLabel),
             TradeFormTextField(
               controller: _city,
               hint: _kCityHint,
+              label: _kCityLabel,
               textInputAction: TextInputAction.done,
               errorText: _cityError,
               onChanged: (String v) => setState(() => _cityError = null),
               onSubmitted: (_) => _submitTypedCity(options),
             ),
             if (suggestions.isNotEmpty) ...<Widget>[
-              const SizedBox(height: AppSpacing.s2),
+              const SizedBox(height: 10),
+              // Quick-pick chips — straight off the server gazetteer for the
+              // picked state; never a client-side city list.
               Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
+                spacing: 8,
+                runSpacing: 8,
                 children: <Widget>[
                   for (final CityOptionDto c in suggestions)
-                    BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
+                    TradeFormPillChip(
+                      label: c.value,
+                      // A city is a place, not a pack option — the icon
+                      // rules have nothing to say about it.
+                      leadingIcon: Icons.location_on_outlined,
+                      onTap: () => _addResolvedCity(c),
+                    ),
                 ],
               ),
             ],
           ],
         ],
         if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 14),
           // Horizontal `ListView.builder`, not a `Wrap` — a picked-cities row
           // scrolls sideways instead of stacking to a second line, so it
           // reads the same as every other horizontally-scrolling chip row in
           // the app (the job feed's header filters).
           SizedBox(
-            height: AppSpacing.tap,
+            height: OnboardingLayout.tapTarget,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _prefs.preferredCities.length,
@@ -378,12 +446,11 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                 final bool isLast =
                     index == _prefs.preferredCities.length - 1;
                 return Padding(
-                  padding: EdgeInsets.only(
-                      right: isLast ? 0 : AppSpacing.s2),
-                  child: BbChip(
+                  padding: EdgeInsets.only(right: isLast ? 0 : 8),
+                  child: TradeFormPillChip(
                     label: c,
                     selected: true,
-                    icon: Icons.close,
+                    trailingIcon: Icons.close,
                     onTap: () => setState(() => _prefs = _prefs.copyWith(
                         preferredCities: _prefs.preferredCities
                             .where((String x) => x != c)
@@ -400,30 +467,41 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   Widget _relocateAccommodationSalaryPage() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _toggleRow(_kRelocateLabel, _prefs.willingToRelocate,
-            (bool v) => setState(() => _prefs = _prefs.copyWith(willingToRelocate: v))),
-        const SizedBox(height: AppSpacing.s3),
-        _toggleRow(_kAccommodationLabel, _prefs.accommodationNeeded,
-            (bool v) => setState(() => _prefs = _prefs.copyWith(accommodationNeeded: v))),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kSalaryLabel),
-        Wrap(
-          spacing: AppSpacing.s2,
-          runSpacing: AppSpacing.s2,
-          children: <Widget>[
-            for (final MapEntry<int, String> e in _kSalaryBands.entries)
-              BbChip(
-                label: e.value,
-                selected: _prefs.salaryExpectedMax == e.key,
-                icon: _prefs.salaryExpectedMax == e.key ? Icons.check : null,
-                onTap: () => setState(() => _prefs = _prefs.copyWith(
-                    salaryExpectedMax:
-                        _prefs.salaryExpectedMax == e.key ? null : e.key)),
-              ),
-          ],
+        TradeFormSwitchRow(
+          label: _kRelocateLabel,
+          value: _prefs.willingToRelocate,
+          onChanged: (bool v) =>
+              setState(() => _prefs = _prefs.copyWith(willingToRelocate: v)),
         ),
+        const SizedBox(height: 10),
+        TradeFormSwitchRow(
+          label: _kAccommodationLabel,
+          value: _prefs.accommodationNeeded,
+          onChanged: (bool v) =>
+              setState(() => _prefs = _prefs.copyWith(accommodationNeeded: v)),
+        ),
+        // The chat already asked "kitna vetan chahte hain" — not again here.
+        if (!_salaryKnown) ...<Widget>[
+          const SizedBox(height: 24),
+          const TradeFormHeading(title: _kSalaryLabel),
+          const SizedBox(height: FormFlowLayout.introToOptionsGap),
+          for (final MapEntry<int, String> e in _kSalaryBands.entries)
+            SingleSelectQuestionCard(
+              title: e.value,
+              leadingIcon: tradeFormOptionIcon(
+                optionKey: '${e.key}',
+                label: e.value,
+                fallback: Icons.currency_rupee_rounded,
+              ),
+              isSelected: _prefs.salaryExpectedMax == e.key,
+              onTap: () => setState(() => _prefs = _prefs.copyWith(
+                  salaryExpectedMax:
+                      _prefs.salaryExpectedMax == e.key ? null : e.key)),
+              variant: OnboardingVariant.formFlow,
+            ),
+        ],
       ],
     );
   }
@@ -511,15 +589,26 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: AppColors.success,
-        content: Text(_kCityAddedToast,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: Colors.white)),
+        backgroundColor: OnboardingColors.successGreen,
+        content: Text(
+          _kCityAddedToast,
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w500,
+            color: OnboardingColors.textOnBlue,
+          ),
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: messenger.hideCurrentMaterialBanner,
-            child: const Text('Theek hai',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            child: Text(
+              'Theek hai',
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w700,
+                color: OnboardingColors.textOnBlue,
+              ),
+            ),
           ),
         ],
       ),
@@ -529,53 +618,52 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     });
   }
 
-  Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-        child: Text(text, style: AppTypography.eyebrow()),
+  /// A language card: the shared option rules, else the list's own icon — see
+  /// [tradeFormOptionIcon].
+  static IconData _languageIcon(String optionKey, String label) =>
+      tradeFormOptionIcon(
+        optionKey: optionKey,
+        label: label,
+        fallback: Icons.translate_rounded,
       );
 
-  Widget _multiChips(
-      Map<String, String> labels, Set<String> selected, void Function(String) onTap) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
+  /// [iconFor] resolves each option's tile glyph from its slug and label. The
+  /// documents / shift / job-type lists use the SAME resolvers as the
+  /// finishing form (`option_icons.dart`), so an option draws one glyph in
+  /// both walks.
+  Widget _multiCards(Map<String, String> labels, Set<String> selected,
+      _OptionIcon iconFor, void Function(String) onTap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (final MapEntry<String, String> e in labels.entries)
-          BbChip(
-            label: e.value,
-            selected: selected.contains(e.key),
-            icon: selected.contains(e.key) ? Icons.check : null,
+          MultiSelectQuestionCard(
+            title: e.value,
+            leadingIcon: iconFor(e.key, e.value),
+            isSelected: selected.contains(e.key),
             onTap: () => onTap(e.key),
+            variant: OnboardingVariant.formFlow,
           ),
       ],
     );
   }
 
-  Widget _singleChips(
-      Map<String, String> labels, String? selected, void Function(String) onTap) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
+  /// A single-select list that — exactly like the chips it replaced — clears
+  /// the pick when the selected card is tapped again (every field here is
+  /// optional).
+  Widget _singleCards(Map<String, String> labels, String? selected,
+      _OptionIcon iconFor, void Function(String) onTap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (final MapEntry<String, String> e in labels.entries)
-          BbChip(
-            label: e.value,
-            selected: selected == e.key,
-            icon: selected == e.key ? Icons.check : null,
+          SingleSelectQuestionCard(
+            title: e.value,
+            leadingIcon: iconFor(e.key, e.value),
+            isSelected: selected == e.key,
             onTap: () => onTap(e.key),
+            variant: OnboardingVariant.formFlow,
           ),
-      ],
-    );
-  }
-
-  Widget _toggleRow(String label, bool value, ValueChanged<bool> onChanged) {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(label, style: AppTypography.body(size: AppTypography.sizeBase)),
-        ),
-        const SizedBox(width: AppSpacing.s2),
-        BbToggle(value: value, onChanged: onChanged, semanticLabel: label),
       ],
     );
   }

@@ -3,12 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_scaffold.dart';
-import '../../../core/widgets/bb_scroll_safe_body.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../domain/resume_document_picker.dart';
 import '../domain/resume_importer.dart';
@@ -121,20 +118,31 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
         builder: (BuildContext context, ResumeUploadState state) {
           // No back arrow: `/name` is submitted and gone (see `_onState`), so a
           // back affordance here would offer a step that no longer exists.
-          return BbScaffold(
-            padded: false,
-            safeArea: false,
+          //
+          // A real [Scaffold] (not a bare Column) so `ScaffoldMessenger` keeps
+          // working for the notices. There is no bottom bar: the three doors
+          // ARE the actions, so nothing is docked.
+          return Scaffold(
+            backgroundColor: OnboardingColors.canvasBg,
             body: Column(
               children: <Widget>[
-                const BbBlueHeader(
-                  title: 'Resume hai aapke paas',
+                const ShiftBlueHeader(
+                  title: 'Resume hai aapke paas?',
                   subtitle: 'Resume upload karne se aadhi jaankari apne aap '
                       'bhar jaati hai. Nahi hai to koi baat nahi.',
                 ),
                 Expanded(
-                  child: BbScrollSafeBody(
-                    padding: const EdgeInsets.all(AppSpacing.gutter),
-                    child: _Doors(state: state),
+                  child: SafeArea(
+                    top: false,
+                    child: OnboardingBody(
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        20,
+                        16,
+                        _kFeedbackFabClearance,
+                      ),
+                      child: _Doors(state: state),
+                    ),
                   ),
                 ),
               ],
@@ -145,6 +153,16 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
     );
   }
 }
+
+/// Scroll room under the last door. The app-wide Feedback button floats over
+/// this route's bottom-left corner (72 above the safe area, ~48 tall); without
+/// this the working note could only ever be read from underneath it on a short
+/// phone. Layout only — it adds scroll extent, never a gap on a tall screen's
+/// visible content.
+const double _kFeedbackFabClearance = 128;
+
+/// Gap between two doors.
+const double _kDoorGap = 12;
 
 class _Doors extends StatelessWidget {
   const _Doors({required this.state});
@@ -167,7 +185,7 @@ class _Doors extends StatelessWidget {
         // never rendered here; it rides the snackbar into the chat.
         if (state.notice != null && !state.isDone)
           Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.s5),
+            padding: const EdgeInsets.only(bottom: 16),
             child: _NoticeBanner(
               text: _ResumeUploadScreenState._noticeText(state.notice!),
             ),
@@ -184,7 +202,7 @@ class _Doors extends StatelessWidget {
               state.status == ResumeUploadStatus.working,
           onTap: busy ? null : cubit.chooseDocument,
         ),
-        const SizedBox(height: AppSpacing.s4),
+        const SizedBox(height: _kDoorGap),
 
         // DOOR 2 — today's path, unchanged.
         ResumeDoorTile(
@@ -194,7 +212,7 @@ class _Doors extends StatelessWidget {
           subtitle: 'Bada Bhai sawaal poochhega, aap jawaab dijiye',
           onTap: busy ? null : cubit.continueInChat,
         ),
-        const SizedBox(height: AppSpacing.s4),
+        const SizedBox(height: _kDoorGap),
 
         // DOOR 3 — a DIFFERENT question, the SAME behaviour. Separate because a
         // worker who has no résumé is not choosing a method, he is telling us a
@@ -210,7 +228,7 @@ class _Doors extends StatelessWidget {
 
         if (state.status == ResumeUploadStatus.working)
           const Padding(
-            padding: EdgeInsets.only(top: AppSpacing.s5),
+            padding: EdgeInsets.only(top: 16),
             child: _WorkingNote(),
           ),
       ],
@@ -227,16 +245,37 @@ class _NoticeBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.haldiTint,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        // Hairline, never a shadow (JUL31 §separation).
-        border: Border.all(color: AppColors.borderDouble),
+        color: OnboardingColors.noteBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.note),
+        // Hairline, never a shadow — the kit's note box (as on consent).
+        border: Border.all(color: OnboardingColors.borderDefault),
       ),
-      child: Text(
-        text,
-        style: AppTypography.body(color: AppColors.ink800),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: OnboardingColors.shiftBlue,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: OnboardingTypography.inter(
+                size: 13,
+                height: 1.4,
+                color: OnboardingColors.ink900,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -253,7 +292,7 @@ class _WorkingNote extends StatelessWidget {
     return Text(
       'Resume padha ja raha hai. Thoda time lag sakta hai.',
       textAlign: TextAlign.center,
-      style: AppTypography.body(size: 14, color: AppColors.ink550),
+      style: OnboardingTypography.bodyMuted(),
     );
   }
 }

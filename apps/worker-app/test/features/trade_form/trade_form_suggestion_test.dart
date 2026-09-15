@@ -8,10 +8,9 @@ import 'package:http/testing.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
-import 'package:badabhai_worker_app/core/theme/app_colors.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
+import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/selection_cards.dart';
 import 'package:badabhai_worker_app/features/trade_form/data/trade_form_repository_impl.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_question_body.dart';
@@ -21,7 +20,8 @@ import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/tra
 /// that he never claimed" — and ruling D7: a question may carry BOTH an answer
 /// and a suggestion, the stored answer always wins, and both are shown.
 ///
-/// #1499 / ADR-0041 RI-4.
+/// #1499 / ADR-0041 RI-4. Options render as the Master UI Kit's option cards;
+/// a résumé hint is the [TradeFormSuggestedOption] frame around a card.
 const String _kConfirm = 'Aapke resume mein ye tha — sahi hai';
 
 SessionRepository _session() => SessionRepository()
@@ -128,14 +128,39 @@ Future<void> _pumpQuestion(
   await tester.pump();
 }
 
-/// The fill a chip actually paints — the only honest way to assert
-/// "highlighted but unticked", because the distinction IS the paint.
-Color _chipFill(WidgetTester tester, String label) {
-  final Container box = tester.widget<Container>(
-    find.ancestor(of: find.text(label), matching: find.byType(Container)).first,
-  );
-  return ((box.decoration! as BoxDecoration).color)!;
-}
+MultiSelectQuestionCard _multiCard(WidgetTester tester, String label) =>
+    tester.widget<MultiSelectQuestionCard>(find.ancestor(
+      of: find.text(label),
+      matching: find.byType(MultiSelectQuestionCard),
+    ));
+
+SingleSelectQuestionCard _singleCard(WidgetTester tester, String label) =>
+    tester.widget<SingleSelectQuestionCard>(find.ancestor(
+      of: find.text(label),
+      matching: find.byType(SingleSelectQuestionCard),
+    ));
+
+/// Whether the card carrying [label] sits inside the résumé-hint frame.
+bool _isHinted(WidgetTester tester, String label) => find
+    .ancestor(
+      of: find.text(label),
+      matching: find.byType(TradeFormSuggestedOption),
+    )
+    .evaluate()
+    .isNotEmpty;
+
+/// The fill a card actually paints — the only honest way to assert "hinted but
+/// unticked", because the distinction IS the paint. The nearest [Material]
+/// above a card's title is that card's own surface.
+Color _cardFill(WidgetTester tester, String label) => tester
+    .widget<Material>(
+      find.ancestor(of: find.text(label), matching: find.byType(Material)).first,
+    )
+    .color!;
+
+/// The docked bar's next button.
+ElevatedButton _submitButton(WidgetTester tester, String label) =>
+    tester.widget<ElevatedButton>(find.widgetWithText(ElevatedButton, label));
 
 void main() {
   group('parsing', () {
@@ -239,8 +264,8 @@ void main() {
     });
   });
 
-  group('ruling D2 — capability chips are HIGHLIGHTED BUT UNTICKED', () {
-    testWidgets('a suggested multi-select chip is hinted, never selected', (
+  group('ruling D2 — capability options are HIGHLIGHTED BUT UNTICKED', () {
+    testWidgets('a suggested multi-select card is hinted, never selected', (
       WidgetTester tester,
     ) async {
       final TradeForm? form = await _load(<Map<String, dynamic>>[
@@ -253,23 +278,21 @@ void main() {
       ]);
       await _pumpQuestion(tester, _firstQuestion(form!));
 
-      final BbChip hinted = tester.widget<BbChip>(
-        find.ancestor(
-          of: find.text('Label cnc_lathe'),
-          matching: find.byType(BbChip),
-        ),
-      );
       // THE assertion of the whole ruling: pointed at, not claimed.
-      expect(hinted.suggested, isTrue);
-      expect(hinted.selected, isFalse);
+      expect(_isHinted(tester, 'Label cnc_lathe'), isTrue);
+      expect(_multiCard(tester, 'Label cnc_lathe').isSelected, isFalse);
 
-      // And it looks different from both a plain chip and a chosen one, or the
-      // distinction is invisible and therefore not a distinction.
+      // And it looks different from both a plain card and a chosen one, or the
+      // distinction is invisible and therefore not a distinction: a plain card
+      // carries no hint frame, and the hinted card does NOT paint the selected
+      // fill.
+      expect(_isHinted(tester, 'Label vtl'), isFalse);
+      expect(find.text(kTradeFormSuggestedTag), findsOneWidget);
       expect(
-        _chipFill(tester, 'Label cnc_lathe'),
-        isNot(_chipFill(tester, 'Label vtl')),
+        _cardFill(tester, 'Label cnc_lathe'),
+        isNot(OnboardingColors.selectedCardBg),
       );
-      expect(_chipFill(tester, 'Label cnc_lathe'), isNot(AppColors.haldi));
+      expect(_cardFill(tester, 'Label cnc_lathe'), OnboardingColors.paperWhite);
     });
 
     testWidgets('the submit button stays DISABLED on a suggestion alone', (
@@ -288,8 +311,7 @@ void main() {
       // This is the failure mode the ruling is about: a screen that LOOKS
       // answered gets submitted unread, and a capability the worker never
       // claimed lands on his profile. A suggestion must not satisfy the gate.
-      final Finder submit = find.widgetWithText(BbButton, 'Aage badhein');
-      expect(tester.widget<BbButton>(submit).onPressed, isNull);
+      expect(_submitButton(tester, 'Aage badhein').onPressed, isNull);
     });
 
     testWidgets('a suggested BOOLEAN highlights without answering', (
@@ -305,18 +327,15 @@ void main() {
       await _pumpQuestion(tester, _firstQuestion(form!));
 
       // A yes/no on these packs is a capability claim, so the same rule binds.
-      final BbChip yes = tester.widget<BbChip>(
-        find.ancestor(of: find.text('Haan'), matching: find.byType(BbChip)),
-      );
-      final BbChip no = tester.widget<BbChip>(
-        find.ancestor(of: find.text('Nahi'), matching: find.byType(BbChip)),
-      );
-      expect(yes.suggested, isTrue);
-      expect(yes.selected, isFalse);
-      expect(no.suggested, isFalse);
+      expect(_isHinted(tester, 'Haan'), isTrue);
+      expect(_singleCard(tester, 'Haan').isSelected, isFalse);
+      expect(_isHinted(tester, 'Nahi'), isFalse);
+      expect(_singleCard(tester, 'Nahi').isSelected, isFalse);
+      // Not answered, so nothing to send.
+      expect(_submitButton(tester, 'Aage badhein').onPressed, isNull);
     });
 
-    testWidgets('a suggested SEARCHABLE chip is hinted and never hidden', (
+    testWidgets('a suggested SEARCHABLE card is hinted and never hidden', (
       WidgetTester tester,
     ) async {
       final TradeForm? form = await _load(<Map<String, dynamic>>[
@@ -330,14 +349,15 @@ void main() {
       ]);
       await _pumpQuestion(tester, _firstQuestion(form!));
 
-      final BbChip hinted = tester.widget<BbChip>(
-        find.ancestor(
-          of: find.text('Label brass'),
-          matching: find.byType(BbChip),
-        ),
-      );
-      expect(hinted.suggested, isTrue);
-      expect(hinted.selected, isFalse);
+      expect(_isHinted(tester, 'Label brass'), isTrue);
+      expect(_multiCard(tester, 'Label brass').isSelected, isFalse);
+
+      // A query that does not match the hint must not filter it away — a hint
+      // the worker cannot find is not a hint.
+      await tester.enterText(find.byType(TextField), 'mild');
+      await tester.pump();
+      expect(find.text('Label brass'), findsOneWidget);
+      expect(_isHinted(tester, 'Label brass'), isTrue);
     });
   });
 
@@ -359,12 +379,7 @@ void main() {
         'Drill jig banaya tha',
       );
       // And the submit gate opens, because there IS something in the field.
-      expect(
-        tester
-            .widget<BbButton>(find.widgetWithText(BbButton, 'Aage badhein'))
-            .onPressed,
-        isNotNull,
-      );
+      expect(_submitButton(tester, 'Aage badhein').onPressed, isNotNull);
     });
 
     testWidgets('a numeric fact prefills without a trailing .0', (
@@ -417,7 +432,7 @@ void main() {
       expect(find.text('Jo resume mein tha'), findsOneWidget);
     });
 
-    testWidgets('a chip that is both answered and suggested reads as SELECTED',
+    testWidgets('a card that is both answered and suggested reads as SELECTED',
         (WidgetTester tester) async {
       final TradeForm? form = await _load(<Map<String, dynamic>>[
         _screen(
@@ -436,22 +451,16 @@ void main() {
       ]);
       await _pumpQuestion(tester, _firstQuestion(form!));
 
-      final BbChip chosen = tester.widget<BbChip>(
-        find.ancestor(
-          of: find.text('Label cnc_lathe'),
-          matching: find.byType(BbChip),
-        ),
+      // He chose this one: the kit's selected fill, and it never dims back to
+      // a hint.
+      expect(_multiCard(tester, 'Label cnc_lathe').isSelected, isTrue);
+      expect(
+        _cardFill(tester, 'Label cnc_lathe'),
+        OnboardingColors.selectedCardBg,
       );
-      final BbChip hintOnly = tester.widget<BbChip>(
-        find.ancestor(of: find.text('Label vtl'), matching: find.byType(BbChip)),
-      );
-
-      // He chose this one: solid haldi, and it never dims back to a hint.
-      expect(chosen.selected, isTrue);
-      expect(_chipFill(tester, 'Label cnc_lathe'), AppColors.haldi);
       // The résumé also pointed at this one — still not a tick.
-      expect(hintOnly.selected, isFalse);
-      expect(hintOnly.suggested, isTrue);
+      expect(_multiCard(tester, 'Label vtl').isSelected, isFalse);
+      expect(_isHinted(tester, 'Label vtl'), isTrue);
     });
   });
 
@@ -485,8 +494,9 @@ void main() {
       await _pumpQuestion(tester, _firstQuestion(form!));
 
       // ADDITIVE: a question with no suggestion renders exactly the form it
-      // rendered before #1499.
+      // rendered before #1499 — no confirm line and no hint frame.
       expect(find.textContaining(_kConfirm), findsNothing);
+      expect(find.byType(TradeFormSuggestedOption), findsNothing);
     });
 
     testWidgets('never prints the confidence number', (

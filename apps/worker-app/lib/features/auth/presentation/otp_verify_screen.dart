@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart';
+import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
@@ -13,14 +15,15 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/session/session_repository.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/date_label.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../domain/auth_session_manager.dart';
 import 'cubit/otp_verify_cubit.dart';
+import 'widgets/bb_pin_view.dart' show BbPinCaret;
 import '../../../core/util/push_once.dart';
 
 /// How many cells the code is entered into. The API mints `OTP_LENGTH` digits
@@ -31,6 +34,9 @@ const int kOtpLength = 6;
 /// TalkBack's name for the code entry. Exported so the widget test asserts the
 /// SAME string the worker hears (see [kBackspaceSemanticLabel] on the keypad).
 const String kOtpFieldSemanticLabel = 'SMS code, $kOtpLength digits';
+
+/// The caret painted in the OTP box being typed into.
+const Key kOtpCaretKey = Key('otp_caret');
 
 /// Typed `extra` for [Routes.otpVerify] (#336).
 ///
@@ -331,40 +337,38 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         }
       },
       builder: (BuildContext context, OtpVerifyState state) {
-        // Kit 02 (bottom half): full-bleed blue header, then the 'OTP DAALEIN'
-        // label + the underline code slots + the haldi CTA + resend. Not
-        // [BbScaffold] — the header must bleed to the status bar.
+        // Onboarding kit Screen 3: Shift Blue header, `ENTER OTP CODE`, six
+        // rounded boxes, the resend timer, "Verify Code", and the
+        // "Wrong number?" link back to login.
         return Scaffold(
+          backgroundColor: OnboardingColors.canvasBg,
           body: Column(
             children: <Widget>[
-              BbBlueHeader(
-                title: 'Enter the code',
-                subtitle: 'Sent to $phone',
+              ShiftBlueHeader(
+                title: 'Verify OTP',
+                subtitle: 'Sent to ${formatIndianPhoneForDisplay(phone)}',
                 onBack: () => Navigator.of(context).maybePop(),
               ),
               Expanded(
                 child: SafeArea(
                   top: false,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.gutter,
-                      AppSpacing.s6,
-                      AppSpacing.gutter,
-                      AppSpacing.s6,
-                    ),
+                  child: OnboardingBody(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        Text('OTP DAALEIN',
-                            style: AppTypography.eyebrow(
-                                color: AppColors.textMuted)),
-                        const SizedBox(height: AppSpacing.s3),
+                        Text(
+                          'ENTER OTP CODE',
+                          style: OnboardingTypography.fieldMicroLabel(),
+                        ),
+                        const SizedBox(height: 12),
                         _buildCodeField(),
-                        const SizedBox(height: AppSpacing.s7),
-                        BbButton(
-                          label: state.isSubmitting ? 'Verifying…' : 'Verify',
-                          block: true,
-                          loading: state.isSubmitting,
+                        const SizedBox(height: 20),
+                        _buildResend(context, state, phone),
+                        const SizedBox(height: 28),
+                        PrimaryActionButton(
+                          label: 'Verify Code',
+                          showArrow: false,
+                          isLoading: state.isSubmitting,
                           onPressed: state.isSubmitting
                               ? null
                               : () => context.read<OtpVerifyCubit>().verify(
@@ -372,8 +376,23 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                                     otp: _controller.text.trim(),
                                   ),
                         ),
-                        const SizedBox(height: AppSpacing.s3),
-                        _buildResend(context, state, phone),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: TextButton(
+                            key: const Key('otpEditNumberButton'),
+                            onPressed: () => _editNumber(context),
+                            child: Text(
+                              'Wrong number? Edit mobile number',
+                              textAlign: TextAlign.center,
+                              style: OnboardingTypography.inter(
+                                size: 13,
+                                weight: FontWeight.w600,
+                                color: OnboardingColors.shiftBlue,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -384,6 +403,18 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         );
       },
     );
+  }
+
+  /// "Wrong number? Edit mobile number" — back to the login screen that pushed
+  /// this one. Falls back to `go` when there is nothing to pop (a cold start
+  /// that landed here), so the link is never dead.
+  void _editNumber(BuildContext context) {
+    final NavigatorState nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+      return;
+    }
+    GoRouter.maybeOf(context)?.go(Routes.phoneLogin);
   }
 
   /// #336 — the segmented code entry: [kOtpLength] painted cells with ONE real
@@ -401,10 +432,29 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// autofill and a single semantics node. Its text is drawn transparent (not
   /// zero-sized: a collapsed field cannot be tapped or long-pressed) and the
   /// cells below render the digits.
+  ///
+  /// The kit draws six 48×56 boxes. They are sized from the width actually
+  /// available instead — full size wherever they fit, proportionally smaller on
+  /// a 320pt handset — so the row can never overflow.
   Widget _buildCodeField() {
-    return SizedBox(
-      height: AppSpacing.controlLg,
-      child: Stack(
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        const double gap = 6;
+        final double boxWidth = math.min(
+          48,
+          (constraints.maxWidth - gap * (kOtpLength - 1)) / kOtpLength,
+        );
+        final double boxHeight = boxWidth * 56 / 48;
+        return SizedBox(
+          height: boxHeight,
+          child: _codeStack(boxWidth: boxWidth, boxHeight: boxHeight),
+        );
+      },
+    );
+  }
+
+  Widget _codeStack({required double boxWidth, required double boxHeight}) {
+    return Stack(
         children: <Widget>[
           Positioned.fill(
             child: ExcludeSemantics(
@@ -416,6 +466,8 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                 builder: (BuildContext context, _) => _OtpCells(
                   code: _controller.text,
                   focused: _focusNode.hasFocus,
+                  boxWidth: boxWidth,
+                  boxHeight: boxHeight,
                 ),
               ),
             ),
@@ -457,9 +509,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                   // the cell being filled. The active cell's ring is the caret.
                   showCursor: false,
                   cursorColor: Colors.transparent,
-                  style: AppTypography.mono(
-                    size: AppTypography.sizeXl,
-                    weight: FontWeight.w700,
+                  style: OnboardingTypography.otpDigit(
                     color: Colors.transparent,
                   ),
                   decoration: const InputDecoration(
@@ -475,7 +525,6 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
             ),
           ),
         ],
-      ),
     );
   }
 
@@ -485,93 +534,160 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   Widget _buildResend(
       BuildContext context, OtpVerifyState state, String phone) {
     final bool canResend = _cooldown == 0 && !state.isResending;
-    final String label;
+    final Widget label;
     if (_cooldown > 0) {
-      label = 'Naya code ${_cooldown}s mein';
+      // The kit's "Resend code in 0:29" — the words in Inter, the time in
+      // tabular Roboto Mono so the countdown does not jitter as it ticks.
+      label = Text.rich(
+        TextSpan(
+          children: <InlineSpan>[
+            TextSpan(
+              text: 'Resend code in ',
+              style: OnboardingTypography.inter(
+                size: 13,
+                color: OnboardingColors.ink600,
+              ),
+            ),
+            TextSpan(
+              text: _formatCooldown(_cooldown),
+              style: OnboardingTypography.mono(
+                size: 13,
+                weight: FontWeight.w700,
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+          ],
+        ),
+      );
     } else if (state.isResending) {
-      label = 'Bhej rahe hain…';
+      label = Text(
+        'Sending code…',
+        style: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w600,
+          color: OnboardingColors.ink600,
+        ),
+      );
     } else {
-      label = 'Naya code bhejein';
+      label = Text(
+        'Resend code',
+        style: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w700,
+          color: OnboardingColors.shiftBlue,
+        ),
+      );
     }
     return SizedBox(
       // Full tap height even while disabled, so the row does not resize when it
       // re-arms and shove the Verify button under the worker's thumb mid-tap.
-      height: AppSpacing.tap,
-      child: TextButton.icon(
-        key: const Key('otpResendButton'),
-        onPressed: canResend
-            ? () => unawaited(
-                  context.read<OtpVerifyCubit>().resend(phone: phone),
-                )
-            : null,
-        icon: const Icon(Icons.refresh_rounded, size: 20),
-        label: Text(
-          label,
-          style: AppTypography.body(
-            weight: FontWeight.w700,
-            color: canResend ? AppColors.textLink : AppColors.textMuted,
+      height: 48,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          key: const Key('otpResendButton'),
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            minimumSize: const Size(48, 48),
+          ),
+          onPressed: canResend
+              ? () => unawaited(
+                    context.read<OtpVerifyCubit>().resend(phone: phone),
+                  )
+              : null,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.refresh_rounded,
+                size: 16,
+                color: canResend
+                    ? OnboardingColors.shiftBlue
+                    : OnboardingColors.ink600,
+              ),
+              const SizedBox(width: 6),
+              Flexible(child: label),
+            ],
           ),
         ),
       ),
     );
   }
+
+  /// `29` → `0:29`, `75` → `1:15` — the kit's timer format.
+  static String _formatCooldown(int seconds) =>
+      '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
 /// The painted OTP cells. Decoration only — it is handed the code the real
 /// field already holds and never owns or mutates it.
+///
+/// Onboarding kit boxes: white, 12 radius, a 1.2px `borderDefault` hairline,
+/// and on the box being typed into a 1.8px `borderActive` ring plus the same
+/// blinking caret the PIN rows use.
 class _OtpCells extends StatelessWidget {
-  const _OtpCells({required this.code, required this.focused});
+  const _OtpCells({
+    required this.code,
+    required this.focused,
+    required this.boxWidth,
+    required this.boxHeight,
+  });
 
   /// The digits typed so far. NOT persisted, NOT logged, NOT put in cubit
   /// state (CLAUDE.md §2): a one-time code in an error dump is a credential.
   final String code;
 
-  /// Whether the real field has focus — only then does a cell show the ring.
+  /// Whether the real field has focus — only then does a box show the ring.
   final bool focused;
+  final double boxWidth;
+  final double boxHeight;
 
   @override
   Widget build(BuildContext context) {
     return Row(
-      // Stretch so each slot fills the field height and its underline sits on
-      // the baseline, not floating mid-cell.
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: <Widget>[
-        for (int i = 0; i < kOtpLength; i++) ...<Widget>[
-          if (i > 0) const SizedBox(width: AppSpacing.s2),
-          Expanded(child: _cell(i)),
-        ],
+        for (int i = 0; i < kOtpLength; i++) _cell(i),
       ],
     );
   }
 
   Widget _cell(int index) {
     final bool filled = index < code.length;
-    // The next empty cell is the one being typed into; once the code is full
-    // the ring stays on the last cell rather than vanishing off the end.
+    // The next empty box is the one being typed into; once the code is full
+    // the ring stays on the last box rather than vanishing off the end.
     final bool active = focused &&
         index == (code.length >= kOtpLength ? kOtpLength - 1 : code.length);
-    // Underline slots — the kit BBOtpRow / Indian bank convention (no boxes):
-    // the active slot's underline turns blue, filled slots keep a strong
-    // hairline, empty slots sit on the muted disabled line.
-    final Color underline = active
-        ? AppColors.blue
-        : (filled ? AppColors.borderStrong : AppColors.disabled);
+    final Widget? child;
+    if (filled) {
+      child = FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(code[index], style: OnboardingTypography.otpDigit()),
+      );
+    } else if (active) {
+      child = BbPinCaret(
+        color: OnboardingColors.shiftBlue,
+        height: boxHeight * 0.45,
+        caretKey: kOtpCaretKey,
+      );
+    } else {
+      child = null;
+    }
     return Container(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s1),
+      width: boxWidth,
+      height: boxHeight,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: underline, width: active ? 2.5 : 2),
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.otpBox),
+        border: Border.all(
+          color: active
+              ? OnboardingColors.borderActive
+              : OnboardingColors.borderDefault,
+          width: active ? 1.8 : 1.2,
         ),
       ),
-      alignment: Alignment.bottomCenter,
-      child: Text(
-        filled ? code[index] : '',
-        style: AppTypography.mono(
-          size: AppTypography.sizeXl,
-          weight: FontWeight.w700,
-          letterSpacing: 0,
-        ),
-      ),
+      child: child,
     );
   }
 }

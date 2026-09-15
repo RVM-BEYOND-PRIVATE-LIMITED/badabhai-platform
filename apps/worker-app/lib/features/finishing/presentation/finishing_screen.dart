@@ -1,22 +1,28 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_chip.dart';
-import '../../../core/widgets/bb_toggle.dart';
+import '../../../core/session/known_worker_facts_store.dart' show WorkerFact;
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/util/tap_guard.dart';
+import '../../../core/widgets/onboarding/form_flow_parts.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/option_icons.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import '../../../core/widgets/onboarding/selection_cards.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
-import '../../voice_form/presentation/widgets/voice_dot_rail.dart';
+import '../../voice/domain/speech_reader.dart';
 import '../domain/finishing_models.dart';
 import 'cubit/finishing_cubit.dart';
 import 'widgets/employer_card.dart';
-import '../../../core/util/tap_guard.dart';
+import 'widgets/finishing_controls.dart';
+import 'widgets/finishing_option_icons.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart. ----
@@ -38,6 +44,8 @@ const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesTitle = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle = 'Sheher daalein — ek se zyada bhi chalega.';
 const String _kCityHint = 'Sheher ka naam likhein';
+// Screen-reader name for the icon-only add-city button (it used to read "+").
+const String _kAddCity = 'Sheher jodein';
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 
@@ -107,10 +115,65 @@ const String _kFinish = 'Ho gaya';
 const String _kLoading = 'Taiyaari ho rahi hai…';
 const String _kRetry = 'Dobara koshish karein';
 
+/// The pill under a multi-select page's heading (the mockups' "ⓘ" hint).
+const String _kMultiHint = 'Multiple options select kar sakte hain';
+
+/// (category, topic) per page — the category follows the step in the header
+/// ("STEP 3 OF 8 • AVAILABILITY & TERMS"), the topic heads the progress strip.
+(String, String) _topicFor(FinishingPage page) => switch (page) {
+      FinishingPage.languages => ('Languages', 'Languages spoken'),
+      FinishingPage.documents => ('Documents', 'Documents ready'),
+      FinishingPage.shiftAndType => ('Availability & terms', 'Shift & job type'),
+      FinishingPage.cities => ('Location', 'Preferred cities'),
+      FinishingPage.salary => ('Availability & terms', 'Salary expectation'),
+      FinishingPage.education => ('Qualifications', 'Education'),
+      FinishingPage.educationDetail => ('Qualifications', 'Education details'),
+      FinishingPage.history => ('Work history', 'Past jobs'),
+    };
+
+/// Pages whose closed set allows several answers.
+bool _isMultiSelect(FinishingPage page) =>
+    page == FinishingPage.languages || page == FinishingPage.documents;
+
+/// The header's STEP line — the true position in the pages this worker is
+/// shown (a page the chat already asked is left out), then the page's category.
+String _stepBadge(FinishingState state) =>
+    'Step ${state.pageIndex + 1} of ${state.pages.length} • '
+    '${_topicFor(state.page).$1}';
+
+/// What the listen button reads: the page's own title and subtitle (fixed
+/// copy — never anything the worker typed). A title without end punctuation
+/// gets a full stop so the voice pauses before the subtitle.
+String _spokenPage(String title, String subtitle) {
+  final String t = title.trim();
+  final bool ended = t.endsWith('?') || t.endsWith('.') || t.endsWith('।');
+  return ended ? '$t $subtitle' : '$t. $subtitle';
+}
+
+/// Body gutter — the form flow's 20dp sides and top; 16dp at the bottom
+/// (#1471 pages must still fit a handset).
+const EdgeInsets _kBodyPadding = EdgeInsets.fromLTRB(
+  FormFlowLayout.gutter,
+  FormFlowLayout.bodyPaddingTop,
+  FormFlowLayout.gutter,
+  16,
+);
+
+/// Vertical gap between two questions on one page.
+const double _kQuestionGap = 14;
+
 /// The post-interview finishing form (#1296) — five closed-set pages that fill
 /// the résumé rows the interview's ask-budget cannot afford. Reached straight
 /// after the interview confirms, before the first résumé generate; on completion
 /// it routes to [Routes.building].
+///
+/// Form-flow chrome (the Workholding / Measuring / Operations mockups): Shift
+/// Blue header (yellow title, subtitle, "Step n of 8 • category" line, back =
+/// previous page), the white progress strip (topic + true percent), a
+/// scrolling width-capped body whose option cards all carry an icon tile, and
+/// the docked [QuestionnaireBottomBar]. Its listen button reads the page's
+/// title and subtitle on the device's TTS, and appears only when a
+/// [SpeechReader] is registered — no dead button otherwise.
 class FinishingScreen extends StatelessWidget {
   const FinishingScreen({super.key});
 
@@ -123,36 +186,79 @@ class FinishingScreen extends StatelessWidget {
   }
 }
 
-class _FinishingView extends StatelessWidget {
+class _FinishingView extends StatefulWidget {
   const _FinishingView();
 
   @override
+  State<_FinishingView> createState() => _FinishingViewState();
+}
+
+class _FinishingViewState extends State<_FinishingView> {
+  /// The device TTS seam, or null when none is registered (widget tests) — in
+  /// which case the bar gets no listen button at all.
+  final SpeechReader? _reader =
+      locator.isRegistered<SpeechReader>() ? locator<SpeechReader>() : null;
+
+  /// Reads [text] aloud, cutting off anything already playing.
+  void _speak(String text) {
+    final SpeechReader? reader = _reader;
+    if (reader == null) return;
+    unawaited(() async {
+      await reader.stop();
+      await reader.speak(text);
+    }());
+  }
+
+  /// Never leave the voice reading a page the worker has moved on from.
+  void _stopSpeech() {
+    final SpeechReader? reader = _reader;
+    if (reader != null) unawaited(reader.stop());
+  }
+
+  @override
+  void dispose() {
+    _stopSpeech();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocConsumer<FinishingCubit, FinishingState>(
-      listenWhen: (FinishingState p, FinishingState c) => p.status != c.status,
-      listener: (BuildContext context, FinishingState state) {
-        if (state.status == FinishingStatus.done) {
-          // The two writes have landed — generate the résumé they just filled.
-          context.go(Routes.building);
-        }
-      },
-      builder: (BuildContext context, FinishingState state) {
-        switch (state.status) {
-          case FinishingStatus.loadingOptions:
-            return const _StatusScaffold(child: _LoadingBody());
-          case FinishingStatus.loadError:
-            return _StatusScaffold(
-              child: _ErrorBody(
-                message: state.error ?? _kRetry,
-                onRetry: () => context.read<FinishingCubit>().load(),
-              ),
-            );
-          case FinishingStatus.ready:
-          case FinishingStatus.submitting:
-          case FinishingStatus.done:
-            return _WizardScaffold(state: state);
-        }
-      },
+    return BlocListener<FinishingCubit, FinishingState>(
+      // Next, back, or any other page change silences the previous page.
+      listenWhen: (FinishingState p, FinishingState c) =>
+          p.pageIndex != c.pageIndex,
+      listener: (BuildContext context, FinishingState state) => _stopSpeech(),
+      child: BlocConsumer<FinishingCubit, FinishingState>(
+        listenWhen: (FinishingState p, FinishingState c) =>
+            p.status != c.status,
+        listener: (BuildContext context, FinishingState state) {
+          if (state.status == FinishingStatus.done) {
+            // The two writes have landed — generate the résumé they just filled.
+            context.go(Routes.building);
+          }
+        },
+        builder: (BuildContext context, FinishingState state) {
+          switch (state.status) {
+            case FinishingStatus.loadingOptions:
+              return const _StatusScaffold(child: _LoadingBody());
+            case FinishingStatus.loadError:
+              return _StatusScaffold(
+                child: _ErrorBody(
+                  message: state.error ?? _kRetry,
+                  onRetry: () => context.read<FinishingCubit>().load(),
+                ),
+              );
+            case FinishingStatus.ready:
+            case FinishingStatus.submitting:
+            case FinishingStatus.done:
+              return _WizardScaffold(
+                state: state,
+                onListen: _reader == null ? null : _speak,
+                onAdvance: _stopSpeech,
+              );
+          }
+        },
+      ),
     );
   }
 }
@@ -165,12 +271,14 @@ class _StatusScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.canvas,
+      backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          const BbBlueHeader(
+          const ShiftBlueHeader(
             title: _kHistoryTitle,
             subtitle: _kRewardLine,
+            titleColor: OnboardingColors.safetyYellow,
+            variant: OnboardingVariant.formFlow,
           ),
           Expanded(child: SafeArea(top: false, child: child)),
         ],
@@ -183,15 +291,16 @@ class _LoadingBody extends StatelessWidget {
   const _LoadingBody();
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return OnboardingBody(
+      fillViewport: true,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          const CircularProgressIndicator(color: AppColors.blue),
-          const SizedBox(height: AppSpacing.s4),
+          const CircularProgressIndicator(color: OnboardingColors.shiftBlue),
+          const SizedBox(height: 16),
           Text(_kLoading,
-              style: AppTypography.body(
-                  size: AppTypography.sizeBase, color: AppColors.textMuted)),
+              textAlign: TextAlign.center,
+              style: OnboardingTypography.bodyMuted()),
         ],
       ),
     );
@@ -205,34 +314,47 @@ class _ErrorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(message,
-                textAlign: TextAlign.center,
-                style: AppTypography.body(size: AppTypography.sizeMd)),
-            const SizedBox(height: AppSpacing.s4),
-            BbButton(
-              label: _kRetry,
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.md,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
+    return OnboardingBody(
+      fillViewport: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          const Icon(Icons.error_outline_rounded,
+              size: 32, color: OnboardingColors.errorRed),
+          const SizedBox(height: 12),
+          // The real reason from the cubit — never a generic "check internet".
+          Text(message,
+              textAlign: TextAlign.center,
+              style: OnboardingTypography.inter(
+                  size: 15, weight: FontWeight.w500, height: 1.4)),
+          const SizedBox(height: 20),
+          PrimaryActionButton(
+            label: _kRetry,
+            showArrow: false,
+            onPressed: onRetry,
+          ),
+        ],
       ),
     );
   }
 }
 
-/// The five-page wizard chrome: header (per-page title + back-to-previous-page),
-/// a grow-only dot rail, the swapped page body, and a sticky advance button.
+/// The eight-page wizard chrome: header (per-page yellow title + STEP line +
+/// back-to-previous-page), the progress strip, the swapped page body, and the
+/// docked advance bar.
 class _WizardScaffold extends StatelessWidget {
-  const _WizardScaffold({required this.state});
+  const _WizardScaffold({
+    required this.state,
+    required this.onListen,
+    required this.onAdvance,
+  });
   final FinishingState state;
+
+  /// Speaks the given text; null hides the listen button.
+  final ValueChanged<String>? onListen;
+
+  /// Runs just before next / submit (silences the voice).
+  final VoidCallback onAdvance;
 
   static const List<String> _titles = <String>[
     _kLangTitle,
@@ -258,52 +380,66 @@ class _WizardScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final FinishingCubit cubit = context.read<FinishingCubit>();
-    final int i = state.pageIndex;
+    // Copy is indexed by the PAGE, not the position: a page the chat already
+    // asked is skipped, so the two can differ.
+    final int i = state.page.index;
+    final ValueChanged<String>? listen = onListen;
     return Scaffold(
-      backgroundColor: AppColors.canvas,
+      backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          BbBlueHeader(
-            title: _titles[i],
-            subtitle: _subtitles[i],
+          // Mockup: the header carries the section; the question itself is the
+          // body's headline.
+          ShiftBlueHeader(
+            title: _topicFor(state.page).$1,
+            stepBadge: _stepBadge(state),
+            titleColor: OnboardingColors.safetyYellow,
             onBack: state.isFirstPage ? null : cubit.previousPage,
+            variant: OnboardingVariant.formFlow,
+          ),
+          FormProgressStrip(
+            topic: _topicFor(state.page).$2,
+            position: state.pageIndex + 1,
+            total: state.pages.length,
           ),
           Expanded(
+            // Bottom inset is the docked bar's job; keep only the side insets.
             child: SafeArea(
               top: false,
-              child: Column(
-                children: <Widget>[
-                  const SizedBox(height: AppSpacing.s4),
-                  VoiceDotRail(
-                    filled: state.pageIndex + 1,
-                    total: FinishingPage.values.length,
-                  ),
-                  // The finishing form IS the reward — say so once, on page one.
-                  if (state.isFirstPage) ...<Widget>[
-                    const SizedBox(height: AppSpacing.s3),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.gutter),
-                      child: Text(
-                        _kRewardLine,
-                        textAlign: TextAlign.center,
-                        style: AppTypography.body(
-                            size: AppTypography.sizeSm,
-                            color: AppColors.textMuted),
-                      ),
-                    ),
+              bottom: false,
+              child: OnboardingBody(
+                padding: _kBodyPadding,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Text(_titles[i],
+                        style: OnboardingTypography.formQuestionHeadline()),
+                    const SizedBox(height: FormFlowLayout.headlineToWhyGap),
+                    Text(_subtitles[i],
+                        style: OnboardingTypography.formWhyText()),
+                    // The finishing form IS the reward — say so once, on page
+                    // one.
+                    if (state.isFirstPage)
+                      Text(_kRewardLine,
+                          style: OnboardingTypography.formWhyText()),
+                    if (_isMultiSelect(state.page)) ...<Widget>[
+                      const SizedBox(height: FormFlowLayout.whyToHintGap),
+                      const FormHintChip(text: _kMultiHint),
+                      const SizedBox(height: FormFlowLayout.hintToOptionsGap),
+                    ] else
+                      const SizedBox(height: FormFlowLayout.introToOptionsGap),
+                    _PageBody(state: state),
                   ],
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
-                          AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
-                      child: _PageBody(state: state),
-                    ),
-                  ),
-                  _BottomBar(state: state),
-                ],
+                ),
               ),
             ),
+          ),
+          _BottomBar(
+            state: state,
+            onListen: listen == null
+                ? null
+                : () => listen(_spokenPage(_titles[i], _subtitles[i])),
+            onAdvance: onAdvance,
           ),
         ],
       ),
@@ -321,33 +457,40 @@ class _PageBody extends StatelessWidget {
     final FinishingCubit cubit = context.read<FinishingCubit>();
     switch (state.page) {
       case FinishingPage.languages:
-        return _MultiChips(
+        return _MultiCards(
           labels: options.languages,
           selected: state.prefs.languages,
           onTap: cubit.toggleLanguage,
+          iconFor: (_, __) => kFinishingLanguageIcon,
         );
       case FinishingPage.documents:
-        return _MultiChips(
+        return _MultiCards(
           labels: options.documentsReady,
           selected: state.prefs.documentsReady,
           onTap: cubit.toggleDocument,
+          iconFor: documentOptionIcon,
         );
       case FinishingPage.shiftAndType:
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _SectionLabel(_kShiftLabel),
-            _SingleChips(
-              labels: options.shift,
-              selected: state.prefs.shift,
-              onTap: cubit.selectShift,
-            ),
-            const SizedBox(height: AppSpacing.s5),
+            // The chat already asked "din ki shift ya raat ki" — not again.
+            if (!state.knownFacts.contains(WorkerFact.shift)) ...<Widget>[
+              _SectionLabel(_kShiftLabel),
+              _SingleCards(
+                labels: options.shift,
+                selected: state.prefs.shift,
+                onTap: cubit.selectShift,
+                iconFor: shiftOptionIcon,
+              ),
+              const SizedBox(height: _kQuestionGap),
+            ],
             _SectionLabel(_kJobTypeLabel),
-            _SingleChips(
+            _SingleCards(
               labels: options.jobType,
               selected: state.prefs.jobType,
               onTap: cubit.selectJobType,
+              iconFor: jobTypeOptionIcon,
             ),
           ],
         );
@@ -365,65 +508,103 @@ class _PageBody extends StatelessWidget {
   }
 }
 
+/// A question heading inside a page body — the mockups' Anek bold question
+/// headline, one step smaller than the kit's 20dp because two questions share
+/// the page beneath the header's own title (#1471 fit).
 class _SectionLabel extends StatelessWidget {
   const _SectionLabel(this.text);
   final String text;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-        child: Text(text, style: AppTypography.eyebrow()),
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          text,
+          style: OnboardingTypography.anek(
+            size: 17,
+            weight: FontWeight.w700,
+            height: 1.25,
+            // Navy, like the form-flow question headline it sits under.
+            color: OnboardingColors.shiftBlue,
+          ),
+        ),
       );
 }
 
-class _MultiChips extends StatelessWidget {
-  const _MultiChips({
+/// The leading icon for one option card, from its slug and label.
+typedef _OptionIcon = IconData Function(String slug, String label);
+
+/// A form-field label on the education-detail page (kit field label, Inter).
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text, style: finishingFieldLabelStyle()),
+      );
+}
+
+/// Multi-select closed set — one kit checkbox card per server-supplied option.
+class _MultiCards extends StatelessWidget {
+  const _MultiCards({
     required this.labels,
     required this.selected,
     required this.onTap,
+    required this.iconFor,
   });
   final Map<String, String> labels;
   final Set<String> selected;
   final void Function(String slug) onTap;
+  final _OptionIcon iconFor;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (final MapEntry<String, String> e in labels.entries)
-          BbChip(
-            label: e.value,
-            selected: selected.contains(e.key),
-            icon: selected.contains(e.key) ? Icons.check : null,
+          MultiSelectQuestionCard(
+            title: e.value,
+            leadingIcon: iconFor(e.key, e.value),
+            isSelected: selected.contains(e.key),
             onTap: () => onTap(e.key),
+            variant: OnboardingVariant.formFlow,
           ),
       ],
     );
   }
 }
 
-class _SingleChips extends StatelessWidget {
-  const _SingleChips({
+/// Single-select closed set — one kit radio card per option. Re-tapping the
+/// chosen card clears it (the cubit's toggle-to-clear rule).
+class _SingleCards extends StatelessWidget {
+  const _SingleCards({
     required this.labels,
     required this.selected,
     required this.onTap,
+    required this.iconFor,
+    this.twoUp = false,
   });
   final Map<String, String> labels;
   final String? selected;
   final void Function(String slug) onTap;
+  final _OptionIcon iconFor;
+
+  /// Two per row where it fits (see [_CardGrid]). Only for the short,
+  /// client-pinned education vocabularies (#1298) — server-supplied lists,
+  /// whose label length is unknown, stay one per row.
+  final bool twoUp;
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
-      children: <Widget>[
+    return _CardGrid(
+      twoUp: twoUp,
+      cards: <_CardSpec>[
         for (final MapEntry<String, String> e in labels.entries)
-          BbChip(
-            label: e.value,
-            selected: selected == e.key,
-            icon: selected == e.key ? Icons.check : null,
+          _CardSpec(
+            title: e.value,
+            icon: iconFor(e.key, e.value),
+            isSelected: selected == e.key,
             onTap: () => onTap(e.key),
           ),
       ],
@@ -431,12 +612,99 @@ class _SingleChips extends StatelessWidget {
   }
 }
 
-/// Single-select salary BAND chips (#1312). Mirrors [_SingleChips] but is keyed
+/// One single-select option card's content, independent of its layout.
+class _CardSpec {
+  const _CardSpec({
+    required this.title,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+  final String title;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+}
+
+/// Lays single-select option cards one per row — the kit card, as in the
+/// mockups — or, with [twoUp] and only while each cell still gets
+/// [_minTwoUpCardWidth] (scaled with the worker's font size), two per row as
+/// [FinishingGridOptionCard]s, which give the title the full cell width.
+///
+/// Two-up exists for the short client-pinned lists whose pages must fit a
+/// handset (#1471): with an icon tile on every card, one column of the
+/// education vocabularies (#1298) or the salary bands (#1312) no longer does.
+class _CardGrid extends StatelessWidget {
+  const _CardGrid({required this.cards, this.twoUp = false});
+  final List<_CardSpec> cards;
+  final bool twoUp;
+
+  static const double _minTwoUpCardWidth = 150;
+  static const double _twoUpGap = 10;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget oneUp() => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            for (final _CardSpec c in cards)
+              SingleSelectQuestionCard(
+                title: c.title,
+                leadingIcon: c.icon,
+                isSelected: c.isSelected,
+                onTap: c.onTap,
+                variant: OnboardingVariant.formFlow,
+              ),
+          ],
+        );
+    if (!twoUp) return oneUp();
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double cardWidth = (constraints.maxWidth - _twoUpGap) / 2;
+        final bool fits = cardWidth >=
+            MediaQuery.textScalerOf(context).scale(_minTwoUpCardWidth);
+        if (!fits) return oneUp();
+        final List<Widget> cells = <Widget>[
+          for (final _CardSpec c in cards)
+            FinishingGridOptionCard(
+              title: c.title,
+              icon: c.icon,
+              isSelected: c.isSelected,
+              onTap: c.onTap,
+            ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            for (int i = 0; i < cells.length; i += 2)
+              // Equal heights across the row when one label wraps.
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Expanded(child: cells[i]),
+                    const SizedBox(width: _twoUpGap),
+                    Expanded(
+                      child: i + 1 < cells.length
+                          ? cells[i + 1]
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Single-select salary BAND cards (#1312). Mirrors [_SingleCards] but is keyed
 /// on each band's UPPER bound (an int), which is exactly what the wire sends as
 /// `salary_expected_max`. Re-tapping the chosen band clears it (a real "skip"),
 /// so no salary key is sent — the same toggle-to-clear rule as shift / job type.
-class _SalaryBandChips extends StatelessWidget {
-  const _SalaryBandChips({required this.selected, required this.onTap});
+class _SalaryBandCards extends StatelessWidget {
+  const _SalaryBandCards({required this.selected, required this.onTap});
 
   /// The currently chosen band's upper bound, or null when none is chosen.
   final int? selected;
@@ -446,15 +714,17 @@ class _SalaryBandChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
-      children: <Widget>[
+    // Two per row where it fits: six one-per-row cards with icon tiles pushed
+    // the salary page past a 360x800 handset (#1471). Read row-wise, the
+    // bands still run low to high.
+    return _CardGrid(
+      twoUp: true,
+      cards: <_CardSpec>[
         for (final MapEntry<int, String> e in _kSalaryBands.entries)
-          BbChip(
-            label: e.value,
-            selected: selected == e.key,
-            icon: selected == e.key ? Icons.check : null,
+          _CardSpec(
+            title: e.value,
+            icon: kFinishingSalaryIcon,
+            isSelected: selected == e.key,
             onTap: () => onTap(selected == e.key ? null : e.key),
           ),
       ],
@@ -493,7 +763,7 @@ class _CitiesPageState extends State<_CitiesPage> {
     final FinishingCubit cubit = context.read<FinishingCubit>();
     final FinishingState state = widget.state;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -506,39 +776,34 @@ class _CitiesPageState extends State<_CitiesPage> {
                 onSubmitted: (_) => _add(),
               ),
             ),
-            const SizedBox(width: AppSpacing.s2),
-            BbButton(
-              label: '+',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.md,
-              onPressed: _addGuard.wrap(_add),
-            ),
+            const SizedBox(width: 10),
+            _AddCityButton(onPressed: _addGuard.wrap(_add)),
           ],
         ),
         if (state.prefs.preferredCities.isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
           Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
+            spacing: 8,
+            runSpacing: 8,
             children: <Widget>[
               for (final String c in state.prefs.preferredCities)
-                BbChip(
+                FinishingChip(
                   label: c,
                   selected: true,
-                  icon: Icons.close,
+                  trailingIcon: Icons.close_rounded,
                   onTap: () => cubit.removeCity(c),
                 ),
             ],
           ),
         ],
-        const SizedBox(height: AppSpacing.s5),
-        _ToggleRow(
+        const SizedBox(height: 20),
+        FinishingToggleRow(
           label: _kRelocateLabel,
           value: state.prefs.willingToRelocate,
           onChanged: cubit.setRelocate,
         ),
-        const SizedBox(height: AppSpacing.s3),
-        _ToggleRow(
+        const SizedBox(height: 10),
+        FinishingToggleRow(
           label: _kAccommodationLabel,
           value: state.prefs.accommodationNeeded,
           onChanged: cubit.setAccommodation,
@@ -548,54 +813,58 @@ class _CitiesPageState extends State<_CitiesPage> {
   }
 }
 
-class _ToggleRow extends StatelessWidget {
-  const _ToggleRow({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
+/// The 48px square "add this city" button beside the city field.
+class _AddCityButton extends StatelessWidget {
+  const _AddCityButton({required this.onPressed});
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(label,
-              style: AppTypography.body(size: AppTypography.sizeBase)),
+    final BorderRadius radius =
+        BorderRadius.circular(OnboardingRadii.nameField);
+    return Semantics(
+      button: true,
+      label: _kAddCity,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: Material(
+        color: OnboardingColors.shiftBlue,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: radius,
+          child: const SizedBox(
+            width: OnboardingLayout.tapTarget,
+            height: OnboardingLayout.tapTarget,
+            child: Icon(Icons.add_rounded,
+                size: 24, color: OnboardingColors.textOnBlue),
+          ),
         ),
-        const SizedBox(width: AppSpacing.s2),
-        BbToggle(value: value, onChanged: onChanged, semanticLabel: label),
-      ],
+      ),
     );
   }
 }
 
-/// Salary band + the ITI/Diploma credential group (#1298, #1312). Everything
-/// here is optional: a worker who skips it keeps whatever the interview
-/// captured. Salary is a single-select BAND (#1312) whose upper bound is sent as
-/// `salary_expected_max`; the year field is still range-guarded at the edge, so
-/// an out-of-range entry simply produces no year.
 /// #1471 — the money question, alone. The band picker is the only thing on
 /// screen, so a worker who cannot read the labels still sees six options and a
-/// button without scrolling.
+/// button without scrolling. Optional: skipping keeps whatever the interview
+/// captured; the chosen band's upper bound is sent as `salary_expected_max`
+/// (#1312).
 class _SalaryPage extends StatelessWidget {
   const _SalaryPage({required this.state});
   final FinishingState state;
 
   @override
   Widget build(BuildContext context) {
-    return _SalaryBandChips(
+    return _SalaryBandCards(
       selected: state.prefs.salaryExpectedMax,
       onTap: context.read<FinishingCubit>().setSalaryMax,
     );
   }
 }
 
-/// The two education CHIP questions — what was studied, and under whom.
-/// Closed sets, so they answer in a tap each and fit together.
+/// The two education CARD questions — what was studied, and under whom.
+/// Closed sets (#1298), so they answer in a tap each and fit together.
 class _EducationPage extends StatelessWidget {
   const _EducationPage({required this.state});
   final FinishingState state;
@@ -605,20 +874,24 @@ class _EducationPage extends StatelessWidget {
     final FinishingCubit cubit = context.read<FinishingCubit>();
     final WorkPreferences prefs = state.prefs;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _SectionLabel(_kCredentialLabel),
-        _SingleChips(
+        _SingleCards(
           labels: _kCredentials,
           selected: prefs.educationCredential,
           onTap: cubit.selectCredential,
+          iconFor: (_, __) => kFinishingEducationIcon,
+          twoUp: true,
         ),
-        const SizedBox(height: AppSpacing.s5),
+        const SizedBox(height: _kQuestionGap),
         _SectionLabel(_kCouncilLabel),
-        _SingleChips(
+        _SingleCards(
           labels: _kCouncils,
           selected: prefs.educationCouncil,
           onTap: cubit.selectCouncil,
+          iconFor: (_, __) => kFinishingEducationIcon,
+          twoUp: true,
         ),
       ],
     );
@@ -627,7 +900,9 @@ class _EducationPage extends StatelessWidget {
 
 /// The two education TEXT fields — year and institute. Kept together and kept
 /// LAST: they are the only ones that open a keyboard, which is what made the
-/// combined page unusable (the keyboard covered the questions above it).
+/// combined page unusable (the keyboard covered the questions above it). The
+/// year is range-guarded at the edge, so an out-of-range entry simply produces
+/// no year.
 class _EducationDetailPage extends StatefulWidget {
   const _EducationDetailPage({required this.state});
   final FinishingState state;
@@ -658,9 +933,9 @@ class _EducationDetailPageState extends State<_EducationDetailPage> {
   Widget build(BuildContext context) {
     final FinishingCubit cubit = context.read<FinishingCubit>();
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _SectionLabel(_kEduYearLabel),
+        _FieldLabel(_kEduYearLabel),
         FinishingTextField(
           controller: _year,
           hint: _kEduYearHint,
@@ -670,8 +945,8 @@ class _EducationDetailPageState extends State<_EducationDetailPage> {
           onChanged: (String v) =>
               cubit.setEducationYear(_inRange(v, _kYearMin, _kYearMax)),
         ),
-        const SizedBox(height: AppSpacing.s5),
-        _SectionLabel(_kInstituteLabel),
+        const SizedBox(height: 18),
+        _FieldLabel(_kInstituteLabel),
         FinishingTextField(
           controller: _institute,
           hint: _kInstituteHint,
@@ -693,7 +968,7 @@ class _HistoryPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final FinishingCubit cubit = context.read<FinishingCubit>();
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (int i = 0; i < state.employments.length; i++) ...<Widget>[
           EmployerCard(
@@ -702,57 +977,139 @@ class _HistoryPage extends StatelessWidget {
             onChanged: (entry) => cubit.updateEmployer(i, entry),
             onRemove: () => cubit.removeEmployer(i),
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
         ],
         if (state.employments.length < kMaxEmployers)
-          BbButton(
-            label: _kAddEmployer,
-            variant: BbButtonVariant.outline,
-            size: BbButtonSize.md,
-            iconLeft: Icons.add,
-            block: true,
-            onPressed: cubit.addEmployer,
-          ),
+          _AddEmployerButton(onPressed: cubit.addEmployer),
       ],
     );
   }
 }
 
-/// The sticky advance/finish button (+ any inline submit error above it).
+/// The kit's secondary (outline) action — 48px, white, hairline, navy label.
+class _AddEmployerButton extends StatelessWidget {
+  const _AddEmployerButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: const Icon(Icons.add_rounded, size: 20),
+      label: Text(
+        _kAddEmployer,
+        style: OnboardingTypography.buttonLabel(),
+      ),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size.fromHeight(OnboardingLayout.tapTarget),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        backgroundColor: OnboardingColors.paperWhite,
+        foregroundColor: OnboardingColors.shiftBlue,
+        side: const BorderSide(color: OnboardingColors.borderDefault, width: 1.2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+}
+
+/// The docked advance/finish bar (+ any inline submit error pinned above it, so
+/// a failed save's reason is never scrolled out of view).
 class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.state});
+  const _BottomBar({
+    required this.state,
+    required this.onListen,
+    required this.onAdvance,
+  });
   final FinishingState state;
+
+  /// Reads the page aloud; null renders no listen button.
+  final VoidCallback? onListen;
+
+  /// Runs just before next / submit.
+  final VoidCallback onAdvance;
 
   @override
   Widget build(BuildContext context) {
     final FinishingCubit cubit = context.read<FinishingCubit>();
-    return Container(
-      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, AppSpacing.s3,
-          AppSpacing.gutter, AppSpacing.s4),
-      decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+    final VoidCallback advance = state.isLastPage ? cubit.submit : cubit.nextPage;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (state.submitError != null) _SubmitError(message: state.submitError!),
+        QuestionnaireBottomBar(
+          nextLabel: state.isLastPage ? _kFinish : _kNext,
+          showArrow: !state.isLastPage,
+          isLoading: state.isSubmitting,
+          onListen: onListen,
+          variant: OnboardingVariant.formFlow,
+          onNext: state.isSubmitting
+              ? null
+              : () {
+                  onAdvance();
+                  advance();
+                },
+        ),
+      ],
+    );
+  }
+}
+
+class _SubmitError extends StatelessWidget {
+  const _SubmitError({required this.message});
+  final String message;
+
+  /// The strip is pinned chrome beside the CTA, so — like the bar — it caps its
+  /// share of the screen: a long server reason at a large font scrolls inside
+  /// the strip instead of squeezing the form body off a small handset.
+  static const double _maxScreenFraction = 0.25;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: Container(
+        width: double.infinity,
+        color: OnboardingColors.errorBg,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * _maxScreenFraction,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: _content(),
+        ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (state.submitError != null) ...<Widget>[
-            Text(
-              state.submitError!,
-              style: AppTypography.body(
-                  size: AppTypography.sizeSm, color: AppColors.danger),
+    );
+  }
+
+  Widget _content() {
+    return Center(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints:
+            const BoxConstraints(maxWidth: OnboardingLayout.maxContentWidth),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Padding(
+              padding: EdgeInsets.only(top: 1),
+              child: Icon(Icons.error_outline_rounded,
+                  size: 18, color: OnboardingColors.errorRed),
             ),
-            const SizedBox(height: AppSpacing.s2),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: OnboardingTypography.inter(
+                  size: 13,
+                  weight: FontWeight.w500,
+                  color: OnboardingColors.errorRed,
+                ),
+              ),
+            ),
           ],
-          BbButton(
-            label: state.isLastPage ? _kFinish : _kNext,
-            block: true,
-            loading: state.isSubmitting,
-            onPressed: state.isSubmitting
-                ? null
-                : (state.isLastPage ? cubit.submit : cubit.nextPage),
-          ),
-        ],
+        ),
       ),
     );
   }

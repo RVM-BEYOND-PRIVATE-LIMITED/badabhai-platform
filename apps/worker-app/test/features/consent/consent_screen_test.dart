@@ -86,7 +86,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
-    await tester.tap(find.text('Continue'));
+    await tester.tap(find.text('Aage Badhein'));
     await tester.pumpAndSettle();
   }
 
@@ -95,8 +95,10 @@ void main() {
       WidgetTester tester,
     ) async {
       await pump(tester, recovery: false);
-      expect(find.text('Your privacy'), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(find.text('YOUR PRIVACY'), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
+      // Icon-agnostic too: no 'Wapas' back control of ANY glyph.
+      expect(find.byTooltip('Wapas'), findsNothing);
     });
 
     testWidgets('accepting continues into the name step', (
@@ -115,19 +117,20 @@ void main() {
   group('the RECOVERY arrival can be declined and never hijacks onboarding', () {
     testWidgets('it offers a way back', (WidgetTester tester) async {
       await pump(tester, recovery: true);
-      expect(find.byIcon(Icons.arrow_back), findsOneWidget,
+      expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsOneWidget,
           reason: 'a worker pushed here mid-task must be able to decline');
+      expect(find.byTooltip('Wapas'), findsOneWidget);
     });
 
     testWidgets('the back arrow returns false to the caller and records NOTHING',
         (WidgetTester tester) async {
       await pump(tester, recovery: true);
 
-      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.tap(find.byIcon(Icons.arrow_back_ios_new_rounded));
       await tester.pumpAndSettle();
 
       expect(find.text('OPEN CONSENT'), findsOneWidget);
-      expect(find.text('Your privacy'), findsNothing);
+      expect(find.text('YOUR PRIVACY'), findsNothing);
       // Backing out is not consent. Nothing may be written on the way out.
       verifyNever(() => repo.acceptConsent(purposes: any(named: 'purposes')));
     });

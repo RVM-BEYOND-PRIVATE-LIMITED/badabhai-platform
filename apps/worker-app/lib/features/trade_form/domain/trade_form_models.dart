@@ -400,6 +400,7 @@ class TradeFormPreferences extends Equatable {
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
     this.salaryExpectedMax,
+    this.touched = const <String>{},
   });
 
   final Set<String> languages;
@@ -410,6 +411,14 @@ class TradeFormPreferences extends Equatable {
   final bool willingToRelocate;
   final bool accommodationNeeded;
   final int? salaryExpectedMax;
+
+  /// Wire keys of the list and yes/no fields the worker CHANGED, set by
+  /// [copyWith] (every page edit goes through it). [toJson] sends those fields
+  /// only when touched — the same idea as [TradeFormQualifications]'s touched
+  /// flags. A fresh cubit opens this page BLANK (the endpoint has no read), so
+  /// sending an untouched `[]` or `false` would erase what the worker saved
+  /// earlier; the server leaves an absent key alone.
+  final Set<String> touched;
 
   TradeFormPreferences copyWith({
     Set<String>? languages,
@@ -432,19 +441,32 @@ class TradeFormPreferences extends Equatable {
       salaryExpectedMax: salaryExpectedMax == _sentinel
           ? this.salaryExpectedMax
           : salaryExpectedMax as int?,
+      touched: <String>{
+        ...touched,
+        if (languages != null) _kPrefLanguagesKey,
+        if (documentsReady != null) _kPrefDocumentsKey,
+        if (preferredCities != null) _kPrefCitiesKey,
+        if (willingToRelocate != null) _kPrefRelocateKey,
+        if (accommodationNeeded != null) _kPrefAccommodationKey,
+      },
     );
   }
 
-  /// Wire body for `PUT /workers/me/work-preferences` — lists always present
-  /// (`[]` = "none of these"); scalars only when chosen (absent = leave the
-  /// stored value alone).
+  /// Wire body for `PUT /workers/me/work-preferences` — a list or yes/no key
+  /// only when [touched] (`[]` then means "none of these"; absent = leave the
+  /// stored value alone); scalars only when chosen (absent = leave the stored
+  /// value alone). An untouched page therefore sends `{}`, which writes nothing.
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> body = <String, dynamic>{
-      'languages': languages.toList(),
-      'documents_ready': documentsReady.toList(),
-      'preferred_cities': preferredCities,
-      'willing_to_relocate': willingToRelocate,
-      'accommodation_needed': accommodationNeeded,
+      if (touched.contains(_kPrefLanguagesKey))
+        _kPrefLanguagesKey: languages.toList(),
+      if (touched.contains(_kPrefDocumentsKey))
+        _kPrefDocumentsKey: documentsReady.toList(),
+      if (touched.contains(_kPrefCitiesKey)) _kPrefCitiesKey: preferredCities,
+      if (touched.contains(_kPrefRelocateKey))
+        _kPrefRelocateKey: willingToRelocate,
+      if (touched.contains(_kPrefAccommodationKey))
+        _kPrefAccommodationKey: accommodationNeeded,
     };
     if (jobType != null) body['job_type'] = jobType;
     if (shift != null) body['shift'] = shift;
@@ -464,8 +486,17 @@ class TradeFormPreferences extends Equatable {
         willingToRelocate,
         accommodationNeeded,
         salaryExpectedMax,
+        touched,
       ];
 }
+
+// `PUT /workers/me/work-preferences` wire keys for the fields
+// [TradeFormPreferences.touched] tracks.
+const String _kPrefLanguagesKey = 'languages';
+const String _kPrefDocumentsKey = 'documents_ready';
+const String _kPrefCitiesKey = 'preferred_cities';
+const String _kPrefRelocateKey = 'willing_to_relocate';
+const String _kPrefAccommodationKey = 'accommodation_needed';
 
 /// One row of work history for the `employment` marker screen.
 ///

@@ -23,8 +23,10 @@ const String _kSplash = '/';
 ///    worse than no button, and
 ///  - the two `ChatProfilingScreen` routes (onboarding chat + Bada Bhai tab) —
 ///    that screen puts its own Feedback action in the header instead, so the
-///    floating one would double up.
-/// Everywhere the worker is logged in (including consent + name onboarding) shows
+///    floating one would double up, and
+///  - the name onboarding step — its docked bottom bar carries its own Feedback
+///    pill beside Continue, for the same reason.
+/// Everywhere else the worker is logged in (including consent onboarding) shows
 /// it.
 const List<String> _kHiddenPrefixes = <String>[
   Routes.phoneLogin, // /login
@@ -33,6 +35,7 @@ const List<String> _kHiddenPrefixes = <String>[
   Routes.feedback, // don't offer feedback from the feedback page (anti-stack)
   Routes.chatProfiling, // /chat — header owns Feedback here instead
   Routes.badaBhai, // /bada-bhai — same screen, same reason
+  Routes.name, // /name — the bottom bar owns a Feedback pill here instead
 ];
 
 /// Whether the floating Feedback button should show on [path].
