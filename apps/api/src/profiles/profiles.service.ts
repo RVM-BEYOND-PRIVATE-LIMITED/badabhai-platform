@@ -15,7 +15,7 @@ import {
   type ReferralBonusJobData,
   type ResumeGenerateJobData,
 } from "../queue/queue.constants";
-import type { ExtractProfileInput, ConfirmProfileInput } from "./profiles.dto";
+import type { ExtractProfileInput, ConfirmProfileInput, ProfileConfirmNext } from "./profiles.dto";
 import { hasExtractedContent } from "./profile-content";
 
 /**
@@ -626,6 +626,24 @@ export class ProfilesService {
       profile_id: input.profile_id,
       profile_status: "confirmed",
       confirmed_at: confirmedAt.toISOString(),
+      // Task 1 B4 (ADR-0042 D8) — WHERE THE APP GOES NEXT IS THE ROAD'S TO DECIDE.
+      //
+      // The client used to probe `GET /profiling/form` and infer the road from "does a form
+      // exist?", which is the exact confusion ADR-0042 §1 records: a chat profile whose trade
+      // happens to have a form was pushed onto it. The road is `profile.source`, written by
+      // the extraction processor and never re-derived; this response is the first place the
+      // app is told to act on it.
+      //
+      // `null` FOR AN UNKNOWN ROAD (pre-0107 rows): the client keeps its probe — today's
+      // behaviour, byte for byte, until the row is re-extracted.
+      next: confirmNextFor(profile.source),
     };
   }
+}
+
+/** `worker_profiles.source` → the post-confirm destination (Task 1 B4; ADR-0042 D8). */
+function confirmNextFor(source: string | null | undefined): ProfileConfirmNext | null {
+  if (source === "chat") return "chat_complete";
+  if (source === "form") return "trade_form";
+  return null;
 }
