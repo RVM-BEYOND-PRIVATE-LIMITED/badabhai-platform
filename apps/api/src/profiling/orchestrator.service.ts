@@ -68,6 +68,8 @@ import {
   RESUME_CONFIRM_OPTIONS,
 } from "./resume-confirm";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import { WorkersRepository } from "../workers/workers.repository";
+import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
@@ -175,6 +177,20 @@ export const UNAVAILABLE_REPLY = CHAT_UNAVAILABLE_REPLY;
  * third concurrent writer gets an honest "try again" having written nothing.
  */
 export const MAX_CAS_ATTEMPTS = 2;
+
+/**
+ * The city-seed memo cell (#1504 item 5) — one per `takeTurn`/`openTurn` CALL, shared across every
+ * attempt of that call's CAS retry loop.
+ *
+ * A MUTABLE BOX, not a plain `Promise | null` local, because `??=` on a `let` re-declares nothing
+ * across the closure `seedCity` runs in — this is the same "declared outside, memoized with `??=`
+ * inside" shape the reply cache and the CAS loop itself use elsewhere in this file. A retry against
+ * the SAME fresh envelope reuses the one read; a retry that lands on a winner's (no-longer-fresh)
+ * envelope never calls `seedCity` at all, because `fresh` gates that at the call site.
+ */
+interface CitySeedRef {
+  promise: Promise<string | null> | null;
+}
 
 /**
  * Asks between mid-interview Postgres checkpoints (OIE Phase 9, risk #10).
@@ -460,6 +476,9 @@ export class ProfilingOrchestrator {
     // ask it are "is there something a résumé wants to confirm" and "what was it". It cannot
     // learn that a document exists, cannot read its key, and cannot write.
     private readonly resumeSuggestions: ResumeSuggestionReader,
+    // #1504 item 5 (city-seed). READ-ONLY: `findCurrentCity` is an explicit, PII-minimal
+    // projection — see `WorkersRepository.findCurrentCity`.
+    private readonly workers: WorkersRepository,
   ) {}
 
   /**
@@ -478,10 +497,16 @@ export class ProfilingOrchestrator {
     // `Date.now()` rather than `input.now`, because `input.now` is the injected logical clock the
     // decision is derived from; measuring elapsed time against a fixed value is measuring zero.
     const startedAt = Date.now();
+    // #1504 item 5 (city-seed). OUTSIDE the CAS loop and memoized with `??=` inside `seedCity`:
+    // a retry against the SAME fresh envelope must not re-read `workers.current_city` a second
+    // time, and a retry that loads a winner's (no-longer-fresh) envelope must not read at all —
+    // `fresh` below gates that. See `seedFromWorkerRecord`'s docblock.
+    const citySeed: CitySeedRef = { promise: null };
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
+      const fresh = loaded === null || loaded.profiling == null;
       const envelope =
         loaded === null
           ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
@@ -602,7 +627,7 @@ export class ProfilingOrchestrator {
         continue;
       }
 
-      const decided = await this.decide(buffer, envelope, input);
+      const decided = await this.decide(buffer, envelope, input, fresh, citySeed);
       if (!decided) return unavailable();
 
       // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
@@ -664,10 +689,15 @@ export class ProfilingOrchestrator {
    * writes nothing and returns the retryable unavailable line.
    */
   async openTurn(input: OpenTurnInput): Promise<TurnResult> {
+    // #1504 item 5 (city-seed). See `takeTurn`'s identical declaration for why this lives outside
+    // the loop.
+    const citySeed: CitySeedRef = { promise: null };
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
-      const envelope =
+      const fresh = loaded === null || loaded.profiling == null;
+      let envelope =
         loaded === null
           ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
           : (buffer.profiling ?? emptyProfilingEnvelope());
@@ -681,6 +711,12 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      // #1504 item 5 (city-seed) — BEFORE `openSelectable`/`progressItems`/`answers` below, and
+      // before every early return in this method (the outstanding offer, the type-your-trade
+      // prompt, the model's question, the pack re-serve): all of them render `progress` off
+      // `answers`, and a seed applied after they run would leave a reopened session reporting a
+      // progress bar that has not yet accounted for it.
+      if (fresh) envelope = await this.seedCity(envelope, citySeed, items, input);
       // Same split as `decide` — see the note there. A reopened session must not report a
       // different denominator from the turn loop it is about to hand back to.
       const openSelectable = selectableEnginePacks(envelope, packs.engine);
@@ -935,6 +971,8 @@ export class ProfilingOrchestrator {
     buffer: TranscriptBuffer,
     envelope: ProfilingEnvelope,
     input: TurnInput,
+    fresh: boolean,
+    citySeed: CitySeedRef,
   ): Promise<{ buffer: TranscriptBuffer; result: TurnResult } | null> {
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
@@ -949,6 +987,11 @@ export class ProfilingOrchestrator {
     // `let`, because a MID-TURN RE-PIN replaces the pack this was built from. See the reassignment
     // below the identify step.
     let items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+    // #1504 item 5 (city-seed) — BEFORE anything below reads `envelope.answerMap` or a progress
+    // count, and gated on `fresh` so a resumed interview never re-reads `workers.current_city`
+    // once a session already exists. See `seedFromWorkerRecord`'s docblock for why this is safe
+    // to apply unconditionally on a fresh envelope and a no-op on every other one.
+    if (fresh) envelope = await this.seedCity(envelope, citySeed, items, input);
     // ONE DENOMINATOR FOR THE WHOLE SESSION. `items` stays the FULL pinned universe, because
     // settlement, `shapeOf` and `essentialsOf` all have to keep seeing the trade pack's rows —
     // every `skills` question in the corpus lives in an occupation pack, and narrowing that list
@@ -2042,6 +2085,15 @@ export class ProfilingOrchestrator {
     const correctionCount = view.correctionCount + 1;
     const record = answers[input.questionKey] as AnswerRecord;
 
+    // #1504 item 5 (city-seed). THE ONLY PLACE A KEY EVER LEAVES `prefilled_keys` (see
+    // `worker-record-seed.ts`'s docblock for why no mid-chat mechanism does this). A correction
+    // IS the worker's own answer of record now, exactly like any other `worker_pack_answer` row
+    // this method writes below — so the key stops meaning "seeded, never asked" the moment it is
+    // corrected.
+    const priorPrefilledKeys = Array.isArray(view.state.prefilled_keys)
+      ? view.state.prefilled_keys.filter((key): key is string => typeof key === "string")
+      : [];
+
     const patched: Record<string, unknown> = {
       ...view.state,
       answer_map: toAnswerArray(answers),
@@ -2049,6 +2101,7 @@ export class ProfilingOrchestrator {
       // so the two halves of the column cannot disagree about a corrected value.
       captured: toCapturedProjection(answers),
       correction_count: correctionCount,
+      prefilled_keys: priorPrefilledKeys.filter((key) => key !== input.questionKey),
     };
 
     const row = packAnswerRowFor({
@@ -2157,6 +2210,52 @@ export class ProfilingOrchestrator {
           `re-resolve and may land on a different pack: ${(error as Error).message}`,
       );
       return envelope;
+    }
+  }
+
+  /**
+   * #1504 item 5 (city-seed). Seed `envelope.answerMap`'s `current_city` from
+   * `workers.current_city`, IF this interview is fresh — the caller has already checked that.
+   *
+   * WHY THE READ IS MEMOIZED IN A BOX RATHER THAN AWAITED DIRECTLY HERE: `??=` on `citySeed`
+   * fires at most once no matter how many CAS attempts this call makes, and a retry that reuses
+   * a fresh envelope reuses that ONE read rather than issuing a second one for the same turn.
+   *
+   * FAILS OPEN, UNSEEDED. A read failure here is not a validation, privacy or auth failure — it
+   * is "the convenience prefill did not happen", and the worker falls back to exactly what
+   * shipped before this change: the pack asks `current_city` like any other question. Logged
+   * with the session id and the error's class name only, never a value that could be PII.
+   */
+  private async seedCity(
+    envelope: ProfilingEnvelope,
+    citySeed: CitySeedRef,
+    items: readonly Pick<QuestionPackItem, "question_key" | "target_field">[],
+    input: { readonly sessionId: string; readonly workerId: string },
+  ): Promise<ProfilingEnvelope> {
+    citySeed.promise ??= this.readCityForSeed(input.workerId, input.sessionId);
+    const city = await citySeed.promise;
+    if (city === null) return envelope;
+
+    const outcome = seedFromWorkerRecord(envelope, city, items);
+    if (outcome.seeded) {
+      // BOOLEAN ONLY, NEVER THE CITY. `city_recognized` is exactly the signal #1504 asks for —
+      // how often a seeded city fails the gazetteer — without the value itself ever reaching a
+      // log line (CLAUDE.md §2).
+      this.logger.log(
+        `city-seed applied session=${input.sessionId} city_recognized=${outcome.cityRecognized}`,
+      );
+    }
+    return outcome.envelope;
+  }
+
+  private async readCityForSeed(workerId: string, sessionId: string): Promise<string | null> {
+    try {
+      return await this.workers.findCurrentCity(workerId);
+    } catch (error) {
+      this.logger.warn(
+        `city-seed read failed session=${sessionId}: ${(error as Error).name ?? "UnknownError"}`,
+      );
+      return null;
     }
   }
 
@@ -3151,7 +3250,8 @@ function unavailable(): TurnResult {
  * THE PINNED OCCUPATION IS THE LAST TRADE FALLBACK, and it is what closes the bug this function
  * was already written to prevent. Both draft labels default to `null`, and an `experience_entry`
  * may arrive on ANY turn — including the first, which the composite opener actively invites
- * ("aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?"). An entry opens the
+ * ("aap kaun sa kaam karte hain, aur kitna tajurba hai?" — #1504 item 5 dropped the opener's city
+ * clause). An entry opens the
  * Yes/No gate immediately, so a worker can reach "Aur koi experience jodna hai?" with both labels
  * still null, answer "nahi", and be asked "Aap kaunsa kaam karte hain?" as the very next line —
  * after a conversation that was entirely about their trade.

@@ -327,6 +327,9 @@ export class AdminWorkerJourneyRepository {
     workerId: string,
     pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
     ownedByAPack: boolean,
+    // #1504 item 5 (city-seed). Narrows the count to ONE key when given — the shared body
+    // `hasSettledKeyInPacks` reuses, rather than a second copy of the ownership join.
+    questionKey?: string,
   ): Promise<number> {
     if (pairs.length === 0) return 0;
     const clauses = pairs
@@ -360,9 +363,99 @@ export class AdminWorkerJourneyRepository {
           eq(workerPackAnswers.workerId, workerId),
           inArray(workerPackAnswers.status, [...SETTLED_ANSWER_STATUSES]),
           ownedByAPack ? exists(owned) : notExists(owned),
+          ...(questionKey === undefined ? [] : [eq(workerPackAnswers.questionKey, questionKey)]),
         ),
       );
     return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Does ANY of `pairs` own a `question_pack_item` named `questionKey`? #1504 item 5
+   * (city-seed) — the "a contributing pack owns it" half of the admin-journey completion rule,
+   * which has to be checked before a persisted `prefilled_keys` entry is allowed to credit
+   * `completed`: a seed only ever settles a question the pinned packs actually ask, but a pack
+   * re-seed can retire that question out from under a worker whose interview ran before it did.
+   *
+   * DATA ONLY — this answers "does the corpus still have this question", never "should it
+   * count"; that decision is {@link AdminWorkerJourneyService}'s, per the module's own layering
+   * rule (CLAUDE.md §4).
+   */
+  async packsOwnQuestionKey(
+    pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
+    questionKey: string,
+  ): Promise<boolean> {
+    if (pairs.length === 0) return false;
+    const clauses = pairs
+      .slice(0, ADMIN_JOURNEY_PACK_PAIRS_MAX)
+      .map((p) =>
+        and(
+          eq(questionPackItems.packId, p.packId),
+          eq(questionPackItems.packVersion, p.packVersion),
+        ),
+      )
+      .filter((c): c is SQL => c !== undefined);
+
+    const rows = await this.db
+      .select({ one: sql`1` })
+      .from(questionPackItems)
+      .where(
+        and(
+          eq(questionPackItems.questionKey, questionKey),
+          clauses.length === 1 ? clauses[0] : or(...clauses),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
+   * Is `questionKey` already a SETTLED `worker_pack_answer` row this worker holds, under a
+   * contributing pack? #1504 item 5 (city-seed) — the de-dupe the admin-journey completion rule
+   * needs before it counts a persisted `prefilled_keys` entry: a key that was later corrected
+   * (`correctAnswer` inserts a real, `source: "form"` row and removes the key from
+   * `prefilled_keys`) must be counted ONCE, by the real row, not twice.
+   *
+   * SHARES `countSettledKeysByOwnership`'s body rather than a second query: the ownership join
+   * (a settled row whose `question_key` a contributing pack still owns) is the subtle part, and
+   * this is that same predicate narrowed to one key.
+   */
+  async hasSettledKeyInPacks(
+    workerId: string,
+    pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
+    questionKey: string,
+  ): Promise<boolean> {
+    const n = await this.countSettledKeysByOwnership(workerId, pairs, true, questionKey);
+    return n > 0;
+  }
+
+  /**
+   * Every DISTINCT key this worker's sessions have ever seeded — `chat_sessions
+   * .conversation_state -> 'prefilled_keys'`, across every session, not only the latest.
+   *
+   * #1504 item 5 (city-seed). A worker who re-interviews carries `prefilled_keys` on each
+   * session's own persisted state; the admin journey asks "has THIS worker ever had a fact
+   * seeded", not "did the most recent session seed one", so this reads all of them.
+   *
+   * `jsonb_typeof`-GUARDED, the same idiom {@link findSession} uses for `ask_counts` /
+   * `answer_map`: `jsonb_array_elements_text` raises on a non-array, and this column is loose
+   * JSONB written by every build back to before this field existed.
+   *
+   * FILTERED THROUGH {@link QUESTION_KEY_RE} on the way out, same as every other key this file
+   * returns off `conversation_state` — nothing in Postgres constrains this array's elements.
+   */
+  async workerPrefilledKeys(workerId: string): Promise<string[]> {
+    const rows = await this.db.execute(sql`
+      select distinct e as key
+      from chat_sessions cs
+      cross join lateral jsonb_array_elements_text(cs.conversation_state -> 'prefilled_keys') e
+      where cs.worker_id = ${workerId}
+        and jsonb_typeof(cs.conversation_state -> 'prefilled_keys') = 'array'
+    `);
+    const keys = (rows as unknown as Array<{ key: unknown }>)
+      .map((r) => r.key)
+      .filter((k): k is string => typeof k === "string")
+      .filter((k) => AdminWorkerJourneyRepository.QUESTION_KEY_RE.test(k));
+    return keys;
   }
 
   /** How many interview sessions this worker has, whatever their status. */

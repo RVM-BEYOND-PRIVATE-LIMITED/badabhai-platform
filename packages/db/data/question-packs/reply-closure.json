@@ -550,6 +550,11 @@
       "producer": "why"
     },
     {
+      "id": "1f3509b1dc7153bc",
+      "text": "Namaste. Aap kaun sa kaam karte hain, aur kitna tajurba hai?",
+      "producer": "constant"
+    },
+    {
       "id": "1f89f2dab925eaeb",
       "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -4208,11 +4213,6 @@
       "id": "f74119ccf35824ac",
       "text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain. Kis line ki drawing par padhai ki hai?",
       "producer": "clarify"
-    },
-    {
-      "id": "f76d89646be4c468",
-      "text": "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?",
-      "producer": "constant"
     },
     {
       "id": "f774396ac5c284fc",
