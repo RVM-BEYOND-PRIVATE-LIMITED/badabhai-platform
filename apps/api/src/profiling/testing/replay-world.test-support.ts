@@ -60,6 +60,10 @@ export interface ReplayWorldOptions {
     pendingForChat: (workerId: string) => Promise<unknown>;
     forImport: (workerId: string, importId: string) => Promise<unknown>;
   };
+  /** #1504 item 5 (city-seed). Defaults to a stub that never finds a city. */
+  readonly workers?: {
+    findCurrentCity: (workerId: string) => Promise<string | null>;
+  };
 }
 
 export function buildReplayWorld(opts: ReplayWorldOptions = {}) {
@@ -118,6 +122,12 @@ export function buildReplayWorld(opts: ReplayWorldOptions = {}) {
     forImport: async () => new Map(),
   };
 
+  // #1504 item 5 (city-seed, merged after this file was written): the orchestrator now takes a
+  // read-only WorkersRepository to seed current_city from /name. No replay fixture in this file
+  // exercises seeding (they all construct sessions mid-flight, not fresh), so a stub that never
+  // finds a city — the orchestrator's own documented fail-open path — is the correct default.
+  const workers = opts.workers ?? { findCurrentCity: vi.fn(async () => null) };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
@@ -126,6 +136,7 @@ export function buildReplayWorld(opts: ReplayWorldOptions = {}) {
     events as never,
     llm,
     resumeSuggestions as never,
+    workers as never,
   );
 
   return { orchestrator, store, ai, llm, events, identify, universal };

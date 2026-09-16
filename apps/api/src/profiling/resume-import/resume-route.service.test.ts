@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import type { ParsedField } from "@badabhai/ai-contracts";
+import type { ParsedField, ResumeEmployment } from "@badabhai/ai-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResumeRouteService } from "./resume-route.service";
@@ -148,11 +148,14 @@ function setup(
   return { svc, imports, occupations, packs, crypto, events, seen };
 }
 
-const parsedDraft = (fields: Record<string, ParsedField>): ParsedDraft => ({
+const parsedDraft = (
+  fields: Record<string, ParsedField>,
+  employments: ResumeEmployment[] = [],
+): ParsedDraft => ({
   status: "parsed",
   importId: IMPORT,
   fields,
-  employments: [],
+  employments,
   extractionMethod: "pdf_text",
   pageCount: 1,
   ocrConfidence: null,
@@ -418,6 +421,55 @@ describe("what is written, and what is never written", () => {
 
     expect(crypto.encrypt).not.toHaveBeenCalled();
     expect(routingWritten(imports).suggestionsEnc).toBeNull();
+  });
+
+  it("a parsed résumé's employments ride the SAME staged blob, under `employments`, alongside `answers`", async () => {
+    const { svc, crypto } = setup();
+    const employment: ResumeEmployment = {
+      employer_name: "Sandhar Technologies",
+      role_title: "CNC Operator",
+      start_year: 2019,
+      end_year: 2021,
+      evidence: { message_index: 0, quote: "Sandhar Technologies, CNC Operator, 2019-2021" },
+    };
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }, [employment]), CTX);
+
+    expect(crypto.encrypt).toHaveBeenCalledTimes(1);
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    expect(plaintext).toContain("Sandhar Technologies");
+    const parsed = JSON.parse(plaintext) as { answers: unknown; employments: unknown[] };
+    expect(parsed.employments).toEqual([
+      {
+        source: "resume",
+        values: {
+          employer_name: "Sandhar Technologies",
+          employer_city: null,
+          role_label: "CNC Operator",
+          start_ym: null,
+          end_ym: null,
+          work_done: null,
+        },
+      },
+    ]);
+    // The pack-question suggestion still lands exactly where it always has, under `answers`.
+    expect(Object.keys(parsed.answers as Record<string, unknown>)).toContain("primary_trade");
+  });
+
+  it("a résumé with employments but NO pack-answer suggestions still stages the employments (not folded into the null-payload path)", async () => {
+    const { svc, imports, crypto } = setup();
+    const employment: ResumeEmployment = {
+      employer_name: "TVS Motor",
+      role_title: null,
+      start_year: null,
+      end_year: null,
+      evidence: { message_index: 0, quote: "TVS Motor" },
+    };
+    // `machines` maps to no destination question (see `resume-suggestions.ts`), so the pack
+    // side alone would store null — the employment must still be the reason this stages.
+    await svc.route(WORKER, parsedDraft({ machines: field(["Fanuc Oi-MF"]) }, [employment]), CTX);
+
+    expect(crypto.encrypt).toHaveBeenCalledTimes(1);
+    expect(routingWritten(imports).suggestionsEnc).toMatch(/^enc\(/);
   });
 
   it("`settleParsed` is the ONLY write — no answer, no attribute (ruling D2)", async () => {

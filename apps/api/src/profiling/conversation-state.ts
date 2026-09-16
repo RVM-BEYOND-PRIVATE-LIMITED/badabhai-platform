@@ -685,6 +685,28 @@ export interface ProfilingEnvelope {
    * giving up — never carried into a different episode.
    */
   readonly identifyStalledTurns: number;
+
+  /**
+   * Answer-map keys settled WITHOUT the worker being asked, in THIS interview — city-seed
+   * (#1504 item 5) and, by construction, anything built the same way later.
+   *
+   * WHY THIS EXISTS AT ALL. `toPackAnswerRows` skips every key in this set (F1): a seeded value
+   * has no transcript span and no worker turn behind it, so writing a `worker_pack_answer` row
+   * for it would claim the worker was asked and answered — which is untrue and would poison the
+   * parse gate's provenance check (gate 2) the same way a fabricated citation would.
+   * `countAnswerStatuses`, `slugFieldIds`'s caller (`answered_topics`) and the admin-journey
+   * completion rule all subtract this set for the same reason: `profile.interview_completed`'s
+   * `answered_count` means "settled BY this interview session", not "settled including what
+   * `/name` already gave us" — a distinction the plan's acceptance criteria depend on.
+   *
+   * WRITTEN ONCE, AT SEED TIME, AND REMOVED ONLY BY `correctAnswer`. There is no mid-chat
+   * mechanism that drops a key from this set — an earlier draft of the design proposed one and
+   * the review that caught it found the code path it would have needed
+   * (`mayCommit`'s `correcting` escape firing inside `fillCrossQuestion`) does not exist:
+   * `fillCrossQuestion` skips an already-settled key before any correction check runs. See
+   * `worker-record-seed.ts`'s docblock for the accepted limitation this leaves.
+   */
+  readonly prefilledKeys: readonly string[];
 }
 
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
@@ -786,6 +808,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   resumeConfirm: true,
   identifyTypeRequested: true,
   identifyStalledTurns: true,
+  prefilledKeys: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -826,6 +849,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     resumeConfirm: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
+    prefilledKeys: [],
   };
 }
 
@@ -1113,7 +1137,19 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // {@link MAX_IDENTIFY_STALLED_TURNS} closes the offer, and a v2 envelope written before this
     // field existed has none, which zero already means.
     identifyStalledTurns: nonNegativeInt(v.identifyStalledTurns),
+    // ABSENT READS AS `[]` — the state of every envelope in flight across the deploy that adds
+    // this field, none of which seeded anything. A missing or malformed entry is dropped rather
+    // than the whole array discarded, matching `narrowAskCounts`'s per-entry tolerance: one
+    // drifted key should cost that key's "skip the ask" behaviour, not the worker's whole
+    // interview state.
+    prefilledKeys: narrowPrefilledKeys(v.prefilledKeys),
   };
+}
+
+/** A stored `prefilledKeys` array, filtered to strings — see {@link ProfilingEnvelope.prefilledKeys}. */
+function narrowPrefilledKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
 }
 
 const LLM_STAGES: readonly LlmInterviewStage[] = ["domain", "role", "skills", "experience", "done"];

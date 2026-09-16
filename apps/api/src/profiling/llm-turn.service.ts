@@ -510,7 +510,8 @@ function wantsAnotherExperience(text: string): boolean {
  *
  * AN EXPERIENCE ENTRY IS THE LAST ROLE FALLBACK. Both labels default to `null` and an entry may
  * arrive on ANY turn, including the first — the composite opener actively invites it ("aap kaun
- * sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?" answered in one sentence). The
+ * sa kaam karte hain, aur kitna tajurba hai?" answered in one sentence — #1504 item 5 dropped the
+ * opener's city clause; `/name` already collects it). The
  * entry then opens the Yes/No gate, so a worker can be looking at "Aur koi experience jodna hai?"
  * while the draft has no trade label at all: the conversation recorded a job but never named the
  * work. #916 made that harmless by falling `trade` back to `occupation.label`, but that pin is

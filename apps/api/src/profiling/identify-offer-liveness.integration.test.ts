@@ -171,6 +171,8 @@ function makeWorld() {
     events as never,
     llm as never,
     resumeSuggestions as never,
+    // #1504 item 5 (city-seed). No worker record to seed from in this suite.
+    { findCurrentCity: async () => null } as never,
   );
   return { orchestrator, store, events, occupation };
 }
