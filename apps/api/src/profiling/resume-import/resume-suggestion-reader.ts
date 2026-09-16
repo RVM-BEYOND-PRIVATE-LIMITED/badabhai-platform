@@ -43,9 +43,16 @@ export class ResumeSuggestionReader {
    *
    *   - `status === "parsed"` — an import still being read has nothing to show, and a FAILED one
    *     has nothing to show ever.
-   *   - `route === "chat"` — a worker handed to a trade form sees his suggestions BESIDE the
-   *     questions (RI-4). Offering them here as well would ask him to confirm the same facts
-   *     twice, once blind and once in context.
+   *   - `route === "chat"` — a worker handed to a trade form is meant to settle his résumé's facts
+   *     on the form, not here. RI-4 put them BESIDE matching question screens; #1503 (2026-09-15)
+   *     removed the universal questions those suggestions target, because the owner ruled that
+   *     those facts live on the pages that own them (Preferences, Qualifications, Work History).
+   *     THE INTERIM GAP, STATED PLAINLY: until those pages render suggestions (#1504), a
+   *     form-routed worker on a current app build sees NO résumé facts — experience, city, salary,
+   *     education, availability — anywhere. Only a suggestion keyed to one of his trade pack's
+   *     own questions still reaches a screen. This condition is left as it is rather than
+   *     re-routing those workers into the chat offer, because that is a routing change the owner
+   *     has not ruled on; tracked on #1503/#1504.
    *   - a non-empty payload — an offer with nothing in it is a spent ask that asks nothing.
    *
    * Returns the id ALONGSIDE the suggestions because the caller stores the id, not the facts:

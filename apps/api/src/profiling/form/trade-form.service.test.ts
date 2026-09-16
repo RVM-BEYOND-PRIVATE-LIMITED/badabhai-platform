@@ -7,6 +7,8 @@ import type { NewWorkerPackAnswer, WorkerPackAnswer } from "@badabhai/db";
 
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { CNC_TURNER } from "../roles/cnc-turner.role";
+import { packFromCorpus, rawCorpusPack, UNIVERSAL_PACK_FILE } from "./corpus-pack.test-support";
+import { LEGACY_FORM_UNIVERSAL_KEYS } from "./legacy-universal-answer";
 import { TradeFormSchemaResponse } from "./trade-form.dto";
 import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.service";
 
@@ -93,11 +95,22 @@ const PACK: QuestionPack = {
   ],
 };
 
+/**
+ * THE REAL UNIVERSAL PACK, served by default (#1503).
+ *
+ * This double used to return `null`, and that one line is why `f455bb36` appended eight questions
+ * to every form without a single test here noticing: there was nothing to append. Serving the real
+ * pack means a regression that reads it has something to put on screen.
+ */
+const UNIVERSAL: QuestionPack = packFromCorpus(UNIVERSAL_PACK_FILE);
+
 function makeService(
   opts: {
     formKind?: unknown;
     saved?: WorkerPackAnswer[];
     pack?: QuestionPack | null;
+    /** What every universal-loading door returns. Defaults to the real `qp_universal@2`. */
+    universal?: QuestionPack | null;
     /** ADR-0041 RI-4 — what a résumé staged for this worker, keyed by question key. */
     suggestions?: ReadonlyMap<string, unknown>;
   } = {},
@@ -110,9 +123,11 @@ function makeService(
         opts.formKind === undefined ? { form_kind: "cnc_turner" } : { form_kind: opts.formKind },
     })),
   };
+  const universal = opts.universal === undefined ? UNIVERSAL : opts.universal;
   const packs = {
     loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)),
-    loadUniversal: vi.fn(async () => null),
+    loadUniversal: vi.fn(async () => universal),
+    resolveForOccupation: vi.fn(async () => universal),
   };
   const answers = {
     listAnswers: vi.fn(async () => opts.saved ?? []),
@@ -154,11 +169,12 @@ function makeService(
     // nothing is the case every other test in this file is about, and the form they assert on
     // must be byte-for-byte the form he sees today.
     { forWorker: async () => opts.suggestions ?? new Map() } as never,
-    // ADR-0041 RI-4 fallback. Not exercised by these tests — the form-kind-from-import path is
-    // covered by the role-drive suite; here we stub a no-op that returns undefined (no import).
+    // ADR-0041 RI-4 — `contextFor`'s résumé-import fallback. No import, so every test here
+    // reaches the form through the interview handover. NEITHER THIS SUITE NOR THE ROLE-DRIVE SUITE
+    // EXERCISES THAT FALLBACK — both stub it exactly like this — so its branch is unit-untested.
     { findLatestForWorker: async () => undefined } as never,
   );
-  return { service, written, packs, chat, upsertMany, emitted, emit, answers };
+  return { service, written, packs, chat, upsertMany, emitted, emit, answers, rebuildQuietly };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -989,6 +1005,234 @@ describe("#1413 §3 — the drafting-sector pair", () => {
     expect(keys).toContain("sector_studied");
   });
 });
+});
+
+/**
+ * ═══ #1503 — THE UNIVERSAL APPEND IS GONE, AND AN APP HOLDING IT IS NOT STRANDED ═══
+ *
+ * `f455bb36` served all eight `qp_universal@2` questions on every trade form. The owner ruling of
+ * 2026-09-15 puts those facts on the pages that own them, so the form serves its trade pack and
+ * nothing else — and an app still holding the old schema must be able to POST the screen it is
+ * showing without a 400 stranding the worker there.
+ */
+describe("#1503 — the trade form without the universal append", () => {
+  const LEGACY = new Set(rawCorpusPack(UNIVERSAL_PACK_FILE).items.map((entry) => entry.question_key));
+
+  /** Every question in PACK settled, so a completion WOULD fire on any answer that evaluated it. */
+  const everythingSettled = () =>
+    PACK.items.map((entry) =>
+      answered({
+        questionKey: entry.question_key,
+        answerOptionKeys: null,
+        answerText: "v0",
+      }),
+    );
+
+  const logSpy = () => vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+
+  it("VACUITY — the universal pack the double serves really has eight questions to append", () => {
+    expect(UNIVERSAL.items).toHaveLength(8);
+    expect(LEGACY.size).toBe(8);
+  });
+
+  it("serves no universal question, although the universal pack loads", async () => {
+    const { service } = makeService();
+    const served = (await service.schema(WORKER)).sections
+      .flatMap((section) => section.screens)
+      .flatMap((screen) => (screen.type === "question" ? [screen.question.question_key] : []));
+    expect(served.filter((key) => LEGACY.has(key))).toEqual([]);
+    expect([...served].sort()).toEqual(PACK.items.map((entry) => entry.question_key).sort());
+  });
+
+  it("the frozen legacy list is EXACTLY the eight keys that deploy served, as a literal", () => {
+    expect(Object.isFrozen(LEGACY_FORM_UNIVERSAL_KEYS)).toBe(true);
+    expect([...LEGACY_FORM_UNIVERSAL_KEYS].sort()).toEqual([...LEGACY].sort());
+  });
+
+  describe("the legacy-key shim", () => {
+    it("answers 200 with schema_stale, and stores the row where that deploy stored it", async () => {
+      const { service, written } = makeService();
+      const result = await service.answer(WORKER, {
+        question_key: "availability",
+        answer: { kind: "chips", option_keys: ["immediate"] },
+      });
+
+      expect(result).toEqual({
+        question_key: "availability",
+        status: "answered",
+        answered: 0,
+        total: PACK.items.length,
+        schema_stale: true,
+      });
+      expect(written).toHaveLength(1);
+      // UNDER THE TRADE PACK, not an invented `qp_universal` location nothing reads.
+      expect(written[0]).toMatchObject({
+        workerId: WORKER,
+        packId: "qp_cnc_turning",
+        packVersion: 1,
+        questionKey: "availability",
+        answerText: "immediate",
+        status: "answered",
+        source: "form",
+        chatSessionId: SESSION,
+      });
+    });
+
+    it("writes NO worker_attributes row — the preferences page owns shift", async () => {
+      // `shift_preference` is the one universal item with `target_kind: attribute`, so the normal
+      // path WOULD write it; that write racing the page's is the overwrite #1503 reported.
+      const { service, upsertMany, written, answers } = makeService();
+      await service.answer(WORKER, {
+        question_key: "shift_preference",
+        answer: { kind: "chips", option_keys: ["night"] },
+      });
+      expect(written[0]).toMatchObject({ questionKey: "shift_preference", answerText: "night" });
+      expect(upsertMany).not.toHaveBeenCalled();
+      expect(answers.withTransaction).not.toHaveBeenCalled();
+    });
+
+    it("runs NO completion evaluation, even on a form every question of which is settled", async () => {
+      // THE DISCRIMINATING HALF FIRST: the same settled rows DO complete the form on a real answer,
+      // so an empty `emitted` below is the shim skipping the check, not the fixture being unable to
+      // satisfy it.
+      const control = makeService({ saved: everythingSettled() });
+      await control.service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(control.emitted.map((event) => event.event_name)).toEqual(["profile.form_completed"]);
+
+      const { service, emitted, rebuildQuietly } = makeService({ saved: everythingSettled() });
+      const result = await service.answer(WORKER, {
+        question_key: "current_city",
+        answer: { kind: "text", text: "Pune" },
+      });
+      expect(emitted).toEqual([]);
+      expect(rebuildQuietly).not.toHaveBeenCalled();
+      // Counted over what the form asks — the shim's own row is in neither number.
+      expect(result).toMatchObject({ answered: PACK.items.length, total: PACK.items.length });
+    });
+
+    it("logs the key slug and counts, never the value", async () => {
+      const log = logSpy();
+      const { service } = makeService();
+      await service.answer(WORKER, {
+        question_key: "current_city",
+        answer: { kind: "text", text: "Pimpri Chinchwad" },
+      });
+      const lines = log.mock.calls.map((call) => String(call[0]));
+      const line = lines.find((entry) => entry.includes("legacy universal form key accepted"));
+      log.mockRestore();
+
+      expect(line).toBeDefined();
+      expect(line).toContain("key=current_city");
+      expect(line).toContain("pack=qp_cnc_turning");
+      expect(lines.join("\n")).not.toContain("Pimpri");
+    });
+
+    it("400s a universal key that deploy NEVER served, even when the live pack defines it", async () => {
+      // A ninth question the universal pack gains later reached no trade form, so no client holds
+      // it. A shim that derived its list from `loadUniversal()` would accept this.
+      const ninth = item({ question_key: "notice_period", answer_type: "text" });
+      const { service, written } = makeService({
+        universal: { ...UNIVERSAL, items: [...UNIVERSAL.items, ninth] },
+      });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "notice_period",
+          answer: { kind: "text", text: "15 din" },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+    });
+
+    it("400s, logged, when the universal pack does not load — there is no type to validate against", async () => {
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const { service, written } = makeService({ universal: null });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "experience_years",
+          answer: { kind: "text", text: "6" },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "experience_years",
+      );
+      warn.mockRestore();
+    });
+
+    it("400s when the universal pack no longer defines the key", async () => {
+      const { service, written } = makeService({
+        universal: {
+          ...UNIVERSAL,
+          items: UNIVERSAL.items.filter((entry) => entry.question_key !== "education"),
+        },
+      });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "education",
+          answer: { kind: "chips", option_keys: ["tenth"] },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+    });
+  });
+
+  describe("numbers", () => {
+    /** PACK with one number-typed trade question. No enabled pack has one today; this is a guard. */
+    const NUMBERED: QuestionPack = {
+      ...PACK,
+      items: [...PACK.items, item({ question_key: "parts_per_shift", answer_type: "number" })],
+    };
+
+    it.each([
+      ["6", 6],
+      ["15,000", 15000],
+      ["₹25,000", 25000],
+      ["1,00,000", 100000],
+    ])("a trade number question stores %j as %d", async (text, expected) => {
+      const { service, written } = makeService({ pack: NUMBERED });
+      await service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } });
+      expect(written[0]).toMatchObject({ answerNumber: expected, status: "answered" });
+    });
+
+    it.each(["pata nahi", "5 se 7 saal", "2 saal 6 mahine", "15k", "6 saal nahi"])(
+      "a trade number question 400s %j rather than storing a false number",
+      async (text) => {
+        const { service, written } = makeService({ pack: NUMBERED });
+        await expect(
+          service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } }),
+        ).rejects.toThrow(/parts_per_shift takes a number/);
+        expect(written).toEqual([]);
+      },
+    );
+
+    it.each([
+      ["experience_years", "6", 6],
+      ["salary_expected", "15,000", 15000],
+      ["salary_expected", "₹25,000", 25000],
+      ["salary_expected", "1,00,000", 100000],
+    ])("the shim stores %s %j as %d", async (key, text, expected) => {
+      const { service, written } = makeService();
+      await service.answer(WORKER, { question_key: key, answer: { kind: "text", text } });
+      expect(written[0]).toMatchObject({ answerNumber: expected, status: "answered" });
+    });
+
+    it.each(["pata nahi", "5 se 7 saal", "2 saal 6 mahine", "15k", "6 saal nahi"])(
+      "the shim DECLINES %j — never 0, 57, 26, 15 or 6",
+      async (text) => {
+        const { service, written } = makeService();
+        const result = await service.answer(WORKER, {
+          question_key: "experience_years",
+          answer: { kind: "text", text },
+        });
+        expect(result).toMatchObject({ status: "declined", schema_stale: true });
+        expect(written[0]).toMatchObject({ questionKey: "experience_years", status: "declined" });
+        expect(written[0]!.answerNumber ?? null).toBeNull();
+      },
+    );
+  });
 });
 
 describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the question it is about", () => {

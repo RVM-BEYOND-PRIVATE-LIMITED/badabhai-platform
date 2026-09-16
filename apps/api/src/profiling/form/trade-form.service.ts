@@ -26,6 +26,8 @@ import {
   type ResumeSuggestion,
 } from "../resume-import/resume-suggestion-reader";
 import { ResumeImportRepository } from "../resume-import/resume-import.repository";
+import { isLegacyFormUniversalKey } from "./legacy-universal-answer";
+import { parseStrictNumber } from "./strict-number";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,
@@ -49,6 +51,27 @@ const SECTION_TITLES = {
   work_history: "Work history",
   qualifications: "Qualification, documents & languages",
 } as const;
+
+/**
+ * What `recordFor` does with number-field text that is not exactly one number.
+ *
+ * `reject` — a 400, for a question this form serves: the client can tell the worker to type a
+ * number. `decline` — a declined record, for the legacy-key shim only: the screen is one the app
+ * should no longer be showing, and a dead end there is worse than an honest "not answered".
+ */
+type UnparseableNumberPolicy = "reject" | "decline";
+
+/** The one reading of "what this form asks this worker right now", shared by both endpoints. */
+interface FormView {
+  /** Every `worker_pack_answer` row stored under this form's pack, any version. */
+  readonly saved: readonly WorkerPackAnswer[];
+  /** Capability-zone questions still asked, in sheet order. */
+  readonly ordered: readonly QuestionPackItem[];
+  /** Questions the sheet has no row for, still asked — served in the qualifications zone. */
+  readonly leftover: readonly QuestionPackItem[];
+  /** EXACTLY the question screens `schema()` serves: `ordered` then `leftover`. */
+  readonly visibleItems: readonly QuestionPackItem[];
+}
 
 @Injectable()
 export class TradeFormService {
@@ -87,38 +110,23 @@ export class TradeFormService {
   async schema(workerId: string): Promise<TradeFormSchemaResponse> {
     const { kind, sessionId } = await this.contextFor(workerId);
     const pack = await this.packFor(kind);
-    const saved = await this.answers.listAnswers(workerId, pack.pack_id);
-    const byKey = new Map(saved.map((row) => [row.questionKey, row]));
-
-    // WHAT THE WORKER HAS ALREADY SETTLED DECIDES WHAT ELSE THEY ARE ASKED (#1378). On a first
-    // fetch nothing is settled, every gate is unresolved, and `isFormQuestionVisible` shows
-    // everything — which is exactly today's behaviour. It narrows on the next fetch, once the
-    // tier question has an answer to narrow it with.
-    const answers = answerMapFromRows(saved);
-    const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
-      items.filter((item) => isFormQuestionVisible(item, answers));
+    const view = await this.formView(workerId, kind, pack);
+    const byKey = new Map(view.saved.map((row) => [row.questionKey, row]));
 
     // FAILS SOFT, DELIBERATELY. A suggestion is a convenience; the form is the worker's actual
     // task. If the import row is unreadable or its payload will not decrypt he gets today's
     // form rather than an error — the same posture ruling D9 sets for every other résumé path.
+    //
+    // ONLY THE TRADE PACK'S KEYS CAN CARRY ONE NOW (#1503). The universal questions most résumé
+    // suggestions target — experience, city, salary, education, availability — are no longer
+    // question screens here: those facts belong to the pages that own them (owner ruling
+    // 2026-09-15), and until those pages render suggestions a form-routed worker sees none of
+    // them. That gap is tracked on #1503/#1504 and recorded in ADR-0041 §9.
     const suggestions = await this.resumeSuggestions.forWorker(workerId);
 
-    const { ordered, leftover } = this.orderBySheet(pack, kind);
     const capabilityTitle =
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
       "Machines, controllers & capability";
-
-    // ADR-0041 RI-4 — universal pack items carry the questions résumé suggestions actually
-    // target (experience_years, current_city, salary_expected, education, availability). Without
-    // loading the universal pack, those suggestions are generated but never attached to any
-    // question screen — the trade pack's questions have different keys. Loading the universal
-    // items and appending them to the form ensures the suggestions land beside the questions
-    // they match, and renders identically for a worker with no résumé (no suggestion object).
-    const universalPack = await this.packs.loadUniversal(Date.now());
-    const tradeKeys = new Set(pack.items.map((item) => item.question_key));
-    const universalItems = (universalPack?.items ?? []).filter(
-      (item) => !tradeKeys.has(item.question_key),
-    );
 
     return {
       kind,
@@ -129,16 +137,14 @@ export class TradeFormService {
         {
           id: "capability",
           title: capabilityTitle,
-          screens: [
-            ...visible(ordered).map((item) =>
-              this.questionScreen(item, byKey.get(item.question_key), suggestions),
-            ),
-            // Universal items (experience, city, salary, education, availability) appended after
-            // trade items. No `ask_if` filtering: universal items are never gated.
-            ...universalItems.map((item) =>
-              this.questionScreen(item, byKey.get(item.question_key), suggestions),
-            ),
-          ],
+          // NOTHING BUT THE TRADE PACK'S OWN QUESTIONS IS SERVED (#1503). `f455bb36` appended all
+          // eight `qp_universal@2` questions here, and five were facts this same response already
+          // hands to a marker page or to the tier question — a worker answered each twice, and the
+          // page's write raced the question's. `trade-form-fact-uniqueness.contract.test.ts` holds
+          // this against the real universal pack for every enabled role.
+          screens: view.ordered.map((item) =>
+            this.questionScreen(item, byKey.get(item.question_key), suggestions),
+          ),
         },
         {
           id: "terms",
@@ -154,7 +160,7 @@ export class TradeFormService {
           id: "qualifications",
           title: SECTION_TITLES.qualifications,
           screens: [
-            ...visible(leftover).map((item) =>
+            ...view.leftover.map((item) =>
               this.questionScreen(item, byKey.get(item.question_key), suggestions),
             ),
             // ZONE 5's CREDENTIALS (migration 0098). A MARKER, like the two above:
@@ -202,26 +208,19 @@ export class TradeFormService {
     const ctx = await this.contextFor(workerId);
     const pack = await this.packFor(ctx.kind);
 
-    // SEARCH BOTH PACKS. The form serves trade AND universal items (ADR-0041 RI-4), so a
-    // worker may answer a universal question (experience_years, current_city, etc.) that the
-    // trade pack does not define. The answer is stored under the TRADE pack's id — universal
-    // items are supplementary to the form, not a separate pack.
-    const universalPack = await this.packs.loadUniversal(Date.now());
-    const tradeKeys = new Set(pack.items.map((item) => item.question_key));
-    const universalItems = (universalPack?.items ?? []).filter(
-      (item) => !tradeKeys.has(item.question_key),
-    );
-    const item =
-      pack.items.find((candidate) => candidate.question_key === dto.question_key) ??
-      universalItems.find((candidate) => candidate.question_key === dto.question_key);
+    // THE TRADE PACK ONLY (#1503) — the form serves nothing else, so it accepts nothing else.
+    const item = pack.items.find((candidate) => candidate.question_key === dto.question_key);
 
-    // A KEY NEITHER PACK DEFINES IS A 400, NOT A DROP. Dropping is the silent-truncation
-    // shape: the worker taps, the client shows it saved, and the sheet never mentions it. A named
-    // rejection lets a version-skewed client say so.
     if (!item) {
-      throw new BadRequestException(
-        `question_key ${dto.question_key} is not in ${pack.pack_id} or the universal pack`,
-      );
+      // ONE NARROW EXCEPTION, FOR APPS HOLDING A PRE-#1503 SCHEMA. See `legacy-universal-answer.ts`
+      // for why a 400 here would strand a worker mid-form, and why the list is frozen.
+      if (isLegacyFormUniversalKey(dto.question_key)) {
+        return this.answerLegacyUniversalKey(workerId, ctx, pack, dto);
+      }
+      // A KEY THIS PACK DOES NOT DEFINE IS A 400, NOT A DROP. Dropping is the silent-truncation
+      // shape: the worker taps, the client shows it saved, and the sheet never mentions it. A
+      // named rejection lets a version-skewed client say so.
+      throw new BadRequestException(`question_key ${dto.question_key} is not in ${pack.pack_id}`);
     }
 
     // ── ONE ANSWER, TWO DESTINATIONS, ONE NORMALISATION ────────────────────────────────
@@ -243,7 +242,7 @@ export class TradeFormService {
     // single-select in `answer_option_keys` where the interview puts it in `answer_text` -- two
     // shapes for one question type in one column, which happened to work only because this
     // pack's keys and values are spelled the same.
-    const record = this.recordFor(item, dto);
+    const record = this.recordFor(item, dto, "reject");
     const row = packAnswerRowFor({
       workerId,
       sessionId: ctx.sessionId,
@@ -308,35 +307,12 @@ export class TradeFormService {
       }
     });
 
-    const saved = await this.answers.listAnswers(workerId, pack.pack_id);
-    const answers = answerMapFromRows(saved);
-    const visibleItems = pack.items.filter((candidate) =>
-      isFormQuestionVisible(candidate, answers),
-    );
-    // SETTLED **AND STILL ASKED** — the intersection, not every row stored for this pack.
-    //
-    // THE DEFECT THIS CLOSES, which predates the completion event and reaches the progress rail.
-    // `total` has always been the VISIBLE count while `answered` counted every settled row, and
-    // the two range over different sets — so the numerator could exceed its own denominator.
-    // Nothing failed, because nothing compared them.
-    //
-    // A GATED-AWAY ANSWER IS NOT THE CAUSE, and assuming it was is the easy mistake here:
-    // `isFormQuestionVisible` returns true for anything already settled, precisely so a worker can
-    // still change an answer the tier gate would otherwise hide, which means such a question is
-    // counted in BOTH numbers and stays consistent.
-    //
-    // A RETIRED KEY IS. Answers are listed by `pack_id` and never by version, so a question
-    // dropped in v2 leaves its v1 `worker_pack_answer` row behind forever. That row is in `saved`
-    // and in no version of `pack.items` — counted in the numerator alone, and the rail reads 3/2.
-    //
-    // COUNTING IT IN NEITHER IS THE HONEST ANSWER: the worker did answer it, but it is not a
-    // question this form asks any more, so it belongs to neither side of "how far through are
-    // you". It also makes the completion check below an equality the worker can actually reach,
-    // rather than one they satisfy through a row they cannot see and cannot remove.
-    const visibleKeys = new Set(visibleItems.map((candidate) => candidate.question_key));
-    const answeredCount = saved.filter(
-      (candidate) => candidate.status !== "unanswered" && visibleKeys.has(candidate.questionKey),
-    ).length;
+    // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
+    // exactly the number of question screens the next fetch returns — never a count over a
+    // different set that the progress rail cannot reach.
+    const view = await this.formView(workerId, ctx.kind, pack);
+    const visibleItems = view.visibleItems;
+    const answeredCount = this.answeredIn(view);
 
     // THE FORM IS FINISHED — the other end of the funnel `profile.form_mode_entered` opens.
     //
@@ -376,6 +352,135 @@ export class TradeFormService {
   }
 
   // ── internals ───────────────────────────────────────────────────────────────
+
+  /**
+   * ONE FORM VIEW, READ BY BOTH ENDPOINTS (#1503).
+   *
+   * `schema()` and `answer()` used to each compute "what this worker is asked" on their own, and
+   * `f455bb36` proved what that costs: `schema()` grew eight appended questions while `answer()`
+   * went on counting the trade pack alone, so the rail said 0/18 while the worker looked at 26
+   * screens. Two derivations of one list drift the first time either is edited. This is the only
+   * place the list is derived, so `answer().total` equals the served question screens BY
+   * CONSTRUCTION rather than by two functions happening to agree.
+   *
+   * WHAT THE WORKER HAS ALREADY SETTLED DECIDES WHAT ELSE THEY ARE ASKED (#1378). On a first
+   * fetch nothing is settled, every gate is unresolved, and `isFormQuestionVisible` shows
+   * everything. It narrows on the next fetch, once the tier question has an answer to narrow it
+   * with.
+   *
+   * THIS PACK'S ROWS ONLY. Reading facts settled under other packs is #1504's change, not this one.
+   */
+  private async formView(
+    workerId: string,
+    kind: TradeFormKind,
+    pack: QuestionPack,
+  ): Promise<FormView> {
+    const saved = await this.answers.listAnswers(workerId, pack.pack_id);
+    const answers = answerMapFromRows(saved);
+    const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
+      items.filter((item) => isFormQuestionVisible(item, answers));
+
+    const sheet = this.orderBySheet(pack, kind);
+    const ordered = visible(sheet.ordered);
+    const leftover = visible(sheet.leftover);
+    return { saved, ordered, leftover, visibleItems: [...ordered, ...leftover] };
+  }
+
+  /**
+   * SETTLED **AND STILL ASKED** — the intersection, not every row stored for this pack.
+   *
+   * THE DEFECT THIS CLOSES, which predates the completion event and reaches the progress rail.
+   * `total` has always been the VISIBLE count while `answered` counted every settled row, and the
+   * two range over different sets — so the numerator could exceed its own denominator. Nothing
+   * failed, because nothing compared them.
+   *
+   * A GATED-AWAY ANSWER IS NOT THE CAUSE, and assuming it was is the easy mistake here:
+   * `isFormQuestionVisible` returns true for anything already settled, precisely so a worker can
+   * still change an answer the tier gate would otherwise hide, which means such a question is
+   * counted in BOTH numbers and stays consistent.
+   *
+   * A RETIRED KEY IS. Answers are listed by `pack_id` and never by version, so a question dropped
+   * in v2 leaves its v1 `worker_pack_answer` row behind forever. That row is in `saved` and in no
+   * version of `pack.items` — counted in the numerator alone, and the rail reads 3/2. So is a row
+   * the legacy-key shim wrote, and so is every universal-key row `f455bb36` wrote under a trade
+   * pack: served by no question screen, counted in neither number.
+   *
+   * COUNTING IT IN NEITHER IS THE HONEST ANSWER: the worker did answer it, but it is not a question
+   * this form asks any more, so it belongs to neither side of "how far through are you". It also
+   * makes the completion check an equality the worker can actually reach, rather than one they
+   * satisfy through a row they cannot see and cannot remove.
+   */
+  private answeredIn(view: FormView): number {
+    const visibleKeys = new Set(view.visibleItems.map((candidate) => candidate.question_key));
+    return view.saved.filter(
+      (candidate) => candidate.status !== "unanswered" && visibleKeys.has(candidate.questionKey),
+    ).length;
+  }
+
+  /**
+   * An answer to one of the eight universal keys `f455bb36` served, from an app still holding
+   * that schema (#1503). See `legacy-universal-answer.ts` for why this is a 200 and not a 400.
+   *
+   * WHAT IT DOES, and each line is a decision rather than a default:
+   *
+   *   - STORED EXACTLY WHERE THAT DEPLOY STORED IT: under the TRADE pack's id and version,
+   *     `source: 'form'`, the form's session id. Inventing a `qp_universal` location would create
+   *     a row shape nothing on main writes and nothing reads (the chat stores universal answers
+   *     under its occupation pin), and a future cross-pack reader would have to arbitrate it.
+   *   - NO `worker_attributes` WRITE. The preferences page owns shift and preferred cities, and a
+   *     stale screen writing `shift_preference` a few seconds before (or after) that page is
+   *     exactly the overwrite race #1503 reported.
+   *   - NO COMPLETION EVALUATION. This is not a question the form asks, so it cannot be the answer
+   *     that finishes the form — and firing `profile.form_completed` off a screen the worker should
+   *     not have been shown would put a false step in the funnel.
+   *   - `schema_stale: true`, so the app re-fetches, the stale screens vanish, and its forward scan
+   *     lands on the next real question or page. A build that ignores the flag simply advances.
+   *   - COUNT-ONLY LOG. The key slug is what measures remaining skew; the value is what a specific
+   *     worker said about himself and never reaches a log.
+   *
+   * FAILS CLOSED WHEN THE UNIVERSAL PACK CANNOT NAME THE KEY. Without the item there is no type to
+   * validate the answer against, and guessing one is how an unrepresentable row gets written.
+   */
+  private async answerLegacyUniversalKey(
+    workerId: string,
+    ctx: { kind: TradeFormKind; sessionId: string | null },
+    pack: QuestionPack,
+    dto: TradeFormAnswerDto,
+  ): Promise<TradeFormAnswerResponse> {
+    const universal = await this.packs.loadUniversal(Date.now());
+    const item = universal?.items.find((candidate) => candidate.question_key === dto.question_key);
+    if (!item) {
+      this.logger.warn(
+        `legacy universal form key ${dto.question_key} rejected: the universal pack ` +
+          `${universal ? "no longer defines it" : "did not load"}`,
+      );
+      throw new BadRequestException(`question_key ${dto.question_key} is not in ${pack.pack_id}`);
+    }
+
+    const record = this.recordFor(item, dto, "decline");
+    const row = packAnswerRowFor({
+      workerId,
+      sessionId: ctx.sessionId,
+      packId: pack.pack_id,
+      packVersion: pack.version,
+      record,
+      source: "form",
+    });
+    if (row === null) {
+      throw new BadRequestException(`${item.question_key} produced no storable answer`);
+    }
+    await this.answers.upsertAnswer(row);
+
+    const view = await this.formView(workerId, ctx.kind, pack);
+    const answered = this.answeredIn(view);
+    const total = view.visibleItems.length;
+    const status = row.status === "answered" ? "answered" : "declined";
+    this.logger.log(
+      `legacy universal form key accepted: key=${item.question_key} pack=${pack.pack_id} ` +
+        `status=${status} answered=${answered} total=${total}`,
+    );
+    return { question_key: item.question_key, status, answered, total, schema_stale: true };
+  }
 
   /**
    * The form is finished — the countable half of that fact (#0.6).
@@ -653,8 +758,15 @@ export class TradeFormService {
    * A SINGLE-SELECT IS A SCALAR, a multi-select is an array. `typedAnswerColumns` then puts the
    * first in `answer_text` and the second in `answer_option_keys`, which is the shape the
    * interview already writes — one question type, one column, one meaning.
+   *
+   * A NUMBER IS EXACTLY ONE NUMBER (#1503) — see `strict-number.ts` for the four false facts the
+   * old digit-strip wrote. What happens to text that is not one is `onUnparseableNumber`'s call.
    */
-  private recordFor(item: QuestionPackItem, dto: TradeFormAnswerDto): AnswerRecord {
+  private recordFor(
+    item: QuestionPackItem,
+    dto: TradeFormAnswerDto,
+    onUnparseableNumber: UnparseableNumberPolicy,
+  ): AnswerRecord {
     const base = {
       question_key: item.question_key,
       target_field: item.target_field,
@@ -701,8 +813,9 @@ export class TradeFormService {
     }
 
     if (item.answer_type === "number") {
-      const parsed = Number(dto.answer.text.replace(/[^\d.-]/g, ""));
-      if (!Number.isFinite(parsed)) {
+      const parsed = parseStrictNumber(dto.answer.text);
+      if (parsed === null) {
+        if (onUnparseableNumber === "decline") return declined;
         throw new BadRequestException(`${item.question_key} takes a number`);
       }
       return { ...base, value_normalized: parsed, status: "answered" };
