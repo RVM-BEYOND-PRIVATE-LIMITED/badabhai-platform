@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TranscriptLine } from "@badabhai/ai-contracts";
 
-import { classifyLlmReply } from "./llm-reply-guard";
+import { classifyLlmReply, EXPERIENCE_GATE_PROMPT } from "./llm-reply-guard";
 
 function line(role: TranscriptLine["role"], text: string, i: number): TranscriptLine {
   return { i, role, text };
@@ -91,6 +91,53 @@ describe("classifyLlmReply — repeat", () => {
     ];
     // Same per-job SHAPE, about a DIFFERENT job — expected to recur once per job.
     expect(classifyLlmReply("Is naukri mein aapko kitne saal ho gaye?", history)).toBe("ok");
+  });
+
+  /**
+   * #1517 REVIEW, MAJOR 2. `PER_JOB_QUESTION_PATTERN` only recognizes duration/trade-role/
+   * employer-name phrasing — a REPHRASED responsibilities/role-detail question for a second job
+   * matched neither keyword list, so a legitimate per-job question was misclassified 'repeat' and
+   * Phase A ended before job 2's detail was ever gathered. Fixed with a STRUCTURAL signal: a job
+   * gate ({@link EXPERIENCE_GATE_PROMPT}) closed between the two lines, so this is a rephrase
+   * about a NEW job, not a stall — no keyword needed.
+   */
+  it("does NOT flag a REPHRASED per-job responsibilities question for a second job (no keyword match, job gate closed since)", () => {
+    const history: TranscriptLine[] = [
+      // 8 shared tokens, 1 differing ("us" vs "iss"): intersection 8 / union 10 = 0.8, at the
+      // floor — same construction as the machine/factory near-duplicate fixture above, over
+      // responsibility phrasing instead of duration/company-name phrasing.
+      line("assistant", "Us company mein apni responsibility kya thi vaha par?", 0),
+      line("worker", "Machine chalana aur maintenance", 1),
+      line("assistant", "Is naukri mein aapko kitne saal ho gaye?", 2),
+      line("worker", "3 saal", 3),
+      line("assistant", EXPERIENCE_GATE_PROMPT, 4),
+      line("worker", "Haan", 5),
+    ];
+    // Rephrased ("iss" for "us"), not verbatim — and about job 2, past the gate at line 4.
+    expect(classifyLlmReply("Iss company mein apni responsibility kya thi vaha par?", history)).toBe(
+      "ok",
+    );
+  });
+
+  /**
+   * The other direction of the same fix: an EXACT repeat of a non-keyword per-job question, even
+   * across the SAME job gate boundary, is NEVER exempted by the new structural signal — only a
+   * `similar` (non-equal) match ever reaches it. A model with nothing new to ask has no
+   * legitimate reason to ask the LITERAL SAME WORDS about a "different" job.
+   */
+  it("STILL flags an EXACT repeat of a non-keyword per-job question across a job gate — the structural exemption never covers an exact match", () => {
+    const history: TranscriptLine[] = [
+      line("assistant", "Us company mein apni responsibility kya thi vaha par?", 0),
+      line("worker", "Machine chalana aur maintenance", 1),
+      line("assistant", "Is naukri mein aapko kitne saal ho gaye?", 2),
+      line("worker", "3 saal", 3),
+      line("assistant", EXPERIENCE_GATE_PROMPT, 4),
+      line("worker", "Haan", 5),
+    ];
+    // Verbatim, NOT rephrased — same words as line 0, still flagged despite the gate at line 4.
+    expect(
+      classifyLlmReply("Us company mein apni responsibility kya thi vaha par?", history),
+    ).toBe("repeat");
   });
 });
 

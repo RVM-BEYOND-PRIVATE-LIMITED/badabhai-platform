@@ -90,6 +90,78 @@ describe("#1505-1: the sum of resolved jobs ALWAYS wins over the opener's stated
     expect(answerValue(world.store, "experience_years")).toBe(5);
     expect(isSettled(world.store, "experience_years")).toBe(true);
   });
+
+  /**
+   * REVIEW ON #1517, MAJOR 1. `isOpenerReplyTurn` used to read `turn === 1` — but
+   * `buffer.turnCount` is bumped by {@link ProfilingOrchestrator.turn} on EVERY branch that
+   * returns through it, including non-advancing ones (abusive, silent, hardship,
+   * clarify/question-back), any of which can fire on the worker's LITERAL first message. Under
+   * that logic an abusive turn 1 alone satisfied `turn === 1`, so the worker's REAL opener reply
+   * — landing on turn 2 — was wrongly treated as an ordinary per-job turn and its stated total
+   * was dropped from cross-fill instead of captured. Fixed by keying off whether anything has
+   * actually been captured yet (`envelope.answerMap` / `envelope.llmDraft.experiences`, both
+   * still empty after a non-advancing turn) rather than the raw turn counter.
+   */
+  it("worker's turn 1 is abusive; turn 2 is the REAL opener reply — the total still lands and the later sum still wins", async () => {
+    const world = buildReplayWorld({
+      turns: [
+        // Turn 2 (the REAL opener reply): the model asks about the worker's domain — no entry
+        // yet. Turn 1 (abusive) consumes no model call, so this is the FIRST queued turn.
+        step({ stage: "domain", reply_text: "Aapki trade kya hai?" }),
+        // Turn 3: the worker describes job 1 — a completed entry opens the gate immediately.
+        step({
+          stage: "experience",
+          experience_entry: {
+            role_label: "tandoor cook",
+            duration_text: "3 saal",
+            duration_months: 36,
+            work_done: "tandoor roti",
+          },
+        }),
+        // Turn 4 ("Haan" closes the gate and falls through to the model for job 2 THIS turn):
+        step({
+          stage: "experience",
+          experience_entry: {
+            role_label: "kitchen helper",
+            duration_text: "2 saal",
+            duration_months: 24,
+          },
+        }),
+        // Turn 5 answers the gate "Nahi" — no model call; branch 1 short-circuits.
+      ],
+    });
+
+    // Turn 1 — abusive. `turnCount` advances to 1 with NOTHING captured: no model call, no
+    // entry, `answerMap` and `llmDraft.experiences` both stay empty.
+    await world.orchestrator.takeTurn(turnInput("chutiya"));
+    expect(answerValue(world.store, "experience_years")).toBeUndefined();
+
+    // Turn 2 — the worker's REAL reply to the still-unanswered opener, stating a TOTAL that must
+    // land: nothing has been captured yet, so this is still the opener-reply turn.
+    await world.orchestrator.takeTurn(
+      turnInput("Maine total 10 saal kaam kiya hai", new Date(T0.getTime() + 1000)),
+    );
+    expect(answerValue(world.store, "experience_years")).toBe(10);
+
+    // Turn 3 — job 1. A per-job model question is on screen now; the worker's own sentence must
+    // NOT cross-fill a competing `experience_years`.
+    await world.orchestrator.takeTurn(
+      turnInput("Welder tha, teen saal", new Date(T0.getTime() + 2000)),
+    );
+
+    // Turn 4 — "Haan", job 2.
+    await world.orchestrator.takeTurn(
+      turnInput("Haan, fitter bhi tha do saal", new Date(T0.getTime() + 3000)),
+    );
+
+    // Turn 5 — "Nahi" closes Phase A; `settleFromLlmDraft` runs THIS turn.
+    await world.orchestrator.takeTurn(turnInput("Nahi", new Date(T0.getTime() + 4000)));
+
+    // THE RULING STILL HOLDS with an abusive turn ahead of the opener reply: sum of resolved
+    // jobs (36 + 24 months = 5 years) OVERRIDES the opener's "10".
+    expect(answerValue(world.store, "experience_years")).toBe(5);
+    expect(isSettled(world.store, "experience_years")).toBe(true);
+  });
 });
 
 describe("#1505 F5: the model's own gate-shaped or repeated line is never served", () => {

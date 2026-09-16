@@ -23,9 +23,30 @@ describe("parseDurationMonths", () => {
     expect(parseDurationMonths("sawa saal")).toBe(15);
   });
 
+  /**
+   * #1517 REVIEW, MINOR. `teen`/`char`/`panch`/`chhe`/`saat`/`aath`/`nau`/`das` were absent from
+   * `YEAR_WORD_VALUES` and fell through to `numberValue`'s digit path, returning `null` —
+   * indistinguishable from a deliberately vague span. This is the API-side fallback for exactly
+   * the case where the ai-service's own `duration_months` is null, so that silent `null` held the
+   * whole `experience_years` sum unsettled for an ordinary word-form duration.
+   */
+  it("resolves the numeral words teen/char/panch/chhe/saat/aath/nau/das", () => {
+    expect(parseDurationMonths("teen saal")).toBe(36);
+    expect(parseDurationMonths("char saal")).toBe(48);
+    expect(parseDurationMonths("panch saal")).toBe(60);
+    expect(parseDurationMonths("chhe saal")).toBe(72);
+    expect(parseDurationMonths("saat saal")).toBe(84);
+    expect(parseDurationMonths("aath saal")).toBe(96);
+    expect(parseDurationMonths("nau saal")).toBe(108);
+    expect(parseDurationMonths("das saal")).toBe(120);
+  });
+
   it("returns null on a vague span with no quantity", () => {
     expect(parseDurationMonths("kaafi saal ho gaye")).toBeNull();
     expect(parseDurationMonths("saal bhar se")).toBeNull();
+    // STILL VAGUE after the word-form table widened (#1517 review, MINOR) — "kaafi"/"bhar" are
+    // not in `YEAR_WORD_VALUES` and must never be confused with the newly-added digit words.
+    expect(parseDurationMonths("kaafi saal se kaam kar raha hoon")).toBeNull();
   });
 
   it("returns null on nothing resolvable", () => {

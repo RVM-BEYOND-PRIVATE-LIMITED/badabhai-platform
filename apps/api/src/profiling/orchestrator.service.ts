@@ -1287,7 +1287,9 @@ export class ProfilingOrchestrator {
     // either way — `settleFromLlmDraft` below unconditionally overwrites it with the sum of every
     // resolved job entry once Phase A hands over (owner ruling, ADR §1505-1).
     const phaseALeads =
-      envelope.servedQuestionKey === null && this.llm.leads(envelope) && !isOpenerReplyTurn(turn);
+      envelope.servedQuestionKey === null &&
+      this.llm.leads(envelope) &&
+      !isOpenerReplyTurn(envelope);
     answers = this.fillCrossQuestion(
       crossFillItems(items, phaseALeads),
       input.text,
@@ -3340,22 +3342,24 @@ function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
 /**
  * Is this turn the worker's REPLY to the one-shot composite opener (#1505 F1)?
  *
- * `turn === 1` — NOT "the last assistant line equals `CHAT_OPENING_TEXT`", which the design this
- * builds from assumed and which is FALSE for every session: `chat.service.ts`'s own docblock on
- * `opening_text` says so in as many words — "the opener is rendered by the client and NEVER
- * STORED as a chat message, so it never enters the extraction transcript" (measured there against
- * the same failure this fix would otherwise have silently reproduced: a scan for a line that can
- * never appear in `buffer.messages`, making the "exception" dead code that always excludes
- * `experience_years` exactly like the design's own original, un-corrected text). The opener is
- * rendered once, before the worker's first POST, and is answered by construction on the first
- * turn of the session — `buffer.turnCount + 1 === 1` — whether or not `CHAT_ONE_SHOT_OPENER_ENABLED`
- * is even on: with it off, turn one is either the universal pack's own first question (not
- * Phase-A-led at all, so `phaseALeads` is false regardless) or the model's own opening domain
- * question, which never mentions an experience DURATION either way, so excluding it from this one
- * turn costs nothing.
+ * NOT `turn === 1` — that was the ORIGINAL, measured-wrong version of this function (review on
+ * #1517): `buffer.turnCount` is bumped by {@link ProfilingOrchestrator.turn} on EVERY branch that
+ * returns through it, including the non-advancing ones — abusive, silent/empty, hardship,
+ * clarify/question-back — every one of which can fire on the worker's LITERAL first message,
+ * before the opener has been answered at all. Concretely: worker's turn 1 is abusive ("chutiya"),
+ * `turnCount` becomes 1 with nothing captured; turn 2 is the worker's REAL reply to the
+ * still-unanswered opener, stating a total — but `turn === 1` is false at turn 2, so the total
+ * would be wrongly excluded from cross-fill, reproducing the exact defect #1505 exists to close.
+ *
+ * WHAT ACTUALLY IDENTIFIES THE OPENER REPLY: nothing has been captured yet. `envelope.answerMap`
+ * is empty AND `envelope.llmDraft.experiences` is empty — the two places a captured fact can live
+ * before this turn runs. Read off `envelope` as handed to `decide()`, BEFORE this turn's own
+ * `capture`/identify/settlement writes anything, so a non-advancing turn (which writes neither)
+ * leaves both still empty and this correctly keeps reporting "the opener is still unanswered" on
+ * the worker's next real turn — however many non-advancing turns came before it.
  */
-function isOpenerReplyTurn(turn: number): boolean {
-  return turn === 1;
+function isOpenerReplyTurn(envelope: ProfilingEnvelope): boolean {
+  return envelope.answerMap.length === 0 && envelope.llmDraft.experiences.length === 0;
 }
 
 /**

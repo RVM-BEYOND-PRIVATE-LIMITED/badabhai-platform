@@ -28,10 +28,28 @@
 
 import { applyNegation } from "@badabhai/profiling-lexicon";
 
-/** word -> years (before the *12 conversion below). Closed; extend by review. */
+/**
+ * word -> years (before the *12 conversion below). Closed; extend by review.
+ *
+ * ONE THROUGH TEN (#1517 review, MINOR): the fractional/compound words (`dedh`/`dhai`/`sawa`) and
+ * `ek`/`do` shipped with F2; `teen` through `das` were simply never added, so a worker who said
+ * "teen saal" fell through to `numberValue`'s digit path, found no digits, and returned `null` —
+ * INDISTINGUISHABLE, per this file's own docblock, from a deliberately vague span like "kaafi
+ * saal". Since this is the API-side FALLBACK for exactly the case where the ai-service's own
+ * `duration_months` is null, that silent `null` held the whole `experience_years` sum unsettled
+ * (ruling-1) for a duration a worker stated in perfectly ordinary words.
+ */
 const YEAR_WORD_VALUES: ReadonlyMap<string, number> = new Map([
   ["ek", 1],
   ["do", 2],
+  ["teen", 3],
+  ["char", 4],
+  ["panch", 5],
+  ["chhe", 6],
+  ["saat", 7],
+  ["aath", 8],
+  ["nau", 9],
+  ["das", 10],
   ["dedh", 1.5],
   ["dhai", 2.5],
   ["sawa", 1.25],

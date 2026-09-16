@@ -35,7 +35,22 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
-import { classifyLlmReply } from "./llm-reply-guard";
+import { classifyLlmReply, EXPERIENCE_GATE_PROMPT } from "./llm-reply-guard";
+
+/**
+ * RE-EXPORTED, NOT REDECLARED: `llm-reply-guard.ts` owns this string now — its `repeatsHistory`
+ * job-boundary signal (#1517 review, MAJOR 2) needs it too, and a second hand-copied literal here
+ * would drift from the one actually served the moment either side changed its wording. Every
+ * existing importer of `EXPERIENCE_GATE_PROMPT` from this module keeps working unchanged.
+ *
+ * `question-tts-text.ts`/`reply-closure.json` carry NO Devanagari twin for this line as of #1505
+ * (checked against the current merged tree, not assumed) — the voice form falls back to
+ * on-device TTS for it exactly as it did before. An earlier draft of #1505 considered adding one,
+ * plus a second engine line for a duration follow-up question; both are DELIBERATELY NOT built
+ * here — F5's guard only ever falls back to THIS existing prompt or to `done`, never to a new
+ * line, so no new TTS entry is needed for it either.
+ */
+export { EXPERIENCE_GATE_PROMPT };
 
 /**
  * How many questions the model may ask before the engine takes over.
@@ -54,15 +69,6 @@ export const MAX_LLM_ASKS = 20;
  */
 export const MAX_EXPERIENCE_ENTRIES = 5;
 
-/**
- * `question-tts-text.ts`/`reply-closure.json` carry NO Devanagari twin for this line as of
- * #1505 (checked against the current merged tree, not assumed) — the voice form falls back to
- * on-device TTS for it exactly as it did before. An earlier draft of #1505 considered adding one,
- * plus a second engine line for a duration follow-up question; both are DELIBERATELY NOT built
- * here — F5's guard only ever falls back to THIS existing prompt or to `done`, never to a new
- * line, so no new TTS entry is needed for it either.
- */
-export const EXPERIENCE_GATE_PROMPT = "Aur koi experience jodna hai?";
 const GATE_YES = "Haan";
 const GATE_NO = "Nahi";
 

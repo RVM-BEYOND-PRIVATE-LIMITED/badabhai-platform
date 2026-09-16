@@ -28,6 +28,15 @@ import type { TranscriptLine } from "@badabhai/ai-contracts";
 export type LlmReplyClass = "ok" | "gate_shaped" | "repeat";
 
 /**
+ * The engine's own experience-gate line, verbatim, exported from HERE (not `llm-turn.service.ts`,
+ * which re-exports it for its existing importers) because {@link repeatsHistory} is now a second
+ * reader: the STRUCTURAL job-boundary signal below needs the one line the engine appends to every
+ * transcript exactly once per job, and a second hand-copied literal would drift from the string
+ * that is actually served the moment either side changed its wording.
+ */
+export const EXPERIENCE_GATE_PROMPT = "Aur koi experience jodna hai?";
+
+/**
  * "aur koi", "koi aur", "koi dusra/doosra", "dusri/doosri", "ek aur", "another", and the
  * Devanagari equivalents — the ADD marker that opens the engine's own gate question.
  */
@@ -154,19 +163,35 @@ function jaccard(a: readonly string[], b: readonly string[]): number {
  * "since the last gate prompt". Scoping there produced false negatives for the model re-asking a
  * PRE-gate question (domain/role/skills) after the gate: the "AI repeats" ruling is "move on, no
  * retry" for ANY repeated question, and a pre-gate skills question repeated after job 1's gate is
- * exactly that failure with the repeat further back in the transcript.
+ * exactly that failure with the repeat further back in the transcript. See the exact-repeat skills
+ * fixture in `llm-reply-guard.test.ts`: it crosses a job boundary too and STAYS flagged, because
+ * the widened exemption below never reaches an exact match — see why there.
  *
- * THE ONE NARROW EXEMPTION: a match is NOT flagged when BOTH the current line and the matched
- * prior line fall inside the same per-job "kitne saal / kya kaam" interrogative pattern — those
- * are EXPECTED to recur, once per job, and flagging them would end Phase A the moment a worker
- * described a second job.
+ * TWO EXEMPTIONS, both narrowed to the `similar` (near-duplicate, non-exact) match only:
+ *
+ *  1. THE NARROW KEYWORD ONE (unchanged): both lines match {@link PER_JOB_QUESTION_PATTERN} —
+ *     duration/trade-role/employer-name phrasing, which this file has always recognized.
+ *  2. THE WIDENED STRUCTURAL ONE (#1517 review, MAJOR 2): a job gate — the engine's own
+ *     {@link EXPERIENCE_GATE_PROMPT} line — closed SOMEWHERE BETWEEN the matched prior line and
+ *     now. That is what "a legitimate question about a DIFFERENT job" means structurally, and it
+ *     covers skills/certifications/role-detail phrasing the keyword list was never going to
+ *     enumerate exhaustively, WITHOUT adding more keywords: "Us company mein aapka role kya tha?"
+ *     scores high Jaccard against job 1's differently-worded "Is naukri mein aapki responsibility
+ *     kya thi?" and is about job 2, not a stall.
+ *
+ * NEITHER EXEMPTION EVER APPLIES TO AN EXACT (`equal`) MATCH. A model that asks the LITERAL SAME
+ * WORDS twice has no legitimate reason tied to which job it is on — a rephrase is what a model
+ * asking about a genuinely new job actually produces, and an unchanged sentence is what a model
+ * that is simply stuck produces. That is the line the exact-repeat skills fixture sits on: same
+ * words, crosses a gate, still a repeat.
  */
 function repeatsHistory(reply: string, history: readonly TranscriptLine[]): boolean {
   const normalizedReply = normalize(reply);
   const replyTokens = tokens(normalizedReply);
   const replyIsPerJob = PER_JOB_QUESTION_PATTERN.test(reply);
 
-  for (const line of history) {
+  for (let i = 0; i < history.length; i++) {
+    const line = history[i] as TranscriptLine;
     if (line.role !== "assistant") continue;
     const normalizedLine = normalize(line.text);
     if (normalizedLine.length === 0) continue;
@@ -180,8 +205,23 @@ function repeatsHistory(reply: string, history: readonly TranscriptLine[]): bool
     }
     if (!equal && !similar) continue;
 
+    // exemption 1: the narrow keyword pair — UNCHANGED, applies to `equal` and `similar` alike,
+    // exactly as it always has (the "kitne saal" fixture below is an EXACT repeat across a job
+    // boundary and stays exempted through this one).
     const lineIsPerJob = PER_JOB_QUESTION_PATTERN.test(line.text);
-    if (replyIsPerJob && lineIsPerJob) continue; // the one expected-to-recur exemption
+    if (replyIsPerJob && lineIsPerJob) continue;
+
+    // exemption 2 (#1517 review, MAJOR 2): a job gate closed between this line and now — a
+    // STRUCTURAL "different job" signal that needs no keyword at all. `EXPERIENCE_GATE_PROMPT` is
+    // the engine's own text, never the model's, so this can never be satisfied by anything the
+    // model itself wrote. NEVER for an `equal` match — see the docblock above.
+    if (similar) {
+      const gateClosedSince = history
+        .slice(i + 1)
+        .some((later) => later.role === "assistant" && later.text === EXPERIENCE_GATE_PROMPT);
+      if (gateClosedSince) continue;
+    }
+
     return true;
   }
   return false;
