@@ -74,6 +74,28 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         None,
         "cue reaches the second number",
     ),
+    # ── a COMPOSITE answer: the ask, then an unrelated experience clause ───────────────────
+    #
+    # R16 §1 (issue #1507 case 1). `periodMonths`/`_period_months` reads its forward window in
+    # a fixed 18-character span with no clause awareness, so a "5 saal" that belongs to an
+    # EXPERIENCE clause after a comma was read as this amount's period and divided a correct
+    # wage by twelve. Measured twice: in the #1505 design pass and again by its adversarial
+    # reviewer. The fix clause-clamps the period window, mirroring the clamp the expectation
+    # window already had.
+    (
+        "composite_ask_then_experience",
+        "15000 chahiye, 5 saal ho gaye",
+        (None, 15000),
+        None,
+        "CLOSED R16 §1 — 'saal' is in a separate clause and must not read as annual",
+    ),
+    (
+        "composite_ask_control",
+        "15000 chahiye",
+        (None, 15000),
+        None,
+        "control for the row above: the bare ask, with no trailing clause, must not regress",
+    ),
     # ── the cue sits AFTER the amount with a period word in between ───────────────────────
     #
     # THE ONE FAILURE MODE, IN FIVE COSTUMES — CLOSED BY R13 §1.1. `expectedWindowAfter` is 10
@@ -259,15 +281,16 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
     ),
     # ── spellings 1.1 deliberately did not add ────────────────────────────────────────────
     #
-    # 1.1 ruled ONE spelling. These are the same failure chain and are left pinned rather than
-    # fixed, because widening a vocabulary is a product call: each new spelling is a chance to
-    # match something that is not a wage. Mirrored as sal_018 / sal_019 in the shared corpus.
+    # 1.1 ruled ONE spelling at a time. These are the same failure chain; 'hazzar' is left
+    # pinned because widening a vocabulary is a product call and each new spelling is a chance
+    # to match something that is not a wage. 'hajar' was CLOSED in R16 §3 (issue #1507 case 3,
+    # owner-directed): it is now in thousandUnits, mirrored as sal_018 in the shared corpus.
     (
-        "sp_hajar",
+        "sp_hajar_closed",
         "25 hajar per month",
         (25000, None),
-        (None, None),
-        "'hajar' absent -> nothing recorded",
+        None,
+        "R16 §3 — 'hajar' now in thousandUnits; was a pinned gap, now regression-covered",
     ),
     (
         "sp_hazzar",
@@ -527,7 +550,6 @@ GAP_CLASS: dict[str, str] = {
     "band_se": "band",
     "band_dash": "band",
     "band_se_hazaar": "band",
-    "sp_hajar": "gazetteer",
     "sp_hazzar": "gazetteer",
     "deva_cue": "gazetteer",
 }

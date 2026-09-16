@@ -2142,6 +2142,40 @@ def _looks_like_a_year(num: str, unit: str | None, near: str) -> bool:
     return not any(cue.search(near) for cue in _MONEY_CUES)
 
 
+def _cue_fires_after(cue: re.Pattern[str], near: str) -> bool:
+    """Does ``cue`` match in ``near`` — the text AFTER an amount — with no clause boundary
+    standing between the amount and where the cue starts? R16 §1 (issue #1507 case 1).
+
+    `_PERIOD_WINDOW_AFTER` (18 chars) is wide enough to reach "saal ka" in "1.5 lakh saal ka",
+    but the same width also reaches into an entirely separate clause: "15000 chahiye, 5 saal ho
+    gaye" has "5 saal" eight characters past the comma — an EXPERIENCE clause, not the salary's
+    period — and the naked window read it as annual, dividing a correct ₹15,000 by twelve to
+    ₹1,250. Measured twice: in the #1505 design pass and again by its adversarial reviewer.
+
+    THE GUARD IS ON THE CUE'S OWN MATCH POSITION, NOT ON THE SEARCH TEXT. An earlier version of
+    this fix pre-truncated ``near`` at the first clause terminator before searching, and that
+    broke `_ANNUAL_CUES_AFTER`'s own abbreviated cues: "4.2 lakh p.a." has its annual marker
+    matched by ``p\\.?\\s?a\\.?``, and `clauseTerminator` includes ``.`` — the abbreviation's OWN
+    internal dot — so truncating the search text cut the window off before the cue could match at
+    all, and a correctly annual figure was read as monthly, twelve times too high. Testing the
+    region BEFORE the cue's match, rather than pre-cutting the text, leaves the cue free to match
+    through its own punctuation; only a terminator standing between the amount and where the cue
+    STARTS can veto it.
+    """
+    found = cue.search(near)
+    if found is None:
+        return False
+    return _CLAUSE_TERMINATOR_RE.search(near, 0, found.start()) is None
+
+
+def _cue_fires_before(cue: re.Pattern[str], near: str) -> bool:
+    """The mirror of :func:`_cue_fires_after` for text BEFORE an amount."""
+    found = cue.search(near)
+    if found is None:
+        return False
+    return _CLAUSE_TERMINATOR_RE.search(near, found.end()) is None
+
+
 def _period_months(near_before: str, near_after: str) -> int | None:
     """How many months the amount covers: 1 (monthly, the default), 12 (annual), or
     None when the cues CONFLICT.
@@ -2149,13 +2183,18 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     P1-3(b): "1.5 lakh saal ka" is ANNUAL and used to be stored as a ₹1,50,000
     MONTHLY salary. Period cues are read in a TIGHT window (a wide one would attach
     the "5 saal" of an experience clause to an unrelated amount later in the
-    sentence). Ambiguous (both an annual and a monthly cue) -> None -> not recorded,
-    per "prefer no number over a wrong number".
+    sentence) AND clause-guarded (R16 §1 — see `_cue_fires_after`): the width alone
+    was not enough, since "5 saal" of a composite answer's experience clause can
+    still sit inside it. Ambiguous (both an annual and a monthly cue) -> None -> not
+    recorded, per "prefer no number over a wrong number".
     """
-    annual = any(cue.search(near_after) for cue in _ANNUAL_CUES_AFTER) or any(
-        cue.search(near_before) for cue in _ANNUAL_CUES_BEFORE
+    annual = any(_cue_fires_after(cue, near_after) for cue in _ANNUAL_CUES_AFTER) or any(
+        _cue_fires_before(cue, near_before) for cue in _ANNUAL_CUES_BEFORE
     )
-    monthly = any(cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES)
+    monthly = any(
+        _cue_fires_before(cue, near_before) or _cue_fires_after(cue, near_after)
+        for cue in _MONTHLY_CUES
+    )
     if annual and monthly:
         return None
     # R14 2.1 — A DAILY OR WEEKLY WAGE IS NOT A MONTHLY ONE, and the default below is what made
@@ -2166,7 +2205,8 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     # above so an explicit 'per month' still wins over a stray 'din' in the same window.
     if not annual and not monthly:
         if any(
-            cue.search(near_before) or cue.search(near_after) for cue in _SUB_MONTHLY_CUES
+            _cue_fires_before(cue, near_before) or _cue_fires_after(cue, near_after)
+            for cue in _SUB_MONTHLY_CUES
         ):
             return None
     return 12 if annual else 1
@@ -2427,6 +2467,10 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
         near_after = lower[m.end() : min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
         if _looks_like_a_year(num, unit, near_before + " " + near_after):
             continue
+        # R16 §1 (issue #1507 case 1) — `_period_months` applies its own clause guard internally
+        # (`_cue_fires_after`/`_cue_fires_before`), so it reads the SAME line-clamped
+        # `near_before`/`near_after` every other check here uses. See those functions' docs for
+        # why pre-truncating this text at a clause boundary is the wrong place for the guard.
         months = _period_months(near_before, near_after)
         if months is None:
             continue  # ambiguous period -> record nothing

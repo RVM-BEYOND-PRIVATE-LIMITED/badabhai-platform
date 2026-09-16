@@ -110,19 +110,26 @@ test("an unavailable provider is reported, never silently counted as zero", () =
 });
 
 test("one gap recorded twice is listed once, and says where else it lives (R14 §5)", () => {
-  // THE REAL DUPLICATES, not a fixture. `sp_hajar`/`sp_hazzar` in the pytest table and
-  // `sal_018`/`sal_019` in the shared corpus are the same two missing spellings — one gap each,
-  // recorded once per mechanism because the two mechanisms were built a packet apart.
+  // THE REAL DUPLICATE, not a fixture. `sp_hazzar` in the pytest table and `sal_019` in the
+  // shared corpus are the same missing spelling — one gap, recorded once per mechanism because
+  // the two mechanisms were built a packet apart. `sp_hajar`/`sal_018` was this pair's sibling
+  // until R16 §3 (issue #1507 case 3) closed it — 'hajar' is now in thousandUnits and neither
+  // side is a gap any more, which is exactly why this test now asserts on `hazzar` instead: a
+  // fold pair that CLOSES must stop being findable here, not silently keep "passing" on a pin
+  // that no longer exists.
   const { pins } = collectPins();
-  const hajar = pins.filter((p) => p.id.includes("sp_hajar") || p.id.startsWith("sal_018"));
-  assert.equal(hajar.length, 1, "the hajar gap is still listed twice");
+  const hajarClosed = pins.filter((p) => p.id.includes("sp_hajar") || p.id.startsWith("sal_018"));
+  assert.equal(hajarClosed.length, 0, "sp_hajar/sal_018 closed in R16 §3 and must not be listed");
+
+  const hazzar = pins.filter((p) => p.id.includes("sp_hazzar") || p.id.startsWith("sal_019"));
+  assert.equal(hazzar.length, 1, "the hazzar gap is still listed twice");
   assert.ok(
-    hajar[0].alsoAt.some((id) => id.startsWith("sal_018")),
+    hazzar[0].alsoAt.some((id) => id.startsWith("sal_019")),
     "the surviving pin must name the corpus row it absorbed — folding is about the COUNT, and " +
       "closing the gap still means editing both places",
   );
   assert.ok(
-    hajar[0].gates.includes("packages/profiling-lexicon/__fixtures__/utterances.jsonl"),
+    hazzar[0].gates.includes("packages/profiling-lexicon/__fixtures__/utterances.jsonl"),
     "the absorbed pin's gated files must come with it, or the gap stops surfacing from that side",
   );
 

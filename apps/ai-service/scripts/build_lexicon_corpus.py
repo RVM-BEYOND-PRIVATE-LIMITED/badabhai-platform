@@ -533,8 +533,8 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
          "R12 1.1 - CLOSED. This row was pinned as a measured gap: 'hazaar' was absent from "
          "thousandUnits, so the {WE} guard rejected the 'hazar' prefix, the unit group matched "
          "empty and minDigitsWithoutUnit dropped the bare 2-digit number. The spelling is now in "
-         "the list AHEAD of 'hazar' (longest-first). 'hajar' and 'hazzar' remain uncovered - see "
-         "sal_018/sal_019"),
+         "the list AHEAD of 'hazar' (longest-first). 'hajar' is now covered too - see sal_018; "
+         "'hazzar' remains uncovered - see sal_019"),
         ("24 thousand milta hai", None),
         ("2 hzr", "the abbreviated thousand unit"),
         ("rs 32000 chahiye", "EXPECTED slot: 'chahiye' near the amount"),
@@ -548,14 +548,13 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("28000 kamata hu", None),
         ("stipend 9000 milta hai", None),
         ("28000 nahi milta", "NEGATED: the amount is found and vetoed, not dropped"),
-        # -- R12 1.3: two spellings the thousand-unit list still does not carry ---------
+        # -- R16 3: 'hajar' closed; R12 1.3's 'hazzar' spelling still not carried --------
         ("25 hajar per month",
-         "MEASURED GAP (R12 1.3), records NOTHING. 'hajar' - j for z - is absent from "
-         "thousandUnits, so the same {WE}/minDigitsWithoutUnit chain that dropped 'hazaar' drops "
-         "this. NOT added: 1.1 ruled one spelling per packet so each addition carries its own "
-         "measurement. SAME GAP AS sp_hajar - the pytest table carries the want/got pair and "
-         "this row carries the cross-language half; they are one missing spelling, not two "
-         "pieces of work"),
+         "R16 3 (issue #1507 case 3) - CLOSED, owner-directed. 'hajar' - j for z - is now in "
+         "thousandUnits, ahead of 'hzr' since neither is a prefix of the other, so it records "
+         "25000. SAME GAP AS sp_hajar was - the pytest table carried the want/got pair and this "
+         "row carries the cross-language half; they were one missing spelling, not two pieces of "
+         "work, and both closed together"),
         ("25 hazzar per month",
          "MEASURED GAP (R12 1.3), records NOTHING. Double-z spelling, same chain as sal_018. "
          "Same reasoning for leaving it. SAME GAP AS sp_hazzar"),
@@ -667,6 +666,16 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("6 saal se 28000 milta hai",
          "THE ASYMMETRY CASE: a bare 'saal' BEFORE the amount is the EXPERIENCE clause, "
          "not an annual marker. Reading it as annual divides a correct wage by twelve"),
+        ("15000 chahiye",
+         "CONTROL for salp_009 below - the same amount with no trailing experience clause must "
+         "keep recording 15000, never 1250"),
+        ("15000 chahiye, 5 saal ho gaye",
+         "R16 1 (issue #1507 case 1) - CLOSED. 'saal' sits inside the 18-character forward "
+         "period window but AFTER a comma, in a separate EXPERIENCE clause ('it's been 5 years'), "
+         "not the salary's own period. The naked window read it as annual and divided a correct "
+         "15000 by twelve to 1250 - measured twice, in the #1505 design pass and by its "
+         "adversarial reviewer. The period window is now clause-clamped, the same guard the "
+         "expectation window already had, applied to _period_months instead"),
         ("5 lakh saal ka mahina",
          "AMBIGUOUS: an annual AND a monthly cue — records NOTHING, per prefer-no-number"),
         ("ctc 5 lakh",
