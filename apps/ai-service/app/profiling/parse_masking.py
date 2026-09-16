@@ -57,7 +57,8 @@ def passthrough_masker(text: str) -> tuple[bool, str]:
     IT REACHED NO REAL WORKER UNTIL 2026-09-10, AND NOW IT REACHES EXACTLY ONE ROUTE.
     ``docs/decisions/0041-resume-import-and-prefill.md`` §3 (ruling D5, amended) authorises
     ``/resume/parse`` to select this masker for a REAL worker's uploaded résumé, behind
-    ``RESUME_PARSE_RAW_TEXT_ENABLED`` (default false, and set in no committed file). The
+    ``RESUME_PARSE_RAW_TEXT_ENABLED`` (default false; declared default-off in the staging
+    compose file since 2026-09-15 and armed only on the box, never by a commit). The
     argument for it is in ``app/resume_import/parse_policy.py``; read that before changing
     anything here.
 
