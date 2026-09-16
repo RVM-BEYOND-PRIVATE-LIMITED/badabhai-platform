@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProfileStatus } from "@badabhai/types";
+import type { ProfileSource, ProfileStatus } from "@badabhai/types";
 
 /** True if the string contains any ASCII control character (C0 or DEL). */
 function hasControlChars(s: string): boolean {
@@ -233,4 +233,13 @@ export interface WorkerProfileSummary {
    */
   education_level: string | null;
   education_field: string | null;
+  /**
+   * Task 1 — which road produced this profile: `form` (trade-form road) or
+   * `chat` (LLM-chat road). Written deterministically at extraction, read by
+   * navigation and profile/resume screens so the two roads stop sharing one
+   * flow. `null` when unknown (no profile row yet, or a pre-0107 row) —
+   * clients must treat `null` as unknown, never as a road. Additive
+   * (backward-compatible): older clients ignore it.
+   */
+  source: ProfileSource | null;
 }

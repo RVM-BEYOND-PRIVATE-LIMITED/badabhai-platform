@@ -552,6 +552,9 @@ export class ProfilesService {
         worker_id: input.worker_id,
         profile_id: input.profile_id,
         confirmed_at: confirmedAt.toISOString(),
+        // Task 1 — the road, read off the stored row (never re-asserted here):
+        // pre-0107 rows carry NULL, which the contract maps to unknown.
+        profile_source: profile.source ?? null,
       },
       idempotencyKey: `profile.confirmed:${input.profile_id}`,
       correlationId: ctx.correlationId,

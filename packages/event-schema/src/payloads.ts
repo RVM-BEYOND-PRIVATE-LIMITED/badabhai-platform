@@ -652,6 +652,11 @@ export const VoiceNoteTranscriptionFailedPayload = z.object({
 // profile.*
 // ---------------------------------------------------------------------------
 const profileStatus = z.enum(["draft", "extracting", "extracted", "confirmed"]);
+// Task 1 — the road that produced the profile (`worker_profiles.source`).
+// Closed vocabulary, shared by the profile/resume payloads below. Nullable
+// with a null default: rows written before migration 0107 carry no road, and
+// an additive field must never break an old emitter or reader.
+const profileSource = z.enum(["form", "chat"]);
 
 export const ProfileExtractionRequestedPayload = z.object({
   worker_id: uuidSchema,
@@ -671,6 +676,7 @@ export const ProfileConfirmedPayload = z.object({
   worker_id: uuidSchema,
   profile_id: uuidSchema,
   confirmed_at: isoDateTimeSchema,
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** Terminal failure of an async (BullMQ) extraction job — keeps failures in the stream. */
@@ -790,6 +796,7 @@ export const ResumeGeneratedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   format: z.enum(["text", "json"]).default("text"),
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
@@ -3808,9 +3815,7 @@ export const ProfileResumePrefillAppliedPayload = z
     accepted: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileResumePrefillAppliedPayload = z.infer<
-  typeof ProfileResumePrefillAppliedPayload
->;
+export type ProfileResumePrefillAppliedPayload = z.infer<typeof ProfileResumePrefillAppliedPayload>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache

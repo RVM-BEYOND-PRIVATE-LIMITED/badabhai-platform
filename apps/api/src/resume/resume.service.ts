@@ -294,6 +294,9 @@ export class ResumeService {
           resume_id: saved.id,
           version: saved.version,
           format: result.format,
+          // Task 1 — the road of the profile this résumé renders (pre-0107
+          // rows carry NULL → unknown).
+          profile_source: profile.source ?? null,
         },
         idempotencyKey: `resume.generated:${saved.id}`,
         correlationId: ctx.correlationId,
