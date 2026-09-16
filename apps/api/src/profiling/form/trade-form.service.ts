@@ -15,7 +15,7 @@ import { EventsService } from "../../events/events.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { projectProfile } from "../answer-map-projector";
-import { packAnswerRowFor } from "../pack-answer-row";
+import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
@@ -732,6 +732,10 @@ export class TradeFormService {
               text: saved.answerText,
               number: saved.answerNumber,
               bool: saved.answerBool,
+              // `?? null`, not a bare read: this column is new (migration 0106) and a row read
+              // before that migration's deploy — or a test fixture built before this change —
+              // carries `undefined` for it, which the wire contract must never see.
+              other_text: saved.answerOtherText ?? null,
             }
           : null,
       // RULING D7 IN ONE LINE: a stored answer always wins, and this does not touch it. The
@@ -819,6 +823,22 @@ export class TradeFormService {
         throw new BadRequestException(`${item.question_key} takes a number`);
       }
       return { ...base, value_normalized: parsed, status: "answered" };
+    }
+    if (item.answer_type === "single_select" || item.answer_type === "multi_select") {
+      // "TYPED CUSTOM ANSWER, EVERYWHERE" (owner ruling, round 4). A worker who does not see
+      // his own answer among the chips is not asking to be turned away — the 400 this branch
+      // used to throw was exactly the silent-drop this ruling forbids in spirit: the worker
+      // typed a real answer and the form told him it did not take one.
+      //
+      // NEVER WRITTEN TO A TYPED COLUMN. `otherAnswerValue` marks this as unreviewed free text
+      // against a closed vocabulary; `packAnswerRowFor` routes a marked value to
+      // `answer_other_text` and nowhere else, so it can never decide a tier gate, never become a
+      // `worker_attributes` row, and never print unreviewed on any sheet — see
+      // `OtherAnswerValue`'s docblock. A worker can always see and refuse the LLM's rewrite of
+      // it before it is ever shown (`OtherAnswerPolishService`); it is never printed raw.
+      const other = otherAnswerValue(dto.answer.text);
+      if (other === null) return declined;
+      return { ...base, value_normalized: other, status: "answered" };
     }
     if (item.answer_type !== "text") {
       throw new BadRequestException(`${item.question_key} does not take free text`);

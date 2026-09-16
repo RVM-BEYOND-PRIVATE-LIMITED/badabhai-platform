@@ -29,6 +29,7 @@ import {
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
 import { isSettled } from "./answer-map";
+import { otherAnswerTextOf } from "./pack-answer-row";
 import { clipId } from "./reply-closure";
 import { ttsField } from "./question-tts-text";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -353,7 +354,11 @@ export class ProfilingSessionService {
             prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
             status: row.status as "answered" | "declined" | "unanswered",
             display_value: this.displayValueOf(
-              row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
+              row.answerBool ??
+                row.answerNumber ??
+                row.answerText ??
+                row.answerOptionKeys ??
+                row.answerOtherText,
               row.status,
             ),
           }))
@@ -722,6 +727,12 @@ export class ProfilingSessionService {
   private displayValueOf(value: unknown, status: string): string | null {
     if (status !== "answered") return null;
     if (value === null || value === undefined) return null;
+    // The mid-interview envelope path carries the "other" marker object directly
+    // (`OtherAnswerValue`), never a bare string — unwrap it before the generic branches below
+    // would otherwise stringify it to "[object Object]". This is the worker's OWN review of his
+    // own words, verbatim and pre-LLM-review — never printed on a sheet from here.
+    const other = otherAnswerTextOf(value);
+    if (other !== null) return other;
     if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
     if (typeof value === "boolean") return value ? "Haan" : "Nahi";
     // `numeric` columns arrive as strings from postgres-js; `String()` is a no-op on those and

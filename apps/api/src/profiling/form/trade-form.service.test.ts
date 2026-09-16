@@ -469,14 +469,33 @@ describe("TradeFormService", () => {
       ).rejects.toThrow(/not a yes\/no question/);
     });
 
-    it("rejects free text for a select question", async () => {
-      const { service } = await makeService();
-      await expect(
-        service.answer(WORKER, {
-          question_key: "turning_machine",
-          answer: { kind: "text", text: "CNC lathe" },
-        }),
-      ).rejects.toThrow(/does not take free text/);
+    // "Typed custom answer, everywhere" (owner ruling, round 4): a worker who types free text
+    // against a closed-option question is not turned away. This REPLACES the old assertion that
+    // this 400'd (`/does not take free text/`) — the old behaviour was exactly the silent-drop-
+    // by-rejection the ruling forbids: the worker typed a real answer and the form refused it.
+    it("captures free text on a select question as an 'other' answer, never a 400 and never a typed column", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      expect(written[0]).toMatchObject({ status: "answered" });
+      // NEVER a typed column — an "other" answer must not be readable as settled vocabulary by
+      // a tier gate or a `worker_attributes` projection. See `pack-answer-row.ts`.
+      expect(written[0]?.answerText).toBeUndefined();
+      expect(written[0]?.answerOptionKeys).toBeUndefined();
+      expect(written[0]?.answerOtherText).toBe("CNC lathe");
+    });
+
+    it("declines (rather than 400s or silently drops) empty typed text on a select question", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(written[0]).toMatchObject({ status: "declined" });
     });
 
     it("rejects a question key this pack does not define, rather than dropping it", async () => {
