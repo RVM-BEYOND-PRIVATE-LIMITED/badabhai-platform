@@ -124,6 +124,8 @@ function makeWorld(
      * a résumé gets.
      */
     resumeOffer?: { importId: string; suggestions: Map<string, unknown> } | null;
+    /** #1504 item 5 (city-seed) — `workers.current_city`, or absent for "nothing on file". */
+    workerCity?: string | null;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -199,6 +201,9 @@ function makeWorld(
     forImport: vi.fn(async () => opts.resumeOffer?.suggestions ?? new Map()),
   };
 
+  // #1504 item 5 (city-seed).
+  const workers = { findCurrentCity: vi.fn(async () => opts.workerCity ?? null) };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
@@ -209,6 +214,8 @@ function makeWorld(
   
     // ADR-0041 RI-5. NO PENDING OFFER unless a test asks for one — see `resumeOffer`.
     resumeSuggestions as never,
+    // #1504 item 5 (city-seed). No worker record to seed from unless a test overrides it.
+    workers as never,
   );
   return {
     orchestrator,
@@ -219,6 +226,7 @@ function makeWorld(
     chat,
     events,
     resumeSuggestions,
+    workers,
     storedPin: () => pinned,
   };
 }
@@ -342,6 +350,71 @@ describe("the first turn", () => {
     // NOTHING WAS WRITTEN. A worker whose interview could not start must be able to retry into it.
     expect(store.size).toBe(0);
     vi.restoreAllMocks();
+  });
+});
+
+describe("#1504 item 5 (city-seed) — a fresh interview seeds current_city from /name", () => {
+  it("takeTurn: skips q_city on a fresh session and marks it prefilled", async () => {
+    const { orchestrator, store, workers } = makeWorld({ workerCity: "Pune" });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    // q_city is already settled by the seed, so the first REAL question is q_years.
+    expect(result.questionKey).toBe("q_years");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.answerMap.find((r) => r.question_key === "q_city")).toMatchObject({
+      status: "answered",
+      value_normalized: "Pune",
+      turn: 0,
+    });
+    expect(saved?.prefilledKeys).toEqual(["q_city"]);
+    expect(workers.findCurrentCity).toHaveBeenCalledTimes(1);
+  });
+
+  it("takeTurn: does not seed when workers.current_city is blank", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: null });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    expect(result.questionKey).toBe("q_city");
+    expect(store.get(SESSION)?.profiling?.prefilledKeys).toEqual([]);
+  });
+
+  it("takeTurn: does not seed on a RESUMED (non-fresh) session, and never re-reads the DB", async () => {
+    const { orchestrator, store, workers } = makeWorld({ workerCity: "Pune" });
+    seed(store, { servedQuestionKey: "q_city" });
+    await orchestrator.takeTurn(say("main pune me rehta hu"));
+    expect(workers.findCurrentCity).not.toHaveBeenCalled();
+  });
+
+  it("takeTurn: a non-gazetteer city is seeded AS TYPED, and the question is still skipped", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: "Patna Gaon XYZ" });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    expect(result.questionKey).toBe("q_years");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.answerMap.find((r) => r.question_key === "q_city")?.value_normalized).toBe(
+      "Patna Gaon XYZ",
+    );
+  });
+
+  it("openTurn: reflects the seed in progress before any turn is taken", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: "Pune" });
+    const result = await orchestrator.openTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+    });
+    // The seed settles q_city, so the screen opens on q_years — and nothing was written yet
+    // (openTurn re-serves without spending a turn), so the store may still be empty.
+    expect(result.questionKey).toBe("q_years");
+    expect(result.progress).toEqual({ answered: 1, total: 2 });
+    void store;
+  });
+
+  it("fails open: a DB error reading workers.current_city seeds nothing, and the turn proceeds", async () => {
+    const { orchestrator, workers } = makeWorld();
+    workers.findCurrentCity.mockRejectedValue(new Error("connection reset"));
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    // Not a validation/privacy/auth failure — the convenience prefill simply did not happen.
+    expect(result.unavailable).toBeFalsy();
+    expect(result.questionKey).toBe("q_city");
   });
 });
 

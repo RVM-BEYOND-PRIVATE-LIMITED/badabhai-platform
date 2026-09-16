@@ -766,6 +766,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // "make the profile anyway" escape hatch); there is no interview record to read.
     const state = job.sessionId === null ? null : await this.conversationState(job.sessionId);
     const answerMap = state === null ? [] : narrowAnswerRecords(state.answer_map);
+    // #1504 item 5 (city-seed). Keys `conversation_state.prefilled_keys` names — seeded, never
+    // asked. `answerMap` (FULL, including these) still feeds the parse call's request, gate 4
+    // (agreement) and `projectProfile` below; only the PARSE REQUEST's copy excludes them, one
+    // line down.
+    const prefilledKeys: readonly string[] =
+      state !== null && Array.isArray(state.prefilled_keys)
+        ? state.prefilled_keys.filter((key): key is string => typeof key === "string")
+        : [];
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
@@ -852,6 +860,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
     });
 
     const occupation = readOccupationPin(state?.occupation);
+    // #1504 item 5 (city-seed). EXCLUDES `prefilledKeys` from the PARSE CALL's own copy — a
+    // seeded record has no transcript span, so sending it to the model would invent a citation
+    // for a value nobody said, which is exactly what gate 2 (citation) exists to catch on the
+    // way back. Gate 4 (agreement) and `projectProfile` below still see the FULL `answerMap`, so
+    // a model that contradicts the seeded city is still vetoed.
+    const answerMapForParse = answerMap.filter((record) => !prefilledKeys.includes(record.question_key));
     // Hoisted so the 0083 trace can record WHAT WAS ASKED, not only what came back.
     const parseRequest = {
       schema_version: "oie.v1" as const,
@@ -859,7 +873,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never crosses it — the same discipline `/profile/extract` already used.
       worker_ref: job.workerId,
       occupation,
-      answer_map: answerMap,
+      answer_map: answerMapForParse,
       transcript: lines,
       target_fields: targets,
     };
@@ -1050,6 +1064,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     occupation: unknown;
     pack_id: unknown;
     pack_version: unknown;
+    // #1504 item 5 (city-seed). `unknown`, narrowed by the caller — same convention as every
+    // other field here.
+    prefilled_keys: unknown;
   } | null> {
     try {
       const session = await this.chat.findSession(sessionId);
@@ -1064,6 +1081,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         occupation: unknown;
         pack_id: unknown;
         pack_version: unknown;
+        prefilled_keys: unknown;
       };
     } catch (err) {
       // A read failure must not fail the extraction — it degrades to the legacy path, which is

@@ -31,6 +31,7 @@
     "db:verify:domains": "pnpm --filter @badabhai/db db:verify:domains",
     "db:normalize:aliases": "pnpm --filter @badabhai/db db:normalize:aliases",
     "db:eval:occupation": "pnpm --filter @badabhai/db db:eval:occupation",
+    "db:eval:resume-prefill": "pnpm --filter @badabhai/db db:eval:resume-prefill",
     "db:seed:packs": "pnpm --filter @badabhai/db db:seed:packs",
     "db:verify:packs": "pnpm --filter @badabhai/db db:verify:packs",
     "db:gen:aliases": "pnpm --filter @badabhai/db db:gen:aliases",

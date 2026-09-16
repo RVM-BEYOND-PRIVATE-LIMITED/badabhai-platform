@@ -75,8 +75,10 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
     "अभी थोड़ी दिक्कत आ रही है। एक मिनट बाद दोबारा भेजिये।",
 
   // chat-replies.ts — the one-shot composite opener; the FIRST thing a worker ever hears.
-  "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?":
-    "नमस्ते। आप कौन सा काम करते हैं, कहाँ रहते हैं, और कितना तजुर्बा है?",
+  // #1504 item 5 (city-seed) — the city clause is gone; `/name` already collects it and the
+  // interview seeds its own `current_city` question from that column.
+  "Namaste. Aap kaun sa kaam karte hain, aur kitna tajurba hai?":
+    "नमस्ते। आप कौन सा काम करते हैं, और कितना तजुर्बा है?",
 
   // next-question.ts — the fixed de-escalation line.
   "Aap se vinamra rehne ki request hai. Kaam ki baat karte hain.":

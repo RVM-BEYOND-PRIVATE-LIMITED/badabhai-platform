@@ -1463,6 +1463,19 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     expect(body.target_fields.map((f) => f.field_id)).toContain("salary_expected");
   });
 
+  it("#1504 item 5 (city-seed): excludes a prefilled key from the PARSE call's own answer_map, but not from the full projection", async () => {
+    const { proc, ai, profiles } = make(withMap({ prefilled_keys: ["current_city"] }));
+    await proc.process(makeJob());
+
+    const body = ai.parseProfile.mock.calls[0]![0] as { answer_map: { question_key: string }[] };
+    expect(body.answer_map.map((r) => r.question_key)).toEqual(["trade", "experience_years"]);
+
+    // The seeded value still reaches the profile — `projectProfile` runs over the FULL map.
+    const row = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    const rich = row.richProfileDraft as Record<string, unknown>;
+    expect(rich.current_city).toBe("Pune");
+  });
+
   it("a NULL parse still produces a real profile — the fail-closed guarantee", async () => {
     // The whole point of normalizing at CAPTURE time. LLM down, blocked, or mis-shaped:
     // one outcome, and the worker still gets a profile.

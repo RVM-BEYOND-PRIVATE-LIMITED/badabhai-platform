@@ -122,6 +122,27 @@ export class WorkersRepository {
     return rows[0];
   }
 
+  /**
+   * The worker's own `current_city` free-text column, or `null` — for city-seed (#1504 item 5),
+   * which prefills the deterministic interview's `current_city` question from whatever `/name`
+   * already collected so the chat never re-asks it.
+   *
+   * EXPLICIT projection, deliberately NOT `findById` (which is `select()` = SELECT * and hands
+   * back the encrypted phone/phone_hash/full_name): this reads the one non-PII column the seed
+   * needs, so no PII column can reach the profiling orchestrator, an event, or a log
+   * (CLAUDE.md §2). Returns `null` for a missing row or a blank column — the caller does not
+   * distinguish "worker not found" from "worker has no city on file", because both mean "seed
+   * nothing" either way.
+   */
+  async findCurrentCity(workerId: string): Promise<string | null> {
+    const rows = await this.db
+      .select({ currentCity: workers.currentCity })
+      .from(workers)
+      .where(eq(workers.id, workerId))
+      .limit(1);
+    return rows[0]?.currentCity ?? null;
+  }
+
   async findByPhoneHash(phoneHash: string): Promise<Worker | undefined> {
     const rows = await this.db
       .select()

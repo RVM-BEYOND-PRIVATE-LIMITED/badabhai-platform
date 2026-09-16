@@ -174,11 +174,30 @@ export class AdminWorkerJourneyService {
     // A SECOND round trip because both WHERE clauses are built from the first batch's result.
     // That dependency is the whole property this denominator has, so it is not collapsible
     // into the batch above; the two reads inside it are independent and run together.
-    const [itemCounts, orphanKeyCount, settledKeyCount] = await Promise.all([
+    const [itemCounts, orphanKeyCount, settledKeyCount, prefilledKeys] = await Promise.all([
       this.repo.countPackItems(denominatorPairs),
       this.repo.countSettledKeysOutsidePacks(workerId, denominatorPairs),
       this.repo.countSettledKeysInPacks(workerId, denominatorPairs),
+      // #1504 item 5 (city-seed).
+      this.repo.workerPrefilledKeys(workerId),
     ]);
+
+    // THE RULE, HERE AND NOT IN THE REPOSITORY (CLAUDE.md §4). A persisted `prefilled_keys`
+    // entry credits `completed` ONLY for `current_city`, ONLY when a contributing pack still
+    // asks it, and ONLY when it has not ALREADY been counted through a settled row — a
+    // seeded-then-corrected city writes a real, settled `worker_pack_answer` row
+    // (`correctAnswer` removes the key from `prefilled_keys` when it does), and that row is
+    // already inside `settledKeyCount`. Crediting both would double-count one fact.
+    const prefilledCurrentCity = prefilledKeys.includes("current_city");
+    const prefilledCityCredits = prefilledCurrentCity
+      ? await (async () => {
+          const [owned, alreadySettled] = await Promise.all([
+            this.repo.packsOwnQuestionKey(denominatorPairs, "current_city"),
+            this.repo.hasSettledKeyInPacks(workerId, denominatorPairs, "current_city"),
+          ]);
+          return owned && !alreadySettled ? 1 : 0;
+        })()
+      : 0;
 
     const caveats: JourneyCaveat[] = ["interview_kit_attribution_since_0079"];
 
@@ -247,8 +266,15 @@ export class AdminWorkerJourneyService {
      *
      * The uncapped ROW counts stay on `answered_count` / `declined_count`, where nothing
      * reconciles them, and the caveat below fires when they disagree with this.
+     *
+     * ⚠ PLUS `prefilledCityCredits` (#1504 item 5, city-seed) — a `current_city` seeded from
+     * `/name` and never asked is a settled fact with no `worker_pack_answer` row (F1,
+     * deliberate — see `chat.service.ts`'s `toPackAnswerRows`), so `settledKeyCount` alone
+     * undercounts it by exactly one. `prefilledCityCredits` is 0 or 1, gated on the pack still
+     * owning the question and on the fact not ALREADY being counted via a real settled row (a
+     * later correction).
      */
-    const completed = settledKeyCount;
+    const completed = settledKeyCount + prefilledCityCredits;
 
     // THE PACK CORPUS NO LONGER ACCOUNTS FOR THIS WORKER'S ANSWERS — one caveat, three ways in,
     // because they are one fact: the denominator has stopped describing the numerator.
@@ -260,11 +286,12 @@ export class AdminWorkerJourneyService {
       // pushing the numerator past the denominator).
       orphanKeyCount > 0 ||
       // ROWS ≠ QUESTIONS: the worker holds more settled answer rows than the distinct questions
-      // they account for, which is a re-interview (or a cause this list has not met). The
-      // progress figure is still honest — `completed` counts questions — but `answered_count`
-      // beside it will not reconcile with it, and an operator reading both deserves to be told
-      // why rather than left to assume one of them is broken.
-      settledRowTotal !== completed
+      // they account for, which is a re-interview (or a cause this list has not met). Compared
+      // against `settledKeyCount`, NOT `completed` (#1504 item 5 fix): `completed` now carries
+      // the seeded-city credit, which by construction has no row behind it, so comparing
+      // `settledRowTotal` (a ROW count) against `completed` would trip this caveat for every
+      // worker city-seed ever credits — a false positive, not the retirement this caveat means.
+      settledRowTotal !== settledKeyCount
     ) {
       caveats.push("pack_version_retired");
     }
