@@ -253,6 +253,48 @@ def test_the_turn_prompt_requires_an_experience_entry_when_a_job_is_described() 
     assert "a job that never happened" in prompt
 
 
+def test_the_turn_prompt_keeps_typing_on_for_every_model_question() -> None:
+    """THE DEFECT THIS PINS (#1506): the JSON shape offered `"input_mode": "text" | "options_only"`
+    with no rule for choosing, so a model could lock the worker app's composer on role chips —
+    and a worker whose trade was not among four guesses had no way to type it.
+
+    The API clamps every model ask to text regardless; this pins the prompt half, so the model
+    stops asking for something it will never get. `options_only` must still appear in the shape
+    line (the contract enum is unchanged) and NOWHERE else as an instruction to use it.
+    """
+    from app.profiling.interview_prompts import interview_system_prompt
+
+    prompt = interview_system_prompt()
+    assert '`input_mode` is always "text"' in prompt
+    assert "Only the system turns typing off, for its own yes/no buttons." in prompt
+    # The counterweight: the only mention of options_only is the contract's shape line.
+    assert prompt.count("options_only") == 1
+    assert '"input_mode": "text" | "options_only"' in prompt
+
+
+def test_the_turn_prompt_tells_the_model_not_to_write_its_own_escape_chip() -> None:
+    """The system appends a flagged "Kuch aur" escape to every chip turn (#1506). A model that
+    writes its own leaves the worker two escapes, one of which records "Koi aur" as an answer."""
+    from app.profiling.interview_prompts import interview_system_prompt
+
+    prompt = interview_system_prompt()
+    assert "The system adds its own \"Kuch aur\" chip to every" in prompt
+    assert 'never write a "Kuch aur", "Koi aur" or "Other" chip yourself' in prompt
+
+
+def test_the_turn_prompt_answers_a_generic_job_request_by_asking_the_trade() -> None:
+    """THE REPORTED SESSION (#1506): "mujhe job chahiye" was answered with role chips, as though
+    asking for work named a trade. Both phrasings from the issue are pinned verbatim, with the rule
+    that the labels stay null — a request for a job must not become a `domain_label`."""
+    from app.profiling.interview_prompts import interview_system_prompt
+
+    prompt = interview_system_prompt()
+    assert '"mujhe job chahiye"' in prompt
+    assert '"I need job"' in prompt
+    assert "ask what work they do" in prompt
+    assert "Leave `domain_label` and `role_label` null for that" in prompt
+
+
 def test_the_turn_prompt_still_lets_experience_entry_be_null_on_ordinary_turns() -> None:
     """The counterweight to the test above, so the fix cannot overcorrect.
 

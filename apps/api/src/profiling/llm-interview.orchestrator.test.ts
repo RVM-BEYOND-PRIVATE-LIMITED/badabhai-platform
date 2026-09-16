@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 
 import type { TranscriptBuffer } from "../chat/chat-transcript.buffer";
 import {
@@ -26,7 +27,9 @@ import {
 import type { LlmTurnResult } from "./llm-turn.service";
 import {
   DE_ESCALATION_REPLY,
+  ESCAPE_TYPE_PROMPT,
   HARDSHIP_REPLIES,
+  llmChipOptions,
   ProfilingOrchestrator,
 } from "./orchestrator.service";
 
@@ -425,6 +428,135 @@ describe("the model's turn reaches the worker", () => {
     const keys = (store.get(SESSION)?.profiling?.answerMap ?? []).map((a) => a.question_key);
     expect(keys.every((k) => /^[a-z_]{1,40}$/.test(k))).toBe(true);
     expect(keys).not.toContain("__experience_gate");
+  });
+});
+
+describe("model chips always leave a way to type your own (#1506)", () => {
+  const chipsAsk = (chips: string[]): LlmTurnResult => ({ ...ASK, chips, inputMode: "text" });
+
+  it("appends the server's escape LAST, and drops the model's own", async () => {
+    const { orchestrator } = makeWorld({ take: chipsAsk(["Welder", "Fitter", "Koi aur"]) });
+    const result = await orchestrator.takeTurn(say("mujhe job chahiye"));
+    expect(result.inputMode).toBe("text");
+    expect(result.options.map((o) => o.label_text)).toEqual([
+      "Welder",
+      "Fitter",
+      DISAMBIGUATION_ESCAPE_LABEL,
+    ]);
+    expect(result.options.map((o) => o.option_key)).toEqual([
+      "llm_a",
+      "llm_b",
+      DISAMBIGUATION_ESCAPE_KEY,
+    ]);
+    expect(result.options.map((o) => o.is_none_of_above)).toEqual([false, false, true]);
+  });
+
+  it("adds NO escape to the engine gate", async () => {
+    const { orchestrator } = makeWorld({ take: GATE });
+    const result = await orchestrator.takeTurn(say("3 saal tandoor pe"));
+    expect(result.options.some((o) => o.is_none_of_above)).toBe(false);
+    expect(result.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
+  });
+
+  it.each([[[]], [["Koi aur"]], [["Haan", "Nahi"]], [["No", "Yes"]]])(
+    "adds NO escape when the chips are %j",
+    async (chips) => {
+      const { orchestrator } = makeWorld({ take: chipsAsk(chips) });
+      const result = await orchestrator.takeTurn(say("haan"));
+      expect(result.options.some((o) => o.is_none_of_above)).toBe(false);
+      expect(result.options.map((o) => o.label_text)).toEqual(
+        chips.filter((c) => c !== "Koi aur"),
+      );
+    },
+  );
+});
+
+describe("an old build's 'Kuch aur' tap on model chips (#1506)", () => {
+  const onScreen = (options: ReturnType<typeof llmChipOptions>): Partial<ProfilingEnvelope> => ({
+    llmStage: "domain",
+    llmAsks: 1,
+    llmLedTurns: 1,
+    phase: "llm_interview",
+    lastTurn: {
+      inboundHash: "stamped-for-an-earlier-message",
+      submissionId: null,
+      reply: "Aap kaunsa kaam karte hain?",
+      kind: "ask",
+      questionKey: null,
+      at: T0.toISOString(),
+      options,
+      progress: { answered: 0, total: 4 },
+      whyText: null,
+      answerType: "single_select",
+      formOffer: null,
+      lookahead: null,
+      inputMode: "text",
+      replays: 0,
+    },
+  });
+  const LATER = new Date(T0.getTime() + 60_000);
+
+  it("serves the type-your-own prompt with no model call, no identify, no event", async () => {
+    const { orchestrator, store, llm, identify, events } = makeWorld();
+    seed(store, onScreen(llmChipOptions(["Welder", "Fitter"], false)));
+
+    const result = await orchestrator.takeTurn(say("Kuch aur", LATER));
+
+    expect(result.reply).toBe(ESCAPE_TYPE_PROMPT);
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBeNull();
+    expect(result.options).toEqual([]);
+    expect(result.inputMode).toBe("text");
+    expect(llm.take).not.toHaveBeenCalled();
+    // BEFORE capture and identify — the intercept moved below identify would spend an attempt.
+    expect(identify.identify).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+    const saved = store.get(SESSION);
+    expect(saved?.profiling?.llmAsks).toBe(1);
+    expect(saved?.profiling?.llmLedTurns).toBe(1);
+    expect(saved?.profiling?.identifyAttempts).toBe(0);
+    expect(saved?.profiling?.answerMap).toEqual([]);
+    // It IS a turn: the transcript and the stamp move, so a reopen re-serves this prompt.
+    expect(saved?.turnCount).toBe(2);
+    expect(saved?.profiling?.lastTurn?.reply).toBe(ESCAPE_TYPE_PROMPT);
+  });
+
+  it("is NOT intercepted when the escape is not among the chips on screen", async () => {
+    const { orchestrator, store, llm } = makeWorld();
+    seed(store, onScreen(llmChipOptions(["Welder", "Fitter"], true)));
+    await orchestrator.takeTurn(say("Kuch aur", LATER));
+    expect(llm.take).toHaveBeenCalledTimes(1);
+  });
+
+  it("is NOT intercepted while the engine gate is open", async () => {
+    const { orchestrator, store, llm } = makeWorld();
+    seed(store, { ...onScreen(llmChipOptions(["Welder", "Fitter"], false)), llmGateOpen: true });
+    await orchestrator.takeTurn(say("Kuch aur", LATER));
+    expect(llm.take).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the worker's own trade outranks the model's draft at close (#1506)", () => {
+  const tradeOf = (store: Map<string, TranscriptBuffer>) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "primary_trade");
+
+  it("settleFromLlmDraft never supersedes a trade the worker stated", async () => {
+    const { orchestrator, store, identify } = makeWorld({ take: DONE });
+    identify.identify.mockImplementationOnce((async () => ({
+      patch: {},
+      offer: null,
+      pinned: null,
+      prompt: null,
+      tradeText: "main electrician hoon",
+    })) as never);
+    await orchestrator.takeTurn(say("main electrician hoon"));
+    expect(tradeOf(store)?.value_raw).toBe("main electrician hoon");
+  });
+
+  it("the vacuity twin: with nothing stated, the draft's label DOES settle", async () => {
+    const { orchestrator, store } = makeWorld({ take: DONE });
+    await orchestrator.takeTurn(say("bas itna hi"));
+    expect(tradeOf(store)?.value_raw).toBe(FINISHED_DRAFT.domain_label);
   });
 });
 

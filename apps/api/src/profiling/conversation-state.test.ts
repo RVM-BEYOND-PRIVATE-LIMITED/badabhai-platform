@@ -140,6 +140,8 @@ const FULL: ProfilingEnvelope = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: "cnc_turner",
+  // NON-DEFAULT, like every field here: `false` is what a `narrow` that dropped it would rebuild.
+  identifyTypeRequested: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
@@ -351,6 +353,19 @@ describe("a present-but-damaged envelope is REPAIRED, never discarded", () => {
       // The turn itself still replays — only the prediction is withheld.
       expect(drifted?.lastTurn?.reply).toBe(FULL.lastTurn?.reply);
     }
+  });
+
+  it("narrows an ABSENT or non-boolean identifyTypeRequested to false (#1506)", () => {
+    // Every envelope in flight across the deploy lacks it, and none of them asked a worker to type
+    // their trade. True would read the worker's next sentence as an answer to a prompt never shown.
+    const legacy = JSON.parse(JSON.stringify(FULL)) as Record<string, unknown>;
+    delete legacy.identifyTypeRequested;
+    expect(narrowProfilingEnvelope(legacy)?.identifyTypeRequested).toBe(false);
+    expect(
+      narrowProfilingEnvelope({ ...legacy, identifyTypeRequested: "true" })?.identifyTypeRequested,
+    ).toBe(false);
+    // The twin: the literal survives, so the two assertions above are about the default.
+    expect(narrowProfilingEnvelope(FULL)?.identifyTypeRequested).toBe(true);
   });
 
   it("narrows an ABSENT lookahead to null — a record written before the field replays as today", () => {

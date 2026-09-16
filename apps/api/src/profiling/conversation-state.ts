@@ -648,6 +648,19 @@ export interface ProfilingEnvelope {
    * row is one indexed read away and is the single source of truth either way.
    */
   readonly resumeConfirm: ResumeConfirmState | null;
+
+  /**
+   * The worker tapped "Kuch aur" on a disambiguation offer and is being asked to type their trade
+   * in their own words (#1506). The next answer-bearing message is resolved ONCE and never
+   * re-offered as chips.
+   *
+   * ITS OWN FIELD RATHER THAN A RESERVED `servedQuestionKey`, for the reason `llmGateOpen` gives:
+   * every capture branch reads that key as "the pack question on screen", and a synthetic key
+   * would file the worker's trade against a question no pack owns. While this is true the capture
+   * step ignores `servedQuestionKey` altogether, so a stale key from the turn before the offer
+   * cannot swallow the answer either.
+   */
+  readonly identifyTypeRequested: boolean;
 }
 
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
@@ -747,6 +760,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmGateAsked: true,
   formKind: true,
   resumeConfirm: true,
+  identifyTypeRequested: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -785,6 +799,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmGateAsked: false,
     formKind: null,
     resumeConfirm: null,
+    identifyTypeRequested: false,
   };
 }
 
@@ -1063,6 +1078,11 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // reads as null rather than as `settled`: the failure that costs a worker an offer he never
     // saw is worse than the one that offers it once more than intended.
     resumeConfirm: narrowResumeConfirm(v.resumeConfirm),
+    // FALSE ON ANYTHING BUT A LITERAL `true`, absent included — the state of every envelope in
+    // flight across the deploy that adds this field, none of which ever asked a worker to type
+    // their trade. The other default would read the worker's next sentence as a trade answer to a
+    // prompt that was never on screen, and spend an identify attempt on it.
+    identifyTypeRequested: v.identifyTypeRequested === true,
   };
 }
 

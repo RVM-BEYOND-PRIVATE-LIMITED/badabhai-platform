@@ -24,7 +24,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { OccupationPin, QuestionPackOption } from "@badabhai/ai-contracts";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
-import { hasFirstPersonClaim } from "@badabhai/profiling-lexicon";
+import { hasFirstPersonClaim, type UtteranceClass } from "@badabhai/profiling-lexicon";
 
 import { AiService } from "../ai/ai.service";
 import { EventsService } from "../events/events.service";
@@ -67,6 +67,16 @@ export const MAX_OCCUPATION_REPINS = 1;
  */
 export const DISAMBIGUATION_PROMPT = DISAMBIGUATION_PROMPT_TEXT;
 
+/**
+ * Served when a worker taps "Kuch aur" on a disambiguation offer (#1506).
+ *
+ * AN INSTRUCTION, NOT A QUESTION, and it names what to type. The worker has just told us none of
+ * our four guesses is their trade; the one useful next move is their own words, and the answer is
+ * resolved once on the next turn and never turned back into chips. Aap-form, no question mark, no
+ * exclamation — the same persona rules every engine line is held to in `persona-copy.test.ts`.
+ */
+export const IDENTIFY_TYPE_PROMPT = "Apna kaam apne shabdon mein likhiye.";
+
 /** The outcome of running identification on one turn. */
 export interface IdentifyResult {
   /** Envelope fields to merge. Always safe to spread, even on the no-op path. */
@@ -82,9 +92,46 @@ export interface IdentifyResult {
   } | null;
   /** The occupation just pinned this turn, so the caller can re-resolve the pack immediately. */
   readonly pinned: OccupationPin | null;
+  /**
+   * A chipless engine line the orchestrator must serve INSTEAD of consulting the engine — today
+   * only {@link IDENTIFY_TYPE_PROMPT}. Never set together with `offer`.
+   */
+  readonly prompt: string | null;
+  /**
+   * The worker's OWN statement of their trade — words they typed over the chips, words they typed
+   * after "Kuch aur", or the label of the chip they tapped. The orchestrator settles the trade
+   * question from it verbatim, superseding whatever that question held.
+   *
+   * RAW TEXT, NEVER AN ID (owner ruling 2026-09-15). A canonical occupation comes only from the
+   * deterministic ladder, through `pinned`; this is the worker's answer of record, kept out of
+   * matching until ops maps it.
+   */
+  readonly tradeText: string | null;
 }
 
-const NO_OP: IdentifyResult = { patch: {}, offer: null, pinned: null };
+const NO_OP: IdentifyResult = { patch: {}, offer: null, pinned: null, prompt: null, tradeText: null };
+
+/**
+ * Turn classes that carry no statement of a trade.
+ *
+ * WHY THIS GUARD EXISTS (#1506). Typed text over the chips is now resolved on the SAME turn and
+ * settles the trade question. Silence, "." and a hardship line reach `identify` too — the capture
+ * step no longer re-serves a stale pack question while an offer is on screen — and resolving them
+ * would spend an identify attempt and write "." as a worker's trade. `dont_know` is here for the
+ * same reason: "pata nahi" answers no question about which trade they do, and settling it as one
+ * would print it on a résumé.
+ */
+const NOT_A_TRADE_STATEMENT: ReadonlySet<UtteranceClass> = new Set<UtteranceClass>([
+  "empty",
+  "hardship",
+  "question_back",
+  "abusive",
+  "dont_know",
+]);
+
+function statesATrade(text: string, turnClass: UtteranceClass): boolean {
+  return normalizeOccupationText(text).length > 0 && !NOT_A_TRADE_STATEMENT.has(turnClass);
+}
 
 @Injectable()
 export class IdentifyService {
@@ -107,28 +154,116 @@ export class IdentifyService {
     envelope: ProfilingEnvelope,
     text: string,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+    /**
+     * How the lexicon classified this message. REQUIRED, because the two branches that settle a
+     * worker's own words must not run on a silence or a hardship line — see
+     * {@link NOT_A_TRADE_STATEMENT}. Optional would let a new caller skip the guard silently.
+     */
+    turnClass: UtteranceClass,
   ): Promise<IdentifyResult> {
     // Already pinned. One re-pin is allowed (risk #12) — see {@link maybeRepin} for the two
     // conditions that make it safe.
     if (envelope.occupation !== null) return this.maybeRepin(envelope, text, ctx);
 
+    // The worker was asked to type their trade after "Kuch aur". This message is that answer, and
+    // it is resolved ONCE — never turned back into chips, which is what makes the escape terminate.
+    if (envelope.identifyTypeRequested) return this.settleTypedTrade(envelope, text, turnClass, ctx);
+
     // An outstanding offer OWNS this turn's message: it is a chip tap or a rejection of the
     // chips, never a fresh phrase to run the ladder on.
     if (envelope.needsDisambiguation && envelope.disambiguationOffer.length > 0) {
-      return this.settleOffer(envelope, text, ctx);
+      return this.settleOffer(envelope, text, turnClass, ctx);
     }
 
     if (envelope.identifyAttempts >= MAX_IDENTIFY_ATTEMPTS) return NO_OP;
 
+    // THE BUDGET RULE, stated once (#1506), because two readings of it cannot both hold at
+    // MAX_IDENTIFY_ATTEMPTS = 2 (owner ruling 2026-09-15: it stays 2):
+    //
+    //   - an OFFER spends one attempt, in {@link offer};
+    //   - the resolve that PRODUCED that offer spends nothing extra;
+    //   - a resolve that ends UNRESOLVED spends one, in {@link giveUp};
+    //   - a PIN spends nothing.
+    //
+    // Charging the producing resolve as well would make a first-message disambiguation cost two
+    // and exhaust the budget before the worker's typed answer over the chips could ever be
+    // resolved — the fix would then be unreachable on its most common path.
     const result = await this.occupation.resolve(text);
     switch (result.status) {
       case "auto":
         return this.pin(result, "matched_lexical", ctx);
       case "disambiguate":
-        return this.offer(result, ctx);
+        return this.offer(envelope, result, ctx);
       default:
         return this.giveUp(envelope, result, text, ctx);
     }
+  }
+
+  /**
+   * The answer to {@link IDENTIFY_TYPE_PROMPT} — the worker's trade, in their own words.
+   *
+   * THE FLAG IS CLEARED ONLY BY AN ANSWER. A silence or a hardship line leaves the prompt on
+   * screen, exactly as it leaves an offer on screen, rather than spending the one resolve on
+   * nothing and settling "." as a trade.
+   */
+  private async settleTypedTrade(
+    envelope: ProfilingEnvelope,
+    text: string,
+    turnClass: UtteranceClass,
+    ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+  ): Promise<IdentifyResult> {
+    if (!statesATrade(text, turnClass)) return { ...NO_OP, prompt: IDENTIFY_TYPE_PROMPT };
+    // `false`: when the budget was already spent, the unresolved signal was emitted at the tap
+    // (see `settleOffer`), so there is no second outcome to report here.
+    const settled = await this.resolveOwnWords(envelope, text, ctx, false);
+    return { ...settled, patch: { ...settled.patch, identifyTypeRequested: false } };
+  }
+
+  /**
+   * Resolve the worker's own statement of their trade on THIS turn, inside the attempt budget.
+   *
+   * THE DEFECT THIS REPLACES (#1506.3 / #1505.3). Free text over the chips used to clear the offer
+   * and defer retrieval to the NEXT message — which answers a different question — so a worker
+   * who typed "main electrician hoon" over four wrong guesses was simply asked something else.
+   *
+   * EVERY OUTCOME RETURNS `tradeText`, a pin included: the worker's words are their answer of
+   * record whether or not the ladder recognises them, and a pin that left the trade question
+   * holding an earlier ambiguous phrase would print that phrase on the résumé instead.
+   *
+   * NEVER A SECOND OFFER. A same-turn `disambiguate` is treated as unresolved: the worker has
+   * already rejected one list, and a second is how this became a loop.
+   */
+  private async resolveOwnWords(
+    envelope: ProfilingEnvelope,
+    text: string,
+    ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+    emitWhenSpent: boolean,
+  ): Promise<IdentifyResult> {
+    const tradeText = text.trim();
+    if (envelope.identifyAttempts >= MAX_IDENTIFY_ATTEMPTS) {
+      // Budget already spent: no retrieval, but still the worker's own words — and, when no
+      // earlier step reported it, the one unresolved signal this interview will produce.
+      if (emitWhenSpent) await this.emitUnresolved(ctx, "ambiguous", null, null);
+      return {
+        ...NO_OP,
+        patch: { needsDisambiguation: false, disambiguationOffer: [] },
+        tradeText,
+      };
+    }
+
+    const result = await this.occupation.resolve(text);
+    if (result.status === "auto") {
+      const pinned = await this.pin(result, "matched_lexical", ctx);
+      if (pinned.pinned !== null) return { ...pinned, tradeText };
+    }
+    const reason =
+      result.status === "degraded"
+        ? "degraded"
+        : result.status === "unresolved"
+          ? "below_floor"
+          : "ambiguous";
+    const gaveUp = await this.giveUp(envelope, result, text, ctx, reason);
+    return { ...gaveUp, tradeText };
   }
 
   /**
@@ -143,6 +278,7 @@ export class IdentifyService {
   private async settleOffer(
     envelope: ProfilingEnvelope,
     text: string,
+    turnClass: UtteranceClass,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
     const typed = normalizeOccupationText(text);
@@ -150,37 +286,50 @@ export class IdentifyService {
       (chip) => normalizeOccupationText(chip.label) === typed,
     );
 
-    // No chip matched. The worker typed something else entirely rather than tapping — which is
-    // an ANSWER, not a failure: they are telling us their trade in their own words again. Clear
-    // the offer and let the next turn run the ladder on what they said, inside the attempt
-    // budget that already bounds this.
     if (tapped === undefined) {
+      // NOT AN ANSWER — silence, ".", a hardship line. The chips STAY ON SCREEN: re-served as they
+      // were, with nothing spent and nothing settled. Clearing them here used to hand the turn to
+      // an engine whose next decision, with `needsDisambiguation` still set, is a blank offer.
+      if (!statesATrade(text, turnClass)) {
+        return {
+          ...NO_OP,
+          offer: {
+            prompt: DISAMBIGUATION_PROMPT,
+            chips: envelope.disambiguationOffer,
+            options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
+          },
+        };
+      }
+      // The worker typed their trade instead of tapping — an ANSWER, not a failure. Resolved on
+      // THIS turn; see {@link resolveOwnWords} for why the next turn was the wrong place.
       this.logger.log(
         `disambiguation offer for session ${ctx.sessionId} was answered with free text; ` +
-          `clearing the chips and re-running retrieval on the next turn`,
+          `resolving it on this turn (attempts=${envelope.identifyAttempts}/${MAX_IDENTIFY_ATTEMPTS})`,
       );
-      return {
-        patch: { needsDisambiguation: false, disambiguationOffer: [] },
-        offer: null,
-        pinned: null,
-      };
+      return this.resolveOwnWords(envelope, text, ctx, true);
     }
 
     // The escape. `jobDomainId: null` is the only chip that carries no occupation, so this is
     // structural rather than a label comparison against "Kuch aur".
+    //
+    // ASK FOR THE WORKER'S OWN WORDS, NOT GIVE UP (#1506.4). This used to jump `identifyAttempts`
+    // to MAX, after which retrieval never ran again and nothing asked the worker what they DO do —
+    // a dead end for exactly the worker whose trade our four guesses missed. Now the prompt is
+    // served, the next answer is resolved once, and no attempt is charged for the tap itself: the
+    // offer that put the escape on screen already paid for it.
     if (tapped.jobDomainId === null) {
-      await this.emitUnresolved(ctx, "ambiguous", null, null);
+      // EMITTED AT THE TAP ONLY WHEN NOTHING CAN FOLLOW. With budget left, the unresolved event
+      // waits for the typed answer so it carries the real reason — the event is idempotent per
+      // session, and an early `ambiguous` silently swallowed the later `below_floor`. With the
+      // budget spent there is no later resolve, and a worker who abandons here must still leave
+      // a signal.
+      if (envelope.identifyAttempts >= MAX_IDENTIFY_ATTEMPTS) {
+        await this.emitUnresolved(ctx, "ambiguous", null, null);
+      }
       return {
-        patch: {
-          needsDisambiguation: false,
-          disambiguationOffer: [],
-          // COUNTS AS AN EXHAUSTED ATTEMPT, not a fresh start. The worker has now seen our best
-          // four guesses and rejected all of them; running the same ladder on the same
-          // conversation would offer the same chips again.
-          identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
-        },
-        offer: null,
-        pinned: null,
+        ...NO_OP,
+        patch: { needsDisambiguation: false, disambiguationOffer: [], identifyTypeRequested: true },
+        prompt: IDENTIFY_TYPE_PROMPT,
       };
     }
 
@@ -193,13 +342,14 @@ export class IdentifyService {
           `session ${ctx.sessionId} falls back to the universal pack`,
       );
       return {
+        ...NO_OP,
         patch: {
           needsDisambiguation: false,
           disambiguationOffer: [],
           identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
         },
-        offer: null,
-        pinned: null,
+        // The worker still TAPPED this label, so it is still their answer of record.
+        tradeText: tapped.label,
       };
     }
 
@@ -236,6 +386,11 @@ export class IdentifyService {
       },
       offer: null,
       pinned: pin,
+      prompt: null,
+      // THE LABEL THEY TAPPED IS THEIR ANSWER OF RECORD (#1506). It used to reach the trade
+      // question only by accident, through a stale `servedQuestionKey` capture that no longer runs
+      // under an offer; settling it explicitly keeps the résumé's trade line as the worker chose it.
+      tradeText: tapped.label,
     };
   }
 
@@ -377,6 +532,8 @@ export class IdentifyService {
       },
       offer: null,
       pinned: pin,
+      prompt: null,
+      tradeText: null,
     };
   }
 
@@ -388,6 +545,7 @@ export class IdentifyService {
    * `ResolvedCandidate` has no way to express.
    */
   private async offer(
+    envelope: ProfilingEnvelope,
     result: ResolveResult,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
@@ -411,7 +569,7 @@ export class IdentifyService {
         result.catalogVersion,
         result.candidates[0] ?? null,
       );
-      return { patch: { identifyAttempts: MAX_IDENTIFY_ATTEMPTS }, offer: null, pinned: null };
+      return { ...NO_OP, patch: { identifyAttempts: MAX_IDENTIFY_ATTEMPTS } };
     }
 
     if (!chips.some((chip) => chip.jobDomainId === null)) {
@@ -419,18 +577,22 @@ export class IdentifyService {
     }
 
     return {
+      ...NO_OP,
       patch: {
         needsDisambiguation: true,
         disambiguationOffer: chips,
         phase: "disambiguate",
         catalogVersion: result.catalogVersion ?? null,
+        // AN OFFER SPENDS AN ATTEMPT (#1506) — see the budget rule in {@link identify}. Measured
+        // before this: ten alternating turns (an ambiguous phrase, then free text) produced five
+        // offers with `identifyAttempts` still 0, so the chips could come back without bound.
+        identifyAttempts: envelope.identifyAttempts + 1,
       },
       offer: {
         prompt: DISAMBIGUATION_PROMPT,
         chips,
         options: chips.map((chip, index) => toPackOption(chip, index)),
       },
-      pinned: null,
     };
   }
 
@@ -447,28 +609,32 @@ export class IdentifyService {
     result: ResolveResult,
     text: string,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+    /**
+     * Why it ended unresolved. Defaults from the status; the worker's own words over an offer pass
+     * `ambiguous` when the ladder could only offer another list (#1506), which is not a catalogue
+     * gap and must not be reported as one.
+     */
+    reason: "below_floor" | "ambiguous" | "degraded" = result.status === "degraded"
+      ? "degraded"
+      : "below_floor",
   ): Promise<IdentifyResult> {
     const attempts = envelope.identifyAttempts + 1;
     const exhausted = attempts >= MAX_IDENTIFY_ATTEMPTS;
-    const degraded = result.status === "degraded";
 
     // RECORDED ONLY ON THE LAST ATTEMPT. The first miss is frequently a greeting; queueing it
     // would fill the growth queue with "namaste" and bury the phrases that are genuinely
     // missing trades. One record per interview, at the point we actually gave up.
-    if (exhausted && !degraded) await this.recordPhrase(text, ctx);
+    //
+    // ONLY FOR A BELOW-FLOOR MISS. A degraded seam is an incident, and an ambiguous phrase is one
+    // the catalogue already has several answers for — neither is a gap for ops to promote.
+    if (exhausted && reason === "below_floor") await this.recordPhrase(text, ctx);
     if (exhausted) {
-      await this.emitUnresolved(
-        ctx,
-        degraded ? "degraded" : "below_floor",
-        result.catalogVersion,
-        result.candidates[0] ?? null,
-      );
+      await this.emitUnresolved(ctx, reason, result.catalogVersion, result.candidates[0] ?? null);
     }
 
     return {
+      ...NO_OP,
       patch: { identifyAttempts: attempts, needsDisambiguation: false, disambiguationOffer: [] },
-      offer: null,
-      pinned: null,
     };
   }
 
