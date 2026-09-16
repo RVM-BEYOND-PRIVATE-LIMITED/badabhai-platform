@@ -8,6 +8,7 @@ import { ResumeRouteService } from "./resume-import/resume-route.service";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 
@@ -98,6 +99,10 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` takes it as a
+      // CONSTRUCTOR dependency (`answer()`'s fire-and-forget review-or-omit trigger), so omitting
+      // this provider does not fail a metadata test — it fails BOOT, exactly as the entries above.
+      OtherAnswerPolishService,
       // ADR-0041 RI-1 — the upload seam. `ResumeImportService` takes `StorageService` as a
       // CONSTRUCTOR dependency, so a missing `StorageModule` import does not fail a metadata
       // test either — it fails BOOT, which is the whole reason this list is pinned.

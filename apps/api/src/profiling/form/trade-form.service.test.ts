@@ -154,6 +154,13 @@ function makeService(
     return {};
   });
   const rebuildQuietly = vi.fn(async () => undefined);
+  // "TYPED CUSTOM ANSWER, EVERYWHERE" — the review-or-omit call `answer()` fires,
+  // fire-and-forget, whenever `recordFor` marks a value as an "other" answer. A spy, not the
+  // real service: these tests assert that the TRIGGER fires with the right arguments, not the
+  // AI/fail-closed contract itself, which `other-answer-polish.service.test.ts` already covers.
+  const review = vi.fn(async () => "reviewed" as string | null);
+  const otherAnswerPolish = { review };
+  const config = { WORK_HISTORY_POLISH_ENABLED: true };
   const service = new TradeFormService(
     chat as never,
     packs as never,
@@ -173,8 +180,21 @@ function makeService(
     // reaches the form through the interview handover. NEITHER THIS SUITE NOR THE ROLE-DRIVE SUITE
     // EXERCISES THAT FALLBACK — both stub it exactly like this — so its branch is unit-untested.
     { findLatestForWorker: async () => undefined } as never,
+    otherAnswerPolish as never,
+    config as never,
   );
-  return { service, written, packs, chat, upsertMany, emitted, emit, answers, rebuildQuietly };
+  return {
+    service,
+    written,
+    packs,
+    chat,
+    upsertMany,
+    emitted,
+    emit,
+    answers,
+    rebuildQuietly,
+    review,
+  };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -254,6 +274,33 @@ describe("TradeFormService", () => {
       );
       expect(machine).toMatchObject({
         answer: { status: "answered", option_keys: ["k2", "k3"] },
+      });
+    });
+
+    // HONEST STATE, PROVED RATHER THAN ASSERTED IN A COMMENT: even once a rewrite exists,
+    // `other_text` on the resumed-form edit surface stays the worker's RAW typed words. The
+    // `SavedAnswerSchema.other_text` docblock says this is deliberate — the worker editing his
+    // own answer must see what he actually typed, not a rewrite he has not yet had the chance to
+    // see or refuse — and this test is what would go red the moment someone points this field at
+    // `answerOtherTextPolished` without that product decision being made.
+    it("still replays the RAW typed 'other' text on the edit surface, even once a reviewed rewrite exists", async () => {
+      const { service } = await makeService({
+        saved: [
+          answered({
+            questionKey: "turning_machine",
+            answerOptionKeys: null,
+            answerOtherText: "ek purana Batliboi lathe",
+            answerOtherTextPolished: "Batliboi lathe",
+          } as Partial<WorkerPackAnswer>),
+        ],
+      });
+      const schema = await service.schema(WORKER);
+      const screens = schema.sections.flatMap((s) => s.screens);
+      const machine = screens.find(
+        (s) => s.type === "question" && s.question.question_key === "turning_machine",
+      );
+      expect(machine).toMatchObject({
+        answer: { status: "answered", other_text: "ek purana Batliboi lathe" },
       });
     });
 
@@ -486,6 +533,58 @@ describe("TradeFormService", () => {
       expect(written[0]?.answerText).toBeUndefined();
       expect(written[0]?.answerOptionKeys).toBeUndefined();
       expect(written[0]?.answerOtherText).toBe("CNC lathe");
+    });
+
+    // INTEGRATION-SHAPED: exercises the real `answer()` flow end to end (through `recordFor`,
+    // `packAnswerRowFor`, the transaction, and the trigger below it) and asserts the review-or-
+    // omit path was actually invoked with the answer just saved — not a unit test of
+    // `OtherAnswerPolishService` in isolation, which `other-answer-polish.service.test.ts`
+    // already covers. This is the test that would have caught the dead-code finding: it fails
+    // red the moment `triggerOtherAnswerPolish`'s call site is removed or never wired.
+    it("hands a typed 'other' answer to the review-or-omit path, fire-and-forget", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      // CALLED SYNCHRONOUSLY WITHIN `answer()`, even though never awaited — a mocked async
+      // function records its call the instant it is invoked, before its own promise settles, so
+      // this assertion needs no `await`/flush to see the call `answer()`'s return already implies.
+      expect(review).toHaveBeenCalledTimes(1);
+      expect(review).toHaveBeenCalledWith(
+        WORKER,
+        "qp_cnc_turning",
+        "turning_machine",
+        "CNC lathe",
+        // The question's own prompt text — this pack's `item()` helper defaults it to
+        // `${question_key}?`.
+        "turning_machine?",
+        expect.objectContaining({ correlationId: undefined, requestId: undefined }),
+        expect.objectContaining({ WORK_HISTORY_POLISH_ENABLED: true }),
+        // A FRESH TRIGGER, ALWAYS — `upsertAnswer` clears any prior polish/decline on every
+        // write, so this is the only state `triggerOtherAnswerPolish` can honestly pass.
+        { polished: null, declined: false },
+      );
+    });
+
+    it("never triggers the review-or-omit path for a settled (non-'other') answer", async () => {
+      const { service, review } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "trade_test_status",
+        answer: { kind: "boolean", value: true },
+      });
+      expect(review).not.toHaveBeenCalled();
+    });
+
+    it("never triggers the review-or-omit path when the typed 'other' text is empty (declined, not stored)", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(review).not.toHaveBeenCalled();
     });
 
     it("declines (rather than 400s or silently drops) empty typed text on a select question", async () => {

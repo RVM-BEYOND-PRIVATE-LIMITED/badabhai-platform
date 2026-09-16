@@ -31,16 +31,30 @@ import { TradeFormRepository } from "./form/trade-form.repository";
  *
  * ═══ MANDATORY-FIX #1 (RULING SCOPE), SATISFIED BY HAVING NO SEPARATE GATE ═══
  * There is no deterministic pre-check here that can drop a worker's typed text before it reaches
- * this review — `trade-form.service.ts`'s `recordFor` hands EVERY non-empty typed "other" answer
- * to this same review-or-omit path. The only two outcomes are "the LLM's rewrite prints" and
- * "nothing prints" (never a raw, unreviewed string) — which is exactly the ruling's own scope:
- * the model may omit what it finds irrelevant; nothing here may omit anything else.
+ * this review — `trade-form.service.ts`'s `answer()` (via `triggerOtherAnswerPolish`) hands
+ * EVERY non-empty typed "other" answer `recordFor` produces to this same review-or-omit path,
+ * fire-and-forget off the response. The only two outcomes this method itself can produce are
+ * "the LLM's rewrite is stored" and "nothing is stored" (never a raw, unreviewed string written
+ * to `answer_other_text_polished`) — which is exactly the ruling's own scope: the model may omit
+ * what it finds irrelevant; nothing here may omit anything else.
  *
  * ═══ MANDATORY-FIX #2 (PAYER SURFACE), ENFORCED ELSEWHERE, NOT HERE ═══
  * This service has NO caller on the payer-facing disclosure path — see
  * `ResumeDisclosureService`'s "LAST-LINE GUARD" and `other-answer-leak-guard.ts`. Its write-back
  * (`TradeFormRepository.savePolishedOtherAnswer`) lands on `worker_pack_answer`, which
  * `WorkerAttributesRepository.loadTradeSheet` (the payer surface's own source) never reads.
+ *
+ * ═══ NO WORKER-FACING READER EITHER, YET — SAID PLAINLY RATHER THAN LEFT IMPLICIT ═══
+ * Wiring the caller closes the "dead code" half of the finding this docblock used to overstate:
+ * `review()` is reachable and `answer_other_text_polished` is actually computed and persisted
+ * now. What is still true is that NOTHING READS THAT COLUMN FOR DISPLAY ANYWHERE, worker-facing
+ * or otherwise. `TradeFormService.questionScreen`'s `other_text` and
+ * `ProfilingSessionService.displayValueOf` are the only two places a worker's own "other" answer
+ * is shown back to him today, and BOTH deliberately serve the raw typed text by their own
+ * documented design (the form's edit surface and the interview's pre-submit review) — reversing
+ * that is a product call, not a wiring gap this service can close on its own. The column is
+ * written for the first surface built to read it; until one exists, "print it after LLM
+ * reviews it" is satisfied up to the print step and stops there.
  */
 @Injectable()
 export class OtherAnswerPolishService {

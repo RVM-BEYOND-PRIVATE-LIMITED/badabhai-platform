@@ -101,6 +101,10 @@ function serviceFor(role: RoleCase) {
     { rebuildQuietly: vi.fn(async () => undefined) } as never,
     { forWorker: async () => new Map() } as never,
     { findLatestForWorker: async () => undefined } as never,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" trigger — a spy, since this suite is about pack fact
+    // uniqueness, not the review-or-omit path (`trade-form.service.test.ts` covers that).
+    { review: vi.fn(async () => null) } as never,
+    { WORK_HISTORY_POLISH_ENABLED: false } as never,
   );
   return { service, packs };
 }

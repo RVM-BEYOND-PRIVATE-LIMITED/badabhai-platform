@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,15 +8,19 @@ import {
 } from "@nestjs/common";
 
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { ServerConfig } from "@badabhai/config";
 import type { WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../../chat/chat.repository";
+import type { AiRequestContext } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
+import { SERVER_CONFIG } from "../../config/config.module";
 import { EventsService } from "../../events/events.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { projectProfile } from "../answer-map-projector";
 import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
+import { OtherAnswerPolishService } from "../other-answer-polish.service";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
@@ -98,6 +103,13 @@ export class TradeFormService {
     // this is the only service that needs to read it — giving it the repository would also
     // hand it the storage key, the mime and the write path, which the form must never have.
     private readonly resumeImports: ResumeImportRepository,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling) — reviews a worker's typed "other" text
+    // the same way `WorkHistoryPolishService` reviews a stint description. FIRED, NEVER AWAITED
+    // INLINE — see `triggerOtherAnswerPolish` below for why and for what that does and does not
+    // buy the worker today.
+    private readonly otherAnswerPolish: OtherAnswerPolishService,
+    @Inject(SERVER_CONFIG)
+    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
   ) {}
 
   /**
@@ -307,6 +319,11 @@ export class TradeFormService {
       }
     });
 
+    // THE REVIEW-OR-OMIT PATH FIRES HERE, ONCE THE ANSWER IS DURABLE. See
+    // `triggerOtherAnswerPolish` for the fail-open contract and the honest scope note about who
+    // reads its output today.
+    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, requestCtx);
+
     // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
     // exactly the number of question screens the next fetch returns — never a count over a
     // different set that the progress rail cannot reach.
@@ -470,6 +487,9 @@ export class TradeFormService {
       throw new BadRequestException(`${item.question_key} produced no storable answer`);
     }
     await this.answers.upsertAnswer(row);
+    // Same review-or-omit trigger as the current path — a legacy client can still type an "other"
+    // answer against a single/multi-select universal question.
+    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, undefined);
 
     const view = await this.formView(workerId, ctx.kind, pack);
     const answered = this.answeredIn(view);
@@ -834,8 +854,12 @@ export class TradeFormService {
       // against a closed vocabulary; `packAnswerRowFor` routes a marked value to
       // `answer_other_text` and nowhere else, so it can never decide a tier gate, never become a
       // `worker_attributes` row, and never print unreviewed on any sheet — see
-      // `OtherAnswerValue`'s docblock. A worker can always see and refuse the LLM's rewrite of
-      // it before it is ever shown (`OtherAnswerPolishService`); it is never printed raw.
+      // `OtherAnswerValue`'s docblock. This method's caller (`answer()`) hands the saved text to
+      // `OtherAnswerPolishService` (`triggerOtherAnswerPolish`), which computes and stores the
+      // reviewed rewrite; it is NEVER printed raw the moment a reader exists. HONEST STATE
+      // TODAY: no reader exists yet — `questionScreen` below and `ProfilingSessionService
+      // .displayValueOf` both deliberately echo the worker's raw typed words, by design, on the
+      // edit/review screens they serve. See `triggerOtherAnswerPolish`'s docblock.
       const other = otherAnswerValue(dto.answer.text);
       if (other === null) return declined;
       return { ...base, value_normalized: other, status: "answered" };
@@ -844,6 +868,65 @@ export class TradeFormService {
       throw new BadRequestException(`${item.question_key} does not take free text`);
     }
     return { ...base, value_normalized: dto.answer.text, status: "answered" };
+  }
+
+  /**
+   * Hand a just-saved "other" answer to {@link OtherAnswerPolishService}, if `recordFor` marked
+   * one — never inline in the response.
+   *
+   * WHY OFF THE RESPONSE, on the exact reasoning `WorkHistoryPolishService`'s own docblock states
+   * for a stint description: this is the worker's live request path, often on 2G, and a model
+   * round trip in the middle of it makes him wait on a rewrite that today has no reader at all
+   * (see below). Unlike the work-history precedent there is no render job to hang the call off —
+   * `answer()` has no off-request queue of its own — so this fires the call FROM the request,
+   * NEVER AWAITED, and lets the response return the instant the DB write is durable.
+   * `OtherAnswerPolishService.review` is contractually never-throwing (its own try/catch around
+   * both the model call and the write-back), which is what makes a bare `void` safe here — the
+   * same contract `PackRegistryService.onModuleInit` relies on for the identical idiom.
+   *
+   * ═══ HONEST SCOPE — WHAT THIS DOES AND DOES NOT DELIVER TODAY ═══
+   *
+   * This closes the "dead code" finding: `OtherAnswerPolishService.review` now has a real,
+   * reachable caller, and `answer_other_text_polished` is actually computed and persisted for
+   * every typed "other" answer once `WORK_HISTORY_POLISH_ENABLED` is on. It does NOT put the
+   * rewrite in front of a worker — nothing in this codebase reads
+   * `answer_other_text_polished` for display. `questionScreen`'s `other_text` and
+   * `ProfilingSessionService.displayValueOf` both deliberately serve the RAW typed text on the
+   * two screens that exist today (the resumed-form edit surface and the interview review
+   * screen), by their own documented design — showing the rewrite there instead would be a
+   * reversal of an already-shipped, already-tested decision this task did not ask for and is not
+   * this engineer's call to make alone. The column is written for the first worker-facing "here
+   * is what we understood" surface that is actually built to read it; until one exists, a
+   * worker's typed "other" answer is computed-and-stored but not yet SHOWN reviewed anywhere,
+   * which is a materially different claim from "wired end to end" and is recorded here rather
+   * than left implicit.
+   */
+  private triggerOtherAnswerPolish(
+    workerId: string,
+    packId: string,
+    item: QuestionPackItem,
+    ownText: string | null | undefined,
+    requestCtx: RequestContext | undefined,
+  ): void {
+    if (!ownText) return;
+    const ctx: AiRequestContext = {
+      correlationId: requestCtx?.correlationId,
+      requestId: requestCtx?.requestId,
+    };
+    void this.otherAnswerPolish.review(
+      workerId,
+      packId,
+      item.question_key,
+      ownText,
+      item.prompt_text,
+      ctx,
+      this.config,
+      // A FRESH TRIGGER, ALWAYS. `TradeFormRepository.upsertAnswer` NULLs
+      // `answer_other_text_polished` / clears the decline flag on EVERY write to this row
+      // (including a correction), so "no prior polish, not declined" is the correct state to
+      // hand in on every call this method ever makes — there is no earlier read to race.
+      { polished: null, declined: false },
+    );
   }
 }
 
