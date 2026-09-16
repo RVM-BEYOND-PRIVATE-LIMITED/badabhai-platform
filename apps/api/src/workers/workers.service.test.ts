@@ -79,7 +79,9 @@ function newSvc(
 
 function setup(workerExists = true) {
   const repo = {
-    findById: vi.fn(async (_id: string) => (workerExists ? { id: "w-1", fullName: null } : undefined)),
+    findById: vi.fn(async (_id: string) =>
+      workerExists ? { id: "w-1", fullName: null } : undefined,
+    ),
     updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: "w-1" })),
     updateLocation: vi.fn(async (_id: string, _patch: unknown) => ({ id: "w-1" })),
     // The name is baked onto the PDF at render time, so setFullName re-renders the
@@ -232,6 +234,8 @@ const CONFIRMED_PROFILE = {
   workerId: "w-1",
   aiJobId: "j-1",
   profileStatus: "confirmed",
+  // Task 1 — a real column now (not a sentinel): the road is projected as-is.
+  source: "chat",
   canonicalTradeId: "cnc_vmc",
   canonicalRoleId: "role_vmc_operator",
   skills: ["skill_fanuc", "skill_measuring_instruments"],
@@ -269,12 +273,23 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     const res = await svc.getProfileSummary("w-1");
     expect(res).toEqual({
       profile_status: "none",
+      source: null,
       confirmed_at: null,
       trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
       city: null,
       strength: 0,
       strength_max: 9,
-      missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
+      missing_fields: [
+        "role",
+        "trade",
+        "skills",
+        "machines",
+        "experience",
+        "salary",
+        "location",
+        "availability",
+        "photo",
+      ],
       skills: [],
       machines: [],
       experience_years: null,
@@ -291,6 +306,7 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     const res = await svc.getProfileSummary("w-1");
     expect(res).toEqual({
       profile_status: "confirmed",
+      source: "chat",
       confirmed_at: "2026-07-01T10:00:00.000Z",
       trade: {
         canonical_trade_id: "cnc_vmc",
@@ -368,11 +384,31 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
   });
 
   it("malformed/missing education fields in raw_profile ⇒ null, never a throw", async () => {
-    for (const rawProfile of [{}, { education_level: 42, education_field: "" }, null, "not-an-object"]) {
+    for (const rawProfile of [
+      {},
+      { education_level: 42, education_field: "" },
+      null,
+      "not-an-object",
+    ]) {
       const { svc } = summarySetup({ ...CONFIRMED_PROFILE, rawProfile });
       const res = await svc.getProfileSummary("w-1");
       expect(res.education_level).toBeNull();
       expect(res.education_field).toBeNull();
+    }
+  });
+
+  it("projects the road as-is, and maps unknown/pre-0107 roads to null (never a guess)", async () => {
+    const { svc } = summarySetup({ ...CONFIRMED_PROFILE, source: "form" });
+    expect((await svc.getProfileSummary("w-1")).source).toBe("form");
+
+    // A pre-0107 row carries no source key at all; a corrupt one carries garbage.
+    // Both project to null (unknown) — the mapper never invents a road.
+    for (const source of [undefined, null, "", "FORM", "trade_form", 42]) {
+      const row: Record<string, unknown> = { ...CONFIRMED_PROFILE };
+      if (source === undefined) delete row.source;
+      else row.source = source;
+      const { svc: s } = summarySetup(row);
+      expect((await s.getProfileSummary("w-1")).source).toBeNull();
     }
   });
 
@@ -658,17 +694,17 @@ describe("WorkersService.updateResumePrefs", () => {
 const WORKER_ID = "0a1b2c3d-1111-4111-8111-000000000001";
 const MINTED_KEY = `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`;
 
-function photoSetup(opts: {
-  worker?:
-    | { id: string; photoStorageKey?: string | null; resumeShowPhoto?: boolean }
-    | undefined;
-  bucket?: string;
-  info?: { contentType: string | null; sizeBytes: number | null } | null;
-  /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
-  latestResume?: { id: string; version: number } | undefined;
-  /** TD77: override to prove the re-render enqueue is best-effort. */
-  renderQueue?: { add: ReturnType<typeof vi.fn> };
-} = {}) {
+function photoSetup(
+  opts: {
+    worker?: { id: string; photoStorageKey?: string | null; resumeShowPhoto?: boolean } | undefined;
+    bucket?: string;
+    info?: { contentType: string | null; sizeBytes: number | null } | null;
+    /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
+    latestResume?: { id: string; version: number } | undefined;
+    /** TD77: override to prove the re-render enqueue is best-effort. */
+    renderQueue?: { add: ReturnType<typeof vi.fn> };
+  } = {},
+) {
   const worker =
     "worker" in opts
       ? opts.worker
@@ -709,9 +745,7 @@ describe("WorkersService.createPhotoUploadUrl (ADR-0032)", () => {
     const res = await svc.createPhotoUploadUrl(WORKER_ID);
 
     const [key, bucket] = storage.createSignedUploadUrl.mock.calls[0]!;
-    expect(key).toMatch(
-      new RegExp(`^photos/${WORKER_ID}/[0-9a-f-]{36}\\.jpg$`),
-    );
+    expect(key).toMatch(new RegExp(`^photos/${WORKER_ID}/[0-9a-f-]{36}\\.jpg$`));
     expect(bucket).toBe("worker-profile-photos");
     expect(res).toEqual({
       storage_path: key,
@@ -822,9 +856,10 @@ describe("WorkersService.confirmPhoto (ADR-0032)", () => {
       }),
     };
     const { svc, repo } = photoSetup({ renderQueue });
-    await expect(
-      svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
-    ).resolves.toEqual({ worker_id: WORKER_ID, has_photo: true });
+    await expect(svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX)).resolves.toEqual({
+      worker_id: WORKER_ID,
+      has_photo: true,
+    });
     // the pointer still persisted — the photo IS saved, only the re-render was lost
     expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, MINTED_KEY);
   });

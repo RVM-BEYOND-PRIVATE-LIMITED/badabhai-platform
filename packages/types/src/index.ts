@@ -15,6 +15,16 @@ export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 export const PROFILE_STATUSES = ["draft", "extracting", "extracted", "confirmed"] as const;
 export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 
+// ---- Profile source (Task 1 flow separation) ----
+// Which road produced the profile: the trade-form road (`form`, one of the
+// form-enabled trades, entered via chat handover or résumé-route=form) or the
+// LLM-chat road (`chat`, everything else). Written by deterministic code at
+// extraction time from the channel record (session form_kind / import route) —
+// never by the model — and read by navigation, profile screens and the resume
+// renderer so the two roads stop sharing one flow.
+export const PROFILE_SOURCES = ["form", "chat"] as const;
+export type ProfileSource = (typeof PROFILE_SOURCES)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

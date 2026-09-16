@@ -751,6 +751,13 @@
       "when": 1789549219415,
       "tag": "0106_worker_pack_answer_other_text",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1789560907711,
+      "tag": "0107_worker_profiles_source",
+      "breakpoints": true
     }
   ]
 }

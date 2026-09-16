@@ -762,7 +762,16 @@ describe("ProfilesService.confirm — ownership (IDOR) + event", () => {
     expect(res.profile_status).toBe("confirmed");
     expect(profiles.confirm).toHaveBeenCalledOnce();
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.confirmed");
+    // Task 1 — a pre-0107 row carries no road: the event says unknown (null), never a guess.
+    expect(events.emit.mock.calls[0]![0].payload.profile_source).toBeNull();
     expect(resumeGenerateQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("profile.confirmed carries the road read off the stored row", async () => {
+    const { svc, profiles, events } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER, source: "form" });
+    await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(events.emit.mock.calls[0]![0].payload.profile_source).toBe("form");
   });
 
   it("a resume-enqueue failure does NOT fail confirmation (degrades)", async () => {
