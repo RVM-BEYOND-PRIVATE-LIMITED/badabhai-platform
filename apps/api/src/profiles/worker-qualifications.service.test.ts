@@ -354,6 +354,62 @@ describe("the qualifications writer — the re-render", () => {
   });
 });
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+ * #1504 — GET /workers/me/qualifications, the prefill
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe("reading the worker's credentials back (#1504)", () => {
+  function readSetup(stored: { certificates: unknown[]; educations: unknown[] }) {
+    const loadForResume = vi.fn(async (_id: string) => stored);
+    const emit = vi.fn(async (_event: EmittedEvent) => undefined);
+    const svc = new WorkerQualificationsService(
+      { loadForResume } as never,
+      {} as never,
+      { emit } as never,
+      { add: async () => undefined } as never,
+    );
+    return { svc, loadForResume, emit, lines: captureLogger(svc) };
+  }
+
+  it("returns the PUT's own entry shapes, and they round-trip through the PUT schema", async () => {
+    const h = readSetup({ certificates: [certificate()], educations: [education()] });
+    const res = await h.svc.getForWorker(WORKER);
+    expect(h.loadForResume).toHaveBeenCalledWith(WORKER);
+    expect(res.certificates).toEqual([{ name: CERT_NAME, issuer: ISSUER, year: 2019 }]);
+    expect(res.educations).toEqual([education()]);
+    expect(res.partial).toEqual([]);
+    expect(res.dropped_count).toBe(0);
+    const reparsed = parse({ certificates: res.certificates, educations: res.educations });
+    expect(reparsed.certificates).toEqual(res.certificates);
+    expect(reparsed.educations).toEqual(res.educations);
+  });
+
+  it("withholds a stored row the PUT would refuse, and reports it", async () => {
+    // A stored issuer carrying a phone number — the screen the write applies — must not come back
+    // and turn the worker's unedited save into a 400.
+    const h = readSetup({
+      certificates: [certificate(), certificate({ issuer: "call 9876543210" })],
+      educations: [education()],
+    });
+    const res = await h.svc.getForWorker(WORKER);
+    expect(res.certificates).toHaveLength(1);
+    expect(res.partial).toEqual(["certificates"]);
+    expect(res.dropped_count).toBe(1);
+    expect(JSON.stringify(res)).not.toContain("9876543210");
+  });
+
+  it("emits nothing, and logs counts only", async () => {
+    const h = readSetup({ certificates: [certificate()], educations: [education()] });
+    await h.svc.getForWorker(WORKER);
+    expect(h.emit).not.toHaveBeenCalled();
+    const joined = h.lines.join("\n");
+    expect(joined).toContain("1 certificate(s)");
+    for (const leak of [CERT_NAME, ISSUER, INSTITUTE, FIELD]) {
+      expect(joined).not.toContain(leak);
+    }
+  });
+});
+
 describe("the qualifications form's contract", () => {
   it("refuses an empty body — `{}` and `{certificates: []}` mean opposite things", () => {
     // A client that sends neither key has lost track of which it meant. Absorbing it silently is

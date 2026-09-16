@@ -64,7 +64,31 @@ TURNS = [
     "Programme load karke part banata hoon. Facing, turning, drilling, grooving.",
     "Nahi sir, programme setter banata hai. Main sirf chalata hoon.",
     "Haan.",
+    # #1506 — A GENERIC JOB REQUEST NAMES NO TRADE. The prompt tells the model to ask what work
+    # the worker does, keep typing on, and leave both labels null. The API clamps `input_mode`
+    # anyway; these turns measure whether the model follows the rule on its own.
+    "mujhe job chahiye",
+    "I need job",
 ]
+
+#: The turns whose parsed JSON is ALSO checked against the #1506 field rules. Kept separate so the
+#: four original turns stay comparable with results recorded before these rules existed.
+GENERIC_JOB_TURNS = {"mujhe job chahiye", "I need job"}
+
+
+def field_rule_breaks(content: str) -> list[str]:
+    """#1506: a generic job request must be answered typeable, with no invented trade label."""
+    try:
+        start, end = content.index("{"), content.rindex("}") + 1
+        turn = json.loads(content[start:end])
+    except ValueError:
+        return ["unparseable"]
+    broken = []
+    if turn.get("input_mode") != "text":
+        broken.append("input_mode not text")
+    if turn.get("domain_label") is not None or turn.get("role_label") is not None:
+        broken.append("label on a generic request")
+    return broken
 
 #: THE SHIPPED PHASE-A PROMPT, not a paraphrase of it. A hand-written system prompt measures the
 #: prompt, not the tier: the first version of this script used one, and both arms then asked the
@@ -122,7 +146,8 @@ async def run_arm(tier: str, runs: int) -> dict:
                     "latency_ms": round(elapsed_ms, 1),
                     "cost_inr": round(float(getattr(meta, "estimated_cost_inr", 0.0) or 0.0), 4),
                     "reply": (content or "").strip(),
-                    "rule_breaks": rule_breaks((content or "").strip()),
+                    "rule_breaks": rule_breaks((content or "").strip())
+                    + (field_rule_breaks(content or "") if turn in GENERIC_JOB_TURNS else []),
                 }
             )
             print(

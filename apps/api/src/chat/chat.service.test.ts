@@ -31,6 +31,7 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+import { llmChipOptions } from "../profiling/orchestrator.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -54,6 +55,7 @@ const PIN = {
 /** The engine's envelope at the end of a complete interview. */
 function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
   return {
+    resumeConfirm: null,
     rev: 4,
     phase: "close",
     occupation: PIN,
@@ -83,6 +85,9 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    identifyTypeRequested: false,
+    identifyStalledTurns: 0,
+    prefilledKeys: [],
     ...over,
   };
 }
@@ -362,6 +367,23 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
       expect(chat.withTransaction).not.toHaveBeenCalled();
     });
 
+    it("#1504 item 5 (city-seed): carries prefilled_keys, which toConversationStatePatch does not", async () => {
+      // The checkpoint REPLACES the whole `conversation_state` column with only
+      // `toConversationStatePatch`'s projection — that projection has no `prefilledKeys` field
+      // (it is engine bookkeeping outside the frozen `ConversationState` contract, like
+      // `form_kind`), so without an explicit carry a checkpoint written between the seed and the
+      // flush would durably drop it.
+      const { chat } = await run({
+        turn: { checkpointDue: true },
+        written: {
+          profiling: envelope({ phase: "occupation_specific", prefilledKeys: ["current_city"] }),
+        },
+      });
+
+      const [, state] = chat.saveConversationState.mock.calls[0] as [string, Record<string, unknown>];
+      expect(state.prefilled_keys).toEqual(["current_city"]);
+    });
+
     it("does NOT double-write when the same turn also completes the interview", async () => {
       // `finalizeInterview` writes the identical state through `endSession` INSIDE the flush
       // transaction. Checkpointing as well would be a second UPDATE of one column with one value,
@@ -593,6 +615,31 @@ describe("a disambiguation offer is not an ordinary ask", () => {
   });
 });
 
+describe("a model chip turn always ends in the server's escape (#1506)", () => {
+  it("serves input_mode text, and the escape LAST under both fields a client reads", async () => {
+    // Built by the REAL producer, so a changed label or key in `llmChipOptions` fails here rather
+    // than in a shipped client that matches the label "Kuch aur" (old builds) or the flag (new).
+    const { res } = await run({
+      turn: {
+        reply: "Aap kaunsa kaam karte hain?",
+        kind: "ask",
+        questionKey: null,
+        options: llmChipOptions(["Welder", "Fitter"], false),
+        answerType: "single_select",
+        inputMode: "text",
+      },
+    });
+    expect(res.input_mode).toBe("text");
+    expect(res.suggested_followups.at(-1)).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+    expect(res.suggested_options.at(-1)).toEqual({
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      is_none_of_above: true,
+    });
+    expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Degradation, replay, and the terminal session
 // ---------------------------------------------------------------------------
@@ -808,6 +855,25 @@ describe("ChatService — flush at end", () => {
       });
     });
 
+    it("#1504 item 5 (city-seed): excludes a prefilled key from answered_count — settled by /name, not by THIS interview", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          profiling: envelope({
+            answerMap: [
+              answer({ question_key: "q_a" }),
+              answer({ question_key: "current_city", value_normalized: "Pune" }),
+            ] as never,
+            prefilledKeys: ["current_city"],
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({ answered_count: 1 });
+    });
+
     it("drops a completion_reason that is not a slug rather than rolling back the interview", async () => {
       // The emit is INSIDE the flush transaction, so an unvalidated reason would trade a
       // worker's entire completed interview for an observability field. Same asymmetry as
@@ -963,6 +1029,17 @@ describe("ChatService — the answer map lands in worker_pack_answer", () => {
       answer({ question_key: "trade" }),
       answer({ question_key: "shift_pref", status: "unanswered", value_normalized: null }),
     ]);
+    expect(answerRows(chat).map((r) => r.questionKey)).toEqual(["trade"]);
+  });
+
+  it("#1504 item 5 (city-seed): skips a prefilled key — no row for a seed with no transcript span", async () => {
+    const { chat } = await withAnswers(
+      [
+        answer({ question_key: "trade" }),
+        answer({ question_key: "current_city", value_normalized: "Pune" }),
+      ],
+      { prefilledKeys: ["current_city"] },
+    );
     expect(answerRows(chat).map((r) => r.questionKey)).toEqual(["trade"]);
   });
 
@@ -1397,9 +1474,8 @@ describe("ChatService.startSession — the opener is reviewed copy, not a model 
   it("serves opening_tts_text beside it, so turn one reads aloud (#896)", async () => {
     const { svc } = make({ oneShotOpener: true });
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
-    expect(res.opening_tts_text).toBe(
-      "नमस्ते। आप कौन सा काम करते हैं, कहाँ रहते हैं, और कितना तजुर्बा है?",
-    );
+    // #1504 item 5 (city-seed) — the opener dropped its city clause.
+    expect(res.opening_tts_text).toBe("नमस्ते। आप कौन सा काम करते हैं, और कितना तजुर्बा है?");
   });
 
   it("omits opening_tts_text when the opener itself is omitted", async () => {

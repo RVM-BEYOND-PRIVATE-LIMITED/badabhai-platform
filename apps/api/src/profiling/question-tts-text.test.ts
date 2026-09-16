@@ -137,12 +137,11 @@ describe("question-tts-text — the authored strings", () => {
 });
 
 describe("ttsTextFor", () => {
-  const OPENER = "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?";
+  // #1504 item 5 (city-seed) — the opener dropped its city clause; `/name` already collects it.
+  const OPENER = "Namaste. Aap kaun sa kaam karte hain, aur kitna tajurba hai?";
 
   it("resolves a known reply to its Devanagari", () => {
-    expect(ttsTextFor(OPENER)).toBe(
-      "नमस्ते। आप कौन सा काम करते हैं, कहाँ रहते हैं, और कितना तजुर्बा है?",
-    );
+    expect(ttsTextFor(OPENER)).toBe("नमस्ते। आप कौन सा काम करते हैं, और कितना तजुर्बा है?");
   });
 
   it("tolerates the whitespace the engine can add, since the closure hashes under the same collapse", () => {

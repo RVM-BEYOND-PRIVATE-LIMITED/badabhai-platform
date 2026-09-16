@@ -214,6 +214,39 @@ describe("the caps — the API owns termination, never the model", () => {
   });
 });
 
+describe("a model-authored ask is always typeable (#1506)", () => {
+  const ROLE_CHIPS = ["Welder", "Fitter", "Electrician", "Plumber"];
+
+  it.each(["mujhe job chahiye", "I need job"])(
+    "clamps the model's options_only to text for %j, chips untouched",
+    async (phrase) => {
+      const turn = TURN({ input_mode: "options_only", suggested_answers: ROLE_CHIPS });
+      // Vacuity: the stub really asked to lock the composer.
+      expect(turn.input_mode).toBe("options_only");
+      const { svc } = make({ turn });
+      const out = await svc.take(env(), phrase, [], CTX);
+      expect(out?.kind).toBe("ask");
+      expect(out?.kind === "ask" && out.inputMode).toBe("text");
+      expect(out?.kind === "ask" && out.chips).toEqual(ROLE_CHIPS);
+    },
+  );
+
+  it("logs the clamp as COUNTS ONLY — never the reply or a chip", async () => {
+    const reply = "Aap kaunsa kaam karte hain? Ramesh ji";
+    const { svc } = make({
+      turn: TURN({ input_mode: "options_only", suggested_answers: ROLE_CHIPS, reply_text: reply }),
+    });
+    const log = vi.mocked(Logger.prototype.log);
+    await svc.take(env(), "mujhe job chahiye", [], CTX);
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines.some((line) => line.includes("model_input_mode_clamped"))).toBe(true);
+    for (const line of lines) {
+      expect(line).not.toContain("Ramesh");
+      expect(line).not.toContain("Welder");
+    }
+  });
+});
+
 describe("the experience loop gate is engine-served", () => {
   it("serves the Yes/No gate with typing disabled after an experience is captured", async () => {
     const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
@@ -561,18 +594,54 @@ describe("#1016 — what actually decides whether the worker sees the experience
     expect(out?.patch.llmGateOpen).toBe(true);
   });
 
-  it("NEVER serves it when the model omits the entry — the whole of #1016 in one assertion", async () => {
-    // The reported session: the model asks its own loop question and reports no entry. Every
-    // field the worker sees comes from the model, so the gate simply does not exist for them.
+  it("NEVER serves the model's own words when it omits the entry — #1505 F5 closes #1016 further", async () => {
+    // The reported session: the model asks its own gate-shaped loop question and reports no
+    // entry. UPDATED FOR #1505 F5: this used to assert the model's own line WAS served as an
+    // ordinary ask (`kind: "ask"`, `reply` the model's own words) — which is #1016's exact
+    // failure shape one layer down: a worker who then answered "Nahi" to the model's own
+    // "aur koi kaam jode?" settled nothing structured, because that line was never
+    // `EXPERIENCE_GATE_PROMPT` and no entry exists to gate. `classifyLlmReply` now catches this
+    // as `'gate_shaped'` BEFORE it reaches the worker, and with zero entries recorded the correct
+    // outcome is Phase A ending to the deterministic tail — never the model's own gate-shaped
+    // line, and never the engine's real gate either (there is no job to offer "another" of).
     const { svc } = make({
       turn: TURN({ experience_entry: null, reply_text: "aur koi kaam jode?" }),
     });
 
     const out = await svc.take(env(), "3 saal tandoor pe kaam kiya", [], CTX);
 
-    expect(out?.kind).toBe("ask");
-    expect(out?.kind === "ask" && out.reply).not.toBe(EXPERIENCE_GATE_PROMPT);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmStage).toBe("done");
     expect(out?.patch.llmGateOpen).toBeFalsy();
+  });
+
+  it("an ordinary (non-gate-shaped) model line is still served when the entry is omitted", async () => {
+    // The counterpart to the fixture above: nothing here should change for a model that asks a
+    // real question rather than writing the engine's gate in its own words.
+    const { svc } = make({
+      turn: TURN({ experience_entry: null, reply_text: "Aap kaunsi cuisine banate hain?" }),
+    });
+
+    const out = await svc.take(env(), "cook hu", [], CTX);
+
+    expect(out).toMatchObject({ kind: "ask", reply: "Aap kaunsi cuisine banate hain?" });
+    expect(out?.patch.llmGateOpen).toBeFalsy();
+  });
+
+  it("a gate-shaped reply WITH entries already recorded falls back to the ENGINE'S gate, not the model's words", async () => {
+    // Zero entries end Phase A outright (asserted above); one or more send the worker to the
+    // real gate instead — there IS a job to offer "another" of, and `llmGateAsked` has not fired
+    // yet for this interview.
+    const { svc } = make({
+      turn: TURN({ experience_entry: null, reply_text: "aur koi kaam jode?" }),
+    });
+
+    const out = await svc.take(env(withEntries(1)), "aur bhi kuch tha", [], CTX);
+
+    expect(out).toMatchObject({ kind: "ask", reply: EXPERIENCE_GATE_PROMPT, inputMode: "options_only" });
+    expect(out?.kind === "ask" && out.chips).toEqual(["Haan", "Nahi"]);
+    expect(out?.patch.llmGateOpen).toBe(true);
+    expect(out?.patch.llmGateAsked).toBe(true);
   });
 });
 

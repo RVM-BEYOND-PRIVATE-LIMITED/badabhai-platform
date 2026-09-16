@@ -7,6 +7,10 @@ import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
 /**
  * RI-3's Nest half: the call, the second wall, the spend record, the status transitions.
  *
+ * AMENDED 2026-09-15: a successful parse writes NO status here any more — `settleParsed` in the
+ * route service records `parsed` and the route in one statement — and a failure is recorded and
+ * counted in one transaction, guarded, with an idempotency key.
+ *
  * THE TWO THAT MATTER MOST, and they are not the happy path:
  *
  *   1. The spend is recorded even when the parse produced NOTHING. A call that happened was
@@ -20,6 +24,8 @@ import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as never;
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const IMPORT = "22222222-2222-4222-8222-222222222222";
+/** The transaction executor — identity is what the tests assert. */
+const TX = { executor: "tx" } as never;
 
 function row(overrides: Record<string, unknown> = {}) {
   return {
@@ -58,13 +64,32 @@ function field(value: unknown, quote: string) {
   };
 }
 
-function setup(opts: { row?: Record<string, unknown> | null; out?: ResumeParseOutput | null }) {
+function setup(opts: {
+  row?: Record<string, unknown> | null;
+  out?: ResumeParseOutput | null;
+  markFailed?: boolean;
+  emitThrows?: boolean;
+}) {
+  // `inTx` distinguishes "inside the transaction" from "next to it" — see the route test.
+  const seen = { inTx: false, failedInTx: false, emitInTx: false };
+  // THE WRITE SURFACE IS EXACTLY THIS. There is deliberately no `markParsed`: a success must
+  // write no status, and re-adding such a call would throw here rather than pass quietly.
   const imports = {
     // `null` means "no such row for this worker"; omitted means the ordinary uploaded row.
     findForWorker: vi.fn().mockResolvedValue(opts.row === undefined ? row() : (opts.row ?? undefined)),
     markParsing: vi.fn().mockResolvedValue(true),
-    markParsed: vi.fn().mockResolvedValue(undefined),
-    markFailed: vi.fn().mockResolvedValue(undefined),
+    withTransaction: vi.fn(async (cb: (tx: never) => Promise<unknown>) => {
+      seen.inTx = true;
+      try {
+        return await cb(TX);
+      } finally {
+        seen.inTx = false;
+      }
+    }),
+    markFailed: vi.fn(async () => {
+      seen.failedInTx = seen.inTx;
+      return opts.markFailed ?? true;
+    }),
   };
   // `?? parseOutput()` would swallow an EXPLICIT null, which is the one case the outage
   // test exists to exercise. `in` distinguishes "not specified" from "specified as null".
@@ -72,14 +97,22 @@ function setup(opts: { row?: Record<string, unknown> | null; out?: ResumeParseOu
     parseResume: vi.fn().mockResolvedValue("out" in opts ? opts.out : parseOutput()),
   };
   const aiCost = { record: vi.fn().mockResolvedValue(undefined) };
-  const events = { emit: vi.fn().mockResolvedValue(undefined) };
+  const events = {
+    emit: vi.fn(async (_params: Record<string, unknown>) => {
+      // RECORDED BEFORE THE THROW: whether the failure happened INSIDE the transaction is what
+      // decides whether the status write rolls back with it.
+      seen.emitInTx = seen.inTx;
+      if (opts.emitThrows) throw new Error("events table unavailable");
+      return undefined;
+    }),
+  };
   const svc = new ResumeParseService(
     imports as never,
     ai as never,
     aiCost as never,
     events as never,
   );
-  return { svc, imports, ai, aiCost, events };
+  return { svc, imports, ai, aiCost, events, seen };
 }
 
 describe("ResumeParseService", () => {
@@ -113,7 +146,7 @@ describe("ResumeParseService", () => {
     const result = await svc.parse(WORKER, IMPORT, CTX);
 
     expect(result).toMatchObject({ status: "failed", reason: "parse_unavailable" });
-    expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "parse_unavailable", null);
+    expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "parse_unavailable", null, TX);
     // No call completed, so there is nothing to bill and a zero record would be a fiction.
     expect(aiCost.record).not.toHaveBeenCalled();
     expect(events.emit).toHaveBeenCalledOnce();
@@ -126,8 +159,8 @@ describe("ResumeParseService", () => {
     const result = await svc.parse(WORKER, IMPORT, CTX);
 
     expect(result).toMatchObject({ status: "failed", reason: "encrypted_document" });
-    expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "encrypted_document", null);
-    const payload = events.emit.mock.calls[0]![0].payload;
+    expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "encrypted_document", null, TX);
+    const payload = events.emit.mock.calls[0]![0].payload as Record<string, unknown>;
     expect(payload.reason).toBe("encrypted_document");
     expect(payload.extraction_method).toBeNull();
   });
@@ -155,17 +188,104 @@ describe("ResumeParseService", () => {
     expect(parsed.fields.current_city!.value).toBe("Pune");
   });
 
-  it("writes the extraction facts, which can come from nowhere else", async () => {
-    const { svc, imports } = setup({
+  it("carries the extraction facts on the draft and writes NO status — the settle owns `parsed`", async () => {
+    // CHANGED 2026-09-15. This used to assert a `markParsed` write. That write was the first half
+    // of the split that let a client read `parsed` beside a null route; the facts can still come
+    // from nowhere else, so they now travel on the draft to `settleParsed`.
+    const { svc, imports, events } = setup({
       out: parseOutput({ extraction_method: "ocr", page_count: 2, ocr_confidence: 0.83 }),
     });
-    await svc.parse(WORKER, IMPORT, CTX);
+    const result = await svc.parse(WORKER, IMPORT, CTX);
 
-    expect(imports.markParsed).toHaveBeenCalledWith(IMPORT, {
+    expect(result).toMatchObject({
+      status: "parsed",
       extractionMethod: "ocr",
       pageCount: 2,
       ocrConfidence: 0.83,
     });
+    expect(imports.withTransaction).not.toHaveBeenCalled();
+    expect(imports.markFailed).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["null", null],
+    ["outside the closed set", "html"],
+  ])(
+    "a SUCCESS whose extraction method is %s is recorded as `parse_output_invalid`, not cast",
+    async (_label, method) => {
+      // The contract types the method as an open nullable string; the column's CHECK and the
+      // parsed event's non-null enum both refuse what a cast let through. The spend still counts.
+      const { svc, imports, events, aiCost } = setup({
+        out: parseOutput({
+          extraction_method: method,
+          fields: { current_city: field("Pune", "Pune") },
+        }),
+      });
+      const result = await svc.parse(WORKER, IMPORT, CTX);
+
+      expect(result).toEqual({ status: "failed", importId: IMPORT, reason: "parse_output_invalid" });
+      expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "parse_output_invalid", null, TX);
+      expect(events.emit).toHaveBeenCalledOnce();
+      expect(events.emit.mock.calls[0]![0].payload).toMatchObject({
+        reason: "parse_output_invalid",
+        extraction_method: null,
+      });
+      expect(aiCost.record).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("a far-side failure naming a method outside the set records null, never the stray string", async () => {
+    const { svc, imports, events } = setup({
+      out: parseOutput({ failure_reason: "no_text_layer", extraction_method: "scanned" }),
+    });
+    await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "no_text_layer", null, TX);
+    expect(events.emit.mock.calls[0]![0].payload).toMatchObject({ extraction_method: null });
+  });
+
+  it("a failure is written and counted INSIDE one transaction, with an idempotency key", async () => {
+    const { svc, events, seen } = setup({
+      out: parseOutput({ failure_reason: "ocr_below_floor", extraction_method: "ocr" }),
+    });
+    await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(seen.failedInTx).toBe(true);
+    expect(seen.emitInTx).toBe(true);
+    const call = events.emit.mock.calls[0]![0];
+    expect(call.tx).toBe(TX);
+    expect(call.idempotencyKey).toBe(`profile.resume_parse_failed:${IMPORT}`);
+    expect(call.payload).toMatchObject({ extraction_method: "ocr", reason: "ocr_below_floor" });
+  });
+
+  it("an emit that fails does so INSIDE the transaction, so the `failed` write rolls back with it", async () => {
+    // THE OTHER HALF OF "ONE WRITE, ONE EVENT, OR NEITHER", and the direction the guard cannot
+    // cover: the guard stops a SECOND event, this stops a `failed` row with NO event — a
+    // failure the funnel never counts, on a terminal row nothing will retry.
+    //
+    // A refactor that emitted after `withTransaction` returned would reject identically, so the
+    // rejection is not the assertion; `seen.emitInTx` is.
+    const { svc, imports, events, seen } = setup({ out: null, emitThrows: true });
+
+    await expect(svc.parse(WORKER, IMPORT, CTX)).rejects.toThrow("events table unavailable");
+
+    expect(imports.withTransaction).toHaveBeenCalledOnce();
+    expect(imports.markFailed).toHaveBeenCalledOnce();
+    expect(seen.failedInTx).toBe(true);
+    expect(seen.emitInTx).toBe(true);
+    expect(events.emit).toHaveBeenCalledOnce();
+  });
+
+  it("a failure guard that wrote nothing emits nothing, and does not claim the failure", async () => {
+    // The row had already left `parsing` — settled by another path, or erased with the account.
+    // Emitting anyway counts a failure this call never recorded.
+    const { svc, imports, events } = setup({ out: null, markFailed: false });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(imports.markFailed).toHaveBeenCalledOnce();
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(result.status).toBe("already_settled");
   });
 
   it("does NOT emit profile.resume_parsed — its payload needs RI-4's route", async () => {

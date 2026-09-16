@@ -625,7 +625,17 @@ export class ChatService {
       try {
         await this.chat.saveConversationState(
           dto.session_id,
-          toConversationStatePatch(buffered.profiling),
+          {
+            ...toConversationStatePatch(buffered.profiling),
+            // #1504 item 5 (city-seed). `toConversationStatePatch` never carries this — it is
+            // engine bookkeeping outside the frozen `ConversationState` contract, exactly like
+            // `form_kind` below in `finalizeInterview`/`abandonInterview` — but the mid-interview
+            // checkpoint REPLACES the whole `conversation_state` column with only that patch, so
+            // without this line a checkpoint written between the seed and the flush would durably
+            // drop `prefilled_keys` and the admin journey / parse exclusion would lose track of
+            // what was seeded rather than asked.
+            prefilled_keys: buffered.profiling.prefilledKeys,
+          },
           now,
         );
       } catch (err) {
@@ -815,6 +825,11 @@ export class ChatService {
       // the flush commits, so without this row the form API would have no way to learn which
       // form a returning worker was sent to.
       form_kind: buffer.profiling?.formKind ?? null,
+      // #1504 item 5 (city-seed). SAME REASONING AS `form_kind` ABOVE — engine bookkeeping
+      // outside the frozen `ConversationState` contract, durable because the envelope is gone
+      // the moment this transaction commits. `[]` for a v1 (model-driven) session, which never
+      // seeds anything.
+      prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -954,7 +969,12 @@ export class ChatService {
         // that it did. A rolled-back flush leaves no telemetry claiming a completion.
         if (buffer.profiling) {
           const env = buffer.profiling;
-          const byStatus = countAnswerStatuses(env.answerMap);
+          // #1504 item 5 (city-seed). EXCLUDES `prefilledKeys` — `answered_count` means "settled
+          // BY THIS INTERVIEW", not "settled including what `/name` already gave us", the same
+          // distinction `toPackAnswerRows` draws for the same set of keys above.
+          const byStatus = countAnswerStatuses(
+            env.answerMap.filter((record) => !env.prefilledKeys.includes(record.question_key)),
+          );
           await this.events.emit({
             event_name: "profile.interview_completed",
             actor: { actor_type: "worker", actor_id: workerId },
@@ -1090,6 +1110,8 @@ export class ChatService {
           answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
           // ⚠ FALSE, and load-bearing — see the header. No extraction ran, and none will.
           extraction_ready_emitted: false,
+          // #1504 item 5 (city-seed) — same reasoning as `finalizeInterview`'s `prefilled_keys`.
+          prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding
@@ -1239,6 +1261,13 @@ export class ChatService {
 
     const rows: NewWorkerPackAnswer[] = [];
     for (const record of envelope.answerMap) {
+      // #1504 item 5 (city-seed). NO ROW FOR A SEEDED-AND-UNCONFIRMED KEY (F1, deliberate). A
+      // seeded value has no transcript span and no worker turn behind it — writing it here would
+      // claim the worker was asked and answered `current_city`, which is false, and would give
+      // the review screen and any later reader no way to tell a seed from a real answer. The
+      // review screen's `prefilled_keys` merge (`profiling-session.service.ts`) and the
+      // admin-journey completion rule both read the envelope/`conversation_state` copy instead.
+      if (envelope.prefilledKeys.includes(record.question_key)) continue;
       const row = packAnswerRowFor({
         workerId,
         sessionId,

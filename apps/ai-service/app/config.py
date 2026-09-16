@@ -702,9 +702,17 @@ class Settings(BaseSettings):
 
     # ADR-0041 D5, amended 2026-09-10: the résumé goes to the model FULLY UNMASKED.
     #
-    # OFF BY DEFAULT AND OFF IN EVERY COMMITTED FILE. Arming it is a deployment decision
-    # taken once, visibly, by a person — the same posture as `AI_ENABLE_REAL_CALLS`. With
-    # it false the route behaves exactly like every other: `default_masker` runs the full
+    # OFF BY DEFAULT AND ARMED IN NO COMMITTED FILE. Since 2026-09-15 (owner ruling) it is
+    # DECLARED in docker-compose.staging.yml as `${RESUME_PARSE_RAW_TEXT_ENABLED:-false}` on
+    # this service, so the box can reach it; arming is the box `.env` plus a re-run of the
+    # deploy job, taken once, visibly, by a person. `tests/test_resume_parse.py` permits that
+    # one compose line and fails on any OTHER committed occurrence of the name, IN ANY CASE —
+    # this class never sets `case_sensitive`, so pydantic-settings reads
+    # `resume_parse_raw_text_enabled` or `Resume_Parse_Raw_Text_Enabled` as this exact field,
+    # and a case-sensitive scan (the bug closed 2026-09-16) let such a line sit beside the
+    # correct one, arm this field, and still read `hits == []`. `:-false` rather than
+    # `:-` because this bool rejects "" and the service would not boot. With it false the
+    # route behaves exactly like every other: `default_masker` runs the full
     # pseudonymization gateway over each line before the prompt is built.
     #
     # WHAT IT DOES NOT DO, and this is the whole reason it is one flag and not a mode: it

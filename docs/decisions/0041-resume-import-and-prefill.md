@@ -122,6 +122,47 @@ The override applies to **one task type, one route, one input class, behind one 
   not extend to transcripts, chat turns, voice notes, or any value already stored.
 - Behind `RESUME_PARSE_RAW_TEXT_ENABLED`, default `false`. With the flag unset the route runs
   fully masked or not at all.
+
+  **Amended 2026-09-15 (owner ruling): the flag is reachable, default off.** Until then the name
+  was absent from every compose file, which made it unarmable rather than merely off — compose
+  forwards only declared names, and no service has `env_file:`. It is now declared on the
+  `ai-service` service only, in `docker-compose.staging.yml`, as
+  `${RESUME_PARSE_RAW_TEXT_ENABLED:-false}` (`:-false`, because pydantic rejects `""` for the
+  bool and the service would not boot). **Arming:** the owner sets it in the box's `.env` after a
+  security check and **re-runs the deploy job** — compose interpolates the box `.env` for any name
+  ci.yml does not bridge (measured on the production box 2026-09-11 with `RESUME_UPLOADS_BUCKET`).
+  Never a manual `docker compose up` on the box: on 2026-09-11 that bypassed the CI secret bridge,
+  baked a wrong `REDIS_URL` into the api container and took production login down. **Never a
+  ci.yml bridge:** it would be a second arming path that overrides the box value.
+  `test_the_flag_is_armed_in_no_committed_file` (apps/ai-service/tests/test_resume_parse.py)
+  permits exactly that one compose line and is red for a truthy or empty default, a literal, a
+  declaration on another service or in another compose file, an env-file assignment, or any
+  occurrence under `.github/`; `real-call-posture-compose.guard.test.ts` pins the same line from
+  the api side.
+
+  **Amended 2026-09-16 (security review): closed a case-sensitivity gap in both guards, before
+  either landed on `main`.** `Settings` never sets `case_sensitive`, so pydantic-settings reads
+  `resume_parse_raw_text_enabled` (or any other case) as the identical field as the SCREAMING_CASE
+  name — a committed line spelled that way, sitting beside the correct declaration, would have
+  armed the flag while `test_the_flag_is_armed_in_no_committed_file` reported `hits == []`, because
+  its own membership test compared the uppercase name against file text as written, and
+  `compose-env.ts`'s key regex (`[A-Z_][A-Z0-9_]*`) could not even produce a map entry for a
+  lowercase key. Both scans are now case-insensitive on detection while staying byte-exact on the
+  one line they allow, proven with a case-variant fixture that is red against the pre-fix code and
+  green after. The `ai-service` leg of `ci.yml`'s path filter also now includes
+  `docker-compose*.yml`, so a compose-only PR runs the Python scan at all — before this it did not,
+  which is the shape the vulnerable line above would have taken. **Residual, stated rather than
+  hidden:** both scans read only files matching a known config-file shape (`.yml`/`.yaml`/`.env`/
+  `.example`/`.sh`/`.toml`/`.dockerfile`, or an `.env`-prefixed or `Dockerfile`-prefixed name, or a
+  path containing `.env.`); a declaration in a file shape outside that list, or a homoglyph
+  spelling of the key, is not caught by this PR and is not claimed to be.
+
+  **A second, independent lock (noted, not new):** arming `RESUME_PARSE_RAW_TEXT_ENABLED` alone
+  does not send anything unmasked to a real provider. `AIRouter` gates every call, `resume_parse`
+  included, on `Settings.real_call_enabled_for(task_type)` — `AI_ENABLE_REAL_CALLS` (default
+  `false`, `docker-compose.staging.yml`) AND the task type named in `AI_REAL_CALL_TASKS` (default
+  `profiling_chat_turn` only, which does not name `resume_parse`). With either lock closed, a raw
+  résumé built by this flag still goes to the mock path, not Gemini or Claude.
 - **Nothing is masked. The document goes to the model exactly as extracted** — amended by owner
   ruling **2026-09-10**, superseding this ADR's first draft, which held back government
   identifiers, phone numbers and email addresses. The owner's words: _"go fully raw no need to
@@ -237,6 +278,19 @@ POST /profiling/resume-import              → minted-key regex, mime + size via
 GET  /profiling/resume-import/:id          → { status, route: 'form' | 'chat', counts }
 ```
 
+**Amended 2026-09-15: the parse and the route settle in ONE write.** The first cut wrote
+`status = 'parsed'` from the parse step and `route` / `form_kind` / `suggestions_enc` from the route
+step in a second UPDATE. A client polling between the two read a terminal `parsed` beside a null
+route — which it treats as chat — and form-routed workers were sent to the chat. Now
+`ResumeImportRepository.settleParsed` is the only writer of every parse-derived column: one UPDATE
+sets status, route, form kind, the staged token and the extraction facts together,
+`WHERE status = 'parsing'`. `markFailed` carries the same guard. A successful parse writes no
+status; `extraction_method` is narrowed to the closed set, and a success without one is recorded
+as `parse_output_invalid`. A pack registry that cannot load degrades to the chat route with
+nothing staged (D9). A suggestion payload that cannot be built or encrypted is a fault, not an
+outage: it throws and nothing is settled (CLAUDE.md §3). No migration was needed — the single
+UPDATE satisfies every `wri_*` CHECK.
+
 `GET :id` is deliberately **not** purpose-gated, following the reasoning already written at
 [voice.controller.ts:77-84](../../apps/api/src/voice/voice.controller.ts): withdrawal must stop
 new processing, not hide from a worker what he already owns.
@@ -304,6 +358,9 @@ Four consequences, all of them good:
   "no résumé" door is the path that ships today, byte for byte — pinned by a test.
 - **Dormant on arrival.** `RESUME_UPLOADS_BUCKET` defaults to `""` and the three processing
   routes 503 until it is armed, exactly as voice and photo do.
+- **The raw-text switch is reachable but off (amended 2026-09-15).** One additive compose line on
+  the `ai-service` service resolves to `false`, identical to the behaviour before it; arming is
+  the box `.env` plus a deploy re-run, and a commit cannot arm it (§3.2).
 - **New dependencies** in the ai-service: `pypdf`, `python-docx`, `pytesseract`, `Pillow`,
   `pypdfium2`, plus the `tesseract-ocr` binary and `eng`/`hin` traineddata in the image.
   **`pypdfium2` rather than the `pymupdf` an earlier draft named**: PyMuPDF is AGPL-3.0, which a
@@ -315,6 +372,18 @@ Four consequences, all of them good:
   capability claims a real worker résumé rarely carries; and only **9 of 21** declared roles have
   a form at all, so most workers route to chat regardless. RI-7 measures per-field coverage and
   error rate over a real corpus before any worker-facing claim about time saved is made.
+- **Events are exactly-once per import (amended 2026-09-15).** `profile.resume_parsed` and
+  `profile.resume_parse_failed` are emitted on the same transaction as the guarded status write,
+  only when that write matched a row, and with idempotency keys
+  `profile.resume_parsed:<importId>` / `profile.resume_parse_failed:<importId>`. The
+  `resume_parsed` payload is validated before the transaction opens, so a schema bug never holds
+  a row lock; `resume_parse_failed` carries only closed enums and ids and is validated by `emit`
+  inside the transaction. Payload shapes are unchanged (additive only).
+- **Retries never re-bill, and can strand a row (amended 2026-09-15).** A throw after the AI call
+  (a failed seal, a database error inside the settle) rolls back to `parsing` with no event. The
+  BullMQ redelivery sees a row past `uploaded`, does not read the document again, and completes
+  with `route: null`. The row stays `parsing` until a sweep marks stale rows
+  `parse_deadline_exceeded` — **that sweep does not exist yet and is owed before real traffic.**
 
 ## 8. Open
 
@@ -330,6 +399,50 @@ Four consequences, all of them good:
 3. **DPDP notice copy.** D1 blocks nothing, but the notice a worker reads still does not mention
    handing over a document. Best written in one pass alongside the outstanding `employer_sharing`
    and E4 copy.
+
+## 9. Amendment 2026-09-15 — the universal append is removed from trade forms (#1503)
+
+**What changed.** `f455bb36` (2026-09-12) made §5 work for résumé facts by appending all eight
+`qp_universal@2` questions (`primary_trade`, `experience_years`, `current_city`,
+`salary_expected`, `preferred_locations`, `availability`, `education`, `shift_preference`) to every
+trade form, so a suggestion keyed to one had a question to sit beside. Five of those were facts the
+same form already asked: the tier question, and the Preferences and Qualifications pages served a
+few screens later. Workers answered them twice, and the page's write raced the question's. #1503
+removes the append. `GET /profiling/form` serves the trade pack's visible questions and the marker
+pages again, exactly as before `f455bb36` — except `contextFor`'s résumé-import fallback and the
+resulting nullable `session_id` (both from `f455bb36`) are deliberately **kept**, fixed forward
+rather than reverted, so a worker routed to a form by his résumé still reaches it with no chat
+session behind it.
+
+**Owner rulings (2026-09-15)** that bind this:
+- Résumé facts live on the pages that **own** them (Preferences, Qualifications, Work History).
+  They never get extra question screens.
+- The pages own shift, preferred city, salary and education.
+- `primary_trade` is removed from trade forms.
+- `f455bb36` is fixed forward, not reverted.
+
+**The legacy-key shim.** An app holding a pre-deploy schema can still `POST /profiling/form/answer`
+with one of those eight keys. A 400 would strand the worker on that screen, because skipping POSTs
+the same key (CLAUDE.md §3). Those eight keys, and only those, are accepted from a frozen literal
+(`legacy-universal-answer.ts`). Each is answered 200 with `schema_stale: true` so the app re-fetches.
+The row is stored where `f455bb36` stored it, under the trade pack id. The shim writes **no**
+`worker_attributes` row and runs **no** completion evaluation. It logs the key slug and counts,
+never the value. Remove it once that log reads zero across a release window.
+
+**Numbers.** Form number fields now accept exactly one numeric token. The old digit-strip stored
+"pata nahi" as 0 and "5 se 7 saal" as 57. Trade questions 400 on anything else; the shim declines.
+
+**The gap, recorded rather than implied away.** §5's "suggestion beside the question" no longer
+holds for the universal facts. **On current app builds, a worker routed to a form by his résumé sees
+none of his résumé's experience, city, salary, education or availability anywhere** until the owning
+pages render suggestions. That work is tracked on #1503/#1504. Suggestions keyed to his trade pack's
+own questions are unaffected. A worker-fact registry (`apps/api/src/profiling/facts/`) now names
+every spelling of each fact across packs, pages and tables. It is the foundation those pages build on.
+That exhaustiveness is held over alias **names**, not per kind: `trade`, `experience`,
+`current_city`, `salary_expected`, `education` and `availability` are RFS crosswalk fields that
+never produce a `worker_attributes` row, so they are registered only under `target_field` /
+`worker_column`, and a reader of the registry must not assume every fact settles under
+`attribute_key`.
 
 ---
 

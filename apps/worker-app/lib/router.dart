@@ -70,9 +70,9 @@ class Routes {
   static const String name =
       '/name'; // "Your name" step (after consent, before chat)
 
-  /// The three-door résumé-upload step (#1499, ADR-0041 RI-6) — sits BETWEEN
+  /// The two-door résumé-upload step (#1499, ADR-0041 RI-6) — sits BETWEEN
   /// [name] and [chatProfiling], which is where [name] used to hand over
-  /// directly. Two of its three doors are that same handover, unchanged.
+  /// directly. One of its two doors is that same handover, unchanged.
   static const String resumeUpload = '/resume-upload';
 
   /// Referral invite (A3) — pushed full-screen from Profile / Settings.

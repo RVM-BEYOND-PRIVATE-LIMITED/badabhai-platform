@@ -50,6 +50,10 @@ const ANSWER: AnswerRecord = {
  * being tested for.
  */
 const FULL: ProfilingEnvelope = {
+  // ADR-0041 RI-5. A NON-NULL value on purpose: this fixture exists to prove every field
+  // survives the round trip, and a null would round-trip through any narrower that dropped
+  // the field entirely.
+  resumeConfirm: { importId: "11111111-1111-4111-8111-111111111111", state: "pending" },
   rev: 12,
   phase: "universal_tail",
   occupation: PIN,
@@ -136,6 +140,14 @@ const FULL: ProfilingEnvelope = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: "cnc_turner",
+  // NON-DEFAULT, like every field here: `false` is what a `narrow` that dropped it would rebuild.
+  identifyTypeRequested: true,
+  // NON-DEFAULT, like every field here: 0 is what a `narrow` that dropped it would rebuild (#1506
+  // HIGH-1 review fix).
+  identifyStalledTurns: 2,
+  // NON-DEFAULT, like every field here: `[]` is what a `narrow` that dropped it would rebuild
+  // (#1504 item 5, city-seed).
+  prefilledKeys: ["current_city"],
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
@@ -347,6 +359,34 @@ describe("a present-but-damaged envelope is REPAIRED, never discarded", () => {
       // The turn itself still replays — only the prediction is withheld.
       expect(drifted?.lastTurn?.reply).toBe(FULL.lastTurn?.reply);
     }
+  });
+
+  it("narrows an ABSENT or non-boolean identifyTypeRequested to false (#1506)", () => {
+    // Every envelope in flight across the deploy lacks it, and none of them asked a worker to type
+    // their trade. True would read the worker's next sentence as an answer to a prompt never shown.
+    const legacy = JSON.parse(JSON.stringify(FULL)) as Record<string, unknown>;
+    delete legacy.identifyTypeRequested;
+    expect(narrowProfilingEnvelope(legacy)?.identifyTypeRequested).toBe(false);
+    expect(
+      narrowProfilingEnvelope({ ...legacy, identifyTypeRequested: "true" })?.identifyTypeRequested,
+    ).toBe(false);
+    // The twin: the literal survives, so the two assertions above are about the default.
+    expect(narrowProfilingEnvelope(FULL)?.identifyTypeRequested).toBe(true);
+  });
+
+  it("narrows an ABSENT or negative identifyStalledTurns to 0 (#1506 HIGH-1 review fix)", () => {
+    // Every envelope in flight across the deploy this field ships in has none, and 0 is what
+    // means "no consecutive non-answer under an offer yet" — the state every one of them is
+    // actually in. A negative would buy extra re-serves past `MAX_IDENTIFY_STALLED_TURNS`, the
+    // same reason every other counter here clamps at zero.
+    const legacy = JSON.parse(JSON.stringify(FULL)) as Record<string, unknown>;
+    delete legacy.identifyStalledTurns;
+    expect(narrowProfilingEnvelope(legacy)?.identifyStalledTurns).toBe(0);
+    expect(
+      narrowProfilingEnvelope({ ...legacy, identifyStalledTurns: -3 })?.identifyStalledTurns,
+    ).toBe(0);
+    // The twin: the real count survives, so the two assertions above are about the default/clamp.
+    expect(narrowProfilingEnvelope(FULL)?.identifyStalledTurns).toBe(2);
   });
 
   it("narrows an ABSENT lookahead to null — a record written before the field replays as today", () => {

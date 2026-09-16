@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, HttpCode, Put, UseGuards } from "@nestjs/common";
 
 import {
   WorkerAuthGuard,
@@ -10,6 +10,7 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
   SetMyQualificationsSchema,
+  type MyQualificationsResponse,
   type SetMyQualificationsDto,
 } from "./worker-qualifications.dto";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
@@ -57,6 +58,22 @@ export class WorkerQualificationsController {
       education_credential: EDUCATION_QUALIFICATIONS,
       education_council: EDUCATION_COUNCILS,
     };
+  }
+
+  /**
+   * The caller's STORED credentials, in the PUT's own entry shapes (#1504).
+   *
+   * THE PREFILL, and the same posture as `GET me/work-preferences`: worker id from the session,
+   * consent-gated, `no-store` because an institute plus a year plus a certificate narrows a person,
+   * and no event because a read changes nothing.
+   */
+  @Get("me/qualifications")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyQualifications(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<MyQualificationsResponse> {
+    return this.qualifications.getForWorker(worker.id);
   }
 
   /**

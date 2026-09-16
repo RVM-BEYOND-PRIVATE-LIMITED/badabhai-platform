@@ -22,6 +22,7 @@ import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
 import { ProfilingSessionService } from "./profiling-session.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
@@ -133,6 +134,10 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` calls it from
+    // `answer()`, fire-and-forget — see `TradeFormService.triggerOtherAnswerPolish`. `AiService`
+    // and `AiCostRecorder` come from `AiModule`, already imported above.
+    OtherAnswerPolishService,
     ResumeImportRepository,
     ResumeImportService,
     ResumeParseService,

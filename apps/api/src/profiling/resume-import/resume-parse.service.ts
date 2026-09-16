@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 import type { ParsedField } from "@badabhai/ai-contracts";
-import type {
-  ResumeExtractionMethodName,
-  ResumeImportFailureName,
+import {
+  RESUME_EXTRACTION_METHODS,
+  type ResumeExtractionMethodName,
+  type ResumeImportFailureName,
 } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
@@ -18,11 +19,18 @@ import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
  * Drive one résumé import through the AI service and the second wall (ADR-0041 RI-3).
  *
  * WHAT THIS PHASE OWNS AND WHAT IT DELIBERATELY DOES NOT. This service gets a document read
- * and the result gated and recorded. It does NOT decide where the worker goes next and does
- * NOT stage a single suggestion — `routeToTradeForm`, the occupation resolve and the staged
+ * and the result gated. It does NOT decide where the worker goes next and does NOT stage a
+ * single suggestion — `routeToTradeForm`, the occupation resolve and the staged
  * `suggestions_enc` payload are RI-4. That split is why no `profile.resume_parsed` event is
  * emitted here: its payload REQUIRES `route` and `form_kind`, which are RI-4's outputs, and
  * emitting it with a guessed route would record a handover that never happened.
+ *
+ * AND IT IS WHY A SUCCESSFUL PARSE WRITES NO STATUS HERE (amended 2026-09-15). This service used
+ * to mark the row `parsed` and leave the route to a second update. A client polling between the
+ * two read a terminal status beside a null route, took the null for "chat", and sent a
+ * form-routed worker to the chat. The extraction facts now ride on the draft, and
+ * `ResumeRouteService` writes them together with the route in `settleParsed`'s single guarded
+ * UPDATE. Only a FAILURE is terminal here, because a failure has nothing left to decide.
  *
  * `profile.resume_parse_failed` IS emitted here, because everything it names is known here —
  * and because ruling D9 makes failure the ordinary case rather than the exceptional one. It
@@ -97,9 +105,20 @@ export class ResumeParseService {
         row.id,
         workerId,
         out.failure_reason as ResumeImportFailureName,
-        out.extraction_method ?? null,
+        narrowExtractionMethod(out.extraction_method),
         ctx,
       );
+    }
+
+    // A SUCCESS MUST NAME HOW THE TEXT WAS RECOVERED. The contract types `extraction_method` as
+    // an open, nullable string; the column's CHECK and `profile.resume_parsed` both require the
+    // closed set, and the event's field is NOT nullable. A cast used to paper over the gap, so a
+    // far side that said "success" without a method — or with one outside the set — produced a
+    // settle the database refused and an event the registry refused, AFTER the spend. It is an
+    // off-contract reply, and it is recorded as exactly that.
+    const extractionMethod = narrowExtractionMethod(out.extraction_method);
+    if (extractionMethod === null) {
+      return this.fail(row.id, workerId, "parse_output_invalid", null, ctx);
     }
 
     // ---- THE SECOND WALL ---------------------------------------------------------------
@@ -123,52 +142,90 @@ export class ResumeParseService {
       );
     }
 
-    await this.imports.markParsed(row.id, {
-      extractionMethod: out.extraction_method,
-      pageCount: out.page_count,
-      ocrConfidence: out.ocr_confidence,
-    });
-
+    // NO WRITE. The row stays `parsing` until the route service settles it in one statement —
+    // see the class docblock for the defect a write here caused.
     return {
       status: "parsed",
       importId: row.id,
       fields: gated.accepted,
       employments,
-      extractionMethod: out.extraction_method,
+      extractionMethod,
+      pageCount: out.page_count,
+      ocrConfidence: out.ocr_confidence,
     };
   }
 
+  /**
+   * Record the failure and count it — together, and only if this call is the one that settled.
+   *
+   * ONE TRANSACTION, BECAUSE THE EVENT IS THE METRIC. A `failed` row without its event is a
+   * failure the funnel never counted; an event without the row is one counted twice on the next
+   * delivery. `markFailed` is guarded `WHERE status = 'parsing'`, and its boolean is what
+   * entitles this call to emit: a row that had already left `parsing` gets no second event.
+   *
+   * THE IDEMPOTENCY KEY IS A SECOND, INDEPENDENT GUARD. The status guard stops a duplicate at the
+   * row; the key stops one at the events table (`ON CONFLICT DO NOTHING`). Either alone would
+   * hold today. Both mean a later edit that loosens one does not silently double-count.
+   *
+   * A `false` from the guard is reported as `already_settled`, not as `failed` — this call did
+   * not record a failure, and saying so would be a claim about a row it did not write.
+   */
   private async fail(
     importId: string,
     workerId: string,
     reason: ResumeImportFailureName,
-    extractionMethod: string | null,
+    extractionMethod: ResumeExtractionMethodName | null,
     ctx: RequestContext,
   ): Promise<ParsedDraft> {
-    await this.imports.markFailed(importId, reason, extractionMethod);
-    await this.events.emit({
-      event_name: "profile.resume_parse_failed",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "worker", subject_id: workerId },
-      payload: {
-        worker_id: workerId,
-        import_id: importId,
-        reason,
-        // Nullable BECAUSE the commonest failures happen before a method is chosen — an
-        // encrypted PDF never gets that far.
-        extraction_method: extractionMethod as ResumeExtractionMethodName | null,
-      },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
+    const recorded = await this.imports.withTransaction(async (tx) => {
+      if (!(await this.imports.markFailed(importId, reason, extractionMethod, tx))) return false;
+      await this.events.emit({
+        event_name: "profile.resume_parse_failed",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: {
+          worker_id: workerId,
+          import_id: importId,
+          reason,
+          // Nullable BECAUSE the commonest failures happen before a method is chosen — an
+          // encrypted PDF never gets that far.
+          extraction_method: extractionMethod,
+        },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        idempotencyKey: `profile.resume_parse_failed:${importId}`,
+        tx,
+      });
+      return true;
     });
+    if (!recorded) return { status: "already_settled", importStatus: "settled_elsewhere" };
     return { status: "failed", importId, reason };
   }
+}
+
+/**
+ * The contract's open string, narrowed to the closed set — or null.
+ *
+ * A MEMBERSHIP TEST, NOT A CAST. `as ResumeExtractionMethodName` asserts what it cannot know;
+ * this checks, and whatever is not in the set becomes null so the caller has to decide what an
+ * unknown method means rather than inheriting a value two CHECKs would refuse.
+ */
+function narrowExtractionMethod(
+  method: string | null | undefined,
+): ResumeExtractionMethodName | null {
+  return (RESUME_EXTRACTION_METHODS as readonly string[]).includes(method ?? "")
+    ? (method as ResumeExtractionMethodName)
+    : null;
 }
 
 /**
  * What RI-4 will be handed. Deliberately NOT persisted here: nothing about a parse is a claim
  * the worker has made, and ruling D2 says a suggestion becomes an answer only when he confirms
  * it. An import abandoned between this phase and the next must leave zero claims behind.
+ *
+ * THE PARSED VARIANT CARRIES THE EXTRACTION FACTS because nothing else writes them any more:
+ * `settleParsed` records them in the same statement as the route. `extractionMethod` is the
+ * closed set, never null — a success without a method is refused as `parse_output_invalid`.
  */
 export type ParsedDraft =
   | { status: "not_found" }
@@ -179,5 +236,7 @@ export type ParsedDraft =
       importId: string;
       fields: Record<string, ParsedField>;
       employments: ResumeEmployment[];
-      extractionMethod: string | null;
+      extractionMethod: ResumeExtractionMethodName;
+      pageCount: number | null;
+      ocrConfidence: number | null;
     };

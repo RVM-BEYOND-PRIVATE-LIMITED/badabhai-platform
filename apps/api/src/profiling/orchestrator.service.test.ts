@@ -22,7 +22,8 @@ import {
   type LastTurn,
   type ProfilingEnvelope,
 } from "./conversation-state";
-import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
+import { DISAMBIGUATION_PROMPT, IDENTIFY_TYPE_PROMPT, toPackOption } from "./identify.service";
+import { EXPERIENCE_GATE_PROMPT } from "./llm-turn.service";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -115,6 +116,16 @@ function makeWorld(
     pinThrows?: boolean;
     /** Retrieval came back ambiguous: chips on screen instead of a pack question (#695). */
     identifyOffer?: { prompt: string; options: QuestionPackOption[] } | null;
+    /**
+     * ADR-0041 RI-5 — what a parsed résumé staged for this worker, keyed by question key.
+     *
+     * ABSENT IS THE DEFAULT AND THE DEFAULT IS NO OFFER, which is what every other test in this
+     * file depends on: the interview they assert must be byte for byte the one a worker without
+     * a résumé gets.
+     */
+    resumeOffer?: { importId: string; suggestions: Map<string, unknown> } | null;
+    /** #1504 item 5 (city-seed) — `workers.current_city`, or absent for "nothing on file". */
+    workerCity?: string | null;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
@@ -185,6 +196,14 @@ function makeWorld(
   // `leads()` returning false is the whole of "off" as far as the orchestrator can tell.
   const llm = { leads: () => false, take: vi.fn(async () => null) };
 
+  const resumeSuggestions = {
+    pendingForChat: vi.fn(async () => opts.resumeOffer ?? null),
+    forImport: vi.fn(async () => opts.resumeOffer?.suggestions ?? new Map()),
+  };
+
+  // #1504 item 5 (city-seed).
+  const workers = { findCurrentCity: vi.fn(async () => opts.workerCity ?? null) };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
@@ -192,6 +211,11 @@ function makeWorld(
     chat as never,
     events as never,
     llm as never,
+  
+    // ADR-0041 RI-5. NO PENDING OFFER unless a test asks for one — see `resumeOffer`.
+    resumeSuggestions as never,
+    // #1504 item 5 (city-seed). No worker record to seed from unless a test overrides it.
+    workers as never,
   );
   return {
     orchestrator,
@@ -201,6 +225,8 @@ function makeWorld(
     identify,
     chat,
     events,
+    resumeSuggestions,
+    workers,
     storedPin: () => pinned,
   };
 }
@@ -324,6 +350,71 @@ describe("the first turn", () => {
     // NOTHING WAS WRITTEN. A worker whose interview could not start must be able to retry into it.
     expect(store.size).toBe(0);
     vi.restoreAllMocks();
+  });
+});
+
+describe("#1504 item 5 (city-seed) — a fresh interview seeds current_city from /name", () => {
+  it("takeTurn: skips q_city on a fresh session and marks it prefilled", async () => {
+    const { orchestrator, store, workers } = makeWorld({ workerCity: "Pune" });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    // q_city is already settled by the seed, so the first REAL question is q_years.
+    expect(result.questionKey).toBe("q_years");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.answerMap.find((r) => r.question_key === "q_city")).toMatchObject({
+      status: "answered",
+      value_normalized: "Pune",
+      turn: 0,
+    });
+    expect(saved?.prefilledKeys).toEqual(["q_city"]);
+    expect(workers.findCurrentCity).toHaveBeenCalledTimes(1);
+  });
+
+  it("takeTurn: does not seed when workers.current_city is blank", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: null });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    expect(result.questionKey).toBe("q_city");
+    expect(store.get(SESSION)?.profiling?.prefilledKeys).toEqual([]);
+  });
+
+  it("takeTurn: does not seed on a RESUMED (non-fresh) session, and never re-reads the DB", async () => {
+    const { orchestrator, store, workers } = makeWorld({ workerCity: "Pune" });
+    seed(store, { servedQuestionKey: "q_city" });
+    await orchestrator.takeTurn(say("main pune me rehta hu"));
+    expect(workers.findCurrentCity).not.toHaveBeenCalled();
+  });
+
+  it("takeTurn: a non-gazetteer city is seeded AS TYPED, and the question is still skipped", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: "Patna Gaon XYZ" });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    expect(result.questionKey).toBe("q_years");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.answerMap.find((r) => r.question_key === "q_city")?.value_normalized).toBe(
+      "Patna Gaon XYZ",
+    );
+  });
+
+  it("openTurn: reflects the seed in progress before any turn is taken", async () => {
+    const { orchestrator, store } = makeWorld({ workerCity: "Pune" });
+    const result = await orchestrator.openTurn({
+      sessionId: SESSION,
+      workerId: WORKER,
+      now: T0,
+      ctx: CTX as never,
+    });
+    // The seed settles q_city, so the screen opens on q_years — and nothing was written yet
+    // (openTurn re-serves without spending a turn), so the store may still be empty.
+    expect(result.questionKey).toBe("q_years");
+    expect(result.progress).toEqual({ answered: 1, total: 2 });
+    void store;
+  });
+
+  it("fails open: a DB error reading workers.current_city seeds nothing, and the turn proceeds", async () => {
+    const { orchestrator, workers } = makeWorld();
+    workers.findCurrentCity.mockRejectedValue(new Error("connection reset"));
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+    // Not a validation/privacy/auth failure — the convenience prefill simply did not happen.
+    expect(result.unavailable).toBeFalsy();
+    expect(result.questionKey).toBe("q_city");
   });
 });
 
@@ -2101,6 +2192,200 @@ describe("openTurn — putting the first question on screen", () => {
   });
 });
 
+describe("chips on screen own the message — custom answers (#1506)", () => {
+  const TRADE = item({
+    question_key: "primary_trade",
+    target_kind: "rfs",
+    target_field: "trade",
+    prompt_text: "Aap kaunsa kaam karte hain?",
+  });
+  const TRADE_PACK = pack("qp_universal", [TRADE, CITY]);
+  const CHIPS = [
+    { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+    { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+  ];
+  const OFFER = {
+    prompt: DISAMBIGUATION_PROMPT,
+    options: CHIPS.map((chip, index) => toPackOption(chip, index)),
+  };
+  const tradeOf = (store: Map<string, TranscriptBuffer>) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "primary_trade");
+
+  it("a 'Kuch aur' tap is never captured against the stale pack key under the offer", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, {
+      servedQuestionKey: "primary_trade",
+      askCounts: { primary_trade: 1 },
+      needsDisambiguation: true,
+      disambiguationOffer: CHIPS,
+    });
+    world.identify.identify.mockImplementation((async () => ({
+      patch: { needsDisambiguation: false, disambiguationOffer: [], identifyTypeRequested: true },
+      offer: null,
+      pinned: null,
+      prompt: IDENTIFY_TYPE_PROMPT,
+      tradeText: null,
+    })) as never);
+
+    const result = await world.orchestrator.takeTurn(say("Kuch aur"));
+
+    expect(tradeOf(world.store)).toBeUndefined();
+    // Identify is handed the lexicon's class, which is what its answer guard reads.
+    expect((world.identify.identify.mock.calls as unknown[][])[0]?.[3]).toBe("off_topic");
+    // …and the prompt it returned is the turn: chipless, keyless, typeable.
+    expect(result.reply).toBe(IDENTIFY_TYPE_PROMPT);
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBeNull();
+    expect(result.options).toEqual([]);
+    expect(result.inputMode).toBe("text");
+    expect(world.store.get(SESSION)?.profiling?.servedQuestionKey).toBeNull();
+  });
+
+  it("the vacuity twin: with no offer on screen, the same words ARE captured on that key", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, { servedQuestionKey: "primary_trade", askCounts: { primary_trade: 1 } });
+    await world.orchestrator.takeTurn(say("Kuch aur"));
+    expect(tradeOf(world.store)?.value_raw).toBe("Kuch aur");
+  });
+
+  it("'pata nahi' over the chips does not decline the stale pack question", async () => {
+    const world = makeWorld({ identifyOffer: OFFER });
+    seed(world.store, { needsDisambiguation: true, disambiguationOffer: CHIPS });
+    await world.orchestrator.takeTurn(say("pata nahi"));
+    const city = world.store
+      .get(SESSION)
+      ?.profiling?.answerMap.find((a) => a.question_key === "q_city");
+    expect(city?.status).not.toBe("declined");
+
+    // Twin: the same words with no offer DO decline the question on screen.
+    const plain = makeWorld();
+    seed(plain.store);
+    await plain.orchestrator.takeTurn(say("pata nahi"));
+    expect(
+      plain.store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "q_city")
+        ?.status,
+    ).toBe("declined");
+  });
+
+  it("identify's tradeText SUPERSEDES what the trade question held, and the tail moves on", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, {
+      needsDisambiguation: true,
+      disambiguationOffer: CHIPS,
+      answerMap: [
+        {
+          question_key: "primary_trade",
+          target_field: "trade",
+          value_raw: "mujhe job chahiye",
+          value_normalized: "mujhe job chahiye",
+          status: "answered",
+          evidence: null,
+          turn: 1,
+          history: [],
+        },
+      ],
+    });
+    world.identify.identify.mockImplementation((async () => ({
+      patch: { needsDisambiguation: false, disambiguationOffer: [] },
+      offer: null,
+      pinned: null,
+      prompt: null,
+      tradeText: "main electrician hoon",
+    })) as never);
+
+    const result = await world.orchestrator.takeTurn(say("main electrician hoon"));
+
+    const trade = tradeOf(world.store);
+    expect(trade?.value_raw).toBe("main electrician hoon");
+    expect(trade?.history[0]).toMatchObject({
+      value_raw: "mujhe job chahiye",
+      status: "superseded",
+    });
+    expect(result.questionKey).not.toBe("primary_trade");
+  });
+
+  it("both readers of a reopened session serve the type prompt, keyless", async () => {
+    const world = makeWorld();
+    seed(world.store, { identifyTypeRequested: true, servedQuestionKey: "q_city" });
+
+    const opened = await world.orchestrator.openTurn(open());
+    expect(opened.reply).toBe(IDENTIFY_TYPE_PROMPT);
+    expect(opened.questionKey).toBeNull();
+    expect(opened.options).toEqual([]);
+    expect(opened.inputMode).toBe("text");
+
+    const viewed = await world.orchestrator.viewSession(SESSION, T0);
+    expect(viewed?.served?.questionKey).toBeNull();
+    expect(viewed?.served?.promptText).toBe(IDENTIFY_TYPE_PROMPT);
+  });
+
+  // #1506 LOW-1 REVIEW FIX. `identifyTypeRequested` is cleared the moment the prompt is answered
+  // (`settleTypedTrade`'s own patch), so this state — the flag still `true` on an envelope that
+  // ALSO carries a pin — should not arise from a live turn. It is exactly the shape a stale
+  // pre-deploy Redis record or a hand-edited envelope has, and reading it wrong would re-serve a
+  // prompt for a trade the interview has already settled, ahead of the real pack question.
+  it("does NOT re-serve the type prompt once an occupation is pinned, even with the flag still set", async () => {
+    const world = makeWorld();
+    seed(world.store, {
+      identifyTypeRequested: true,
+      servedQuestionKey: "q_city",
+      occupation: {
+        job_domain_id: "jd_nco_7212_0301",
+        label: "Welder",
+        isco_unit_code: "7212",
+        match_status: "matched_lexical",
+        match_score: 0.97,
+        match_layer: "l0_exact",
+        pack_id: null,
+        pack_version: null,
+        catalog_version: "cat_2026_08",
+      },
+    });
+
+    const opened = await world.orchestrator.openTurn(open());
+    expect(opened.reply).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(opened.questionKey).toBe("q_city");
+
+    const viewed = await world.orchestrator.viewSession(SESSION, T0);
+    expect(viewed?.served?.promptText).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(viewed?.served?.questionKey).toBe("q_city");
+  });
+
+  it("a replay clamps a stamped model options_only to text, and keeps the gate's", async () => {
+    const stamp = (reply: string) => ({
+      inboundHash: inboundHash(SESSION, 1, "haan"),
+      reply,
+      kind: "ask" as const,
+      questionKey: null,
+      at: T0.toISOString(),
+      options: [
+        { option_key: "llm_a", label_text: "Haan", value: "Haan", implies_skill_id: null, is_none_of_above: false },
+        { option_key: "llm_b", label_text: "Nahi", value: "Nahi", implies_skill_id: null, is_none_of_above: false },
+      ],
+      progress: { answered: 0, total: 2 },
+      whyText: null,
+      answerType: "single_select" as const,
+      formOffer: null,
+      lookahead: null,
+      inputMode: "options_only" as const,
+      replays: 0,
+    });
+    const soon = new Date(T0.getTime() + 1_000);
+
+    const model = makeWorld();
+    seed(model.store, { lastTurn: stamp("Kya aapke paas ITI hai?") });
+    const replayedModel = await model.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedModel.replayed).toBe(true);
+    expect(replayedModel.inputMode).toBe("text");
+
+    const gate = makeWorld();
+    seed(gate.store, { lastTurn: stamp(EXPERIENCE_GATE_PROMPT) });
+    const replayedGate = await gate.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedGate.replayed).toBe(true);
+    expect(replayedGate.inputMode).toBe("options_only");
+  });
+});
+
 describe("a replayed turn is the SAME response, not a stripped one", () => {
   it("replays the chips, the progress and the question shape", async () => {
     const { orchestrator } = makeWorld();
@@ -2116,5 +2401,201 @@ describe("a replayed turn is the SAME response, not a stripped one", () => {
     expect(replay.progress).toEqual(first.progress);
     expect(replay.whyText).toBe(first.whyText);
     expect(replay.answerType).toBe(first.answerType);
+  });
+});
+
+describe("ADR-0041 RI-5 — one ask that settles what a résumé already told us", () => {
+  const IMPORT_ID = "33333333-3333-4333-8333-333333333333";
+
+  const suggestion = (values: Record<string, unknown>) => ({
+    values: { option_keys: [], text: null, number: null, bool: null, ...values },
+    source: "resume",
+    confidence: 0.9,
+  });
+
+  const withResume = () =>
+    makeWorld({
+      resumeOffer: {
+        importId: IMPORT_ID,
+        suggestions: new Map<string, unknown>([
+          ["q_city", suggestion({ text: "Pune" })],
+          ["q_years", suggestion({ number: 7 })],
+        ]),
+      },
+    });
+
+  const prefillEvents = (events: { emit: { mock: { calls: unknown[][] } } }) =>
+    events.emit.mock.calls
+      .map((call) => call[0] as { event_name: string; payload: Record<string, unknown> })
+      .filter((event) => event.event_name === "profile.resume_prefill_applied");
+
+  it("offers the facts as ONE bubble with two chips, instead of two questions", async () => {
+    // THE WHOLE POINT OF THE PHASE. Two questions become one ask.
+    const { orchestrator } = withResume();
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.reply).toBe("Resume se ye mila: Pune · 7. Sahi hai?");
+    expect(result.kind).toBe("ask");
+    expect(result.answerType).toBe("single_select");
+    expect(result.options.map((option) => option.option_key)).toEqual([
+      "resume_confirm_yes",
+      "resume_confirm_no",
+    ]);
+    // NO QUESTION KEY. The bubble belongs to no pack, so naming one would make the next turn
+    // capture "haan" as that question's answer.
+    expect(result.questionKey).toBeNull();
+  });
+
+  it("SPENDS AN ASK — the budget still describes what the worker was asked", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(store.get(SESSION)?.profiling?.engineAsks).toBe(1);
+    expect(store.get(SESSION)?.profiling?.resumeConfirm).toEqual({
+      importId: IMPORT_ID,
+      state: "pending",
+    });
+  });
+
+  it("a worker with NO résumé gets the ordinary first question, unchanged", async () => {
+    // The invariant the whole feature ships under.
+    const { orchestrator } = makeWorld();
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.reply).not.toContain("Resume se");
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("'haan' writes every offered fact AND serves the next question in the same bubble", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    const result = await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const byKey = new Map(answers.map((record) => [record.question_key, record]));
+    expect(byKey.get("q_city")?.value_normalized).toBe("Pune");
+    expect(byKey.get("q_years")?.value_normalized).toBe(7);
+    expect(byKey.get("q_city")?.status).toBe("answered");
+    // AND the interview moved on in the same breath — no round trip to be told "theek hai".
+    expect(result.reply).not.toContain("Resume se");
+  });
+
+  it("the confirmed answer carries NO document text and NO document evidence (ruling D4)", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const confirmed = answers.filter((record) => record.status === "answered");
+    expect(confirmed.length).toBeGreaterThan(0); // vacuity: there ARE records to inspect
+    for (const record of confirmed) {
+      expect(record.value_raw).toBeNull();
+      expect(record.evidence).toBeNull();
+    }
+  });
+
+  it("'nahi' writes NOTHING and drops straight back to the ordinary sequence", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    const result = await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(answers.filter((record) => record.status === "answered")).toEqual([]);
+    expect(result.questionKey).toBe("q_city");
+  });
+
+  it("an UNREADABLE reply writes nothing — it is never taken as a yes", async () => {
+    // The worst failure available to this turn is writing several answers off a sentence
+    // nobody understood.
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("matlab kya", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    expect(answers.filter((record) => record.status === "answered")).toEqual([]);
+  });
+
+  it("is offered ONCE — a settled offer is never re-asked", async () => {
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+    const third = await orchestrator.takeTurn(say("Pune", new Date(T0.getTime() + 120_000)));
+
+    expect(third.reply).not.toContain("Resume se");
+    expect(store.get(SESSION)?.profiling?.resumeConfirm?.state).toBe("settled");
+  });
+
+  it("emits the prefill event on a DECLINE too, with accepted: 0", async () => {
+    // `offered` minus `accepted` is the parser's error rate as judged by the only person
+    // qualified to judge it. A funnel that records only agreement has no denominator.
+    const { orchestrator, events } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("nahi", new Date(T0.getTime() + 60_000)));
+
+    const emitted = prefillEvents(events);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.payload).toMatchObject({ surface: "chat", offered: 2, accepted: 0 });
+  });
+
+  it("emits offered AND accepted on a yes, and no document text with them", async () => {
+    const { orchestrator, events } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const emitted = prefillEvents(events);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.payload).toMatchObject({ offered: 2, accepted: 2 });
+    expect(JSON.stringify(emitted[0]!.payload)).not.toContain("Pune");
+  });
+
+  it("re-derives against the answer map AS IT IS NOW, so a stored answer is never overwritten", async () => {
+    // A worker can answer one of these questions between the offer and his reply — on the voice
+    // surface the two are separate submissions. Ruling D7 says his answer wins, and the only way
+    // to honour that is to rebuild the list at settle time rather than trust the one shown.
+    //
+    // Found by a mutation with no test to fail: pointing `confirmableFacts` at an empty answer
+    // map changed nothing anywhere, which meant this property was never being checked.
+    const { orchestrator, store } = withResume();
+    await orchestrator.takeTurn(say("shuru karein"));
+
+    const buffered = store.get(SESSION)!;
+    store.set(SESSION, {
+      ...buffered,
+      profiling: {
+        ...buffered.profiling!,
+        answerMap: [
+          {
+            question_key: "q_city",
+            target_field: "current_city",
+            value_raw: "Mumbai",
+            value_normalized: "Mumbai",
+            status: "answered",
+            evidence: null,
+            turn: 1,
+            history: [],
+          },
+        ],
+      },
+    });
+
+    await orchestrator.takeTurn(say("haan", new Date(T0.getTime() + 60_000)));
+
+    const answers = store.get(SESSION)?.profiling?.answerMap ?? [];
+    const byKey = new Map(answers.map((record) => [record.question_key, record]));
+    // HIS city stands; the résumé's is not written over it.
+    expect(byKey.get("q_city")?.value_normalized).toBe("Mumbai");
+    // And the fact he had NOT answered still lands, so the turn was not wasted.
+    expect(byKey.get("q_years")?.value_normalized).toBe(7);
+  });
+
+  it("an import with nothing to offer costs no ask and no bubble", async () => {
+    const { orchestrator, store } = makeWorld({
+      resumeOffer: { importId: IMPORT_ID, suggestions: new Map<string, unknown>() },
+    });
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.questionKey).toBe("q_city");
+    // Recorded as settled so the read is not repeated on every remaining turn.
+    expect(store.get(SESSION)?.profiling?.resumeConfirm?.state).toBe("settled");
   });
 });

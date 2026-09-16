@@ -93,7 +93,12 @@ const answer = (partial: Partial<AnswerRecord> & { question_key: string }): Answ
 
 function makeWorld(
   opts: {
-    session?: { id: string; workerId: string; status: string } | null;
+    session?: {
+      id: string;
+      workerId: string;
+      status: string;
+      conversationState?: Record<string, unknown> | null;
+    } | null;
     latest?: { id: string; workerId: string; status: string } | null;
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
@@ -838,6 +843,63 @@ describe("the review the worker confirms", () => {
     const { service } = makeWorld({ view: null });
 
     await expect(service.review(WORKER, SESSION)).resolves.toMatchObject({ rows: [] });
+  });
+
+  describe("#1504 item 5 (city-seed): a flushed session still shows a seeded, never-asked key", () => {
+    it("merges the seeded key in from conversation_state — no worker_pack_answer row exists for it", async () => {
+      const { service } = makeWorld({
+        // Post-flush: the Redis envelope is gone, so `view` is what a lapsed buffer looks like.
+        view: null,
+        flushed: [
+          { questionKey: "q_years", status: "answered", answerNumber: 8 },
+        ],
+        session: {
+          id: SESSION,
+          workerId: WORKER,
+          status: "ended",
+          conversationState: {
+            prefilled_keys: ["q_city"],
+            answer_map: [
+              { question_key: "q_city", target_field: "current_city", value_raw: null, value_normalized: "Pune", status: "answered", evidence: null, turn: 0, history: [] },
+            ],
+          },
+        },
+      });
+
+      const result = await service.review(WORKER, SESSION);
+
+      expect(result.rows).toContainEqual({
+        question_key: "q_city",
+        prompt_text: "q_city",
+        status: "answered",
+        display_value: "Pune",
+      });
+      expect(result.rows).toHaveLength(2);
+    });
+
+    it("does NOT merge a prefilled key that already has a real worker_pack_answer row (post-correction)", async () => {
+      const { service } = makeWorld({
+        view: null,
+        flushed: [{ questionKey: "q_city", status: "answered", answerText: "Mumbai" }],
+        session: {
+          id: SESSION,
+          workerId: WORKER,
+          status: "ended",
+          conversationState: {
+            // `prefilled_keys` stale/unset here — correctAnswer already removed it, and the row
+            // is the source of truth.
+            prefilled_keys: [],
+            answer_map: [
+              { question_key: "q_city", target_field: "current_city", value_raw: "Mumbai", value_normalized: "Mumbai", status: "answered", evidence: null, turn: 4, history: [] },
+            ],
+          },
+        },
+      });
+
+      const result = await service.review(WORKER, SESSION);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.display_value).toBe("Mumbai");
+    });
   });
 });
 

@@ -35,6 +35,22 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
+import { classifyLlmReply, EXPERIENCE_GATE_PROMPT } from "./llm-reply-guard";
+
+/**
+ * RE-EXPORTED, NOT REDECLARED: `llm-reply-guard.ts` owns this string now — its `repeatsHistory`
+ * job-boundary signal (#1517 review, MAJOR 2) needs it too, and a second hand-copied literal here
+ * would drift from the one actually served the moment either side changed its wording. Every
+ * existing importer of `EXPERIENCE_GATE_PROMPT` from this module keeps working unchanged.
+ *
+ * `question-tts-text.ts`/`reply-closure.json` carry NO Devanagari twin for this line as of #1505
+ * (checked against the current merged tree, not assumed) — the voice form falls back to
+ * on-device TTS for it exactly as it did before. An earlier draft of #1505 considered adding one,
+ * plus a second engine line for a duration follow-up question; both are DELIBERATELY NOT built
+ * here — F5's guard only ever falls back to THIS existing prompt or to `done`, never to a new
+ * line, so no new TTS entry is needed for it either.
+ */
+export { EXPERIENCE_GATE_PROMPT };
 
 /**
  * How many questions the model may ask before the engine takes over.
@@ -53,7 +69,6 @@ export const MAX_LLM_ASKS = 20;
  */
 export const MAX_EXPERIENCE_ENTRIES = 5;
 
-export const EXPERIENCE_GATE_PROMPT = "Aur koi experience jodna hai?";
 const GATE_YES = "Haan";
 const GATE_NO = "Nahi";
 
@@ -352,11 +367,82 @@ export class LlmTurnService {
       };
     }
 
+    // 5. A MODEL-AUTHORED ASK IS ALWAYS TYPEABLE (#1506). `options_only` locks the composer on
+    //    the shipped client (#770/#791), and the model used to be able to set it on ANY question —
+    //    including role chips for "mujhe job chahiye", where the worker's own trade is exactly the
+    //    answer most likely to be missing from four guesses. Typing off is a CONTROL-FLOW decision
+    //    and the engine owns control flow: branches 3 and 3b above are the only turns allowed to
+    //    make it, and they are the engine's own Yes/No gate.
+    //
+    //    COUNTS ONLY in the log — never the reply, never the chips (§3 Privacy First). It is the one
+    //    signal that says how often the prompt rule against `options_only` is being ignored.
+    if (out.input_mode === "options_only") {
+      this.logger.log(
+        `model_input_mode_clamped stage=${out.stage} chips=${out.suggested_answers.length}; ` +
+          `a model ask is always served as text`,
+      );
+    }
+
+    // 5a. THE MODEL'S LINE IS UNTRUSTED (#1505 F5) — classified BEFORE it is ever served. Two
+    //     shapes are refused: the model writing the engine's OWN gate in its own words
+    //     (`'gate_shaped'`, §3 — the gate is ours, not the model's, and a model-authored twin
+    //     produces a "Nahi" that settles nothing structured), and the model repeating a question
+    //     from anywhere earlier in the transcript (`'repeat'` — the platform's standing "AI
+    //     repeats" ruling is "move on, no retry" for ANY repeated question). Either way: NO SECOND
+    //     MODEL CALL, ever — retrying would spend a worker's round trip discovering the model does
+    //     the same thing twice. The engine takes the turn instead, exactly the branch-3/3b/4 shapes
+    //     above: the gate if there is a job to offer another of, otherwise `done` and the tail
+    //     takes over in the same response.
+    //
+    //     COUNTS ONLY IN THE LOG (§3 Privacy First) — a reason code and the entry/ask counters,
+    //     never the model's or the worker's words.
+    const replyClass = classifyLlmReply(out.reply_text, history);
+    if (replyClass !== "ok") {
+      this.logger.log(
+        `model_reply_discarded reason=${replyClass} stage=${out.stage} ` +
+          `experiences=${draft.experiences.length}/${MAX_EXPERIENCE_ENTRIES} asks=${asks}; ` +
+          `the engine takes this turn, no second model call`,
+      );
+      if (
+        !envelope.llmGateAsked &&
+        draft.experiences.length > 0 &&
+        draft.experiences.length < MAX_EXPERIENCE_ENTRIES
+      ) {
+        return {
+          kind: "ask",
+          reply: EXPERIENCE_GATE_PROMPT,
+          chips: [GATE_YES, GATE_NO],
+          inputMode: "options_only",
+          patch: {
+            llmDraft: draft,
+            llmStage: "experience",
+            llmGateOpen: true,
+            llmGateAsked: true,
+            llmLedTurns: ledTurns,
+          },
+        };
+      }
+      // ZERO ENTRIES: a gate here would strand a "Nahi" with nothing structured behind it, so
+      // Phase A ends to the deterministic tail instead of offering to add "another" of nothing.
+      // ANY OTHER CASE (the gate was already asked once, per `llmGateAsked`): also `done` — the
+      // same outcome, for the same reason branch 4 above reaches it.
+      return {
+        kind: "done",
+        patch: {
+          ...closeGate,
+          llmDraft: draft,
+          llmStage: "done",
+          llmAsks: asks + 1,
+          llmLedTurns: ledTurns,
+        },
+      };
+    }
+
     return {
       kind: "ask",
       reply: out.reply_text,
       chips: out.suggested_answers,
-      inputMode: out.input_mode,
+      inputMode: "text",
       // `out.stage` IS THE MODEL'S, AND IT MAY NOT SAY `done` HERE (§3). `done` is a legal member
       // of `LLM_INTERVIEW_STAGES`, so the model can return it on a turn that is still ASKING a
       // question — `experience_entry: null`, `phase_a_done: false`, a normal `reply_text` — and
@@ -424,7 +510,8 @@ function wantsAnotherExperience(text: string): boolean {
  *
  * AN EXPERIENCE ENTRY IS THE LAST ROLE FALLBACK. Both labels default to `null` and an entry may
  * arrive on ANY turn, including the first — the composite opener actively invites it ("aap kaun
- * sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?" answered in one sentence). The
+ * sa kaam karte hain, aur kitna tajurba hai?" answered in one sentence — #1504 item 5 dropped the
+ * opener's city clause; `/name` already collects it). The
  * entry then opens the Yes/No gate, so a worker can be looking at "Aur koi experience jodna hai?"
  * while the draft has no trade label at all: the conversation recorded a job but never named the
  * work. #916 made that harmless by falling `trade` back to `occupation.label`, but that pin is

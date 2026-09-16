@@ -17,6 +17,7 @@ import { WorkerEmploymentRepository } from "../profiles/worker-employment.reposi
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
+import { containsOtherAnswerMarker } from "../resume/other-answer-leak-guard";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
 
@@ -342,6 +343,18 @@ export class ResumeDisclosureService {
       // what this surface showed before either ruling.
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
     };
+
+    // LAST-LINE GUARD (mandatory fix, "typed custom answer, everywhere" ruling): an unreviewed
+    // "other" answer must never reach this payer-facing render. The primary defence is that
+    // nothing above reads `worker_pack_answer` at all — see `other-answer-leak-guard.ts` for why
+    // a second, structural check sits here anyway. FAIL CLOSED, whole disclosure, never partial.
+    if (containsOtherAnswerMarker(tradeSheet)) {
+      this.logger.error(
+        `an unreviewed 'other' answer reached the payer-facing render for disclosure=` +
+          `${disclosureId}; refusing the disclosure`,
+      );
+      return neutralUnavailable();
+    }
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
     // their OWN resume only and must NEVER appear on the payer-facing disclosure

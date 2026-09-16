@@ -3,11 +3,11 @@ import 'package:flutter/services.dart';
 
 import '../../../../core/theme/onboarding_theme.dart';
 
-/// One of the three doors (#1499) — a big, obvious, two-line tap target.
+/// One of the two doors (#1499) — a big, obvious, two-line tap target.
 ///
 /// A BUTTON WOULD HAVE BEEN TOO SMALL. Each door needs a title the worker
 /// recognises AND a line explaining what happens next, because the choice is
-/// between three unfamiliar things and the second line is what makes it a
+/// between two unfamiliar things and the second line is what makes it a
 /// choice rather than a guess. A CTA button truncates to one line by design, so
 /// this is a card: the Master UI Kit's action-card shape (screen 7) — r14, a
 /// 1.2px hairline, no shadow, a 38px icon tile like the selection cards, an

@@ -6,11 +6,10 @@ import '../../../../core/api/api_client.dart'
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/tap_guard.dart';
 import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
-import '../../domain/spoken_work_description.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
-import 'trade_form_work_mic.dart';
+import 'trade_form_work_dictation.dart';
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
@@ -93,7 +92,8 @@ const List<String> _kMonths = <String>[
 ///
 /// Painted with the Master UI Kit (screen 21): kit inputs, State (Rajya)
 /// BEFORE Sheher (City), and a kit switch row for "Abhi yahin kaam kar rahe
-/// hain". Data sources, validation and the #1472 mic are unchanged.
+/// hain". Data sources and validation are unchanged; the work-description mic
+/// is #1514's device dictation ([TradeFormWorkDictation]).
 class TradeFormEmploymentPage extends StatefulWidget {
   const TradeFormEmploymentPage({
     super.key,
@@ -102,8 +102,6 @@ class TradeFormEmploymentPage extends StatefulWidget {
     required this.loadOptions,
     this.initialEntries,
     this.onPageChanged,
-    this.micRecorder,
-    this.sessionId,
     this.onSkip,
   });
 
@@ -134,15 +132,11 @@ class TradeFormEmploymentPage extends StatefulWidget {
   /// added/removed).
   final void Function(int page, int pageCount)? onPageChanged;
 
-  /// The mic behind the work description (#1472). NULL means no mic — which is
-  /// the honest default: the voice stack is switched off server-side today, and
-  /// the page's own tests wire no voice graph. Passed IN rather than resolved
-  /// from the locator so this widget keeps working under a bare test harness.
-  final SpokenWorkDescriptionRecorder? micRecorder;
-
-  /// The trade form's session, from the schema response — never cached, never
-  /// the chat session. Null disables the mic exactly like a 503.
-  final String? sessionId;
+  // NO MIC PROPS, DELIBERATELY. The work description's mic is now the device
+  // recogniser ([TradeFormWorkDictation]), which needs neither a recorder seam
+  // nor the form's session id: nothing is uploaded, so there is no clip to file
+  // and no `/voice/*` route to reach. Both props existed solely for the
+  // record-and-upload mic they replaced.
 
   @override
   State<TradeFormEmploymentPage> createState() =>
@@ -301,8 +295,6 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       children.add(
         _EmployerCard(
           key: ValueKey<int>(i),
-          micRecorder: widget.micRecorder,
-          sessionId: widget.sessionId,
           entry: _entries[i],
           states: _states,
           citiesFor: _citiesFor,
@@ -339,8 +331,6 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
 class _EmployerCard extends StatefulWidget {
   const _EmployerCard({
     super.key,
-    required this.micRecorder,
-    required this.sessionId,
     required this.entry,
     required this.states,
     required this.citiesFor,
@@ -350,10 +340,6 @@ class _EmployerCard extends StatefulWidget {
 
   final List<String> states;
   final List<String> Function(String state) citiesFor;
-
-  /// #1472 — null means no mic, which is the honest default today.
-  final SpokenWorkDescriptionRecorder? micRecorder;
-  final String? sessionId;
 
   final TradeFormEmploymentEntry entry;
   final ValueChanged<TradeFormEmploymentEntry> onChanged;
@@ -399,31 +385,6 @@ class _EmployerCardState extends State<_EmployerCard> {
   }
 
   void _push(TradeFormEmploymentEntry next) => widget.onChanged(next);
-
-  /// The mic came back with words (#1472).
-  ///
-  /// APPENDS rather than overwrites — a worker who typed something and then
-  /// spoke has not asked for their typing to be thrown away. Capped at the
-  /// server's own 300: ASR output can run past it, and an over-length string is
-  /// a 400 that loses the whole work history.
-  ///
-  /// Assigning the controller bypasses BOTH the field's input formatter and its
-  /// `onChanged`, so the Devanagari guard runs inside the mic (the résumé
-  /// prints Roman) and the entry is pushed by hand right here.
-  void _onSpokenDescription(String transcript, String voiceNoteId) {
-    final String existing = _work.text.trim();
-    final String merged =
-        existing.isEmpty ? transcript : '$existing $transcript';
-    final String capped = merged.length > _kWorkDoneMax
-        ? merged.substring(0, _kWorkDoneMax).trimRight()
-        : merged;
-    _work.text = capped;
-    _work.selection = TextSelection.collapsed(offset: capped.length);
-    _push(widget.entry.copyWith(
-      workDone: capped,
-      workDoneVoiceNoteId: voiceNoteId,
-    ));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -517,11 +478,17 @@ class _EmployerCardState extends State<_EmployerCard> {
             // an id with no description.
             onChanged: (String v) => _push(e.copyWith(workDone: v)),
           ),
-          TradeFormWorkMic(
-            recorder: widget.micRecorder,
-            sessionId: widget.sessionId,
+          TradeFormWorkDictation(
+            controller: _work,
             enabled: true,
-            onTranscript: _onSpokenDescription,
+            maxLength: _kWorkDoneMax,
+            // TREATED AS A HAND EDIT, clip id and all: `copyWith` leaves
+            // `workDoneVoiceNoteId` exactly as it was. Dictation stores no
+            // recording, so it has no id of its own to offer — and an entry that
+            // already carries one from an older clip keeps it, because the text
+            // is still the answer of record and the clip is still where that text
+            // started. The field's own `onChanged` above documents the same rule.
+            onText: (String text) => _push(e.copyWith(workDone: text)),
           ),
         ],
       ),

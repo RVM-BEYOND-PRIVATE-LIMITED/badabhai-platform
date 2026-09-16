@@ -25,6 +25,8 @@ import { AiJobsController } from "./ai-jobs.controller";
 import { WorkerAiJobsController } from "./worker-ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import { AiJobsRetentionSweepProcessor } from "./ai-jobs-retention-sweep.processor";
+import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
+import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
 import {
   AI_JOBS_RETENTION_QUEUE,
   PROFILE_EXTRACTION_QUEUE,
@@ -93,6 +95,14 @@ import {
     // over-claim veto. `DATABASE` is the same @Global handle every repository here uses, so
     // this adds a provider and no module edge.
     WorkerTranscriptRepository,
+    // The employment edit page's résumé-sourced suggestions (#1504 + the chat-jobs prefill
+    // ruling). Both depend only on @Global tokens (DATABASE / PiiCryptoService — the same
+    // reasoning `WorkerEmploymentRepository`'s own comment above gives), so providing them here
+    // is a second, independent instance of each — already how `ProfilingModule` provides them —
+    // and adds no module edge. `ProfilesModule` cannot import `ProfilingModule` directly: that
+    // module already imports THIS one, and the two are not part of an existing `forwardRef` pair.
+    ResumeImportRepository,
+    ResumeSuggestionReader,
     WorkerEmploymentService,
     // Writes `worker_attributes.value_text_polished_declined` through the repository already
     // provided above, and re-renders through `RESUME_RENDER_QUEUE` already registered above — so

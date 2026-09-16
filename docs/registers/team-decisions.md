@@ -526,3 +526,30 @@ total still outranks the sum (`renderedTotalYears`). That figure is the universa
 ask — the worker's own sentence about his own career, in a free-form duration — not a bracket, and
 it never runs for a pure form-first worker anyway, which is why the sum is what fills his headline.
 The partially-dated cost pinned in the entry above is also still open and still all-or-nothing.
+
+### 2026-09-15 — Blank-save protection for old app builds; worker self-read GETs (#1504)
+
+**Ruling (Prakash, 2026-09-15; see the owner-rulings comment on #1503–#1506).** The owning pages
+(Preferences, Qualifications, Work History, finishing) own shift, preferred city, salary and
+education. Jobs prefill Work History and are saved only when the worker saves. **The server treats an
+old build's default-valued save as NO CHANGE**, and accepts the cost that an old-build worker cannot
+clear those answers. The marker "saved" flag needs no new table.
+
+**What shipped (backend only, additive):**
+
+- `GET /workers/me/work-preferences`, `GET /workers/me/employment` and `GET /workers/me/qualifications`
+  are `[WorkerAuthGuard, ConsentGuard]`, `Cache-Control: no-store`, take the worker from the session
+  only, emit no event and log counts only. Each response uses the PUT's own field names, so a GET
+  parses back into its PUT. A stored value that no longer validates is withheld and reported
+  (`partial` / `dropped_count`), never returned.
+- The employment GET decrypts `employer_name` for the owner only, on the `getResumeFields`
+  own-session precedent. A row that will not decrypt is withheld and counted as `unreadable_count`.
+- `PUT me/work-preferences`: new optional `touched_only: true`. Without it (an old build), a `[]` list
+  or `false` toggle over a stored value is left untouched. With it, the strict three-state contract
+  applies.
+- `PUT me/employment`: new optional `expected_existing_count`, checked inside the replace transaction
+  before the delete (a mismatch is a 409 with nothing written). Undecryptable rows are carried across
+  a replace, never deleted. Without the count (an old build), `[]` over stored rows is a no-op.
+
+**Deferred:** the marker `saved` flag on `GET /profiling/form` (it is `apps/api/src/profiling`, which is
+mid-rewrite in another PR). Mobile adoption is Rishi's; the contract is in the PR description.

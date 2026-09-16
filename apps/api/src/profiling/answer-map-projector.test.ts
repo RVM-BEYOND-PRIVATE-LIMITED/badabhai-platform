@@ -66,6 +66,25 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     expect(draft).toEqual({});
   });
 
+  it("#1504 item 5 (city-seed fix #1): a non-gazetteer current_city is never projected", () => {
+    // A city-seed keeps a non-canonical value AS TYPED (see `worker-record-seed.ts`) so the
+    // interview correctly treats the question as settled — but that raw string must NEVER reach
+    // `location_preference.current_city`, which `reach.mappers.ts`'s `readCity` reads verbatim.
+    const { draft } = projectProfile([
+      answer({ question_key: "current_city", target_field: "current_city", value_normalized: "Patna Gaon XYZ" }),
+    ]);
+    expect(draft.current_city).toBeUndefined();
+  });
+
+  it("#1504 item 5 (city-seed fix #1): a non-canonical SPELLING still canonicalizes and projects", () => {
+    // The guard runs `canonicalCity` again on the way out — it does not merely check "is this
+    // exactly a gazetteer value" — so a seeded lower-case/alias spelling still resolves.
+    const { draft } = projectProfile([
+      answer({ question_key: "current_city", target_field: "current_city", value_normalized: "poona" }),
+    ]);
+    expect(draft.current_city?.value).toBe("poona");
+  });
+
   it("skips a crosswalk entry that deliberately has no draft column", () => {
     // `work_history` is `kind: "none"` — §2 forbids storing employer names. It must not invent a
     // draft field to land in.

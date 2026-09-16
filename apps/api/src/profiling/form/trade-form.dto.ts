@@ -55,6 +55,14 @@ const SavedAnswerSchema = z.object({
   text: z.string().nullable(),
   number: z.number().nullable(),
   bool: z.boolean().nullable(),
+  /**
+   * A worker's own typed words against a CLOSED-OPTION question ("typed custom answer,
+   * everywhere", owner ruling round 4) — replayed VERBATIM, exactly as he typed it, never the
+   * LLM-reviewed rewrite. This is the resumed-form edit surface, not the printed sheet: the
+   * worker editing his own answer must see what he actually typed, not a rewrite he has not yet
+   * had the chance to see or refuse.
+   */
+  other_text: z.string().nullable(),
 });
 
 /**
@@ -174,11 +182,16 @@ export const TradeFormSchemaResponse = z.object({
    * after a cold start, and a stale id from a previous interview would file the clip under the
    * wrong conversation.
    *
+   * NULLABLE: When a worker reaches the form through résumé upload (ADR-0041 RI-4) rather than
+   * an interview, there is no chat session to reference. The client treats null as "no mic"
+   * (same as a 503 from the voice endpoint), which is correct — a résumé-sourced form has no
+   * interview provenance to carry.
+   *
    * NOT A SECRET AND NOT A CAPABILITY. It is this worker's own session, the client already holds
    * it on the chat surface, and every voice route re-derives the worker from the bearer token —
    * so possessing it grants nothing the token does not already grant.
    */
-  session_id: z.string().uuid(),
+  session_id: z.string().uuid().nullable(),
   sections: z.array(SectionSchema),
 });
 export type TradeFormSchemaResponse = z.infer<typeof TradeFormSchemaResponse>;

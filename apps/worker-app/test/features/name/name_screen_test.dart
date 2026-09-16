@@ -65,10 +65,10 @@ Future<void> _pump(
     initialLocation: '/name',
     routes: <RouteBase>[
       GoRoute(path: '/name', builder: (_, __) => const NameScreen()),
-      // #1499 — `/name` now hands to the three-door résumé step, not straight
+      // #1499 — `/name` now hands to the two-door résumé step, not straight
       // to the chat. BOTH are registered here: the résumé step because it is
-      // where a successful submit actually lands, and the chat because two of
-      // that screen's three doors still go there.
+      // where a successful submit actually lands, and the chat because that
+      // screen's no-résumé door still goes there.
       GoRoute(
         path: Routes.resumeUpload,
         builder: (_, __) => const Scaffold(body: Text(_kResumeUploadMarker)),

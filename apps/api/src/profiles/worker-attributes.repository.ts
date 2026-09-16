@@ -121,6 +121,55 @@ export class WorkerAttributesRepository {
   }
 
   /**
+   * Read NAMED attributes for one worker — the preferences page's prefill (#1504).
+   *
+   * THE KEY LIST IS IN THE STATEMENT, NOT A FILTER AFTER IT. This table holds the 77% of the pack
+   * corpus that is trade capability — machines, controllers, tolerances — beside the twelve keys the
+   * preferences page owns. A read that fetched the worker's whole attribute set and filtered in
+   * JavaScript would be correct right up to the day a caller forgot the filter, and then it would
+   * hand a worker-facing GET every trade answer on file. `inArray` makes the narrow read the only
+   * one this method can issue.
+   *
+   * NO PROVENANCE COLUMNS. `pack_id`/`session_id` nullness used to identify a form write; since the
+   * trade form writes universal answers with a pack, it no longer does, so projecting them would
+   * invite a reader to derive something that is not true.
+   *
+   * AN EMPTY KEY LIST ISSUES NO STATEMENT. `IN ()` is a syntax error in PostgreSQL, and "no keys"
+   * has an answer that needs no database.
+   */
+  async loadKeys(
+    workerId: string,
+    keys: readonly string[],
+  ): Promise<
+    {
+      attributeKey: string;
+      valueKind: string;
+      valueBool: boolean | null;
+      valueNumber: string | null;
+      valueText: string | null;
+      valueTextList: string[] | null;
+    }[]
+  > {
+    if (keys.length === 0) return [];
+    return this.db
+      .select({
+        attributeKey: workerAttributes.attributeKey,
+        valueKind: workerAttributes.valueKind,
+        valueBool: workerAttributes.valueBool,
+        valueNumber: workerAttributes.valueNumber,
+        valueText: workerAttributes.valueText,
+        valueTextList: workerAttributes.valueTextList,
+      })
+      .from(workerAttributes)
+      .where(
+        and(
+          eq(workerAttributes.workerId, workerId),
+          inArray(workerAttributes.attributeKey, [...keys]),
+        ),
+      );
+  }
+
+  /**
    * Read one worker's settled attributes back, for the résumé's trade capability block.
    *
    * THE MISSING HALF OF THIS FILE. Everything above writes; nothing read, so the 77% of the pack

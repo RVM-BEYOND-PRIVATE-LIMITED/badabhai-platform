@@ -57,7 +57,14 @@ export function environmentOf(compose: string, service: string): Map<string, str
     if (inEnvironment && /^ {4}\S/.test(line)) inEnvironment = false; // a sibling of environment.
     if (!inEnvironment) continue;
 
-    const entry = /^ {6}([A-Z_][A-Z0-9_]*):\s*(.*)$/.exec(line);
+    // CASE-INSENSITIVE ON PURPOSE (security review, 2026-09-16): a lowercase or mixed-case
+    // key still lands in the container's process environment, and pydantic-settings reads env
+    // vars case-insensitively by default — so a key spelled any other way than SCREAMING_CASE
+    // still arms the same field. Restricting this to `[A-Z_]` let exactly such a key sail
+    // through every guard here unseen: `environmentOf()` never even produced a map entry for
+    // it, so `env.has(RAW_FLAG)` on the correct-case name reported false while the lowercase
+    // twin sat one line below, invisible to this parser and everyone reading its output.
+    const entry = /^ {6}([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$/.exec(line);
     if (entry) env.set(entry[1]!, entry[2]!.trim());
   }
   return env;

@@ -157,6 +157,15 @@ jobs:
               # very job it edits: the workflow change ships unvalidated, and the suite it was
               # meant to arm goes on silently skipping its OCR tests.
               - '.github/workflows/ci.yml'
+              # The compose files that DECLARE ai-service env vars, most pointedly the
+              # ADR-0041 D5 raw-résumé-text switch (name deliberately not spelled out here —
+              # see `apps/ai-service/app/config.py` — because this file's own scan treats
+              # ANY mention of that name under `.github/`, even in a comment, as a hit).
+              # A compose-only PR that adds or edits such a declaration touched none of the
+              # paths above, so without this line the scan that is the whole reason that flag
+              # can be committed at all never ran on it, and a second, case-varied arming line
+              # could ship on a green check.
+              - 'docker-compose*.yml'
             e2e:
               - 'apps/api/**'
               - 'packages/**'

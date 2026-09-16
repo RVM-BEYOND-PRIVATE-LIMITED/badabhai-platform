@@ -14,8 +14,8 @@ import 'package:badabhai_worker_app/features/resume_import/presentation/widgets/
 import '../../support/kit_matrix.dart';
 
 /// Neither seam is touched by any test here — this file is about the drawing,
-/// and doors 2 and 3 must issue no request at all (`resume_upload_screen_test`
-/// pins that with a recording client).
+/// and door 2 must issue no request at all (`resume_upload_screen_test` pins
+/// that with a recording client).
 class _IdlePicker implements ResumeDocumentPicker {
   @override
   Future<ResumePickResult> pickResume() async => ResumePickResult.picked(
@@ -29,11 +29,11 @@ class _IdleImporter implements ResumeImporter {
       const ResumeImportRoutedToChat();
 }
 
-/// The three doors (spec §3.7) on every device a worker owns.
+/// The two doors (spec §3.7) on every device a worker owns.
 ///
-/// Each door is a two-line card, and the three of them plus a header subtitle
-/// and the floating-pill clearance are what has to fit — at 200% system font on
-/// a 320dp handset it only fits because the body scrolls.
+/// Each door is a two-line card, and the two of them plus a header subtitle and
+/// the floating-pill clearance are what has to fit — at 200% system font on a
+/// 320dp handset it only fits because the body scrolls.
 void main() {
   setUp(() async {
     await locator.reset();
@@ -77,7 +77,7 @@ void main() {
   });
 
   group('spec values', () {
-    testWidgets('three doors, exactly ONE yellow hero, in the spec order', (
+    testWidgets('two doors, exactly ONE yellow hero, in the spec order', (
       WidgetTester tester,
     ) async {
       setKitSurface(tester, const Size(390, 844));
@@ -87,19 +87,21 @@ void main() {
       final List<ResumeDoorTile> doors = tester
           .widgetList<ResumeDoorTile>(find.byType(ResumeDoorTile))
           .toList();
-      expect(doors.length, 3);
+      // TWO, by owner ruling (#1513): the middle "Hinglish mein baat karein"
+      // door offered a METHOD beside a FACT and was deleted.
+      // `resume_upload_screen_test.dart` owns the regression pin on its
+      // absence; this file pins the DRAWING of what is left.
+      expect(doors.length, 2);
       expect(doors[0].title, 'Resume upload karein');
-      expect(doors[1].title, 'Hinglish mein baat karein');
-      expect(doors[2].title, 'Mere paas resume nahi hai');
+      expect(doors[1].title, 'Mere paas resume nahi hai');
 
       // One yellow surface per screen: the upload door, and only it.
       expect(doors.where((ResumeDoorTile d) => d.emphasis).length, 1);
       expect(doors[0].emphasis, isTrue);
 
-      // The v3 rounded glyphs (spec §3.7: document / chat / minus-circle).
+      // The v3 rounded glyphs (spec §3.7: document / minus-circle).
       expect(doors[0].icon, Icons.upload_file_outlined);
-      expect(doors[1].icon, Icons.chat_bubble_outline_rounded);
-      expect(doors[2].icon, Icons.do_not_disturb_on_outlined);
+      expect(doors[1].icon, Icons.do_not_disturb_on_outlined);
     });
 
     testWidgets('a door is a flat card — fill + hairline, never a shadow', (

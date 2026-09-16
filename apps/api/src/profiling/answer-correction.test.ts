@@ -122,6 +122,12 @@ function makeWorld(
     events as never,
     // The correction path never takes a turn, so the LLM seam is unreachable from here.
     { leads: () => false } as never,
+  
+    // ADR-0041 RI-5. NO PENDING OFFER is the case every test in this file is about: the
+    // interview these assert on must be byte for byte the one a worker without a résumé gets.
+    { pendingForChat: async () => null, forImport: async () => new Map() } as never,
+    // #1504 item 5 (city-seed). No worker record to seed from in this suite.
+    { findCurrentCity: async () => null } as never,
   );
   return { orchestrator, chat, events, saved, inserted, messagesInserted };
 }
@@ -216,6 +222,22 @@ describe("both durable stores, in one transaction", () => {
     // same corrected map, so the two halves of the column cannot disagree.
     expect(saved[0]?.captured).toEqual({ current_city: "Pune" });
     expect(saved[0]?.correction_count).toBe(1);
+  });
+
+  it("#1504 item 5 (city-seed): drops the corrected key from prefilled_keys — this is the ONLY removal path", async () => {
+    const { orchestrator, saved } = makeWorld({
+      state: { prefilled_keys: ["current_city", "salary_expected"] },
+    });
+    await orchestrator.correctAnswer(correction());
+
+    expect(saved[0]?.prefilled_keys).toEqual(["salary_expected"]);
+  });
+
+  it("#1504 item 5: a correction of a key that was never prefilled leaves an absent/empty list alone", async () => {
+    const { orchestrator, saved } = makeWorld();
+    await orchestrator.correctAnswer(correction());
+
+    expect(saved[0]?.prefilled_keys).toEqual([]);
   });
 
   it("carries NO worker value in the event payload", async () => {

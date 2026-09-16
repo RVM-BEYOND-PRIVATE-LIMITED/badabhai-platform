@@ -14,9 +14,11 @@
 import { describe, expect, it } from "vitest";
 import { checkPersonaTokens, personaCorpus } from "@badabhai/profiling-lexicon";
 
+import { IDENTIFY_TYPE_PROMPT } from "./identify.service";
 import {
   CLOSING_REPLY,
   DE_ESCALATION_REPLY,
+  ESCAPE_TYPE_PROMPT,
   HARDSHIP_REPLIES,
   UNAVAILABLE_REPLY,
 } from "./orchestrator.service";
@@ -25,6 +27,10 @@ const ENGINE_COPY: ReadonlyArray<readonly [name: string, text: string]> = [
   ["DE_ESCALATION_REPLY", DE_ESCALATION_REPLY],
   ["CLOSING_REPLY", CLOSING_REPLY],
   ["UNAVAILABLE_REPLY", UNAVAILABLE_REPLY],
+  // #1506 — the two "type it yourself" prompts. Instructions, not questions: the worker has just
+  // said none of the chips fit, and the composer is what answers them.
+  ["IDENTIFY_TYPE_PROMPT", IDENTIFY_TYPE_PROMPT],
+  ["ESCAPE_TYPE_PROMPT", ESCAPE_TYPE_PROMPT],
   ...HARDSHIP_REPLIES.map((t, i) => [`HARDSHIP_REPLIES[${i}]`, t] as const),
 ];
 

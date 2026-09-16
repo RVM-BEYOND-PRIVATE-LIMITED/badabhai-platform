@@ -30,6 +30,7 @@ export default defineConfig({
         "src/**/mock-*.ts",
         "**/*.test.ts",
         "**/*.spec.ts",
+        "**/*.test-support.ts",
         "**/mocks/**",
       ],
     },
