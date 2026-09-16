@@ -17,8 +17,11 @@ import { ResumeImportRepository } from "./resume-import.repository";
  * expects `wri_suggestions_chk` to refuse it — so a green run proves the CHECKs were live, not
  * that a migration was missing and every write sailed through.
  *
- * `*.query.test.ts` pins the same guards in CI without a connection; this file is the half CI
- * cannot see.
+ * NOT YET ON CI'S DB-GATE LIST. `.github/workflows/ci.yml` runs a HAND-LISTED set of DB suites
+ * with `RUN_DB_TESTS=1` (step "DB-backed gates"); this file is not among them, so today it runs
+ * locally and in review only. Adding it there is a follow-up, and until it lands the guards are
+ * held in CI by `*.query.test.ts`, which compiles the same statements without a connection and
+ * maps the row counts — this file is the half that needs the engine.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   pnpm db:migrate                       # 0105 must be applied

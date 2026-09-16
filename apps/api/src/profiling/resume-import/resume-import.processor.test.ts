@@ -24,7 +24,9 @@ import { ResumeRouteService } from "./resume-route.service";
  *
  * The SQL guards themselves are pinned where CI can see them (`*.query.test.ts`) and against
  * real CHECKs in the RUN_DB_TESTS suite. This file is the cross-service property neither can
- * express: across a retry, the document is read once and at most one terminal event exists.
+ * express: across a retry the document is read ONCE, and each delivery emits an event for the
+ * transition it settled and for no other — so a redelivery that settled nothing emits NOTHING,
+ * not "at most one".
  */
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -94,6 +96,8 @@ class FakeImportsTable {
   /** What a poller could have read: every committed state, in order. */
   readonly committed: Row[] = [];
   readonly events: BadaBhaiEvent[] = [];
+  /** How many more in-transaction event inserts should throw — the events table falling over. */
+  eventFailures = 0;
   private readonly keys = new Set<string>();
   private tx: { executor: symbol; pendingEvents: { event: BadaBhaiEvent; key?: string | null }[] } | null =
     null;
@@ -160,6 +164,10 @@ class FakeImportsTable {
   async insertEvent(event: BadaBhaiEvent, key?: string | null, executor?: unknown): Promise<boolean> {
     if (executor !== undefined) {
       this.requireTx(executor);
+      if (this.eventFailures > 0) {
+        this.eventFailures -= 1;
+        throw new Error("events insert failed");
+      }
       this.tx!.pendingEvents.push({ event, key });
       return true;
     }
@@ -215,8 +223,11 @@ function parseOutput(overrides: Partial<ResumeParseOutput> = {}): ResumeParseOut
   };
 }
 
-function setup(opts: { out?: ResumeParseOutput; encryptFailures?: number } = {}) {
+function setup(
+  opts: { out?: ResumeParseOutput; encryptFailures?: number; eventFailures?: number } = {},
+) {
   const table = new FakeImportsTable();
+  table.eventFailures = opts.eventFailures ?? 0;
   const ai = { parseResume: vi.fn().mockResolvedValue(opts.out ?? parseOutput()) };
   const aiCost = { record: vi.fn().mockResolvedValue(undefined) };
   const events = new EventsService(
@@ -302,10 +313,14 @@ describe("ResumeImportProcessor — status and route land together, or not at al
     expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parsed"]);
   });
 
-  it("a throw inside the settle leaves `parsing`, and the redelivery neither re-bills nor double-counts", async () => {
-    // Attempts are 3 (`queue.module.ts`). A fault — here the seal — must roll back to `parsing`
-    // with no event; the retry must see a row past `uploaded`, NOT call the AI service again,
-    // and complete without inventing a route.
+  it("a seal that fails BEFORE the transaction opens leaves `parsing`, and the redelivery neither re-bills nor double-counts", async () => {
+    // Attempts are 3 (`queue.module.ts`). This fault — the seal — happens while the decision is
+    // still being made, so nothing was ever written and there is nothing to roll back; the row
+    // is left `parsing` by omission. The rollback path proper is the test below, which faults
+    // the event insert with the transaction open.
+    //
+    // The retry must see a row past `uploaded`, NOT call the AI service again, and complete
+    // without inventing a route.
     const { processor, table, ai, crypto } = setup({ encryptFailures: 1 });
 
     await expect(processor.process(JOB)).rejects.toThrow("key unavailable");
@@ -318,8 +333,36 @@ describe("ResumeImportProcessor — status and route land together, or not at al
     expect(ai.parseResume).toHaveBeenCalledTimes(1);
     // VACUITY CHECK: the fault really was on the first delivery's settle path.
     expect(crypto.encrypt).toHaveBeenCalledTimes(1);
-    expect(table.events.length).toBeLessThanOrEqual(1);
+    // ZERO, NOT "AT MOST ONE". The implemented contract is that a delivery which settled nothing
+    // emits nothing; `<= 1` was also satisfied by the redelivery emitting a `resume_parsed` for
+    // a row it never wrote, which is the double-count the guard exists to stop.
+    expect(table.events).toEqual([]);
     expect(parsedWithoutRoute(table.committed)).toEqual([]);
+  });
+
+  it("an emit that fails INSIDE the settle rolls the status back — no `parsed` row without its event", async () => {
+    // THE ATOMICITY PROPERTY ITSELF, which the seal test above cannot show: the fault lands with
+    // the transaction OPEN and the row already assigned `parsed`, `form` and a sealed token. The
+    // event and the status must survive or die together — a committed `parsed` row with no
+    // event is a handover the funnel never counted, on a TERMINAL row nothing will ever retry.
+    const { processor, table, ai } = setup({ eventFailures: 1 });
+
+    await expect(processor.process(JOB)).rejects.toThrow("events insert failed");
+
+    expect(table.row).toMatchObject({ status: "parsing", route: null, formKind: null });
+    expect(table.row.suggestionsEnc).toBeNull();
+    expect(table.events).toEqual([]);
+    // VACUITY CHECK: the poller saw the lock and NOTHING after it. An empty history would
+    // satisfy `parsedWithoutRoute` on its own.
+    expect(table.committed.map((r) => r.status)).toEqual(["parsing"]);
+    expect(parsedWithoutRoute(table.committed)).toEqual([]);
+
+    const retried = await processor.process(JOB);
+
+    expect(retried).toEqual({ import_id: IMPORT, route: null });
+    expect(ai.parseResume).toHaveBeenCalledTimes(1);
+    expect(table.events).toEqual([]);
+    expect(table.row.status).toBe("parsing");
   });
 
   it("a redelivery after a successful settle changes nothing and emits nothing", async () => {

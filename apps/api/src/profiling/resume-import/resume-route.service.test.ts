@@ -6,6 +6,25 @@ import { ResumeRouteService } from "./resume-route.service";
 import type { ParsedDraft } from "./resume-parse.service";
 
 /**
+ * `familyForTradeForm` IS THE ONE THING HERE THAT CANNOT BE BROKEN FROM THE OUTSIDE. It throws
+ * only when a kind the router can still return has lost its registry descriptor, and the router
+ * and the registry are derived from each other — so there is no draft, no pack and no fake that
+ * reaches it. A partial module mock is the only way to stand the assertion up, and the default
+ * is a straight pass-through so every other test in this file runs against the real function.
+ */
+const registry = vi.hoisted(() => ({ familyThrows: false }));
+vi.mock("../trade-form-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../trade-form-router")>();
+  return {
+    ...actual,
+    familyForTradeForm: (kind: Parameters<typeof actual.familyForTradeForm>[0]) => {
+      if (registry.familyThrows) throw new Error(`no trade-form route for ${kind}`);
+      return actual.familyForTradeForm(kind);
+    },
+  };
+});
+
+/**
  * RI-4's routing decision, and the settle that records it. Three properties carry this file:
  *
  *   1. THE DECISION IS THE ROUTER'S, not the model's. Every case below drives it through the
@@ -61,6 +80,7 @@ function setup(
     universalThrows?: Error;
     familyThrows?: Error;
     encryptThrows?: boolean;
+    emitThrows?: boolean;
   } = {},
 ) {
   // `inTx` is how a test tells "called inside the transaction" from "called next to it". The
@@ -110,7 +130,10 @@ function setup(
   };
   const events = {
     emit: vi.fn(async () => {
+      // RECORDED BEFORE THE THROW. Whether the failure happened INSIDE the transaction is the
+      // property under test; an emit that threw next to it would roll nothing back.
       seen.emitInTx = seen.inTx;
+      if (opts.emitThrows) throw new Error("events table unavailable");
       return undefined;
     }),
   };
@@ -290,6 +313,37 @@ describe("A FAULT IS NOT AN OUTAGE — it throws and settles nothing (CLAUDE.md 
     expect(events.emit).not.toHaveBeenCalled();
   });
 
+  it("a kind with no family in the registry FAILS LOUDLY — it is an assertion, not a pack outage", async () => {
+    // THE MUTATION THIS PINS: moving `familyForTradeForm` back inside the pack-load try. It sits
+    // one line away from two `await`s the catch is there to swallow, and swallowing it would
+    // re-route EVERY worker of that kind to the chat while logging a pack outage that never
+    // happened — the loud registry bug turned into a silent product one.
+    const errorLog = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const { svc, imports, packs, events } = setup();
+    registry.familyThrows = true;
+    let degradeLogs = -1;
+    try {
+      await expect(
+        svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX),
+      ).rejects.toThrow("no trade-form route for cnc_turner");
+      // READ BEFORE THE RESTORE, which in vitest also clears the call record.
+      degradeLogs = errorLog.mock.calls.length;
+    } finally {
+      registry.familyThrows = false;
+      errorLog.mockRestore();
+    }
+
+    // VACUITY CHECK: the throw came from the family lookup, not from a pack that never loaded.
+    // `loadUniversal` runs first inside `packItems`, so it must NOT have been reached at all.
+    expect(packs.loadUniversal).not.toHaveBeenCalled();
+    expect(packs.loadForFamily).not.toHaveBeenCalled();
+    // And it was NOT reported as a degrade — the "packs unavailable" line is the mutation's tell.
+    expect(degradeLogs).toBe(0);
+    expect(imports.withTransaction).not.toHaveBeenCalled();
+    expect(imports.settleParsed).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
   it("an event payload the registry would refuse is refused BEFORE the transaction opens", async () => {
     const { svc, imports, events } = setup();
     const draft = { ...parsedDraft({ role_label: field("CNC Turner") }), extractionMethod: "html" };
@@ -311,6 +365,27 @@ describe("one write, one event, or neither", () => {
     const call = emitCall(events);
     expect(call.tx).toBe(TX);
     expect(call.idempotencyKey).toBe(`profile.resume_parsed:${IMPORT}`);
+  });
+
+  it("an emit that fails does so INSIDE the transaction, so the settle it belongs to rolls back", async () => {
+    // THE PROPERTY, stated where only this file can state it: the emit must throw while the
+    // transaction is still open. A refactor that emitted after `withTransaction` returned would
+    // leave a committed `parsed` row whose event never landed — a handover the funnel never
+    // counted and nothing would ever retry, because the row is terminal.
+    //
+    // `seen.emitInTx` is what distinguishes the two; the rejection alone does not, since an
+    // emit next to the transaction rejects identically.
+    const { svc, imports, events, seen } = setup({ emitThrows: true });
+
+    await expect(
+      svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX),
+    ).rejects.toThrow("events table unavailable");
+
+    expect(imports.withTransaction).toHaveBeenCalledTimes(1);
+    expect(imports.settleParsed).toHaveBeenCalledTimes(1);
+    expect(seen.settleInTx).toBe(true);
+    expect(seen.emitInTx).toBe(true);
+    expect(events.emit).toHaveBeenCalledTimes(1);
   });
 
   it("a guard that wrote nothing emits nothing and returns null", async () => {

@@ -331,8 +331,10 @@ Four consequences, all of them good:
 - **Events are exactly-once per import (amended 2026-09-15).** `profile.resume_parsed` and
   `profile.resume_parse_failed` are emitted on the same transaction as the guarded status write,
   only when that write matched a row, and with idempotency keys
-  `profile.resume_parsed:<importId>` / `profile.resume_parse_failed:<importId>`. The payload is
-  validated before the transaction opens. Payload shapes are unchanged (additive only).
+  `profile.resume_parsed:<importId>` / `profile.resume_parse_failed:<importId>`. The
+  `resume_parsed` payload is validated before the transaction opens, so a schema bug never holds
+  a row lock; `resume_parse_failed` carries only closed enums and ids and is validated by `emit`
+  inside the transaction. Payload shapes are unchanged (additive only).
 - **Retries never re-bill, and can strand a row (amended 2026-09-15).** A throw after the AI call
   (a failed seal, a database error inside the settle) rolls back to `parsing` with no event. The
   BullMQ redelivery sees a row past `uploaded`, does not read the document again, and completes

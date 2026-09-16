@@ -195,12 +195,20 @@ export class ResumeRouteService {
     //     A pack registry that cannot load costs the worker his suggestions AND his form: a
     //     form-routed worker with no pack behind the form would be handed screens nothing can
     //     serve, so the honest degrade is the chat route with nothing staged — today's journey,
-    //     byte for byte. The catch is NARROW ON PURPOSE. It wraps the pack load and nothing
-    //     else; `buildSuggestions` and `crypto.encrypt` below are faults, not outages, and
-    //     catching them would turn a privacy failure into a quiet chat route.
+    //     byte for byte. The catch is NARROW ON PURPOSE: it wraps the two pack LOADS and
+    //     nothing else. `buildSuggestions` and `crypto.encrypt` below are faults, not outages,
+    //     and catching them would turn a privacy failure into a quiet chat route.
+    //
+    //     `familyForTradeForm` IS RESOLVED OUTSIDE THE TRY, AND THAT PLACEMENT IS THE POINT.
+    //     It is not an I/O call — it is a registry-coherence ASSERTION that throws when a kind
+    //     the router can still return has lost its descriptor. Inside the try it would have
+    //     been read as an outage and every worker of that kind quietly re-routed to the chat,
+    //     which is the exact opposite of what an assertion meant to fail loudly is for.
+    const familyId = formKind === null ? null : familyForTradeForm(formKind);
+
     let items: QuestionPackItem[];
     try {
-      items = await this.packItems(formKind);
+      items = await this.packItems(familyId);
     } catch (error) {
       // THE CLASS NAME ONLY. A pack error message can quote a pack path or a question key, and
       // this line sits next to a worker id; the class is enough to find the outage.
@@ -277,12 +285,16 @@ export class ResumeRouteService {
    * They are staged rather than dropped ON PURPOSE. The alternative — only ever staging what
    * today's form can render — would make the stored payload depend on the client's current
    * capabilities, and every later surface would have to re-parse the document to catch up.
+   *
+   * TAKES THE FAMILY ID, NOT THE FORM KIND. The kind → family lookup is an assertion about the
+   * registry and its caller resolves it before the degrade catch opens; see `decide` step (3).
+   * Everything left in here is I/O, which is what that catch is allowed to swallow.
    */
-  private async packItems(formKind: TradeFormKind | null): Promise<QuestionPackItem[]> {
+  private async packItems(familyId: string | null): Promise<QuestionPackItem[]> {
     const now = Date.now();
     const packs = [
       await this.packs.loadUniversal(now),
-      formKind === null ? null : await this.packs.loadForFamily(familyForTradeForm(formKind), now),
+      familyId === null ? null : await this.packs.loadForFamily(familyId, now),
     ];
     return packs.flatMap((pack) => (pack === null ? [] : pack.items));
   }

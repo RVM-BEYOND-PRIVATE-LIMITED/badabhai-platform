@@ -185,9 +185,11 @@ export interface ResumeRouting {
 /**
  * The settle statement, BUILT but not awaited.
  *
- * EXPORTED SO THE GUARD CAN BE PINNED WHERE CI RUNS. RUN_DB_TESTS suites never run in CI, so a
- * test that needs Postgres cannot be the only thing standing between this file and a dropped
- * `status = 'parsing'`. `resume-import.repository.query.test.ts` compiles this with
+ * EXPORTED SO THE GUARD CAN BE PINNED WHERE CI RUNS. CI runs DB-backed suites from a HAND-LISTED
+ * set (`.github/workflows/ci.yml`, step "DB-backed gates", `RUN_DB_TESTS=1`), and
+ * `resume-import.repository.db.test.ts` is not on that list yet — wiring it in is a follow-up.
+ * Until then a test that needs Postgres cannot be the only thing standing between this file and
+ * a dropped `status = 'parsing'`. `resume-import.repository.query.test.ts` compiles this with
  * `drizzle.mock()` and reads the SQL — no connection, no skip.
  */
 export function settleParsedStatement(

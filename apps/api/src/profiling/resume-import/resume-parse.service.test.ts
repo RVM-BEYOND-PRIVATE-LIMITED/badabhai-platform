@@ -68,6 +68,7 @@ function setup(opts: {
   row?: Record<string, unknown> | null;
   out?: ResumeParseOutput | null;
   markFailed?: boolean;
+  emitThrows?: boolean;
 }) {
   // `inTx` distinguishes "inside the transaction" from "next to it" — see the route test.
   const seen = { inTx: false, failedInTx: false, emitInTx: false };
@@ -98,7 +99,10 @@ function setup(opts: {
   const aiCost = { record: vi.fn().mockResolvedValue(undefined) };
   const events = {
     emit: vi.fn(async (_params: Record<string, unknown>) => {
+      // RECORDED BEFORE THE THROW: whether the failure happened INSIDE the transaction is what
+      // decides whether the status write rolls back with it.
       seen.emitInTx = seen.inTx;
+      if (opts.emitThrows) throw new Error("events table unavailable");
       return undefined;
     }),
   };
@@ -253,6 +257,24 @@ describe("ResumeParseService", () => {
     expect(call.tx).toBe(TX);
     expect(call.idempotencyKey).toBe(`profile.resume_parse_failed:${IMPORT}`);
     expect(call.payload).toMatchObject({ extraction_method: "ocr", reason: "ocr_below_floor" });
+  });
+
+  it("an emit that fails does so INSIDE the transaction, so the `failed` write rolls back with it", async () => {
+    // THE OTHER HALF OF "ONE WRITE, ONE EVENT, OR NEITHER", and the direction the guard cannot
+    // cover: the guard stops a SECOND event, this stops a `failed` row with NO event — a
+    // failure the funnel never counts, on a terminal row nothing will retry.
+    //
+    // A refactor that emitted after `withTransaction` returned would reject identically, so the
+    // rejection is not the assertion; `seen.emitInTx` is.
+    const { svc, imports, events, seen } = setup({ out: null, emitThrows: true });
+
+    await expect(svc.parse(WORKER, IMPORT, CTX)).rejects.toThrow("events table unavailable");
+
+    expect(imports.withTransaction).toHaveBeenCalledOnce();
+    expect(imports.markFailed).toHaveBeenCalledOnce();
+    expect(seen.failedInTx).toBe(true);
+    expect(seen.emitInTx).toBe(true);
+    expect(events.emit).toHaveBeenCalledOnce();
   });
 
   it("a failure guard that wrote nothing emits nothing, and does not claim the failure", async () => {
