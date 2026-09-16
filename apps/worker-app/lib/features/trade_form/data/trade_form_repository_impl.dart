@@ -2,9 +2,11 @@ import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/observability/crash_reporter.dart';
+import '../../../core/session/known_worker_facts_store.dart';
 import '../../../core/session/session_repository.dart';
 import '../../voice_form/domain/voice_form_models.dart'
     show VoiceChoice, VoiceQuestion, VoiceQuestionKind;
+import '../domain/form_fact_registry.dart';
 import '../domain/trade_form_models.dart';
 import '../domain/trade_form_repository.dart';
 
@@ -33,11 +35,18 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     this._api,
     this._session, {
     NonFatalReporter reportNonFatal = _recordNonFatal,
-  }) : _report = reportNonFatal;
+    KnownWorkerFactsStore? knownFacts,
+  })  : _report = reportNonFatal,
+        _knownFacts = knownFacts;
 
   final ApiClient _api;
   final SessionRepository _session;
   final NonFatalReporter _report;
+
+  /// What the worker already gave before this form (/name's city, chat
+  /// answers) — [dedupeTradeForm] skips those questions. Null asks everything
+  /// the form carries.
+  final KnownWorkerFactsStore? _knownFacts;
 
   String _requireToken() {
     final String? token = _session.sessionToken;
@@ -51,7 +60,14 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     try {
       final Map<String, dynamic> json =
           await _api.getTradeForm(authToken: token);
-      return _parseForm(json);
+      // ONE FACT, ASKED ONCE: every caller (the first load AND the
+      // schema_stale resync) gets the de-duplicated form, so the walk and the
+      // progress totals derived from `questionSteps` agree. See
+      // `form_fact_registry.dart` for why the server's form repeats itself.
+      final TradeForm form = _parseForm(json);
+      final Set<WorkerFact> known =
+          await _knownFacts?.knownFacts() ?? const <WorkerFact>{};
+      return dedupeTradeForm(form, knownFacts: known);
     } on ApiException catch (error) {
       // 404 — this worker was never handed a form. A DIFFERENT thing from an
       // empty form (#1341): the caller renders an honest "nothing to fill

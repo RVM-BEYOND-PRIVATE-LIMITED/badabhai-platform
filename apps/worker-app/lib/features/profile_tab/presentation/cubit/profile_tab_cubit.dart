@@ -6,6 +6,8 @@ import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/session/session_repository.dart';
 import '../../../auth/domain/auth_session_manager.dart';
+import '../../../resume/domain/resume_edit_repository.dart';
+import '../../../resume/domain/resume_safe_fields.dart';
 import '../../domain/profile_summary.dart';
 import '../../domain/profile_summary_repository.dart';
 
@@ -16,6 +18,7 @@ class ProfileTabState extends Equatable {
     this.status = ProfileTabStatus.loading,
     this.summary,
     this.failure,
+    this.displayName,
   });
 
   final ProfileTabStatus status;
@@ -25,8 +28,14 @@ class ProfileTabState extends Equatable {
   /// honest reason instead of a generic "check internet" line.
   final Failure? failure;
 
+  /// The worker's own name spelling, read separately from the resume fields
+  /// (ruling R5: `GET /workers/me/resume-fields`). Null until it arrives, and
+  /// null forever if it cannot be read — the card then leads with the trade,
+  /// exactly as it did before. NEVER fabricated.
+  final String? displayName;
+
   @override
-  List<Object?> get props => <Object?>[status, summary, failure];
+  List<Object?> get props => <Object?>[status, summary, failure, displayName];
 }
 
 /// Loads the tabbed Profile summary on open and owns the logout flow.
@@ -36,13 +45,10 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
   /// fakes for the logout flow. When omitted they are resolved LAZILY from the
   /// locator only inside [logout] — so constructing the cubit (e.g. the
   /// load-only unit tests) never requires a wired locator.
-  ProfileTabCubit(
-    this._repo, {
-    ApiClient? api,
-    SessionRepository? session,
-  })  : _api = api,
-        _session = session,
-        super(const ProfileTabState());
+  ProfileTabCubit(this._repo, {ApiClient? api, SessionRepository? session})
+    : _api = api,
+      _session = session,
+      super(const ProfileTabState());
 
   final ProfileSummaryRepository _repo;
   final ApiClient? _api;
@@ -66,6 +72,7 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     } finally {
       _loading = false;
     }
+    await _hydrateName();
   }
 
   /// Tab-focus refetch (T4). No spinner and no wipe: the worker is looking at
@@ -78,7 +85,16 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     try {
       final ProfileSummary summary = await _repo.summary();
       if (isClosed) return;
-      emit(ProfileTabState(status: ProfileTabStatus.ready, summary: summary));
+      emit(
+        ProfileTabState(
+          status: ProfileTabStatus.ready,
+          summary: summary,
+          // Carry the already-resolved name across a refetch: the summary wire
+          // does not carry it, so dropping it here would make the name flicker
+          // away every time the worker returned to the tab.
+          displayName: state.displayName,
+        ),
+      );
     } on Failure catch (f) {
       if (isClosed) return;
       if (state.status != ProfileTabStatus.ready) {
@@ -86,6 +102,40 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
       }
     } finally {
       _loading = false;
+    }
+    await _hydrateName();
+  }
+
+  /// Reads the worker's NAME from the resume fields, which is the only place it
+  /// exists today (ruling R5 — profile-summary still ships nameless, B14).
+  ///
+  /// Deliberately SECONDARY: it runs after the summary is already on screen, so
+  /// a slow or dead name endpoint delays nothing the worker came here for. It is
+  /// also FAIL-SILENT and OPTIONAL — an unregistered repository (a partial
+  /// locator in a widget test), a 401, an offline handset or an empty spelling
+  /// all leave the card exactly as it renders without a name. A profile is worth
+  /// more than a headline.
+  Future<void> _hydrateName() async {
+    if (isClosed) return;
+    if (state.status != ProfileTabStatus.ready) return;
+    if (!locator.isRegistered<ResumeEditRepository>()) return;
+    try {
+      final ResumeSafeFields fields = await locator<ResumeEditRepository>()
+          .load();
+      if (isClosed) return;
+      final String name = fields.displayName.trim();
+      if (name.isEmpty) return;
+      if (state.status != ProfileTabStatus.ready) return;
+      if (state.displayName == name) return;
+      emit(
+        ProfileTabState(
+          status: ProfileTabStatus.ready,
+          summary: state.summary,
+          displayName: name,
+        ),
+      );
+    } catch (_) {
+      // Fail-silent by design: the name is an enhancement, not the screen.
     }
   }
 

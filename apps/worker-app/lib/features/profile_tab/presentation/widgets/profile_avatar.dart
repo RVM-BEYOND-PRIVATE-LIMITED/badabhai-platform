@@ -7,14 +7,17 @@ import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_mapper.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/nav/tab_focus.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../resume/domain/photo_repository.dart';
 import '../../../resume/presentation/widgets/photo_picker_sheet.dart';
 
-/// Diameter of the Profile avatar (unchanged from the initials/icon it replaces).
-const double _kAvatarSize = 72;
+/// Diameter of the Profile avatar.
+///
+/// 56, not the 72 it used to be: the avatar now sits in the v3 profile CARD
+/// beside the name and the facts (spec §4), not alone on a blue header band,
+/// so a 72dp disc left the name column too narrow to wrap at a large system
+/// font.
+const double _kAvatarSize = 56;
 
 /// ADR-0032 — the worker's photo on the Profile tab, with the edit entry point.
 ///
@@ -23,7 +26,7 @@ const double _kAvatarSize = 72;
 /// change in either place is the same change. There is no local copy and no
 /// second photo concept.
 ///
-/// FAIL-SILENT on read (mirrors ResumePhotoHeader): any fetch failure — offline,
+/// FAIL-SILENT on read (mirrors `ResumeProfileCard`): any fetch failure — offline,
 /// session gone, photos dormant (503) — collapses to the placeholder the tab
 /// already showed. The Profile tab is the worker's identity screen; a photo
 /// hiccup must never cost them their profile. A failure to CHANGE the photo is
@@ -133,11 +136,7 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
             _avatar(context),
             if (widget.verified && widget.verifiedBadge != null)
               Positioned(right: -2, bottom: -2, child: widget.verifiedBadge!),
-            Positioned(
-              left: -6,
-              bottom: -6,
-              child: _editBadge(),
-            ),
+            Positioned(left: -6, bottom: -6, child: _editBadge()),
           ],
         ),
       ),
@@ -147,17 +146,18 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   Widget _avatar(BuildContext context) {
     final String? url = _url;
     // Decode the photo to the on-screen pixel size, not its full source
-    // resolution — a 2MB upload rendered into a 72px circle would otherwise
+    // resolution — a 2MB upload rendered into a 56px circle would otherwise
     // decode to tens of MB of bitmap and churn memory on low-RAM devices.
-    final int cachePx =
-        (_kAvatarSize * MediaQuery.devicePixelRatioOf(context)).round();
+    final int cachePx = (_kAvatarSize * MediaQuery.devicePixelRatioOf(context))
+        .round();
     return Container(
       width: _kAvatarSize,
       height: _kAvatarSize,
-      // Flat haldi tint (JUL31 system): a solid avatar fill, no gradient.
+      // The v3 selected-card wash (#FFFBEB) — a warm disc behind the glyph,
+      // flat, no gradient.
       decoration: const BoxDecoration(
         shape: BoxShape.circle,
-        color: AppColors.brandTint2,
+        color: OnboardingColors.selectedCardBg,
       ),
       alignment: Alignment.center,
       clipBehavior: Clip.antiAlias,
@@ -182,16 +182,26 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
   Widget _placeholder() {
     final String? initials = widget.initials;
     return initials == null
-        ? const Icon(Icons.person_rounded,
-            size: 36, color: AppColors.vermilion800)
-        : Text(
-            initials,
-            // Design tokens, not raw values — identical to the initials this
-            // avatar replaced.
-            style: AppTypography.display(
-              size: AppTypography.size2xl,
-              weight: FontWeight.w800,
-              color: AppColors.vermilion800,
+        ? const Icon(
+            Icons.person_rounded,
+            size: 32,
+            color: OnboardingColors.safetyYellow,
+          )
+        // The disc is a FIXED 56dp, so the initials on it cannot grow: at a
+        // 2.0 system font they rendered at 40pt and spilled out from under
+        // both badges. scaleDown, NOT a text-scale clamp — `withClampedTextScaling`
+        // asserts `maxScale > minScale`, and the app already pins a MINIMUM of
+        // 1.0 (ruling R1), so a 1.0 ceiling there is an assertion, not a clamp.
+        : FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              initials,
+              // Design tokens, not raw values.
+              style: OnboardingTypography.anek(
+                size: 20,
+                weight: FontWeight.w800,
+                color: OnboardingColors.shiftBlue,
+              ),
             ),
           );
   }
@@ -203,20 +213,28 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
       child: SizedBox(
         // 48dp tap floor (worker app) — the visible badge glyph is smaller, so
         // the InkWell is sized to the target, not the glyph.
-        width: AppSpacing.tap,
-        height: AppSpacing.tap,
+        width: OnboardingLayout.tapTarget,
+        height: OnboardingLayout.tapTarget,
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             customBorder: const CircleBorder(),
             onTap: _busy ? null : _edit,
-            child: Center(
+            // bottomLeft, NOT Center. `Positioned(left: -6, bottom: -6)`
+            // offsets this 48dp TAP BOX; a centred 26dp glyph inside it
+            // therefore landed 5dp INSIDE a 56dp avatar, on top of the
+            // worker's initials, instead of overhanging its lower-left arc by
+            // the 6dp the -6 asks for. Aligning the glyph to the box's corner
+            // puts the paint where the offset means it, and the InkWell stays
+            // 48dp.
+            child: Align(
+              alignment: Alignment.bottomLeft,
               child: Container(
                 width: 26,
                 height: 26,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.brand,
+                  color: OnboardingColors.safetyYellow,
                 ),
                 alignment: Alignment.center,
                 child: _busy
@@ -225,11 +243,14 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
                         height: 12,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: AppColors.textOnBrand,
+                          color: OnboardingColors.shiftBlue,
                         ),
                       )
-                    : const Icon(Icons.photo_camera_rounded,
-                        size: 14, color: AppColors.textOnBrand),
+                    : const Icon(
+                        Icons.camera_alt_rounded,
+                        size: 14,
+                        color: OnboardingColors.shiftBlue,
+                      ),
               ),
             ),
           ),

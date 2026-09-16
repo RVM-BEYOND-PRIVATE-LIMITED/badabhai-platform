@@ -13,6 +13,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bottom_bar_inset.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/profile/presentation/cubit/profile_cubit.dart';
 import 'package:badabhai_worker_app/features/profile/presentation/profile_preview_screen.dart';
@@ -29,19 +30,34 @@ class MockProfileSummaryRepository extends Mock
 
 class MockTradeFormRepository extends Mock implements TradeFormRepository {}
 
-Future<void> _pump(WidgetTester tester, ProfileSummary summary) async {
+Future<void> _pump(WidgetTester tester, ProfileSummary summary) =>
+    _pumpScreen(tester, summary: () async => summary);
+
+/// Mounts the screen with the extraction / summary reads answered by the given
+/// callbacks (throw a [Failure] from either to reach the failed state or the
+/// summary-miss view), on a [size] viewport at [textScale].
+Future<void> _pumpScreen(
+  WidgetTester tester, {
+  Future<String> Function()? extract,
+  required Future<ProfileSummary> Function() summary,
+  Size size = const Size(900, 1900),
+  double textScale = 1.0,
+}) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final MockProfileRepository repo = MockProfileRepository();
   final MockProfileSummaryRepository summaryRepo = MockProfileSummaryRepository();
-  when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
-  when(() => summaryRepo.summary()).thenAnswer((_) async => summary);
+  when(() => repo.extractProfile())
+      .thenAnswer((_) => extract == null ? Future<String>.value('p1') : extract());
+  when(() => summaryRepo.summary()).thenAnswer((_) => summary());
   locator.registerFactory<ProfileCubit>(() => ProfileCubit(repo, summaryRepo));
 
-  tester.view.physicalSize = const Size(900, 1900);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
+  tester.platformDispatcher.textScaleFactorTestValue = textScale;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 
   await tester.pumpWidget(
     MaterialApp(theme: AppTheme.light(), home: const ProfilePreviewScreen()),
@@ -75,9 +91,9 @@ void main() {
       expect(find.text('Badlo'), findsOneWidget);
 
       // The data rows the worker confirms stay.
-      expect(find.text('Trade'), findsOneWidget);
+      expect(find.text('TRADE'), findsOneWidget);
       expect(find.text('Welder'), findsOneWidget);
-      expect(find.text('City'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
       expect(find.text('Pune'), findsOneWidget);
 
       // The strength row is gone — no label, no "N/max cheezein complete", no
@@ -87,6 +103,108 @@ void main() {
       expect(find.textContaining('4/9'), findsNothing);
     },
   );
+
+  // ---- Master UI Kit layout ---------------------------------------------------
+  //
+  // The kit redesign moved this screen off BbScaffold onto a raw Scaffold with a
+  // Shift Blue header and a docked QuestionnaireBottomBar. These lock the two
+  // things BbScaffold used to give for free: every status view fits (scrolls) on
+  // the smallest supported phone at a 2.0 system font, and the docked confirm
+  // bar still publishes its height so the Feedback FAB floats clear (#1071).
+  group('kit layout', () {
+    tearDown(() => bottomBarInset.value = 0);
+
+    const Size kSmallPhone = Size(320, 568);
+    const ProfileSummary kLongReady = ProfileSummary(
+      tradeLabel: 'CNC operator and VMC setter with programming experience',
+      city: 'Pimpri-Chinchwad, Pune district',
+      educationLevel: 'iti',
+      educationField: 'Machinist and fitter, two year course',
+      strengthSignals: 0,
+    );
+
+    testWidgets('ready (all rows) fits 320x568 at 2.0 text scale',
+        (WidgetTester tester) async {
+      await _pumpScreen(tester,
+          summary: () async => kLongReady,
+          size: kSmallPhone,
+          textScale: 2.0);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Yeh sahi hai?'), findsOneWidget);
+      expect(find.text('Haan, sahi hai'), findsOneWidget);
+      expect(find.text('Badlo'), findsOneWidget);
+    });
+
+    testWidgets('summary-miss ready view fits 320x568 at 2.0 text scale',
+        (WidgetTester tester) async {
+      await _pumpScreen(tester,
+          summary: () async => throw const NetworkFailure(),
+          size: kSmallPhone,
+          textScale: 2.0);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('PROFILE'), findsOneWidget);
+      expect(find.text('Ready'), findsOneWidget);
+    });
+
+    testWidgets(
+        'failed view fits 320x568 at 2.0 text scale, keeps both ways out, and '
+        'shows no confirm bar', (WidgetTester tester) async {
+      await _pumpScreen(tester,
+          extract: () async => throw const NetworkFailure(),
+          summary: () async => kLongReady,
+          size: kSmallPhone,
+          textScale: 2.0);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Your profile'), findsOneWidget);
+      expect(find.text('Profile taiyaar nahi ho payi.'), findsOneWidget);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Chat pe wapas jaayein'), findsOneWidget);
+      expect(find.text('Haan, sahi hai'), findsNothing);
+    });
+
+    testWidgets(
+        'draft view fits 320x568 at 2.0 text scale and offers no confirm (#503)',
+        (WidgetTester tester) async {
+      await _pumpScreen(tester,
+          summary: () async => const ProfileSummary(
+                tradeLabel: 'Welder',
+                strengthSignals: 0,
+                profileStatus: 'draft',
+              ),
+          size: kSmallPhone,
+          textScale: 2.0);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Thodi aur detail chahiye.'), findsOneWidget);
+      expect(find.text('Chat pe wapas jaayein'), findsOneWidget);
+      expect(find.text('Haan, sahi hai'), findsNothing);
+      expect(find.text('Badlo'), findsNothing);
+    });
+
+    testWidgets(
+        'the docked confirm bar publishes its height for the Feedback FAB '
+        '(#1071)', (WidgetTester tester) async {
+      await _pumpScreen(tester, summary: () async => kLongReady);
+
+      expect(find.text('Haan, sahi hai'), findsOneWidget);
+      expect(bottomBarInset.value, greaterThan(0));
+    });
+
+    testWidgets(
+        'a view without the confirm bar publishes 0, never a stale height '
+        '(#1071)', (WidgetTester tester) async {
+      bottomBarInset.value = 999; // a stale height left by some other page
+      await _pumpScreen(tester,
+          extract: () async => throw const NetworkFailure(),
+          summary: () async => kLongReady);
+
+      expect(find.text('Try again'), findsOneWidget);
+      expect(bottomBarInset.value, 0);
+    });
+  });
 
   // ---- #1344 (scoped retirement) — post-confirm routing --------------------
   //

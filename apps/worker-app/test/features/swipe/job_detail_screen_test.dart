@@ -161,7 +161,7 @@ void main() {
 
     // Full posting: pay band (full format), shift, experience window,
     // needed-by, description, requirement chips, benefit lines.
-    expect(find.text('₹16,000–26,000/mo'), findsOneWidget);
+    expect(find.text('₹16,000–26,000/mah'), findsOneWidget);
     expect(find.text('Day shift'), findsOneWidget);
     expect(find.text('0–2 yrs experience'), findsOneWidget);
     expect(find.text('Turant chahiye'), findsOneWidget);
@@ -265,7 +265,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(calls, 2);
-    expect(find.text('₹16,000–26,000/mo'), findsOneWidget);
+    expect(find.text('₹16,000–26,000/mah'), findsOneWidget);
     expect(find.text('Day shift'), findsOneWidget);
     expect(find.text('Poori jaankari load nahi hui.'), findsNothing);
   });
@@ -332,7 +332,7 @@ void main() {
       // The fetch-swap landed (the rich pay row proves it) and the gate
       // SURVIVED it — the wire body carried no decision; the cubit reattached
       // the opening surface's one.
-      expect(find.text('₹16,000–26,000/mo'), findsOneWidget);
+      expect(find.text('₹16,000–26,000/mah'), findsOneWidget);
     });
 
     testWidgets(

@@ -111,10 +111,9 @@ class EmploymentEntry extends Equatable {
 /// The closed-set finishing selections (#1296, `PUT /workers/me/work-preferences`).
 ///
 /// Held as the worker builds them across the chip pages; [toUpdateBody] shapes
-/// them for the wire. Lists are always sent (an empty list is the real answer
-/// "none of these"); the two scalar chips are sent only when chosen, so an
-/// untouched page leaves the stored value alone; the toggles are always a real
-/// yes/no.
+/// them for the wire. Lists and toggles are sent only once [touched] (an empty
+/// list is then the real answer "none of these"); the scalar chips are sent
+/// only when chosen; so an untouched page leaves the stored value alone.
 class WorkPreferences extends Equatable {
   const WorkPreferences({
     this.languages = const <String>{},
@@ -129,7 +128,15 @@ class WorkPreferences extends Equatable {
     this.educationCouncil,
     this.educationYear,
     this.educationInstitute,
+    this.touched = const <String>{},
   });
+
+  /// Wire keys of the list and yes/no fields the worker CHANGED, set by
+  /// [copyWith] (every cubit edit goes through it). The finishing form opens
+  /// blank every time (the endpoint has no read), so sending an untouched `[]`
+  /// or `false` would erase what the worker saved on an earlier visit; the
+  /// server leaves an absent key alone.
+  final Set<String> touched;
 
   final Set<String> languages;
   final Set<String> documentsReady;
@@ -194,20 +201,30 @@ class WorkPreferences extends Equatable {
       educationInstitute: educationInstitute == _sentinel
           ? this.educationInstitute
           : educationInstitute as String?,
+      touched: <String>{
+        ...touched,
+        if (languages != null) _kLanguagesKey,
+        if (documentsReady != null) _kDocumentsKey,
+        if (preferredCities != null) _kCitiesKey,
+        if (willingToRelocate != null) _kRelocateKey,
+        if (accommodationNeeded != null) _kAccommodationKey,
+      },
     );
   }
 
-  /// Wire body. Lists always present ([] = "none of these"); `job_type`/`shift`
-  /// only when chosen (absent = leave the stored value alone); toggles always a
-  /// bool. The three-state contract lives here, deliberately, so the API client
-  /// stays a dumb pass-through.
+  /// Wire body. Lists and toggles only when [touched] ([] = "none of these");
+  /// `job_type`/`shift` only when chosen (absent = leave the stored value
+  /// alone). The three-state contract lives here, deliberately, so the API
+  /// client stays a dumb pass-through.
   Map<String, dynamic> toUpdateBody() {
     final Map<String, dynamic> body = <String, dynamic>{
-      'languages': languages.toList(),
-      'documents_ready': documentsReady.toList(),
-      'preferred_cities': preferredCities,
-      'willing_to_relocate': willingToRelocate,
-      'accommodation_needed': accommodationNeeded,
+      if (touched.contains(_kLanguagesKey)) _kLanguagesKey: languages.toList(),
+      if (touched.contains(_kDocumentsKey))
+        _kDocumentsKey: documentsReady.toList(),
+      if (touched.contains(_kCitiesKey)) _kCitiesKey: preferredCities,
+      if (touched.contains(_kRelocateKey)) _kRelocateKey: willingToRelocate,
+      if (touched.contains(_kAccommodationKey))
+        _kAccommodationKey: accommodationNeeded,
     };
     if (jobType != null) body['job_type'] = jobType;
     if (shift != null) body['shift'] = shift;
@@ -243,8 +260,17 @@ class WorkPreferences extends Equatable {
         educationCouncil,
         educationYear,
         educationInstitute,
+        touched,
       ];
 }
+
+// `PUT /workers/me/work-preferences` wire keys for the fields
+// [WorkPreferences.touched] tracks.
+const String _kLanguagesKey = 'languages';
+const String _kDocumentsKey = 'documents_ready';
+const String _kCitiesKey = 'preferred_cities';
+const String _kRelocateKey = 'willing_to_relocate';
+const String _kAccommodationKey = 'accommodation_needed';
 
 /// copyWith sentinel so `null` can be passed to CLEAR a nullable field, distinct
 /// from omitting the argument to keep it.

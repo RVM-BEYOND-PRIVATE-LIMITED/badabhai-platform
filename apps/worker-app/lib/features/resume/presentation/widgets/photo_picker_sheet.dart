@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../../core/theme/onboarding_theme.dart';
+
 /// What the worker chose in the photo sheet.
 enum PhotoAction { camera, gallery, remove }
 
@@ -60,26 +62,54 @@ Future<PhotoAction?> showPhotoPickerSheet(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          ListTile(
-            leading: const Icon(Icons.photo_camera_outlined),
-            title: const Text('Photo khichein'),
+          const SizedBox(height: 8),
+          _SheetRow(
+            icon: Icons.photo_camera_outlined,
+            label: 'Photo khichein',
             onTap: () => Navigator.of(sheetContext).pop(PhotoAction.camera),
           ),
-          ListTile(
-            leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Gallery se chunein'),
+          _SheetRow(
+            icon: Icons.photo_library_outlined,
+            label: 'Gallery se chunein',
             onTap: () => Navigator.of(sheetContext).pop(PhotoAction.gallery),
           ),
           if (hasPhoto)
-            ListTile(
-              leading: const Icon(Icons.delete_outline),
-              title: const Text('Photo hatayein'),
+            _SheetRow(
+              icon: Icons.delete_outline,
+              label: 'Photo hatayein',
               onTap: () => Navigator.of(sheetContext).pop(PhotoAction.remove),
             ),
+          const SizedBox(height: 8),
         ],
       ),
     ),
   );
+}
+
+/// One row of the photo sheet, at the worker touch floor.
+class _SheetRow extends StatelessWidget {
+  const _SheetRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      minVerticalPadding: 12,
+      leading: Icon(icon, size: 22, color: OnboardingColors.shiftBlue),
+      title: Text(
+        label,
+        style: OnboardingTypography.inter(size: 14, weight: FontWeight.w600),
+      ),
+      onTap: onTap,
+    );
+  }
 }
 
 /// Picks an image, SQUARE-CROPS it on-device, and returns the resized JPEG

@@ -1,17 +1,34 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
     show WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_models.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_repository.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
-import 'package:badabhai_worker_app/features/voice_form/presentation/widgets/voice_dot_rail.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/finishing_screen.dart';
+import 'package:badabhai_worker_app/features/finishing/presentation/widgets/finishing_controls.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/form_flow_parts.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/selection_cards.dart';
+import 'package:badabhai_worker_app/features/voice/domain/speech_reader.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements FinishingRepository {}
+
+/// Records what the screen asks the device voice to do.
+class _FakeSpeech implements SpeechReader {
+  final List<String> spoken = <String>[];
+  int stops = 0;
+
+  @override
+  Future<void> speak(String text) async => spoken.add(text);
+
+  @override
+  Future<void> stop() async => stops++;
+}
 
 const WorkPrefOptionsDto _options = WorkPrefOptionsDto(
   languages: <String, String>{'hindi': 'Hindi', 'english': 'English'},
@@ -74,6 +91,26 @@ void main() {
     await tester.pumpAndSettle();
     // page 2 = documents, rendered from options.documents_ready
     expect(find.text('Aadhaar'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a shift the chat already recorded is not asked again; job type stays',
+      (WidgetTester tester) async {
+    locator.unregister<FinishingCubit>();
+    locator.registerFactory<FinishingCubit>(() => FinishingCubit(
+          repo,
+          knownFacts: InMemoryKnownWorkerFactsStore(
+              <WorkerFact>[WorkerFact.shift]),
+        ));
+    await pump(tester);
+    // languages → documents → shift & job type
+    for (int i = 0; i < 2; i++) {
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.text('Permanent'), findsOneWidget);
+    expect(find.text('Day'), findsNothing);
   });
 
   testWidgets('a load failure shows a retry', (WidgetTester tester) async {
@@ -140,6 +177,32 @@ void main() {
   // to scroll a form they cannot read to reach the button. Three pages now, one
   // idea each, and each must FIT a real handset without scrolling.
   group('salary and padhai are three pages that fit (#1471)', () {
+    // Fit is a question about the phone, so measure with the fonts the app
+    // bundles (Anek Latin / Inter), not the test font, whose glyphs are far
+    // wider — under it "Availability & terms" wraps the header to two lines
+    // and the salary page scrolls 7dp that no device shows.
+    setUpAll(() async {
+      Future<void> load(String family, List<String> files) async {
+        final FontLoader loader = FontLoader(family);
+        for (final String f in files) {
+          loader.addFont(rootBundle.load(f));
+        }
+        await loader.load();
+      }
+
+      await load('Anek Latin', <String>[
+        'assets/fonts/AnekLatin-SemiBold.ttf',
+        'assets/fonts/AnekLatin-Bold.ttf',
+        'assets/fonts/AnekLatin-ExtraBold.ttf',
+      ]);
+      await load('Inter', <String>[
+        'assets/fonts/Inter-Regular.ttf',
+        'assets/fonts/Inter-Medium.ttf',
+        'assets/fonts/Inter-SemiBold.ttf',
+        'assets/fonts/Inter-Bold.ttf',
+      ]);
+    });
+
     /// Every page of the wizard, in order, with the reported handset's size.
     Future<void> pumpAtPage(WidgetTester tester, int page) async {
       tester.view.physicalSize = const Size(1080, 2400);
@@ -163,7 +226,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpAtPage(tester, 4);
 
-      expect(find.text('Mahine ki salary'), findsOneWidget); // header
+      expect(find.text('Mahine ki salary'), findsOneWidget); // headline
       expect(find.text('₹15–20 hazaar'), findsOneWidget);
       // The education questions have moved off this page entirely.
       expect(find.text('Agar ITI ya Diploma hai to kaun sa?'), findsNothing);
@@ -177,19 +240,24 @@ void main() {
         (WidgetTester tester) async {
       await pumpAtPage(tester, 5);
 
-      expect(find.text('ITI ya Diploma'), findsOneWidget); // header
+      expect(find.text('ITI ya Diploma'), findsOneWidget); // headline
       expect(find.text('Agar ITI ya Diploma hai to kaun sa?'), findsOneWidget);
       expect(find.text('Council / board'), findsOneWidget);
       // No money, no keyboard fields.
       expect(find.text('₹15–20 hazaar'), findsNothing);
       expect(find.text('Institute ka naam'), findsNothing);
-      // HONEST RESIDUAL. `council` has EIGHT options and the wizard chrome
-      // (blue header + dot rail + sticky button) leaves only ~486dp of body on
-      // a 360x800 handset, so this one page still needs a short flick — about
-      // 170dp, one thumb. It was FIVE questions deep before the split. Bounded
-      // here so it cannot quietly grow again; removing the flick entirely means
-      // either giving `council` its own page (four, not three) or turning it
-      // into a picker, and both are the owner's call.
+      // HONEST RESIDUAL. `council` has EIGHT options. In the form-flow layout
+      // the chrome (Shift Blue header + progress strip + docked bar) leaves
+      // ~540dp of body on a 360x800 handset, and the question headline sits in
+      // the body. The credential + council cards sit two per row there, each
+      // stacking its icon tile above the title, so this page needs a short
+      // flick: ~131dp measured with the bundled fonts. On a narrower phone or a
+      // large font the cards fall back to one per row and the page scrolls
+      // further.
+      // It was FIVE questions deep before the split.
+      // Bounded here so it cannot quietly grow again; removing the flick
+      // entirely everywhere means either giving `council` its own page (four,
+      // not three) or turning it into a picker, and both are the owner's call.
       final ScrollableState sc =
           tester.state<ScrollableState>(find.byType(Scrollable).last);
       expect(sc.position.maxScrollExtent, lessThan(200),
@@ -200,7 +268,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpAtPage(tester, 6);
 
-      expect(find.text('Padhai ki detail'), findsOneWidget); // header
+      expect(find.text('Padhai ki detail'), findsOneWidget); // headline
       expect(find.text('Kis saal poora hua'), findsWidgets);
       expect(find.text('Institute ka naam'), findsWidgets);
       expect(find.text('₹15–20 hazaar'), findsNothing);
@@ -209,13 +277,16 @@ void main() {
           reason: 'the education-detail page must not need scrolling');
     });
 
-    testWidgets('the dot rail counts all eight pages', (WidgetTester tester) async {
+    // The master-kit header's STEP badge replaced the dot rail as the progress
+    // indicator; it must still count all eight pages.
+    testWidgets('the step badge counts all eight pages',
+        (WidgetTester tester) async {
       await pumpAtPage(tester, 4);
       expect(FinishingPage.values.length, 8);
-      final VoiceDotRail rail =
-          tester.widget<VoiceDotRail>(find.byType(VoiceDotRail));
-      expect(rail.total, 8);
-      expect(rail.filled, 5); // page index 4
+      // The header renders the badge uppercase, followed by the page category
+      // (form-flow mockups: "STEP 5 OF 6 • TOOLING & FIXTURES").
+      expect(find.text('STEP 5 OF 8 • AVAILABILITY & TERMS'),
+          findsOneWidget); // page index 4
     });
 
     testWidgets('every answer still reaches the wire from its new page',
@@ -237,6 +308,168 @@ void main() {
       expect(prefs.salaryExpectedMax, 20000);
       expect(prefs.educationCredential, isNotNull);
       expect(prefs.educationYear, 2018);
+    });
+  });
+
+  // The form-flow mockups (14 Turning Operations, 15 Workholding, 16 Measuring
+  // Instruments): step line with category, progress strip, an icon tile on
+  // every option card, the multi-select hint, and the listen button.
+  group('form-flow chrome (mockups 14/15/16)', () {
+    Future<void> goToPage(WidgetTester tester, FinishingPage page) async {
+      for (int i = 0; i < page.index; i++) {
+        await advance(tester);
+      }
+    }
+
+    testWidgets('every option card on every page renders a leading icon',
+        (WidgetTester tester) async {
+      await pump(tester);
+      // Options per page: languages 2, documents 1, shift 1 + job type 1,
+      // salary 6 bands, education 2 credentials + 8 councils.
+      const Map<FinishingPage, int> expectedCards = <FinishingPage, int>{
+        FinishingPage.languages: 2,
+        FinishingPage.documents: 1,
+        FinishingPage.shiftAndType: 2,
+        FinishingPage.salary: 6,
+        FinishingPage.education: 10,
+      };
+      for (final FinishingPage page in FinishingPage.values) {
+        if (page.index > 0) await advance(tester);
+        final List<MultiSelectQuestionCard> multi = tester
+            .widgetList<MultiSelectQuestionCard>(
+                find.byType(MultiSelectQuestionCard))
+            .toList();
+        final List<SingleSelectQuestionCard> single = tester
+            .widgetList<SingleSelectQuestionCard>(
+                find.byType(SingleSelectQuestionCard))
+            .toList();
+        final Finder grid = find.byType(FinishingGridOptionCard);
+        expect(multi.length + single.length + grid.evaluate().length,
+            expectedCards[page] ?? 0,
+            reason: '$page option-card count');
+        for (final MultiSelectQuestionCard c in multi) {
+          expect(c.leadingIcon, isNotNull, reason: '$page "${c.title}"');
+        }
+        for (final SingleSelectQuestionCard c in single) {
+          expect(c.leadingIcon, isNotNull, reason: '$page "${c.title}"');
+        }
+        for (final Element e in grid.evaluate()) {
+          final FinishingGridOptionCard c = e.widget as FinishingGridOptionCard;
+          // The tile really draws the glyph, not just carries it.
+          expect(
+              find.descendant(
+                  of: find.byWidget(c), matching: find.byIcon(c.icon)),
+              findsOneWidget,
+              reason: '$page "${c.title}"');
+        }
+      }
+    });
+
+    testWidgets('the header step line carries the page category',
+        (WidgetTester tester) async {
+      await pump(tester);
+      expect(find.text('STEP 1 OF 8 • LANGUAGES'), findsOneWidget);
+      await goToPage(tester, FinishingPage.shiftAndType);
+      expect(find.text('STEP 3 OF 8 • AVAILABILITY & TERMS'), findsOneWidget);
+      await advance(tester); // cities
+      expect(find.text('STEP 4 OF 8 • LOCATION'), findsOneWidget);
+    });
+
+    testWidgets('the progress strip shows the topic and the true percent',
+        (WidgetTester tester) async {
+      await pump(tester);
+      expect(find.byType(FormProgressStrip), findsOneWidget);
+      expect(find.text('LANGUAGES SPOKEN'), findsOneWidget);
+      expect(find.text('13% COMPLETED'), findsOneWidget); // 1 of 8
+      await goToPage(tester, FinishingPage.salary);
+      expect(find.text('SALARY EXPECTATION'), findsOneWidget);
+      expect(find.text('63% COMPLETED'), findsOneWidget); // 5 of 8
+      // Last page: the green "100% complete" pill.
+      for (int i = FinishingPage.salary.index;
+          i < FinishingPage.history.index;
+          i++) {
+        await advance(tester);
+      }
+      expect(find.text('PAST JOBS'), findsOneWidget);
+      expect(find.text('100% complete'), findsOneWidget);
+    });
+
+    testWidgets('the multi-select hint appears only on multi-select pages',
+        (WidgetTester tester) async {
+      const String hint = 'Multiple options select kar sakte hain';
+      await pump(tester);
+      expect(find.text(hint), findsOneWidget); // languages
+      await advance(tester);
+      expect(find.text(hint), findsOneWidget); // documents
+      await advance(tester);
+      expect(find.text(hint), findsNothing); // shift & job type: single
+      await advance(tester);
+      expect(find.text(hint), findsNothing); // cities
+      await advance(tester);
+      expect(find.text(hint), findsNothing); // salary: single
+      await advance(tester);
+      expect(find.text(hint), findsNothing); // education: single
+    });
+
+    testWidgets('no listen button when no SpeechReader is registered',
+        (WidgetTester tester) async {
+      await pump(tester);
+      expect(find.byIcon(Icons.volume_up_outlined), findsNothing);
+      expect(find.text('SUNIE'), findsNothing);
+    });
+
+    testWidgets('the listen button reads the page, and advancing stops it',
+        (WidgetTester tester) async {
+      final _FakeSpeech speech = _FakeSpeech();
+      locator.registerSingleton<SpeechReader>(speech);
+      await pump(tester);
+
+      expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.volume_up_outlined));
+      await tester.pump();
+      expect(speech.spoken, hasLength(1));
+      expect(speech.spoken.single, contains('Aap kaun si bhasha bolte hain?'));
+      expect(speech.spoken.single, contains('Jitni bhasha aati hain, sab chunein.'));
+
+      final int stopsBefore = speech.stops;
+      await advance(tester);
+      expect(speech.stops, greaterThan(stopsBefore),
+          reason: 'next must silence the previous page');
+
+      // Page two reads its own prompt.
+      await tester.tap(find.byIcon(Icons.volume_up_outlined));
+      await tester.pump();
+      expect(speech.spoken.last, contains('Kaun se document taiyaar hain?'));
+
+      // Back to the previous page also stops playback.
+      final int stopsBeforeBack = speech.stops;
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+      expect(speech.stops, greaterThan(stopsBeforeBack));
+    });
+
+    testWidgets('no page overflows at 320x568 with a 2.0 text scale',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      // No SpeechReader here on purpose: this checks the finishing layout.
+
+      await pump(tester);
+      expect(tester.takeException(), isNull, reason: 'languages');
+      for (int i = 1; i < FinishingPage.values.length; i++) {
+        await advance(tester);
+        expect(tester.takeException(), isNull,
+            reason: '${FinishingPage.values[i]}');
+      }
+      // The history page with an employer card open.
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'history with a card');
     });
   });
 

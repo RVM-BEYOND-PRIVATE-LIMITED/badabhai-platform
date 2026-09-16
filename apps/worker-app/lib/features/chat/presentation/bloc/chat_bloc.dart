@@ -14,6 +14,8 @@ import '../../../../core/api/api_models.dart'
         PredictedQuestion;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
+import '../../../../core/session/known_worker_facts_store.dart';
+import '../../domain/chat_answered_facts.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_turn.dart';
@@ -39,14 +41,22 @@ class ChatStarted extends ChatEvent {
 /// tapped label on chat, or `'__declined'` for the decline/escape chip. A typed
 /// send leaves it null and never renders a prediction. It does NOT change the
 /// submit: the wire body stays `{session_id, text}` with `text` = [text].
+///
+/// [servedOption] says whether [text] is a SERVED option the worker tapped —
+/// a none-of-above option included — and is what a closing fact is recorded
+/// on, not [optionKey]. shift_preference's 'Koi bhi chalegi' is none-of-above,
+/// so it is keyed `'__declined'` for the lookahead, yet the server stores it as
+/// shift `any`; judging by the key left the shift unrecorded and the form asked
+/// it again. A typed send and the decline/escape chip leave it false.
 class ChatMessageSent extends ChatEvent {
-  const ChatMessageSent(this.text, {this.optionKey});
+  const ChatMessageSent(this.text, {this.optionKey, this.servedOption = false});
 
   final String text;
   final String? optionKey;
+  final bool servedOption;
 
   @override
-  List<Object?> get props => <Object?>[text, optionKey];
+  List<Object?> get props => <Object?>[text, optionKey, servedOption];
 }
 
 /// Re-send the failed worker message at [index] (#343). The transcript is
@@ -355,8 +365,12 @@ void _defaultChatAnalyticsSink(BbAnalyticsEvent event) =>
     unawaited(BbAnalytics.instance.log(event));
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
-  ChatBloc(this._repo, {ChatAnalyticsSink? analyticsSink})
-      : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
+  ChatBloc(
+    this._repo, {
+    ChatAnalyticsSink? analyticsSink,
+    KnownWorkerFactsStore? knownFacts,
+  })  : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
+        _knownFacts = knownFacts,
         super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
@@ -412,6 +426,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// overlap. The counter keeps [ChatState.sending] honest: the typing indicator
   /// must stay up until the LAST in-flight reply lands, not the first (#344).
   int _inFlightSends = 0;
+
+  /// Where a closing-question answer is recorded once the server processed it,
+  /// so a later form does not ask that fact again (see [chatAnsweredFact]).
+  /// Null records nothing.
+  final KnownWorkerFactsStore? _knownFacts;
+
+  /// The question the latest processed turn asked (`asked_question_id`), i.e.
+  /// what the worker's next message answers. Null before the first reply and
+  /// on a resumed transcript, where nothing is recorded.
+  String? _askedQuestionId;
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
     bool failed = false;
@@ -597,8 +621,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // own higher index. Emitted on delivery, not here — see [_deliver].
     final int askIndex =
         state.messages.where((ChatMessage m) => m.fromWorker).length;
-    await _deliver(text, index, emit,
-        submissionId: submissionId, askIndex: askIndex);
+    await _deliver(
+      text,
+      index,
+      emit,
+      submissionId: submissionId,
+      askIndex: askIndex,
+      answering: _askedQuestionId,
+      tappedOption: event.servedOption,
+    );
   }
 
   /// Sends [text] (already appended at [index]) and records the outcome.
@@ -613,6 +644,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     Emitter<ChatState> emit, {
     required int askIndex,
     String? submissionId,
+    String? answering,
+    bool tappedOption = false,
   }) async {
     _inFlightSends++;
     try {
@@ -707,6 +740,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // double-count. On a failure the answer is not recorded — nothing here.
       _logAnswerSpoken(askIndex);
       _logWrapUpOnce(ready: turn.extractionReady);
+      // A blocked turn did not process the answer and carries no interview
+      // state: record nothing and keep answering the same question.
+      if (!turn.blocked) {
+        _recordAnsweredFact(answering, text, tappedOption, turn);
+        _askedQuestionId = turn.askedQuestionId;
+      }
     } on Failure catch (_) {
       _inFlightSends--;
       // Do NOT silently keep the bubble looking delivered (#343). Mark it FAILED
@@ -773,6 +812,27 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   /// Re-sends a failed bubble in place — no duplicate bubble is appended.
+  /// Records the fact [text] settled for [answering], when the server
+  /// processed it ([turn] is its reply). Fire-and-forget; the store never
+  /// throws. A RETRY passes no [answering] and records nothing: which question
+  /// the failed bubble answered is not known for sure by then.
+  void _recordAnsweredFact(
+    String? answering,
+    String text,
+    bool tappedOption,
+    ChatTurn turn,
+  ) {
+    final KnownWorkerFactsStore? facts = _knownFacts;
+    if (facts == null) return;
+    final WorkerFact? fact = chatAnsweredFact(
+      askedQuestionId: answering,
+      reply: text,
+      tappedOption: tappedOption,
+      unansweredEssentials: turn.unansweredEssentials,
+    );
+    if (fact != null) unawaited(facts.record(fact));
+  }
+
   Future<void> _onRetryRequested(
     ChatRetryRequested event,
     Emitter<ChatState> emit,

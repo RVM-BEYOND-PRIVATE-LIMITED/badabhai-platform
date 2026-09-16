@@ -2,15 +2,14 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
-/// BadaBhai loading spinner — spec `.aw-spin` (`ui.css` 115).
+/// BadaBhai loading spinner: a cool hairline ring (track) with a navy arc head
+/// rotating once per second.
 ///
-/// A cool hairline ring (track) with a deep-blue arc head rotating once per
-/// second. Use during waits — login OTP, profile extraction, resume generation.
-/// Pass [caption] to label what the worker is waiting for.
+/// Use during waits — login OTP, profile extraction, resume generation. Pass
+/// [caption] to label what the worker is waiting for; a bare spinner tells
+/// someone who is not habituated to apps nothing at all.
 class BbSpinner extends StatefulWidget {
   const BbSpinner({super.key, this.size = 64, this.caption});
 
@@ -63,18 +62,21 @@ class _BbSpinnerState extends State<BbSpinner>
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         spinner,
-        const SizedBox(height: AppSpacing.s4),
+        const SizedBox(height: 16),
         Text(
           widget.caption!,
           textAlign: TextAlign.center,
-          style: AppTypography.body(color: AppColors.textSecondary),
+          style: OnboardingTypography.inter(
+            size: 14,
+            color: OnboardingColors.ink600,
+          ),
         ),
       ],
     );
   }
 }
 
-/// Paints the full hairline track plus the deep-blue ~90deg head arc.
+/// Paints the full hairline track plus the navy ~90deg head arc.
 class _SpinnerPainter extends CustomPainter {
   const _SpinnerPainter();
 
@@ -88,14 +90,14 @@ class _SpinnerPainter extends CustomPainter {
     final Paint track = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
-      ..color = AppColors.borderSubtle;
+      ..color = OnboardingColors.borderSubtle;
     canvas.drawCircle(center, radius, track);
 
     final Paint head = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = _strokeWidth
       ..strokeCap = StrokeCap.round
-      ..color = AppColors.blue;
+      ..color = OnboardingColors.shiftBlue;
     // A quarter-turn arc, starting at the top of the circle.
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),

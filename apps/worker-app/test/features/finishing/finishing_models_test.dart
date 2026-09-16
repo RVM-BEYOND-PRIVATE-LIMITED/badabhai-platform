@@ -64,8 +64,20 @@ void main() {
   });
 
   group('WorkPreferences.toUpdateBody (three-state)', () {
-    test('lists are ALWAYS sent (empty = "none of these")', () {
-      final Map<String, dynamic> body = const WorkPreferences().toUpdateBody();
+    test('lists are sent only once touched (then empty = "none of these")',
+        () {
+      final Map<String, dynamic> none = const WorkPreferences().toUpdateBody();
+      expect(none.containsKey('languages'), isFalse);
+      expect(none.containsKey('documents_ready'), isFalse);
+      expect(none.containsKey('preferred_cities'), isFalse);
+
+      final Map<String, dynamic> body = const WorkPreferences()
+          .copyWith(
+            languages: <String>{},
+            documentsReady: <String>{},
+            preferredCities: <String>[],
+          )
+          .toUpdateBody();
       expect(body['languages'], <String>[]);
       expect(body['documents_ready'], <String>[]);
       expect(body['preferred_cities'], <String>[]);
@@ -85,11 +97,10 @@ void main() {
       expect(some['shift'], 'rotational');
     });
 
-    test('toggles are always a real bool', () {
-      final Map<String, dynamic> body = const WorkPreferences(
-        willingToRelocate: true,
-        accommodationNeeded: false,
-      ).toUpdateBody();
+    test('a touched toggle is always a real bool', () {
+      final Map<String, dynamic> body = const WorkPreferences()
+          .copyWith(willingToRelocate: true, accommodationNeeded: false)
+          .toUpdateBody();
       expect(body['willing_to_relocate'], true);
       expect(body['accommodation_needed'], false);
     });

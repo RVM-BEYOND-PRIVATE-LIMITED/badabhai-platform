@@ -12,7 +12,8 @@ import 'package:badabhai_worker_app/features/applications/domain/applications_re
 import 'package:badabhai_worker_app/features/applications/presentation/applied_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/cubit/applications_cubit.dart';
 
-class MockApplicationsRepository extends Mock implements ApplicationsRepository {}
+class MockApplicationsRepository extends Mock
+    implements ApplicationsRepository {}
 
 AppliedJob _job(
   String id, {
@@ -23,21 +24,20 @@ AppliedJob _job(
   // exercise the MATCH_V1 guard.
   String tradeKey = 'cnc_operator',
   String? skillLabel,
-}) =>
-    AppliedJob(
-      jobId: id,
-      tradeKey: tradeKey,
-      title: title,
-      city: 'Pune',
-      area: area,
-      action: 'applied',
-      reason: null,
-      sourceSurface: 'feed',
-      rank: null,
-      createdAt: DateTime(2026, 6, 1),
-      updatedAt: DateTime(2026, 6, 1),
-      matchedSkillLabel: skillLabel,
-    );
+}) => AppliedJob(
+  jobId: id,
+  tradeKey: tradeKey,
+  title: title,
+  city: 'Pune',
+  area: area,
+  action: 'applied',
+  reason: null,
+  sourceSurface: 'feed',
+  rank: null,
+  createdAt: DateTime(2026, 6, 1),
+  updatedAt: DateTime(2026, 6, 1),
+  matchedSkillLabel: skillLabel,
+);
 
 /// Wires a fake repo into the locator + a minimal router (applied + the
 /// job-detail / jobs targets the screen navigates to), pumps, and settles the
@@ -53,15 +53,18 @@ Future<void> _pump(WidgetTester tester, List<AppliedJob> applied) async {
     initialLocation: '/profile/applied',
     routes: <RouteBase>[
       GoRoute(
-          path: '/profile/applied',
-          builder: (_, __) => const AppliedJobsScreen()),
+        path: '/profile/applied',
+        builder: (_, __) => const AppliedJobsScreen(),
+      ),
       GoRoute(
-          path: '/jobs/detail/:jobId',
-          builder: (_, GoRouterState s) =>
-              Scaffold(body: Text('DETAIL ${s.pathParameters['jobId']}'))),
+        path: '/jobs/detail/:jobId',
+        builder: (_, GoRouterState s) =>
+            Scaffold(body: Text('DETAIL ${s.pathParameters['jobId']}')),
+      ),
       GoRoute(
-          path: '/jobs',
-          builder: (_, __) => const Scaffold(body: Text('JOBS FEED'))),
+        path: '/jobs',
+        builder: (_, __) => const Scaffold(body: Text('JOBS FEED')),
+      ),
     ],
   );
 
@@ -71,7 +74,8 @@ Future<void> _pump(WidgetTester tester, List<AppliedJob> applied) async {
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-      MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+    MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+  );
   await tester.pump(); // first frame: loading
   await tester.pump(); // load() future resolves → ready/empty
 }
@@ -79,60 +83,83 @@ Future<void> _pump(WidgetTester tester, List<AppliedJob> applied) async {
 void main() {
   tearDown(() async => locator.reset());
 
-  test('#1051: AppliedJob.fromJson on the REAL applications payload — trade_key '
-      'present, NO matched_skill_label — so the fallback trade line is what shows',
-      () {
-    // The exact shape GET /workers/me/applications returns: it projects
-    // `trade_key` and never sends `matched_skill_label`. A label-only read left
-    // this null and dropped the trade line for every legacy row (#1051). This is
-    // the fromJson coverage #1027's fixture-built tests were missing.
-    final AppliedJob job = AppliedJob.fromJson(<String, dynamic>{
-      'job_id': 'j1',
-      'trade_key': 'cnc_operator',
-      'title': 'CNC Operator',
-      'city': 'Pune',
-      'area': 'Pimpri',
-      'action': 'applied',
-      'source_surface': 'feed',
-      'created_at': '2026-06-01T00:00:00Z',
-      'updated_at': '2026-06-01T00:00:00Z',
-    });
-    expect(job.matchedSkillLabel, isNull,
-        reason: 'the applications API sends no label');
-    expect(job.tradeKey, 'cnc_operator',
-        reason: 'the legacy slug the subtitle falls back to');
-  });
+  test(
+    '#1051: AppliedJob.fromJson on the REAL applications payload — trade_key '
+    'present, NO matched_skill_label — so the fallback trade line is what shows',
+    () {
+      // The exact shape GET /workers/me/applications returns: it projects
+      // `trade_key` and never sends `matched_skill_label`. A label-only read left
+      // this null and dropped the trade line for every legacy row (#1051). This is
+      // the fromJson coverage #1027's fixture-built tests were missing.
+      final AppliedJob job = AppliedJob.fromJson(<String, dynamic>{
+        'job_id': 'j1',
+        'trade_key': 'cnc_operator',
+        'title': 'CNC Operator',
+        'city': 'Pune',
+        'area': 'Pimpri',
+        'action': 'applied',
+        'source_surface': 'feed',
+        'created_at': '2026-06-01T00:00:00Z',
+        'updated_at': '2026-06-01T00:00:00Z',
+      });
+      expect(
+        job.matchedSkillLabel,
+        isNull,
+        reason: 'the applications API sends no label',
+      );
+      expect(
+        job.tradeKey,
+        'cnc_operator',
+        reason: 'the legacy slug the subtitle falls back to',
+      );
+    },
+  );
 
   testWidgets(
-      'WA-1 regression: THREE applications render as THREE rows — the list '
-      'must never collapse to one', (WidgetTester tester) async {
-    await _pump(tester, <AppliedJob>[
-      _job('a1', area: 'Pimpri', title: 'CNC Operator'),
-      _job('a2', area: null, title: 'VMC Operator'),
-      _job('a3', area: 'Waluj', title: 'Welder'),
-    ]);
+    'WA-1 regression: THREE applications render as THREE rows — the list '
+    'must never collapse to one',
+    (WidgetTester tester) async {
+      await _pump(tester, <AppliedJob>[
+        _job('a1', area: 'Pimpri', title: 'CNC Operator'),
+        _job('a2', area: null, title: 'VMC Operator'),
+        _job('a3', area: 'Waluj', title: 'Welder'),
+      ]);
 
-    expect(find.text('CNC Operator'), findsOneWidget);
-    expect(find.text('VMC Operator'), findsOneWidget);
-    expect(find.text('Welder'), findsOneWidget);
-    // Exactly one row per application — three cards, no dedupe, no take(1).
-    expect(find.byType(BbJobCard), findsNWidgets(3));
-  });
+      // 'CNC Operator' is BOTH the first row's title and — from the fixture's
+      // default `trade_key` — every row's trade line, so it is not a per-row
+      // count. The other two titles are unique.
+      expect(find.text('CNC Operator'), findsWidgets);
+      expect(find.text('VMC Operator'), findsOneWidget);
+      expect(find.text('Welder'), findsOneWidget);
+      // Exactly one row per application — three cards, no dedupe, no take(1).
+      expect(find.byType(BbJobCard), findsNWidgets(3));
+    },
+  );
 
-  testWidgets(
-      'subtitle prefers the matched-skill LABEL, falls back to the legacy '
+  testWidgets('subtitle prefers the matched-skill LABEL, falls back to the legacy '
       'trade_key (#1051), never an mskill_ id', (WidgetTester tester) async {
     await _pump(tester, <AppliedJob>[
       // V1 row that carries a label.
-      _job('a1',
-          area: 'Pimpri', title: 'CNC Operator', skillLabel: 'MIG Welder'),
+      _job(
+        'a1',
+        area: 'Pimpri',
+        title: 'CNC Operator',
+        skillLabel: 'MIG Welder',
+      ),
       // LEGACY row — the production shape: a trade_key slug, no label. Its trade
       // line MUST survive (this is exactly what #1027 regressed and #1051 fixes).
       _job('a2', area: null, title: 'VMC Operator'), // tradeKey 'cnc_operator'
     ]);
 
-    expect(find.text('MIG Welder · Pimpri, Pune'), findsOneWidget);
-    expect(find.text('cnc_operator · Pune'), findsOneWidget);
+    // The trade and the place are SEPARATE lines now: the location row keeps
+    // its pin for a location only.
+    expect(find.text('MIG Welder'), findsOneWidget);
+    expect(find.text('Pimpri, Pune'), findsOneWidget);
+    // HUMANISED, never the raw slug: the legacy `trade_key` goes through
+    // `tradeKeyLabel`, so a worker reads "CNC Operator", not "cnc_operator".
+    expect(find.text('CNC Operator'), findsWidgets);
+    expect(find.text('Pune'), findsOneWidget);
+    expect(find.textContaining('cnc_operator'), findsNothing);
     // The internal `mskill_*` trade_key must NEVER be rendered (#1027).
     expect(find.textContaining('mskill_'), findsNothing);
   });
@@ -140,7 +167,12 @@ void main() {
   testWidgets('#1027: an mskill_ id is never rendered — the subtitle drops to '
       'place alone', (WidgetTester tester) async {
     await _pump(tester, <AppliedJob>[
-      _job('a1', area: 'Pimpri', title: 'CNC Operator', tradeKey: 'mskill_cnc_op'),
+      _job(
+        'a1',
+        area: 'Pimpri',
+        title: 'CNC Operator',
+        tradeKey: 'mskill_cnc_op',
+      ),
     ]);
 
     expect(find.text('Pimpri, Pune'), findsOneWidget); // subtitle = place only
@@ -158,9 +190,13 @@ void main() {
   testWidgets('row tap navigates to job-detail with the correct jobId', (
     WidgetTester tester,
   ) async {
-    await _pump(tester, <AppliedJob>[_job('a1', area: 'Pimpri', title: 'CNC Operator')]);
+    await _pump(tester, <AppliedJob>[
+      _job('a1', area: 'Pimpri', title: 'CNC Operator'),
+    ]);
 
-    await tester.tap(find.text('CNC Operator'));
+    // By the title BUTTON, not the string: 'CNC Operator' is now both the
+    // title and the humanized trade line on this row.
+    await tester.tap(find.byKey(const Key('jobCardTitleButton')));
     await tester.pumpAndSettle(); // detail screen has no perpetual animation
 
     expect(find.text('DETAIL a1'), findsOneWidget);
@@ -168,13 +204,21 @@ void main() {
 
   test('appliedRelativeLabel formats coarse Hinglish relative time', () {
     final DateTime now = DateTime(2026, 6, 10, 12, 0);
-    expect(appliedRelativeLabel(now.subtract(const Duration(seconds: 5)), now: now),
-        'Applied · abhi');
-    expect(appliedRelativeLabel(now.subtract(const Duration(minutes: 5)), now: now),
-        'Applied · 5 minute pehle');
-    expect(appliedRelativeLabel(now.subtract(const Duration(hours: 3)), now: now),
-        'Applied · 3 ghante pehle');
-    expect(appliedRelativeLabel(now.subtract(const Duration(days: 2)), now: now),
-        'Applied · 2 din pehle');
+    expect(
+      appliedRelativeLabel(now.subtract(const Duration(seconds: 5)), now: now),
+      'Applied · abhi',
+    );
+    expect(
+      appliedRelativeLabel(now.subtract(const Duration(minutes: 5)), now: now),
+      'Applied · 5 minute pehle',
+    );
+    expect(
+      appliedRelativeLabel(now.subtract(const Duration(hours: 3)), now: now),
+      'Applied · 3 ghante pehle',
+    );
+    expect(
+      appliedRelativeLabel(now.subtract(const Duration(days: 2)), now: now),
+      'Applied · 2 din pehle',
+    );
   });
 }

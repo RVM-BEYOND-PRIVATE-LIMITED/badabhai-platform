@@ -15,6 +15,8 @@ import 'package:badabhai_worker_app/core/util/pdf_downloader.dart';
 import 'package:badabhai_worker_app/core/util/resume_file_name.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -26,6 +28,22 @@ class MockResumeRepository extends Mock implements ResumeRepository {}
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 
 class MockProfileRepository extends Mock implements ProfileRepository {}
+
+/// R7's source for the DRAFT pill: `verified` is the backend's own
+/// "profile confirmed" answer. [failing] makes the read throw, which must
+/// leave the pill HIDDEN (unknown is never "draft").
+class FakeProfileSummaryRepository implements ProfileSummaryRepository {
+  FakeProfileSummaryRepository({this.verified = false, this.failing = false});
+
+  final bool verified;
+  final bool failing;
+
+  @override
+  Future<ProfileSummary> summary() async {
+    if (failing) throw const NetworkFailure();
+    return ProfileSummary(verified: verified, strengthSignals: 0);
+  }
+}
 
 /// The FULL in-app download journey on the REAL screen: tap → busy button +
 /// "shuru ho gaya" notice on the SAME screen → save crosses the platform
@@ -60,6 +78,8 @@ void main() {
     bool throwOnLoad = false,
     bool nightShiftReady = false,
     String resume = 'MOCK RESUME BODY',
+    bool profileConfirmed = false,
+    bool profileStatusUnknown = false,
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
@@ -78,18 +98,35 @@ void main() {
     }
     // #1343 — the ordinary answer for a screen not exercising the structured
     // document; this file's own coverage lives in resume_document_render_test.dart.
-    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
+    when(
+      () => repo.loadResumeDocument(),
+    ).thenAnswer((_) async => const ResumeDocumentSnapshot());
+    // R7 — the DRAFT pill's only honest source. Injected rather than
+    // registered so this file controls it per test.
+    final ProfileSummaryRepository summaryRepo = FakeProfileSummaryRepository(
+      verified: profileConfirmed,
+      failing: profileStatusUnknown,
+    );
+    locator.registerFactory<ResumeCubit>(
+      () => ResumeCubit(
+        repo,
+        editRepo,
+        MockProfileRepository(),
+        profileSummaryRepository: summaryRepo,
+      ),
+    );
     // The screen refetches on tab focus (T4) and resolves this from the locator.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     locator.registerFactory<ResumeEditRepository>(() => editRepo);
 
     channelCalls = <MethodCall>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
-        (MethodCall call) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      MethodCall call,
+    ) async {
       channelCalls.add(call);
       if (call.method == 'saveToDownloads') {
-        final Map<dynamic, dynamic> args = call.arguments as Map<dynamic, dynamic>;
+        final Map<dynamic, dynamic> args =
+            call.arguments as Map<dynamic, dynamic>;
         return <String, Object>{
           'location': 'content://downloads/7',
           'displayName': args['fileName'] as String,
@@ -99,18 +136,24 @@ void main() {
       if (call.method == 'openSavedFile') return true;
       return null;
     });
-    addTearDown(() => tester.binding.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, null));
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      ),
+    );
 
     tester.view.physicalSize = const Size(900, 1900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: ResumePreviewScreen(initialResume: resume),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ResumePreviewScreen(initialResume: resume),
+      ),
+    );
     await tester.pump();
     // Let the download button's name PREFETCH (initState → editRepo.load())
     // resolve and re-render before the test taps, so `_fileName` is the derived
@@ -120,10 +163,8 @@ void main() {
 
   tearDown(() async => locator.reset());
 
-  testWidgets(
-      'deterministic resume renders as the design: name + WORKER PROFILE '
-      '(DRAFT) header and grouped, icon-led sections',
-      (WidgetTester tester) async {
+  testWidgets('deterministic resume renders as the design: name + WORKER PROFILE '
+      'card and grouped, icon-led section cards', (WidgetTester tester) async {
     // Exactly the shape apps/ai-service/app/extraction.py `build_resume` emits.
     const String templated = '''WORKER PROFILE (DRAFT)
 
@@ -138,10 +179,17 @@ Current location: Faridabad''';
 
     await pumpScreen(tester, name: 'Monalisa Sharma', resume: templated);
 
-    // Header: name + WORKER PROFILE + the DRAFT pill (parsed, never fabricated).
+    // Profile card: name + WORKER PROFILE + the DRAFT pill.
+    //
+    // The pill now reads the PROFILE's own confirmed flag (R7), not the
+    // '(DRAFT)' marker in the resume TEXT: ai-service stamps that marker on
+    // every resume it builds, so the old parsed pill told a confirmed worker
+    // their profile was a draft forever. This worker is unconfirmed, so it
+    // shows — as 'DRAFT' in a pill, without the parentheses the text carried.
     expect(find.text('Monalisa Sharma'), findsOneWidget);
     expect(find.text('WORKER PROFILE'), findsOneWidget);
-    expect(find.text('(DRAFT)'), findsOneWidget);
+    expect(find.text('DRAFT'), findsOneWidget);
+    expect(find.text('(DRAFT)'), findsNothing);
 
     // Section titles from the design.
     expect(find.text('General Info'), findsOneWidget);
@@ -155,116 +203,164 @@ Current location: Faridabad''';
       find.textContaining('HMC Operator', findRichText: true),
       findsWidgets,
     );
-    expect(
-      find.textContaining('Faridabad', findRichText: true),
-      findsWidgets,
-    );
+    expect(find.textContaining('Faridabad', findRichText: true), findsWidgets);
 
     // The old plain blob is gone — the body is structured now.
     expect(find.text(templated), findsNothing);
   });
 
   testWidgets(
-      'night-shift readiness survives the PROSE fallback — shown as a Yes/No '
-      'line even when the body does not parse into sections',
-      (WidgetTester tester) async {
-    // A non-template body (no `Label: value` lines) → parsed.isEmpty → the raw
-    // prose fallback. Night-shift is a worker PREF carried outside the resume
-    // text, so it must STILL render (the regression the owner reported).
-    const String prose = 'Mehnti CNC worker, 8 saal ka tajurba.';
-    await pumpScreen(
-      tester,
-      name: 'Sita Devi',
-      resume: prose,
-      nightShiftReady: true,
-    );
+    'night-shift readiness survives the PROSE fallback — shown as a Yes/No '
+    'line even when the body does not parse into sections',
+    (WidgetTester tester) async {
+      // A non-template body (no `Label: value` lines) → parsed.isEmpty → the raw
+      // prose fallback. Night-shift is a worker PREF carried outside the resume
+      // text, so it must STILL render (the regression the owner reported).
+      const String prose = 'Mehnti CNC worker, 8 saal ka tajurba.';
+      await pumpScreen(
+        tester,
+        name: 'Sita Devi',
+        resume: prose,
+        nightShiftReady: true,
+      );
 
-    // Prose shown in full…
-    expect(find.text(prose), findsOneWidget);
-    // …and the night-shift answer stands on its own, never dropped.
-    expect(
-      find.textContaining('Night shift ke liye taiyaar: Yes',
-          findRichText: true),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets(
-      'download stays on-screen: busy state, started + complete notices, '
-      'DERIVED file name over the channel, Kholein opens the saved file',
-      (WidgetTester tester) async {
-    await pumpScreen(tester, name: 'Ramesh Kumar');
-    // Gate the url resolve so the busy state is deterministically observable.
-    final Completer<String> urlGate = Completer<String>();
-    when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
-
-    await tester.tap(find.text('PDF download karein'));
-    await tester.pump();
-
-    // Still on the resume screen (no navigation), started notice + busy CTA.
-    expect(find.text('MOCK RESUME BODY'), findsOneWidget);
-    expect(find.text(kDownloadStartedNotice), findsOneWidget);
-    expect(
-      tester
-          .widget<BbButton>(find.widgetWithText(BbButton, 'PDF download karein'))
-          .loading,
-      isTrue,
-    );
-
-    // A second tap while busy is inert (BbButton disables onPressed) — no
-    // double download, no double file.
-    await tester.tap(find.text('PDF download karein'), warnIfMissed: false);
-    await tester.pump();
-
-    urlGate.complete('mock://downloads/resume/mock-resume-0001.pdf');
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text(kDownloadCompleteNotice), findsOneWidget);
-    verify(() => repo.resumeDownloadUrl()).called(1);
-
-    final MethodCall save =
-        channelCalls.singleWhere((MethodCall c) => c.method == 'saveToDownloads');
-    final Map<dynamic, dynamic> saveArgs = save.arguments as Map<dynamic, dynamic>;
-    // The saved file is named from the worker's OWN name (all-words format).
-    expect(saveArgs['fileName'], 'RAMESH_KUMAR_RESUME.pdf');
-    // The cache temp file handed to the platform was cleaned up afterwards.
-    expect(File(saveArgs['tempPath'] as String).existsSync(), isFalse);
-
-    // Button is usable again once the download finished.
-    expect(
-      tester
-          .widget<BbButton>(find.widgetWithText(BbButton, 'PDF download karein'))
-          .loading,
-      isFalse,
-    );
-
-    // Let the SnackBar's entrance animation finish (it ignores pointers while
-    // animating in), then "Kholein" opens the SAVED LOCAL file via the channel.
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(kDownloadOpenActionLabel));
-    await tester.pump();
-    final MethodCall open =
-        channelCalls.singleWhere((MethodCall c) => c.method == 'openSavedFile');
-    expect((open.arguments as Map<dynamic, dynamic>)['location'],
-        'content://downloads/7');
-  });
+      // Prose shown in full…
+      expect(find.text(prose), findsOneWidget);
+      // …and the night-shift answer stands on its own, never dropped.
+      expect(
+        find.textContaining(
+          'Night shift ke liye taiyaar: Yes',
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets(
-      'a failed name prefetch falls back to the generic file name — the '
-      'download itself is never blocked', (WidgetTester tester) async {
-    await pumpScreen(tester, throwOnLoad: true);
-    when(() => repo.resumeDownloadUrl())
-        .thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
+    'download stays on-screen: busy state, started + complete notices, '
+    'DERIVED file name over the channel, Kholein opens the saved file',
+    (WidgetTester tester) async {
+      await pumpScreen(tester, name: 'Ramesh Kumar');
+      // Gate the url resolve so the busy state is deterministically observable.
+      final Completer<String> urlGate = Completer<String>();
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
 
-    await tester.tap(find.text('PDF download karein'));
-    await tester.pump();
-    await tester.pump();
+      await tester.tap(find.text('PDF download karein'));
+      await tester.pump();
 
-    expect(find.text(kDownloadCompleteNotice), findsOneWidget);
-    final MethodCall save =
-        channelCalls.singleWhere((MethodCall c) => c.method == 'saveToDownloads');
-    final Map<dynamic, dynamic> saveArgs = save.arguments as Map<dynamic, dynamic>;
-    expect(saveArgs['fileName'], kFallbackResumeFileName);
-  });
+      // Still on the resume screen (no navigation), started notice + busy CTA.
+      expect(find.text('MOCK RESUME BODY'), findsOneWidget);
+      expect(find.text(kDownloadStartedNotice), findsOneWidget);
+      expect(
+        tester
+            .widget<BbButton>(
+              find.widgetWithText(BbButton, 'PDF download karein'),
+            )
+            .loading,
+        isTrue,
+      );
+
+      // A second tap while busy is inert (BbButton disables onPressed) — no
+      // double download, no double file.
+      await tester.tap(find.text('PDF download karein'), warnIfMissed: false);
+      await tester.pump();
+
+      urlGate.complete('mock://downloads/resume/mock-resume-0001.pdf');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+      verify(() => repo.resumeDownloadUrl()).called(1);
+
+      final MethodCall save = channelCalls.singleWhere(
+        (MethodCall c) => c.method == 'saveToDownloads',
+      );
+      final Map<dynamic, dynamic> saveArgs =
+          save.arguments as Map<dynamic, dynamic>;
+      // The saved file is named from the worker's OWN name (all-words format).
+      expect(saveArgs['fileName'], 'RAMESH_KUMAR_RESUME.pdf');
+      // The cache temp file handed to the platform was cleaned up afterwards.
+      expect(File(saveArgs['tempPath'] as String).existsSync(), isFalse);
+
+      // Button is usable again once the download finished.
+      expect(
+        tester
+            .widget<BbButton>(
+              find.widgetWithText(BbButton, 'PDF download karein'),
+            )
+            .loading,
+        isFalse,
+      );
+
+      // Let the SnackBar's entrance animation finish (it ignores pointers while
+      // animating in), then "Kholein" opens the SAVED LOCAL file via the channel.
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(kDownloadOpenActionLabel));
+      await tester.pump();
+      final MethodCall open = channelCalls.singleWhere(
+        (MethodCall c) => c.method == 'openSavedFile',
+      );
+      expect(
+        (open.arguments as Map<dynamic, dynamic>)['location'],
+        'content://downloads/7',
+      );
+    },
+  );
+
+  testWidgets(
+    'R7 — a CONFIRMED profile shows NO draft pill, and an UNKNOWN profile '
+    'status shows none either',
+    (WidgetTester tester) async {
+      const String templated = '''WORKER PROFILE (DRAFT)
+
+Role: HMC Operator
+Trade: HMC Machining''';
+
+      await pumpScreen(
+        tester,
+        name: 'Monalisa Sharma',
+        resume: templated,
+        profileConfirmed: true,
+      );
+      // The resume TEXT still says (DRAFT) — the pill does not repeat it.
+      expect(find.text('WORKER PROFILE'), findsOneWidget);
+      expect(find.text('DRAFT'), findsNothing);
+
+      // And when the profile status cannot be read at all, the pill stays away:
+      // unknown is not "draft", because accusing a confirmed worker's resume of
+      // being a draft is the exact bug this replaced.
+      await pumpScreen(
+        tester,
+        name: 'Monalisa Sharma',
+        resume: templated,
+        profileStatusUnknown: true,
+      );
+      expect(find.text('WORKER PROFILE'), findsOneWidget);
+      expect(find.text('DRAFT'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a failed name prefetch falls back to the generic file name — the '
+    'download itself is never blocked',
+    (WidgetTester tester) async {
+      await pumpScreen(tester, throwOnLoad: true);
+      when(
+        () => repo.resumeDownloadUrl(),
+      ).thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
+
+      await tester.tap(find.text('PDF download karein'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+      final MethodCall save = channelCalls.singleWhere(
+        (MethodCall c) => c.method == 'saveToDownloads',
+      );
+      final Map<dynamic, dynamic> saveArgs =
+          save.arguments as Map<dynamic, dynamic>;
+      expect(saveArgs['fileName'], kFallbackResumeFileName);
+    },
+  );
 }

@@ -1,4 +1,7 @@
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
+import 'package:badabhai_worker_app/features/trade_form/data/trade_form_marker_store.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/form_fact_registry.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
@@ -81,6 +84,36 @@ TradeForm _formWithQualifications() {
   );
 }
 
+/// [_form] with BOTH questions answered — what `GET /profiling/form` returns
+/// once the worker is past the questions, so only the markers decide where a
+/// fresh cubit resumes. [packId] lets a test point at a different form.
+TradeForm _formBothAnswered({String packId = 'qp_cnc_turning'}) {
+  final TradeForm base = _form();
+  return TradeForm(
+    kind: base.kind,
+    packId: packId,
+    packVersion: base.packVersion,
+    sections: <TradeFormSection>[
+      TradeFormSection(
+        id: base.sections[0].id,
+        title: base.sections[0].title,
+        screens: <TradeFormStep>[
+          base.sections[0].screens[0],
+          const TradeFormQuestionStep(
+            question: _q2,
+            searchable: false,
+            answer: TradeFormSavedAnswer(
+              status: TradeFormAnswerStatus.answered,
+              optionKeys: <String>['mild_steel'],
+            ),
+          ),
+        ],
+      ),
+      ...base.sections.skip(1),
+    ],
+  );
+}
+
 void main() {
   late _MockRepo repo;
 
@@ -95,7 +128,8 @@ void main() {
     repo = _MockRepo();
   });
 
-  TradeFormCubit build() => TradeFormCubit(repo);
+  TradeFormCubit build({TradeFormMarkerStore? store}) =>
+      TradeFormCubit(repo, markerStore: store);
 
   /// Walks a fresh [cubit] from load() through both questions and both
   /// existing markers, landing on the qualifications marker — the exact
@@ -103,7 +137,9 @@ void main() {
   /// Hoisted out of `group('saveQualificationsAndAdvance (#1384)', …)` (its
   /// original home) to file/`main()` scope so the #1384-item-1 "banked
   /// saves" group below can reuse it too.
-  Future<TradeFormCubit> walkToQualifications() async {
+  Future<TradeFormCubit> walkToQualifications({
+    TradeFormMarkerStore? store,
+  }) async {
     when(() => repo.loadForm()).thenAnswer((_) async => _formWithQualifications());
     when(() => repo.submitAnswer(
           questionKey: any(named: 'questionKey'),
@@ -116,7 +152,7 @@ void main() {
         ));
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
     when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
-    final TradeFormCubit cubit = build();
+    final TradeFormCubit cubit = build(store: store);
     await cubit.load();
     await cubit.answerQuestion(
       cubit.state.currentStep as TradeFormQuestionStep,
@@ -717,6 +753,289 @@ void main() {
 
       verifyNever(() => repo.saveQualifications(any()));
       expect(cubit.state.savedQualifications, const TradeFormQualifications());
+    });
+  });
+
+  group('a saved marker page is not asked again on re-entry', () {
+    late InMemoryTradeFormMarkerStore store;
+
+    setUp(() => store = InMemoryTradeFormMarkerStore());
+
+    void stubAnswer({String questionKey = 'material_worked', bool stale = false}) {
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => TradeFormAnswerResult(
+            questionKey: questionKey,
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+            schemaStale: stale,
+          ));
+    }
+
+    Future<void> recordPreferences() =>
+        store.markCompleted(TradeFormMarkerType.preferences);
+
+    test(
+        'a fresh cubit after a completed preferences save resumes past it, '
+        'and goBack still reaches it', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      stubAnswer();
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      final TradeFormCubit first = build(store: store);
+      await first.load();
+      await first.answerQuestion(
+        first.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      await first.savePreferencesAndAdvance(const TradeFormPreferences());
+      expect(first.state.currentStep, isA<TradeFormEmploymentStep>());
+      await first.close();
+
+      // Back from step 1 then the chat card, or a cold start: a NEW cubit.
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      final TradeFormCubit second = build(store: store);
+      await second.load();
+
+      expect(second.state.currentStep, isA<TradeFormEmploymentStep>());
+      second.goBack();
+      expect(second.state.currentStep, isA<TradeFormPreferencesStep>());
+
+      // Control: with nothing recorded the same form opens on preferences.
+      final TradeFormCubit control = build();
+      await control.load();
+      expect(control.state.currentStep, isA<TradeFormPreferencesStep>());
+    });
+
+    test('a FAILED preferences save is not recorded', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      stubAnswer();
+      when(() => repo.savePreferences(any()))
+          .thenThrow(const NetworkFailure('offline'));
+      final TradeFormCubit first = build(store: store);
+      await first.load();
+      await first.answerQuestion(
+        first.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      await first.savePreferencesAndAdvance(const TradeFormPreferences());
+      expect(first.state.currentStep, isA<TradeFormPreferencesStep>());
+
+      expect(await store.completedMarkers(), isEmpty);
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      final TradeFormCubit second = build(store: store);
+      await second.load();
+      expect(second.state.currentStep, isA<TradeFormPreferencesStep>());
+    });
+
+    test(
+        'a record belongs to the WORKER: a different trade form resumes past '
+        'it too (the endpoints write the worker, not a form)', () async {
+      await recordPreferences();
+
+      when(() => repo.loadForm())
+          .thenAnswer((_) async => _formBothAnswered(packId: 'qp_vmc_milling'));
+      final TradeFormCubit other = build(store: store);
+      await other.load();
+      expect(other.state.currentStep, isA<TradeFormEmploymentStep>());
+
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      final TradeFormCubit same = build(store: store);
+      await same.load();
+      expect(same.state.currentStep, isA<TradeFormEmploymentStep>());
+    });
+
+    test('answering the question before a saved marker walks past it',
+        () async {
+      await recordPreferences();
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      stubAnswer();
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked');
+
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+    });
+
+    test('when every remaining marker is saved, the last answer reaches done',
+        () async {
+      await recordPreferences();
+      await store.markCompleted(TradeFormMarkerType.employment);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      stubAnswer();
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(cubit.state.status, TradeFormStatus.done);
+    });
+
+    // Review round 2: with nothing left to ask, a fresh cubit used to land on
+    // the last step — the saved qualifications page, blank, asked again.
+    test(
+        'a fresh cubit on a fully completed form opens the last question, '
+        'never a saved marker page', () async {
+      await recordPreferences();
+      await store.markCompleted(TradeFormMarkerType.employment);
+      await store.markCompleted(TradeFormMarkerType.qualifications);
+      final TradeForm base = _formBothAnswered();
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: base.kind,
+            packId: base.packId,
+            packVersion: base.packVersion,
+            sections: <TradeFormSection>[
+              ...base.sections,
+              const TradeFormSection(
+                id: 'qualifications',
+                title: 'Qualification, documents & languages',
+                screens: <TradeFormStep>[TradeFormQualificationsStep()],
+              ),
+            ],
+          ));
+      stubAnswer();
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+
+      expect(cubit.state.status, TradeFormStatus.ready);
+      final TradeFormStep? step = cubit.state.currentStep;
+      expect(step, isA<TradeFormQuestionStep>());
+      expect((step! as TradeFormQuestionStep).question.id, 'material_worked');
+
+      await cubit.answerQuestion(
+        step as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      expect(cubit.state.status, TradeFormStatus.done,
+          reason: 'every marker after it is saved: nothing is re-asked');
+    });
+
+    test('the schema_stale resync skips a saved marker too', () async {
+      await recordPreferences();
+      when(() => repo.loadForm()).thenAnswer((_) async => _form(q1Answered: false));
+      stubAnswer(questionKey: 'turning_machine', stale: true);
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+      expect(cubit.state.currentIndex, 0);
+
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+
+      verify(() => repo.loadForm()).called(2);
+      expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+    });
+
+    test('submitting the qualifications page with nothing to change is '
+        'recorded as saved', () async {
+      final TradeFormCubit cubit = await walkToQualifications(store: store);
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications());
+
+      verifyNever(() => repo.saveQualifications(any()));
+      expect(cubit.state.status, TradeFormStatus.done);
+      expect(
+        await store.completedMarkers(),
+        <TradeFormMarkerType>{
+          TradeFormMarkerType.preferences,
+          TradeFormMarkerType.employment,
+          TradeFormMarkerType.qualifications,
+        },
+      );
+    });
+
+    // Review round 1: a fresh cubit reaches a saved marker with goBack, and
+    // the page opens blank (no read route). Passing through must not erase.
+    test(
+        'goBack onto a saved preferences page on a fresh cubit, then Aage, '
+        'sends no list or yes/no key', () async {
+      await recordPreferences();
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+      expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+
+      cubit.goBack();
+      expect(cubit.state.currentStep, isA<TradeFormPreferencesStep>());
+      expect(cubit.state.savedPreferences, isNull);
+      // What the page sends when the worker touches nothing: its blank default.
+      await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+
+      final TradeFormPreferences sent =
+          verify(() => repo.savePreferences(captureAny())).captured.single
+              as TradeFormPreferences;
+      expect(sent.toJson(), isEmpty,
+          reason: 'an empty list would clear the stored languages and cities');
+    });
+
+    test(
+        'an untouched employment page skips the whole-history replace and '
+        'still counts as saved', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _formBothAnswered());
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+      await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+      expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+
+      cubit.skipEmploymentAndAdvance();
+
+      verifyNever(() => repo.saveEmployment(any()));
+      expect(cubit.state.status, TradeFormStatus.done);
+      expect(await store.completedMarkers(),
+          contains(TradeFormMarkerType.employment));
+    });
+
+    test(
+        'isLastStep and the step counter leave out saved markers ahead of '
+        'the current step', () async {
+      await recordPreferences();
+      await store.markCompleted(TradeFormMarkerType.employment);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      final TradeFormCubit cubit = build(store: store);
+      await cubit.load();
+
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked');
+      expect(cubit.state.flatSteps, hasLength(4));
+      expect(cubit.state.isLastStep, isTrue,
+          reason: 'both markers after it are saved, so this answer finishes');
+      expect(cubit.state.visibleStepCount, 2);
+      expect(cubit.state.visiblePosition, 2);
+
+      // Control: with nothing saved the same step is 2 of 4, not last.
+      final TradeFormCubit control = build();
+      await control.load();
+      expect(control.state.isLastStep, isFalse);
+      expect(control.state.visibleStepCount, 4);
+      expect(control.state.visiblePosition, 2);
+    });
+
+    test('facts already given reach the state for the preferences page',
+        () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      final TradeFormCubit cubit = TradeFormCubit(
+        repo,
+        knownFacts: InMemoryKnownWorkerFactsStore(
+            <WorkerFact>[WorkerFact.shift, WorkerFact.preferredCities]),
+      );
+      await cubit.load();
+
+      expect(cubit.state.knownFacts,
+          <WorkerFact>{WorkerFact.shift, WorkerFact.preferredCities});
     });
   });
 }

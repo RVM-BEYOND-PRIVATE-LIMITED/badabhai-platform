@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
-/// A small, non-interactive saffron pill — `.aw-tag` (ui.css §48). Used for
-/// skill/machine tags (e.g. "Fanuc"), kit chips, and resume keywords; haldi
-/// warmth that reads as "this worker knows this".
+/// A small, non-interactive fact pill — a skill/machine tag ("Fanuc"), a kit
+/// chip, a resume keyword.
+///
+/// v3 paints it as a neutral white pill behind a hairline, not a coloured
+/// wash: a page of these is a LIST, and colouring every entry made the resume
+/// read as a warning panel. Colour is reserved for state that means something.
 ///
 /// Static label only — wrap a [BbButton] or [GestureDetector] for anything
 /// tappable (those owe the 48px target; a tag does not).
@@ -18,28 +19,22 @@ class BbTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-      decoration: const BoxDecoration(
-        color: AppColors.saffron100,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: OnboardingColors.paperWhite,
+        borderRadius: BorderRadius.circular(OnboardingRadii.chip),
+        border: Border.all(color: OnboardingColors.borderDefault),
       ),
-      child: Text(
-        label,
-        style: AppTypography.body(
-          size: AppTypography.sizeXs,
-          weight: FontWeight.w700,
-          color: AppColors.saffron700,
-        ),
-      ),
+      child: Text(label, style: OnboardingTypography.chipLabel()),
     );
   }
 }
 
-/// The kit's `BBHotTag` — a small solid-haldi pill reading **HOT** in the Anek
-/// display voice, deep-blue on the yellow (text on haldi is ALWAYS deep blue).
+/// A small solid-yellow pill reading **HOT** in the Anek display voice,
+/// shift-blue on the yellow (text on yellow is ALWAYS shift blue).
 ///
-/// EARNED, never uniform: shown only on a featured/urgent job card (paired with
-/// the haldi left rail). Static; not a control.
+/// EARNED, never uniform: shown only on a featured/urgent job card. Static;
+/// not a control.
 class BbHotTag extends StatelessWidget {
   const BbHotTag({super.key});
 
@@ -48,15 +43,15 @@ class BbHotTag extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: const BoxDecoration(
-        color: AppColors.haldi,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.xs)),
+        color: OnboardingColors.safetyYellow,
+        borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.pillSm)),
       ),
       child: Text(
         'HOT',
-        style: AppTypography.display(
+        style: OnboardingTypography.anek(
           size: 10,
           weight: FontWeight.w800,
-          color: AppColors.onHaldi,
+          color: OnboardingColors.textOnYellow,
         ),
       ),
     );

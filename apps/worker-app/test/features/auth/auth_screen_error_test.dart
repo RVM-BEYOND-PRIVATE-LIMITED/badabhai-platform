@@ -9,11 +9,17 @@ import 'package:badabhai_worker_app/features/auth/presentation/cubit/otp_verify_
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/phone_login_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/otp_verify_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/phone_login_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
 void main() {
   late MockAuthSessionManager manager;
+
+  // The OTP screen's focused empty box paints a blinking caret; a perpetual
+  // blink keeps a frame scheduled, so pin it static for deterministic pumps.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
   setUp(() {
     manager = MockAuthSessionManager();
@@ -58,7 +64,8 @@ void main() {
           .thenThrow(const AuthFailure(AuthErrorCode.unknown));
 
       await tester.pumpWidget(const MaterialApp(home: OtpVerifyScreen()));
-      await tester.tap(find.text('Verify'));
+      // The kit CTA reads 'Verify Code' (was 'Verify').
+      await tester.tap(find.text('Verify Code'));
       await tester.pump(); // submitting
       await tester.pump(); // failure -> listener fires the SnackBar
 

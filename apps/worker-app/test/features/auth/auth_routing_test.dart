@@ -337,9 +337,9 @@ void main() {
 
     // Straight into the shell (Resume tab). The onboarding never re-ran.
     expect(find.text('Your resume'), findsOneWidget);
-    expect(find.text('Your privacy'), findsNothing); // consent never shown
+    expect(find.text('YOUR PRIVACY'), findsNothing); // consent never shown
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -362,10 +362,10 @@ void main() {
     await _pumpUntil(tester, find.text('PIN daalein'));
 
     await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('Your privacy'));
+    await _pumpUntil(tester, find.text('YOUR PRIVACY'));
 
     // Forced to /consent (DPDP gate) — the shell is NOT reachable yet.
-    expect(find.text('Your privacy'), findsOneWidget);
+    expect(find.text('YOUR PRIVACY'), findsOneWidget);
     expect(find.text('Your resume'), findsNothing);
   });
 
@@ -388,9 +388,9 @@ void main() {
 
     // Null = unknown → no consent bounce; the proven unlock→shell flow holds.
     expect(find.text('Your resume'), findsOneWidget);
-    expect(find.text('Your privacy'), findsNothing);
+    expect(find.text('YOUR PRIVACY'), findsNothing);
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -452,7 +452,7 @@ void main() {
 
       // Falls back to the Resume tab exactly as before.
       expect(find.text('Your resume'), findsOneWidget);
-      // Settle the ResumePhotoHeader's fetch AND the resume document fetch
+      // Settle the resume profile card's fetch AND the resume document fetch
       // (#1398 — see the other Resume-tab-landing test's own comment above).
       await tester.pump(const Duration(milliseconds: 700));
       await tester.pump(const Duration(milliseconds: 700));

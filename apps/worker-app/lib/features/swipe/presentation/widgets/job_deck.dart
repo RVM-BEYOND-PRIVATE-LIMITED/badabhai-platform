@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
-import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_job_card.dart';
+import '../../../../core/widgets/kit/kit_square_icon_button.dart';
 
 /// TalkBack label for the deck's icon-only skip circle (#375).
 const String kSkipSemanticLabel = 'Skip karein';
@@ -46,7 +46,6 @@ class JobDeck extends StatefulWidget {
   /// Fired once the front card has committed to the left (skip).
   final VoidCallback onSkip;
 
-
   /// Tapping the front card's title (opens the detail route).
   final ValueChanged<String>? onTitleTap;
 
@@ -75,6 +74,15 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
   // Peak opacity of the drag-direction side-band tint (right=apply, left=skip).
   static const double _bandMaxAlpha = 0.6;
+
+  /// The deck's own side gutter. The card carries no margin, so the card and
+  /// the CTA row beneath it take their inset from here — one source, so a deck
+  /// card can never render narrower than the same card in the list.
+  static const double _gutter = 14;
+
+  /// Below this much available height the card compacts (see
+  /// [BbJobCard.compact]): a 320x568 handset, or any phone in landscape.
+  static const double _compactHeight = 300;
 
   late final AnimationController _release;
   Animation<Offset>? _releaseAnim;
@@ -117,8 +125,9 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   void didUpdateWidget(JobDeck oldWidget) {
     super.didUpdateWidget(oldWidget);
     final String? newHead = widget.cards.isEmpty ? null : widget.cards.first.id;
-    final String? oldHead =
-        oldWidget.cards.isEmpty ? null : oldWidget.cards.first.id;
+    final String? oldHead = oldWidget.cards.isEmpty
+        ? null
+        : oldWidget.cards.first.id;
 
     if (widget.cards.isEmpty) {
       // Queue drained / refreshed away mid-flight: stop without re-firing.
@@ -176,9 +185,10 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
   void _snapBack() {
     _committing = 0;
-    _releaseAnim = Tween<Offset>(begin: _drag.value, end: Offset.zero).animate(
-      CurvedAnimation(parent: _release, curve: AppMotion.stamp),
-    );
+    _releaseAnim = Tween<Offset>(
+      begin: _drag.value,
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _release, curve: AppMotion.stamp));
     _release.forward(from: 0);
     _publishLock();
   }
@@ -186,8 +196,10 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   void _flyOff(int dir, double width) {
     _committing = dir;
     final Offset end = Offset(dir * width * 1.5, _drag.value.dy);
-    _releaseAnim = Tween<Offset>(begin: _drag.value, end: end)
-        .animate(CurvedAnimation(parent: _release, curve: AppMotion.easeIn));
+    _releaseAnim = Tween<Offset>(
+      begin: _drag.value,
+      end: end,
+    ).animate(CurvedAnimation(parent: _release, curve: AppMotion.easeIn));
     _release.forward(from: 0);
     _publishLock();
   }
@@ -223,35 +235,71 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final double width = MediaQuery.of(context).size.width;
-    if (widget.cards.isEmpty || width <= 0) return const SizedBox.shrink();
+    if (widget.cards.isEmpty) return const SizedBox.shrink();
     final List<JobDeckItem> cards = widget.cards;
 
-    // #363 — this build now runs only on a discrete change (new head, lock
-    // flip, queue length), never per drag frame. The LayoutBuilder it used to
-    // sit inside existed solely to feed the card height to the up-swipe
-    // progress, which #374 deleted.
-    return Column(
-      children: <Widget>[
-        Expanded(
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.topCenter,
+    // #363 — this build runs only on a discrete change (new head, lock flip,
+    // queue length), never per drag frame.
+    //
+    // WIDTH COMES FROM THE DECK'S OWN LAYOUT, not `MediaQuery`. The commit
+    // threshold is 30% of the card the worker is actually dragging, and the
+    // deck column stops at 440 on a tablet: a screen-width reading there asked
+    // for a 230dp drag to commit a 412dp card.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: _gutter),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints outer) {
+          final double width = outer.maxWidth;
+          if (!width.isFinite || width <= 0) return const SizedBox.shrink();
+          return Column(
             children: <Widget>[
-              // The behind card is the next REAL job, rendered at full size /
-              // full fidelity. It peeks below the front card and animates up to
-              // the front position as the front card is dragged away.
-              // Positioned.fill: the deck card is sized by the STACK, not by
-              // its own content — a card that owns the screen should fill it.
-              if (cards.length > 1)
-                Positioned.fill(child: _behind(cards[1], width)),
-              Positioned.fill(child: _front(cards.first, width)),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (BuildContext context, BoxConstraints box) {
+                    // A short screen gives the card less than its full drawing
+                    // needs, so the card COMPACTS and the box CLIPS — it can
+                    // never overflow. Deliberately no inner scroll view: it
+                    // would steal the #374 vertical follow-drag.
+                    final bool compact =
+                        box.maxHeight.isFinite &&
+                        box.maxHeight < _compactHeight;
+                    return ClipRect(
+                      // topCenter Align, and the cards are NON-positioned: the
+                      // Stack sizes to its tallest child, so a card is as tall
+                      // as the job it carries and the rest of the deck area is
+                      // canvas. With `Positioned.fill` the card was sized by
+                      // the BOX instead, which on a 390x844 phone drew a ~410
+                      // x1590 white slab with four rows of content in its top
+                      // 200dp — and on a tablet a 410x770 one. It read as a
+                      // half-loaded screen on the app's primary tab. topCenter
+                      // rather than centre so that when the card IS taller
+                      // than the area, what survives is the top of it.
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          alignment: Alignment.topCenter,
+                          children: <Widget>[
+                            // The behind card is the next REAL job, rendered at
+                            // full size / full fidelity. It peeks below the
+                            // front card and animates up to the front position
+                            // as the front card is dragged away.
+                            if (cards.length > 1)
+                              _behind(cards[1], width, compact),
+                            _front(cards.first, width, compact),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ctaRow(width),
             ],
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        _ctaRow(width),
-      ],
+          );
+        },
+      ),
     );
   }
 
@@ -267,7 +315,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   /// #363 — the card subtree is built ONCE and handed to the builder as `child`,
   /// so a drag frame re-runs only the Transform; the RepaintBoundary keeps
   /// BbFestiveCard's blur shadow + dashed-border CustomPaint out of the repaint.
-  Widget _behind(JobDeckItem item, double width) {
+  Widget _behind(JobDeckItem item, double width, bool compact) {
     return IgnorePointer(
       child: ValueListenableBuilder<Offset>(
         valueListenable: _drag,
@@ -275,6 +323,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
           child: BbJobCard(
             data: item.data,
             layout: BbJobCardLayout.deck,
+            compact: compact,
           ),
         ),
         builder: (BuildContext ctx, Offset drag, Widget? child) {
@@ -296,12 +345,13 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _front(JobDeckItem item, double width) {
+  Widget _front(JobDeckItem item, double width, bool compact) {
     // #363 — built once per head/lock change, NOT per drag frame.
     final Widget card = RepaintBoundary(
       child: BbJobCard(
         data: item.data,
         layout: BbJobCardLayout.deck,
+        compact: compact,
         // Gate the title tap too: during a commit/decision the (stale)
         // head must not open a detail for a card already being applied.
         onTitleTap: (_locked || widget.onTitleTap == null)
@@ -356,7 +406,9 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
     final bool toApply = dx > 0;
     final double alpha = _bandMaxAlpha * progress;
-    final Color edge = toApply ? AppColors.success : AppColors.danger;
+    final Color edge = toApply
+        ? OnboardingColors.successGreen
+        : OnboardingColors.errorRed;
     final LinearGradient gradient = LinearGradient(
       begin: toApply ? Alignment.centerLeft : Alignment.centerRight,
       end: Alignment.center,
@@ -368,10 +420,10 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
     return IgnorePointer(
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        child: DecoratedBox(
-          decoration: BoxDecoration(gradient: gradient),
-        ),
+        // The card's own radius (spec §4's 16), so the tint stops exactly at
+        // the paper edge instead of squaring off inside it.
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        child: DecoratedBox(decoration: BoxDecoration(gradient: gradient)),
       ),
     );
   }
@@ -383,50 +435,33 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   // and then just snapped back — the exact fake-feedback the removal targeted.
   // Do not reintroduce it before a real prioritize route ships.
 
+  /// The deck's own docked action row, drawn to spec §2.2: a 50x48 square tile
+  /// beside the full-width primary button. The deck already carries the side
+  /// gutter, so this row adds none.
   Widget _ctaRow(double width) {
-    // Same `s3` horizontal inset as `BbJobCard`'s own built-in margin, so the
-    // buttons align with the card edges above them — the caller
-    // (`swipe_jobs_screen.dart`'s `_deck`) applies no horizontal padding of
-    // its own; the card gets its inset from its own margin, and this row
-    // needs its own since a `Row` carries none.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
-      child: Row(
-        children: <Widget>[
-          // #375 — an icon-only control announces nothing to TalkBack: a
-          // worker hears "button" with no idea it skips the job. Labelled
-          // like the voice screen's mic.
-          Semantics(
-            button: true,
-            label: kSkipSemanticLabel,
-            child: Material(
-              color: AppColors.surfaceCard,
-              shape: const CircleBorder(
-                side: BorderSide(color: AppColors.borderStrong, width: 2),
-              ),
-              child: InkWell(
-                key: const Key('swipeSkipButton'),
-                customBorder: const CircleBorder(),
-                onTap: _locked ? null : () => _flyOff(-1, width),
-                child: const SizedBox(
-                  width: 56,
-                  height: 56,
-                  child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
-                ),
-              ),
-            ),
+    return Row(
+      children: <Widget>[
+        // #375 — an icon-only control announces nothing to TalkBack: a worker
+        // hears "button" with no idea it skips the job. Labelled like the
+        // voice screen's mic, and its tap area stays ≥48dp.
+        KitSquareIconButton(
+          key: const Key('swipeSkipButton'),
+          icon: Icons.close_rounded,
+          semanticLabel: kSkipSemanticLabel,
+          iconColor: OnboardingColors.ink600,
+          onTap: _locked ? null : () => _flyOff(-1, width),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: BbButton(
+            buttonKey: const Key('swipeApplyButton'),
+            label: 'Apply',
+            size: BbButtonSize.md,
+            iconLeft: Icons.check_rounded,
+            onPressed: _locked ? null : () => _flyOff(1, width),
           ),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: BbButton(
-              buttonKey: const Key('swipeApplyButton'),
-              label: 'Apply',
-              iconLeft: Icons.check,
-              onPressed: _locked ? null : () => _flyOff(1, width),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

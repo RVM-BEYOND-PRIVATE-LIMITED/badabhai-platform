@@ -4,18 +4,23 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/api/api_models.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_reason.dart';
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/bb_button.dart';
-import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/kit/kit_callout.dart';
+import '../../../../core/widgets/kit/kit_card.dart';
+import '../../../../core/widgets/kit/kit_check_row.dart';
+import '../../../../core/widgets/kit/kit_info_chip.dart';
+import '../../../../core/widgets/kit/kit_micro_label.dart';
 import '../cubit/resume_cubit.dart';
+import 'resume_card_slots.dart';
 
-/// #1343 — renders a `format: "trade_sheet"` [TradeSheetResumeDocument] as the
-/// zoned rows the printed sheet uses, so a turner's resume tab reads as the
-/// SAME document as their PDF instead of a Dart re-guess of `resume_text`
-/// (which cannot represent this layout at all — it is rows, not `Label: value`
-/// lines).
+/// Gap between two v3 cards in the resume stack.
+const double kResumeCardGap = 12;
+
+/// #1343 / UI kit v3 §4 — renders a `format: "trade_sheet"`
+/// [TradeSheetResumeDocument] as the spec's white cards: machines and
+/// controllers, materials, operations and tooling, then every zone the spec
+/// does not model, then the work history or the training block.
 ///
 /// `format: "generic"` and `document == null` are DELIBERATELY NOT handled
 /// here — see the call site in `resume_preview_screen.dart`, which still
@@ -25,6 +30,14 @@ import '../cubit/resume_cubit.dart';
 /// facts that text-parser already surfaces, so there is nothing here for it to
 /// fix. Only the trade sheet is a layout the OLD renderer structurally cannot
 /// draw.
+///
+/// It does NOT draw the masthead headline any more: spec §4 puts the trade
+/// verdict in the profile card, so the headline is resolved there (see
+/// [resolveProfileFacts]) and printing it here too would show it twice.
+///
+/// Which card a row lands in is decided by [mapTradeSheet], never by matching
+/// English label text — see that file for why, and for the rule that an
+/// unknown row is still rendered rather than dropped.
 class ResumeDocumentView extends StatelessWidget {
   const ResumeDocumentView({super.key, required this.document});
 
@@ -32,326 +45,412 @@ class ResumeDocumentView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> children = <Widget>[];
-
-    final Widget? headline = _headlineBlock(document.headline);
-    if (headline != null) {
-      children.add(headline);
-      children.add(const SizedBox(height: AppSpacing.s5));
-    }
-
-    final List<Widget> sectionWidgets = <Widget>[
-      for (final ResumeDocumentSectionDto section in document.sections)
-        if (section.hasRows) _SheetSection(section: section),
-    ];
-    final Widget? employmentsBlock = _employmentsSection(document);
-    final Widget? trainingBlock = _trainingSection(document);
-
-    final List<Widget> body = <Widget>[
-      ...sectionWidgets,
-      if (employmentsBlock != null) employmentsBlock,
+    final ResumeSlots slots = mapTradeSheet(document);
+    final List<Widget> cards = <Widget>[
+      if (slots.hasCapabilityCard) _CapabilityCard(slots: slots),
+      if (slots.hasMaterialsCard) _MaterialsCard(slots: slots),
+      if (slots.hasOperationsCard) _OperationsCard(slots: slots),
+      for (final ResumeExtraSection section in slots.extraSections)
+        _ExtraSectionCard(section: section),
+      if (document.employments.isNotEmpty) _WorkHistoryCard(document: document),
       // A fresher has training INSTEAD of a work history, never both, so this
       // sits where the history would have been rather than after it.
-      if (trainingBlock != null) trainingBlock,
-    ];
-
-    for (int i = 0; i < body.length; i++) {
-      if (i > 0) children.add(const SizedBox(height: AppSpacing.s5));
-      children.add(body[i]);
-    }
-
-    if (document.footerMeta != null && document.footerMeta!.isNotEmpty) {
-      children.add(const SizedBox(height: AppSpacing.s4));
-      children.add(
+      if (document.experiences.isNotEmpty) _TrainingCard(document: document),
+      if (document.footerMeta != null && document.footerMeta!.isNotEmpty)
         Text(
           document.footerMeta!,
-          style: AppTypography.body(
-            size: AppTypography.size2xs,
-            color: AppColors.textMuted,
+          style: OnboardingTypography.inter(
+            size: 11,
+            color: OnboardingColors.ink500,
           ),
         ),
-      );
-    }
+    ];
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
-    );
-  }
-
-  /// The sheet's own two-line masthead verdict ("CNC Turner · 8 yrs · Fanuc" /
-  /// "Faridabad · Available now · expects ₹32,000"). Null when the server sent
-  /// neither line — an empty masthead is simply omitted, not shown blank.
-  Widget? _headlineBlock(ResumeSheetHeadlineDto headline) {
-    final String? line1 =
-        (headline.line1 != null && headline.line1!.isNotEmpty) ? headline.line1 : null;
-    final String? line2 =
-        (headline.line2 != null && headline.line2!.isNotEmpty) ? headline.line2 : null;
-    if (line1 == null && line2 == null) return null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        if (line1 != null)
-          Text(
-            line1,
-            style: AppTypography.display(
-              size: AppTypography.sizeMd,
-              weight: FontWeight.w700,
-            ),
-          ),
-        if (line2 != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s1),
-          Text(
-            line2,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
-            ),
-          ),
+        for (int i = 0; i < cards.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(height: kResumeCardGap),
+          cards[i],
         ],
       ],
     );
   }
+}
 
-  /// The fresher's TRAINING block — the zone he has instead of a work history
-  /// (#1476).
-  ///
-  /// The sheet did not carry this at all before: `experiences` was a field of
-  /// the generic document only, so a fresher's `iti_project_work` sentence
-  /// printed on the PDF an employer reads while his own resume tab showed
-  /// nothing of it. He is the only person who can say whether a sentence about
-  /// his own training is true, and he is the worker with the least else on his
-  /// page — so he could neither see it nor question it.
-  ///
-  /// Null (no heading, nothing shown) when there is no training block, which
-  /// is every worker who has employments.
-  Widget? _trainingSection(TradeSheetResumeDocument doc) {
-    if (doc.experiences.isEmpty) return null;
-    return _SheetSectionShell(
-      title: 'Training',
-      icon: Icons.school_outlined,
-      // One child per visual row, no spacers — the shell owns spacing (#1475).
-      children: <Widget>[
-        for (final ResumeExperienceLineDto line in doc.experiences)
-          _TrainingEntry(line: line),
-      ],
-    );
-  }
+/// Spec §4 card 2 — machines operated and controllers known.
+class _CapabilityCard extends StatelessWidget {
+  const _CapabilityCard({required this.slots});
 
-  /// The sheet's work-history block — its own zone, matching the OLD "Work
-  /// History" section's icon so the tab reads consistently regardless of which
-  /// renderer drew it. Null (no heading, nothing shown) when the worker has no
-  /// employments — mirrors [ResumeDocumentSectionDto.hasRows]'s own rule for an
-  /// empty zone.
-  Widget? _employmentsSection(TradeSheetResumeDocument doc) {
-    if (doc.employments.isEmpty) return null;
-    return _SheetSectionShell(
-      title: 'Work History',
-      icon: Icons.work_history_outlined,
-      // ONE CHILD PER VISUAL ROW, and no spacers of our own (#1475). The shell
-      // already puts [AppSpacing.s3] between every pair of children — so a
-      // spacer handed in AS a child got padded on BOTH sides, and two
-      // employments ended up three gaps apart instead of one. Spacing belongs
-      // to the shell; a caller that also supplies it is double-counting.
-      children: <Widget>[
-        for (final ResumeEmploymentDto e in doc.employments)
-          _EmploymentEntry(employment: e),
-        if (doc.employmentsMore != null && doc.employmentsMore!.isNotEmpty)
-          Text(
-            doc.employmentsMore!,
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
-            ),
+  final ResumeSlots slots;
+
+  @override
+  Widget build(BuildContext context) {
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _CardHeader(
+            icon: Icons.settings_suggest_rounded,
+            // The SERVER's own zone title, so a welder's card does not claim
+            // to be about CNC controllers (spec's title is turner-only).
+            title: slots.capabilityTitle ?? 'Machines & controllers',
+            count: slots.capabilityCount,
           ),
-      ],
+          if (slots.machines.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            const KitMicroLabel('OPERATED MACHINES'),
+            const SizedBox(height: 8),
+            _ChipWrap(values: slots.machines),
+          ],
+          if (slots.controllers.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 14),
+            const KitMicroLabel('CONTROLLERS KNOWN'),
+            const SizedBox(height: 8),
+            _CheckRows(values: slots.controllers),
+          ],
+        ],
+      ),
     );
   }
 }
 
-/// Icon per known section id — matches the OLD text-parsed section icons so
-/// the tab reads consistently whichever renderer drew it. An id this build
-/// does not recognise (a future zone) still renders — just with the generic
-/// "info" icon, never a blank/crashing tile.
-IconData _sectionIcon(String id) => switch (id) {
-      'capability' => Icons.settings_rounded,
-      'terms' => Icons.event_available_outlined,
-      'qualifications' => Icons.school_outlined,
-      _ => Icons.info_outline_rounded,
-    };
+/// Spec §4 card 3 — materials handled.
+class _MaterialsCard extends StatelessWidget {
+  const _MaterialsCard({required this.slots});
 
-/// One zoned section (`chipRows` → pills, `tickRows` → ✓ items, `factRows` →
-/// label + value), in that order — matching the printed sheet.
-class _SheetSection extends StatelessWidget {
-  const _SheetSection({required this.section});
-
-  final ResumeDocumentSectionDto section;
+  final ResumeSlots slots;
 
   @override
   Widget build(BuildContext context) {
-    return _SheetSectionShell(
-      title: section.title,
-      icon: _sectionIcon(section.id),
-      children: <Widget>[
-        for (final ResumeListRowDto row in section.chipRows) _ChipRow(row: row),
-        for (final ResumeListRowDto row in section.tickRows) _TickRow(row: row),
-        for (final ResumeFactRowDto row in section.factRows) _FactRow(row: row),
-      ],
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _CardHeader(
+            icon: Icons.category_rounded,
+            iconColor: OnboardingColors.safetyYellow,
+            // The server's own row label ('Materials', 'Tool steels',
+            // 'Electrode types'…). The spec's '4 Alloys' is wrong for brass,
+            // aluminium or a powder coating, and there is no material-category
+            // data to colour a dot by (backend gap B13) — so the pill is a
+            // plain count and every dot is the same neutral green.
+            title: slots.materialsTitle ?? 'Materials',
+            count: slots.materials.length,
+          ),
+          const SizedBox(height: 12),
+          _ChipWrap(values: slots.materials),
+        ],
+      ),
     );
   }
 }
 
-/// The shared section chrome — icon + title, then its rows indented under it.
-/// Matches `_ResumeSection` in `resume_sections.dart` (the text-parsed
-/// renderer) so a trade-sheet section and a generic section look like the same
-/// design, not two different screens bolted together.
-class _SheetSectionShell extends StatelessWidget {
-  const _SheetSectionShell({
-    required this.title,
-    required this.icon,
-    required this.children,
-  });
+/// Spec §4 card 4 — operations, workholding, inspection, the drawing callout,
+/// and every other capability row the sheet carried.
+class _OperationsCard extends StatelessWidget {
+  const _OperationsCard({required this.slots});
 
-  final String title;
-  final IconData icon;
-  final List<Widget> children;
+  final ResumeSlots slots;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Icon(icon, size: 20, color: AppColors.textBrand),
-            const SizedBox(width: AppSpacing.s2),
+    final List<Widget> blocks = <Widget>[
+      if (slots.operations.isNotEmpty)
+        _LabelledBlock(
+          label: slots.operationsTitle ?? 'Operations',
+          child: _ChipWrap(values: slots.operations),
+        ),
+      if (slots.workholding.isNotEmpty)
+        _LabelledBlock(
+          label: 'WORKHOLDING KNOWLEDGE',
+          child: _ChipWrap(values: slots.workholding),
+        ),
+      for (final ResumeValueGroup group in slots.instrumentGroups)
+        _LabelledBlock(
+          label: group.label,
+          child: group.tick
+              ? _CheckRows(values: group.values)
+              : _ChipWrap(values: group.values),
+        ),
+      // Never dropped: a row whose key this build does not know still prints,
+      // under the label the server gave it.
+      for (final ResumeValueGroup group in slots.otherGroups)
+        _LabelledBlock(
+          label: group.label,
+          child: group.tick
+              ? _CheckRows(values: group.values)
+              : _ChipWrap(values: group.values),
+        ),
+      if (slots.drawingReading != null)
+        KitCallout(
+          tileIcon: Icons.menu_book_rounded,
+          // NEUTRAL title: the spec shouts 'BLUEPRINTS & GD&T KNOWLEDGE' even
+          // when the value says only 'Reads 2D drawings', which would put a
+          // GD&T claim on a worker who never made one.
+          title: 'DRAWING READING',
+          text: slots.drawingReading,
+        ),
+      for (final ResumeFact fact in slots.otherFacts) _FactLine(fact: fact),
+    ];
+
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _CardHeader(
+            icon: Icons.construction_rounded,
+            iconColor: OnboardingColors.successGreen,
+            title:
+                slots.operationsTitle ??
+                (slots.hasCapabilityCard
+                    ? 'Skills & tooling'
+                    : slots.capabilityTitle ?? 'Skills & tooling'),
+            count: slots.operations.length,
+          ),
+          for (final Widget block in blocks) ...<Widget>[
+            const SizedBox(height: 12),
+            block,
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A zone spec §4 does not model — 'Availability & terms', 'Qualification,
+/// documents & languages', or a future zone. Same card chrome, so the tab
+/// reads as one design rather than two renderers bolted together.
+class _ExtraSectionCard extends StatelessWidget {
+  const _ExtraSectionCard({required this.section});
+
+  final ResumeExtraSection section;
+
+  static IconData _icon(String id) => switch (id) {
+    'terms' => Icons.event_available_outlined,
+    'qualifications' => Icons.school_outlined,
+    _ => Icons.info_outline_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _CardHeader(icon: _icon(section.id), title: section.title),
+          for (final ResumeValueGroup group in section.chipGroups) ...<Widget>[
+            const SizedBox(height: 12),
+            _LabelledBlock(
+              label: group.label,
+              child: _ChipWrap(values: group.values),
+            ),
+          ],
+          for (final ResumeValueGroup group in section.tickGroups) ...<Widget>[
+            const SizedBox(height: 12),
+            _LabelledBlock(
+              label: group.label,
+              child: _CheckRows(values: group.values),
+            ),
+          ],
+          for (final ResumeFact fact in section.facts) ...<Widget>[
+            const SizedBox(height: 10),
+            _FactLine(fact: fact),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The sheet's work-history zone.
+class _WorkHistoryCard extends StatelessWidget {
+  const _WorkHistoryCard({required this.document});
+
+  final TradeSheetResumeDocument document;
+
+  @override
+  Widget build(BuildContext context) {
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const _CardHeader(
+            icon: Icons.work_history_outlined,
+            title: 'Work History',
+          ),
+          // ONE CHILD PER VISUAL ROW, and no spacers of our own (#1475). A
+          // spacer handed in as a child gets padded on BOTH sides, which is
+          // what put two employments three gaps apart instead of one.
+          for (final ResumeEmploymentDto e in document.employments) ...<Widget>[
+            const SizedBox(height: 12),
+            _EmploymentEntry(employment: e),
+          ],
+          if (document.employmentsMore != null &&
+              document.employmentsMore!.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
             Text(
-              title,
-              style: AppTypography.display(
-                size: AppTypography.sizeMd,
-                weight: FontWeight.w700,
+              document.employmentsMore!,
+              style: OnboardingTypography.inter(
+                size: 12,
+                color: OnboardingColors.ink500,
               ),
             ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Padding(
-          padding: const EdgeInsets.only(left: AppSpacing.s7),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // The shell owns ALL inter-row spacing (#1475). Callers hand it
-              // one child per visual row and never a spacer — a spacer passed
-              // in as a child is treated as a row here and padded on both
-              // sides, which is what tripled the gap on the work-history zone.
-              for (int i = 0; i < children.length; i++) ...<Widget>[
-                if (i > 0) const SizedBox(height: AppSpacing.s3),
-                children[i],
-              ],
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// A `chipRows` entry — the row's label, then its values as pills. Reuses
-/// [BbChip] (unselected, non-interactive: `onTap` is null) rather than a
-/// bespoke pill, so a resume chip is visually identical to every other chip in
-/// the app instead of a fork of the Design System.
-class _ChipRow extends StatelessWidget {
-  const _ChipRow({required this.row});
+/// The fresher's TRAINING zone — what he has instead of a work history
+/// (#1476).
+///
+/// The sheet did not carry this at all before: `experiences` was a field of
+/// the generic document only. So his `iti_project_work` sentence printed on
+/// the PDF an employer reads while his own resume tab showed nothing of it —
+/// the one person who can say whether a sentence about his training is true
+/// never saw it.
+class _TrainingCard extends StatelessWidget {
+  const _TrainingCard({required this.document});
 
-  final ResumeListRowDto row;
+  final TradeSheetResumeDocument document;
 
   @override
   Widget build(BuildContext context) {
-    if (row.values.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _RowLabel(row.label),
-        const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: AppSpacing.s2,
-          runSpacing: AppSpacing.s2,
-          children: <Widget>[
-            for (final String value in row.values) BbChip(label: value),
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const _CardHeader(icon: Icons.school_outlined, title: 'Training'),
+          for (final ResumeExperienceLineDto line
+              in document.experiences) ...<Widget>[
+            const SizedBox(height: 12),
+            _TrainingEntry(line: line),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// A `tickRows` entry — the row's label, then its values as ✓ items (one per
-/// line), matching the printed sheet's tick-list zones (e.g. "Setting").
-class _TickRow extends StatelessWidget {
-  const _TickRow({required this.row});
+/// A card's header row: a tone-coloured glyph, the title, and a REAL count.
+///
+/// The count pill is digits only and hidden at 0 (ruling R8). The spec's
+/// '7 Verified' cannot be honest — capability values are self-declared, and
+/// no per-value verification signal exists on the wire (backend gap B8), so
+/// printing "Verified" would tell an employer something nobody checked.
+class _CardHeader extends StatelessWidget {
+  const _CardHeader({
+    required this.icon,
+    required this.title,
+    this.iconColor = OnboardingColors.shiftBlue,
+    this.count,
+  });
 
-  final ResumeListRowDto row;
+  final IconData icon;
+  final String title;
+  final Color iconColor;
+  final int? count;
 
   @override
   Widget build(BuildContext context) {
-    if (row.values.isEmpty) return const SizedBox.shrink();
+    return KitCardHeader(
+      icon: icon,
+      title: title,
+      iconColor: iconColor,
+      count: count,
+    );
+  }
+}
+
+/// A micro label over a group of values.
+class _LabelledBlock extends StatelessWidget {
+  const _LabelledBlock({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _RowLabel(row.label),
-        const SizedBox(height: AppSpacing.s1),
-        for (final String value in row.values)
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.s1),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Icon(Icons.check_circle_rounded,
-                    size: 18, color: AppColors.green500),
-                const SizedBox(width: AppSpacing.s2),
-                Expanded(
-                  child: Text(
-                    value,
-                    style: AppTypography.body(
-                      size: AppTypography.sizeMd,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        KitMicroLabel(label),
+        const SizedBox(height: 8),
+        child,
       ],
     );
   }
 }
 
-/// A `factRows` entry — one label + one value, same `Label: value` reading as
-/// the text-parsed renderer's `_EntryRow`.
-class _FactRow extends StatelessWidget {
-  const _FactRow({required this.row});
+/// Spec §4's chip wrap. No green check: a tick means "someone verified this",
+/// and nobody did (see [_CardHeader]).
+class _ChipWrap extends StatelessWidget {
+  const _ChipWrap({required this.values});
 
-  final ResumeFactRowDto row;
+  final List<String> values;
 
   @override
   Widget build(BuildContext context) {
-    if (row.value.isEmpty) return const SizedBox.shrink();
-    return RichText(
-      text: TextSpan(
-        style: AppTypography.body(size: AppTypography.sizeMd),
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        for (final String value in values) KitInfoChip(label: value),
+      ],
+    );
+  }
+}
+
+/// Full-width rows for values too long to read as chips (spec §4's
+/// 'CONTROLLERS KNOWN' list).
+class _CheckRows extends StatelessWidget {
+  const _CheckRows({required this.values});
+
+  final List<String> values;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        for (int i = 0; i < values.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(height: 6),
+          KitCheckRow(label: values[i]),
+        ],
+      ],
+    );
+  }
+}
+
+/// One `Label: value` fact — the same reading the text-parsed renderer gives
+/// it, so a trade-sheet fact and a legacy fact are the same line.
+class _FactLine extends StatelessWidget {
+  const _FactLine({required this.fact});
+
+  final ResumeFact fact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        style: OnboardingTypography.inter(size: 13, height: 1.4),
         children: <InlineSpan>[
           TextSpan(
-            text: '${row.label}: ',
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textSecondary,
+            text: '${fact.label}: ',
+            style: OnboardingTypography.inter(
+              size: 13,
+              height: 1.4,
+              color: OnboardingColors.ink600,
             ),
           ),
           TextSpan(
-            text: row.value,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textPrimary,
+            text: fact.value,
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w600,
+              height: 1.4,
             ),
           ),
         ],
@@ -360,27 +459,7 @@ class _FactRow extends StatelessWidget {
   }
 }
 
-/// A row's own label, muted and small — sits above its chips/ticks (a
-/// `factRow` inlines its label instead; see [_FactRow]).
-class _RowLabel extends StatelessWidget {
-  const _RowLabel(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: AppTypography.body(
-        size: AppTypography.sizeXs,
-        weight: FontWeight.w700,
-        color: AppColors.textSecondary,
-      ),
-    );
-  }
-}
-
-/// One employer on the work-history block — employer (+ role/location inline
+/// One employer on the work-history card — employer (+ role/location inline
 /// suffixes, already separator-prefixed server-side), its span, the work
 /// description, then any promotion stints.
 ///
@@ -418,9 +497,10 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
     if (id == null || _pending) return;
     setState(() => _pending = true);
     try {
-      await context
-          .read<ResumeCubit>()
-          .setEmploymentDescriptionSource(id, ownWords: ownWords);
+      await context.read<ResumeCubit>().setEmploymentDescriptionSource(
+        id,
+        ownWords: ownWords,
+      );
       if (!mounted) return;
       setState(() {
         _justKeptOwnWords = ownWords;
@@ -461,34 +541,31 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
         if (heading.isNotEmpty)
           Text(
             heading,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
+            style: OnboardingTypography.inter(
+              size: 14,
               weight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              height: 1.35,
             ),
           ),
         if (employment.when.isNotEmpty)
           Text(
             employment.when,
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+            style: OnboardingTypography.inter(
+              size: 12,
+              color: OnboardingColors.ink500,
             ),
           ),
         if (employment.work.isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s1),
+          const SizedBox(height: 4),
           Text(
             employment.work,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textPrimary,
-            ),
+            style: OnboardingTypography.inter(size: 13, height: 1.45),
           ),
         ],
         // #1353/#1354 — an entry with nothing to compare shows NOTHING extra:
         // no affordance, no disabled/greyed placeholder.
         if (canOfferOwnWords) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           _OwnWordsChoice(
             revealed: _revealed,
             pending: _pending,
@@ -497,7 +574,7 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
             onKeep: () => _choose(true),
           ),
         ] else if (canOfferPolishedBack) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           BbButton(
             label: 'Polish kiya version rakhein',
             onPressed: () => _choose(false),
@@ -508,12 +585,12 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
         ],
         for (final ResumeEmploymentRoleStintDto stint in employment.roles)
           Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.s1),
+            padding: const EdgeInsets.only(top: 4),
             child: Text(
               '${stint.role} · ${stint.when}',
-              style: AppTypography.body(
-                size: AppTypography.sizeXs,
-                color: AppColors.textSecondary,
+              style: OnboardingTypography.inter(
+                size: 12,
+                color: OnboardingColors.ink600,
               ),
             ),
           ),
@@ -522,21 +599,17 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
   }
 }
 
-/// #1353/#1354 — the reveal-then-choose affordance for ONE employment whose
-/// printed line was rewritten: a quiet link that reveals [ownWordsText]
-/// (the worker's own words, unrewritten), then an EQUALLY-WEIGHTED button to
-/// keep them over the polish. Deliberately never [BbButtonVariant.danger] (or
 /// One training block on the sheet, with the reveal beside it (#1476).
 ///
-/// The fresher's counterpart to `_EmploymentEntry`: the printed line, and —
+/// The fresher's counterpart to [_EmploymentEntry]: the printed line, and —
 /// only when a model rewrote it — a quiet link to see the sentence he actually
 /// wrote. Stateful for exactly the same reason that one is: the reveal is a
 /// LOCAL toggle and must not reset every time the tab rebuilds.
 ///
-/// THE REFUSAL SHIPS TOO now (#1492). #1476 gave him only the reveal, because
-/// at the time there was no column and no route to call — a button that
-/// silently failed would have been worse than none, since he would have
-/// believed he had kept his words. Migration 0103 and
+/// THE REFUSAL SHIPS TOO (#1492). #1476 gave him only the reveal, because at
+/// the time there was no column and no route to call — a button that silently
+/// failed would have been worse than none, since he would have believed he had
+/// kept his words. Migration 0103 and
 /// `PUT /workers/me/answers/:attributeKey/text-source` both landed, so he can
 /// act on the comparison rather than only look at it.
 ///
@@ -567,7 +640,10 @@ class _TrainingEntryState extends State<_TrainingEntry> {
     if (key == null || _pending) return;
     setState(() => _pending = true);
     try {
-      await context.read<ResumeCubit>().setAnswerTextSource(key, ownWords: true);
+      await context.read<ResumeCubit>().setAnswerTextSource(
+        key,
+        ownWords: true,
+      );
       if (!mounted) return;
       // Nothing left to compare once the printed line already IS his own
       // words — collapse rather than leave a panel showing two equal strings.
@@ -594,27 +670,25 @@ class _TrainingEntryState extends State<_TrainingEntry> {
         if (line.role.isNotEmpty)
           Text(
             line.role,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
+            style: OnboardingTypography.inter(
+              size: 14,
               weight: FontWeight.w700,
+              height: 1.35,
             ),
           ),
         if (line.duration.isNotEmpty)
           Text(
             line.duration,
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.textMuted,
+            style: OnboardingTypography.inter(
+              size: 12,
+              color: OnboardingColors.ink500,
             ),
           ),
         if (line.work.isNotEmpty) ...<Widget>[
-          const SizedBox(height: AppSpacing.s1),
+          const SizedBox(height: 4),
           Text(
             line.work,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textPrimary,
-            ),
+            style: OnboardingTypography.inter(size: 13, height: 1.45),
           ),
         ],
         // Nothing to compare ⇒ nothing extra. No affordance, no greyed
@@ -625,7 +699,7 @@ class _TrainingEntryState extends State<_TrainingEntry> {
         // condition — and it keeps the button off screen in the impossible
         // state where a comparison has no key to send the refusal to.
         if (line.canRefuseRewrite) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           _OwnWordsChoice(
             revealed: _revealed,
             pending: _pending,
@@ -639,8 +713,12 @@ class _TrainingEntryState extends State<_TrainingEntry> {
   }
 }
 
-/// any warning styling) — keeping one's own words is a first-class choice,
-/// not a downgrade, and needs no "are you sure".
+/// #1353/#1354 — the reveal-then-choose affordance for ONE entry whose printed
+/// line was rewritten: a quiet link that reveals [ownWordsText] (the worker's
+/// own words, unrewritten), then an EQUALLY-WEIGHTED button to keep them over
+/// the polish. Deliberately never [BbButtonVariant.danger] (or any warning
+/// styling) — keeping one's own words is a first-class choice, not a
+/// downgrade, and needs no "are you sure".
 class _OwnWordsChoice extends StatelessWidget {
   const _OwnWordsChoice({
     required this.revealed,
@@ -655,12 +733,9 @@ class _OwnWordsChoice extends StatelessWidget {
   final String ownWordsText;
   final VoidCallback onToggle;
 
-  /// Null when the choice cannot be PERSISTED yet, which is the fresher's
-  /// training block today (#1476): the sheet now shows him what his sentence
-  /// was rewritten from, but there is no per-worker decline for that path —
-  /// `work_done_polish_declined` is a column on the employment role, and the
-  /// attribute equivalent needs a migration. A button that silently failed to
-  /// keep his words would be worse than no button, so it is simply absent.
+  /// Null when the choice cannot be PERSISTED for this path. A button that
+  /// silently failed to keep the worker's words would be worse than no
+  /// button, so it is simply absent.
   final VoidCallback? onKeep;
 
   @override
@@ -672,32 +747,43 @@ class _OwnWordsChoice extends StatelessWidget {
           label: revealed
               ? 'Likha hua version chhupayein'
               : 'Aapke apne shabdon mein dekhein',
-          icon: revealed ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+          icon: revealed
+              ? Icons.expand_less_rounded
+              : Icons.expand_more_rounded,
           onTap: onToggle,
         ),
         if (revealed) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.all(AppSpacing.s3),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppColors.canvas,
-              borderRadius: BorderRadius.circular(AppRadii.sm),
-              border: Border.all(color: AppColors.borderSubtle),
+              color: OnboardingColors.surfaceMuted,
+              borderRadius: BorderRadius.circular(OnboardingRadii.row),
+              border: Border.all(color: OnboardingColors.borderSubtle),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                _RowLabel('Aapke shabdon mein'),
-                const SizedBox(height: AppSpacing.s1),
+                // NOT a KitMicroLabel: that shouts its text (spec §4's
+                // ALL-CAPS group labels), and this is a Hinglish sentence
+                // fragment addressed to the worker, not a data-group heading.
+                // All-caps Latin Hinglish is measurably harder to read for the
+                // reader this app is for, and the copy ships verbatim (§15).
                 Text(
-                  ownWordsText,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeMd,
-                    color: AppColors.textPrimary,
+                  'Aapke shabdon mein',
+                  style: OnboardingTypography.inter(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: OnboardingColors.ink600,
                   ),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  ownWordsText,
+                  style: OnboardingTypography.inter(size: 13, height: 1.45),
+                ),
                 if (onKeep != null) ...<Widget>[
-                  const SizedBox(height: AppSpacing.s3),
+                  const SizedBox(height: 12),
                   BbButton(
                     label: 'Apne shabd rakhein',
                     onPressed: onKeep,
@@ -736,15 +822,17 @@ class _RevealLink extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
+        borderRadius: BorderRadius.circular(OnboardingRadii.row),
         child: Container(
-          constraints: const BoxConstraints(minHeight: AppSpacing.s9),
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
+          constraints: const BoxConstraints(
+            minHeight: OnboardingLayout.tapTarget,
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 18, color: AppColors.textBrand),
-              const SizedBox(width: AppSpacing.s1),
+              Icon(icon, size: 18, color: OnboardingColors.shiftBlue),
+              const SizedBox(width: 4),
               // FLEXIBLE, and it has to be: "Aapke apne shabdon mein dekhein"
               // beside its icon overflowed a 360dp phone by 128px — a real
               // RenderFlex error on the narrowest handset the product targets.
@@ -754,10 +842,10 @@ class _RevealLink extends StatelessWidget {
               Flexible(
                 child: Text(
                   label,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
+                  style: OnboardingTypography.inter(
+                    size: 13,
                     weight: FontWeight.w700,
-                    color: AppColors.textBrand,
+                    color: OnboardingColors.shiftBlue,
                   ),
                 ),
               ),

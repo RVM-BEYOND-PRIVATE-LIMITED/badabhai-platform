@@ -6,6 +6,8 @@ import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/widgets/job_deck.dart';
 
+import '../../support/kit_matrix.dart';
+
 /// The drag tint bands paint a [LinearGradient] via a [DecoratedBox]; at rest
 /// none is present. Collect any that are currently painted.
 List<LinearGradient> _bandGradients(WidgetTester tester) {
@@ -408,5 +410,65 @@ void main() {
     expect(find.text('First'), findsNothing);
     // The promoted card sits exactly where the front card rests, not off-screen.
     expect(tester.getTopLeft(find.text('Second')), restTopLeft);
+  });
+
+  group('the card is as tall as the job, and the PAY is never clipped', () {
+    // Real faces: this group is about what is painted, not about widget trees.
+    setUpAll(loadKitFonts);
+
+    for (final (Size size, double scale) shape in <(Size, double)>[
+      (Size(320, 568), 2.0),
+      (Size(390, 844), 1.0),
+      (Size(768, 1024), 1.0),
+      (Size(844, 390), 2.0),
+    ]) {
+      testWidgets(
+        'pay stays whole at ${shape.$1.width.toInt()}x'
+        '${shape.$1.height.toInt()} @ ${shape.$2}x',
+        (WidgetTester tester) async {
+          setKitSurface(tester, shape.$1);
+          await tester.pumpWidget(
+            kitTestApp(
+              Scaffold(
+                body: JobDeck(
+                  cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
+                  onApply: () {},
+                  onSkip: () {},
+                ),
+              ),
+              textScale: shape.$2,
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+
+          expect(tester.takeException(), isNull);
+          // The pay figure is inside the card that draws it, whole — the deck
+          // clips its card, and what used to be clipped was the salary box,
+          // sliced through the digits at the 320dp floor.
+          final Rect card = tester.getRect(find.byType(BbJobCard).last);
+          final Rect pay = tester.getRect(find.text('22-28k').first);
+          expect(card.contains(pay.topLeft), isTrue, reason: 'pay top clipped');
+          expect(
+            pay.bottom,
+            lessThanOrEqualTo(card.bottom + 0.5),
+            reason: 'pay bottom clipped by the card',
+          );
+          expect(
+            pay.bottom,
+            lessThanOrEqualTo(shape.$1.height),
+            reason: 'pay off the bottom of the screen',
+          );
+
+          // And the card sizes to its CONTENT: it used to be `Positioned.fill`
+          // and drew a screen-tall white slab with four rows in its top 200dp.
+          expect(
+            card.height,
+            lessThan(shape.$1.height),
+            reason: 'the deck card filled the viewport instead of its content',
+          );
+        },
+      );
+    }
   });
 }
