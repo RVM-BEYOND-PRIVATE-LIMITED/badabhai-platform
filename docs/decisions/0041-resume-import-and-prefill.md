@@ -340,7 +340,10 @@ trade form, so a suggestion keyed to one had a question to sit beside. Five of t
 same form already asked: the tier question, and the Preferences and Qualifications pages served a
 few screens later. Workers answered them twice, and the page's write raced the question's. #1503
 removes the append. `GET /profiling/form` serves the trade pack's visible questions and the marker
-pages again, exactly as before `f455bb36`.
+pages again, exactly as before `f455bb36` — except `contextFor`'s résumé-import fallback and the
+resulting nullable `session_id` (both from `f455bb36`) are deliberately **kept**, fixed forward
+rather than reverted, so a worker routed to a form by his résumé still reaches it with no chat
+session behind it.
 
 **Owner rulings (2026-09-15)** that bind this:
 - Résumé facts live on the pages that **own** them (Preferences, Qualifications, Work History).
@@ -366,6 +369,11 @@ none of his résumé's experience, city, salary, education or availability anywh
 pages render suggestions. That work is tracked on #1503/#1504. Suggestions keyed to his trade pack's
 own questions are unaffected. A worker-fact registry (`apps/api/src/profiling/facts/`) now names
 every spelling of each fact across packs, pages and tables. It is the foundation those pages build on.
+That exhaustiveness is held over alias **names**, not per kind: `trade`, `experience`,
+`current_city`, `salary_expected`, `education` and `availability` are RFS crosswalk fields that
+never produce a `worker_attributes` row, so they are registered only under `target_field` /
+`worker_column`, and a reader of the registry must not assume every fact settles under
+`attribute_key`.
 
 ---
 

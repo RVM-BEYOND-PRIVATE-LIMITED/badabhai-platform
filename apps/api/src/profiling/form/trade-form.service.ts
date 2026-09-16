@@ -128,12 +128,6 @@ export class TradeFormService {
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
       "Machines, controllers & capability";
 
-    // NOTHING BUT THE TRADE PACK'S OWN QUESTIONS IS SERVED (#1503). `f455bb36` appended all eight
-    // `qp_universal@2` questions here, and five were facts this same response already hands to a
-    // marker page or to the tier question — a worker answered each twice, and the page's write
-    // raced the question's. `trade-form-fact-uniqueness.contract.test.ts` holds this against the
-    // real universal pack for every enabled role.
-
     return {
       kind,
       pack_id: pack.pack_id,
@@ -143,6 +137,11 @@ export class TradeFormService {
         {
           id: "capability",
           title: capabilityTitle,
+          // NOTHING BUT THE TRADE PACK'S OWN QUESTIONS IS SERVED (#1503). `f455bb36` appended all
+          // eight `qp_universal@2` questions here, and five were facts this same response already
+          // hands to a marker page or to the tier question — a worker answered each twice, and the
+          // page's write raced the question's. `trade-form-fact-uniqueness.contract.test.ts` holds
+          // this against the real universal pack for every enabled role.
           screens: view.ordered.map((item) =>
             this.questionScreen(item, byKey.get(item.question_key), suggestions),
           ),

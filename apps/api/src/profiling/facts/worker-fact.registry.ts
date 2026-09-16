@@ -25,6 +25,18 @@ import { ROLE_FORM_DESCRIPTORS } from "../roles/role-registry";
  * a driving-pack "no" suppress the shift question on the page that actually owns it. So every alias
  * declares whether it SETTLES the fact or is only a PREFILL HINT, and only a settling alias may
  * ever count toward "this fact is already asked" (critique-2, #1503).
+ *
+ * EXHAUSTIVE OVER ALIAS NAMES, NOT PER KIND. `trade`, `experience`, `current_city`,
+ * `salary_expected`, `education` and `availability` are RFS crosswalk fields
+ * (`@badabhai/profiling-lexicon`): `projectProfile`'s `collectAttribute` (`answer-map-projector.ts`)
+ * explicitly skips any field the crosswalk claims, so both the interview and the trade form route
+ * these six onto `worker_profiles` (or, for `current_city`, `workers.current_city`) and NONE of
+ * them has ever produced a `worker_attributes` row — there is no `attribute_key` alias to register
+ * for them, and adding one would name a write path that does not exist. A consumer of this registry
+ * (the #1504/#1505 settled-state resolver included) must therefore walk EVERY kind a fact declares
+ * to ask "is this already settled" — filtering by `kind === 'attribute_key'` alone is wrong for any
+ * fact whose settling alias lives under `target_field` or `worker_column` instead, which is exactly
+ * these six.
  */
 
 /** Every fact the platform asks a worker about more than one way. Closed; extend by review. */
