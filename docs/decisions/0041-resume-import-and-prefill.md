@@ -139,6 +139,30 @@ The override applies to **one task type, one route, one input class, behind one 
   declaration on another service or in another compose file, an env-file assignment, or any
   occurrence under `.github/`; `real-call-posture-compose.guard.test.ts` pins the same line from
   the api side.
+
+  **Amended 2026-09-16 (security review): closed a case-sensitivity gap in both guards, before
+  either landed on `main`.** `Settings` never sets `case_sensitive`, so pydantic-settings reads
+  `resume_parse_raw_text_enabled` (or any other case) as the identical field as the SCREAMING_CASE
+  name — a committed line spelled that way, sitting beside the correct declaration, would have
+  armed the flag while `test_the_flag_is_armed_in_no_committed_file` reported `hits == []`, because
+  its own membership test compared the uppercase name against file text as written, and
+  `compose-env.ts`'s key regex (`[A-Z_][A-Z0-9_]*`) could not even produce a map entry for a
+  lowercase key. Both scans are now case-insensitive on detection while staying byte-exact on the
+  one line they allow, proven with a case-variant fixture that is red against the pre-fix code and
+  green after. The `ai-service` leg of `ci.yml`'s path filter also now includes
+  `docker-compose*.yml`, so a compose-only PR runs the Python scan at all — before this it did not,
+  which is the shape the vulnerable line above would have taken. **Residual, stated rather than
+  hidden:** both scans read only files matching a known config-file shape (`.yml`/`.yaml`/`.env`/
+  `.example`/`.sh`/`.toml`/`.dockerfile`, or an `.env`-prefixed or `Dockerfile`-prefixed name, or a
+  path containing `.env.`); a declaration in a file shape outside that list, or a homoglyph
+  spelling of the key, is not caught by this PR and is not claimed to be.
+
+  **A second, independent lock (noted, not new):** arming `RESUME_PARSE_RAW_TEXT_ENABLED` alone
+  does not send anything unmasked to a real provider. `AIRouter` gates every call, `resume_parse`
+  included, on `Settings.real_call_enabled_for(task_type)` — `AI_ENABLE_REAL_CALLS` (default
+  `false`, `docker-compose.staging.yml`) AND the task type named in `AI_REAL_CALL_TASKS` (default
+  `profiling_chat_turn` only, which does not name `resume_parse`). With either lock closed, a raw
+  résumé built by this flag still goes to the mock path, not Gemini or Claude.
 - **Nothing is masked. The document goes to the model exactly as extracted** — amended by owner
   ruling **2026-09-10**, superseding this ADR's first draft, which held back government
   identifiers, phone numbers and email addresses. The owner's words: _"go fully raw no need to

@@ -756,7 +756,16 @@ services:
       # (apps/ai-service/tests/test_resume_parse.py) permits EXACTLY this one line, on this
       # service, in this file: a truthy default, a literal, a bare or empty substitution, a copy
       # on another service or in another compose file, an env file, or any mention in
-      # .github/ turns the suite RED. The api-side compose guard pins the same line.
+      # .github/ turns the suite RED. The scan is CASE-INSENSITIVE (security review,
+      # 2026-09-16) — `resume_parse_raw_text_enabled` arms the identical pydantic-settings
+      # field as the SCREAMING_CASE name above, so a lowercase or MixedCase second line here
+      # is a hit too, not a silent second arming path. The api-side compose guard
+      # (`real-call-posture-compose.guard.test.ts`) pins the same line and separately rejects
+      # any case-variant spelling of the key. ci.yml's `ai-service` path filter includes
+      # `docker-compose*.yml`, so a compose-only PR runs this scan, not just a PR that also
+      # touches apps/ai-service. Both scans still only read text files matching a known
+      # config-file shape (`_is_config_file` / this repo's tracked source) — they cannot see
+      # box-side state, and that boundary is unchanged from before this note.
       RESUME_PARSE_RAW_TEXT_ENABLED: ${RESUME_PARSE_RAW_TEXT_ENABLED:-false}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;

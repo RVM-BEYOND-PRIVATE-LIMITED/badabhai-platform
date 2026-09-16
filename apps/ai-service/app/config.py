@@ -706,7 +706,11 @@ class Settings(BaseSettings):
     # DECLARED in docker-compose.staging.yml as `${RESUME_PARSE_RAW_TEXT_ENABLED:-false}` on
     # this service, so the box can reach it; arming is the box `.env` plus a re-run of the
     # deploy job, taken once, visibly, by a person. `tests/test_resume_parse.py` permits that
-    # one compose line and fails on any other committed occurrence. `:-false` rather than
+    # one compose line and fails on any OTHER committed occurrence of the name, IN ANY CASE —
+    # this class never sets `case_sensitive`, so pydantic-settings reads
+    # `resume_parse_raw_text_enabled` or `Resume_Parse_Raw_Text_Enabled` as this exact field,
+    # and a case-sensitive scan (the bug closed 2026-09-16) let such a line sit beside the
+    # correct one, arm this field, and still read `hits == []`. `:-false` rather than
     # `:-` because this bool rejects "" and the service would not boot. With it false the
     # route behaves exactly like every other: `default_masker` runs the full
     # pseudonymization gateway over each line before the prompt is built.

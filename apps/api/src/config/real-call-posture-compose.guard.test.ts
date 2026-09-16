@@ -189,6 +189,24 @@ describe("docker-compose.staging.yml — the raw-text résumé posture (ADR-0041
     );
   });
 
+  it("no case-variant spelling of RESUME_PARSE_RAW_TEXT_ENABLED sits beside the exact-case key", () => {
+    // THE BLOCKER THIS TEST CLOSES (security review, 2026-09-16). `Settings` never sets
+    // `case_sensitive`, so pydantic-settings reads env vars case-insensitively by default —
+    // a committed `resume_parse_raw_text_enabled: "true"` sitting ALONGSIDE the correct line
+    // above arms the identical field, while `aiService.get(RAW_FLAG)` two tests up stays
+    // green because it only ever looks up the exact-case name and never notices a second key.
+    // Requires `compose-env.ts`'s key regex to be case-insensitive (`[A-Za-z_]`, not
+    // `[A-Z_]`) or the lowercase key is invisible to `environmentOf()` and this loop finds
+    // nothing to reject — proven red against the old regex before it was widened.
+    const variants = [...aiService.keys()].filter(
+      (key) => key !== RAW_FLAG && key.toUpperCase() === RAW_FLAG,
+    );
+    expect(
+      variants,
+      `case-variant spelling(s) of ${RAW_FLAG} found on the ai-service: ${variants.join(", ")}`,
+    ).toEqual([]);
+  });
+
   it("is NOT declared on the api — apps/api never reads it", () => {
     // A second declaration implies a second source of truth for one decision.
     expect(api.has(RAW_FLAG)).toBe(false);

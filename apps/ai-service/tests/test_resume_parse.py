@@ -843,6 +843,13 @@ def _scan_raw_flag(root: Path) -> tuple[list[str], list[str]]:
     `allowed` holds at most the one line. A SECOND byte-identical copy in the same block is a
     hit, not a second allowance: YAML's last-key-wins would make the later copy the real one.
 
+    DETECTION IS CASE-INSENSITIVE; THE ALLOWANCE IS NOT. `Settings` never sets
+    `case_sensitive`, so pydantic-settings reads `resume_parse_raw_text_enabled` and
+    `Resume_Parse_Raw_Text_Enabled` as the same field as the canonical-case name — a
+    case-sensitive scan would let either spelling ride in beside the real declaration and
+    arm the flag while reporting zero hits. `is_allowed_line` still compares the line
+    byte-for-byte, so only the one canonical-case declaration is ever permitted.
+
     Parameterised by `root` so the forbidden forms can each be proven red against a synthetic
     tree below, rather than only by someone remembering to mutate the real files.
     """
@@ -863,14 +870,23 @@ def _scan_raw_flag(root: Path) -> tuple[list[str], list[str]]:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            if RAW_FLAG not in text:
+            # CASE-INSENSITIVE ON PURPOSE (security review, 2026-09-16): pydantic-settings
+            # reads env vars case-insensitively by default (`Settings` never sets
+            # `case_sensitive`), so `resume_parse_raw_text_enabled` arms the SAME field as
+            # `RESUME_PARSE_RAW_TEXT_ENABLED`. A case-sensitive `in` here let exactly that
+            # spelling sit alongside the real declaration, compose forwarded both names to the
+            # container, and pydantic read the lowercase one as true — measured true positive,
+            # zero committed-line change needed to arm it. Detection is case-insensitive;
+            # `is_allowed_line` below stays byte-exact so only the one canonical-case line
+            # is ever permitted.
+            if RAW_FLAG not in text.upper():
                 continue
             relative = path.relative_to(root).as_posix()
             in_github = relative.startswith(".github/")
             lines = text.splitlines()
             for index, line in enumerate(lines):
                 stripped = line.strip()
-                if RAW_FLAG not in stripped:
+                if RAW_FLAG not in stripped.upper():
                     continue
                 # A comment may NAME it; only an assignment can ARM it. Not in `.github/`.
                 if stripped.startswith("#") and not in_github:
@@ -1090,6 +1106,41 @@ def test_the_scan_is_red_for_every_other_value_on_the_ai_service(tmp_path: Path,
                 "extra_files": {
                     ".github/workflows/ci.yml": "jobs:\n"
                     f"      # {RAW_FLAG}: ${{{{ secrets.{RAW_FLAG} }}}}\n"
+                }
+            },
+        ),
+        (
+            # THE BLOCKER (security review, 2026-09-16): pydantic-settings is
+            # case-INSENSITIVE by default, so this lowercase key arms the identical field as
+            # the canonical-case one. Sitting ALONGSIDE the correct line — exactly this shape
+            # — passed the case-sensitive version of this scan (hits == []) while compose
+            # forwarded both names to the container and pydantic resolved the flag true.
+            "lowercase key alongside the correct line (pydantic-settings case-insensitivity)",
+            {
+                "ai_line": (
+                    f"      {RAW_FLAG_ALLOWED_LINE}\n" f'      {RAW_FLAG.lower()}: "true"'
+                )
+            },
+        ),
+        (
+            "MixedCase key alongside the correct line (same case-insensitivity bug)",
+            {
+                "ai_line": (
+                    f"      {RAW_FLAG_ALLOWED_LINE}\n"
+                    f'      {"_".join(w.capitalize() for w in RAW_FLAG.split("_"))}: "true"'
+                )
+            },
+        ),
+        (
+            # Isolates the OTHER half of the same bug: the per-FILE short-circuit
+            # (`if RAW_FLAG not in text`) is also case-sensitive, so a file whose only
+            # mention of the name is lowercase never even reached the per-line check.
+            "a lowercase-only declaration in another compose file (no uppercase mention "
+            "anywhere in that file — exercises the per-file pre-check, not just the line)",
+            {
+                "extra_files": {
+                    "docker-compose.e2e.yml": "services:\n  ai-service:\n    environment:\n"
+                    f'      {RAW_FLAG.lower()}: "true"\n'
                 }
             },
         ),
