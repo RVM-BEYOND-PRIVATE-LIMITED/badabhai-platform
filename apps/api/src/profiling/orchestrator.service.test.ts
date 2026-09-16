@@ -2246,6 +2246,38 @@ describe("chips on screen own the message — custom answers (#1506)", () => {
     expect(viewed?.served?.promptText).toBe(IDENTIFY_TYPE_PROMPT);
   });
 
+  // #1506 LOW-1 REVIEW FIX. `identifyTypeRequested` is cleared the moment the prompt is answered
+  // (`settleTypedTrade`'s own patch), so this state — the flag still `true` on an envelope that
+  // ALSO carries a pin — should not arise from a live turn. It is exactly the shape a stale
+  // pre-deploy Redis record or a hand-edited envelope has, and reading it wrong would re-serve a
+  // prompt for a trade the interview has already settled, ahead of the real pack question.
+  it("does NOT re-serve the type prompt once an occupation is pinned, even with the flag still set", async () => {
+    const world = makeWorld();
+    seed(world.store, {
+      identifyTypeRequested: true,
+      servedQuestionKey: "q_city",
+      occupation: {
+        job_domain_id: "jd_nco_7212_0301",
+        label: "Welder",
+        isco_unit_code: "7212",
+        match_status: "matched_lexical",
+        match_score: 0.97,
+        match_layer: "l0_exact",
+        pack_id: null,
+        pack_version: null,
+        catalog_version: "cat_2026_08",
+      },
+    });
+
+    const opened = await world.orchestrator.openTurn(open());
+    expect(opened.reply).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(opened.questionKey).toBe("q_city");
+
+    const viewed = await world.orchestrator.viewSession(SESSION, T0);
+    expect(viewed?.served?.promptText).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(viewed?.served?.questionKey).toBe("q_city");
+  });
+
   it("a replay clamps a stamped model options_only to text, and keeps the gate's", async () => {
     const stamp = (reply: string) => ({
       inboundHash: inboundHash(SESSION, 1, "haan"),

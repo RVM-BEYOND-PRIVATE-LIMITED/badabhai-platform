@@ -48,6 +48,29 @@ import type { OfferedChip, ProfilingEnvelope } from "./conversation-state";
 export const MAX_IDENTIFY_ATTEMPTS = 2;
 
 /**
+ * How many CONSECUTIVE non-answer turns a disambiguation offer or the type-your-trade prompt may
+ * be re-served for before the interview gives up on it (#1506 HIGH-1).
+ *
+ * TWO, matching `MAX_CONSECUTIVE_HARDSHIP` — one re-serve, then the offer is abandoned. Both
+ * `settleOffer` and `settleTypedTrade` share {@link ProfilingEnvelope.identifyStalledTurns} as the
+ * SAME counter: a worker who says "pata nahi" under the chips and then "pata nahi" again after
+ * being asked to type is still not answering either way, and two separate budgets would double how
+ * long this can hold the interview open.
+ *
+ * WITHOUT THIS BOUND, repeating "pata nahi" under a live offer re-serves the same chips forever:
+ * `identifyAttempts` is not touched by a non-answer under an offer, so `MAX_IDENTIFY_ATTEMPTS`
+ * never fires, and the re-serve returns straight to the worker without ever reaching
+ * `nextQuestion` — the one place `abuse_cap`, `ask_budget` and `turn_cap` are decided. See the
+ * class docblock on `NOT_A_TRADE_STATEMENT`.
+ *
+ * NOT FOR AN ABUSIVE TURN. An abusive message under an offer or the prompt never re-serves and
+ * never spends this counter — `identify` only sees the `abusive` class at all once
+ * `ProfilingOrchestrator`'s own abusive-turn branch has already let it fall through, which happens
+ * exactly when `abusiveTurns` has reached `MAX_ABUSIVE_TURNS`; see {@link IdentifyService.settleOffer}.
+ */
+export const MAX_IDENTIFY_STALLED_TURNS = 2;
+
+/**
  * How many times an interview may CHANGE the occupation it already pinned (plan risk #12).
  *
  * ONE, exactly as the plan specifies. Phase 8 shipped zero and deferred this; the two guards in
@@ -129,7 +152,34 @@ const NOT_A_TRADE_STATEMENT: ReadonlySet<UtteranceClass> = new Set<UtteranceClas
   "dont_know",
 ]);
 
+/**
+ * The shape of a chip key THIS FILE synthesizes — never a worker's own words (#1506 MEDIUM-2).
+ *
+ * `occ_${slug}` is {@link occKey} (a disambiguation chip's position) and `llm_${slug}` is
+ * `toLlmOption`'s (a model chip's), both minted by {@link slugIndexKey}: a prefix, an underscore,
+ * and ONE OR MORE LOWERCASE LETTERS — never digits, matching the bijective base-26 counter that
+ * mints them (`occ_a`, `occ_b`, … `occ_z`, `occ_aa`, …). No other caller in this codebase mints an
+ * `option_key` through `slugIndexKey`, so this pattern names exactly the two prefixes that exist.
+ *
+ * WHY THIS MUST BE CHECKED ON THE RAW TEXT. `normalizeOccupationText("occ_a")` is `"occ a"` — the
+ * SAME shape a worker's own two-word answer would normalize to — so the tell (a literal
+ * underscore, no space) is only visible before that pass runs.
+ */
+const SYNTHESIZED_OPTION_KEY = /^(?:occ|llm)_[a-z]+$/i;
+
+/**
+ * Could this text be a worker's own statement of their trade? (#1506 HIGH-1 / MEDIUM-2)
+ *
+ * THE OPTION-KEY VETO (MEDIUM-2). The wire contract for a chip tap is its `option_key`, not its
+ * label — {@link IdentifyService.settleOffer} matches both — but a key that matches NEITHER the
+ * offer on screen NOR any label is not a trade a worker typed; it is a synthesized chip key that
+ * arrived stale (a race between two offers) or malformed, and treating it as an answer used to
+ * write it verbatim to `primary_trade` and, on a below-floor miss, queue it to the growth corpus
+ * — literal ASCII slugs like "occ_a" polluting a Hindi/Hinglish phrase list built for ops to read.
+ */
 function statesATrade(text: string, turnClass: UtteranceClass): boolean {
+  const trimmed = text.trim();
+  if (SYNTHESIZED_OPTION_KEY.test(trimmed)) return false;
   return normalizeOccupationText(text).length > 0 && !NOT_A_TRADE_STATEMENT.has(turnClass);
 }
 
@@ -200,11 +250,39 @@ export class IdentifyService {
   }
 
   /**
+   * Abandon the offer or the type-your-trade prompt currently on screen: no re-serve, and the
+   * fields that would otherwise leave `nextQuestion` looking at a question no longer displayed are
+   * cleared (#1506 HIGH-1).
+   *
+   * `identifyStalledTurns` IS ALWAYS PART OF THE RESET, not left to each caller, because every
+   * path that reaches here — the stall bound, or an abusive turn — is the SAME kind of ending: the
+   * episode that was counting non-answers is over, one way or another.
+   *
+   * EMITS `profile.occupation_unresolved` for the stall case ONLY (`emit` defaults `true`, and the
+   * abusive caller below passes `false`): a worker who is asked twice and never states a trade has
+   * produced the platform's "nothing can follow" signal, the same one the escape branch emits when
+   * its budget is spent. An abusive turn is a different thing — a safety-valve close, not a
+   * catalogue gap — and reporting it as one would tell ops their trade list is missing a phrase
+   * that was never actually offered a fair chance to answer.
+   */
+  private async giveUpOnStall(
+    patch: Partial<ProfilingEnvelope>,
+    ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
+    emit = true,
+  ): Promise<IdentifyResult> {
+    if (emit) await this.emitUnresolved(ctx, "ambiguous", null, null);
+    return { ...NO_OP, patch: { identifyStalledTurns: 0, ...patch } };
+  }
+
+  /**
    * The answer to {@link IDENTIFY_TYPE_PROMPT} — the worker's trade, in their own words.
    *
    * THE FLAG IS CLEARED ONLY BY AN ANSWER. A silence or a hardship line leaves the prompt on
    * screen, exactly as it leaves an offer on screen, rather than spending the one resolve on
-   * nothing and settling "." as a trade.
+   * nothing and settling "." as a trade — but only up to {@link MAX_IDENTIFY_STALLED_TURNS}
+   * (#1506 HIGH-1): past that, and for an abusive turn immediately, the prompt is abandoned rather
+   * than re-served forever. See {@link IdentifyService.settleOffer}, which bounds the same way for
+   * the same reason and shares the counter.
    */
   private async settleTypedTrade(
     envelope: ProfilingEnvelope,
@@ -212,7 +290,20 @@ export class IdentifyService {
     turnClass: UtteranceClass,
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
-    if (!statesATrade(text, turnClass)) return { ...NO_OP, prompt: IDENTIFY_TYPE_PROMPT };
+    // NEVER RE-SERVED. `identify` only sees `abusive` here once `abusiveTurns` has already
+    // reached `MAX_ABUSIVE_TURNS` in the orchestrator — see the constant's docblock — so falling
+    // through immediately is always safe: `nextQuestion` closes with `abuse_cap` on the very next
+    // call, checked before it ever looks at `needsDisambiguation` or this flag.
+    if (turnClass === "abusive") {
+      return this.giveUpOnStall({ identifyTypeRequested: false }, ctx, false);
+    }
+    if (!statesATrade(text, turnClass)) {
+      const stalled = envelope.identifyStalledTurns + 1;
+      if (stalled >= MAX_IDENTIFY_STALLED_TURNS) {
+        return this.giveUpOnStall({ identifyTypeRequested: false }, ctx);
+      }
+      return { ...NO_OP, patch: { identifyStalledTurns: stalled }, prompt: IDENTIFY_TYPE_PROMPT };
+    }
     // `false`: when the budget was already spent, the unresolved signal was emitted at the tap
     // (see `settleOffer`), so there is no second outcome to report here.
     const settled = await this.resolveOwnWords(envelope, text, ctx, false);
@@ -246,7 +337,7 @@ export class IdentifyService {
       if (emitWhenSpent) await this.emitUnresolved(ctx, "ambiguous", null, null);
       return {
         ...NO_OP,
-        patch: { needsDisambiguation: false, disambiguationOffer: [] },
+        patch: { needsDisambiguation: false, disambiguationOffer: [], identifyStalledTurns: 0 },
         tradeText,
       };
     }
@@ -269,11 +360,20 @@ export class IdentifyService {
   /**
    * A worker tapped a chip — or told us none of them fit.
    *
-   * RESOLVED THROUGH THE STORED MAP, NEVER BY RE-MATCHING THE TEXT. The label the client sends
-   * back is the label we rendered, so an exact (normalized) comparison against the offer is
-   * both sufficient and the only thing that cannot drift: re-running retrieval on "welder"
+   * RESOLVED THROUGH THE STORED MAP, NEVER BY RE-MATCHING THE TEXT. The label OR the key the
+   * client sends back is what we rendered, so an exact (normalized) comparison against the offer
+   * is both sufficient and the only thing that cannot drift: re-running retrieval on "welder"
    * would re-enter the very ambiguity the chips were built to settle, and could land on a
    * different occupation than the chip the worker actually looked at.
+   *
+   * MATCHED ON EITHER THE LABEL OR THE `option_key` (#1506 MEDIUM-2). The wire contract for a tap
+   * is the key, not the label; matching only the label meant a client sending it correctly (as
+   * the schema says to) could tap the ESCAPE without matching anything here, because "kuch_aur"
+   * happened to normalize the same as "Kuch aur" only by coincidence — the underscore folds to a
+   * space the same way a real two-word label's own space does — and any OTHER chip's key
+   * (`occ_a`, `occ_b`, …) never matched a label at all and fell through to be treated as the
+   * worker's own typed trade. The key is matched on the RAW text, never normalized: normalizing
+   * "occ_a" to "occ a" is indistinguishable from a genuine two-word answer.
    */
   private async settleOffer(
     envelope: ProfilingEnvelope,
@@ -282,17 +382,46 @@ export class IdentifyService {
     ctx: { readonly sessionId: string; readonly workerId: string } & RequestContext,
   ): Promise<IdentifyResult> {
     const typed = normalizeOccupationText(text);
-    const tapped = envelope.disambiguationOffer.find(
-      (chip) => normalizeOccupationText(chip.label) === typed,
-    );
+    const rawTyped = text.trim().toLowerCase();
+    const tapped = envelope.disambiguationOffer.find((chip, index) => {
+      if (normalizeOccupationText(chip.label) === typed) return true;
+      return toPackOption(chip, index).option_key.toLowerCase() === rawTyped;
+    });
 
     if (tapped === undefined) {
-      // NOT AN ANSWER — silence, ".", a hardship line. The chips STAY ON SCREEN: re-served as they
-      // were, with nothing spent and nothing settled. Clearing them here used to hand the turn to
-      // an engine whose next decision, with `needsDisambiguation` still set, is a blank offer.
+      // ABUSIVE UNDER AN OFFER NEVER RE-SERVES (#1506 HIGH-1). `identify` only sees this class at
+      // all once `ProfilingOrchestrator`'s own abusive-turn branch has already let it fall through
+      // — which happens exactly when `abusiveTurns` has reached `MAX_ABUSIVE_TURNS`, since that
+      // branch returns early for every turn below the cap. Re-serving the chips here used to
+      // bypass `nextQuestion` entirely and loop forever, `abusiveTurns` climbing with no effect;
+      // clearing the offer instead lets the very next call reach `nextQuestion`, where the
+      // abuse-cap check runs BEFORE the disambiguate check and closes the interview.
+      if (turnClass === "abusive") {
+        return this.giveUpOnStall(
+          { needsDisambiguation: false, disambiguationOffer: [] },
+          ctx,
+          false,
+        );
+      }
+      // NOT AN ANSWER — silence, ".", a hardship line, "pata nahi", "kyun?". The chips STAY ON
+      // SCREEN: re-served as they were, with nothing spent and nothing settled — but only up to
+      // {@link MAX_IDENTIFY_STALLED_TURNS} (#1506 HIGH-1): past that the offer is abandoned rather
+      // than re-served forever, because none of `hardshipTurns`/`silentTurns`/`clarifyCount` reach
+      // this point to bound it themselves — see {@link ProfilingEnvelope.identifyStalledTurns}.
+      // Clearing the chips WITHOUT also clearing `needsDisambiguation` used to hand the turn to an
+      // engine whose next decision, with that flag still set, is a blank offer; `giveUpOnStall`
+      // clears both together.
       if (!statesATrade(text, turnClass)) {
+        const stalled = envelope.identifyStalledTurns + 1;
+        if (stalled >= MAX_IDENTIFY_STALLED_TURNS) {
+          return this.giveUpOnStall(
+            { needsDisambiguation: false, disambiguationOffer: [] },
+            ctx,
+          );
+        }
         return {
           ...NO_OP,
+          patch: { identifyStalledTurns: stalled },
           offer: {
             prompt: DISAMBIGUATION_PROMPT,
             chips: envelope.disambiguationOffer,
@@ -325,10 +454,34 @@ export class IdentifyService {
       // a signal.
       if (envelope.identifyAttempts >= MAX_IDENTIFY_ATTEMPTS) {
         await this.emitUnresolved(ctx, "ambiguous", null, null);
+      } else {
+        // KNOWN GAP, NOT SILENTLY ACCEPTED (#1506 review, MEDIUM-1). With budget left this waits
+        // for the typed answer — but {@link MAX_IDENTIFY_STALLED_TURNS} is what makes that answer
+        // arrive at all; a worker who taps here and then sends nothing further still leaves no
+        // `profile.occupation_unresolved`, which is this platform's funnel signal for "the
+        // catalogue has a gap". The fix on the table is emitting here UNCONDITIONALLY, keyed
+        // `profile.occupation_unresolved:${sessionId}:${reason}` so it cannot swallow a later,
+        // more specific reason — but that changes the per-session idempotency contract the test
+        // directly above this one pins as deliberate ("an early `ambiguous` would win... and hide
+        // it"), so it is an event-contract call for the architect, not this diff. A log line
+        // — counted, not a business event, nothing added to `events` — is the cheap placeholder
+        // until that call is made.
+        this.logger.log(
+          `disambiguation escape tapped with identify budget left for session ${ctx.sessionId}; ` +
+            `no profile.occupation_unresolved emitted yet (see #1506 MEDIUM-1)`,
+        );
       }
       return {
         ...NO_OP,
-        patch: { needsDisambiguation: false, disambiguationOffer: [], identifyTypeRequested: true },
+        patch: {
+          needsDisambiguation: false,
+          disambiguationOffer: [],
+          identifyTypeRequested: true,
+          // A TAP IS AN ANSWER: this offer episode ended cleanly, not by exhaustion. The
+          // type-prompt episode that follows, in {@link IdentifyService.settleTypedTrade}, starts
+          // its own count at zero rather than inheriting whatever this offer had accumulated.
+          identifyStalledTurns: 0,
+        },
         prompt: IDENTIFY_TYPE_PROMPT,
       };
     }
@@ -347,6 +500,7 @@ export class IdentifyService {
           needsDisambiguation: false,
           disambiguationOffer: [],
           identifyAttempts: MAX_IDENTIFY_ATTEMPTS,
+          identifyStalledTurns: 0,
         },
         // The worker still TAPPED this label, so it is still their answer of record.
         tradeText: tapped.label,
@@ -529,6 +683,9 @@ export class IdentifyService {
         disambiguationOffer: [],
         catalogVersion: result.catalogVersion,
         phase: "occupation_specific",
+        // A PIN SETTLES ANY OFFER IN PROGRESS (#1506): whichever episode was counting
+        // non-answers, chips or a typed prompt, is over now that there is an occupation.
+        identifyStalledTurns: 0,
       },
       offer: null,
       pinned: pin,
@@ -587,6 +744,11 @@ export class IdentifyService {
         // before this: ten alternating turns (an ambiguous phrase, then free text) produced five
         // offers with `identifyAttempts` still 0, so the chips could come back without bound.
         identifyAttempts: envelope.identifyAttempts + 1,
+        // A FRESH OFFER, A FRESH COUNT (#1506 HIGH-1). `envelope.identifyStalledTurns` can be
+        // non-zero here only if an earlier offer was abandoned by the stall bound and a later
+        // message re-entered retrieval; that earlier episode's count must not carry over and cut
+        // this new offer's budget short before it has re-served even once.
+        identifyStalledTurns: 0,
       },
       offer: {
         prompt: DISAMBIGUATION_PROMPT,
@@ -634,7 +796,13 @@ export class IdentifyService {
 
     return {
       ...NO_OP,
-      patch: { identifyAttempts: attempts, needsDisambiguation: false, disambiguationOffer: [] },
+      patch: {
+        identifyAttempts: attempts,
+        needsDisambiguation: false,
+        disambiguationOffer: [],
+        // Whatever offer this text was resolved against (if any) is settled, one way or another.
+        identifyStalledTurns: 0,
+      },
     };
   }
 

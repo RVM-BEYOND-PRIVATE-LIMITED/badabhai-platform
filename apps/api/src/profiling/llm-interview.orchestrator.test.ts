@@ -25,6 +25,7 @@ import {
   type ProfilingEnvelope,
 } from "./conversation-state";
 import type { LlmTurnResult } from "./llm-turn.service";
+import { MAX_ENGINE_TURNS } from "./next-question";
 import {
   DE_ESCALATION_REPLY,
   ESCAPE_TYPE_PROMPT,
@@ -458,6 +459,21 @@ describe("model chips always leave a way to type your own (#1506)", () => {
     expect(result.options.map((o) => o.label_text)).toEqual(["Haan", "Nahi"]);
   });
 
+  // #1506 LOW-1 REVIEW FIX. `GATE`'s own chips are `["Haan", "Nahi"]` — a yes/no pair — so the
+  // test above passes even with `llmChipOptions`'s `if (gate) return …` deleted: the SEPARATE
+  // `YES_NO_PAIRS` guard below it also excludes exactly this pair, on the non-gate path too (see
+  // the `it.each` below). A NON-yes/no chip set on an `options_only` (gate) turn is what pins the
+  // gate branch on its own: only `gate` stops the escape from being appended here, because three
+  // chips can never match `YES_NO_PAIRS`'s `length === 2` check.
+  it("adds NO escape to the engine gate — even with a non-yes/no chip set", async () => {
+    const { orchestrator } = makeWorld({
+      take: { ...GATE, chips: ["Kam", "Zyada", "Pata nahi"] },
+    });
+    const result = await orchestrator.takeTurn(say("3 saal tandoor pe"));
+    expect(result.options.some((o) => o.is_none_of_above)).toBe(false);
+    expect(result.options.map((o) => o.label_text)).toEqual(["Kam", "Zyada", "Pata nahi"]);
+  });
+
   it.each([[[]], [["Koi aur"]], [["Haan", "Nahi"]], [["No", "Yes"]]])(
     "adds NO escape when the chips are %j",
     async (chips) => {
@@ -521,6 +537,31 @@ describe("an old build's 'Kuch aur' tap on model chips (#1506)", () => {
     expect(saved?.profiling?.lastTurn?.reply).toBe(ESCAPE_TYPE_PROMPT);
   });
 
+  // #1506 MEDIUM-2 REVIEW FIX. The wire contract sends `option_key`, not the label — a client
+  // sending "kuch_aur" (correctly, per the schema) must tap the escape exactly as "Kuch aur"
+  // does, not fall through to `llm.take` as an ordinary answer.
+  //
+  // KNOWN LIMIT OF THIS TEST, stated rather than hidden: `DISAMBIGUATION_ESCAPE_KEY` ("kuch_aur")
+  // normalizes to the same string as `DISAMBIGUATION_ESCAPE_LABEL` ("Kuch aur") today — the same
+  // coincidence `identify.service.ts`'s docblock warns about — so this assertion currently passes
+  // even without the explicit key check `isEscapeTapOnModelChips` adds: both of the function's
+  // comparisons are against FIXED CONSTANTS, so (unlike `settleOffer`'s per-chip label) there is
+  // no way to construct a fixture here where only the key check can fire. Kept anyway as the
+  // wire-contract regression pin the review asked for; the mutation-kill proof for this fix lives
+  // in `identify.service.test.ts`'s "matches the ESCAPE tap by its key" test, which uses a
+  // relabeled chip to break the same coincidence.
+  it("is intercepted on the KEY, not just the label — a client sending 'kuch_aur' escapes too", async () => {
+    const { orchestrator, store, llm, identify, events } = makeWorld();
+    seed(store, onScreen(llmChipOptions(["Welder", "Fitter"], false)));
+
+    const result = await orchestrator.takeTurn(say(DISAMBIGUATION_ESCAPE_KEY, LATER));
+
+    expect(result.reply).toBe(ESCAPE_TYPE_PROMPT);
+    expect(llm.take).not.toHaveBeenCalled();
+    expect(identify.identify).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
   it("is NOT intercepted when the escape is not among the chips on screen", async () => {
     const { orchestrator, store, llm } = makeWorld();
     seed(store, onScreen(llmChipOptions(["Welder", "Fitter"], true)));
@@ -532,6 +573,36 @@ describe("an old build's 'Kuch aur' tap on model chips (#1506)", () => {
     const { orchestrator, store, llm } = makeWorld();
     seed(store, { ...onScreen(llmChipOptions(["Welder", "Fitter"], false)), llmGateOpen: true });
     await orchestrator.takeTurn(say("Kuch aur", LATER));
+    expect(llm.take).toHaveBeenCalledTimes(1);
+  });
+
+  // #1506 LOW-1 REVIEW FIX. Past `MAX_ENGINE_TURNS` the interview is closing, and this intercept
+  // returning early regardless would route around `nextQuestion` — the one place `turn_cap` is
+  // decided — exactly the bug HIGH-1 fixed for the disambiguation offer, one guard clause over.
+  it("is NOT intercepted once the turn is CAPPED", async () => {
+    const { orchestrator, store, llm } = makeWorld();
+    seed(store, onScreen(llmChipOptions(["Welder", "Fitter"], false)));
+    const held = store.get(SESSION);
+    if (!held) throw new Error("seed did not write the session");
+    store.set(SESSION, { ...held, turnCount: MAX_ENGINE_TURNS + 1 });
+
+    await orchestrator.takeTurn(say("Kuch aur", LATER));
+
+    expect(llm.take).toHaveBeenCalledTimes(1);
+  });
+
+  // #1506 LOW-1 REVIEW FIX. A non-null `questionKey` means the last turn was an ordinary PACK
+  // question, not a model-authored chipless ask — the shape this escape exists for. Without this
+  // guard, a worker who types "Kuch aur" as a free-text answer to a real pack question (which
+  // happens to also carry the escape's key among ITS options, e.g. via `matchOptions`) would have
+  // that answer discarded and the type-prompt served instead.
+  it("is NOT intercepted when the last turn had a real pack question key", async () => {
+    const { orchestrator, store, llm } = makeWorld();
+    const screen = onScreen(llmChipOptions(["Welder", "Fitter"], false));
+    seed(store, { ...screen, lastTurn: { ...screen.lastTurn!, questionKey: "q_city" } });
+
+    await orchestrator.takeTurn(say("Kuch aur", LATER));
+
     expect(llm.take).toHaveBeenCalledTimes(1);
   });
 });

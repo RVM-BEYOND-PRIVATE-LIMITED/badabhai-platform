@@ -661,6 +661,30 @@ export interface ProfilingEnvelope {
    * cannot swallow the answer either.
    */
   readonly identifyTypeRequested: boolean;
+
+  /**
+   * CONSECUTIVE turns, under a disambiguation offer or the type-your-trade prompt, that stated no
+   * trade — silence, ".", "pata nahi", a hardship line, "kyun?" (#1506 HIGH-1).
+   *
+   * ITS OWN COUNTER, NOT A REUSE OF `hardshipTurns`/`silentTurns`/`clarifyCount`, because none of
+   * those three survive to the point `identify` runs: `ProfilingOrchestrator.decide` resets all
+   * three unconditionally, on every turn that reaches the answer-recording section, before
+   * `identify.identify()` is ever called. Under an offer that reset fires on EVERY turn — the
+   * per-class re-serve guards above it all key off `reservableItem`, which is null whenever
+   * `identify` owns the message — so those three counters are always zero by the time `identify`
+   * would need them and cannot bound a repeated non-answer there.
+   *
+   * ABUSIVE TURNS DO NOT USE THIS COUNTER. `abusiveTurns` already bounds them (`MAX_ABUSIVE_TURNS`
+   * in `next-question.ts`) before `identify` is ever reached — the orchestrator's own abusive-turn
+   * branch returns early for every turn below that cap, so `identify` sees the "abusive" class at
+   * all only once the interview is already at the cap. Counting it here too would let a worker who
+   * alternates abuse and silence spend two budgets instead of one to outlast this bound.
+   *
+   * RESET the moment the offer or prompt is settled — by a tap, the escape, a resolved answer, a
+   * fresh offer replacing it, or the count itself reaching {@link MAX_IDENTIFY_STALLED_TURNS} and
+   * giving up — never carried into a different episode.
+   */
+  readonly identifyStalledTurns: number;
 }
 
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
@@ -761,6 +785,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   formKind: true,
   resumeConfirm: true,
   identifyTypeRequested: true,
+  identifyStalledTurns: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -800,6 +825,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     formKind: null,
     resumeConfirm: null,
     identifyTypeRequested: false,
+    identifyStalledTurns: 0,
   };
 }
 
@@ -1083,6 +1109,10 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // their trade. The other default would read the worker's next sentence as a trade answer to a
     // prompt that was never on screen, and spend an identify attempt on it.
     identifyTypeRequested: v.identifyTypeRequested === true,
+    // CLAMPED AT ZERO, like every other counter here: a negative would buy extra re-serves before
+    // {@link MAX_IDENTIFY_STALLED_TURNS} closes the offer, and a v2 envelope written before this
+    // field existed has none, which zero already means.
+    identifyStalledTurns: nonNegativeInt(v.identifyStalledTurns),
   };
 }
 

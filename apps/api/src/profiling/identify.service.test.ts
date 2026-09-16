@@ -19,6 +19,7 @@ import {
   IdentifyService,
   IDENTIFY_TYPE_PROMPT,
   MAX_IDENTIFY_ATTEMPTS,
+  MAX_IDENTIFY_STALLED_TURNS,
   MAX_OCCUPATION_REPINS,
   DISAMBIGUATION_PROMPT,
 } from "./identify.service";
@@ -417,6 +418,37 @@ describe("settling an outstanding offer", () => {
     expect(result.pinned).not.toBeNull();
   });
 
+  // #1506 MEDIUM-2 REVIEW FIX. The wire contract sends `option_key`, not the label — the FIRST
+  // chip's key here is `occ_a` (`slugIndexKey("occ", 0)`), and a client sending it must resolve
+  // the SAME tap as sending the label "darzi" does.
+  it("matches the tap by its KEY, not only by its label", async () => {
+    const { svc, occupation } = make();
+    const result = await svc.identify(outstanding, "occ_a", CTX, "answer");
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.pinned?.job_domain_id).toBe(CANDIDATE.jobDomainId);
+  });
+
+  // NOT `outstanding`'s own escape chip: its label ("Kuch aur") normalizes to the same string as
+  // its key ("kuch_aur") anyway — the coincidence the docblock above warns about — so a test
+  // built on it cannot tell whether the KEY match fired or the label match did. This fixture's
+  // escape carries a DIFFERENT label, so only the key can resolve it.
+  it("matches the ESCAPE tap by its key 'kuch_aur', when the label alone would miss", async () => {
+    const { svc, occupation } = make();
+    const withRelabeledEscape = env({
+      needsDisambiguation: true,
+      disambiguationOffer: [
+        { label: "darzi", jobDomainId: CANDIDATE.jobDomainId, familyId: "fam_tailoring" },
+        // `jobDomainId: null` is what makes this THE escape — see `settleOffer`'s structural
+        // check — independent of what its label says.
+        { label: "Not the usual escape wording", jobDomainId: null, familyId: null },
+      ],
+    });
+    const result = await svc.identify(withRelabeledEscape, "kuch_aur", CTX, "answer");
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.prompt).toBe(IDENTIFY_TYPE_PROMPT);
+    expect(result.patch.identifyTypeRequested).toBe(true);
+  });
+
   // An offer made AFTER #1506 has already spent one attempt; `outstanding` above (0) is the shape of
   // an offer made before it, still in Redis behind the 24 h TTL.
   const afterOffer = { ...outstanding, identifyAttempts: 1 };
@@ -433,6 +465,10 @@ describe("settling an outstanding offer", () => {
       needsDisambiguation: false,
       disambiguationOffer: [],
       identifyTypeRequested: true,
+      // ADDED (#1506 HIGH-1 review fix): the tap is a clean end to this offer episode, so the
+      // stall counter that bounds an UNANSWERED offer resets for the type-prompt episode that
+      // follows — see `IdentifyService.settleTypedTrade` and `MAX_IDENTIFY_STALLED_TURNS`.
+      identifyStalledTurns: 0,
     });
     // No MAX jump — the restored defect would set this.
     expect(result.patch.identifyAttempts).toBeUndefined();
@@ -481,6 +517,20 @@ describe("settling an outstanding offer", () => {
     expect(emitted(events).map((e) => e.event_name)).toEqual(["profile.occupation_identified"]);
   });
 
+  // #1506 MEDIUM-2 REVIEW FIX. `afterOffer` only has two real keys on screen ("darzi" / occ_a,
+  // and the escape / kuch_aur) — "occ_z" matches NEITHER, so it must never be treated as the
+  // worker's own typed trade: not written to `tradeText`, retrieval never run on it, and nothing
+  // queued to the growth corpus. Treated exactly as a non-answer: the chips are re-served.
+  it("a STALE or malformed option key is never treated as the worker's own words", async () => {
+    const { svc, occupation, events } = make();
+    const result = await svc.identify(afterOffer, "occ_z", CTX, "answer");
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.tradeText).toBeNull();
+    expect(result.offer?.prompt).toBe(DISAMBIGUATION_PROMPT);
+    expect(result.patch).toEqual({ identifyStalledTurns: 1 });
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
   it("free text the ladder can only disambiguate again is NEVER a second offer", async () => {
     const { svc, events, occupation } = make({
       resolve: resolveResult({
@@ -526,7 +576,13 @@ describe("settling an outstanding offer", () => {
     );
     expect(occupation.resolve).not.toHaveBeenCalled();
     expect(result.tradeText).toBe("main electrician hoon");
-    expect(result.patch).toEqual({ needsDisambiguation: false, disambiguationOffer: [] });
+    // ADDED (#1506 HIGH-1 review fix): the offer is settled here, one way or another, so the
+    // stall counter resets — see `IdentifyService.resolveOwnWords`.
+    expect(result.patch).toEqual({
+      needsDisambiguation: false,
+      disambiguationOffer: [],
+      identifyStalledTurns: 0,
+    });
     expect(emitted(events)).toHaveLength(1);
     expect(emitted(events)[0]?.payload).toMatchObject({ reason: "ambiguous" });
   });
@@ -541,10 +597,60 @@ describe("settling an outstanding offer", () => {
     const { svc, occupation, events } = make();
     const result = await svc.identify(afterOffer, text, CTX, turnClass);
     expect(occupation.resolve).not.toHaveBeenCalled();
-    expect(result.patch).toEqual({});
+    // ADDED (#1506 HIGH-1 review fix): a re-serve is ONE stall, not a no-op — the counter that
+    // bounds how many times this can repeat before the offer is abandoned. `afterOffer` starts
+    // at 0, so one non-answer turn moves it to 1. See `MAX_IDENTIFY_STALLED_TURNS`.
+    expect(result.patch).toEqual({ identifyStalledTurns: 1 });
     expect(result.offer?.prompt).toBe(DISAMBIGUATION_PROMPT);
     expect(result.offer?.chips).toEqual(afterOffer.disambiguationOffer);
     expect(result.tradeText).toBeNull();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  // #1506 HIGH-1 REVIEW FIX. Without `MAX_IDENTIFY_STALLED_TURNS`, the table above re-serves the
+  // same chips on every non-answer turn with no bound — the reviewer's measured regression.
+  it("PAST the stall bound, the offer is abandoned rather than re-served again", async () => {
+    const { svc, occupation, events } = make();
+    const result = await svc.identify(
+      { ...afterOffer, identifyStalledTurns: MAX_IDENTIFY_STALLED_TURNS - 1 },
+      "pata nahi",
+      CTX,
+      "dont_know",
+    );
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.offer).toBeNull();
+    expect(result.prompt).toBeNull();
+    // NOT A BLANK DISAMBIGUATE. `needsDisambiguation` is cleared together with the offer, or the
+    // next call into `nextQuestion` would see it still set and serve an empty single-select.
+    expect(result.patch).toEqual({
+      needsDisambiguation: false,
+      disambiguationOffer: [],
+      identifyStalledTurns: 0,
+    });
+    // The interview gives up on this offer without ever hearing a trade — the same "nothing can
+    // follow" signal the escape emits when its budget is spent.
+    expect(emitted(events)).toHaveLength(1);
+    expect(emitted(events)[0]).toMatchObject({
+      event_name: "profile.occupation_unresolved",
+      payload: { reason: "ambiguous" },
+    });
+  });
+
+  // #1506 HIGH-1 REVIEW FIX. Abuse under a live offer must never re-serve — `nextQuestion`'s
+  // `abuse_cap` is the only place that closes an all-abusive interview, and it is unreachable
+  // while `identify` keeps handing the chips straight back.
+  it("an ABUSIVE turn under the offer never re-serves, even on the very first one", async () => {
+    const { svc, occupation, events } = make();
+    const result = await svc.identify(afterOffer, "chutiya", CTX, "abusive");
+    expect(occupation.resolve).not.toHaveBeenCalled();
+    expect(result.offer).toBeNull();
+    expect(result.patch).toEqual({
+      needsDisambiguation: false,
+      disambiguationOffer: [],
+      identifyStalledTurns: 0,
+    });
+    // NOT a catalogue-gap signal: an abusive turn is a safety-valve close, not a worker who was
+    // fairly asked and never answered.
     expect(events.emit).not.toHaveBeenCalled();
   });
 
@@ -783,7 +889,9 @@ describe("the type-your-trade prompt (#1506)", () => {
     const { svc, occupation } = make();
     const result = await svc.identify(requested, ".", CTX, "empty");
     expect(occupation.resolve).not.toHaveBeenCalled();
-    expect(result.patch).toEqual({});
+    // ADDED (#1506 HIGH-1 review fix): same stall counter `settleOffer` uses, shared across both
+    // episodes — see `MAX_IDENTIFY_STALLED_TURNS`.
+    expect(result.patch).toEqual({ identifyStalledTurns: 1 });
     expect(result.prompt).toBe(IDENTIFY_TYPE_PROMPT);
     expect(result.tradeText).toBeNull();
   });

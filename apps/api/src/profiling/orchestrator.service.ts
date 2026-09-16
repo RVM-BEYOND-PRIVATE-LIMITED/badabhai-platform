@@ -1314,7 +1314,14 @@ export class ProfilingOrchestrator {
 
     // The worker is being asked to type their trade. A chipless engine line, and it IS the turn —
     // the same reason the offer below returns early.
-    if (identified.prompt) {
+    //
+    // `!capped` (#1506 HIGH-1) — the same guard every other early-return branch above this one
+    // already carries. `identify` bounds its OWN re-serves against `identifyStalledTurns` (see
+    // `MAX_IDENTIFY_STALLED_TURNS`), but this is the backstop for whatever that bound does not
+    // cover: past `MAX_ENGINE_TURNS` the interview must close, and returning here regardless would
+    // route around `nextQuestion` — the one place `turn_cap` is decided — exactly the way the
+    // un-gated branch did before this fix.
+    if (!capped && identified.prompt) {
       next = { ...next, servedQuestionKey: null };
       return this.turn(buffer, next, input, {
         reply: identified.prompt,
@@ -1339,7 +1346,12 @@ export class ProfilingOrchestrator {
 
     // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
     // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
-    if (identified.offer) {
+    //
+    // `!capped` (#1506 HIGH-1), the same backstop the prompt branch above carries and for the same
+    // reason: `identify` bounds its own re-serves, and this is the wall that holds if that bound
+    // does not — past `MAX_ENGINE_TURNS` the interview closes through `nextQuestion` rather than
+    // re-serving chips one more time.
+    if (!capped && identified.offer) {
       return this.turn(buffer, next, input, {
         reply: identified.offer.prompt,
         // THE ONE SITE THAT KNOWS. Everything downstream had to guess before #695: the fact was
@@ -2867,6 +2879,13 @@ function outstandingTypeRequest(
  * "kuch aur" as an answer to an ordinary question — or on a disambiguation offer, which identify
  * settles itself — is not tapping this escape, and treating them as though they were would throw
  * their answer away. The stamped `lastTurn` is literally what the worker was shown.
+ *
+ * MATCHED ON EITHER THE LABEL OR THE KEY (#1506 MEDIUM-2). The wire contract sends `option_key`
+ * ("kuch_aur"), not the label ("Kuch aur"); today the two happen to normalize identically — the
+ * underscore folds to the same space the label's own space does — but that is a coincidence of
+ * `normalizeOccupationText`'s keep-set, not a guarantee, and it was untested. Matched explicitly
+ * so a future change to that keep-set cannot silently stop this escape from firing for a client
+ * that (correctly, per the schema) sends the key.
  */
 function isEscapeTapOnModelChips(
   envelope: ProfilingEnvelope,
@@ -2877,7 +2896,11 @@ function isEscapeTapOnModelChips(
   if (!leads || envelope.llmGateOpen || last === null) return false;
   if (last.kind !== "ask" || last.questionKey !== null) return false;
   if (!last.options.some((option) => option.option_key === DISAMBIGUATION_ESCAPE_KEY)) return false;
-  return normalizeOccupationText(text) === normalizeOccupationText(DISAMBIGUATION_ESCAPE_LABEL);
+  const normalized = normalizeOccupationText(text);
+  return (
+    normalized === normalizeOccupationText(DISAMBIGUATION_ESCAPE_LABEL) ||
+    text.trim().toLowerCase() === DISAMBIGUATION_ESCAPE_KEY.toLowerCase()
+  );
 }
 
 /**
