@@ -132,7 +132,7 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
             body: Column(
               children: <Widget>[
                 const ShiftBlueHeader(
-                  title: 'Resume hai aapke paas',
+                  title: 'Resume hai aapke paas?',
                   subtitle:
                       'Resume upload karne se aadhi jaankari apne aap '
                       'bhar jaati hai. Nahi hai to koi baat nahi.',
@@ -141,12 +141,7 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
                   child: SafeArea(
                     top: false,
                     child: OnboardingBody(
-                      padding: const EdgeInsets.fromLTRB(
-                        16,
-                        20,
-                        16,
-                        _kFeedbackFabClearance,
-                      ),
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
                       child: _Doors(state: state),
                     ),
                   ),
@@ -159,13 +154,6 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
     );
   }
 }
-
-/// Scroll room under the last door. The app-wide Feedback button floats over
-/// this route's bottom-left corner (72 above the safe area, ~48 tall); without
-/// this the working note could only ever be read from underneath it on a short
-/// phone. Layout only — it adds scroll extent, never a gap on a tall screen's
-/// visible content.
-const double _kFeedbackFabClearance = 128;
 
 /// Gap between two doors.
 const double _kDoorGap = 12;

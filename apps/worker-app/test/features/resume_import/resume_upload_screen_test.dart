@@ -125,7 +125,7 @@ void main() {
         importer: _FakeImporter(const ResumeImportRoutedToChat()),
       );
 
-      expect(find.text('Resume hai aapke paas'), findsOneWidget);
+      expect(find.text('Resume hai aapke paas?'), findsOneWidget);
       expect(find.text(_kDoorUpload), findsOneWidget);
       expect(find.text(_kDoorNoResume), findsOneWidget);
       // TWO, counted — not "these two are present". The owner's ruling is a
