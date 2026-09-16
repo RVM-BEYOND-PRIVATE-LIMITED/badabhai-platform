@@ -277,6 +277,10 @@ export class ResumeImportService {
       status: row.status,
       route: row.route,
       form_kind: row.formKind,
+      // Task 1 B2 — the model's closed-list judgment, or null (no judgment /
+      // none fits / parsed before the classification existed). Closed
+      // vocabulary, so it is safe on the wire beside route and form_kind.
+      association_kind: row.associationKind ?? null,
       failure_reason: row.failureReason,
     };
   }

@@ -146,6 +146,7 @@ def run_parse(
     texts: list[str],
     reply: str,
     target_fields: list[TargetField] | None = None,
+    trade_kinds: list[str] | None = None,
     monkeypatch,
     extraction_result: ExtractionResult | None = None,
     **settings_overrides,
@@ -165,6 +166,7 @@ def run_parse(
         storage_key="resume-uploads/w/x.pdf",
         mime="application/pdf",
         target_fields=target_fields if target_fields is not None else [CITY, YEARS, ROLE],
+        trade_kinds=trade_kinds or [],
     )
     out = _run(parse_resume(body, settings=settings(**settings_overrides), router=router))
     return out, router
@@ -1304,3 +1306,100 @@ def test_the_hard_identifier_wall_covers_the_14_digit_band(monkeypatch):
     # …and a salary, which is what the exclusion exists to protect, is untouched.
     assert contains_hard_identifier("1200000") is None
     assert contains_hard_identifier("500000") is None
+
+
+# ===========================================================================
+# TRADE ASSOCIATION (Task 1 B2) — the model classifies, the gate decides
+# ===========================================================================
+
+KINDS = ["cnc_turner", "welder", "tailor"]
+
+
+def assoc_reply(kind) -> str:
+    return json.dumps({"fields": {}, "trade_association": {"kind": kind}})
+
+
+def test_kinds_reach_the_prompt_as_a_closed_list(monkeypatch):
+    _, router = run_parse(
+        texts=["CNC Turner, 5 saal tajurba"],
+        reply=model_reply(),
+        trade_kinds=KINDS,
+        monkeypatch=monkeypatch,
+    )
+    for kind in KINDS:
+        assert kind in router.prompt_text
+    assert "trade_association" in router.prompt_text
+
+
+def test_no_kinds_means_no_option_list_and_no_judgment(monkeypatch):
+    # The RULES live in the system prompt unconditionally; the OPTION LIST is
+    # what invites a judgment, and it is only rendered when kinds are supplied.
+    out, router = run_parse(
+        texts=["CNC Turner, 5 saal tajurba"],
+        reply=model_reply(),
+        monkeypatch=monkeypatch,
+    )
+    assert "TRADE KINDS (the only ids you may return)" not in router.prompt_text
+    assert out.trade_association is None
+
+
+def test_a_listed_kind_survives_the_gate(monkeypatch):
+    out, _ = run_parse(
+        texts=["CNC Turner, 5 saal tajurba"],
+        reply=assoc_reply("cnc_turner"),
+        trade_kinds=KINDS,
+        monkeypatch=monkeypatch,
+    )
+    assert out.trade_association is not None
+    assert out.trade_association.kind == "cnc_turner"
+
+
+def test_an_unlisted_kind_is_dropped_to_none_and_fields_survive(monkeypatch):
+    # THE LENIENCY PROPERTY. The key is additive: a model that invents an id
+    # costs the classification, never the cited fields beside it.
+    line = "CNC Turner, Pune"
+    out, _ = run_parse(
+        texts=[line],
+        reply=json.dumps(
+            {
+                "fields": {"role_label": field_at(0, line, "CNC Turner")},
+                "trade_association": {"kind": "astronaut"},
+            }
+        ),
+        trade_kinds=KINDS,
+        monkeypatch=monkeypatch,
+    )
+    assert out.trade_association is None
+    assert out.fields["role_label"].value == "CNC Turner"
+
+
+def test_a_bare_string_naming_a_listed_kind_is_kept_on_membership(monkeypatch):
+    # LENIENT SHAPE, STRICT MEMBERSHIP. The wall is "is it one of our ids", not
+    # "did it use the object wrapper" — a bare string naming a listed kind is
+    # still just membership, so it is kept and the fields beside it are intact.
+    line = "CNC Turner, Pune"
+    out, _ = run_parse(
+        texts=[line],
+        reply=json.dumps(
+            {
+                "fields": {"role_label": field_at(0, line, "CNC Turner")},
+                "trade_association": "cnc_turner",
+            }
+        ),
+        trade_kinds=KINDS,
+        monkeypatch=monkeypatch,
+    )
+    assert out.trade_association is not None
+    assert out.trade_association.kind == "cnc_turner"
+    assert out.fields["role_label"].value == "CNC Turner"
+
+
+def test_an_omitted_key_is_no_judgment_not_a_failure(monkeypatch):
+    out, _ = run_parse(
+        texts=["CNC Turner, Pune"],
+        reply=model_reply(),
+        trade_kinds=KINDS,
+        monkeypatch=monkeypatch,
+    )
+    assert out.failure_reason is None
+    assert out.trade_association is None

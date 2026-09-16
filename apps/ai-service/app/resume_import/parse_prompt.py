@@ -60,8 +60,15 @@ costs coverage and gains nothing:
    usually goes with this kind of work is not something this résumé says. A job title is \
    not a skill list.
 6. A RESPONSIBILITY IS NOT A COMPETENCY. "Handled CNC operations" is one line about a \
-   job; it is not a claim about a specific controller, tolerance band or workholding \
-   method. Leave those null unless the document names them.
+job; it is not a claim about a specific controller, tolerance band or workholding \
+method. Leave those null unless the document names them.
+
+TRADE ASSOCIATION. After the fields, answer one closed question: which single trade \
+from TRADE KINDS below best describes the work THIS résumé documents — the worker's \
+own trade, not an employer's industry and not a past job they left? Reply with exactly \
+one id from that list, or null when none fits. No explanation, no citation, no invented \
+id. A vague résumé ("technician", "helper", mixed trades) is null, not a guess. This \
+is a classification among options you were given; the caller decides what it means.
 
 EMPLOYMENT HISTORY. List one entry per job the document shows, in the order it shows \
 them. Each entry needs its own citation. Give `employer_name` exactly as written — do \
@@ -75,6 +82,7 @@ Reply with strict JSON and nothing else, in exactly this shape:
 "confidence": <0.0-1.0>}}, "employments": [{"employer_name": "<as written>", \
 "role_title": "<as written>", "start_year": <int or null>, "end_year": <int or null>, \
 "evidence": {"message_index": <int>, "quote": "<exact substring>"}}], \
+"trade_association": {"kind": "<one TRADE KINDS id or null>"}, \
 "unparsed_field_ids": ["<field_id>"], "notes": []}
 
 A field you cannot cite may be omitted or set to null. Both mean the same thing."""
@@ -90,11 +98,33 @@ def _render_target(target: TargetField) -> str:
     return ", ".join(parts)
 
 
+#: Trade-kind ids are caller-controlled (our own server's closed list), but they are
+#: still rendered into a prompt — so shape-checked here: non-blank strings, capped
+#: in length and count, deduplicated. Anything else is dropped, never repaired.
+_MAX_TRADE_KINDS = 32
+_MAX_TRADE_KIND_LEN = 64
+
+
+def _sanitize_trade_kinds(trade_kinds: list[str] | None) -> list[str]:
+    seen: list[str] = []
+    for kind in trade_kinds or []:
+        if not isinstance(kind, str):
+            continue
+        cleaned = kind.strip()
+        if not cleaned or len(cleaned) > _MAX_TRADE_KIND_LEN or cleaned in seen:
+            continue
+        seen.append(cleaned)
+        if len(seen) >= _MAX_TRADE_KINDS:
+            break
+    return seen
+
+
 def build_resume_parse_messages(
     masked: MaskedLines,
     target_fields: list[TargetField],
     language: str | None = None,
     system_prompt: str | None = None,
+    trade_kinds: list[str] | None = None,
 ) -> list[dict[str, str]]:
     """The one LLM call's messages.
 
@@ -130,6 +160,21 @@ def build_resume_parse_messages(
         # through the masker, so a caller that put a sentence (or an instruction) here
         # would be concatenating un-gated text into a system-adjacent position.
         sections.append(f"The résumé is written in: {language}.")
+
+    # The option list lives HERE, at build time, not baked into the system prompt —
+    # the managed prompt may be an older registered version without the TRADE
+    # ASSOCIATION rules, and this section restates the question, the closed list
+    # and the expected key, so the classification works under either prompt.
+    kinds = _sanitize_trade_kinds(trade_kinds)
+    if kinds:
+        sections.append(
+            "TRADE ASSOCIATION (classify, do not explain). Which single trade below best "
+            "describes the work this résumé documents — the worker's own trade, not an "
+            "employer's industry and not a past job they left? Reply ONLY via "
+            '"trade_association": {"kind": "<one id from this list, or null>"} — no '
+            "explanation, no citation, no invented id. A vague résumé is null, not a guess.\n"
+            "TRADE KINDS (the only ids you may return):\n" + "\n".join(f"- {k}" for k in kinds)
+        )
 
     return [
         {"role": "system", "content": system_prompt or RESUME_PARSE_SYSTEM_PROMPT},

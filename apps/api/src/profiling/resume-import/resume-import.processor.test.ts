@@ -53,9 +53,35 @@ type Row = {
   pageCount: number | null;
   route: string | null;
   formKind: string | null;
+  /** Task 1 B2 — the model's closed-list judgment; any of the 21 on either route. */
+  associationKind: string | null;
   suggestionsEnc: string | null;
   failureReason: string | null;
 };
+
+const ASSOCIATION_KINDS = [
+  "cnc_turner",
+  "vmc_milling",
+  "cnc_grinding",
+  "cam_programmer",
+  "cad_draughtsman",
+  "conventional_machinist",
+  "tool_die_maker",
+  "welder",
+  "sheet_metal_worker",
+  "press_operator",
+  "painter_coating",
+  "fitter",
+  "maintenance_technician",
+  "industrial_electrician",
+  "assembly_line_worker",
+  "quality_inspector",
+  "injection_moulding_operator",
+  "mould_die_maker",
+  "blow_moulding_operator",
+  "rubber_moulding_operator",
+  "plastic_process_technician",
+];
 
 const IN = (set: readonly string[], v: string | null) => v === null || set.includes(v);
 
@@ -74,6 +100,7 @@ function assertChecks(r: Row): void {
       (r.ocrConfidence === null || (r.ocrConfidence >= 0 && r.ocrConfidence <= 1)));
   if (!ocrOk) fail("wri_ocr_confidence_chk");
   if (r.route !== null && (r.route === "form") !== (r.formKind !== null)) fail("wri_form_kind_chk");
+  if (!IN(ASSOCIATION_KINDS, r.associationKind)) fail("wri_association_kind_chk");
   if ((r.status === "failed") !== (r.failureReason !== null)) fail("wri_failure_reason_chk");
   if (r.suggestionsEnc !== null && r.status !== "parsed") fail("wri_suggestions_chk");
 }
@@ -90,6 +117,7 @@ class FakeImportsTable {
     pageCount: null,
     route: null,
     formKind: null,
+    associationKind: null,
     suggestionsEnc: null,
     failureReason: null,
   };
@@ -134,7 +162,7 @@ class FakeImportsTable {
   async settleParsed(
     id: string,
     facts: { extractionMethod: string; pageCount: number | null; ocrConfidence: number | null },
-    routing: { route: string; formKind: string | null; suggestionsEnc: string | null },
+    routing: { route: string; formKind: string | null; associationKind: string | null; suggestionsEnc: string | null },
     tx: unknown,
   ): Promise<boolean> {
     this.requireTx(tx);
@@ -146,6 +174,7 @@ class FakeImportsTable {
       ocrConfidence: facts.extractionMethod === "ocr" ? facts.ocrConfidence : null,
       route: routing.route,
       formKind: routing.route === "form" ? routing.formKind : null,
+      associationKind: routing.associationKind,
       suggestionsEnc: routing.suggestionsEnc,
     });
     assertChecks(this.row);
@@ -211,6 +240,7 @@ function parseOutput(overrides: Partial<ResumeParseOutput> = {}): ResumeParseOut
   return {
     fields: { role_label: field("CNC Turner", "CNC Turner") },
     employments: [],
+    trade_association: null,
     unparsed_field_ids: [],
     notes: [],
     extraction_method: "pdf_text",

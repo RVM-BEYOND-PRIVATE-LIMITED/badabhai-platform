@@ -85,6 +85,16 @@ export const ResumeParseInputSchema = z.object({
   storage_key: z.string().min(1),
   mime: z.string().min(1),
   target_fields: z.array(TargetFieldSchema).default([]),
+  /**
+   * Task 1 B2 — the CLOSED trade-kind ids the model may return in
+   * `trade_association.kind` (the 21 `TRADE_FORM_KINDS_ALL`, supplied by
+   * apps/api, the single source of truth). Rendered into the prompt verbatim;
+   * the far side shape-checks each entry before it nears the prompt.
+   *
+   * `max(32)` mirrors `contracts.py`'s `max_length=32` — a bound on the list,
+   * not on each id (the far side caps entry length at render time).
+   */
+  trade_kinds: z.array(z.string()).max(32).default([]),
   language: languageCode.optional(),
 });
 export type ResumeParseInput = z.infer<typeof ResumeParseInputSchema>;
@@ -107,6 +117,22 @@ export const ResumeEmploymentSchema = z.object({
 export type ResumeEmployment = z.infer<typeof ResumeEmploymentSchema>;
 
 /**
+ * Task 1 B2 — the model's closed-vocabulary answer to "which trade is this
+ * résumé" (mirrors `TradeAssociation` in `apps/ai-service/app/contracts.py`;
+ * `test_contract_parity.py` covers the surrounding contract).
+ *
+ * `kind` stays an OPEN string here, narrowed by the second wall
+ * (`ResumeParseService`) against `TRADE_FORM_KINDS_ALL` — the same posture as
+ * `extraction_method`, for the same reason: the contract transports, the wall
+ * decides. `null` = no judgment (model said none, said it unparseably, or was
+ * never given kinds).
+ */
+export const TradeAssociationSchema = z.object({
+  kind: z.string().nullable().default(null),
+});
+export type TradeAssociation = z.infer<typeof TradeAssociationSchema>;
+
+/**
  * What survived both walls, plus how the text was recovered.
  *
  * The extraction facts ride on the response because `worker_resume_import` stores them and
@@ -117,6 +143,7 @@ export const ResumeParseOutputSchema = z.object({
   /** `null` = the model looked and found nothing citable for that field. */
   fields: z.record(z.string(), ParsedFieldSchema.nullable()).default({}),
   employments: z.array(ResumeEmploymentSchema).default([]),
+  trade_association: TradeAssociationSchema.nullable().default(null),
   unparsed_field_ids: z.array(z.string()).default([]),
   /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
   notes: z.array(z.string()).default([]),

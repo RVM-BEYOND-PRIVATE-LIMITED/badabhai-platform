@@ -36,7 +36,12 @@ const DATABASE_URL =
 
 const WORKER = "00000000-0000-4000-8000-00000000a141";
 const FACTS_OCR = { extractionMethod: "ocr" as const, pageCount: 2, ocrConfidence: 0.81 };
-const FORM = { route: "form" as const, formKind: "cnc_turner", suggestionsEnc: "v1:sealed" };
+const FORM = {
+  route: "form" as const,
+  formKind: "cnc_turner",
+  associationKind: "cnc_turner",
+  suggestionsEnc: "v1:sealed",
+};
 
 describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration 0105)", () => {
   let client!: DbClient;
@@ -110,12 +115,19 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
       repo.settleParsed(
         id,
         { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.5 },
-        { route: "chat", formKind: "cnc_turner", suggestionsEnc: null },
+        { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
         tx,
       ),
     );
     expect(wrote).toBe(true);
-    expect(await read(id)).toMatchObject({ route: "chat", formKind: null, ocrConfidence: null });
+    // Task 1 B2 — the judgment is KEPT on the chat row ("judged another trade"; the
+    // recall path will read exactly this) while the form kind is correctly dropped.
+    expect(await read(id)).toMatchObject({
+      route: "chat",
+      formKind: null,
+      associationKind: "fitter",
+      ocrConfidence: null,
+    });
   });
 
   it("a SECOND settle writes nothing and returns false", async () => {
@@ -126,7 +138,7 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
       repo.settleParsed(
         id,
         { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null },
-        { route: "chat", formKind: null, suggestionsEnc: null },
+        { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null },
         tx,
       ),
     );

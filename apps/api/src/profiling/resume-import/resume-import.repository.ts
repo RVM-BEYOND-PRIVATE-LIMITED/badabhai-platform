@@ -179,6 +179,13 @@ export interface ResumeParseFacts {
 export interface ResumeRouting {
   route: ResumeImportRouteName;
   formKind: string | null;
+  /**
+   * Task 1 B2 — the model's closed-list judgment (`association_kind` column).
+   * Recorded beside the route; never read by the router. Plain `string | null`
+   * at this boundary (like `formKind`): the service narrowed it, the CHECK
+   * enforces it.
+   */
+  associationKind: string | null;
   suggestionsEnc: string | null;
 }
 
@@ -212,6 +219,9 @@ export function settleParsedStatement(
       // NULLED, NOT OMITTED, on the chat route. `wri_form_kind_chk` is an equivalence in both
       // directions, so a form kind riding along on a chat route would fail the whole settle.
       formKind: routing.route === "form" ? routing.formKind : null,
+      // Task 1 B2 — recorded on EVERY route, including chat: "judged none" is the
+      // signal the recall path will read, and it lives on chat rows.
+      associationKind: routing.associationKind,
       suggestionsEnc: routing.suggestionsEnc,
       updatedAt: new Date(),
     })
