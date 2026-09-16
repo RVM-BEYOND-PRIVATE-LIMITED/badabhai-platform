@@ -46,12 +46,20 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import {
+  DISAMBIGUATION_ESCAPE_KEY,
+  DISAMBIGUATION_ESCAPE_LABEL,
+  ESCAPE_CHIP_ALIASES,
+} from "@badabhai/config";
+import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+
+import {
   DISAMBIGUATION_PROMPT,
+  IDENTIFY_TYPE_PROMPT,
   IdentifyService,
   slugIndexKey,
   toPackOption,
 } from "./identify.service";
-import { LlmTurnService } from "./llm-turn.service";
+import { EXPERIENCE_GATE_PROMPT, LlmTurnService } from "./llm-turn.service";
 import {
   confirmableFacts,
   confirmedValues,
@@ -135,6 +143,17 @@ export const HARDSHIP_REPLIES = HARDSHIP_REPLY_TEXTS;
 
 /** Served when the interview ends normally. */
 export const CLOSING_REPLY = CLOSING_REPLY_TEXT;
+
+/**
+ * Served when an OLD client sends the words "Kuch aur" after tapping the escape on a model's chip
+ * turn (#1506).
+ *
+ * New builds focus the composer on that tap and send nothing. Builds already in the field send
+ * the label as text, and before this it reached capture, identify and the model as though the
+ * worker's answer were literally "Kuch aur". Engine copy, so no model call: aap-form, no question
+ * mark, no exclamation, and it says what to do next.
+ */
+export const ESCAPE_TYPE_PROMPT = "Apna jawab apne shabdon mein likhiye.";
 
 /** Re-exported: the join moved to the pure module so a TTS renderer need not boot Nest. */
 export { joinClarify };
@@ -708,6 +727,30 @@ export class ProfilingOrchestrator {
         };
       }
 
+      // THE TYPE-YOUR-TRADE PROMPT OUTRANKS BOTH READERS' FALLBACKS (#1506), for the offer's
+      // reason: "Kuch aur" cleared the chips but not `servedQuestionKey`, so without this a cold
+      // start re-served the stale pack question — and `viewSession` reported it as answerable.
+      const typePrompt = outstandingTypeRequest(envelope);
+      if (typePrompt) {
+        return {
+          reply: typePrompt.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: [],
+          whyText: null,
+          answerType: typePrompt.answerType,
+          inputMode: "text",
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
       // THE MODEL'S QUESTION OUTRANKS THE PACK RE-SERVE for the same reason the offer above
       // does: it belongs to no pack, so the lookup below cannot find it and would answer a cold
       // start mid-Phase-A by serving an authored question instead.
@@ -921,8 +964,17 @@ export class ProfilingOrchestrator {
     // a cost the pack skip was signed off with.
     const selectable = selectableEnginePacks(envelope, packs.engine);
     let progressItems = [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
-    const askedItem =
-      items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
+    // IDENTIFY OWNS THIS MESSAGE while chips or the type-your-trade prompt are on screen (#1506).
+    //
+    // `servedQuestionKey` is NOT cleared when an offer is served, so it still names the pack
+    // question from the turn before — and capture records ANY text against a free-text item,
+    // off-topic included (measured: "Kuch aur" and "mujhe job chahiye" both land as values). A
+    // "Kuch aur" tap was therefore filed as the worker's trade. With the key ignored, the trade
+    // question is settled only from identify's `tradeText`, which is the worker's actual answer.
+    const identifyOwnsTurn = outstandingOffer(envelope) !== null || envelope.identifyTypeRequested;
+    const askedItem = identifyOwnsTurn
+      ? null
+      : (items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null);
     // THE SAME QUESTION, BUT ONLY IF THE ENGINE WOULD STILL SERVE IT — the re-serve twin of
     // `askedItem`, and the two are deliberately different objects.
     //
@@ -949,6 +1001,48 @@ export class ProfilingOrchestrator {
     // cap after them would let a worker who only ever triggers those paths run forever. Past the
     // cap every turn class falls through to `nextQuestion`, which closes with `turn_cap`.
     const capped = turn > MAX_ENGINE_TURNS;
+
+    // --- An OLD client's "Kuch aur" tap on a model chip turn (#1506) ---------
+    //
+    // BEFORE CAPTURE, and the position is the whole fix. Placed any later — the first design put it
+    // just above the model call — capture, cross-question fill and identify have already run on the
+    // words "Kuch aur": an identify attempt spent, the phrase possibly queued to the growth queue,
+    // and `profile.occupation_unresolved` possibly emitted with a reason that then blocks the real
+    // one (the event is idempotent per session).
+    //
+    // Served as engine copy with no chips, so a second "Kuch aur" cannot match this predicate
+    // again: it needs the escape among the options on screen, and this reply has none.
+    //
+    // WHAT IT COSTS, stated: one TURN (`turnCount` +1, the worker line and this reply appended to
+    // the transcript, `lastTurn` stamped with this prompt). No model call, no `llmAsks`, no
+    // `llmLedTurns`, no identify attempt, no event. On a reopen `outstandingLlmAsk` re-serves it
+    // from `lastTurn`, and the model reads it in history on the next turn as the prompt the worker
+    // is answering.
+    if (!capped && isEscapeTapOnModelChips(envelope, input.text, this.llm.leads(envelope))) {
+      const answersNow = answersOf(envelope);
+      return this.turn(
+        buffer,
+        { ...envelope, packId: packs.packId, packVersion: packs.packVersion, servedQuestionKey: null },
+        input,
+        {
+          reply: ESCAPE_TYPE_PROMPT,
+          kind: "ask",
+          questionKey: null,
+          options: [],
+          answerType: "text",
+          whyText: null,
+          inputMode: "text",
+          progress: progressOf(progressItems, answersNow),
+          unansweredEssentials: essentialsOf(items, answersNow),
+          complete: false,
+          completionReason: null,
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        },
+      );
+    }
 
     const capture = captureAnswer(input.text, askedItem);
     let answers = answersOf(envelope);
@@ -1164,7 +1258,9 @@ export class ProfilingOrchestrator {
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
-    if (capture.turnClass === "dont_know" && envelope.servedQuestionKey) {
+    // NOT UNDER AN OFFER (#1506): the key on the envelope is stale there, and "pata nahi" said
+    // over trade chips must not decline whichever pack question happened to precede them.
+    if (capture.turnClass === "dont_know" && envelope.servedQuestionKey && !identifyOwnsTurn) {
       // A COMPLETE answer, not a gap. Never re-asked, never blocks completion.
       answers = recordDeclined(answers, envelope.servedQuestionKey, turn);
     }
@@ -1190,16 +1286,72 @@ export class ProfilingOrchestrator {
     // next question on the very turn we learned the trade wastes the turn the worker just spent
     // telling us.
     next = withAnswers(next, answers);
-    const identified = await this.identify.identify(next, input.text, {
-      ...input.ctx,
-      sessionId: input.sessionId,
-      workerId: input.workerId,
-    });
+    const identified = await this.identify.identify(
+      next,
+      input.text,
+      {
+        ...input.ctx,
+        sessionId: input.sessionId,
+        workerId: input.workerId,
+      },
+      capture.turnClass,
+    );
     next = { ...next, ...identified.patch };
+
+    // THE WORKER'S OWN STATEMENT OF THEIR TRADE, settled as their answer of record (#1506).
+    //
+    // SUPERSEDES, deliberately — `recordAnswer` pushes any earlier value onto `history` rather than
+    // discarding it. An opener like "mujhe job chahiye" is captured against a free-text trade item
+    // today; a worker who then types "main electrician hoon" over the chips is correcting that, and
+    // first-write-wins here would keep the request for a job as their trade.
+    //
+    // Raw words, never an id: the occupation, when there is one, arrives only through the
+    // deterministic pin in `identified.pinned`.
+    if (identified.tradeText) {
+      answers = settleWorkerTrade(answersOf(next), identified.tradeText, items, turn);
+      next = withAnswers(next, answers);
+    }
+
+    // The worker is being asked to type their trade. A chipless engine line, and it IS the turn —
+    // the same reason the offer below returns early.
+    //
+    // `!capped` (#1506 HIGH-1) — the same guard every other early-return branch above this one
+    // already carries. `identify` bounds its OWN re-serves against `identifyStalledTurns` (see
+    // `MAX_IDENTIFY_STALLED_TURNS`), but this is the backstop for whatever that bound does not
+    // cover: past `MAX_ENGINE_TURNS` the interview must close, and returning here regardless would
+    // route around `nextQuestion` — the one place `turn_cap` is decided — exactly the way the
+    // un-gated branch did before this fix.
+    if (!capped && identified.prompt) {
+      next = { ...next, servedQuestionKey: null };
+      return this.turn(buffer, next, input, {
+        reply: identified.prompt,
+        kind: "ask",
+        // NO KEY — the same rule the offer follows. `identifyTypeRequested` is what routes the next
+        // message, and a key here would let capture file the worker's trade against a pack row.
+        questionKey: null,
+        options: [],
+        whyText: null,
+        answerType: "text",
+        inputMode: "text",
+        checkpointDue: false,
+        progress: progressOf(progressItems, answers),
+        unansweredEssentials: essentialsOf(items, answers),
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+      });
+    }
 
     // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
     // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
-    if (identified.offer) {
+    //
+    // `!capped` (#1506 HIGH-1), the same backstop the prompt branch above carries and for the same
+    // reason: `identify` bounds its own re-serves, and this is the wall that holds if that bound
+    // does not — past `MAX_ENGINE_TURNS` the interview closes through `nextQuestion` rather than
+    // re-serving chips one more time.
+    if (!capped && identified.offer) {
       return this.turn(buffer, next, input, {
         reply: identified.offer.prompt,
         // THE ONE SITE THAT KNOWS. Everything downstream had to guess before #695: the fact was
@@ -1409,7 +1561,9 @@ export class ProfilingOrchestrator {
           // key for it would make the next turn's `askedItem` lookup capture the answer as that
           // question's — the same rule the disambiguation offer follows one branch up.
           next = { ...next, phase: "llm_interview", servedQuestionKey: null };
-          const options = led.chips.map(toLlmOption);
+          // `options_only` IS THE ENGINE GATE AND NOTHING ELSE: `LlmTurnService` clamps every
+          // model-authored ask to `text`, so the mode is the discriminant — no escape on Haan/Nahi.
+          const options = llmChipOptions(led.chips, led.inputMode === "options_only");
           return this.turn(buffer, next, input, {
             reply: led.reply,
             kind: "ask",
@@ -1712,6 +1866,26 @@ export class ProfilingOrchestrator {
           promptText: offer.prompt,
           answerType: "single_select",
           options: offer.options,
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
+    // THE TYPE-YOUR-TRADE PROMPT, through the helper `openTurn` uses (#1506). `questionKey: null`
+    // is load-bearing: `ProfilingSessionService.answer` guards on this key, and reporting the stale
+    // one would accept a voice-form answer to a question that is not on screen.
+    const typePrompt = outstandingTypeRequest(envelope);
+    if (typePrompt) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: typePrompt.prompt,
+          answerType: typePrompt.answerType,
+          options: [],
           whyText: null,
           progress: progressOf(progressItems, answers),
         },
@@ -2459,7 +2633,13 @@ function replayResultOf(last: LastTurn): TurnResult {
     progress: last.progress,
     whyText: last.whyText,
     answerType: last.answerType,
-    inputMode: last.inputMode,
+    // CLAMPED ON THE WAY OUT (#1506). A model ask stamped `options_only` before this deployed is
+    // sitting in Redis behind a 24 h TTL, and replaying it verbatim would re-lock the composer the
+    // live path no longer locks. The engine gate is the only turn allowed to keep it.
+    inputMode:
+      last.inputMode === "options_only" && last.reply === EXPERIENCE_GATE_PROMPT
+        ? "options_only"
+        : "text",
     // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.
     formOffer: last.formOffer,
     unansweredEssentials: [],
@@ -2675,6 +2855,82 @@ function outstandingOffer(
     prompt: DISAMBIGUATION_PROMPT,
     options: envelope.disambiguationOffer.map((chip, index) => toPackOption(chip, index)),
   };
+}
+
+/**
+ * The type-your-trade prompt a reopened session is still waiting on, or null (#1506).
+ *
+ * THE THIRD MEMBER OF THE SAME PRECEDENCE, and in the same place for the same reason: "Kuch aur"
+ * clears the chips, so {@link outstandingOffer} no longer sees anything, while `servedQuestionKey`
+ * still names the pack question from before the offer. Both readers must return this ahead of
+ * that key or they re-serve — and accept answers to — a question the worker is not looking at.
+ */
+function outstandingTypeRequest(
+  envelope: ProfilingEnvelope,
+): { prompt: string; answerType: AnswerType } | null {
+  if (!envelope.identifyTypeRequested || envelope.occupation !== null) return null;
+  return { prompt: IDENTIFY_TYPE_PROMPT, answerType: "text" };
+}
+
+/**
+ * Is this message an OLD client's "Kuch aur" tap on a model-authored chip turn? (#1506)
+ *
+ * EVERY CONDITION IS ABOUT WHAT IS ON SCREEN, never about the words alone. A worker who types
+ * "kuch aur" as an answer to an ordinary question — or on a disambiguation offer, which identify
+ * settles itself — is not tapping this escape, and treating them as though they were would throw
+ * their answer away. The stamped `lastTurn` is literally what the worker was shown.
+ *
+ * MATCHED ON EITHER THE LABEL OR THE KEY (#1506 MEDIUM-2). The wire contract sends `option_key`
+ * ("kuch_aur"), not the label ("Kuch aur"); today the two happen to normalize identically — the
+ * underscore folds to the same space the label's own space does — but that is a coincidence of
+ * `normalizeOccupationText`'s keep-set, not a guarantee, and it was untested. Matched explicitly
+ * so a future change to that keep-set cannot silently stop this escape from firing for a client
+ * that (correctly, per the schema) sends the key.
+ */
+function isEscapeTapOnModelChips(
+  envelope: ProfilingEnvelope,
+  text: string,
+  leads: boolean,
+): boolean {
+  const last = envelope.lastTurn;
+  if (!leads || envelope.llmGateOpen || last === null) return false;
+  if (last.kind !== "ask" || last.questionKey !== null) return false;
+  if (!last.options.some((option) => option.option_key === DISAMBIGUATION_ESCAPE_KEY)) return false;
+  const normalized = normalizeOccupationText(text);
+  return (
+    normalized === normalizeOccupationText(DISAMBIGUATION_ESCAPE_LABEL) ||
+    text.trim().toLowerCase() === DISAMBIGUATION_ESCAPE_KEY.toLowerCase()
+  );
+}
+
+/**
+ * The trade question settled from the worker's own words (#1506). See the call site in `decide`.
+ *
+ * KEYED ON `target_field`, like {@link settleFromLlmDraft}: the trade question is `primary_trade`
+ * in the universal pack and may be named differently elsewhere. No trade item among the pinned
+ * packs means nothing to settle, which is the same answer a pack-less interview gets everywhere.
+ */
+function settleWorkerTrade(
+  answers: AnswerMap,
+  tradeText: string,
+  items: readonly QuestionPackItem[],
+  turn: number,
+): AnswerMap {
+  const trimmed = tradeText.trim();
+  const item = items.find((candidate) => candidate.target_field === "trade");
+  if (!item || trimmed.length === 0) return answers;
+  return recordAnswer(
+    answers,
+    {
+      questionKey: item.question_key,
+      targetField: "trade",
+      valueRaw: trimmed,
+      valueNormalized: trimmed,
+      // No span: identify is handed the message text, not its index in the transcript.
+      evidence: null,
+    },
+    turn,
+  );
 }
 
 /**
@@ -3019,6 +3275,55 @@ function toLlmOption(label: string, index: number): QuestionPackOption {
     implies_skill_id: null,
     is_none_of_above: false,
   };
+}
+
+/** Normalized chip pairs that make a yes/no question, where "Kuch aur" would be nonsense. */
+const YES_NO_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["haan", "nahi"],
+  ["yes", "no"],
+];
+
+/**
+ * A model chip turn, as options — with the server's own escape on the end (#1506).
+ *
+ * WHY THE SERVER OWNS THE ESCAPE. Model chips never carried one (`toLlmOption` is always
+ * `is_none_of_above: false`), so a worker whose trade was not among the model's guesses had a row
+ * of wrong answers and, on a locked composer, nothing else. The escape is the same constant pair
+ * the disambiguation offer already uses, so the client keys "type your own" off one flag on both.
+ *
+ * THE CASES WITH NO ESCAPE, each deliberate:
+ *   - the engine gate — Haan/Nahi is a closed control-flow question, not a guess;
+ *   - a turn with no chips, where the composer already is the answer;
+ *   - a yes/no pair, where "Kuch aur" beside Haan/Nahi reads as nonsense and typing stays open.
+ *
+ * MODEL-WRITTEN ESCAPES ARE DROPPED FIRST (`ESCAPE_CHIP_ALIASES`, a closed whole-label set), or the
+ * worker sees two, and tapping the model's one records "Koi aur" as an answer. NOT counted against
+ * the four-chip cap — the same precedent the disambiguation offer set.
+ */
+export function llmChipOptions(chips: readonly string[], gate: boolean): QuestionPackOption[] {
+  if (gate) return chips.map(toLlmOption);
+  const kept = chips.filter(
+    (chip) => !ESCAPE_CHIP_ALIASES.includes(normalizeOccupationText(chip)),
+  );
+  const options = kept.map(toLlmOption);
+  if (options.length === 0) return options;
+
+  const normalized = kept.map((chip) => normalizeOccupationText(chip)).sort();
+  const yesNo = YES_NO_PAIRS.some(
+    (pair) => normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
+  );
+  if (yesNo) return options;
+
+  return [
+    ...options,
+    {
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      value: DISAMBIGUATION_ESCAPE_LABEL,
+      implies_skill_id: null,
+      is_none_of_above: true,
+    },
+  ];
 }
 
 /**

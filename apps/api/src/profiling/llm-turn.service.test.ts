@@ -214,6 +214,39 @@ describe("the caps — the API owns termination, never the model", () => {
   });
 });
 
+describe("a model-authored ask is always typeable (#1506)", () => {
+  const ROLE_CHIPS = ["Welder", "Fitter", "Electrician", "Plumber"];
+
+  it.each(["mujhe job chahiye", "I need job"])(
+    "clamps the model's options_only to text for %j, chips untouched",
+    async (phrase) => {
+      const turn = TURN({ input_mode: "options_only", suggested_answers: ROLE_CHIPS });
+      // Vacuity: the stub really asked to lock the composer.
+      expect(turn.input_mode).toBe("options_only");
+      const { svc } = make({ turn });
+      const out = await svc.take(env(), phrase, [], CTX);
+      expect(out?.kind).toBe("ask");
+      expect(out?.kind === "ask" && out.inputMode).toBe("text");
+      expect(out?.kind === "ask" && out.chips).toEqual(ROLE_CHIPS);
+    },
+  );
+
+  it("logs the clamp as COUNTS ONLY — never the reply or a chip", async () => {
+    const reply = "Aap kaunsa kaam karte hain? Ramesh ji";
+    const { svc } = make({
+      turn: TURN({ input_mode: "options_only", suggested_answers: ROLE_CHIPS, reply_text: reply }),
+    });
+    const log = vi.mocked(Logger.prototype.log);
+    await svc.take(env(), "mujhe job chahiye", [], CTX);
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines.some((line) => line.includes("model_input_mode_clamped"))).toBe(true);
+    for (const line of lines) {
+      expect(line).not.toContain("Ramesh");
+      expect(line).not.toContain("Welder");
+    }
+  });
+});
+
 describe("the experience loop gate is engine-served", () => {
   it("serves the Yes/No gate with typing disabled after an experience is captured", async () => {
     const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });

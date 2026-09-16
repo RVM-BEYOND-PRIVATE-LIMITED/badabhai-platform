@@ -352,11 +352,26 @@ export class LlmTurnService {
       };
     }
 
+    // 5. A MODEL-AUTHORED ASK IS ALWAYS TYPEABLE (#1506). `options_only` locks the composer on
+    //    the shipped client (#770/#791), and the model used to be able to set it on ANY question —
+    //    including role chips for "mujhe job chahiye", where the worker's own trade is exactly the
+    //    answer most likely to be missing from four guesses. Typing off is a CONTROL-FLOW decision
+    //    and the engine owns control flow: branches 3 and 3b above are the only turns allowed to
+    //    make it, and they are the engine's own Yes/No gate.
+    //
+    //    COUNTS ONLY in the log — never the reply, never the chips (§3 Privacy First). It is the one
+    //    signal that says how often the prompt rule against `options_only` is being ignored.
+    if (out.input_mode === "options_only") {
+      this.logger.log(
+        `model_input_mode_clamped stage=${out.stage} chips=${out.suggested_answers.length}; ` +
+          `a model ask is always served as text`,
+      );
+    }
     return {
       kind: "ask",
       reply: out.reply_text,
       chips: out.suggested_answers,
-      inputMode: out.input_mode,
+      inputMode: "text",
       // `out.stage` IS THE MODEL'S, AND IT MAY NOT SAY `done` HERE (§3). `done` is a legal member
       // of `LLM_INTERVIEW_STAGES`, so the model can return it on a turn that is still ASKING a
       // question — `experience_entry: null`, `phase_a_done: false`, a normal `reply_text` — and

@@ -103,3 +103,17 @@ export const MAX_DISAMBIGUATION_OPTIONS = 4;
  */
 export const DISAMBIGUATION_ESCAPE_KEY = "kuch_aur";
 export const DISAMBIGUATION_ESCAPE_LABEL = "Kuch aur";
+
+/**
+ * Model-written chips that MEAN the escape, already normalized (lower case, single spaces).
+ *
+ * WHY THE SERVER DROPS THEM (#1506). The engine appends its own `kuch_aur` escape to every
+ * model chip turn, flagged `is_none_of_above`, so a client can key "type your own" off a flag
+ * instead of off copy. A model that ALSO writes "Koi aur" leaves the worker two escapes, one of
+ * which is an ordinary chip whose tap sends the words "Koi aur" as their answer of record.
+ *
+ * A CLOSED SET, deliberately short. It is compared against the WHOLE normalized chip, never a
+ * substring, so "Koi aur machine" survives. The cost of a miss is one duplicate-looking chip; the
+ * cost of an over-broad match is a real option silently removed, which is worse.
+ */
+export const ESCAPE_CHIP_ALIASES: readonly string[] = ["kuch aur", "koi aur", "aur kuch", "other"];

@@ -31,6 +31,7 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+import { llmChipOptions } from "../profiling/orchestrator.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -84,6 +85,8 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    identifyTypeRequested: false,
+    identifyStalledTurns: 0,
     ...over,
   };
 }
@@ -591,6 +594,31 @@ describe("a disambiguation offer is not an ordinary ask", () => {
     for (const kind of TURN_KINDS) {
       expect(declared.safeParse(kind).success, `${kind} is not on the wire`).toBe(true);
     }
+  });
+});
+
+describe("a model chip turn always ends in the server's escape (#1506)", () => {
+  it("serves input_mode text, and the escape LAST under both fields a client reads", async () => {
+    // Built by the REAL producer, so a changed label or key in `llmChipOptions` fails here rather
+    // than in a shipped client that matches the label "Kuch aur" (old builds) or the flag (new).
+    const { res } = await run({
+      turn: {
+        reply: "Aap kaunsa kaam karte hain?",
+        kind: "ask",
+        questionKey: null,
+        options: llmChipOptions(["Welder", "Fitter"], false),
+        answerType: "single_select",
+        inputMode: "text",
+      },
+    });
+    expect(res.input_mode).toBe("text");
+    expect(res.suggested_followups.at(-1)).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+    expect(res.suggested_options.at(-1)).toEqual({
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      is_none_of_above: true,
+    });
+    expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
   });
 });
 

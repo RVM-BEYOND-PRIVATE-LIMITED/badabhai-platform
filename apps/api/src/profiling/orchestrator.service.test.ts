@@ -22,7 +22,8 @@ import {
   type LastTurn,
   type ProfilingEnvelope,
 } from "./conversation-state";
-import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
+import { DISAMBIGUATION_PROMPT, IDENTIFY_TYPE_PROMPT, toPackOption } from "./identify.service";
+import { EXPERIENCE_GATE_PROMPT } from "./llm-turn.service";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -2115,6 +2116,200 @@ describe("openTurn — putting the first question on screen", () => {
     // The loser must not double-count the ask the winner already recorded.
     expect(world.store.get(SESSION)?.profiling?.engineAsks).toBe(1);
     vi.restoreAllMocks();
+  });
+});
+
+describe("chips on screen own the message — custom answers (#1506)", () => {
+  const TRADE = item({
+    question_key: "primary_trade",
+    target_kind: "rfs",
+    target_field: "trade",
+    prompt_text: "Aap kaunsa kaam karte hain?",
+  });
+  const TRADE_PACK = pack("qp_universal", [TRADE, CITY]);
+  const CHIPS = [
+    { label: "Welder", jobDomainId: "jd_welder", familyId: "fam_welding" },
+    { label: DISAMBIGUATION_ESCAPE_LABEL, jobDomainId: null, familyId: null },
+  ];
+  const OFFER = {
+    prompt: DISAMBIGUATION_PROMPT,
+    options: CHIPS.map((chip, index) => toPackOption(chip, index)),
+  };
+  const tradeOf = (store: Map<string, TranscriptBuffer>) =>
+    store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "primary_trade");
+
+  it("a 'Kuch aur' tap is never captured against the stale pack key under the offer", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, {
+      servedQuestionKey: "primary_trade",
+      askCounts: { primary_trade: 1 },
+      needsDisambiguation: true,
+      disambiguationOffer: CHIPS,
+    });
+    world.identify.identify.mockImplementation((async () => ({
+      patch: { needsDisambiguation: false, disambiguationOffer: [], identifyTypeRequested: true },
+      offer: null,
+      pinned: null,
+      prompt: IDENTIFY_TYPE_PROMPT,
+      tradeText: null,
+    })) as never);
+
+    const result = await world.orchestrator.takeTurn(say("Kuch aur"));
+
+    expect(tradeOf(world.store)).toBeUndefined();
+    // Identify is handed the lexicon's class, which is what its answer guard reads.
+    expect((world.identify.identify.mock.calls as unknown[][])[0]?.[3]).toBe("off_topic");
+    // …and the prompt it returned is the turn: chipless, keyless, typeable.
+    expect(result.reply).toBe(IDENTIFY_TYPE_PROMPT);
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBeNull();
+    expect(result.options).toEqual([]);
+    expect(result.inputMode).toBe("text");
+    expect(world.store.get(SESSION)?.profiling?.servedQuestionKey).toBeNull();
+  });
+
+  it("the vacuity twin: with no offer on screen, the same words ARE captured on that key", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, { servedQuestionKey: "primary_trade", askCounts: { primary_trade: 1 } });
+    await world.orchestrator.takeTurn(say("Kuch aur"));
+    expect(tradeOf(world.store)?.value_raw).toBe("Kuch aur");
+  });
+
+  it("'pata nahi' over the chips does not decline the stale pack question", async () => {
+    const world = makeWorld({ identifyOffer: OFFER });
+    seed(world.store, { needsDisambiguation: true, disambiguationOffer: CHIPS });
+    await world.orchestrator.takeTurn(say("pata nahi"));
+    const city = world.store
+      .get(SESSION)
+      ?.profiling?.answerMap.find((a) => a.question_key === "q_city");
+    expect(city?.status).not.toBe("declined");
+
+    // Twin: the same words with no offer DO decline the question on screen.
+    const plain = makeWorld();
+    seed(plain.store);
+    await plain.orchestrator.takeTurn(say("pata nahi"));
+    expect(
+      plain.store.get(SESSION)?.profiling?.answerMap.find((a) => a.question_key === "q_city")
+        ?.status,
+    ).toBe("declined");
+  });
+
+  it("identify's tradeText SUPERSEDES what the trade question held, and the tail moves on", async () => {
+    const world = makeWorld({ packs: { occupation: null, universal: TRADE_PACK } });
+    seed(world.store, {
+      needsDisambiguation: true,
+      disambiguationOffer: CHIPS,
+      answerMap: [
+        {
+          question_key: "primary_trade",
+          target_field: "trade",
+          value_raw: "mujhe job chahiye",
+          value_normalized: "mujhe job chahiye",
+          status: "answered",
+          evidence: null,
+          turn: 1,
+          history: [],
+        },
+      ],
+    });
+    world.identify.identify.mockImplementation((async () => ({
+      patch: { needsDisambiguation: false, disambiguationOffer: [] },
+      offer: null,
+      pinned: null,
+      prompt: null,
+      tradeText: "main electrician hoon",
+    })) as never);
+
+    const result = await world.orchestrator.takeTurn(say("main electrician hoon"));
+
+    const trade = tradeOf(world.store);
+    expect(trade?.value_raw).toBe("main electrician hoon");
+    expect(trade?.history[0]).toMatchObject({
+      value_raw: "mujhe job chahiye",
+      status: "superseded",
+    });
+    expect(result.questionKey).not.toBe("primary_trade");
+  });
+
+  it("both readers of a reopened session serve the type prompt, keyless", async () => {
+    const world = makeWorld();
+    seed(world.store, { identifyTypeRequested: true, servedQuestionKey: "q_city" });
+
+    const opened = await world.orchestrator.openTurn(open());
+    expect(opened.reply).toBe(IDENTIFY_TYPE_PROMPT);
+    expect(opened.questionKey).toBeNull();
+    expect(opened.options).toEqual([]);
+    expect(opened.inputMode).toBe("text");
+
+    const viewed = await world.orchestrator.viewSession(SESSION, T0);
+    expect(viewed?.served?.questionKey).toBeNull();
+    expect(viewed?.served?.promptText).toBe(IDENTIFY_TYPE_PROMPT);
+  });
+
+  // #1506 LOW-1 REVIEW FIX. `identifyTypeRequested` is cleared the moment the prompt is answered
+  // (`settleTypedTrade`'s own patch), so this state — the flag still `true` on an envelope that
+  // ALSO carries a pin — should not arise from a live turn. It is exactly the shape a stale
+  // pre-deploy Redis record or a hand-edited envelope has, and reading it wrong would re-serve a
+  // prompt for a trade the interview has already settled, ahead of the real pack question.
+  it("does NOT re-serve the type prompt once an occupation is pinned, even with the flag still set", async () => {
+    const world = makeWorld();
+    seed(world.store, {
+      identifyTypeRequested: true,
+      servedQuestionKey: "q_city",
+      occupation: {
+        job_domain_id: "jd_nco_7212_0301",
+        label: "Welder",
+        isco_unit_code: "7212",
+        match_status: "matched_lexical",
+        match_score: 0.97,
+        match_layer: "l0_exact",
+        pack_id: null,
+        pack_version: null,
+        catalog_version: "cat_2026_08",
+      },
+    });
+
+    const opened = await world.orchestrator.openTurn(open());
+    expect(opened.reply).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(opened.questionKey).toBe("q_city");
+
+    const viewed = await world.orchestrator.viewSession(SESSION, T0);
+    expect(viewed?.served?.promptText).not.toBe(IDENTIFY_TYPE_PROMPT);
+    expect(viewed?.served?.questionKey).toBe("q_city");
+  });
+
+  it("a replay clamps a stamped model options_only to text, and keeps the gate's", async () => {
+    const stamp = (reply: string) => ({
+      inboundHash: inboundHash(SESSION, 1, "haan"),
+      reply,
+      kind: "ask" as const,
+      questionKey: null,
+      at: T0.toISOString(),
+      options: [
+        { option_key: "llm_a", label_text: "Haan", value: "Haan", implies_skill_id: null, is_none_of_above: false },
+        { option_key: "llm_b", label_text: "Nahi", value: "Nahi", implies_skill_id: null, is_none_of_above: false },
+      ],
+      progress: { answered: 0, total: 2 },
+      whyText: null,
+      answerType: "single_select" as const,
+      formOffer: null,
+      lookahead: null,
+      inputMode: "options_only" as const,
+      replays: 0,
+    });
+    const soon = new Date(T0.getTime() + 1_000);
+
+    const model = makeWorld();
+    seed(model.store, { lastTurn: stamp("Kya aapke paas ITI hai?") });
+    const replayedModel = await model.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedModel.replayed).toBe(true);
+    expect(replayedModel.inputMode).toBe("text");
+
+    const gate = makeWorld();
+    seed(gate.store, { lastTurn: stamp(EXPERIENCE_GATE_PROMPT) });
+    const replayedGate = await gate.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedGate.replayed).toBe(true);
+    expect(replayedGate.inputMode).toBe("options_only");
   });
 });
 
