@@ -149,6 +149,7 @@ async function main(): Promise<void> {
           answer_number = excluded.answer_number,
           answer_bool = excluded.answer_bool,
           answer_option_keys = excluded.answer_option_keys,
+          answer_other_text = excluded.answer_other_text,
           status = excluded.status,
           source = excluded.source,
           answered_at = now()`,
@@ -168,6 +169,29 @@ async function main(): Promise<void> {
           answer_number = excluded.answer_number,
           answer_bool = excluded.answer_bool,
           answer_option_keys = excluded.answer_option_keys,
+          answer_other_text = excluded.answer_other_text,
+          status = excluded.status,
+          source = excluded.source,
+          answered_at = now()`,
+    );
+
+    await probe(
+      sql,
+      "[c2] worker_pack_answer — 'other' answer, value in answer_other_text " +
+        "(migration 0106, the widened wpa_answer_shape_chk):",
+      (tx) => tx`
+        INSERT INTO worker_pack_answer
+          (worker_id, chat_session_id, pack_id, pack_version, question_key,
+           answer_other_text, status, source)
+        VALUES (${workerId}, ${sessionId}, ${PACK}, ${activeVersion},
+                'turning_machine', 'ek purana Batliboi lathe jo humne khud rewind kiya',
+                'answered', 'form')
+        ON CONFLICT (worker_id, pack_id, question_key) DO UPDATE SET
+          answer_text = excluded.answer_text,
+          answer_number = excluded.answer_number,
+          answer_bool = excluded.answer_bool,
+          answer_option_keys = excluded.answer_option_keys,
+          answer_other_text = excluded.answer_other_text,
           status = excluded.status,
           source = excluded.source,
           answered_at = now()`,

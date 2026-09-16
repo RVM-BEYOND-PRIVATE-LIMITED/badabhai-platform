@@ -93,14 +93,51 @@ export const workerPackAnswers = pgTable(
     packVersion: integer("pack_version").notNull(),
     questionKey: text("question_key").notNull(),
 
-    // Exactly ONE of these is non-null when `status = 'answered'`, and all four are null
-    // otherwise — enforced by `wpa_answer_shape_chk` below. Four typed columns rather than
+    // Exactly ONE of these is non-null when `status = 'answered'`, and all five are null
+    // otherwise — enforced by `wpa_answer_shape_chk` below. Five typed columns rather than
     // one jsonb because every reader of this table wants a typed value, and a jsonb column
     // would push the type decision to every read site instead of settling it at the write.
     answerText: text("answer_text"),
     answerNumber: doublePrecision("answer_number"),
     answerBool: boolean("answer_bool"),
     answerOptionKeys: text("answer_option_keys").array(),
+    // "OTHER" — a worker's own typed words against a CLOSED-OPTION question, kept OUT of the
+    // typed vocabulary (migration TBD; the "typed custom answer, everywhere" ruling, round 4).
+    //
+    // WHY A FIFTH COLUMN AND NOT `answer_text`. `answer_text` is read by every deterministic
+    // consumer of this table as THE settled value for a single-select/text field — tier gates,
+    // predicate sources, `worker_attributes` projection (`answer-map-projector.ts`'s
+    // `classifyAttributeValue`, which stringifies anything shaped like a string). An option a
+    // worker typed instead of tapping has not been reviewed against any vocabulary and must
+    // never be treated as if it had been: it cannot decide a gate, cannot become a matchable
+    // attribute, and cannot cross to a payer surface unreviewed. A distinct column is what makes
+    // "this value is not settled vocabulary" a fact every reader gets for free from the SHAPE of
+    // the row, rather than a rule each of them has to reimplement and can forget.
+    //
+    // NEVER PRINTED RAW. The only thing ever shown from this column is an LLM-reviewed rewrite
+    // (`OtherAnswerPolishService`, following the ADR-0039 work-history-polish precedent) on the
+    // WORKER'S OWN profile/sheet — never the payer-facing disclosure, and never a raw value when
+    // the review is unavailable (fail-closed = omit, exactly like a polish that returns null).
+    answerOtherText: text("answer_other_text"),
+    // The LLM-reviewed rewrite of `answer_other_text` (ADR-0039 work-history-polish precedent,
+    // extended by the round-4 ruling: "print it after LLM reviews it... LLM will correct
+    // spelling mistakes and Nomenclature... If the LLM finds that it is irrelevant it can omit
+    // the reply as well"). NULL until reviewed, or when the review found nothing printable —
+    // both read identically to a caller ("nothing to print yet / ever"), which is the fail-closed
+    // contract this column exists to hold: never printed until a model has vouched for it, never
+    // printed at all when the review omits it.
+    //
+    // WORKER-FACING ONLY. This column, like `answer_other_text` itself, is never read by
+    // `ResumeDisclosureService` or any other payer-facing projection — see that service's own
+    // docblock and `resume-disclosure-other-answer-exclusion.test.ts`.
+    answerOtherTextPolished: text("answer_other_text_polished"),
+    // Mirrors `worker_attributes.value_text_polished_declined` (migration checked by
+    // `attribute-polish-decline-schema.test.ts`): the worker's own refusal of the rewrite, kept
+    // apart from "not reviewed yet" so a re-render does not silently re-offer a rewrite he
+    // already turned down (ADR-0039's "a refusal is not an absence").
+    answerOtherTextPolishedDeclined: boolean("answer_other_text_polished_declined")
+      .notNull()
+      .default(false),
 
     status: text("status").$type<PackAnswerStatus>().notNull().default("answered"),
     source: text("source").$type<PackAnswerSource>().notNull().default("chat"),
@@ -129,6 +166,7 @@ export const workerPackAnswers = pgTable(
         + (${t.answerNumber} IS NOT NULL)::int
         + (${t.answerBool} IS NOT NULL)::int
         + (${t.answerOptionKeys} IS NOT NULL)::int
+        + (${t.answerOtherText} IS NOT NULL)::int
         = 1
       )`,
     ),

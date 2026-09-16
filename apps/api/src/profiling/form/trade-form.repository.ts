@@ -84,10 +84,72 @@ export class TradeFormRepository {
           answerNumber: sql`excluded.answer_number`,
           answerBool: sql`excluded.answer_bool`,
           answerOptionKeys: sql`excluded.answer_option_keys`,
+          answerOtherText: sql`excluded.answer_other_text`,
+          // A RE-WRITTEN "OTHER" ANSWER CLEARS ITS OWN POLISH, unconditionally — the same rule
+          // `WorkHistoryPolishService`'s docblock states for a stint's description: "an EDITED
+          // stint is re-polished for free... a changed description arrives as a new row with a
+          // null polish". This IS that new row, on conflict rather than on insert, so the clear
+          // has to happen here or a corrected answer would keep printing its PREVIOUS rewrite.
+          answerOtherTextPolished: sql`NULL`,
+          answerOtherTextPolishedDeclined: sql`false`,
           status: sql`excluded.status`,
           source: sql`excluded.source`,
           answeredAt: sql`excluded.answered_at`,
         },
       });
+  }
+
+  /**
+   * Store the LLM-reviewed rewrite of a worker's "other" answer (ADR-0039 work-history-polish
+   * precedent, extended by the round-4 "typed custom answer, everywhere" ruling).
+   *
+   * SCOPED TO `answer_other_text IS NOT NULL`, like `saveAttributePolish` scopes to
+   * `value_kind = 'text'` — the belt alongside the caller's own check, so a race with a
+   * corrected answer can never attach a rewrite to the wrong row's value.
+   */
+  async savePolishedOtherAnswer(
+    workerId: string,
+    packId: string,
+    questionKey: string,
+    polished: string,
+  ): Promise<boolean> {
+    const updated = await this.db
+      .update(workerPackAnswers)
+      .set({ answerOtherTextPolished: polished })
+      .where(
+        and(
+          eq(workerPackAnswers.workerId, workerId),
+          eq(workerPackAnswers.packId, packId),
+          eq(workerPackAnswers.questionKey, questionKey),
+          sql`${workerPackAnswers.answerOtherText} IS NOT NULL`,
+        ),
+      )
+      .returning({ id: workerPackAnswers.id });
+    return updated.length > 0;
+  }
+
+  /**
+   * The worker's own refusal of the rewrite (mirrors `worker-attributes.repository.ts`'s
+   * text-polish decline). Kept apart from "not reviewed yet" so a later render does not
+   * silently re-offer a rewrite he already turned down.
+   */
+  async declineOtherAnswerPolish(
+    workerId: string,
+    packId: string,
+    questionKey: string,
+  ): Promise<boolean> {
+    const updated = await this.db
+      .update(workerPackAnswers)
+      .set({ answerOtherTextPolishedDeclined: true })
+      .where(
+        and(
+          eq(workerPackAnswers.workerId, workerId),
+          eq(workerPackAnswers.packId, packId),
+          eq(workerPackAnswers.questionKey, questionKey),
+          sql`${workerPackAnswers.answerOtherText} IS NOT NULL`,
+        ),
+      )
+      .returning({ id: workerPackAnswers.id });
+    return updated.length > 0;
   }
 }

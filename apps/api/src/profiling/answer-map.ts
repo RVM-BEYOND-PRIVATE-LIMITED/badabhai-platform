@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 
 import type { AnswerRecord, AnswerStatus, EvidenceSpan } from "@badabhai/ai-contracts";
+import { otherAnswerTextOf } from "./pack-answer-row";
 
 /** `question_key` → the single current record for that question. */
 export type AnswerMap = Readonly<Record<string, AnswerRecord>>;
@@ -207,7 +208,11 @@ export function toCapturedProjection(map: AnswerMap): Record<string, string> {
     const field = record.target_field ?? record.question_key;
     const value = record.value_normalized;
     if (value === null || value === undefined) continue;
-    captured[field] = Array.isArray(value) ? value.join(", ") : String(value);
+    // An "other" marker (`OtherAnswerValue`) is unreviewed free text against a closed question —
+    // unwrapped to its own words here rather than falling into `String(value)`, which would print
+    // the literal "[object Object]" into this flattened projection.
+    const other = otherAnswerTextOf(value);
+    captured[field] = other !== null ? other : Array.isArray(value) ? value.join(", ") : String(value);
   }
   return captured;
 }
