@@ -172,7 +172,7 @@ export class ChatService {
     private readonly orchestrator: ProfilingOrchestrator,
   ) {}
 
-  async startSession(workerId: string, ctx: RequestContext) {
+  async startSession(workerId: string, ctx: RequestContext, opts: { confirmFirst?: boolean } = {}) {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
@@ -196,11 +196,22 @@ export class ChatService {
     const live = await this.chat.findActiveSessionByWorker(workerId);
     if (live) {
       this.logger.log(`reattached to live session worker=${workerId} session=${live.id}`);
-      return {
+      const base = {
         session_id: live.id,
         status: live.status,
         started_at: live.startedAt,
       };
+      // Task 1 B3 — a live session that never served its résumé confirm still can, and a
+      // worker's re-entry is exactly when that matters. `openResumeConfirm` is a no-op
+      // (null, nothing written) for every other session: already served, already settled,
+      // mid-conversation, or no pending import.
+      const opened = await this.tryOpenResumeConfirm(
+        opts.confirmFirst === true,
+        live.id,
+        workerId,
+        ctx,
+      );
+      return opened === null ? base : { ...base, ...opened };
     }
 
     const session = await this.chat.createSession(workerId);
@@ -218,6 +229,19 @@ export class ChatService {
       status: session.status,
       started_at: session.startedAt,
     };
+
+    // Task 1 B3 (ADR-0042 D8) — THE RÉSUMÉ CONFIRM OPENS THE SESSION, when the client can
+    // render a server-served opening and one is pending. BEFORE the one-shot opener below,
+    // deliberately: a confirm is strictly more specific than the generic greeting, and a
+    // résumé session that opens with "aap kaunsa kaam karte hain?" would be asking a question
+    // the document already answered.
+    const opened = await this.tryOpenResumeConfirm(
+      opts.confirmFirst === true,
+      session.id,
+      workerId,
+      ctx,
+    );
+    if (opened !== null) return { ...base, ...opened };
 
     // One-shot composite opener (CHAT_ONE_SHOT_OPENER_ENABLED, default OFF).
     //
@@ -267,6 +291,59 @@ export class ChatService {
       );
     }
     return response;
+  }
+
+  /**
+   * Task 1 B3 (ADR-0042 D8) — open the session on the résumé confirm, or `null`.
+   *
+   * THE WIRE SHAPE OF A SERVER-SERVED OPENING. `opening_text` was already the field for
+   * "here is the first bubble" (the flag-gated one-shot opener), so the confirm reuses it and
+   * adds `resume_pending` + `opening_options` beside it. The worker answers by sending the
+   * chip's `option_key` back as the session's first message — the turn path captures it
+   * against the pending confirm exactly as if it had been tapped on a later turn.
+   *
+   * `confirmFirst` is the CLIENT'S capability signal and the whole reason this is safe: a
+   * build that does not ask never triggers the write, so its session opens byte-for-byte as
+   * it always has (synthetic greeting, first inbound gets the confirm as a REPLY instead).
+   */
+  private async tryOpenResumeConfirm(
+    confirmFirst: boolean,
+    sessionId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<{
+    resume_pending: true;
+    opening_text: string;
+    opening_options: { option_key: string; label_text: string }[];
+  } | null> {
+    if (!confirmFirst) return null;
+    let opened;
+    try {
+      opened = await this.orchestrator.openResumeConfirm({
+        sessionId,
+        workerId,
+        now: new Date(),
+        ctx,
+      });
+    } catch (error) {
+      // DEGRADES, NEVER FAILS — the identical posture `autoTriggerExtraction` takes on the
+      // turn path: a mount-time extra must never cost the worker the session. The worst case
+      // is today's flow, exactly: greeting first, confirm as the reply to their first message.
+      this.logger.warn(
+        `résumé-confirm open failed session=${sessionId} (non-fatal, the confirm is served as ` +
+          `the reply to the first message instead): ${(error as Error).message}`,
+      );
+      return null;
+    }
+    if (opened === null) return null;
+    return {
+      resume_pending: true,
+      opening_text: opened.reply,
+      opening_options: opened.options.map((option) => ({
+        option_key: option.option_key,
+        label_text: option.label_text,
+      })),
+    };
   }
 
   /**

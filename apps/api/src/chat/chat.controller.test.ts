@@ -18,10 +18,16 @@ function make() {
 }
 
 describe("ChatController (thin) — worker from token, never the body", () => {
-  it("startSession passes the authenticated worker id (ignores any body)", async () => {
+  it("startSession passes the authenticated worker id (ignores any worker id in the body)", async () => {
     const { controller, chat } = make();
     await controller.startSession(WORKER, {} as never, CTX);
-    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX);
+    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, { confirmFirst: false });
+  });
+
+  it("startSession forwards the client's confirm_first capability flag (Task 1 B3)", async () => {
+    const { controller, chat } = make();
+    await controller.startSession(WORKER, { confirm_first: true } as never, CTX);
+    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, { confirmFirst: true });
   });
 
   it("postMessage passes the authenticated worker id + dto", async () => {
