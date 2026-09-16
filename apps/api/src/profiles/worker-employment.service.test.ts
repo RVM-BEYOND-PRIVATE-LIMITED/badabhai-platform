@@ -1,8 +1,17 @@
 import "reflect-metadata";
+import { ConflictException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RequestContext } from "../common/request-context";
-import { SetMyEmploymentSchema } from "./worker-employment.dto";
+import {
+  SetMyEmploymentSchema,
+  projectEmploymentForPut,
+  type EmploymentView,
+} from "./worker-employment.dto";
+import {
+  EmploymentCountMismatchError,
+  type WorkerEmploymentEditRecord,
+} from "./worker-employment.repository";
 import { WorkerEmploymentService } from "./worker-employment.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -223,9 +232,19 @@ describe("the work-history writer (R4 Q1)", () => {
   });
 
   it("accepts an EMPTY list as a real edit that clears the block", async () => {
-    const result = await h.svc.replaceForWorker(WORKER, parse([]), CTX);
+    // UPDATED FOR #1504 (owner ruling 2026-09-15), deliberately: `[]` still clears, but only from a
+    // client that sends `expected_existing_count` — a body without it is an old build, whose `[]`
+    // is a tap-through and is passed down as `preserveWhenEmpty` (pinned in the #1504 block below).
+    const result = await h.svc.replaceForWorker(
+      WORKER,
+      SetMyEmploymentSchema.parse({ employments: [], expected_existing_count: 2 }),
+      CTX,
+    );
     expect(result.employer_count).toBe(0);
-    expect(h.replaceForWorker).toHaveBeenCalledWith(WORKER, []);
+    expect(h.replaceForWorker).toHaveBeenCalledWith(WORKER, [], {
+      expectedExistingCount: 2,
+      preserveWhenEmpty: false,
+    });
   });
 
   it("does not fail the worker's write when the re-render queue is down", async () => {
@@ -385,6 +404,275 @@ describe("a spoken work description", () => {
     await h.svc.replaceForWorker(WORKER, parse([spokenEntry(VOICE_NOTE)]), CTX);
     const payload = JSON.stringify(h.emit.mock.calls.at(-1)?.[0]?.payload ?? {});
     expect(payload).not.toContain(VOICE_NOTE);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+ * #1504 — GET /workers/me/employment, and the PUT's protections
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+const READABLE_TOKEN = "ENC-READABLE-7f3a";
+const UNREADABLE_TOKEN = "ENC-UNREADABLE-c91e";
+
+function editRecord(over: Partial<WorkerEmploymentEditRecord> = {}): WorkerEmploymentEditRecord {
+  return {
+    id: "44444444-4444-4444-8444-444444444444",
+    employerNameEnc: READABLE_TOKEN,
+    employerCity: "Manesar",
+    employerState: "Haryana",
+    startYm: "2022-04",
+    endYm: null,
+    roles: [
+      {
+        roleLabel: "CNC Turner",
+        startYm: "2022-04",
+        endYm: null,
+        workDone: "Twin-spindle lathes on steering housings",
+        workDoneVoiceNoteId: VOICE_NOTE,
+        workDonePolishDeclined: false,
+        hasPolish: true,
+      },
+    ],
+    ...over,
+  };
+}
+
+function readSetup(records: WorkerEmploymentEditRecord[]) {
+  const loadForWorkerEdit = vi.fn(async (_w: string) => records);
+  // The RÉSUMÉ read, present on the stub so a service that used it instead would still run — and
+  // return rows WITHOUT the clip, which is exactly what the voice-note test below catches.
+  const loadForResume = vi.fn(async (_w: string) =>
+    records.map((r) => ({
+      ...r,
+      roles: r.roles.map(({ workDoneVoiceNoteId: _v, ...rest }) => rest),
+    })),
+  );
+  const replaceForWorker = vi.fn(
+    async (_w: string, _rows: readonly unknown[], _opts?: Record<string, unknown>) => ({
+      replacedExisting: true,
+      existingCount: 2,
+      skipped: false,
+      carriedUnreadable: 1,
+    }),
+  );
+  const findOwnedVoiceNoteIds = vi.fn(
+    async (_w: string, ids: readonly string[]) => new Set(ids.filter((id) => id === VOICE_NOTE)),
+  );
+  const decrypt = vi.fn((token: string) => {
+    if (token === READABLE_TOKEN) return EMPLOYER;
+    // A realistic failure message that CARRIES the token — the thing that must not reach a log.
+    throw new Error(`unsupported state or unable to authenticate data: ${token}`);
+  });
+  const emit = vi.fn(async (_event: { event_name: string; payload: unknown }) => undefined);
+  const svc = new WorkerEmploymentService(
+    { loadForWorkerEdit, loadForResume, replaceForWorker, findOwnedVoiceNoteIds } as never,
+    { findById: async () => ({ id: WORKER }), latestResume: async () => null } as never,
+    { decrypt, encrypt: () => "CIPHERTEXT-TOKEN" } as never,
+    { emit } as never,
+    { add: async () => undefined } as never,
+  );
+  const lines: string[] = [];
+  const logger = (
+    svc as unknown as { logger: Record<"log" | "warn" | "error" | "debug", (m: string) => void> }
+  ).logger;
+  for (const level of ["log", "warn", "error", "debug"] as const) {
+    logger[level] = (m: string) => void lines.push(String(m));
+  }
+  return { svc, loadForWorkerEdit, loadForResume, replaceForWorker, decrypt, emit, lines };
+}
+
+describe("reading the worker's own history back (#1504)", () => {
+  const TWO = [
+    editRecord(),
+    editRecord({ id: "55555555-5555-4555-8555-555555555555", employerNameEnc: UNREADABLE_TOKEN }),
+  ];
+
+  it("decrypts the employer name for the owner, and withholds + counts a row that will not decrypt", async () => {
+    const h = readSetup(TWO);
+    const res = await h.svc.getForWorker(WORKER);
+    expect(h.loadForWorkerEdit).toHaveBeenCalledWith(WORKER);
+    expect(res.employments).toHaveLength(1);
+    expect(res.employments[0]!.employer_name).toBe(EMPLOYER);
+    expect(res.employments[0]!.employment_id).toBe("44444444-4444-4444-8444-444444444444");
+    expect(res.unreadable_count).toBe(1);
+    // Never the ciphertext on the wire.
+    expect(JSON.stringify(res)).not.toContain(READABLE_TOKEN);
+  });
+
+  it("never logs the employer name or either token, and emits nothing", async () => {
+    const h = readSetup(TWO);
+    await h.svc.getForWorker(WORKER);
+    const joined = h.lines.join("\n");
+    // Positive first, so the leak checks cannot pass against a service that logs nothing.
+    expect(joined).toContain("1 readable, 1 unreadable");
+    for (const leak of [EMPLOYER, "Sandhar", READABLE_TOKEN, UNREADABLE_TOKEN, "Manesar"]) {
+      expect(joined).not.toContain(leak);
+    }
+    expect(h.emit).not.toHaveBeenCalled();
+  });
+
+  it("uses the EDIT read, never the résumé read — the clip id survives GET → projection → PUT", async () => {
+    const h = readSetup([editRecord()]);
+    const res = await h.svc.getForWorker(WORKER);
+    expect(h.loadForResume).not.toHaveBeenCalled();
+    expect(res.employments[0]!.roles[0]!.work_done_voice_note_id).toBe(VOICE_NOTE);
+
+    const body = SetMyEmploymentSchema.parse({
+      employments: res.employments.map(projectEmploymentForPut),
+      expected_existing_count: res.employments.length + res.unreadable_count,
+    });
+    await h.svc.replaceForWorker(WORKER, body, CTX);
+    const written = h.replaceForWorker.mock.calls[0]![1] as {
+      roles: { workDoneVoiceNoteId: string | null }[];
+    }[];
+    expect(written[0]!.roles[0]!.workDoneVoiceNoteId).toBe(VOICE_NOTE);
+    expect(h.replaceForWorker.mock.calls[0]![2]).toEqual({
+      expectedExistingCount: 1,
+      preserveWhenEmpty: false,
+    });
+  });
+
+  it("reports which text prints: a refusal wins, a rewrite is 'polished', none is null", async () => {
+    const role = editRecord().roles[0]!;
+    const h = readSetup([
+      editRecord({
+        roles: [
+          { ...role, workDonePolishDeclined: true, hasPolish: true },
+          { ...role, workDonePolishDeclined: false, hasPolish: true },
+          { ...role, workDonePolishDeclined: false, hasPolish: false },
+        ],
+      }),
+    ]);
+    const { employments } = await h.svc.getForWorker(WORKER);
+    expect(employments[0]!.roles.map((r) => r.description_source)).toEqual([
+      "own_words",
+      "polished",
+      null,
+    ]);
+  });
+});
+
+describe("the projection rule from a GET row to a PUT entry (#1504)", () => {
+  const view = (roles: EmploymentView["roles"]): EmploymentView => ({
+    employment_id: "44444444-4444-4444-8444-444444444444",
+    employer_name: EMPLOYER,
+    employer_city: "Manesar",
+    employer_state: "Haryana",
+    start_ym: "2022-04",
+    end_ym: null,
+    roles,
+  });
+  const stint = (over: Partial<EmploymentView["roles"][number]> = {}) => ({
+    role_label: "CNC Turner",
+    start_ym: "2022-04",
+    end_ym: null,
+    work_done: "Production turning",
+    work_done_voice_note_id: VOICE_NOTE,
+    description_source: "polished" as const,
+    ...over,
+  });
+
+  it("ONE stint spanning the employment → the shorthand, and it parses", () => {
+    const entry = projectEmploymentForPut(view([stint()]));
+    expect(entry).toMatchObject({ role_label: "CNC Turner", work_done_voice_note_id: VOICE_NOTE });
+    expect(entry).not.toHaveProperty("roles");
+    expect(() => SetMyEmploymentSchema.parse({ employments: [entry] })).not.toThrow();
+  });
+
+  it("one stint with its OWN dates → roles[], so the stint is not widened to the tenure", () => {
+    const entry = projectEmploymentForPut(view([stint({ start_ym: "2023-01" })]));
+    expect(entry).not.toHaveProperty("role_label");
+    expect((entry.roles as { start_ym: string }[])[0]!.start_ym).toBe("2023-01");
+    expect(() => SetMyEmploymentSchema.parse({ employments: [entry] })).not.toThrow();
+  });
+
+  it("a promotion → roles[] with each stint's dates and clip, and it parses", () => {
+    const entry = projectEmploymentForPut(
+      view([
+        stint({ role_label: "Setter", start_ym: "2024-04" }),
+        stint({ start_ym: "2022-04", end_ym: "2024-03", work_done_voice_note_id: null }),
+      ]),
+    );
+    const parsed = SetMyEmploymentSchema.parse({ employments: [entry] });
+    expect(parsed.employments[0]!.roles).toHaveLength(2);
+    expect(parsed.employments[0]!.roles![0]!.work_done_voice_note_id).toBe(VOICE_NOTE);
+  });
+
+  it("drops employment_id and description_source — echoing a GET row is a 400 (.strict)", () => {
+    const entry = projectEmploymentForPut(view([stint()]));
+    expect(entry).not.toHaveProperty("employment_id");
+    expect(JSON.stringify(entry)).not.toContain("description_source");
+    const echoed = { ...view([stint()]) };
+    expect(() => SetMyEmploymentSchema.parse({ employments: [echoed] })).toThrow();
+  });
+});
+
+describe("PUT protections (#1504)", () => {
+  it("maps a count mismatch from INSIDE the transaction to a 409, with no event", async () => {
+    const h = readSetup([]);
+    h.replaceForWorker.mockRejectedValueOnce(new EmploymentCountMismatchError(3, 2));
+    await expect(
+      h.svc.replaceForWorker(
+        WORKER,
+        SetMyEmploymentSchema.parse({ employments: [entry()], expected_existing_count: 2 }),
+        CTX,
+      ),
+    ).rejects.toThrow(ConflictException);
+    expect(h.emit).not.toHaveBeenCalled();
+    // The warning carries counts, never the employer the body was about to write.
+    expect(h.lines.join("\n")).not.toContain(EMPLOYER);
+  });
+
+  it("does not turn an unrelated repository failure into a 409", async () => {
+    const h = readSetup([]);
+    h.replaceForWorker.mockRejectedValueOnce(new Error("deadlock"));
+    await expect(
+      h.svc.replaceForWorker(WORKER, SetMyEmploymentSchema.parse({ employments: [entry()] }), CTX),
+    ).rejects.toThrow("deadlock");
+  });
+
+  it("an OLD-BUILD [] over stored rows is a no-op: 200 with the stored count, no event", async () => {
+    const h = readSetup([]);
+    h.replaceForWorker.mockResolvedValueOnce({
+      replacedExisting: false,
+      existingCount: 3,
+      skipped: true,
+      carriedUnreadable: 0,
+    });
+    const out = await h.svc.replaceForWorker(WORKER, parse([]), CTX);
+    expect(h.replaceForWorker.mock.calls[0]![2]).toEqual({
+      expectedExistingCount: undefined,
+      preserveWhenEmpty: true,
+    });
+    expect(out).toEqual({ worker_id: WORKER, employer_count: 3 });
+    expect(h.emit).not.toHaveBeenCalled();
+    expect(h.lines.join("\n")).toContain("old-build empty employment save ignored");
+  });
+
+  it("a NEW-BUILD [] asks the repository to clear, and records it", async () => {
+    const h = readSetup([]);
+    await h.svc.replaceForWorker(
+      WORKER,
+      SetMyEmploymentSchema.parse({ employments: [], expected_existing_count: 2 }),
+      CTX,
+    );
+    expect(h.replaceForWorker.mock.calls[0]![2]).toEqual({
+      expectedExistingCount: 2,
+      preserveWhenEmpty: false,
+    });
+    expect(h.emit).toHaveBeenCalledOnce();
+  });
+
+  it("bounds expected_existing_count as a non-negative integer, and keeps it optional", () => {
+    expect(() =>
+      SetMyEmploymentSchema.parse({ employments: [], expected_existing_count: -1 }),
+    ).toThrow();
+    expect(() =>
+      SetMyEmploymentSchema.parse({ employments: [], expected_existing_count: 1.5 }),
+    ).toThrow();
+    expect(
+      SetMyEmploymentSchema.parse({ employments: [] }).expected_existing_count,
+    ).toBeUndefined();
   });
 });
 

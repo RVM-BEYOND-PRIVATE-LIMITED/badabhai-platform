@@ -264,3 +264,21 @@ device still requires account PIN (SIM-swap gate)"*. ADR-0026 §217-225 records 
 is no post-OTP PIN gate — the SIM-swap defence is the trusted-device requirement on
 `/auth/pin/verify`. Found during the #1462 security review, left for whoever next opens R25; it is a
 claim about shipped auth behaviour, not a side effect of this change.
+
+## 2026-09-15 — Old-build blank-save protection: accepted residuals (#1504)
+
+The server now treats an old build's default-valued save as no change (owner ruling 2026-09-15).
+These residuals were accepted with that ruling. They are recorded so nobody rediscovers them as bugs:
+
+1. **An old-build worker cannot clear** stored languages, documents or preferred cities, or turn a
+   stored relocation/accommodation `true` off, from those builds. The server cannot tell a real "none"
+   from an untouched page. The same applies to clearing a whole work history (`[]` without
+   `expected_existing_count`). Closes when the build is retired.
+2. **Undecryptable employment rows are carried, not deleted**, so they persist until key recovery or
+   DSAR erasure. They render nowhere. New rows are numbered after them, so `sort_order` can exceed 3.
+3. **Own-session egress of the decrypted employer name** (`GET /workers/me/employment`) follows the
+   `getResumeFields` precedent: no-store, never logged, never evented, never sent to AI. The same
+   constraints bind any future change to that route.
+4. **Consent-withdrawn workers get a 403 on their own saved answers** (ConsentGuard on the GETs). This
+   matches every other `/workers/me/*` route. A DSAR self-view is a separate question and is not
+   settled here.

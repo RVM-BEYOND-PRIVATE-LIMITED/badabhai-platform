@@ -7,6 +7,71 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 
 /**
+ * The employer name behind one token, or `null` when there is no name this system can honestly use.
+ *
+ * ONE PREDICATE, THREE READERS, AND THEY MUST AGREE (#1504). The résumé read drops a row it cannot
+ * read; the worker's edit read withholds it and counts it; the replace CARRIES it across instead of
+ * deleting it. If those three disagreed about what "readable" means, a row the GET withheld could
+ * be one the replace deletes — the exact erase this helper exists to rule out.
+ *
+ * A BLANK NAME IS UNREADABLE TOO. The PUT refuses an empty employer (§11 #4), so a blank plaintext
+ * could neither be rendered nor round-tripped; treating it as readable would hand the client a row
+ * whose save is a 400.
+ *
+ * NEVER LOGS AND NEVER RETHROWS. The token, the key id and the error detail all stay here — the
+ * same contract the name and the phone already have.
+ */
+export function readEmployerName(
+  pii: Pick<PiiCryptoService, "decrypt">,
+  token: string,
+): string | null {
+  let name: string;
+  try {
+    name = pii.decrypt(token);
+  } catch {
+    return null;
+  }
+  return name.trim() ? name : null;
+}
+
+/**
+ * The client's `expected_existing_count` did not match the rows the replace transaction read (#1504).
+ *
+ * A DOMAIN ERROR, NOT AN HTTP ONE — this layer does database access and nothing else, so the service
+ * decides that this is a 409. Thrown INSIDE the transaction, before the delete, so the rollback has
+ * nothing to undo. Carries counts only.
+ */
+export class EmploymentCountMismatchError extends Error {
+  constructor(
+    readonly actual: number,
+    readonly expected: number,
+  ) {
+    super(`expected ${expected} stored employment row(s), found ${actual}`);
+    this.name = "EmploymentCountMismatchError";
+  }
+}
+
+/** One stored employment as the worker's own edit page needs it — ciphertext still sealed (#1504). */
+export interface WorkerEmploymentEditRecord {
+  id: string;
+  employerNameEnc: string;
+  employerCity: string | null;
+  employerState: string | null;
+  startYm: string | null;
+  endYm: string | null;
+  roles: {
+    roleLabel: string;
+    startYm: string | null;
+    endYm: string | null;
+    workDone: string | null;
+    workDoneVoiceNoteId: string | null;
+    workDonePolishDeclined: boolean;
+    /** Whether a rewrite exists. The rewrite TEXT is never selected into this record. */
+    hasPolish: boolean;
+  }[];
+}
+
+/**
  * READS AND WRITES `worker_employment` for the résumé's Zone 4.
  *
  * The reader shipped first, deliberately, while the capture surface was an open owner ruling.
@@ -47,6 +112,18 @@ export class WorkerEmploymentRepository {
    *
    * Returns whether it replaced an existing history, which the event needs and only the
    * transaction can know.
+   *
+   * ═══ THREE PRECONDITIONS, ALL DECIDED ON THE TRANSACTION'S OWN READ (#1504) ═══
+   *
+   * 1. `expectedExistingCount` — when given and different from the rows read, throw
+   *    {@link EmploymentCountMismatchError} BEFORE the delete. A client that prefilled from a stale
+   *    GET would otherwise replace rows it never saw.
+   * 2. `preserveWhenEmpty` — an old build's `[]` over a stored history is a no-op: nothing deleted,
+   *    `skipped: true`. The service decides when this applies; this layer only makes it atomic.
+   * 3. UNREADABLE ROWS SURVIVE. A row whose employer name will not decrypt was withheld from the
+   *    worker's GET, so a full replace built from that GET cannot be a decision about it. It is
+   *    excluded from the delete and carried across, and the new rows are numbered after it so
+   *    `we_worker_sort_uq` still holds.
    */
   async replaceForWorker(
     workerId: string,
@@ -70,12 +147,53 @@ export class WorkerEmploymentRepository {
         workDoneVoiceNoteId: string | null;
       }[];
     }[],
-  ): Promise<{ replacedExisting: boolean }> {
+    options: { expectedExistingCount?: number; preserveWhenEmpty?: boolean } = {},
+  ): Promise<{
+    replacedExisting: boolean;
+    existingCount: number;
+    skipped: boolean;
+    carriedUnreadable: number;
+  }> {
     return this.db.transaction(async (tx) => {
       const existing = await tx
-        .select({ id: workerEmployment.id })
+        .select({
+          id: workerEmployment.id,
+          employerNameEnc: workerEmployment.employerNameEnc,
+          sortOrder: workerEmployment.sortOrder,
+        })
         .from(workerEmployment)
         .where(eq(workerEmployment.workerId, workerId));
+
+      // (1) THE STALE-PREFILL GUARD, on the rows this transaction just read and before anything
+      // below can write. See the method docstring.
+      if (
+        options.expectedExistingCount !== undefined &&
+        existing.length !== options.expectedExistingCount
+      ) {
+        throw new EmploymentCountMismatchError(existing.length, options.expectedExistingCount);
+      }
+
+      // (2) THE OLD-BUILD BLANK SAVE (owner ruling 2026-09-15). Nothing is written.
+      if (options.preserveWhenEmpty === true && rows.length === 0 && existing.length > 0) {
+        return {
+          replacedExisting: false,
+          existingCount: existing.length,
+          skipped: true,
+          carriedUnreadable: 0,
+        };
+      }
+
+      // (3) WHAT THE WORKER COULD NOT SEE, THE WORKER DID NOT REPLACE.
+      const unreadable = existing.filter(
+        (e) => readEmployerName(this.pii, e.employerNameEnc) === null,
+      );
+      const unreadableIds = new Set(unreadable.map((e) => e.id));
+      const replaceableIds = existing.filter((e) => !unreadableIds.has(e.id)).map((e) => e.id);
+      // AFTER every carried row, so an insert can never collide with one on `we_worker_sort_uq`.
+      // Display order among the NEW rows is still the submitted order; a carried row renders
+      // nowhere, so where it sits relative to them changes no sheet.
+      const sortBase =
+        unreadable.length === 0 ? 0 : Math.max(...unreadable.map((e) => e.sortOrder)) + 1;
 
       // ── WHAT THE DELETE WOULD OTHERWISE TAKE WITH IT ────────────────────────────────────
       //
@@ -124,8 +242,27 @@ export class WorkerEmploymentRepository {
         }
       }
 
-      await tx.delete(workerEmployment).where(eq(workerEmployment.workerId, workerId));
-      if (rows.length === 0) return { replacedExisting: existing.length > 0 };
+      const done = {
+        replacedExisting: existing.length > 0,
+        existingCount: existing.length,
+        skipped: false,
+        carriedUnreadable: unreadable.length,
+      };
+
+      // SCOPED TO THE WORKER AND TO THE READABLE IDS, never "every row for this worker". The
+      // worker predicate stays even though the ids came from a worker-scoped read, so the delete is
+      // provably one worker's on its own.
+      if (replaceableIds.length > 0) {
+        await tx
+          .delete(workerEmployment)
+          .where(
+            and(
+              eq(workerEmployment.workerId, workerId),
+              inArray(workerEmployment.id, replaceableIds),
+            ),
+          );
+      }
+      if (rows.length === 0) return done;
 
       const inserted = await tx
         .insert(workerEmployment)
@@ -140,8 +277,9 @@ export class WorkerEmploymentRepository {
             durationStated: r.durationStated,
             // The FORM's order is the display order, most recent first. Never derived from the
             // dates: two jobs can start in the same month, and a worker whose dates are unstated
-            // still described them in an order.
-            sortOrder: index,
+            // still described them in an order. Offset past any carried unreadable row (see
+            // `sortBase` above).
+            sortOrder: sortBase + index,
           })),
         )
         .returning({ id: workerEmployment.id });
@@ -172,8 +310,77 @@ export class WorkerEmploymentRepository {
         ),
       );
 
-      return { replacedExisting: existing.length > 0 };
+      return done;
     });
+  }
+
+  /**
+   * One worker's history for THEIR OWN edit page (#1504) — NOT {@link loadForResume}.
+   *
+   * THE RÉSUMÉ READ IS THE WRONG READ FOR A PREFILL, IN TWO WAYS THAT EACH ERASE DATA. It drops a
+   * row whose employer name will not decrypt, and it never selects `work_done_voice_note_id`. A page
+   * prefilled from it and saved as a full replace would delete the row the worker never saw and
+   * null the provenance of every spoken description. This read keeps both: every row comes back
+   * with its ciphertext still sealed (the service decides readability through
+   * {@link readEmployerName}, the same predicate the replace uses), and every stint carries its clip.
+   *
+   * THE REWRITE TEXT IS NOT SELECTED — only whether one exists. The page needs to know which text
+   * prints; it does not need a model's sentence on the wire to know that.
+   *
+   * Same ordering and same two-statement shape as the résumé read, for the same reasons.
+   */
+  async loadForWorkerEdit(workerId: string): Promise<WorkerEmploymentEditRecord[]> {
+    const employments = await this.db
+      .select({
+        id: workerEmployment.id,
+        employerNameEnc: workerEmployment.employerNameEnc,
+        employerCity: workerEmployment.employerCity,
+        employerState: workerEmployment.employerState,
+        startYm: workerEmployment.startYm,
+        endYm: workerEmployment.endYm,
+      })
+      .from(workerEmployment)
+      .where(eq(workerEmployment.workerId, workerId))
+      .orderBy(asc(workerEmployment.sortOrder));
+
+    if (employments.length === 0) return [];
+
+    const roles = await this.db
+      .select({
+        employmentId: workerEmploymentRole.employmentId,
+        roleLabel: workerEmploymentRole.roleLabel,
+        startYm: workerEmploymentRole.startYm,
+        endYm: workerEmploymentRole.endYm,
+        workDone: workerEmploymentRole.workDone,
+        workDoneVoiceNoteId: workerEmploymentRole.workDoneVoiceNoteId,
+        workDonePolishDeclined: workerEmploymentRole.workDonePolishDeclined,
+        workDonePolished: workerEmploymentRole.workDonePolished,
+      })
+      .from(workerEmploymentRole)
+      .where(
+        inArray(
+          workerEmploymentRole.employmentId,
+          employments.map((e) => e.id),
+        ),
+      )
+      .orderBy(asc(workerEmploymentRole.sortOrder));
+
+    const byEmployment = new Map<string, WorkerEmploymentEditRecord["roles"]>();
+    for (const role of roles) {
+      const bucket = byEmployment.get(role.employmentId) ?? [];
+      bucket.push({
+        roleLabel: role.roleLabel,
+        startYm: role.startYm,
+        endYm: role.endYm,
+        workDone: role.workDone,
+        workDoneVoiceNoteId: role.workDoneVoiceNoteId,
+        workDonePolishDeclined: role.workDonePolishDeclined,
+        hasPolish: role.workDonePolished !== null && role.workDonePolished.trim() !== "",
+      });
+      byEmployment.set(role.employmentId, bucket);
+    }
+
+    return employments.map((e) => ({ ...e, roles: byEmployment.get(e.id) ?? [] }));
   }
 
   /**
@@ -330,17 +537,12 @@ export class WorkerEmploymentRepository {
 
     const out: WorkerEmploymentRecord[] = [];
     for (const e of employments) {
-      let employer: string;
-      try {
-        employer = this.pii.decrypt(e.employerNameEnc);
-      } catch {
-        // NEVER LOG THE TOKEN OR THE ERROR DETAIL — the same contract the name and the phone
-        // already have. The employment is dropped rather than printed with a placeholder: an
-        // employer field is never blank and is never invented (§11 #4), so a name we cannot
-        // read is a row we cannot honestly render.
-        continue;
-      }
-      if (!employer.trim()) continue;
+      // The employment is dropped rather than printed with a placeholder: an employer field is
+      // never blank and is never invented (§11 #4), so a name we cannot read is a row we cannot
+      // honestly render. The predicate is shared with the replace and the edit read — see
+      // `readEmployerName`, which also owns the never-log-the-token rule.
+      const employer = readEmployerName(this.pii, e.employerNameEnc);
+      if (employer === null) continue;
       out.push({
         // #1353/#1354 — already selected above (`id: workerEmployment.id`); just
         // wasn't threaded into the render-input record until now.

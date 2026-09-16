@@ -6,7 +6,13 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
-import type { SetMyQualificationsDto } from "./worker-qualifications.dto";
+import {
+  SetMyQualificationsSchema,
+  type CertificateEntryDto,
+  type EducationEntryDto,
+  type MyQualificationsResponse,
+  type SetMyQualificationsDto,
+} from "./worker-qualifications.dto";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 
 /**
@@ -109,6 +115,48 @@ export class WorkerQualificationsService {
       certificate_count: certificatesWritten,
       education_count: educationsWritten,
     };
+  }
+
+  /**
+   * The caller's stored credentials, in the PUT's entry shapes (#1504).
+   *
+   * THE RÉSUMÉ READ IS THE RIGHT READ HERE, unlike for work history: it is plaintext, decrypts
+   * nothing and drops nothing, so a prefill built from it cannot silently omit a row. Each row is
+   * still passed through the PUT schema — see {@link MyQualificationsResponse} for why one that
+   * fails is withheld and counted rather than returned.
+   *
+   * NO EVENT (a read changes nothing) and a counts-only log line: an institute or an issuer the
+   * worker typed is exactly what the write path already refuses to log.
+   */
+  async getForWorker(workerId: string): Promise<MyQualificationsResponse> {
+    const stored = await this.qualifications.loadForResume(workerId);
+
+    const certificates: CertificateEntryDto[] = [];
+    const educations: EducationEntryDto[] = [];
+    let droppedCertificates = 0;
+    let droppedEducations = 0;
+    for (const row of stored.certificates) {
+      const parsed = SetMyQualificationsSchema.safeParse({ certificates: [row] });
+      if (parsed.success && parsed.data.certificates)
+        certificates.push(parsed.data.certificates[0]!);
+      else droppedCertificates += 1;
+    }
+    for (const row of stored.educations) {
+      const parsed = SetMyQualificationsSchema.safeParse({ educations: [row] });
+      if (parsed.success && parsed.data.educations) educations.push(parsed.data.educations[0]!);
+      else droppedEducations += 1;
+    }
+
+    const partial: ("certificates" | "educations")[] = [];
+    if (droppedCertificates > 0) partial.push("certificates");
+    if (droppedEducations > 0) partial.push("educations");
+    const droppedCount = droppedCertificates + droppedEducations;
+
+    this.logger.log(
+      `qualifications read for worker ${workerId}: ${certificates.length} certificate(s), ` +
+        `${educations.length} education(s), ${droppedCount} withheld`,
+    );
+    return { certificates, educations, partial, dropped_count: droppedCount };
   }
 
   /**
