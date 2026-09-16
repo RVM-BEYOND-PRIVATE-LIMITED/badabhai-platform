@@ -4,6 +4,7 @@ import { loadQuestionPackCorpus, type PackRecord } from "@badabhai/db";
 
 import { recordAnswer, toAnswerMap, type AnswerMap } from "./answer-map";
 import { emptyProfilingEnvelope, toEngineState, withAnswers } from "./conversation-state";
+import { chatServableItems } from "./facts/worker-fact.ownership";
 import { nextQuestion } from "./next-question";
 
 /**
@@ -21,6 +22,17 @@ import { nextQuestion } from "./next-question";
  * closed `complete` without the strongest matching signal there is. The LLM-led opening reaches
  * the tail late BY CONSTRUCTION, so what was a long-interview edge case became the normal path.
  * The late-start case below is that regression, pinned.
+ *
+ * ROUND 4 (#1505): THE OWNER'S 2026-08-11 SIX-QUESTION RULING IS SUPERSEDED, IN THE CHAT ONLY.
+ * `salary_expected`, `preferred_locations`, `education` and `shift_preference` are now asked by
+ * the pages that own them (résumé/preferences/qualifications), never by the chat — the same #1503
+ * fix the trade form got, one layer up. The TAIL a chat session actually serves is walked through
+ * `chatServableItems` (`facts/worker-fact.ownership.ts`), the exact filter `selectableEnginePacks`
+ * (`orchestrator.service.ts`) applies before either of its own branches run. The v1-starvation and
+ * relocation tests below stay on the RAW, unfiltered pack deliberately — they are pinning a
+ * property of the corpus DATA (a mandatory item's `max_turn`, a retired item's presence in v1
+ * only), not of what the chat currently chooses to ask, and filtering them would test the wrong
+ * thing.
  */
 
 /**
@@ -130,50 +142,49 @@ function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unk
 /** What Phase A settles before handing over — see `settleFromLlmDraft` in the orchestrator. */
 const AFTER_PHASE_A = { primary_trade: "tandoor cook", experience_years: 4 };
 
-const TAIL = [
-  "current_city",
-  "salary_expected",
-  "preferred_locations",
-  "availability",
-  "education",
-  "shift_preference",
-];
+/** The pack the CHAT actually serves — `qp_universal@2`'s items, through the ownership filter. */
+function chatUniversal(version: number): QuestionPack {
+  const pack = universal(version);
+  return { ...pack, items: chatServableItems(pack.items) };
+}
+
+/** #1505: pages own salary/preferred_locations/education/shift — the chat asks neither any more. */
+const TAIL = ["current_city", "availability"];
 
 describe("the template tail, over the REAL corpus", () => {
-  it("asks exactly the SIX the owner ruled on, once Phase A has handed over", () => {
-    expect(walk(universal(2), 8, AFTER_PHASE_A)).toEqual(TAIL);
+  it("asks the TWO the chat still owns, once Phase A has handed over (#1505 supersedes the SIX)", () => {
+    expect(walk(chatUniversal(2), 8, AFTER_PHASE_A)).toEqual(TAIL);
   });
 
-  it("asks the same six whether the tail is reached early or late", () => {
+  it("asks the same two whether the tail is reached early or late", () => {
     // The turn number a tail is entered on depends on how long Phase A ran, how many silences the
     // worker had, and how many times they asked "why". None of that may change the question set.
     for (const startTurn of [4, 6, 8, 12]) {
-      expect(walk(universal(2), startTurn, AFTER_PHASE_A), `entered at turn ${startTurn}`).toEqual(
-        TAIL,
-      );
+      expect(
+        walk(chatUniversal(2), startTurn, AFTER_PHASE_A),
+        `entered at turn ${startTurn}`,
+      ).toEqual(TAIL);
     }
   });
 
   it("still asks the trade and the experience when the model never ran", () => {
     // The fallback path: nothing pre-settled, so the pack asks its own two as well. `current_city`
     // lands second rather than third because it is the only MANDATORY item besides the trade, and
-    // `min_turn: 2` is what holds it off turn one.
-    expect(walk(universal(2), 1, {})).toEqual([
+    // `min_turn: 2` is what holds it off turn one. Pages-owned items never appear here either.
+    expect(walk(chatUniversal(2), 1, {})).toEqual([
       "primary_trade",
       "current_city",
       "experience_years",
-      "salary_expected",
-      "preferred_locations",
       "availability",
-      "education",
-      "shift_preference",
     ]);
   });
 
   it("v1 STARVED the mandatory city question on a late tail — the defect v2 exists to fix", () => {
-    // Pinned as a regression rather than described in a comment. `current_city` is mandatory and
-    // carried `max_turn: 5`, so a tail entered at turn 8 closed `complete` having never asked a
-    // worker where they live. v1 is frozen and keeps the defect; v2 must not have it.
+    // RAW, UNFILTERED PACKS — this pins a property of the CORPUS DATA (a mandatory item's
+    // `max_turn`), not of what the chat currently chooses to ask; filtering would test the wrong
+    // thing. Pinned as a regression rather than described in a comment. `current_city` is
+    // mandatory and carried `max_turn: 5`, so a tail entered at turn 8 closed `complete` having
+    // never asked a worker where they live. v1 is frozen and keeps the defect; v2 must not have it.
     const late = walk(universal(1), 8, {});
     expect(late).not.toContain("current_city");
     expect(late).not.toContain("salary_expected");
@@ -183,6 +194,8 @@ describe("the template tail, over the REAL corpus", () => {
   });
 
   it("drops `relocation`, which `preferred_locations` subsumes", () => {
+    // RAW, UNFILTERED PACKS — a retired item's presence in v1 only is a corpus-DATA fact, not a
+    // chat-ownership one.
     expect(walk(universal(2), 1, {})).not.toContain("relocation");
     // v1 keeps it — a published version's question set is frozen for the sessions pinned to it.
     expect(walk(universal(1), 1, {})).toContain("relocation");

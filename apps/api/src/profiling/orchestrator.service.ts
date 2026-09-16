@@ -68,6 +68,8 @@ import {
   RESUME_CONFIRM_OPTIONS,
 } from "./resume-confirm";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
+import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
 import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
@@ -1280,7 +1282,13 @@ export class ProfilingOrchestrator {
         // RE-DERIVED AGAINST THE ANSWER MAP AS IT IS NOW, not against the list that was shown.
         // A worker can answer one of these questions between the offer and his reply — on the
         // voice surface the two are separate submissions — and D7 says his answer wins.
-        const facts = confirmableFacts(staged, items, answers);
+        //
+        // `chatServableItems(items)`, NOT `items` (#1505 F3) — the SAME shared filter the offer
+        // below runs the batch through, so accept and offer can never disagree about which
+        // suggestions are worth confirming in the chat. A résumé's `education`/`salary_expected`/
+        // `preferred_locations` suggestions stay on the pages that own them; only trade,
+        // experience, city and availability are ever offered for confirmation here.
+        const facts = confirmableFacts(staged, chatServableItems(items), answers);
         for (const value of confirmedValues(facts)) {
           answers = recordAnswer(answers, value, turn);
         }
@@ -1310,8 +1318,23 @@ export class ProfilingOrchestrator {
     for (const value of capture.values) {
       answers = recordAnswer(answers, value, turn);
     }
+    // #1505 F1: `phaseALeads` tells `crossFillItems` whether a PER-JOB model question is on
+    // screen right now — NOT merely whether Phase A is running. `envelope.servedQuestionKey ===
+    // null && this.llm.leads(envelope)` is true for every Phase-A turn with no pack question on
+    // screen (branch 5 of `LlmTurnService.take` clears `servedQuestionKey` for exactly this
+    // reason) — but that set ALSO includes the turn that answers the composite opener
+    // ("… aur kitna tajurba hai?"), and a worker who states a total there must be allowed to have
+    // it captured (critique-6). `isOpenerReplyTurn` excludes exactly that one turn, so
+    // `experience_years` is only dropped from cross-fill while an ordinary per-job question is
+    // what the worker is actually answering. Whatever the opener turn DOES capture is never final
+    // either way — `settleFromLlmDraft` below unconditionally overwrites it with the sum of every
+    // resolved job entry once Phase A hands over (owner ruling, ADR §1505-1).
+    const phaseALeads =
+      envelope.servedQuestionKey === null &&
+      this.llm.leads(envelope) &&
+      !isOpenerReplyTurn(envelope);
     answers = this.fillCrossQuestion(
-      items,
+      crossFillItems(items, phaseALeads),
       input.text,
       envelope,
       answers,
@@ -1670,7 +1693,11 @@ export class ProfilingOrchestrator {
     // a new question there would be an ask the worker can no longer spend.
     if (next.resumeConfirm === null && !capped) {
       const offer = await this.resumeSuggestions.pendingForChat(input.workerId);
-      const facts = offer ? confirmableFacts(offer.suggestions, items, answers) : [];
+      // `chatServableItems(items)` — the same shared filter the accept path above runs through
+      // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
+      // are never offered for confirmation in the chat; only trade/experience/city/availability
+      // shrink the batch-confirm bubble here.
+      const facts = offer ? confirmableFacts(offer.suggestions, chatServableItems(items), answers) : [];
 
       if (offer && facts.length > 0) {
         next = {
@@ -3110,7 +3137,26 @@ function outstandingLlmAsk(
  * Phase A ran and is finished ⟹ nothing from the worker's trade pack is served, re-served,
  * predicted or spoken for the rest of the interview. Phase A never ran ⟹ this returns the very
  * object it was handed, and every deterministic interview behaves exactly as it did before this
- * function existed. That second branch is the majority path and it is an identity return.
+ * function existed.
+ *
+ * ─── #1505 F3: THE OWNERSHIP FILTER RUNS FIRST, ON EVERY SESSION ────────────────────────────
+ *
+ * BEFORE either of the two branches above, `chatServableItems` (`facts/worker-fact.ownership.ts`)
+ * drops any item that SETTLES a fact a PAGE owns — `salary_expected`, `preferred_locations`,
+ * `education`, `shift` — from both packs. This is NOT gated on `llmLedTurns > 0` the way the rest
+ * of this function is: `qp_universal@2` still carries those five questions for the deterministic
+ * engine (`f455bb36` appended them, #1503 stopped the TRADE FORM asking them, and this is the
+ * same fix one layer up, for the chat), so an interview the model never led would otherwise ask
+ * them anyway. Neither branch below is therefore a true identity return any more — see the note
+ * at each: the corrected claim is that the CALLER'S OBJECT SHAPE is unchanged (still `EnginePacks`
+ * with the same two keys), not that its `items` arrays are byte-identical to what was passed in.
+ *
+ * `CHAT_LLM_INTERVIEW_ENABLED` DOES NOT DEFAULT OFF — it is `true` in
+ * `docker-compose.staging.yml`, so `leads()` is NOT false "for every session" the way an earlier
+ * revision of this docblock claimed. The ownership filter's unconditional placement is exactly why
+ * that no longer matters here: whether or not Phase A leads, the five pages-owned questions never
+ * reach `chatServableItems`'s output, so which branch below fires changes only whether the
+ * OCCUPATION pack is also dropped — not whether the pages-owned facts are.
  *
  * ─── §3: WHY THE MODEL IS NOT WHAT DECIDES THIS ─────────────────────────────────────────────
  *
@@ -3182,23 +3228,33 @@ function outstandingLlmAsk(
  * recorded rather than smuggled in.
  */
 function selectableEnginePacks(envelope: ProfilingEnvelope, resolved: EnginePacks): EnginePacks {
-  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW — an identity return, so the engine is
-  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmLedTurns: 0`,
-  // `narrowProfilingEnvelope` reads an absent field as 0, and `LlmTurnService` is the only writer
-  // that ever moves it — so with `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF, `leads()` is
-  // false for every session, `take()` is never called, and nothing on the majority path can get
-  // past this line. FIRST because it is the majority path, and because it is the one branch whose
-  // correctness has to be obvious at a glance.
-  if (envelope.llmLedTurns === 0) return resolved;
+  // THE OWNERSHIP FILTER, FIRST AND UNCONDITIONAL (#1505 F3). Applies to `occupation` and
+  // `universal` alike, and to every session — not gated on `llmLedTurns`. See the docblock above:
+  // this is what stops `qp_universal@2`'s pages-owned questions (`salary_expected`,
+  // `preferred_locations`, `education`, `shift`) reaching a worker who never touched Phase A at
+  // all.
+  const filtered: EnginePacks = {
+    occupation: resolved.occupation
+      ? { ...resolved.occupation, items: chatServableItems(resolved.occupation.items) }
+      : null,
+    universal: { ...resolved.universal, items: chatServableItems(resolved.universal.items) },
+  };
+
+  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW'S TRADE PACK. `emptyProfilingEnvelope`
+  // seeds `llmLedTurns: 0`, `narrowProfilingEnvelope` reads an absent field as 0, and
+  // `LlmTurnService` is the only writer that ever moves it — so for any session Phase A never led,
+  // both packs are returned WHOLE (past the ownership filter above) and nothing on this path can
+  // get past this line. FIRST because it is the majority path.
+  if (envelope.llmLedTurns === 0) return filtered;
 
   // STILL RUNNING. Phase A is mid-interview, so the engine is not selecting anything this turn
   // anyway — but `openTurn` and `viewSession` read this too, and a worker who reopens the app
   // mid-Phase-A must be shown the same denominator the turn loop is about to use. `llmStage` is
   // written only by `LlmTurnService` and `llmFallback` only by `decide`; neither is reachable
   // from the wire.
-  if (envelope.llmStage !== "done" && !envelope.llmFallback) return resolved;
+  if (envelope.llmStage !== "done" && !envelope.llmFallback) return filtered;
 
-  return { occupation: null, universal: resolved.universal };
+  return { occupation: null, universal: filtered.universal };
 }
 
 function unavailable(): TurnResult {
@@ -3276,7 +3332,14 @@ function settleFromLlmDraft(
   turn: number,
 ): AnswerMap {
   const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
-  const months = draft.experiences.map((entry) => entry.duration_months);
+  // #1505 F2/ruling-1: `duration_months` FIRST (the ai-service's own parse, when it has one),
+  // `parseDurationMonths(duration_text)` as the API-side fallback for an entry that reached here
+  // with no month count at all. `resolvedMonths` returning `null` for even ONE entry is what
+  // holds `years` unsettled below — a partial sum understates a worker's experience, and
+  // understating it is the one direction that costs them jobs.
+  const resolvedMonths = (entry: (typeof draft.experiences)[number]): number | null =>
+    entry.duration_months ?? parseDurationMonths(entry.duration_text);
+  const months = draft.experiences.map(resolvedMonths);
   const years =
     months.length > 0 && months.every((m): m is number => typeof m === "number")
       ? Math.round(months.reduce((sum, m) => sum + m, 0) / 12)
@@ -3303,7 +3366,30 @@ function settleFromLlmDraft(
   };
 
   if (trade) settle("trade", trade, trade);
-  if (years !== null) settle("experience_years", `${years}`, years);
+
+  // `experience_years` IS THE ONE FIELD WHERE FIRST-WRITE-WINS IS DELIBERATELY BROKEN (owner
+  // ruling, ADR §1505-1) — NOT routed through `settle` above, which skips an already-settled
+  // question. The composite opener's reply CAN cross-fill a worker's stated total into this same
+  // field before every job entry has resolved (`crossFillItems`'s `phaseALeads` exclusion does
+  // not cover that one turn — see the call site's note), and once every entry DOES resolve, the
+  // sum must OVERRIDE whatever number the opener turn wrote — never the reverse, and never for
+  // any other field. `isSettled` is therefore ignored on purpose here, in this one direction only.
+  if (years !== null) {
+    const item = items.find((candidate) => candidate.target_field === "experience_years");
+    if (item) {
+      next = recordAnswer(
+        next,
+        {
+          questionKey: item.question_key,
+          targetField: "experience_years",
+          valueRaw: `${years}`,
+          valueNormalized: years,
+          evidence: null,
+        },
+        turn,
+      );
+    }
+  }
 
   // EVERY skills item, not the first one `settle` would have found: a pack may carry more than one
   // (`welding_process` and a materials question both target `skills`), and they ask about different
@@ -3351,6 +3437,29 @@ function settleFromLlmDraft(
  */
 function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
   return buffer.messages.map((message, i) => ({ i, role: message.role, text: message.text }));
+}
+
+/**
+ * Is this turn the worker's REPLY to the one-shot composite opener (#1505 F1)?
+ *
+ * NOT `turn === 1` — that was the ORIGINAL, measured-wrong version of this function (review on
+ * #1517): `buffer.turnCount` is bumped by {@link ProfilingOrchestrator.turn} on EVERY branch that
+ * returns through it, including the non-advancing ones — abusive, silent/empty, hardship,
+ * clarify/question-back — every one of which can fire on the worker's LITERAL first message,
+ * before the opener has been answered at all. Concretely: worker's turn 1 is abusive ("chutiya"),
+ * `turnCount` becomes 1 with nothing captured; turn 2 is the worker's REAL reply to the
+ * still-unanswered opener, stating a total — but `turn === 1` is false at turn 2, so the total
+ * would be wrongly excluded from cross-fill, reproducing the exact defect #1505 exists to close.
+ *
+ * WHAT ACTUALLY IDENTIFIES THE OPENER REPLY: nothing has been captured yet. `envelope.answerMap`
+ * is empty AND `envelope.llmDraft.experiences` is empty — the two places a captured fact can live
+ * before this turn runs. Read off `envelope` as handed to `decide()`, BEFORE this turn's own
+ * `capture`/identify/settlement writes anything, so a non-advancing turn (which writes neither)
+ * leaves both still empty and this correctly keeps reporting "the opener is still unanswered" on
+ * the worker's next real turn — however many non-advancing turns came before it.
+ */
+function isOpenerReplyTurn(envelope: ProfilingEnvelope): boolean {
+  return envelope.answerMap.length === 0 && envelope.llmDraft.experiences.length === 0;
 }
 
 /**
