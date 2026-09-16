@@ -3,17 +3,13 @@ import 'package:flutter/material.dart';
 import '../../../../core/api/api_client.dart'
     show CityOptionDto, WorkPrefOptionsDto;
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/widgets/bb_button.dart';
-import '../../../../core/widgets/bb_chip.dart';
-import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
-import '../../../../core/widgets/bb_toggle.dart';
+import '../../../../core/theme/onboarding_theme.dart';
+import '../../../../core/util/tap_guard.dart';
+import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
 import '../../domain/trade_form_models.dart';
+import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
 import 'trade_form_work_dictation.dart';
-import '../../../../core/util/tap_guard.dart';
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
@@ -27,12 +23,16 @@ const String _kRoleLabel = 'Aapka kaam / role';
 // CNC turning). Duplicated verbatim in `finishing/employer_card.dart`; keep
 // both in sync if this ever changes.
 const String _kRoleHint = 'Jaise: Operator';
-const String _kCityLabel = 'Sheher';
-const String _kStateLabel = 'State';
+const String _kCityLabel = 'Sheher (City)';
+const String _kStateLabel = 'State (Rajya)';
+// The free-text fields' hints keep their pre-redesign short words.
+const String _kCityHint = 'Sheher';
+const String _kStateHint = 'State';
 const String _kPickStateLabel = 'STATE CHUNEIN';
 const String _kPickCityLabel = 'SHEHER CHUNEIN';
 const String _kManualEntryLink = 'Khud likhein';
 const String _kBackToPickerLink = 'List se chunein';
+const String _kRemove = 'Hataayein';
 
 /// TEMPORARY demo data (#1429 — the real state-tagged city gazetteer isn't
 /// built yet, KP). Exactly 2 states, 2 cities each, as asked, so this flow
@@ -89,6 +89,11 @@ const List<String> _kMonths = <String>[
 /// button, no card) — the same thing this widget rendered before pagination
 /// when [_entries] was empty, so skipping employment entirely needs no more
 /// taps than it did before.
+///
+/// Painted with the Master UI Kit (screen 21): kit inputs, State (Rajya)
+/// BEFORE Sheher (City), and a kit switch row for "Abhi yahin kaam kar rahe
+/// hain". Data sources and validation are unchanged; the work-description mic
+/// is #1514's device dictation ([TradeFormWorkDictation]).
 class TradeFormEmploymentPage extends StatefulWidget {
   const TradeFormEmploymentPage({
     super.key,
@@ -97,10 +102,18 @@ class TradeFormEmploymentPage extends StatefulWidget {
     required this.loadOptions,
     this.initialEntries,
     this.onPageChanged,
+    this.onSkip,
   });
 
   final bool enabled;
   final ValueChanged<List<TradeFormEmploymentEntry>> onSave;
+
+  /// Called INSTEAD of [onSave] when the worker added, edited and removed
+  /// nothing and no [initialEntries] were banked: the page then holds only its
+  /// blank default, and `PUT /workers/me/employment` REPLACES the whole
+  /// history, so saving it would wipe what the worker saved before. Null keeps
+  /// the old always-[onSave] behaviour.
+  final VoidCallback? onSkip;
 
   /// The SAME options fetch the preferences marker uses — it carries the
   /// state catalogue and the state-tagged city gazetteer (#1429). Loaded
@@ -115,7 +128,7 @@ class TradeFormEmploymentPage extends StatefulWidget {
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
   /// same contract, reported here off [pageCount] (which — unlike
-  /// preferences' fixed 4 — changes at runtime as employer cards are
+  /// preferences' fixed count — changes at runtime as employer cards are
   /// added/removed).
   final void Function(int page, int pageCount)? onPageChanged;
 
@@ -135,6 +148,10 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       List<TradeFormEmploymentEntry>.of(
         widget.initialEntries ?? const <TradeFormEmploymentEntry>[],
       );
+
+  /// Set the moment the worker adds, edits or removes an employer card on this
+  /// visit. See [TradeFormEmploymentPage.onSkip].
+  bool _touched = false;
 
   /// #1474 — a double-tap used to add two identical employer cards.
   final TapGuard _addGuard = TapGuard();
@@ -194,7 +211,14 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
 
   /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
   /// internal page — see `_WizardScaffoldState`'s routing.
-  void save() => widget.onSave(_entries);
+  void save() {
+    final VoidCallback? skip = widget.onSkip;
+    if (skip != null && !_touched && widget.initialEntries == null) {
+      skip();
+      return;
+    }
+    widget.onSave(_entries);
+  }
 
   /// Always null: the year/month fields here come from a bounded PICKER
   /// SHEET (`_YearMonthSheet`), not free text, so an invalid or future date
@@ -203,6 +227,12 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   /// way; see `TradeFormPreferencesPageState.currentPageError`'s doc for
   /// why this check exists at all.
   String? currentPageError() => null;
+
+  /// What the wizard's listen button reads on the CURRENT internal page: the
+  /// marker's question (with its note on the first page, where both show) —
+  /// app copy only, never an employer, role or description the worker typed.
+  String currentPageSpeech() =>
+      _page == 0 ? '$_kTitle\n$_kSubtitle' : _kTitle;
 
   void goToNextPage() {
     if (isLastPage) return;
@@ -219,6 +249,7 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   void _add() {
     if (_entries.length >= kTradeFormMaxEmployers) return;
     setState(() {
+      _touched = true;
       _entries = <TradeFormEmploymentEntry>[
         ..._entries,
         const TradeFormEmploymentEntry(employerName: '', roleLabel: ''),
@@ -232,13 +263,17 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     final List<TradeFormEmploymentEntry> next =
         List<TradeFormEmploymentEntry>.of(_entries);
     next[index] = entry;
-    setState(() => _entries = next);
+    setState(() {
+      _touched = true;
+      _entries = next;
+    });
   }
 
   void _remove(int index) {
     final List<TradeFormEmploymentEntry> next =
         List<TradeFormEmploymentEntry>.of(_entries)..removeAt(index);
     setState(() {
+      _touched = true;
       _entries = next;
       final int maxPage = pageCount - 1; // recomputed off the NEW _entries
       if (_page > maxPage) _page = maxPage;
@@ -251,16 +286,8 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     final List<Widget> children = <Widget>[];
     if (_page == 0) {
       children.addAll(<Widget>[
-        Text(_kTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-        const SizedBox(height: AppSpacing.s2),
-        Text(
-          _kSubtitle,
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            color: AppColors.textMuted,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s4),
+        const TradeFormHeading(title: _kTitle, subtitle: _kSubtitle),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
       ]);
     }
     if (_entries.isNotEmpty) {
@@ -278,15 +305,12 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     }
     if (isLastPage && _entries.length < kTradeFormMaxEmployers) {
       if (_entries.isNotEmpty) {
-        children.add(const SizedBox(height: AppSpacing.s3));
+        children.add(const SizedBox(height: 12));
       }
       children.add(
-        BbButton(
+        TradeFormSecondaryButton(
           label: _kAddEmployer,
-          variant: BbButtonVariant.outline,
-          size: BbButtonSize.md,
-          iconLeft: Icons.add,
-          block: true,
+          icon: Icons.add,
           onPressed: _addGuard.wrap(_add),
         ),
       );
@@ -316,8 +340,6 @@ class _EmployerCard extends StatefulWidget {
 
   final List<String> states;
   final List<String> Function(String state) citiesFor;
-
-  /// #1472 — null means no mic, which is the honest default today.
 
   final TradeFormEmploymentEntry entry;
   final ValueChanged<TradeFormEmploymentEntry> onChanged;
@@ -367,49 +389,28 @@ class _EmployerCardState extends State<_EmployerCard> {
   @override
   Widget build(BuildContext context) {
     final TradeFormEmploymentEntry e = widget.entry;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
+    return TradeFormCard(
+      onRemove: widget.onRemove,
+      removeTooltip: _kRemove,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Align(
-            alignment: Alignment.centerRight,
-            child: IconButton(
-              onPressed: widget.onRemove,
-              icon: const Icon(
-                Icons.close,
-                size: 20,
-                color: AppColors.textMuted,
-              ),
-              tooltip: 'Hataayein',
-              constraints: const BoxConstraints(
-                minWidth: AppSpacing.tap,
-                minHeight: 32,
-              ),
-              padding: EdgeInsets.zero,
-            ),
-          ),
-          _label(_kNameLabel),
+          const TradeFormFieldLabel(_kNameLabel),
           TradeFormTextField(
             controller: _name,
             hint: _kNameHint,
             label: _kNameLabel,
             onChanged: (String v) => _push(e.copyWith(employerName: v)),
           ),
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kRoleLabel),
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kRoleLabel),
           TradeFormTextField(
             controller: _role,
             hint: _kRoleHint,
             label: _kRoleLabel,
             onChanged: (String v) => _push(e.copyWith(roleLabel: v)),
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 14),
           _EmployerLocationPicker(
             initialCity: e.employerCity,
             initialState: e.employerState,
@@ -418,8 +419,8 @@ class _EmployerCardState extends State<_EmployerCard> {
             onChanged: (String? city, String? state) =>
                 _push(e.copyWith(employerCity: city, employerState: state)),
           ),
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kStartLabel),
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kStartLabel),
           _YearMonthField(
             value: e.startYm,
             onPicked: (String? ym) {
@@ -434,28 +435,18 @@ class _EmployerCardState extends State<_EmployerCard> {
               _push(e.copyWith(startYm: ym));
             },
           ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  _kStillWorking,
-                  style: AppTypography.body(size: AppTypography.sizeSm),
-                ),
-              ),
-              BbToggle(
-                value: _stillWorking,
-                semanticLabel: _kStillWorking,
-                onChanged: (bool on) {
-                  setState(() => _stillWorking = on);
-                  _push(e.copyWith(endYm: null));
-                },
-              ),
-            ],
+          const SizedBox(height: 14),
+          TradeFormSwitchRow(
+            label: _kStillWorking,
+            value: _stillWorking,
+            onChanged: (bool on) {
+              setState(() => _stillWorking = on);
+              _push(e.copyWith(endYm: null));
+            },
           ),
           if (!_stillWorking) ...<Widget>[
-            const SizedBox(height: AppSpacing.s1),
-            _label(_kEndLabel),
+            const SizedBox(height: 14),
+            const TradeFormFieldLabel(_kEndLabel),
             _YearMonthField(
               value: e.endYm,
               onPicked: (String? ym) {
@@ -471,8 +462,8 @@ class _EmployerCardState extends State<_EmployerCard> {
               },
             ),
           ],
-          const SizedBox(height: AppSpacing.s3),
-          _label(_kWorkLabel),
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kWorkLabel),
           TradeFormTextField(
             controller: _work,
             hint: _kWorkHint,
@@ -503,23 +494,13 @@ class _EmployerCardState extends State<_EmployerCard> {
       ),
     );
   }
-
-  Widget _label(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: AppSpacing.s1),
-    child: Text(
-      text,
-      style: AppTypography.body(
-        size: AppTypography.sizeSm,
-        weight: FontWeight.w700,
-      ),
-    ),
-  );
 }
 
 /// Employer city/state — a two-step "pick state, then pick a city filtered
 /// to it" picker, now backed by the REAL server data (#1429): all 28 states
 /// + 8 UTs from the state catalogue, and cities from the state-tagged
-/// gazetteer.
+/// gazetteer. State ALWAYS renders before Sheher, in both the picker and the
+/// free-text layout.
 ///
 /// ── WHY THE FREE-TEXT PATH IS PERMANENT, NOT A LEFTOVER ─────────────────
 /// The gazetteer is a closed set of MANUFACTURING HUBS — 36 cities across 13
@@ -619,6 +600,28 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
     widget.onChanged(city, _pickedState);
   }
 
+  /// Opens the kit's searchable sheet; a dismissed sheet changes nothing —
+  /// the same contract the old dropdown field had.
+  Future<void> _openStateSheet() async {
+    final String? picked = await showOnboardingPicker(
+      context,
+      title: _kStateLabel,
+      options: widget.states,
+      selected: _pickedState,
+    );
+    if (picked != null && mounted) _pickState(picked);
+  }
+
+  Future<void> _openCitySheet(List<String> cities) async {
+    final String? picked = await showOnboardingPicker(
+      context,
+      title: _kCityLabel,
+      options: cities,
+      selected: _cityController.text.isEmpty ? null : _cityController.text,
+    );
+    if (picked != null && mounted) _pickCity(picked);
+  }
+
   void _switchToManual() {
     setState(() {
       _manual = true;
@@ -640,48 +643,27 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
   Widget build(BuildContext context) {
     if (_manual) {
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _fieldLabel(_kCityLabel),
-                    TradeFormTextField(
-                      controller: _cityController,
-                      hint: _kCityLabel,
-                      label: _kCityLabel,
-                      onChanged: (String v) =>
-                          widget.onChanged(v, _stateController.text),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _fieldLabel(_kStateLabel),
-                    TradeFormTextField(
-                      controller: _stateController,
-                      hint: _kStateLabel,
-                      label: _kStateLabel,
-                      textInputAction: TextInputAction.done,
-                      onChanged: (String v) =>
-                          widget.onChanged(_cityController.text, v),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          const TradeFormFieldLabel(_kStateLabel),
+          TradeFormTextField(
+            controller: _stateController,
+            hint: _kStateHint,
+            label: _kStateLabel,
+            onChanged: (String v) =>
+                widget.onChanged(_cityController.text, v),
           ),
-          TextButton(
-            onPressed: _switchToPicker,
-            child: const Text(_kBackToPickerLink),
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kCityLabel),
+          TradeFormTextField(
+            controller: _cityController,
+            hint: _kCityHint,
+            label: _kCityLabel,
+            textInputAction: TextInputAction.done,
+            onChanged: (String v) =>
+                widget.onChanged(v, _stateController.text),
           ),
+          _LocationLink(label: _kBackToPickerLink, onPressed: _switchToPicker),
         ],
       );
     }
@@ -690,83 +672,80 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
         _pickedState == null
             ? const <String>[]
             : widget.citiesFor(_pickedState!);
-    final String? cityValue = _cityController.text.isEmpty ? null : _cityController.text;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  _fieldLabel(_kStateLabel),
-                  BbSearchableDropdownField(
-                    placeholder: _kPickStateLabel,
-                    options: widget.states,
-                    selected: _pickedState,
-                    onSelected: _pickState,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppSpacing.s2),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  _fieldLabel(_kCityLabel),
-                  // A state the gazetteer lists cities for gets the
-                  // dropdown; one it does not (23 of the 36 states/UTs) gets
-                  // a plain text field right here, so picking e.g. Bihar
-                  // leads to a field the worker can answer instead of an
-                  // empty menu. The gazetteer is a hub list, not a map of
-                  // India — see this widget's own doc.
-                  if (_pickedState != null && cities.isEmpty)
-                    TradeFormTextField(
-                      controller: _cityController,
-                      hint: _kCityLabel,
-                      label: _kCityLabel,
-                      onChanged: (String v) =>
-                          widget.onChanged(v, _pickedState),
-                    )
-                  else
-                    BbSearchableDropdownField(
-                      placeholder: _kPickCityLabel,
-                      options: cities,
-                      selected: cityValue,
-                      enabled: _pickedState != null,
-                      onSelected: _pickCity,
-                    ),
-                ],
-              ),
-            ),
-          ],
+        const TradeFormFieldLabel(_kStateLabel),
+        OnboardingSelectField(
+          value: _pickedState ?? '',
+          hint: _kPickStateLabel,
+          semanticLabel: _kStateLabel,
+          onTap: _openStateSheet,
         ),
-        TextButton(
-          onPressed: _switchToManual,
-          child: const Text(_kManualEntryLink),
-        ),
+        const SizedBox(height: 14),
+        const TradeFormFieldLabel(_kCityLabel),
+        // A state the gazetteer lists cities for gets the dropdown; one it
+        // does not (23 of the 36 states/UTs) gets a plain text field right
+        // here, so picking e.g. Bihar leads to a field the worker can answer
+        // instead of an empty menu. The gazetteer is a hub list, not a map of
+        // India — see this widget's own doc.
+        if (_pickedState != null && cities.isEmpty)
+          TradeFormTextField(
+            controller: _cityController,
+            hint: _kCityHint,
+            label: _kCityLabel,
+            onChanged: (String v) => widget.onChanged(v, _pickedState),
+          )
+        else
+          OnboardingSelectField(
+            value: _cityController.text,
+            hint: _kPickCityLabel,
+            semanticLabel: _kCityLabel,
+            enabled: _pickedState != null,
+            onTap: () => _openCitySheet(cities),
+          ),
+        _LocationLink(label: _kManualEntryLink, onPressed: _switchToManual),
       ],
     );
   }
+}
 
-  Widget _fieldLabel(String text) => Padding(
-    padding: const EdgeInsets.only(bottom: AppSpacing.s1),
-    child: Text(
-      text,
-      style: AppTypography.body(
-        size: AppTypography.sizeSm,
-        weight: FontWeight.w700,
+/// The picker ⇄ free-text escape, as a left-aligned text link at a 48px tap
+/// target.
+class _LocationLink extends StatelessWidget {
+  const _LocationLink({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, OnboardingLayout.tapTarget),
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          foregroundColor: OnboardingColors.shiftBlue,
+        ),
+        child: Text(
+          label,
+          style: OnboardingTypography.inter(
+            size: 14,
+            weight: FontWeight.w600,
+            color: OnboardingColors.shiftBlue,
+            decoration: TextDecoration.underline,
+          ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// A month-precision date field, identical in behaviour to
 /// `features/finishing`'s own `_YearMonthField` (a scoped duplicate — see
-/// this file's class doc).
+/// this file's class doc). Painted as a kit input (48px, 10 radius).
 class _YearMonthField extends StatelessWidget {
   const _YearMonthField({required this.value, required this.onPicked});
 
@@ -788,47 +767,60 @@ class _YearMonthField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool set = value != null;
-    return InkWell(
-      onTap: () => _open(context),
-      borderRadius: BorderRadius.circular(AppRadii.md),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: AppSpacing.tap),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s3,
-          vertical: AppSpacing.s3,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadii.md),
-          border: Border.all(color: AppColors.borderSubtle),
-        ),
-        child: Row(
-          children: <Widget>[
-            const Icon(
-              Icons.event_outlined,
-              size: 20,
-              color: AppColors.textMuted,
+    final BorderRadius radius =
+        BorderRadius.circular(OnboardingRadii.nameField);
+    return Material(
+      color: OnboardingColors.paperWhite,
+      borderRadius: radius,
+      child: InkWell(
+        onTap: () => _open(context),
+        borderRadius: radius,
+        child: Container(
+          constraints:
+              const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
+          // When set, the clear button's own 48px square supplies the right
+          // edge and the height.
+          padding: EdgeInsets.only(left: 14, right: set ? 0 : 14),
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            border: Border.all(
+              color: OnboardingColors.borderDefault,
+              width: 1.2,
             ),
-            const SizedBox(width: AppSpacing.s2),
-            Expanded(
-              child: Text(
-                _display(),
-                style: AppTypography.body(
-                  size: AppTypography.sizeBase,
-                  color: set ? AppColors.textPrimary : AppColors.textFaint,
+          ),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.event_outlined,
+                size: 20,
+                color: OnboardingColors.ink600,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _display(),
+                  style: set
+                      ? OnboardingTypography.inter(
+                          size: 14,
+                          weight: FontWeight.w500,
+                        )
+                      : OnboardingTypography.inter(
+                          size: 14,
+                          color: OnboardingColors.ink500,
+                        ),
                 ),
               ),
-            ),
-            if (set)
-              GestureDetector(
-                onTap: () => onPicked(null),
-                child: const Icon(
-                  Icons.close,
-                  size: 18,
-                  color: AppColors.textMuted,
+              if (set)
+                IconButton(
+                  onPressed: () => onPicked(null),
+                  icon: const Icon(
+                    Icons.close,
+                    size: 18,
+                    color: OnboardingColors.ink500,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -837,10 +829,12 @@ class _YearMonthField extends StatelessWidget {
   Future<void> _open(BuildContext context) async {
     final String? picked = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: AppColors.surfaceCard,
+      backgroundColor: OnboardingColors.paperWhite,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.lg)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(OnboardingRadii.card),
+        ),
       ),
       builder: (BuildContext ctx) => const _YearMonthSheet(),
     );
@@ -865,44 +859,55 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter,
-          AppSpacing.s5,
-          AppSpacing.gutter,
-          AppSpacing.s5,
-        ),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Text(
               _year == null ? _kPickYear : _kPickMonth,
-              style: AppTypography.display(size: AppTypography.sizeLg),
+              style: OnboardingTypography.anek(size: 18),
             ),
-            const SizedBox(height: AppSpacing.s4),
-            if (_year == null)
-              Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
-                children: <Widget>[
-                  for (int y = _latestYear; y > _latestYear - _span; y--)
-                    BbChip(label: '$y', onTap: () => setState(() => _year = y)),
-                ],
-              )
-            else
-              Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
-                children: <Widget>[
-                  for (int m = 1; m <= 12; m++)
-                    BbChip(
-                      label: _kMonths[m - 1],
-                      onTap: () => Navigator.of(
-                        context,
-                      ).pop('${_year!}-${m.toString().padLeft(2, '0')}'),
-                    ),
-                ],
+            const SizedBox(height: 14),
+            // 45 year chips do not fit a 568px screen — the list scrolls
+            // inside the sheet instead of overflowing it.
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.55,
               ),
+              child: SingleChildScrollView(
+                child: _year == null
+                    ? Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <Widget>[
+                          for (int y = _latestYear; y > _latestYear - _span; y--)
+                            TradeFormPillChip(
+                              label: '$y',
+                              labelStyle: OnboardingTypography.mono(
+                                size: 14,
+                                weight: FontWeight.w600,
+                                color: OnboardingColors.ink900,
+                              ),
+                              onTap: () => setState(() => _year = y),
+                            ),
+                        ],
+                      )
+                    : Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <Widget>[
+                          for (int m = 1; m <= 12; m++)
+                            TradeFormPillChip(
+                              label: _kMonths[m - 1],
+                              onTap: () => Navigator.of(
+                                context,
+                              ).pop('${_year!}-${m.toString().padLeft(2, '0')}'),
+                            ),
+                        ],
+                      ),
+              ),
+            ),
           ],
         ),
       ),

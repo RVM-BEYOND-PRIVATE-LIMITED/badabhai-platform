@@ -3,26 +3,33 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
-import '../../../core/widgets/bb_app_bar.dart';
-import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_tag.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_check_row.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_docked_bar.dart';
+import '../../../core/widgets/kit/kit_info_chip.dart';
+import '../../../core/widgets/kit/kit_micro_label.dart';
+import '../../../core/widgets/kit/kit_pill.dart';
+import '../../../core/widgets/kit/kit_salary_box.dart';
+import '../../../core/widgets/kit/kit_square_icon_button.dart';
+import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../domain/job_detail.dart';
 import '../domain/jobs_repository.dart';
 import '../domain/swipe_repository.dart';
 import 'cubit/job_detail_cubit.dart';
+import '../../../core/widgets/feedback_fab.dart';
 
 /// TalkBack label for the icon-only sticky close button (#375).
 const String kCloseSemanticLabel = 'Band karein';
 
-/// Full job posting — kit 08 "Job detail". A white header block (title + the big
-/// ₹ salary) sits above a hairline-bracketed meta row (place / shift / experience
-/// / needed-by), then the description, ZAROORI SKILLS and BENEFITS sections, with
-/// a sticky "Apply karein" CTA pinned at the bottom.
+/// Full job posting. A navy [ShiftBlueHeader] carries the title and the place,
+/// then the green salary box and one [KitCard] per section (the coarse facts,
+/// the description, ZAROORI SKILLS, BENEFITS), with a docked "Apply karein" bar
+/// pinned at the bottom.
 ///
 /// Reached full-screen from a Feed card (or an Applied row), which hands over the
 /// light [JobDetail] it already holds — the header renders instantly from it
@@ -31,12 +38,13 @@ const String kCloseSemanticLabel = 'Band karein';
 /// Feed.
 ///
 /// Shows ONLY what the backend actually returns; each row renders ONLY when its
-/// field is non-null (a null field HIDES its row, never a placeholder). EMPLOYER
-/// IDENTITY IS HIDDEN ENTIRELY per the addendum ruling: no company name, no
-/// masked descriptor, no verified badge, no HOT tag, no spots-left, no fabricated
-/// "match %" — nothing employer-shaped and nothing scored (LLMs never rank,
-/// CLAUDE.md §4). An earlier build invented all of that client-side from
-/// `jobId.hashCode`; nothing here is synthesised.
+/// field is non-null (a null field HIDES its row, never a placeholder), and a
+/// section with no data is not rendered at all. EMPLOYER IDENTITY IS HIDDEN
+/// ENTIRELY per the addendum ruling: no company name, no masked descriptor, no
+/// verified badge, no HOT tag, no spots-left, no fabricated "match %" — nothing
+/// employer-shaped and nothing scored (LLMs never rank, CLAUDE.md §4). An
+/// earlier build invented all of that client-side from `jobId.hashCode`;
+/// nothing here is synthesised.
 class JobDetailScreen extends StatelessWidget {
   const JobDetailScreen({super.key, required this.detail, this.cubit});
 
@@ -81,8 +89,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.canvas,
-      appBar: const BbAppBar(title: ''),
+      backgroundColor: OnboardingColors.canvasBg,
       body: BlocConsumer<JobDetailCubit, JobDetailState>(
         listenWhen: (JobDetailState p, JobDetailState c) =>
             p.appliedNonce != c.appliedNonce ||
@@ -99,7 +106,8 @@ class _JobDetailViewState extends State<_JobDetailView> {
               ..clearSnackBars()
               ..showSnackBar(
                 const SnackBar(
-                    content: Text('Could not apply. Please try again.')),
+                  content: Text('Could not apply. Please try again.'),
+                ),
               );
           }
         },
@@ -110,135 +118,125 @@ class _JobDetailViewState extends State<_JobDetailView> {
   }
 
   Widget _detail(BuildContext context, JobDetailState state) {
+    final JobDetail d = state.detail;
+    final double width = MediaQuery.sizeOf(context).width;
     return Column(
       children: <Widget>[
+        // The place rides the header subtitle, so it is on screen the instant
+        // the row hands over — and it is NOT repeated as a fact chip below.
+        ShiftBlueHeader(
+          title: d.title,
+          subtitle: d.place,
+          onBack: () => context.pop(),
+          // The detail body is a 600 list — header, body and the docked Apply
+          // bar all stop on the same line.
+          maxWidth: OnboardingLayout.maxTabContentWidth,
+        ),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.zero,
-            children: <Widget>[
-              _headBand(state.detail),
-              // Hairline-bracketed meta row (place / shift / experience /
-              // needed-by). Place is on the light detail, so it shows instantly;
-              // the rest fill in after the full fetch.
-              ..._metaBlock(state.detail),
-              if (state.loading)
-                _loading()
-              else ...<Widget>[
-                if (state.loadFailed) _loadFailedNote(context),
-                ..._sections(state.detail),
-              ],
-            ],
+            padding: KitInsets.list(
+              width,
+              gutter: 16,
+            ).copyWith(
+              top: 14,
+              // Plus the floating Feedback pill's band, which otherwise landed
+              // on a skill chip. See [FeedbackFabInset].
+              bottom: 14 + FeedbackFabInset.of(context),
+            ),
+            children: _spaced(_blocks(context, state)),
           ),
         ),
-        _stickyCta(context, state),
+        _bottomBar(context, state),
       ],
     );
   }
 
-  /// The white header block: the job title and, once the full posting lands, the
-  /// big ₹ salary in the Anek display voice (salaries are a display-font moment,
-  /// design spec §3). Salary is hidden until pay is known — never a placeholder.
-  Widget _headBand(JobDetail d) {
-    final String? pay = formatPayBandFull(d.payMin, d.payMax);
-    return Container(
-      width: double.infinity,
-      color: AppColors.surfaceCard,
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s5, AppSpacing.gutter, AppSpacing.s5),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(d.title,
-              style: AppTypography.display(
-                  size: AppTypography.sizeXl, weight: FontWeight.w800)),
-          if (pay != null) ...<Widget>[
-            const SizedBox(height: AppSpacing.s3),
-            // The salary is the hero of the header — bigger than the title.
-            Text(pay,
-                style: AppTypography.display(
-                    size: AppTypography.size2xl,
-                    weight: FontWeight.w800,
-                    color: AppColors.textPrimary)),
-          ],
-        ],
-      ),
-    );
-  }
+  /// The body's blocks, in order, each present ONLY when it has real data.
+  List<Widget> _blocks(BuildContext context, JobDetailState state) {
+    final JobDetail d = state.detail;
+    final List<Widget> blocks = <Widget>[];
 
-  /// The meta row bracketed by hairline dividers, on paper — kit 08's coarse-fact
-  /// strip. Returns the dividers + row only when at least one fact exists; a job
-  /// with nothing to show gets a single divider under the header instead of an
-  /// empty band.
-  List<Widget> _metaBlock(JobDetail d) {
-    final List<Widget> metas = _metaItems(d);
-    if (metas.isEmpty) {
-      return const <Widget>[Divider()];
+    // The employer's OFFERED band — hence 'Salary', not 'Expected salary'
+    // (that label belongs to the worker's own asking figure on the resume).
+    final String? pay = formatPayBandFull(d.payMin, d.payMax);
+    if (pay != null) {
+      blocks.add(KitSalaryBox(label: 'Salary', value: pay));
     }
-    return <Widget>[
-      const Divider(),
-      Container(
-        color: AppColors.surfaceCard,
-        padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.gutter, vertical: AppSpacing.s3),
-        child: Wrap(
-          spacing: AppSpacing.s5,
-          runSpacing: AppSpacing.s2,
-          children: metas,
+
+    final List<Widget> facts = _factChips(d);
+    if (facts.isNotEmpty) {
+      blocks.add(
+        KitCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const KitMicroLabel('KAAM KI JAANKARI'),
+              const SizedBox(height: 10),
+              Wrap(spacing: 8, runSpacing: 8, children: facts),
+            ],
+          ),
         ),
-      ),
-      const Divider(),
-    ];
+      );
+    }
+
+    if (state.loading) {
+      blocks.add(_loading());
+    } else {
+      if (state.loadFailed) blocks.add(_loadFailedNote(context));
+      blocks.addAll(_sections(d));
+    }
+    return blocks;
   }
 
   /// The coarse facts, each rendered ONLY when its field is non-null (a null
   /// field hides its chip — never fabricated). Order per the ADR-0024 addendum:
-  /// place, shift, experience, needed-by.
-  List<Widget> _metaItems(JobDetail d) {
-    final List<Widget> items = <Widget>[];
-    final String? place = d.place;
-    if (place != null) items.add(_meta(Icons.place_outlined, place));
+  /// shift, experience, needed-by. The place is in the header.
+  ///
+  /// A NEUTRAL dot and NO green check: the tick in this kit means "verified",
+  /// and a job's stated shift is the employer's claim, not a checked fact.
+  List<Widget> _factChips(JobDetail d) {
+    final List<Widget> chips = <Widget>[];
     final String? shift = shiftLabel(d.shift);
-    if (shift != null) items.add(_meta(Icons.schedule, '$shift shift'));
-    final String? experience =
-        experienceLabel(d.minExperienceYears, d.maxExperienceYears);
-    if (experience != null) items.add(_meta(Icons.work_outline, experience));
+    if (shift != null) chips.add(_fact('$shift shift'));
+    final String? experience = experienceLabel(
+      d.minExperienceYears,
+      d.maxExperienceYears,
+    );
+    if (experience != null) chips.add(_fact(experience));
     final String? neededBy = neededByLabel(d.neededBy);
-    if (neededBy != null) {
-      items.add(_meta(Icons.event_available_outlined, neededBy));
-    }
-    return items;
+    if (neededBy != null) chips.add(_fact(neededBy));
+    return chips;
   }
 
-  Widget _meta(IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Icon(icon, size: 15, color: AppColors.textMuted),
-        const SizedBox(width: AppSpacing.s1),
-        Text(text,
-            style: AppTypography.body(
-                size: AppTypography.sizeXs, color: AppColors.textSecondary)),
-      ],
-    );
-  }
+  Widget _fact(String label) =>
+      KitInfoChip(label: label, dot: OnboardingColors.ink500, showCheck: false);
 
   /// Fetch-phase indicator below the instantly-rendered header. A captioned
   /// spinner, never a bare centered one (design spec §5 / §10).
   Widget _loading() {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.gutter, vertical: AppSpacing.s7),
+      padding: const EdgeInsets.symmetric(vertical: 24),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
           const SizedBox(
             width: 18,
             height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: OnboardingColors.shiftBlue,
+            ),
           ),
-          const SizedBox(width: AppSpacing.s3),
-          Text('Poori jaankari load ho rahi hai…',
-              style: AppTypography.body(color: AppColors.textSecondary)),
+          const SizedBox(width: 12),
+          // Flexible: the caption is a whole sentence, and a 320dp card at a
+          // 2.0 system font has nowhere near the width for it on one line. It
+          // wraps beside the spinner instead of running off the card.
+          Flexible(
+            child: Text(
+              'Poori jaankari load ho rahi hai…',
+              style: OnboardingTypography.body(color: OnboardingColors.ink600),
+            ),
+          ),
         ],
       ),
     );
@@ -247,20 +245,27 @@ class _JobDetailViewState extends State<_JobDetailView> {
   /// Quiet retry affordance: the header above stays — what we have is real —
   /// only the FULL posting failed to load.
   Widget _loadFailedNote(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, 0),
-      child: Row(
+    // A Wrap, not a Row: at a large system font the sentence and the button
+    // cannot share a 320dp line, and "Try again" is the one control on this
+    // block — it drops under the sentence rather than being squeezed away.
+    return SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: <Widget>[
-          Expanded(
-            child: Text(
-              'Poori jaankari load nahi hui.',
-              style: AppTypography.body(color: AppColors.textSecondary),
-            ),
+          Text(
+            'Poori jaankari load nahi hui.',
+            style: OnboardingTypography.body(color: OnboardingColors.ink600),
           ),
           TextButton(
             style: TextButton.styleFrom(
-              minimumSize: const Size(AppSpacing.tap, AppSpacing.tap),
+              minimumSize: const Size(
+                OnboardingLayout.tapTarget,
+                OnboardingLayout.tapTarget,
+              ),
             ),
             onPressed: () => context.read<JobDetailCubit>().retry(),
             child: const Text('Try again'),
@@ -271,161 +276,160 @@ class _JobDetailViewState extends State<_JobDetailView> {
   }
 
   /// The narrative sections, each rendered ONLY when its field is non-null (a
-  /// null field hides the whole section). The coarse facts live in the meta row
+  /// null field hides the whole card). The coarse facts live in their own card
   /// above, so this is description → ZAROORI SKILLS → BENEFITS only.
   List<Widget> _sections(JobDetail d) {
     final List<String>? requirements = d.requirements;
     final List<String>? benefits = d.benefits;
+    final List<Widget> out = <Widget>[];
 
-    return <Widget>[
-      if (d.description != null && d.description!.trim().isNotEmpty)
-        _section(
-          'KAAM KE BAARE MEIN',
-          Text(d.description!,
-              style: AppTypography.body(color: AppColors.textSecondary)),
+    if (d.description != null && d.description!.trim().isNotEmpty) {
+      out.add(
+        _sectionCard(
+          eyebrow: 'KAAM KE BAARE MEIN',
+          child: Text(d.description!, style: OnboardingTypography.body()),
         ),
-      if (requirements != null && requirements.isNotEmpty)
-        _section(
-          'ZAROORI SKILLS',
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: requirements.map(BbTag.new).toList(),
-          ),
-        ),
-      if (benefits != null && benefits.isNotEmpty)
-        _section(
-          'BENEFITS',
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      );
+    }
+
+    if (requirements != null && requirements.isNotEmpty) {
+      out.add(
+        _sectionCard(
+          eyebrow: 'ZAROORI SKILLS',
+          // A real count, never the word "Verified" (R8).
+          count: requirements.length,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: <Widget>[
-              for (final String benefit in benefits)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Icon(Icons.check_circle_outline,
-                          size: 18, color: AppColors.success),
-                      const SizedBox(width: AppSpacing.s2),
-                      Expanded(
-                        child: Text(benefit,
-                            style: AppTypography.body(
-                                color: AppColors.textSecondary)),
-                      ),
-                    ],
-                  ),
+              for (final String requirement in requirements)
+                // No dot, no check: a job REQUIREMENT is not a skill anybody
+                // verified on this worker, so it carries no verified grammar.
+                // The SAME read-only chip as 'Kaam ki jaankari' above it: a
+                // grey dot, no check. Two chip paints on one screen (dotted
+                // facts, undotted skills) read as two components for one
+                // concept, which is exactly what the kit is meant to stop.
+                KitInfoChip(
+                  label: requirement,
+                  dot: OnboardingColors.ink500,
+                  showCheck: false,
                 ),
             ],
           ),
         ),
-      const SizedBox(height: AppSpacing.s5),
-    ];
+      );
+    }
+
+    if (benefits != null && benefits.isNotEmpty) {
+      out.add(
+        _sectionCard(
+          eyebrow: 'BENEFITS',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              for (int i = 0; i < benefits.length; i++) ...<Widget>[
+                if (i > 0) const SizedBox(height: 6),
+                KitCheckRow(label: benefits[i]),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return out;
   }
 
-  /// Eyebrow heading + content block (matches the app's section pattern).
-  Widget _section(String heading, Widget child) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s5, AppSpacing.gutter, 0),
+  Widget _sectionCard({
+    required String eyebrow,
+    required Widget child,
+    int? count,
+  }) {
+    return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(heading, style: AppTypography.eyebrow()),
-          const SizedBox(height: AppSpacing.s3),
+          Row(
+            children: <Widget>[
+              Expanded(child: KitMicroLabel(eyebrow)),
+              if (count != null) KitCountPill(count: count),
+            ],
+          ),
+          const SizedBox(height: 10),
           child,
         ],
       ),
     );
   }
 
-  Widget _stickyCta(BuildContext context, JobDetailState state) {
-    // WA-2: an ALREADY-APPLIED job (opened from an Applied-jobs row, which
-    // threads the real `action` in) shows its status — never an apply action.
-    // A repeat apply is pointless (idempotent upsert) and reads like the first
-    // one never registered.
-    final Widget content = state.detail.alreadyApplied
-        ? _appliedStatus(state)
-        : _applyRow(context, state);
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surfaceCard,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+  /// WA-2: an ALREADY-APPLIED job (opened from an Applied-jobs row, which
+  /// threads the real `action` in) shows its status — never an apply action.
+  /// A repeat apply is pointless (idempotent upsert) and reads like the first
+  /// one never registered.
+  Widget _bottomBar(BuildContext context, JobDetailState state) {
+    if (state.detail.alreadyApplied) return _appliedStatus();
+    return QuestionnaireBottomBar(
+      // Same 600 column as the header and the body above it.
+      maxWidth: OnboardingLayout.maxTabContentWidth,
+      nextLabel: 'Apply karein',
+      isLoading: state.applying,
+      onNext: state.applying
+          ? null
+          : () => context.read<JobDetailCubit>().apply(),
+      // #375 — icon-only close: without a label TalkBack announces nothing
+      // actionable and the only way back out of the detail is unidentifiable.
+      leading: KitSquareIconButton(
+        icon: Icons.close_rounded,
+        semanticLabel: kCloseSemanticLabel,
+        iconColor: OnboardingColors.ink600,
+        onTap: state.applying ? null : () => context.pop(),
       ),
-      padding: EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s3,
-        AppSpacing.gutter,
-        AppSpacing.s3 + MediaQuery.of(context).padding.bottom,
-      ),
-      child: content,
     );
   }
 
   /// The applied-state bar. GATED on the real recorded `action` from the
   /// applications API ([JobDetail.alreadyApplied]), but the wire enum itself
   /// never renders — the copy is the DS's warm Hinglish (L-2, low-literacy
-  /// audience). Back navigation stays on the app bar; nothing is left to
-  /// decide.
-  Widget _appliedStatus(JobDetailState state) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
-      decoration: BoxDecoration(
-        color: AppColors.successTint,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-      ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.check_circle, color: AppColors.success, size: 26),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Text('Aapne apply kar diya ✓',
-                style: AppTypography.display(
-                    size: AppTypography.sizeBase, weight: FontWeight.w800)),
-          ),
-        ],
+  /// audience). Back navigation stays on the header; nothing is left to decide,
+  /// so there is no button here at all.
+  Widget _appliedStatus() {
+    return KitDockedBar(
+      maxWidth: OnboardingLayout.maxTabContentWidth,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: OnboardingColors.successBg,
+          borderRadius: BorderRadius.circular(OnboardingRadii.docked),
+          border: Border.all(color: OnboardingColors.successBorder),
+        ),
+        child: Row(
+          children: <Widget>[
+            const Icon(
+              Icons.check_circle_rounded,
+              size: 24,
+              color: OnboardingColors.successGreen,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Aapne apply kar diya ✓',
+                style: OnboardingTypography.anek(
+                  size: 16,
+                  weight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _applyRow(BuildContext context, JobDetailState state) {
-    return Row(
-      children: <Widget>[
-        // #375 — icon-only close: without a label TalkBack announces nothing
-        // actionable and the only way back out of the detail is unidentifiable.
-        Semantics(
-          button: true,
-          label: kCloseSemanticLabel,
-          child: Material(
-            color: AppColors.surfaceCard,
-            shape: const CircleBorder(
-              side: BorderSide(color: AppColors.borderStrong, width: 2),
-            ),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: state.applying ? null : () => context.pop(),
-              child: const SizedBox(
-                width: 56,
-                height: 56,
-                child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.s3),
-        Expanded(
-          child: BbButton(
-            label: 'Apply karein',
-            iconLeft: Icons.check,
-            loading: state.applying,
-            onPressed: state.applying
-                ? null
-                : () => context.read<JobDetailCubit>().apply(),
-          ),
-        ),
-      ],
-    );
-  }
+  /// 12dp between blocks, applied in one place so no card owns the gap after it.
+  List<Widget> _spaced(List<Widget> blocks) => <Widget>[
+    for (int i = 0; i < blocks.length; i++) ...<Widget>[
+      if (i > 0) const SizedBox(height: 12),
+      blocks[i],
+    ],
+  ];
 }

@@ -15,6 +15,12 @@ import 'package:badabhai_worker_app/features/voice/presentation/voice_note_scree
 
 class MockVoiceNoteRepository extends Mock implements VoiceNoteRepository {}
 
+/// The screen's back affordance. UI kit v3 gives a pushed route the Shift Blue
+/// header, whose back arrow is the kit's own tooltipped [IconButton] — not the
+/// Material [BackButton] an [AppBar] used to imply. It still goes through
+/// `maybePop`, so the #373 hold below is what decides whether it leaves.
+final Finder _backArrow = find.byTooltip('Wapas');
+
 void main() {
   late MockVoiceNoteRepository repo;
 
@@ -37,25 +43,29 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('idle: warm Hinglish invite + a mic hero well above 48px',
-      (WidgetTester tester) async {
+  testWidgets('idle: warm Hinglish invite + a mic hero well above 48px', (
+    WidgetTester tester,
+  ) async {
     await pumpScreen(tester);
 
     expect(find.text('Bol kar batayein'), findsOneWidget);
     expect(find.byIcon(Icons.mic_rounded), findsOneWidget);
     // Touch targets are sacred (≥48px): the mic hero is 96x96.
     final Size micSize = tester.getSize(
-      find.ancestor(
-        of: find.byIcon(Icons.mic_rounded),
-        matching: find.byType(SizedBox),
-      ).first,
+      find
+          .ancestor(
+            of: find.byIcon(Icons.mic_rounded),
+            matching: find.byType(SizedBox),
+          )
+          .first,
     );
     expect(micSize.width, greaterThanOrEqualTo(48));
     expect(micSize.height, greaterThanOrEqualTo(48));
   });
 
-  testWidgets('tapping the mic starts recording: counter + send + cancel',
-      (WidgetTester tester) async {
+  testWidgets('tapping the mic starts recording: counter + send + cancel', (
+    WidgetTester tester,
+  ) async {
     await pumpScreen(tester);
 
     await tester.tap(find.byIcon(Icons.mic_rounded));
@@ -67,8 +77,9 @@ void main() {
     expect(find.text('Cancel karein'), findsOneWidget);
   });
 
-  testWidgets('cancel while recording returns to the idle invite',
-      (WidgetTester tester) async {
+  testWidgets('cancel while recording returns to the idle invite', (
+    WidgetTester tester,
+  ) async {
     await pumpScreen(tester);
     await tester.tap(find.byIcon(Icons.mic_rounded));
     await tester.pump();
@@ -81,8 +92,9 @@ void main() {
     verify(() => repo.cancelRecording()).called(1);
   });
 
-  testWidgets('stop → processing spinner with honest caption',
-      (WidgetTester tester) async {
+  testWidgets('stop → processing spinner with honest caption', (
+    WidgetTester tester,
+  ) async {
     // Hold the pipeline open (a Completer, never completed — no timers) so the
     // processing state stays visible.
     final Completer<String> pipeline = Completer<String>();
@@ -122,57 +134,72 @@ void main() {
     }
 
     testWidgets(
-        'the transcript is SHOWN with the exact prompt and both chips, and '
-        'nothing has been sent', (WidgetTester tester) async {
-      await pumpScreen(tester);
-      await reachConfirm(tester);
+      'the transcript is SHOWN with the exact prompt and both chips, and '
+      'nothing has been sent',
+      (WidgetTester tester) async {
+        await pumpScreen(tester);
+        await reachConfirm(tester);
 
-      expect(find.text('CNC par 4 saal ka anubhav.'), findsOneWidget);
-      expect(find.text('Yeh theek hai?'), findsOneWidget);
-      expect(find.text('Haan'), findsOneWidget);
-      expect(find.text('Sudhaarna hai'), findsOneWidget);
-      // THE INVARIANT: the recogniser's words are not the worker's answer until
-      // they say so.
-      verifyNever(() => repo.sendConfirmedTranscript(any()));
-    });
+        expect(find.text('CNC par 4 saal ka anubhav.'), findsOneWidget);
+        expect(find.text('Yeh theek hai?'), findsOneWidget);
+        expect(find.text('Haan'), findsOneWidget);
+        expect(find.text('Sudhaarna hai'), findsOneWidget);
+        // THE INVARIANT: the recogniser's words are not the worker's answer until
+        // they say so.
+        verifyNever(() => repo.sendConfirmedTranscript(any()));
+      },
+    );
 
-    testWidgets('the confirm chips clear the 48px tap floor',
-        (WidgetTester tester) async {
+    testWidgets('the confirm chips clear the 48px tap floor', (
+      WidgetTester tester,
+    ) async {
       await pumpScreen(tester);
       await reachConfirm(tester);
 
       for (final String label in <String>['Haan', 'Sudhaarna hai']) {
-        expect(tester.getSize(find.ancestor(
-              of: find.text(label),
-              matching: find.byType(ConstrainedBox),
-            ).first).height, greaterThanOrEqualTo(48),
-            reason: '$label must stay thumb-sized');
+        expect(
+          tester
+              .getSize(
+                find
+                    .ancestor(
+                      of: find.text(label),
+                      matching: find.byType(ConstrainedBox),
+                    )
+                    .first,
+              )
+              .height,
+          greaterThanOrEqualTo(48),
+          reason: '$label must stay thumb-sized',
+        );
       }
     });
 
-    testWidgets('"Haan" sends the transcript exactly as shown',
-        (WidgetTester tester) async {
+    testWidgets('"Haan" sends the transcript exactly as shown', (
+      WidgetTester tester,
+    ) async {
       // Held open (never completed — no timers) so the screen stays on the send
       // leg. Letting it succeed would pop, and this harness has no GoRouter; the
       // pop-with-outcome path is covered in the #373 group below, on a real
       // router stack.
       final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
-      when(() => repo.sendConfirmedTranscript(any()))
-          .thenAnswer((_) => send.future);
+      when(
+        () => repo.sendConfirmedTranscript(any()),
+      ).thenAnswer((_) => send.future);
       await pumpScreen(tester);
       await reachConfirm(tester);
 
       await tester.tap(find.text('Haan'));
       await tester.pump();
 
-      verify(() => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'))
-          .called(1);
+      verify(
+        () => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'),
+      ).called(1);
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
-    testWidgets(
-        '"Sudhaarna hai" offers BOTH an inline edit and a re-record',
-        (WidgetTester tester) async {
+    testWidgets('"Sudhaarna hai" offers BOTH an inline edit and a re-record', (
+      WidgetTester tester,
+    ) async {
       await pumpScreen(tester);
       await reachConfirm(tester);
 
@@ -183,12 +210,14 @@ void main() {
       expect(find.text('Dobara bolein'), findsOneWidget);
     });
 
-    testWidgets('an inline edit is what gets sent, not the recogniser output',
-        (WidgetTester tester) async {
+    testWidgets('an inline edit is what gets sent, not the recogniser output', (
+      WidgetTester tester,
+    ) async {
       // Held open for the same reason as the "Haan" test above.
       final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
-      when(() => repo.sendConfirmedTranscript(any()))
-          .thenAnswer((_) => send.future);
+      when(
+        () => repo.sendConfirmedTranscript(any()),
+      ).thenAnswer((_) => send.future);
       await pumpScreen(tester);
       await reachConfirm(tester);
 
@@ -198,31 +227,36 @@ void main() {
       await tester.tap(find.text('Bhej dein'));
       await tester.pump();
 
-      verify(() => repo.sendConfirmedTranscript('VMC operator, 4 saal.'))
-          .called(1);
+      verify(
+        () => repo.sendConfirmedTranscript('VMC operator, 4 saal.'),
+      ).called(1);
       verifyNever(
-          () => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'));
+        () => repo.sendConfirmedTranscript('CNC par 4 saal ka anubhav.'),
+      );
       await tester.pumpWidget(const SizedBox.shrink());
     });
 
     group('Devanagari is blocked in the correction box (#1411)', () {
       testWidgets(
-          'a Devanagari transcript is stripped the moment the edit box opens',
-          (WidgetTester tester) async {
-        await pumpScreen(tester);
-        await reachConfirm(tester, transcript: 'मेने CNC par kaam kiya');
+        'a Devanagari transcript is stripped the moment the edit box opens',
+        (WidgetTester tester) async {
+          await pumpScreen(tester);
+          await reachConfirm(tester, transcript: 'मेने CNC par kaam kiya');
 
-        await tester.tap(find.text('Sudhaarna hai'));
-        await tester.pumpAndSettle();
+          await tester.tap(find.text('Sudhaarna hai'));
+          await tester.pumpAndSettle();
 
-        final TextField field =
-            tester.widget<TextField>(find.byType(TextField));
-        expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
-        expect(find.text(kDevanagariBlockedHint), findsOneWidget);
-      });
+          final TextField field = tester.widget<TextField>(
+            find.byType(TextField),
+          );
+          expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
+          expect(find.text(kDevanagariBlockedHint), findsOneWidget);
+        },
+      );
 
-      testWidgets('typing Devanagari into the edit box strips it too',
-          (WidgetTester tester) async {
+      testWidgets('typing Devanagari into the edit box strips it too', (
+        WidgetTester tester,
+      ) async {
         await pumpScreen(tester);
         await reachConfirm(tester);
 
@@ -233,29 +267,31 @@ void main() {
         await tester.enterText(find.byType(TextField), 'फिर से काम किया');
         await tester.pump();
 
-        final TextField field =
-            tester.widget<TextField>(find.byType(TextField));
+        final TextField field = tester.widget<TextField>(
+          find.byType(TextField),
+        );
         expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
         expect(find.text(kDevanagariBlockedHint), findsOneWidget);
       });
 
-      testWidgets('a Roman-only edit never shows the notice',
-          (WidgetTester tester) async {
+      testWidgets('a Roman-only edit never shows the notice', (
+        WidgetTester tester,
+      ) async {
         await pumpScreen(tester);
         await reachConfirm(tester);
 
         await tester.tap(find.text('Sudhaarna hai'));
         await tester.pumpAndSettle();
-        await tester.enterText(
-            find.byType(TextField), 'VMC operator, 4 saal.');
+        await tester.enterText(find.byType(TextField), 'VMC operator, 4 saal.');
         await tester.pump();
 
         expect(find.text(kDevanagariBlockedHint), findsNothing);
       });
     });
 
-    testWidgets('"Dobara bolein" returns to the idle mic and sends nothing',
-        (WidgetTester tester) async {
+    testWidgets('"Dobara bolein" returns to the idle mic and sends nothing', (
+      WidgetTester tester,
+    ) async {
       await pumpScreen(tester);
       await reachConfirm(tester);
 
@@ -269,8 +305,7 @@ void main() {
     });
   });
 
-  testWidgets(
-      'mic permission denied shows the honest error + typing fallback, '
+  testWidgets('mic permission denied shows the honest error + typing fallback, '
       'and retry returns to idle', (WidgetTester tester) async {
     when(() => repo.ensureMicPermission()).thenAnswer((_) async => false);
     await pumpScreen(tester);
@@ -287,10 +322,12 @@ void main() {
     expect(find.text('Bol kar batayein'), findsOneWidget);
   });
 
-  testWidgets('pipeline failure surfaces the honest voice-unavailable copy',
-      (WidgetTester tester) async {
-    when(() => repo.stopAndTranscribe())
-        .thenThrow(const VoiceUnavailableFailure());
+  testWidgets('pipeline failure surfaces the honest voice-unavailable copy', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => repo.stopAndTranscribe(),
+    ).thenThrow(const VoiceUnavailableFailure());
     await pumpScreen(tester);
     await tester.tap(find.byIcon(Icons.mic_rounded));
     await tester.pump();
@@ -326,16 +363,14 @@ void main() {
             builder: (_, __) =>
                 const Scaffold(body: Center(child: Text('HOME'))),
           ),
-          GoRoute(
-            path: '/voice',
-            builder: (_, __) => const VoiceNoteScreen(),
-          ),
+          GoRoute(path: '/voice', builder: (_, __) => const VoiceNoteScreen()),
         ],
       );
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pumpAndSettle();
-      final Future<VoiceNoteOutcome?> popped =
-          router.push<VoiceNoteOutcome>('/voice');
+      final Future<VoiceNoteOutcome?> popped = router.push<VoiceNoteOutcome>(
+        '/voice',
+      );
       await tester.pumpAndSettle();
       return popped;
     }
@@ -351,106 +386,133 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Bhej dein'));
       await tester.pump();
-      expect(find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
-          findsOneWidget);
+      expect(
+        find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
+        findsOneWidget,
+      );
     }
 
     testWidgets(
-        'the back button does not pop mid-pipeline and says why; the outcome '
-        'still reaches chat once the worker confirms',
-        (WidgetTester tester) async {
-      final Completer<String> pipeline = Completer<String>();
-      final Future<VoiceNoteOutcome?> popped = await pushVoiceRoute(tester);
-      await reachProcessing(tester, pipeline);
+      'the back button does not pop mid-pipeline and says why; the outcome '
+      'still reaches chat once the worker confirms',
+      (WidgetTester tester) async {
+        final Completer<String> pipeline = Completer<String>();
+        final Future<VoiceNoteOutcome?> popped = await pushVoiceRoute(tester);
+        await reachProcessing(tester, pipeline);
 
-      // The impatient back press: blocked, and told the real reason. Pumped by
-      // hand — the processing spinner animates indefinitely, so pumpAndSettle
-      // can never settle here (same reason the chat typing cue is static).
-      // #680.1 CHANGED THIS. #635 raised the transcribe budget to the server's
-      // ~140s floor, which turned this hold into a 2.5-minute trap with only a
-      // snackbar. The transcribe leg now offers an explicit abandon behind a
-      // confirm; the SEND leg keeps the #373 hold (leaving there strands a
-      // message the server already has). Back must still never pop SILENTLY.
-      await tester.tap(find.byType(BackButton));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 750)); // dialog in
+        // The impatient back press: blocked, and told the real reason. Pumped by
+        // hand — the processing spinner animates indefinitely, so pumpAndSettle
+        // can never settle here (same reason the chat typing cue is static).
+        // #680.1 CHANGED THIS. #635 raised the transcribe budget to the server's
+        // ~140s floor, which turned this hold into a 2.5-minute trap with only a
+        // snackbar. The transcribe leg now offers an explicit abandon behind a
+        // confirm; the SEND leg keeps the #373 hold (leaving there strands a
+        // message the server already has). Back must still never pop SILENTLY.
+        await tester.tap(_backArrow);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 750)); // dialog in
 
-      expect(find.text('HOME'), findsNothing,
-          reason: 'back must not pop the route on its own');
-      expect(find.text(kVoiceAbandonTitle), findsOneWidget,
-          reason: 'the transcribe leg offers a way out, not a dead end');
-      expect(find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
-          findsOneWidget);
+        expect(
+          find.text('HOME'),
+          findsNothing,
+          reason: 'back must not pop the route on its own',
+        );
+        expect(
+          find.text(kVoiceAbandonTitle),
+          findsOneWidget,
+          reason: 'the transcribe leg offers a way out, not a dead end',
+        );
+        expect(
+          find.text('Aapki baat likh rahe hain… thoda intezaar karein.'),
+          findsOneWidget,
+        );
 
-      // "Rukein" keeps them on the wait — the escape hatch is opt-in.
-      await tester.tap(find.text(kVoiceAbandonStay));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 750));
-      expect(find.text('HOME'), findsNothing,
-          reason: 'declining the abandon must leave the pipeline running');
-      expect(find.text(kVoiceAbandonTitle), findsNothing);
+        // "Rukein" keeps them on the wait — the escape hatch is opt-in.
+        await tester.tap(find.text(kVoiceAbandonStay));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 750));
+        expect(
+          find.text('HOME'),
+          findsNothing,
+          reason: 'declining the abandon must leave the pipeline running',
+        );
+        expect(find.text(kVoiceAbandonTitle), findsNothing);
 
-      // The transcribe leg lands on the CONFIRM turn — still nothing sent.
-      when(() => repo.sendConfirmedTranscript(any())).thenAnswer((_) async =>
-          const VoiceNoteOutcome(
-              transcript: 'CNC operator hoon', reply: 'Theek'));
-      pipeline.complete('CNC operator hoon');
-      // Drain the snackbar's auto-dismiss timer too (a pending timer at
-      // teardown fails the test).
-      await tester.pump(const Duration(seconds: 6));
-      await tester.pumpAndSettle();
-      expect(find.text('Yeh theek hai?'), findsOneWidget);
+        // The transcribe leg lands on the CONFIRM turn — still nothing sent.
+        when(() => repo.sendConfirmedTranscript(any())).thenAnswer(
+          (_) async => const VoiceNoteOutcome(
+            transcript: 'CNC operator hoon',
+            reply: 'Theek',
+          ),
+        );
+        pipeline.complete('CNC operator hoon');
+        // Drain the snackbar's auto-dismiss timer too (a pending timer at
+        // teardown fails the test).
+        await tester.pump(const Duration(seconds: 6));
+        await tester.pumpAndSettle();
+        expect(find.text('Yeh theek hai?'), findsOneWidget);
 
-      // "Haan" → the send leg → the screen pops WITH the outcome, so chat can
-      // append the very bubbles the server now has.
-      await tester.tap(find.text('Haan'));
-      await tester.pumpAndSettle();
+        // "Haan" → the send leg → the screen pops WITH the outcome, so chat can
+        // append the very bubbles the server now has.
+        await tester.tap(find.text('Haan'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('HOME'), findsOneWidget);
-      final VoiceNoteOutcome? outcome = await popped;
-      expect(outcome, isNotNull,
-          reason: 'a null pop is exactly the #373 divergence');
-      expect(outcome!.transcript, 'CNC operator hoon');
-      expect(outcome.reply, 'Theek');
-    });
+        expect(find.text('HOME'), findsOneWidget);
+        final VoiceNoteOutcome? outcome = await popped;
+        expect(
+          outcome,
+          isNotNull,
+          reason: 'a null pop is exactly the #373 divergence',
+        );
+        expect(outcome!.transcript, 'CNC operator hoon');
+        expect(outcome.reply, 'Theek');
+      },
+    );
 
     testWidgets(
-        'the SEND leg holds back too, with its own honest reason — this is the '
-        'leg the #373 divergence actually lives on',
-        (WidgetTester tester) async {
-      final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
-      when(() => repo.stopAndTranscribe())
-          .thenAnswer((_) async => 'CNC operator hoon');
-      when(() => repo.sendConfirmedTranscript(any()))
-          .thenAnswer((_) => send.future);
-      await pushVoiceRoute(tester);
+      'the SEND leg holds back too, with its own honest reason — this is the '
+      'leg the #373 divergence actually lives on',
+      (WidgetTester tester) async {
+        final Completer<VoiceNoteOutcome> send = Completer<VoiceNoteOutcome>();
+        when(
+          () => repo.stopAndTranscribe(),
+        ).thenAnswer((_) async => 'CNC operator hoon');
+        when(
+          () => repo.sendConfirmedTranscript(any()),
+        ).thenAnswer((_) => send.future);
+        await pushVoiceRoute(tester);
 
-      await tester.tap(find.byIcon(Icons.mic_rounded));
-      await tester.pump();
-      await tester.pump();
-      await tester.tap(find.text('Bhej dein'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Haan'));
-      await tester.pump();
+        await tester.tap(find.byIcon(Icons.mic_rounded));
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.text('Bhej dein'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Haan'));
+        await tester.pump();
 
-      expect(find.text('Aapki baat bhej rahe hain… thoda intezaar karein.'),
-          findsOneWidget);
+        expect(
+          find.text('Aapki baat bhej rahe hain… thoda intezaar karein.'),
+          findsOneWidget,
+        );
 
-      await tester.tap(find.byType(BackButton));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 750));
+        await tester.tap(_backArrow);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 750));
 
-      expect(find.text('HOME'), findsNothing);
-      expect(find.text(kVoiceBackBlockedSendingLabel), findsOneWidget);
+        expect(find.text('HOME'), findsNothing);
+        expect(find.text(kVoiceBackBlockedSendingLabel), findsOneWidget);
 
-      // Tear the tree down while the send hangs — ends the test clean.
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+        // Tear the tree down while the send hangs — ends the test clean.
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
 
-    testWidgets('the CONFIRM turn does not hold back — it is a decision point',
-        (WidgetTester tester) async {
-      when(() => repo.stopAndTranscribe())
-          .thenAnswer((_) async => 'CNC operator hoon');
+    testWidgets('the CONFIRM turn does not hold back — it is a decision point', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => repo.stopAndTranscribe(),
+      ).thenAnswer((_) async => 'CNC operator hoon');
       final Future<VoiceNoteOutcome?> popped = await pushVoiceRoute(tester);
 
       await tester.tap(find.byIcon(Icons.mic_rounded));
@@ -460,7 +522,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Yeh theek hai?'), findsOneWidget);
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(_backArrow);
       await tester.pumpAndSettle();
 
       // Nothing was sent, so leaving desynchronises nothing — and a worker who
@@ -470,8 +532,9 @@ void main() {
       verifyNever(() => repo.sendConfirmedTranscript(any()));
     });
 
-    testWidgets('a failed pipeline releases back immediately — never a trap',
-        (WidgetTester tester) async {
+    testWidgets('a failed pipeline releases back immediately — never a trap', (
+      WidgetTester tester,
+    ) async {
       final Completer<String> pipeline = Completer<String>();
       await pushVoiceRoute(tester);
       await reachProcessing(tester, pipeline);
@@ -481,20 +544,21 @@ void main() {
       expect(find.text('Voice note nahi gaya.'), findsOneWidget);
 
       // Error is terminal: the hold is lifted and the worker can leave.
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(_backArrow);
       await tester.pumpAndSettle();
       expect(find.text('HOME'), findsOneWidget);
     });
 
-    testWidgets('back while merely recording still pops (the hold is scoped)',
-        (WidgetTester tester) async {
+    testWidgets('back while merely recording still pops (the hold is scoped)', (
+      WidgetTester tester,
+    ) async {
       await pushVoiceRoute(tester);
       await tester.tap(find.byIcon(Icons.mic_rounded));
       await tester.pump();
       await tester.pump();
       expect(find.text('0:00 / 2:00'), findsOneWidget);
 
-      await tester.tap(find.byType(BackButton));
+      await tester.tap(_backArrow);
       await tester.pumpAndSettle();
 
       expect(find.text('HOME'), findsOneWidget);

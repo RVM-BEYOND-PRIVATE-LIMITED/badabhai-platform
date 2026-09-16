@@ -8,6 +8,7 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/otp_verify_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/otp_verify_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -22,6 +23,12 @@ void main() {
   const Key codeKey = Key('otpCodeField');
 
   late MockAuthSessionManager manager;
+
+  // The focused empty OTP box paints the same blinking caret (BbPinCaret) the
+  // PIN rows use. A perpetual blink keeps a frame scheduled; hold it still so
+  // no test here is at the mercy of a repeating animation.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
   setUp(() async {
     manager = MockAuthSessionManager();
@@ -48,7 +55,8 @@ void main() {
   /// Pumps the screen. [resendIn] is the server's `resend_in_seconds` from the
   /// send that got the worker here.
   ///
-  /// Never pumpAndSettle: the countdown is a periodic Timer, so settling would
+  /// Never pumpAndSettle: the countdown is a periodic Timer (and, outside the
+  /// deterministic-caret flag, the caret blinks forever), so settling would
   /// spin until the test timed out.
   Future<void> pumpScreen(WidgetTester tester, {Duration? resendIn}) async {
     await tester.pumpWidget(MaterialApp(
@@ -85,7 +93,7 @@ void main() {
       // all of which deliver the whole code to a single field.
       expect(find.byType(TextField), findsOneWidget);
 
-      await tester.tap(find.text('Verify'));
+      await tester.tap(find.text('Verify Code'));
       await tester.pump();
 
       verify(() => manager.verifyOtp(phone, '482913')).called(1);
@@ -119,21 +127,22 @@ void main() {
         (WidgetTester tester) async {
       await pumpScreen(tester, resendIn: const Duration(seconds: 45));
 
-      expect(find.text('Naya code 45s mein'), findsOneWidget);
+      // The kit's M:SS timer ("Resend code in 0:45"), one Text.rich.
+      expect(find.text('Resend code in 0:45'), findsOneWidget);
       expect(resendButton(tester).onPressed, isNull);
 
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Naya code 44s mein'), findsOneWidget);
+      expect(find.text('Resend code in 0:44'), findsOneWidget);
 
       // 45 seconds means 45 — still locked one tick before the end.
       for (int i = 0; i < 43; i++) {
         await tester.pump(const Duration(seconds: 1));
       }
-      expect(find.text('Naya code 1s mein'), findsOneWidget);
+      expect(find.text('Resend code in 0:01'), findsOneWidget);
       expect(resendButton(tester).onPressed, isNull);
 
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Naya code bhejein'), findsOneWidget);
+      expect(find.text('Resend code'), findsOneWidget);
       expect(resendButton(tester).onPressed, isNotNull);
     });
 
@@ -155,7 +164,7 @@ void main() {
       await tester.pump(); // sending
       await tester.pump(); // sent -> the listener restarts the countdown
 
-      expect(find.text('Naya code 12s mein'), findsOneWidget);
+      expect(find.text('Resend code in 0:12'), findsOneWidget);
       expect(resendButton(tester).onPressed, isNull);
       verify(() => manager.requestOtp(phone)).called(1);
 
@@ -187,7 +196,7 @@ void main() {
         (WidgetTester tester) async {
       await pumpScreen(tester, resendIn: const Duration(seconds: 30));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.text('Naya code 29s mein'), findsOneWidget);
+      expect(find.text('Resend code in 0:29'), findsOneWidget);
 
       // The real case: the verify succeeds and the worker routes on to consent
       // with 20-odd seconds still on the clock. A surviving Timer would call
@@ -217,7 +226,7 @@ void main() {
       await pumpScreen(tester);
       await tester.enterText(find.byKey(codeKey), '482913');
       await tester.pump();
-      await tester.tap(find.text('Verify'));
+      await tester.tap(find.text('Verify Code'));
       await tester.pump(); // submitting
       await tester.pump(); // failure
 

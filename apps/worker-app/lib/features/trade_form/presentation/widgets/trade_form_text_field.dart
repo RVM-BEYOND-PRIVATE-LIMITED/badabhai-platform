@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
+import 'trade_form_kit.dart';
 
 /// A themed text field for the trade form. Deliberately its OWN small widget
 /// rather than an import of `features/finishing`'s `FinishingTextField`
@@ -13,6 +12,10 @@ import '../../../../core/util/devanagari_guard.dart';
 /// duplicate keeps the trade form from depending on code already scheduled to
 /// disappear. A persistent [Semantics] label keeps TalkBack meaningful after
 /// the hint disappears on input (low-literacy accessibility).
+///
+/// Painted with the Master UI Kit's input ([tradeFormInputDecoration]: white,
+/// 10 radius, `borderDefault` hairline, yellow focus ring). A number keyboard
+/// renders its digits in Roboto Mono, per the kit's "numbers in mono" rule.
 ///
 /// EVERY trade-form free-text field routes through here (employer/role/work
 /// text, certificate name/issuer, education field/institute, the generic
@@ -68,6 +71,7 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
   Widget build(BuildContext context) {
     final String? effectiveErrorText =
         widget.errorText ?? (_devanagariBlocked ? kDevanagariBlockedHint : null);
+    final bool numeric = widget.keyboardType == TextInputType.number;
     return Semantics(
       label: widget.label ?? widget.hint,
       textField: true,
@@ -84,35 +88,18 @@ class _TradeFormTextFieldState extends State<TradeFormTextField> {
             onBlocked: () => setState(() => _devanagariBlocked = true),
           ),
         ],
-        style: AppTypography.body(size: AppTypography.sizeBase),
-        decoration: InputDecoration(
-          hintText: widget.hint,
+        cursorColor: OnboardingColors.shiftBlue,
+        style: numeric
+            ? OnboardingTypography.mono(
+                size: 15,
+                weight: FontWeight.w600,
+                color: OnboardingColors.ink900,
+              )
+            : OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
+        decoration: tradeFormInputDecoration(
+          hint: widget.hint,
           errorText: effectiveErrorText,
-          filled: true,
-          fillColor: AppColors.surfaceCard,
           counterText: widget.maxLength == null ? null : '',
-          hintStyle: AppTypography.body(
-              size: AppTypography.sizeBase, color: AppColors.textFaint),
-          errorStyle: AppTypography.body(
-              size: AppTypography.sizeXs, color: AppColors.danger),
-          contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.borderSubtle),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
-          ),
-          errorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
-          ),
-          focusedErrorBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(AppRadii.md),
-            borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
-          ),
         ),
       ),
     );

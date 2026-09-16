@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
+import '../../../../core/session/known_worker_facts_store.dart';
 import '../../domain/finishing_models.dart';
 import '../../domain/finishing_repository.dart';
 
@@ -28,6 +29,21 @@ enum FinishingPage {
   history,
 }
 
+/// The pages this worker is shown: every [FinishingPage] except one whose fact
+/// the chat already recorded ("ask once, skip if known", see
+/// [KnownWorkerFactsStore]). The shift chips are hidden the same way, on the
+/// screen, because they share their page with job type.
+List<FinishingPage> finishingPagesFor(Set<WorkerFact> known) => <FinishingPage>[
+      for (final FinishingPage page in FinishingPage.values)
+        if (!_askedInChat(page, known)) page,
+    ];
+
+bool _askedInChat(FinishingPage page, Set<WorkerFact> known) => switch (page) {
+      FinishingPage.cities => known.contains(WorkerFact.preferredCities),
+      FinishingPage.salary => known.contains(WorkerFact.salary),
+      _ => false,
+    };
+
 enum FinishingStatus { loadingOptions, ready, submitting, done, loadError }
 
 /// The whole finishing-form state: the loaded chip vocabulary, which page is on
@@ -42,7 +58,11 @@ class FinishingState extends Equatable {
     this.employments = const <EmploymentEntry>[],
     this.error,
     this.submitError,
+    this.knownFacts = const <WorkerFact>{},
   });
+
+  /// Facts the worker already gave in the chat — see [finishingPagesFor].
+  final Set<WorkerFact> knownFacts;
 
   final FinishingStatus status;
   final WorkPrefOptionsDto? options;
@@ -57,8 +77,10 @@ class FinishingState extends Equatable {
   /// shown inline while the worker stays on the form and can fix + retry.
   final String? submitError;
 
-  FinishingPage get page => FinishingPage.values[pageIndex];
-  bool get isLastPage => pageIndex == FinishingPage.values.length - 1;
+  /// The pages shown, in order; [pageIndex] indexes THIS list.
+  List<FinishingPage> get pages => finishingPagesFor(knownFacts);
+  FinishingPage get page => pages[pageIndex];
+  bool get isLastPage => pageIndex == pages.length - 1;
   bool get isFirstPage => pageIndex == 0;
   bool get isSubmitting => status == FinishingStatus.submitting;
 
@@ -70,8 +92,10 @@ class FinishingState extends Equatable {
     List<EmploymentEntry>? employments,
     Object? error = _sentinel,
     Object? submitError = _sentinel,
+    Set<WorkerFact>? knownFacts,
   }) {
     return FinishingState(
+      knownFacts: knownFacts ?? this.knownFacts,
       status: status ?? this.status,
       options: options ?? this.options,
       pageIndex: pageIndex ?? this.pageIndex,
@@ -91,6 +115,7 @@ class FinishingState extends Equatable {
         employments,
         error,
         submitError,
+        knownFacts,
       ];
 }
 
@@ -99,9 +124,18 @@ class FinishingState extends Equatable {
 /// persists both closed-set writes before the résumé is generated. Every field
 /// is a closed-set answer — no model, no free parse — so this holds pure data.
 class FinishingCubit extends Cubit<FinishingState> {
-  FinishingCubit(this._repo) : super(const FinishingState());
+  FinishingCubit(this._repo, {KnownWorkerFactsStore? knownFacts})
+      : _knownFacts = knownFacts ?? InMemoryKnownWorkerFactsStore(),
+        super(const FinishingState());
 
   final FinishingRepository _repo;
+  final KnownWorkerFactsStore _knownFacts;
+
+  /// Set when the worker adds, edits or removes an employer card. The form
+  /// opens with no cards every time, and `PUT /workers/me/employment` REPLACES
+  /// the whole history, so an untouched empty list is never sent (it would wipe
+  /// what an earlier visit saved).
+  bool _employmentTouched = false;
 
   /// Copy shown when a partially-typed employer card is missing its two required
   /// fields. Persona-neutral (aap-form, safe verb, no `!`). Scanned by
@@ -113,7 +147,12 @@ class FinishingCubit extends Cubit<FinishingState> {
     emit(state.copyWith(status: FinishingStatus.loadingOptions, error: null));
     try {
       final WorkPrefOptionsDto options = await _repo.loadOptions();
-      emit(state.copyWith(status: FinishingStatus.ready, options: options));
+      final Set<WorkerFact> known = await _knownFacts.knownFacts();
+      emit(state.copyWith(
+        status: FinishingStatus.ready,
+        options: options,
+        knownFacts: known,
+      ));
       // #1315 — funnel entry. Fire-and-forget, never fatal (BbAnalytics is
       // fail-open); it carries no worker data, only that the form opened.
       unawaited(BbAnalytics.instance.log(BbAnalytics.finishingFormEntered));
@@ -213,6 +252,7 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   void addEmployer() {
     if (_atEmployerCap) return;
+    _employmentTouched = true;
     emit(state.copyWith(
       employments: <EmploymentEntry>[
         ...state.employments,
@@ -224,6 +264,7 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   void updateEmployer(int index, EmploymentEntry entry) {
     if (index < 0 || index >= state.employments.length) return;
+    _employmentTouched = true;
     final List<EmploymentEntry> next =
         List<EmploymentEntry>.of(state.employments);
     next[index] = entry;
@@ -232,6 +273,7 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   void removeEmployer(int index) {
     if (index < 0 || index >= state.employments.length) return;
+    _employmentTouched = true;
     final List<EmploymentEntry> next =
         List<EmploymentEntry>.of(state.employments)..removeAt(index);
     emit(state.copyWith(employments: next, submitError: null));
@@ -259,7 +301,9 @@ class FinishingCubit extends Cubit<FinishingState> {
     emit(state.copyWith(status: FinishingStatus.submitting, submitError: null));
     try {
       await _repo.saveWorkPreferences(state.prefs);
-      await _repo.saveEmployment(kept);
+      if (_employmentTouched || kept.isNotEmpty) {
+        await _repo.saveEmployment(kept);
+      }
       emit(state.copyWith(status: FinishingStatus.done));
       // #1315 — funnel exit: both writes landed, so completion is real.
       unawaited(BbAnalytics.instance.log(BbAnalytics.finishingFormSubmitted));

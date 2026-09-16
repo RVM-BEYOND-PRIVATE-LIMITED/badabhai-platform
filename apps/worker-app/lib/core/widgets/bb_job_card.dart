@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 import 'bb_tag.dart';
+import 'kit/kit_callout.dart';
+import 'kit/kit_info_chip.dart';
+import 'kit/kit_salary_box.dart';
 
 /// Immutable contents of a [BbJobCard] — the worker-facing job summary the feed
 /// renders. Pure data, no behaviour.
@@ -14,6 +15,7 @@ class BbJobCardData {
     this.verified = false,
     this.payBand,
     required this.place,
+    this.trade,
     this.shift,
     this.tags = const <String>[],
     this.spotsLeft,
@@ -35,6 +37,17 @@ class BbJobCardData {
   final String? payBand;
 
   final String place;
+
+  /// The job's humanized TRADE / matched skill, when a screen has one.
+  ///
+  /// Its OWN line, never folded into [place]: the applied-jobs row used to
+  /// print 'CNC Operator · Pimpri, Pune' behind the location pin, so the pin
+  /// labelled a trade on some cards and a place on others depending on whether
+  /// the trade key could be humanized at all. A pin labels a place.
+  ///
+  /// Already humanized by the caller — never a raw `trade_key` or `mskill_*`
+  /// id, and null (the row is dropped) when no label exists.
+  final String? trade;
 
   /// Shift — retained on the model; not rendered on the compact list card.
   final String? shift;
@@ -62,8 +75,8 @@ class BbJobCardData {
   /// did not name the matched skill, the card says nothing instead of guessing.
   final String? matchNote;
 
-  /// Featured / urgent: draws the 4px haldi left rail and a [BbHotTag]. EARNED,
-  /// never uniform — set only for a genuinely featured posting.
+  /// Featured / urgent: draws the 4px safety-yellow left rail and a [BbHotTag].
+  /// EARNED, never uniform — set only for a genuinely featured posting.
   final bool hot;
 
   /// Muted right-hand meta on the salary row, shown when [BbJobCard.onApply] is
@@ -94,14 +107,23 @@ const String kJobCardApplySemanticLabel = 'Apply karein';
 ///    card fills its space rather than floating at the top of an empty one.
 enum BbJobCardLayout { list, deck }
 
-/// The job card — the kit's LIST `JobCard`. Crisp white paper, one hairline
-/// border, radius 10, elevation 0. A featured/urgent posting ([BbJobCardData.hot])
-/// earns a 4px haldi LEFT RAIL and a [BbHotTag]; nothing else does.
+/// The job card (UI kit v3 §4 card): white paper, a 1px
+/// [OnboardingColors.borderDefault] hairline, radius 16, elevation 0. A
+/// featured/urgent posting ([BbJobCardData.hot]) earns a 4px safety-yellow LEFT
+/// RAIL and a [BbHotTag]; nothing else does.
 ///
-/// Layout: title, then "company · location" with an optional verified tick, then
-/// a bottom row of the salary (Anek, `/mah` muted) on the left and either a green
-/// Anek `APPLY →` action ([onApply]) or a muted [BbJobCardData.metaRight] on the
-/// right. Designed for a VERTICAL LIST feed.
+/// Layout: title, then "company · location" behind a pin (with an optional
+/// verified tick), then a bottom row of the salary (Roboto Mono green, `/mah`
+/// muted) on the left and either a green Anek `APPLY →` action ([onApply]) or a
+/// muted [BbJobCardData.metaRight] on the right. Designed for a VERTICAL LIST
+/// feed.
+///
+/// **The card carries NO horizontal margin.** Its parent owns the gutter — the
+/// feed list and the search results pad their scroll view with
+/// [KitInsets.list] (so the scrollbar stays at the screen edge and the content
+/// column caps on a tablet), and the deck pads its own column. The card used to
+/// carry a built-in side margin, which meant two sources of inset and a deck
+/// card that rendered narrower than the same card in the list.
 ///
 /// Pass [onTitleTap] to make the title open the job detail (an accessible ≥48px
 /// button, #362); pass [onApply] to wire the APPLY action.
@@ -112,6 +134,7 @@ class BbJobCard extends StatelessWidget {
     this.onTitleTap,
     this.onApply,
     this.layout = BbJobCardLayout.list,
+    this.compact = false,
   });
 
   final BbJobCardData data;
@@ -125,6 +148,14 @@ class BbJobCard extends StatelessWidget {
   /// (the salary row shows [BbJobCardData.metaRight] instead, if present).
   final VoidCallback? onApply;
 
+  /// DECK ONLY: the card has less than ~300dp of height to fill (a 320x568
+  /// handset, or any phone in landscape). The title drops to two lines, the
+  /// match note to two, and the vertical rhythm tightens — so a short screen
+  /// shows a whole card instead of a clipped one. Nothing is faked and nothing
+  /// scrolls: a scroll view inside the deck would steal the #374 vertical
+  /// follow-drag.
+  final bool compact;
+
   bool get _hasSalaryRow =>
       data.payBand != null ||
       onApply != null ||
@@ -133,60 +164,56 @@ class BbJobCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isDeck = layout == BbJobCardLayout.deck;
-    // The deck card owns a full screen, so it gets the roomier radius/padding
-    // and stretches; the list row keeps exactly the geometry it always had.
-    final double radius = isDeck ? AppRadii.md : AppRadii.sm;
+    final BorderRadius radius = BorderRadius.circular(OnboardingRadii.card);
     return Container(
-      margin: const EdgeInsets.fromLTRB(
-        AppSpacing.s3,
-        0,
-        AppSpacing.s3,
-        AppSpacing.s2,
-      ),
+      // The deck card is sized by the DECK (it fills the deck box, see
+      // [_DeckBody]); the list row owns the gap to the next card. Neither
+      // carries a side margin (see the class doc).
+      margin: isDeck ? EdgeInsets.zero : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: AppColors.borderSubtle),
+        color: OnboardingColors.paperWhite,
+        borderRadius: radius,
+        border: Border.all(color: OnboardingColors.borderDefault),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: radius,
         child: DecoratedBox(
-          // Haldi left rail on featured/urgent cards ONLY — earned, never uniform.
+          // Yellow left rail on featured/urgent cards ONLY — earned, never
+          // uniform.
           decoration: BoxDecoration(
             border: data.hot
                 ? const Border(
                     left: BorderSide(
-                      color: AppColors.haldi,
-                      width: AppSpacing.s1, // 4px rail (kit railWidth)
+                      color: OnboardingColors.safetyYellow,
+                      width: 4,
                     ),
                   )
                 : null,
           ),
           child: Padding(
-            padding: EdgeInsets.all(isDeck ? AppSpacing.s5 : AppSpacing.s3),
+            padding: EdgeInsets.all(isDeck ? 20 : 16),
             child: isDeck
-                ? _DeckBody(data: data, onTitleTap: onTitleTap)
+                ? _DeckBody(
+                    data: data,
+                    onTitleTap: onTitleTap,
+                    compact: compact,
+                  )
                 : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _HeaderRow(data: data, onTitleTap: onTitleTap),
-                // E18 — the "why am I seeing this" line, only for a related match.
-                if (data.matchNote != null) ...<Widget>[
-                  const SizedBox(height: AppSpacing.s2),
-                  Text(
-                    data.matchNote!,
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      color: AppColors.textSecondary,
-                    ),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      _HeaderRow(data: data, onTitleTap: onTitleTap),
+                      // E18 — the "why am I seeing this" line, only for a
+                      // related match.
+                      if (data.matchNote != null) ...<Widget>[
+                        const SizedBox(height: 10),
+                        _MatchNote(text: data.matchNote!),
+                      ],
+                      if (_hasSalaryRow) ...<Widget>[
+                        const SizedBox(height: 10),
+                        _SalaryRow(data: data, onApply: onApply),
+                      ],
+                    ],
                   ),
-                ],
-                if (_hasSalaryRow) ...<Widget>[
-                  const SizedBox(height: AppSpacing.s2),
-                  _SalaryRow(data: data, onApply: onApply),
-                ],
-              ],
-            ),
           ),
         ),
       ),
@@ -218,36 +245,45 @@ class _HeaderRow extends StatelessWidget {
                 _titleText(data.title)
               else
                 _TitleButton(onTap: onTitleTap!, title: _titleText(data.title)),
+              if (data.trade != null && data.trade!.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 2),
+                Text(
+                  data.trade!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: OnboardingTypography.inter(
+                    size: 12,
+                    weight: FontWeight.w600,
+                    color: OnboardingColors.ink600,
+                  ),
+                ),
+              ],
               const SizedBox(height: 2),
               _SubtitleRow(data: data),
             ],
           ),
         ),
-        if (data.hot) ...<Widget>[
-          const SizedBox(width: AppSpacing.s2),
-          const BbHotTag(),
-        ],
+        if (data.hot) ...<Widget>[const SizedBox(width: 8), const BbHotTag()],
       ],
     );
   }
 
-  // Kit `cardTitle` — Roboto bold 15 ink, tight leading. Compact list rows read
-  // in body-strong, not the big Anek display voice (which is for the detail).
+  /// Spec §1.2 `subheadBold` — Anek 16 w700. A compact list row reads in the
+  /// display voice at heading weight, not the deck card's 22.
   Text _titleText(String title) => Text(
-        title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: AppTypography.body(
-          size: 15,
-          weight: FontWeight.w700,
-          color: AppColors.textPrimary,
-          height: 1.25,
-        ),
-      );
+    title,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: OnboardingTypography.anek(
+      size: 16,
+      weight: FontWeight.w700,
+      height: 1.25,
+    ),
+  );
 }
 
-/// "company · location" with an optional blue verified tick. On the real feed
-/// [BbJobCardData.company] is null, so only the location shows.
+/// "company · location" behind a pin, with an optional verified tick. On the
+/// real feed [BbJobCardData.company] is null, so only the location shows.
 class _SubtitleRow extends StatelessWidget {
   const _SubtitleRow({required this.data});
 
@@ -255,82 +291,136 @@ class _SubtitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String line =
-        data.company == null ? data.place : '${data.company} · ${data.place}';
+    final String line = data.company == null
+        ? data.place
+        : '${data.company} · ${data.place}';
     return Row(
       children: <Widget>[
+        const Icon(
+          Icons.place_outlined,
+          size: 14,
+          color: OnboardingColors.ink500,
+        ),
+        const SizedBox(width: 5),
         Flexible(
           child: Text(
             line,
             overflow: TextOverflow.ellipsis,
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.textSecondary,
-            ),
+            style: OnboardingTypography.bodyMuted(),
           ),
         ),
         if (data.verified) ...<Widget>[
           const SizedBox(width: 3),
-          const Icon(Icons.verified, size: 14, color: AppColors.blue),
+          const Icon(
+            Icons.verified,
+            size: 14,
+            color: OnboardingColors.shiftBlue,
+          ),
         ],
       ],
     );
   }
 }
 
-/// Salary (Anek + muted `/mah`) on the left; the green `APPLY →` action or a
-/// muted meta line on the right.
+/// Salary (mono green + muted `/mah`) on the left; the green `APPLY →` action or
+/// a muted meta line on the right.
+///
+/// **It WRAPS instead of overflowing.** A pay figure and an APPLY action fit one
+/// 390dp line at 100% font; on a 320dp handset at a 2.0 system font they do not,
+/// and neither is a thing to ellipsise — the figure is the job's headline fact
+/// and "APPLY" is the conversion. So the two sit side by side while there is
+/// room and the action drops to its own line when there is not. It used to be a
+/// `Row` with a non-flexible right-hand child, which painted overflow stripes
+/// across the card at 2.0 (and across the applied-jobs list at 1.5, where the
+/// right-hand child is the "Applied · N din pehle" line).
 class _SalaryRow extends StatelessWidget {
   const _SalaryRow({required this.data, required this.onApply});
 
   final BbJobCardData data;
   final VoidCallback? onApply;
 
+  /// Salary — a mono figure plus a muted "/mah". TWO Texts (not a rich span) so
+  /// the bare pay string stays selectable/findable and the baseline aligns.
+  Widget _pay(String band) => Row(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.baseline,
+    textBaseline: TextBaseline.alphabetic,
+    children: <Widget>[
+      Flexible(
+        child: Text(
+          band,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: OnboardingTypography.mono(
+            size: 15,
+            weight: FontWeight.w700,
+            color: OnboardingColors.successGreen,
+          ),
+        ),
+      ),
+      Text(
+        ' /mah',
+        style: OnboardingTypography.inter(
+          size: 11,
+          color: OnboardingColors.ink500,
+        ),
+      ),
+    ],
+  );
+
+  /// The muted right-hand meta ("General shift", "Applied · 2 din pehle"). It
+  /// WRAPS: inside a [Wrap] it is handed a bounded width, so a long label runs
+  /// to a second line rather than off the card.
+  Widget _meta(String text) => Text(
+    text,
+    style: OnboardingTypography.inter(
+      size: 11,
+      weight: FontWeight.w600,
+      color: OnboardingColors.ink500,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: <Widget>[
-        // Salary — Anek number + muted "/mah". Two Texts (not a rich span) so the
-        // bare pay string stays selectable/findable and the baseline aligns.
-        if (data.payBand != null)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: <Widget>[
-              Text(
-                data.payBand!,
-                style: AppTypography.display(size: 16, weight: FontWeight.w800),
-              ),
-              Text(
-                ' /mah',
-                style: AppTypography.body(
-                  size: AppTypography.size2xs,
-                  color: AppColors.textMuted,
-                ),
-              ),
-            ],
-          )
-        else
-          const SizedBox.shrink(),
-        if (onApply != null)
-          _ApplyAction(onApply: onApply!)
-        else if (data.effectiveMetaRight != null)
-          Text(
-            data.effectiveMetaRight!,
-            style: AppTypography.body(
-              size: AppTypography.size2xs,
-              color: AppColors.textMuted,
-            ),
-          ),
-      ],
+    final String? band = data.payBand;
+    final String? meta = data.effectiveMetaRight;
+    final Widget? left = band == null ? null : _pay(band);
+    final Widget? right = onApply != null
+        ? _ApplyAction(onApply: onApply!)
+        : (meta == null ? null : _meta(meta));
+
+    // One side only: keep it on the edge it belongs to (the pay figure reads
+    // left, the action reads right) rather than letting a Wrap pull it inward.
+    if (left == null || right == null) {
+      final Widget? only = left ?? right;
+      if (only == null) return const SizedBox.shrink();
+      return Align(
+        alignment: left == null ? Alignment.centerRight : Alignment.centerLeft,
+        child: only,
+      );
+    }
+
+    // `width: double.infinity` so `spaceBetween` has a container to push the
+    // two ends of: a Wrap in a start-aligned Column sizes to its content, and
+    // the two children would sit shoulder to shoulder in the middle.
+    return SizedBox(
+      width: double.infinity,
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 6,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: <Widget>[left, right],
+      ),
     );
   }
 }
 
 /// Green Anek `APPLY →` — the kit's card-level apply action, wrapped in a
 /// transparent [Material] so its ripple is visible over the opaque card fill.
+///
+/// NOT the yellow hero CTA: a screen has exactly one of those, and a yellow
+/// button on every card in a list would be ten heroes shouting at once.
 class _ApplyAction extends StatelessWidget {
   const _ApplyAction({required this.onApply});
 
@@ -346,23 +436,40 @@ class _ApplyAction extends StatelessWidget {
         child: InkWell(
           key: const Key('jobCardApplyButton'),
           onTap: onApply,
-          borderRadius: BorderRadius.circular(AppRadii.sm),
-          // ≥48px (AppSpacing.tap) hit target — the primary conversion action
-          // must clear the worker tap floor, same as _TitleButton. Center keeps
-          // the label where it was while the hit area grows to 48px.
+          borderRadius: BorderRadius.circular(OnboardingRadii.chip),
+          // ≥48px hit target — the primary conversion action must clear the
+          // worker tap floor, same as _TitleButton. Center keeps the label
+          // where it was while the hit area grows.
           child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+            constraints: const BoxConstraints(
+              minHeight: OnboardingLayout.tapTarget,
+            ),
             child: Center(
               widthFactor: 1,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s2),
-                child: Text(
-                  'APPLY →',
-                  style: AppTypography.display(
-                    size: 13,
-                    weight: FontWeight.w800,
-                    color: AppColors.success,
-                  ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        'APPLY',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: OnboardingTypography.anek(
+                          size: 14,
+                          weight: FontWeight.w800,
+                          color: OnboardingColors.successGreen,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 16,
+                      color: OnboardingColors.successGreen,
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -373,9 +480,9 @@ class _ApplyAction extends StatelessWidget {
   }
 }
 
-/// The job title as a proper button (#362): a ≥48px (`AppSpacing.tap`) hit
-/// target, a visible ripple, a chevron so a low-literacy worker can SEE it opens
-/// something, and a button role + Hinglish label for TalkBack.
+/// The job title as a proper button (#362): a ≥48px hit target, a visible
+/// ripple, a chevron so a low-literacy worker can SEE it opens something, and a
+/// button role + Hinglish label for TalkBack.
 class _TitleButton extends StatelessWidget {
   const _TitleButton({required this.onTap, required this.title});
 
@@ -400,23 +507,64 @@ class _TitleButton extends StatelessWidget {
           child: InkWell(
             key: const Key('jobCardTitleButton'),
             onTap: onTap,
-            borderRadius: BorderRadius.circular(AppRadii.sm),
+            borderRadius: BorderRadius.circular(OnboardingRadii.chip),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+              constraints: const BoxConstraints(
+                minHeight: OnboardingLayout.tapTarget,
+              ),
               child: Row(
                 children: <Widget>[
                   Expanded(child: title),
-                  const SizedBox(width: AppSpacing.s2),
+                  const SizedBox(width: 8),
                   const Icon(
-                    Icons.chevron_right,
+                    Icons.chevron_right_rounded,
                     size: 22,
-                    color: AppColors.brandPress,
+                    color: OnboardingColors.shiftBlue,
                   ),
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// E18's "why am I seeing this" line in the spec §4 informational callout, so it
+/// reads as an explanation rather than another job fact.
+class _MatchNote extends StatelessWidget {
+  const _MatchNote({required this.text, this.maxLines});
+
+  final String text;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    return KitCallout(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(
+            Icons.info_outline,
+            size: 16,
+            color: OnboardingColors.shiftBlue,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: maxLines,
+              overflow: maxLines == null ? null : TextOverflow.ellipsis,
+              style: OnboardingTypography.inter(
+                size: 12,
+                weight: FontWeight.w600,
+                height: 1.4,
+                color: OnboardingColors.infoText,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -434,38 +582,193 @@ class _TitleButton extends StatelessWidget {
 // card fills its box instead of floating at the top of an empty one.
 //
 // NO SHADOW, and that is not an oversight: this system separates surfaces with
-// hairline borders and flat fills only (`app_theme.dart` — "hairline borders,
-// never shadows; every elevation is 0"). Depth here comes from a tint panel and
-// a border, never an elevation.
+// hairline borders and flat fills only (spec §4 — every elevation is 0). Depth
+// here comes from a tint panel and a border, never an elevation.
 
-/// The swipe card's body: title, place, a key-facts panel, the match note, and
-/// a swipe hint pinned to the bottom.
+/// The swipe card's body: title, place, the money box, the shift chip and the
+/// match note — DISTRIBUTED over the height the deck gives it.
+///
+/// THE HEIGHT CONTRACT. [JobDeck] hands the card a tight box (the deck's own
+/// height, less the strip the next card's edge shows through), so this body is
+/// laid out against a real box rather than against its own text:
+///
+///  - the narrative (title, place, note, requirement chips) takes the TOP and
+///    is the only part that clips;
+///  - the money block sits on the BOTTOM edge;
+///  - the height the job does not need is the space between them.
+///
+/// A taller card therefore shows MORE of the job — every line of a long title,
+/// the whole match note instead of two ellipsised lines, the requirement chips
+/// — instead of the same four rows pinned to the top of a white slab.
 class _DeckBody extends StatelessWidget {
-  const _DeckBody({required this.data, required this.onTitleTap});
+  const _DeckBody({
+    required this.data,
+    required this.onTitleTap,
+    required this.compact,
+  });
 
   final BbJobCardData data;
   final VoidCallback? onTitleTap;
+  final bool compact;
 
-  /// Anek display, big enough to be the card's anchor — the list row's 15px
-  /// body title is a row heading, not a card heading.
+  /// Anek display, big enough to be the card's anchor — the list row's 16px
+  /// title is a row heading, not a card heading.
   Text _title() => Text(
-        data.title,
-        maxLines: 3,
-        overflow: TextOverflow.ellipsis,
-        style: AppTypography.display(
-          size: 22,
-          weight: FontWeight.w800,
-          color: AppColors.textPrimary,
-          height: 1.15,
-        ),
-      );
+    data.title,
+    maxLines: compact ? 2 : 3,
+    overflow: TextOverflow.ellipsis,
+    style: OnboardingTypography.anek(
+      size: 22,
+      weight: FontWeight.w800,
+      height: 1.2,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
+    // On a short screen the card's box is smaller than the drawing needs even
+    // after [compact] has tightened it — a landscape phone leaves it about
+    // 190dp. The narrative is then laid out at its NATURAL height and the
+    // surplus clipped from its bottom, while the money block keeps its space.
+    //
+    // An ancestor `ClipRect` alone does NOT do this: a `RenderFlex` reports its
+    // overflow wherever it is clipped, so the deck's ClipRect hid the stripes on
+    // a device and still threw on every short screen in the matrix. Deliberately
+    // not a scroll view: a Scrollable here would claim the vertical drag the
+    // #374 follow-and-snap-back gesture owns.
     final String? meta = data.effectiveMetaRight;
-    final bool hasFacts = data.payBand != null || meta != null;
+    final String? pay = data.payBand;
+    final bool hasFacts = pay != null || meta != null;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints box) {
+        if (!box.maxHeight.isFinite) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _narrative(),
+              if (hasFacts) ...<Widget>[
+                SizedBox(height: compact ? 10 : 16),
+                _facts(pay, meta),
+              ],
+            ],
+          );
+        }
+        // WHAT GIVES WAY, AND WHAT NEVER DOES. The money block is an
+        // INFLEXIBLE child, so the `Flexible` narrative above it gets only
+        // what is left over and is the part that clips. A salary sliced
+        // horizontally through its digits — which is what one clipped column
+        // produced at 320x568 with a 2.0 system font — is worse than a
+        // shortened title: the pay is the one fact this card exists to state.
+        //
+        // WHERE THE SURPLUS GOES — `spaceBetween`. The deck hands this card a
+        // TIGHT box now (the card fills the deck's height instead of shrinking
+        // to its text), and a start-aligned column would answer that by
+        // stacking four rows in the top 200dp of a ~550dp card and leaving a
+        // white slab underneath: exactly the half-loaded screen this layout
+        // exists to avoid. So the narrative keeps the TOP, the money block
+        // sits on the BOTTOM edge, and the height the job does not need
+        // becomes the space between the two.
+        //
+        // In a LOOSE box — a deck card laid out at its natural height, i.e.
+        // every host that is not the deck — there is no surplus to
+        // distribute, so nothing moves and `MainAxisSize.min` still sizes the
+        // column to its content.
+        final double gap = compact ? 10 : 16;
+        return ClipRect(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: <Widget>[
+              Flexible(child: _clipped(_narrative())),
+              // THE SURPLUS GETS CONTENT, NOT JUST AIR. A full-height card on
+              // a real feed job (title, place, pay, shift, note — `GET /feed`
+              // carries no requirement chips) left ~500dp of empty white
+              // between the place and the money block, which reads as a
+              // half-loaded card. The note the feed DOES carry is drawn here,
+              // centred in exactly that height, so a taller card shows the
+              // same facts with the reason placed where the eye lands. With no
+              // note there is nothing honest to put there, so `spaceBetween`
+              // keeps its plain gap rather than inventing a filler.
+              if (_notePlacedInFreeSpace)
+                Expanded(
+                  child: Center(
+                    child: _clipped(_freeSpaceNote()),
+                  ),
+                ),
+              if (hasFacts)
+                // The gap lives INSIDE this block as a padding, not beside it
+                // as a `SizedBox` sibling: `spaceBetween` shares the surplus
+                // out BETWEEN siblings, so a gap child would have taken a
+                // third of it and floated in the middle of the card. As a
+                // padding it stays what it was — the MINIMUM breathing room
+                // between the narrative and the money on a card that has no
+                // surplus at all.
+                ConstrainedBox(
+                  // The cap covers the block WITH its gap, because a Column
+                  // hands an inflexible child UNBOUNDED main-axis space:
+                  // without it a money block taller than the whole card (a
+                  // landscape phone at 2.0 leaves 148dp) overflowed the
+                  // Column, and a RenderFlex reports its overflow wherever it
+                  // is clipped.
+                  constraints: BoxConstraints(maxHeight: box.maxHeight),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: gap),
+                    child: _clipped(_facts(pay, meta)),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Lays [child] out at its NATURAL height, takes the SMALLER of that and the
+  /// space it was given, and clips the surplus off the bottom.
+  ///
+  /// `ConstraintsTransformBox`, not `OverflowBox`: an `OverflowBox` sizes
+  /// itself to `constraints.biggest`, which is what made the deck card a
+  /// full-height white slab, and inside a `Flexible` it then took the whole
+  /// free run and shoved the money block off the card. This sizes to
+  /// `constraints.constrain(child)`, and `Clip.hardEdge` keeps the debug
+  /// overflow indicator (and its error report) out of it — the clip IS the
+  /// intended behaviour here.
+  static Widget _clipped(Widget child) => ConstraintsTransformBox(
+    constraintsTransform: ConstraintsTransformBox.heightUnconstrained,
+    alignment: Alignment.topLeft,
+    clipBehavior: Clip.hardEdge,
+    child: child,
+  );
+
+  /// Title, place, the "why am I seeing this" note and the job's requirement
+  /// chips — the part that gives way on a short card.
+  ///
+  /// The chips are what the EXTRA height of a full-height deck card buys: the
+  /// same read-only fact chip the job detail prints its requirements with (a
+  /// grey dot and no check — a job requirement is not something anybody
+  /// verified on this worker), and they come LAST, so they are the first thing
+  /// the clip takes back when the card is short. [compact] drops them outright
+  /// rather than showing a row of half-chips.
+  ///
+  /// `GET /feed` carries no requirements today, so on the live feed the row is
+  /// simply absent — an empty list renders nothing and nothing is invented to
+  /// fill the space.
+  /// True when the bounded (deck) layout draws the match note ITSELF, in the
+  /// height the job does not need, so [_narrative] must not draw it twice.
+  bool get _notePlacedInFreeSpace => !compact && data.matchNote != null;
+
+  /// The "why am I seeing this" note, drawn on its own so the deck layout can
+  /// put it in the card's free space instead of stacking it under the place.
+  Widget _freeSpaceNote() =>
+      _MatchNote(text: data.matchNote!, maxLines: null);
+
+  Widget _narrative() {
+    final List<String> tags = compact ? const <String>[] : data.tags;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -479,170 +782,57 @@ class _DeckBody extends StatelessWidget {
                   : _TitleButton(onTap: onTitleTap!, title: _title()),
             ),
             if (data.hot) ...<Widget>[
-              const SizedBox(width: AppSpacing.s2),
+              const SizedBox(width: 8),
               const BbHotTag(),
             ],
           ],
         ),
-        const SizedBox(height: AppSpacing.s1),
-        _DeckPlaceRow(data: data),
-        if (hasFacts) ...<Widget>[
-          const SizedBox(height: AppSpacing.s4),
-          _DeckFactsPanel(payBand: data.payBand, meta: meta),
+        const SizedBox(height: 4),
+        _SubtitleRow(data: data),
+        if (data.matchNote != null && !_notePlacedInFreeSpace) ...<Widget>[
+          SizedBox(height: compact ? 8 : 12),
+          _MatchNote(text: data.matchNote!, maxLines: compact ? 2 : null),
         ],
-        if (data.matchNote != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _DeckMatchNote(text: data.matchNote!),
+        if (tags.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final String tag in tags)
+                KitInfoChip(
+                  label: tag,
+                  dot: OnboardingColors.ink500,
+                  showCheck: false,
+                ),
+            ],
+          ),
         ],
       ],
     );
   }
-}
 
-/// Place (with the employer when one exists) behind a pin icon.
-class _DeckPlaceRow extends StatelessWidget {
-  const _DeckPlaceRow({required this.data});
-
-  final BbJobCardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final String line =
-        data.company == null ? data.place : '${data.company} · ${data.place}';
-    return Row(
+  /// The money and the shift — never clipped.
+  ///
+  /// WRAP, not a Row. The money box takes the full width it is given, so the
+  /// shift chip drops to its own line rather than squeezing a ₹ figure and
+  /// "Rotational shift" onto one 320dp line — and neither fact is one to
+  /// ellipsize.
+  Widget _facts(String? pay, String? meta) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: <Widget>[
-        const Icon(Icons.place_outlined, size: 16, color: AppColors.textMuted),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            line,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
-            ),
+        if (pay != null) KitSalaryBox(label: 'Salary', value: pay),
+        if (meta != null)
+          KitInfoChip(
+            label: meta,
+            dot: OnboardingColors.ink500,
+            showCheck: false,
+            maxLines: 1,
           ),
-        ),
-        if (data.verified) ...<Widget>[
-          const SizedBox(width: 4),
-          const Icon(Icons.verified, size: 15, color: AppColors.blue),
-        ],
       ],
     );
   }
 }
-
-/// The two facts a worker decides on, in one haldi-tinted panel: the pay at
-/// display size on the left, the shift (already on the model, and dropped by
-/// the list row) muted on the right.
-class _DeckFactsPanel extends StatelessWidget {
-  const _DeckFactsPanel({required this.payBand, required this.meta});
-
-  final String? payBand;
-  final String? meta;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s3,
-        vertical: AppSpacing.s3,
-      ),
-      decoration: BoxDecoration(
-        // Haldi wash + a saffron hairline: warmth and separation with no
-        // elevation, per the system's flat rule.
-        color: AppColors.haldiTint,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        border: Border.all(color: AppColors.saffron200),
-      ),
-      // WRAP, not a Row with a Spacer. A 26px pay figure beside a long shift
-      // ("Rotational shift") overflows a 320px handset by ~52px, and neither
-      // fact is one to ellipsize: the shift drops to its own line instead.
-      child: Wrap(
-        spacing: AppSpacing.s4,
-        runSpacing: AppSpacing.s2,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          if (payBand != null)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: <Widget>[
-                Text(
-                  payBand!,
-                  maxLines: 1,
-                  style: AppTypography.display(
-                    size: 26,
-                    weight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  ' /mah',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          if (meta != null)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.schedule,
-                    size: 15, color: AppColors.textMuted),
-                const SizedBox(width: 4),
-                Text(
-                  meta!,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textSecondary,
-                    weight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// E18's "why am I seeing this" line, given its own quiet blue panel so it
-/// reads as an explanation rather than another job fact.
-class _DeckMatchNote extends StatelessWidget {
-  const _DeckMatchNote({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      decoration: BoxDecoration(
-        color: AppColors.blueTintChat,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Icon(Icons.info_outline, size: 16, color: AppColors.blue),
-          const SizedBox(width: AppSpacing.s2),
-          Expanded(
-            child: Text(
-              text,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-

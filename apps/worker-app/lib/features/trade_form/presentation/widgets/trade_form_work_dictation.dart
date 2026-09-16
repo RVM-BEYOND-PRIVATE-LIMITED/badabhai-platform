@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/devanagari_guard.dart';
 import '../../../chat/presentation/widgets/voice_wave_visualizer.dart';
 import '../../../voice/presentation/dictation_controller.dart';
@@ -182,7 +180,7 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const SizedBox(height: AppSpacing.s2),
+        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
           child: _dictation.listening ? _listeningRow() : _idleButton(),
@@ -190,14 +188,8 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
         if (_note != null)
           Padding(
             key: kWorkDictationStatusKey,
-            padding: const EdgeInsets.only(top: AppSpacing.s1),
-            child: Text(
-              _note!,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
-              ),
-            ),
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(_note!, style: OnboardingTypography.bodyMuted()),
           ),
       ],
     );
@@ -207,18 +199,18 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
     return TextButton.icon(
       key: kWorkDictationButtonKey,
       onPressed: widget.enabled ? _start : null,
-      icon: const Icon(Icons.mic_rounded, color: AppColors.blue),
+      icon: const Icon(Icons.mic_rounded, color: OnboardingColors.shiftBlue),
       label: Text(
         kWorkDictationIdleLabel,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
+        style: OnboardingTypography.inter(
+          size: 13,
           weight: FontWeight.w600,
-          color: AppColors.blue,
+          color: OnboardingColors.shiftBlue,
         ),
       ),
       style: TextButton.styleFrom(
         // The worker tap floor; a mic that is hard to hit is no mic.
-        minimumSize: const Size(0, AppSpacing.tap),
+        minimumSize: const Size(0, OnboardingLayout.tapTarget),
       ),
     );
   }
@@ -234,20 +226,23 @@ class _TradeFormWorkDictationState extends State<TradeFormWorkDictation> {
         TextButton.icon(
           key: kWorkDictationButtonKey,
           onPressed: _stop,
-          icon: const Icon(Icons.stop_circle_rounded, color: AppColors.danger),
+          icon: const Icon(
+            Icons.stop_circle_rounded,
+            color: OnboardingColors.errorRed,
+          ),
           label: Text(
             kWorkDictationStopLabel,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
+            style: OnboardingTypography.inter(
+              size: 13,
               weight: FontWeight.w600,
-              color: AppColors.danger,
+              color: OnboardingColors.errorRed,
             ),
           ),
           style: TextButton.styleFrom(
-            minimumSize: const Size(0, AppSpacing.tap),
+            minimumSize: const Size(0, OnboardingLayout.tapTarget),
           ),
         ),
-        const SizedBox(width: AppSpacing.s2),
+        const SizedBox(width: 8),
         Semantics(
           container: true,
           liveRegion: true,

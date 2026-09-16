@@ -19,15 +19,14 @@ FeedItem _job(
   String tradeKey,
   String title, {
   String city = 'Pune',
-}) =>
-    FeedItem(
-      jobId: id,
-      tradeKey: tradeKey,
-      title: title,
-      city: city,
-      area: null,
-      rank: 1,
-    );
+}) => FeedItem(
+  jobId: id,
+  tradeKey: tradeKey,
+  title: title,
+  city: city,
+  area: null,
+  rank: 1,
+);
 
 /// A phone-tall surface so the deck + sheet CTA are on-screen.
 void _tallSurface(WidgetTester tester) {
@@ -37,19 +36,27 @@ void _tallSurface(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-/// Types [query] into the header's unified filter-search field and taps the
-/// suggestion with [suggestionKey] (e.g. `jobFilterSuggestion_trade_VMC`) to
-/// apply it — the search+suggestions+removable-chip row replaced the old
-/// static CNC/VMC/"Sabhi" chip row.
+/// Opens the Filters sheet, types [query] into its search field, taps the
+/// matching option [suggestionKey] (e.g. `jobFilterSuggestion_trade_VMC`) and
+/// applies with "Show N jobs".
+///
+/// The typed search MOVED off the navy feed header and into the sheet: on the
+/// header, the field plus up to eight suggestion chips plus the active-chip row
+/// stacked 190-430dp of chrome above the deck and squeezed the card off a
+/// 320x568 screen. Every key is unchanged, and the feed still shows one
+/// removable chip per applied filter.
 Future<void> _applyFilterViaSearch(
   WidgetTester tester,
   String query,
   String suggestionKey,
 ) async {
-  await tester.enterText(
-      find.byKey(const Key('jobFilterSearchField')), query);
+  await tester.tap(find.byTooltip('Filter jobs'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('jobFilterSearchField')), query);
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(Key(suggestionKey)));
+  await tester.pumpAndSettle();
+  await tester.tap(find.textContaining('Show '));
   await tester.pumpAndSettle();
 }
 
@@ -75,15 +82,26 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
-            _job('cnc1', 'cnc_operator', 'CNC Operator'),
-            _job('vmc1', 'vmc_setter', 'VMC Setter'),
-          ]);
+      when(
+        () => repo.getFeed(
+          tradeKey: any(named: 'tradeKey'),
+          city: any(named: 'city'),
+          shift: any(named: 'shift'),
+          payMin: any(named: 'payMin'),
+        ),
+      ).thenAnswer(
+        (_) async => <FeedItem>[
+          _job('cnc1', 'cnc_operator', 'CNC Operator'),
+          _job('vmc1', 'vmc_setter', 'VMC Setter'),
+        ],
+      );
 
-      await tester.pumpWidget(MaterialApp(
-        theme: AppTheme.light(),
-        home: SwipeJobsScreen(bloc: SwipeBloc(repo)),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: SwipeJobsScreen(bloc: SwipeBloc(repo)),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Unfiltered (liberal): nothing is pre-selected, so BOTH trades show and
@@ -94,10 +112,12 @@ void main() {
       // empty — a liberal feed pre-selects no trade).
       await tester.tap(find.byTooltip('Filter jobs'));
       await tester.pumpAndSettle();
-      await tester.tap(find.descendant(
-        of: find.byType(FiltersSheet),
-        matching: find.text('VMC'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FiltersSheet),
+          matching: find.text('VMC'),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Show '));
       await tester.pumpAndSettle();
@@ -115,40 +135,57 @@ void main() {
   // FilterSelection, so applying a filter via search must narrow the deck
   // exactly like the sheet does — and removing it must restore the deck.
   testWidgets(
-      'applying a filter via the header search narrows the deck, removing it '
-      'restores the deck (was visual-only)', (WidgetTester tester) async {
-    _tallSurface(tester);
+    'applying a filter via the header search narrows the deck, removing it '
+    'restores the deck (was visual-only)',
+    (WidgetTester tester) async {
+      _tallSurface(tester);
 
-    final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
+      final _MockSwipeRepository repo = _MockSwipeRepository();
+      when(
+        () => repo.getFeed(
+          tradeKey: any(named: 'tradeKey'),
+          city: any(named: 'city'),
+          shift: any(named: 'shift'),
+          payMin: any(named: 'payMin'),
+        ),
+      ).thenAnswer(
+        (_) async => <FeedItem>[
           _job('cnc1', 'cnc_operator', 'CNC Operator'),
           _job('vmc1', 'vmc_setter', 'VMC Setter'),
-        ]);
+        ],
+      );
 
-    final SwipeBloc bloc = SwipeBloc(repo);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: SwipeJobsScreen(bloc: bloc),
-    ));
-    await tester.pumpAndSettle();
+      final SwipeBloc bloc = SwipeBloc(repo);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: SwipeJobsScreen(bloc: bloc),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // Both jobs are in the deck and no filter is active yet.
-    expect(find.text('CNC Operator'), findsOneWidget);
-    expect(bloc.state.filters.isEmpty, isTrue);
+      // Both jobs are in the deck and no filter is active yet.
+      expect(find.text('CNC Operator'), findsOneWidget);
+      expect(bloc.state.filters.isEmpty, isTrue);
 
-    // Search "VMC" and tap the trade suggestion — no sheet involved.
-    await _applyFilterViaSearch(tester, 'VMC', 'jobFilterSuggestion_trade_VMC');
+      // Search "VMC" and tap the trade suggestion — no sheet involved.
+      await _applyFilterViaSearch(
+        tester,
+        'VMC',
+        'jobFilterSuggestion_trade_VMC',
+      );
 
-    // It reached the bloc AND narrowed the deck.
-    expect(bloc.state.filters.trades, <String>{'VMC'});
-    expect(find.text('VMC Setter'), findsOneWidget);
-    expect(find.text('CNC Operator'), findsNothing);
+      // It reached the bloc AND narrowed the deck.
+      expect(bloc.state.filters.trades, <String>{'VMC'});
+      expect(find.text('VMC Setter'), findsOneWidget);
+      expect(find.text('CNC Operator'), findsNothing);
 
-    // Removing the active chip restores the full deck (round-trip).
-    await _removeActiveChip(tester, 'jobFilterChip_trade_VMC');
-    expect(bloc.state.filters.isEmpty, isTrue);
-    expect(find.text('CNC Operator'), findsOneWidget);
-  });
+      // Removing the active chip restores the full deck (round-trip).
+      await _removeActiveChip(tester, 'jobFilterChip_trade_VMC');
+      expect(bloc.state.filters.isEmpty, isTrue);
+      expect(find.text('CNC Operator'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'the filter icon shows a green dot when ANY filter is active and hides it '
@@ -157,16 +194,27 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
-            _job('cnc1', 'cnc_operator', 'CNC Operator'),
-            _job('vmc1', 'vmc_setter', 'VMC Setter'),
-          ]);
+      when(
+        () => repo.getFeed(
+          tradeKey: any(named: 'tradeKey'),
+          city: any(named: 'city'),
+          shift: any(named: 'shift'),
+          payMin: any(named: 'payMin'),
+        ),
+      ).thenAnswer(
+        (_) async => <FeedItem>[
+          _job('cnc1', 'cnc_operator', 'CNC Operator'),
+          _job('vmc1', 'vmc_setter', 'VMC Setter'),
+        ],
+      );
 
       final SwipeBloc bloc = SwipeBloc(repo);
-      await tester.pumpWidget(MaterialApp(
-        theme: AppTheme.light(),
-        home: SwipeJobsScreen(bloc: bloc),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: SwipeJobsScreen(bloc: bloc),
+        ),
+      );
       await tester.pumpAndSettle();
 
       final Finder dot = find.byKey(const Key('jobs_filter_active_dot'));
@@ -176,7 +224,11 @@ void main() {
       expect(dot, findsNothing);
 
       // Apply a filter via the header search -> the dot appears.
-      await _applyFilterViaSearch(tester, 'VMC', 'jobFilterSuggestion_trade_VMC');
+      await _applyFilterViaSearch(
+        tester,
+        'VMC',
+        'jobFilterSuggestion_trade_VMC',
+      );
       expect(dot, findsOneWidget);
 
       // Remove it via its chip -> the dot disappears again.
@@ -193,25 +245,38 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
-            _job('cnc1', 'cnc_operator', 'CNC Operator'),
-            _job('vmc1', 'vmc_setter', 'VMC Setter'),
-          ]);
+      when(
+        () => repo.getFeed(
+          tradeKey: any(named: 'tradeKey'),
+          city: any(named: 'city'),
+          shift: any(named: 'shift'),
+          payMin: any(named: 'payMin'),
+        ),
+      ).thenAnswer(
+        (_) async => <FeedItem>[
+          _job('cnc1', 'cnc_operator', 'CNC Operator'),
+          _job('vmc1', 'vmc_setter', 'VMC Setter'),
+        ],
+      );
 
       final SwipeBloc bloc = SwipeBloc(repo);
-      await tester.pumpWidget(MaterialApp(
-        theme: AppTheme.light(),
-        home: SwipeJobsScreen(bloc: bloc),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: SwipeJobsScreen(bloc: bloc),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Select CNC in the SHEET...
       await tester.tap(find.byTooltip('Filter jobs'));
       await tester.pumpAndSettle();
-      await tester.tap(find.descendant(
-        of: find.byType(FiltersSheet),
-        matching: find.text('CNC'),
-      ));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(FiltersSheet),
+          matching: find.text('CNC'),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('Show '));
       await tester.pumpAndSettle();
@@ -230,18 +295,29 @@ void main() {
   // flag and no shift on the /feed wire, and no distance/radius data anywhere —
   // so a "15 km" line was simply untrue. The header is now driven by the real
   // city filter state.
-  testWidgets('shows no unbacked "Verified" / "Day shift" / "15 km" claims',
-      (WidgetTester tester) async {
+  testWidgets('shows no unbacked "Verified" / "Day shift" / "15 km" claims', (
+    WidgetTester tester,
+  ) async {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
-        (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')]);
+    when(
+      () => repo.getFeed(
+        tradeKey: any(named: 'tradeKey'),
+        city: any(named: 'city'),
+        shift: any(named: 'shift'),
+        payMin: any(named: 'payMin'),
+      ),
+    ).thenAnswer(
+      (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')],
+    );
 
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: SwipeJobsScreen(bloc: SwipeBloc(repo)),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: SwipeJobsScreen(bloc: SwipeBloc(repo)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Verified'), findsNothing);
@@ -254,71 +330,97 @@ void main() {
     expect(find.text('Kaam milega.'), findsOneWidget);
   });
 
-  testWidgets('a filter matching no jobs shows the "no jobs match" empty state',
-      (WidgetTester tester) async {
-    _tallSurface(tester);
-
-    final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer(
-        (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
-
-    final SwipeBloc bloc = SwipeBloc(repo);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: SwipeJobsScreen(bloc: bloc),
-    ));
-    await tester.pumpAndSettle();
-    expect(find.text('Welder'), findsOneWidget);
-
-    // Filter to a trade the (single welder) job cannot match.
-    bloc.add(const SwipeFiltersChanged(FilterSelection(
-      trades: <String>{'CNC'},
-      cities: <String>{},
-      experienceBands: <String>{},
-    )));
-    await tester.pumpAndSettle();
-
-    expect(find.text('No jobs match your filters.'), findsOneWidget);
-    expect(find.text('Welder'), findsNothing);
-
-    // Clearing restores the full deck.
-    await tester.tap(find.text('Clear filters'));
-    await tester.pumpAndSettle();
-    expect(find.text('Welder'), findsOneWidget);
-  });
-
   testWidgets(
-    '"Clear filters" resets EVERY dimension, not just trades',
+    'a filter matching no jobs shows the "no jobs match" empty state',
     (WidgetTester tester) async {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
-            _job('weld1', 'welder', 'Welder', city: 'Pune'),
-          ]);
+      when(
+        () => repo.getFeed(
+          tradeKey: any(named: 'tradeKey'),
+          city: any(named: 'city'),
+          shift: any(named: 'shift'),
+          payMin: any(named: 'payMin'),
+        ),
+      ).thenAnswer((_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
 
       final SwipeBloc bloc = SwipeBloc(repo);
-      await tester.pumpWidget(MaterialApp(
-        theme: AppTheme.light(),
-        home: SwipeJobsScreen(bloc: bloc),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: SwipeJobsScreen(bloc: bloc),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Welder'), findsOneWidget);
+
+      // Filter to a trade the (single welder) job cannot match.
+      bloc.add(
+        const SwipeFiltersChanged(
+          FilterSelection(
+            trades: <String>{'CNC'},
+            cities: <String>{},
+            experienceBands: <String>{},
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      // Narrow on a NON-trade dimension so nothing matches — the old "Clear
-      // filters" only reset trades and would have left this stuck.
-      bloc.add(const SwipeFiltersChanged(FilterSelection(
-        trades: <String>{},
-        cities: <String>{'Nashik'},
-        experienceBands: <String>{},
-      )));
-      await tester.pumpAndSettle();
-      expect(find.text('No jobs match your filters.'), findsOneWidget);
+      expect(find.text('Filter ke hisaab se koi job nahi mili.'), findsOneWidget);
+      expect(find.text('Welder'), findsNothing);
 
-      await tester.tap(find.text('Clear filters'));
+      // Clearing restores the full deck.
+      await tester.tap(find.text('Filter hatayein'));
       await tester.pumpAndSettle();
-
-      expect(bloc.state.filters.isEmpty, isTrue);
       expect(find.text('Welder'), findsOneWidget);
     },
   );
+
+  testWidgets('"Clear filters" resets EVERY dimension, not just trades', (
+    WidgetTester tester,
+  ) async {
+    _tallSurface(tester);
+
+    final _MockSwipeRepository repo = _MockSwipeRepository();
+    when(
+      () => repo.getFeed(
+        tradeKey: any(named: 'tradeKey'),
+        city: any(named: 'city'),
+        shift: any(named: 'shift'),
+        payMin: any(named: 'payMin'),
+      ),
+    ).thenAnswer(
+      (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder', city: 'Pune')],
+    );
+
+    final SwipeBloc bloc = SwipeBloc(repo);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: SwipeJobsScreen(bloc: bloc),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Narrow on a NON-trade dimension so nothing matches — the old "Clear
+    // filters" only reset trades and would have left this stuck.
+    bloc.add(
+      const SwipeFiltersChanged(
+        FilterSelection(
+          trades: <String>{},
+          cities: <String>{'Nashik'},
+          experienceBands: <String>{},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Filter ke hisaab se koi job nahi mili.'), findsOneWidget);
+
+    await tester.tap(find.text('Filter hatayein'));
+    await tester.pumpAndSettle();
+
+    expect(bloc.state.filters.isEmpty, isTrue);
+    expect(find.text('Welder'), findsOneWidget);
+  });
 }

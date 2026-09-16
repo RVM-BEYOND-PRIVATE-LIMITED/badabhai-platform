@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_sheet.dart';
+import 'package:badabhai_worker_app/core/widgets/kit/kit_select_chip.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/job_filter.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/widgets/filters_sheet.dart';
 
@@ -17,20 +18,19 @@ FeedItem _job(
   String? shift,
   int? payMin,
   int? payMax,
-}) =>
-    FeedItem(
-      jobId: id,
-      tradeKey: tradeKey,
-      title: title,
-      city: city,
-      area: null,
-      minExperienceYears: minYears,
-      maxExperienceYears: maxYears,
-      shift: shift,
-      payMin: payMin,
-      payMax: payMax,
-      rank: 1,
-    );
+}) => FeedItem(
+  jobId: id,
+  tradeKey: tradeKey,
+  title: title,
+  city: city,
+  area: null,
+  minExperienceYears: minYears,
+  maxExperienceYears: maxYears,
+  shift: shift,
+  payMin: payMin,
+  payMax: payMax,
+  rank: 1,
+);
 
 /// A phone-tall surface so the sheet's "Show N jobs" CTA is on-screen.
 void _tallSurface(WidgetTester tester) {
@@ -48,24 +48,26 @@ Future<FilterSelection? Function()> _mountSheet(
   FilterSelection initial = FilterSelection.initial,
 }) async {
   FilterSelection? result;
-  await tester.pumpWidget(MaterialApp(
-    theme: AppTheme.light(),
-    home: Scaffold(
-      body: Builder(
-        builder: (BuildContext ctx) => Center(
-          child: ElevatedButton(
-            onPressed: () async {
-              result = await showBbBottomSheet<FilterSelection>(
-                context: ctx,
-                builder: (_) => FiltersSheet(initial: initial, jobs: jobs),
-              );
-            },
-            child: const Text('open'),
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AppTheme.light(),
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext ctx) => Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                result = await showBbBottomSheet<FilterSelection>(
+                  context: ctx,
+                  builder: (_) => FiltersSheet(initial: initial, jobs: jobs),
+                );
+              },
+              child: const Text('open'),
+            ),
           ),
         ),
       ),
     ),
-  ));
+  );
   return () => result;
 }
 
@@ -82,7 +84,10 @@ void main() {
         _job('c2', 'cnc_operator', 'CNC Machinist'),
         _job('v1', 'vmc_setter', 'VMC Setter'),
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
 
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
@@ -117,12 +122,27 @@ void main() {
       _tallSurface(tester);
       // Two jobs on different shifts and pay ceilings so each filter narrows.
       final List<FeedItem> jobs = <FeedItem>[
-        _job('c1', 'cnc_operator', 'CNC Operator',
-            shift: 'day', payMin: 15000, payMax: 18000),
-        _job('c2', 'cnc_operator', 'CNC Machinist',
-            shift: 'night', payMin: 22000, payMax: 26000),
+        _job(
+          'c1',
+          'cnc_operator',
+          'CNC Operator',
+          shift: 'day',
+          payMin: 15000,
+          payMax: 18000,
+        ),
+        _job(
+          'c2',
+          'cnc_operator',
+          'CNC Machinist',
+          shift: 'night',
+          payMin: 22000,
+          payMax: 26000,
+        ),
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -159,10 +179,25 @@ void main() {
     (WidgetTester tester) async {
       _tallSurface(tester);
       final List<FeedItem> jobs = <FeedItem>[
-        _job('c1', 'cnc_operator', 'CNC Operator', payMin: 15000, payMax: 18000),
-        _job('c2', 'cnc_operator', 'CNC Machinist', payMin: 22000, payMax: 26000),
+        _job(
+          'c1',
+          'cnc_operator',
+          'CNC Operator',
+          payMin: 15000,
+          payMax: 18000,
+        ),
+        _job(
+          'c2',
+          'cnc_operator',
+          'CNC Machinist',
+          payMin: 22000,
+          payMax: 26000,
+        ),
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -187,7 +222,10 @@ void main() {
         _job('p2', 'cnc_operator', 'CNC Machinist', city: 'Pune'),
         _job('n1', 'vmc_setter', 'VMC Setter', city: 'Nashik'),
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -209,8 +247,9 @@ void main() {
     },
   );
 
-  testWidgets('the City group is omitted entirely when the queue has no jobs',
-      (WidgetTester tester) async {
+  testWidgets('the City group is omitted entirely when the queue has no jobs', (
+    WidgetTester tester,
+  ) async {
     _tallSurface(tester);
     // No queue ⇒ no derivable cities ⇒ no empty section that reads as broken.
     await _mountSheet(tester, <FeedItem>[]);
@@ -234,7 +273,10 @@ void main() {
         // No window ⇒ [0, infinity) ⇒ matches EVERY band, never dropped.
         _job('any', 'cnc_operator', 'CNC Any'),
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -261,16 +303,43 @@ void main() {
       _tallSurface(tester);
       final List<FeedItem> jobs = <FeedItem>[
         // The only job matching CNC + Pune + 5+ yrs.
-        _job('hit', 'cnc_operator', 'CNC Senior',
-            city: 'Pune', minYears: 6, maxYears: 9),
-        _job('jr', 'cnc_operator', 'CNC Junior',
-            city: 'Pune', minYears: 0, maxYears: 1), // wrong experience
-        _job('away', 'cnc_operator', 'CNC Nashik',
-            city: 'Nashik', minYears: 6, maxYears: 9), // wrong city
-        _job('weld', 'welder', 'Welder',
-            city: 'Pune', minYears: 6, maxYears: 9), // wrong trade
+        _job(
+          'hit',
+          'cnc_operator',
+          'CNC Senior',
+          city: 'Pune',
+          minYears: 6,
+          maxYears: 9,
+        ),
+        _job(
+          'jr',
+          'cnc_operator',
+          'CNC Junior',
+          city: 'Pune',
+          minYears: 0,
+          maxYears: 1,
+        ), // wrong experience
+        _job(
+          'away',
+          'cnc_operator',
+          'CNC Nashik',
+          city: 'Nashik',
+          minYears: 6,
+          maxYears: 9,
+        ), // wrong city
+        _job(
+          'weld',
+          'welder',
+          'Welder',
+          city: 'Pune',
+          minYears: 6,
+          maxYears: 9,
+        ), // wrong trade
       ];
-      final FilterSelection? Function() result = await _mountSheet(tester, jobs);
+      final FilterSelection? Function() result = await _mountSheet(
+        tester,
+        jobs,
+      );
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -297,8 +366,9 @@ void main() {
     },
   );
 
-  testWidgets('re-opening seeds the sheet with the CURRENT selection',
-      (WidgetTester tester) async {
+  testWidgets('re-opening seeds the sheet with the CURRENT selection', (
+    WidgetTester tester,
+  ) async {
     _tallSurface(tester);
     final List<FeedItem> jobs = <FeedItem>[
       _job('c1', 'cnc_operator', 'CNC Operator', city: 'Pune'),
@@ -318,5 +388,97 @@ void main() {
 
     // Seeded selection is reflected in the count immediately (1 of 2 jobs).
     expect(find.text('Show 1 jobs'), findsOneWidget);
+  });
+
+  // ── R4: the typed filter search moved OFF the feed header and into here ───
+
+  testWidgets(
+    'the search field narrows the options across every group, and the CTA '
+    'stays put',
+    (WidgetTester tester) async {
+      _tallSurface(tester);
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator', city: 'Pune'),
+        _job('v1', 'vmc_setter', 'VMC Setter', city: 'Nashik'),
+      ];
+      await _mountSheet(tester, jobs);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Every group is offered before anything is typed.
+      expect(find.text('TRADE'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
+      expect(find.text('SHIFT'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('jobFilterSearchField')),
+        'vmc',
+      );
+      await tester.pumpAndSettle();
+
+      // Only the matching option survives — and it keeps the SAME key the feed
+      // header's suggestion chips used, so nothing that referenced it broke.
+      expect(
+        find.byKey(const Key('jobFilterSuggestion_trade_VMC')),
+        findsOneWidget,
+      );
+      expect(find.text('CNC'), findsNothing);
+      // A group whose every option filtered out is omitted, label included —
+      // a heading over an empty space reads as broken.
+      expect(find.text('CITY'), findsNothing);
+      expect(find.text('SHIFT'), findsNothing);
+      expect(find.text('MINIMUM PAY'), findsNothing);
+      // The CTA is docked, so it is reachable throughout.
+      expect(find.textContaining('Show '), findsOneWidget);
+
+      // Clearing the query brings every group back.
+      await tester.enterText(find.byKey(const Key('jobFilterSearchField')), '');
+      await tester.pumpAndSettle();
+      expect(find.text('SHIFT'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
+    },
+  );
+
+  testWidgets('typing a dimension name surfaces that whole group', (
+    WidgetTester tester,
+  ) async {
+    _tallSurface(tester);
+    await _mountSheet(tester, <FeedItem>[
+      _job('c1', 'cnc_operator', 'CNC Operator', shift: 'day'),
+    ]);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('jobFilterSearchField')),
+      'shift',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('SHIFT'), findsOneWidget);
+    expect(find.text('Day'), findsOneWidget);
+    expect(find.text('Night'), findsOneWidget);
+    expect(find.text('Rotational'), findsOneWidget);
+    expect(find.text('TRADE'), findsNothing);
+  });
+
+  testWidgets('an option is a KitSelectChip that reports its selected state', (
+    WidgetTester tester,
+  ) async {
+    _tallSurface(tester);
+    await _mountSheet(tester, <FeedItem>[
+      _job('c1', 'cnc_operator', 'CNC Operator'),
+    ]);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    final Finder cnc = find.byKey(const Key('jobFilterSuggestion_trade_CNC'));
+    expect(find.byType(KitSelectChip), findsWidgets);
+    expect(tester.widget<KitSelectChip>(cnc).selected, isFalse);
+
+    await tester.tap(cnc);
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<KitSelectChip>(cnc).selected, isTrue);
   });
 }

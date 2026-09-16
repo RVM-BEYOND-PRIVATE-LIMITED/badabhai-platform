@@ -1,231 +1,310 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_colors.dart';
-import 'app_spacing.dart';
 import 'app_typography.dart';
+import 'onboarding_theme.dart';
 
-/// The BadaBhai **"Josh"** theme, assembled from the design tokens
-/// ([AppColors], [AppTypography], [AppSpacing], [AppRadii]).
+/// The BadaBhai **UI kit v3** theme, assembled from [OnboardingColors] /
+/// [OnboardingTypography] (spec §1.1 / §1.2).
 ///
 /// Material 3, skinned to the tokens — we do **not** ship default Material
-/// colours. Build the whole app from [AppTheme.light]; never hard-code a colour,
-/// radius, or text style in a widget.
+/// colours. Build the whole app from [AppTheme.light]; never hard-code a
+/// colour, radius or text style in a widget.
 ///
-/// Colour intent (LOCKED 2026-07-27): **haldi is the hero / primary CTA** (one
-/// per screen; text on haldi is ALWAYS deep blue) and **blue is structure /
-/// trust / links**. Green means success / money / WhatsApp only. Surfaces are
+/// Colour intent: **safety yellow is the hero / primary CTA** (one per screen;
+/// text on yellow is ALWAYS shift blue) and **shift blue is structure / trust /
+/// chrome**. Green means success / money / WhatsApp only. Surfaces are
 /// separated by **hairline borders, never shadows** — every elevation is 0.
+///
+/// **Yellow is SELECTED, blue is FOCUSED.** The one focus rule in the spec
+/// (§3.3, the OTP cell) rings a focused input in [OnboardingColors.shiftBlue]
+/// at 1.8; [OnboardingColors.borderActive] yellow is reserved for the selected
+/// state of a card, chip or checkbox. Both live here so no screen re-decides it.
 class AppTheme {
   AppTheme._();
 
   static ThemeData light() {
     const ColorScheme scheme = ColorScheme(
       brightness: Brightness.light,
-      // primary = the haldi hero CTA (blue text on haldi)
-      primary: AppColors.brand,
-      onPrimary: AppColors.textOnBrand,
-      primaryContainer: AppColors.brandTint,
-      onPrimaryContainer: AppColors.bluePressed,
-      // secondary = deep blue (structure, trust, links)
-      secondary: AppColors.blue,
-      onSecondary: AppColors.onBlue,
-      secondaryContainer: AppColors.blueTintChat,
-      onSecondaryContainer: AppColors.bluePressed,
+      // primary = the safety-yellow hero CTA (shift-blue label)
+      primary: OnboardingColors.safetyYellow,
+      onPrimary: OnboardingColors.textOnYellow,
+      primaryContainer: OnboardingColors.selectedCardBg,
+      onPrimaryContainer: OnboardingColors.shiftBlue,
+      // secondary = shift blue (structure, trust, chrome)
+      secondary: OnboardingColors.shiftBlue,
+      onSecondary: OnboardingColors.textOnBlue,
+      secondaryContainer: OnboardingColors.infoBg,
+      onSecondaryContainer: OnboardingColors.shiftBlue,
       // tertiary = green (success / money accent)
-      tertiary: AppColors.success,
-      onTertiary: AppColors.onBlue,
-      tertiaryContainer: AppColors.successTint,
-      onTertiaryContainer: AppColors.green700,
-      error: AppColors.danger,
-      onError: AppColors.onBlue,
-      errorContainer: AppColors.dangerTint,
-      onErrorContainer: AppColors.red700,
-      surface: AppColors.surfaceCard,
-      onSurface: AppColors.textPrimary,
-      onSurfaceVariant: AppColors.textSecondary,
-      surfaceContainerLowest: AppColors.paper0,
-      surfaceContainerLow: AppColors.paper1,
-      surfaceContainer: AppColors.paper2,
-      surfaceContainerHigh: AppColors.paper3,
-      surfaceContainerHighest: AppColors.paper3,
-      outline: AppColors.borderStrong,
-      outlineVariant: AppColors.borderSubtle,
+      tertiary: OnboardingColors.successGreen,
+      onTertiary: OnboardingColors.textOnBlue,
+      tertiaryContainer: OnboardingColors.successBg,
+      onTertiaryContainer: OnboardingColors.successGreen,
+      error: OnboardingColors.errorRed,
+      onError: OnboardingColors.textOnBlue,
+      errorContainer: OnboardingColors.errorBg,
+      onErrorContainer: OnboardingColors.errorRed,
+      surface: OnboardingColors.paperWhite,
+      onSurface: OnboardingColors.ink900,
+      onSurfaceVariant: OnboardingColors.ink600,
+      surfaceContainerLowest: OnboardingColors.paperWhite,
+      surfaceContainerLow: OnboardingColors.paperWhite,
+      surfaceContainer: OnboardingColors.canvasBg,
+      surfaceContainerHigh: OnboardingColors.pillMutedBg,
+      surfaceContainerHighest: OnboardingColors.pillMutedBg,
+      outline: OnboardingColors.borderDefault,
+      outlineVariant: OnboardingColors.borderSubtle,
       shadow: AppColors.ink950,
-      scrim: AppColors.scrim,
-      inverseSurface: AppColors.ink900,
-      onInverseSurface: AppColors.paper1,
-      inversePrimary: AppColors.brandTint2,
+      scrim: OnboardingColors.scrim,
+      inverseSurface: OnboardingColors.ink900,
+      onInverseSurface: OnboardingColors.paperWhite,
+      inversePrimary: OnboardingColors.yellowTint20,
     );
 
     final TextTheme textTheme = AppTypography.textTheme();
 
-    const RoundedRectangleBorder controlShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(AppRadii.sm)),
-    );
-
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      scaffoldBackgroundColor: AppColors.surfacePage,
+      scaffoldBackgroundColor: OnboardingColors.canvasBg,
       textTheme: textTheme,
-      primaryColor: AppColors.brand,
-      splashColor: AppColors.brandTint,
-      highlightColor: AppColors.brandTint,
-      dividerColor: AppColors.divider,
+      fontFamily: OnboardingTypography.bodyFamily,
+      fontFamilyFallback: OnboardingTypography.bodyFallback,
+      primaryColor: OnboardingColors.safetyYellow,
+      splashColor: OnboardingColors.selectedCardBg,
+      highlightColor: OnboardingColors.selectedCardBg,
+      dividerColor: OnboardingColors.borderSubtle,
 
-      iconTheme: const IconThemeData(color: AppColors.ink700, size: 24),
+      iconTheme: const IconThemeData(color: OnboardingColors.ink600, size: 24),
 
+      // The navy chrome, for any leftover or dormant AppBar caller. Migrated
+      // screens use ShiftBlueHeader / KitTabHeader instead, which are not
+      // AppBars at all.
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.surfacePage,
-        foregroundColor: AppColors.textPrimary,
+        backgroundColor: OnboardingColors.shiftBlue,
+        foregroundColor: OnboardingColors.textOnBlue,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         shadowColor: Colors.transparent,
-        centerTitle: true,
-        titleTextStyle: textTheme.titleLarge,
-        iconTheme: const IconThemeData(color: AppColors.ink700),
-      ),
-
-      // Primary worker CTA — HALDI action button, deep-blue label. Flat.
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: AppColors.brand,
-          foregroundColor: AppColors.textOnBrand,
-          disabledBackgroundColor: AppColors.disabled,
-          disabledForegroundColor: AppColors.textMuted,
-          minimumSize: const Size(64, AppSpacing.controlLg),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-          textStyle: textTheme.labelLarge,
-          shape: controlShape,
-          elevation: 0,
+        centerTitle: false,
+        titleTextStyle: OnboardingTypography.anek(
+          size: 20,
+          weight: FontWeight.w800,
+          color: OnboardingColors.textOnBlue,
         ),
+        iconTheme: const IconThemeData(
+          color: OnboardingColors.textOnBlue,
+          size: 22,
+        ),
+        actionsIconTheme: const IconThemeData(
+          color: OnboardingColors.textOnBlue,
+          size: 22,
+        ),
+        systemOverlayStyle: SystemUiOverlayStyle.light,
       ),
 
+      // Primary worker CTA — the yellow action button, shift-blue label. Flat.
+      filledButtonTheme: FilledButtonThemeData(style: KitButtonStyles.primary),
       elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.brand,
-          foregroundColor: AppColors.textOnBrand,
-          minimumSize: const Size(64, AppSpacing.controlLg),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-          textStyle: textTheme.labelLarge,
-          shape: controlShape,
-          elevation: 0,
-        ),
+        style: KitButtonStyles.primary,
       ),
-
-      // Secondary — outlined, ink on white.
       outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          backgroundColor: AppColors.surfaceCard,
-          foregroundColor: AppColors.textPrimary,
-          minimumSize: const Size(64, AppSpacing.controlLg),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-          textStyle: textTheme.labelLarge,
-          side: const BorderSide(color: AppColors.borderStrong, width: 1.5),
-          shape: controlShape,
-        ),
+        style: KitButtonStyles.secondary,
       ),
-
-      // Ghost — text only.
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.textBrand,
-          textStyle: textTheme.labelLarge,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.s4,
-            vertical: AppSpacing.s2,
-          ),
-          shape: controlShape,
-        ),
-      ),
+      textButtonTheme: TextButtonThemeData(style: KitButtonStyles.ghost),
 
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceCard,
+        fillColor: OnboardingColors.paperWhite,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s4,
-          vertical: AppSpacing.s4,
+          horizontal: 14,
+          vertical: 14,
         ),
-        hintStyle: AppTypography.body(color: AppColors.textFaint),
-        labelStyle: AppTypography.body(
-          color: AppColors.textPrimary,
-          weight: FontWeight.w600,
+        hintStyle: OnboardingTypography.inter(
+          size: 14,
+          color: OnboardingColors.ink500,
         ),
-        enabledBorder: _inputBorder(AppColors.borderStrong, 1.5),
-        border: _inputBorder(AppColors.borderStrong, 1.5),
-        focusedBorder: _inputBorder(AppColors.blue, 2),
-        errorBorder: _inputBorder(AppColors.danger, 1.5),
-        focusedErrorBorder: _inputBorder(AppColors.danger, 2),
-        errorStyle: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.danger,
+        labelStyle: OnboardingTypography.fieldMicroLabel(),
+        enabledBorder: _inputBorder(OnboardingColors.borderDefault, 1.2),
+        border: _inputBorder(OnboardingColors.borderDefault, 1.2),
+        // The spec's ONE focus rule (§3.3): navy at 1.8. Yellow means selected.
+        focusedBorder: _inputBorder(OnboardingColors.shiftBlue, 1.8),
+        errorBorder: _inputBorder(OnboardingColors.errorRed, 1.2),
+        focusedErrorBorder: _inputBorder(OnboardingColors.errorRed, 1.8),
+        errorStyle: OnboardingTypography.inter(
+          size: 12,
           weight: FontWeight.w500,
+          color: OnboardingColors.errorRed,
         ),
       ),
 
-      // Cards separate by a 1px hairline, never a shadow. Flat (elevation 0).
-      cardTheme: const CardThemeData(
-        color: AppColors.surfaceCard,
-        surfaceTintColor: Colors.transparent,
-        shadowColor: Colors.transparent,
-        elevation: 0,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadii.sm)),
-          side: BorderSide(color: AppColors.borderSubtle),
-        ),
-      ),
-
-      listTileTheme: ListTileThemeData(
-        iconColor: AppColors.ink600,
-        titleTextStyle: textTheme.titleSmall,
-        subtitleTextStyle: AppTypography.body(color: AppColors.textSecondary),
-      ),
-
+      // Strict guideline: a ticked box is a NAVY fill with a YELLOW border and
+      // a YELLOW tick — never a white tick on navy.
       checkboxTheme: CheckboxThemeData(
-        fillColor: WidgetStateProperty.resolveWith<Color>((states) {
-          if (states.contains(WidgetState.selected)) return AppColors.blue;
-          return AppColors.surfaceCard;
-        }),
-        checkColor: const WidgetStatePropertyAll<Color>(AppColors.onBlue),
-        side: const BorderSide(color: AppColors.borderStrong, width: 2),
+        fillColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? OnboardingColors.shiftBlue
+              : Colors.transparent,
+        ),
+        checkColor: const WidgetStatePropertyAll<Color>(
+          OnboardingColors.safetyYellow,
+        ),
+        side: WidgetStateBorderSide.resolveWith(
+          (Set<WidgetState> states) => BorderSide(
+            color: states.contains(WidgetState.selected)
+                ? OnboardingColors.safetyYellow
+                : OnboardingColors.borderDefault,
+            width: 1.8,
+          ),
+        ),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(6)),
+        ),
+      ),
+
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.borderDefault,
+        ),
+      ),
+
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? OnboardingColors.safetyYellow
+              : OnboardingColors.paperWhite,
+        ),
+        trackColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.disabledBg,
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith<Color>(
+          (Set<WidgetState> states) => states.contains(WidgetState.selected)
+              ? OnboardingColors.safetyYellow
+              : OnboardingColors.disabledBg,
+        ),
+      ),
+
+      dialogTheme: DialogThemeData(
+        backgroundColor: OnboardingColors.paperWhite,
+        // Design law: separation is the scrim + fill, never a shadow.
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        barrierColor: OnboardingColors.scrim,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.card)),
+        ),
+        titleTextStyle: OnboardingTypography.anek(
+          size: 18,
+          weight: FontWeight.w800,
+          color: OnboardingColors.ink900,
+        ),
+        contentTextStyle: OnboardingTypography.inter(
+          size: 14,
+          height: 1.45,
+          color: OnboardingColors.ink600,
+        ),
+      ),
+
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: OnboardingColors.paperWhite,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        modalElevation: 0,
+        modalBarrierColor: OnboardingColors.scrim,
+        dragHandleColor: OnboardingColors.borderDefault,
+        dragHandleSize: Size(40, 4),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppRadii.xs),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(OnboardingRadii.card),
+          ),
         ),
       ),
 
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: AppColors.ink900,
-        contentTextStyle: AppTypography.body(color: AppColors.paper1),
-        actionTextColor: AppColors.haldi,
+        backgroundColor: OnboardingColors.ink900,
+        contentTextStyle: OnboardingTypography.inter(
+          size: 14,
+          color: OnboardingColors.paperWhite,
+        ),
+        actionTextColor: OnboardingColors.safetyYellow,
         behavior: SnackBarBehavior.floating,
+        elevation: 0,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadii.md)),
+          borderRadius: BorderRadius.all(
+            Radius.circular(OnboardingRadii.docked),
+          ),
         ),
       ),
 
       dividerTheme: const DividerThemeData(
-        color: AppColors.divider,
+        color: OnboardingColors.borderSubtle,
         thickness: 1,
         space: 1,
       ),
 
       progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: AppColors.blue,
+        color: OnboardingColors.shiftBlue,
+        linearTrackColor: OnboardingColors.borderSubtle,
+        circularTrackColor: OnboardingColors.borderSubtle,
       ),
 
       chipTheme: ChipThemeData(
-        backgroundColor: AppColors.surfaceSunken,
-        side: const BorderSide(color: AppColors.borderSubtle),
-        labelStyle: AppTypography.body(
-          size: AppTypography.sizeSm,
+        backgroundColor: OnboardingColors.paperWhite,
+        side: const BorderSide(color: OnboardingColors.borderDefault),
+        labelStyle: OnboardingTypography.chipLabel(),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.chip)),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      ),
+
+      listTileTheme: ListTileThemeData(
+        iconColor: OnboardingColors.ink600,
+        titleTextStyle: OnboardingTypography.inter(
+          size: 14,
           weight: FontWeight.w600,
         ),
-        shape: const StadiumBorder(),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s3,
-          vertical: AppSpacing.s2,
+        subtitleTextStyle: OnboardingTypography.inter(
+          size: 13,
+          color: OnboardingColors.ink600,
+        ),
+      ),
+
+      // Cards separate by a 1px hairline, never a shadow. Flat (elevation 0).
+      cardTheme: const CardThemeData(
+        color: OnboardingColors.paperWhite,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.card)),
+          side: BorderSide(color: OnboardingColors.borderDefault),
+        ),
+      ),
+
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: OnboardingColors.shiftBlue,
+        selectionHandleColor: OnboardingColors.shiftBlue,
+        selectionColor: OnboardingColors.safetyYellow.withValues(alpha: 0.35),
+      ),
+
+      tooltipTheme: TooltipThemeData(
+        decoration: const BoxDecoration(
+          color: OnboardingColors.shiftBlue,
+          borderRadius: BorderRadius.all(Radius.circular(8)),
+        ),
+        textStyle: OnboardingTypography.inter(
+          size: 12,
+          color: OnboardingColors.paperWhite,
         ),
       ),
     );
@@ -233,41 +312,142 @@ class AppTheme {
 
   static OutlineInputBorder _inputBorder(Color color, double width) {
     return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadii.md),
+      borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
       borderSide: BorderSide(color: color, width: width),
     );
   }
 }
 
-/// Shared button [ButtonStyle]s for the variants the design system defines but
-/// Material doesn't theme by default. The default [FilledButton] is already the
-/// haldi primary; use these for status-specific actions. All flat (elevation 0).
-class AppButtonStyles {
-  AppButtonStyles._();
+/// The ONE source of every button paint in the app (spec §2.2 / §4).
+///
+/// [BbButton], [PrimaryActionButton] and [QuestionnaireBottomBar] all read
+/// their style from here, so a button's fill, pressed shade, disabled shade and
+/// label voice are decided once. All flat: elevation is always 0 — separation
+/// is fill + hairline, never a shadow.
+///
+/// Every style carries `minimumSize: 48x48` and
+/// [MaterialTapTargetSize.padded], so a visually small control (the spec's
+/// h10/v4 'Edit') still clears the worker-app touch floor without being drawn
+/// any bigger.
+class KitButtonStyles {
+  KitButtonStyles._();
 
-  /// **Haldi brand** CTA — the hero action, deep-blue label. Used as the one
-  /// primary per screen. Flat: hairlines + fill carry hierarchy, never shadow.
-  static ButtonStyle brand = FilledButton.styleFrom(
-    backgroundColor: AppColors.brand,
-    foregroundColor: AppColors.textOnBrand,
-    minimumSize: const Size(64, AppSpacing.controlLg),
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-    textStyle: AppTypography.body(size: AppTypography.sizeMd, weight: FontWeight.w700),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(AppRadii.sm)),
-    ),
-    elevation: 0,
+  /// The hero CTA: safety yellow, shift-blue Anek label.
+  static ButtonStyle get primary => _style(
+    background: OnboardingColors.safetyYellow,
+    pressed: OnboardingColors.safetyYellowDark,
+    foreground: OnboardingColors.shiftBlue,
   );
 
-  /// Crimson danger action (delete account, destructive) — white label.
-  static ButtonStyle danger = FilledButton.styleFrom(
-    backgroundColor: AppColors.danger,
-    foregroundColor: AppColors.onBlue,
-    minimumSize: const Size(64, AppSpacing.controlLg),
-    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(AppRadii.sm)),
-    ),
-    elevation: 0,
+  /// A strong secondary commitment (download / continue): navy, white label.
+  static ButtonStyle get navy => _style(
+    background: OnboardingColors.shiftBlue,
+    pressed: OnboardingColors.shiftBlueLight,
+    foreground: OnboardingColors.textOnBlue,
   );
+
+  /// Money / WhatsApp / done ONLY.
+  static ButtonStyle get success => _style(
+    background: OnboardingColors.successGreen,
+    pressed: AppColors.green600,
+    foreground: OnboardingColors.textOnBlue,
+  );
+
+  /// A destructive action (delete account), white label.
+  static ButtonStyle get danger => _style(
+    background: OnboardingColors.errorRed,
+    pressed: AppColors.red600,
+    foreground: OnboardingColors.textOnBlue,
+  );
+
+  /// A quiet outlined button: white fill, ink label, grey hairline.
+  static ButtonStyle get secondary => _style(
+    background: OnboardingColors.paperWhite,
+    pressed: OnboardingColors.canvasBg,
+    foreground: OnboardingColors.ink900,
+    side: const BorderSide(color: OnboardingColors.borderDefault, width: 1.2),
+    textStyle: OnboardingTypography.inter(size: 13, weight: FontWeight.w600),
+  );
+
+  /// White fill with a navy label and a navy border — "everything else".
+  static ButtonStyle get outline => _style(
+    background: OnboardingColors.paperWhite,
+    pressed: OnboardingColors.canvasBg,
+    foreground: OnboardingColors.shiftBlue,
+    side: const BorderSide(color: OnboardingColors.shiftBlue, width: 1.5),
+  );
+
+  /// A soft yellow wash behind a navy label.
+  static ButtonStyle get tonal => _style(
+    background: OnboardingColors.yellowTint20,
+    pressed: OnboardingColors.selectedCardBg,
+    foreground: OnboardingColors.shiftBlue,
+  );
+
+  /// Text only.
+  static ButtonStyle get ghost => _style(
+    background: Colors.transparent,
+    pressed: Colors.transparent,
+    foreground: OnboardingColors.shiftBlue,
+  );
+
+  static ButtonStyle _style({
+    required Color background,
+    required Color pressed,
+    required Color foreground,
+    BorderSide? side,
+    TextStyle? textStyle,
+  }) {
+    return ButtonStyle(
+      elevation: const WidgetStatePropertyAll<double>(0),
+      shadowColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+      surfaceTintColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+      backgroundColor: WidgetStateProperty.resolveWith<Color>((
+        Set<WidgetState> states,
+      ) {
+        if (states.contains(WidgetState.disabled)) {
+          // A transparent-fill button (ghost) must stay transparent when
+          // disabled — a grey slab where there was no button reads as a bug.
+          return background == Colors.transparent
+              ? Colors.transparent
+              : OnboardingColors.disabledBg;
+        }
+        if (states.contains(WidgetState.pressed)) return pressed;
+        return background;
+      }),
+      foregroundColor: WidgetStateProperty.resolveWith<Color>(
+        (Set<WidgetState> states) => states.contains(WidgetState.disabled)
+            ? OnboardingColors.disabledText
+            : foreground,
+      ),
+      side: side == null
+          ? null
+          : WidgetStateProperty.resolveWith<BorderSide>(
+              (Set<WidgetState> states) => states.contains(WidgetState.disabled)
+                  ? BorderSide(
+                      color: OnboardingColors.disabledBg,
+                      width: side.width,
+                    )
+                  : side,
+            ),
+      // The pressed colour IS the feedback; a translucent ripple on top of the
+      // flat yellow would only muddy it.
+      overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+      minimumSize: const WidgetStatePropertyAll<Size>(Size(48, 48)),
+      tapTargetSize: MaterialTapTargetSize.padded,
+      padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+        EdgeInsets.symmetric(horizontal: 16),
+      ),
+      textStyle: WidgetStatePropertyAll<TextStyle>(
+        textStyle ?? OnboardingTypography.buttonLabel(),
+      ),
+      shape: const WidgetStatePropertyAll<OutlinedBorder>(
+        RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(
+            Radius.circular(OnboardingRadii.docked),
+          ),
+        ),
+      ),
+    );
+  }
 }

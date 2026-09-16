@@ -160,7 +160,7 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
       // off (or whose pref was saved as false) would upload a photo, see it in
       // the edit thumbnail (which is independent of the toggle), but never see
       // it on the resume tab — the photo URL is only fetched when showPhoto is
-      // true in ResumePhotoHeader._load().
+      // true in the resume tab's profile card (`ResumeProfileCard`).
       emit(state.copyWith(
         photoBusy: false,
         fields: fields.copyWith(hasPhoto: true, showPhoto: true),

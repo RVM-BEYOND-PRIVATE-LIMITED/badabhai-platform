@@ -1379,15 +1379,37 @@ class ResumeDocumentHeaderDto extends Equatable {
 /// (`chipRows`) or ✓ items (`tickRows`) on the printed sheet
 /// (`ResumeListRow` in apps/api resume-renderer.service.ts).
 ///
-/// `key` / `rank` are server-side PROVENANCE the renderer itself never reads
-/// (the backend's own comment: "the renderer never reads either" — they
-/// exist only so the degradation ladder can order rows without re-deriving
-/// the trade map) — deliberately not modelled here for the same reason.
+/// [key] / [rank] ARE ON THE WIRE and are now parsed (additively, both
+/// nullable). Server-side they are described as provenance the PDF renderer
+/// never reads — they exist so the degradation ladder can order rows without
+/// re-deriving the trade map — but the UI kit v3 resume tab needs a
+/// TRADE-AGNOSTIC way to decide which card a row belongs in (machines vs
+/// controllers vs materials vs operations). The alternative was matching the
+/// English label text, which breaks the moment a welder's sheet calls its
+/// chip row "Processes" instead of "Machines".
+///
+/// Read them as a HINT, never a requirement: an absent key (every `factRows`
+/// entry on the terms/qualification zones has none) or an unknown key must
+/// still render, under its own [label]. See `resume_card_slots.dart`, which
+/// owns that mapping and its generic fallback. Formalizing the contract
+/// server-side is backend gap B6.
 class ResumeListRowDto extends Equatable {
-  const ResumeListRowDto({this.label = '', this.values = const <String>[]});
+  const ResumeListRowDto({
+    this.label = '',
+    this.values = const <String>[],
+    this.key,
+    this.rank,
+  });
 
   final String label;
   final List<String> values;
+
+  /// The attribute id behind this row (`turning_machine`, `controller_brand`,
+  /// …). A RAW SLUG — never rendered; it only selects a card slot.
+  final String? key;
+
+  /// The server's own print order within its zone. Null when absent.
+  final int? rank;
 
   factory ResumeListRowDto.fromJson(Map<String, dynamic> json) {
     final List<dynamic> raw =
@@ -1395,29 +1417,49 @@ class ResumeListRowDto extends Equatable {
     return ResumeListRowDto(
       label: json['label'] as String? ?? '',
       values: raw.whereType<String>().toList(growable: false),
+      key: json['key'] as String?,
+      rank: (json['rank'] as num?)?.toInt(),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[label, values];
+  List<Object?> get props => <Object?>[label, values, key, rank];
 }
 
 /// A labelled single-value row on a `format: "trade_sheet"` section — a
 /// definition row on the printed sheet (`factRows`).
+///
+/// [key] / [rank] are parsed on the same additive, nullable terms as
+/// [ResumeListRowDto]'s. Note that the terms and qualification zones build
+/// their fact rows through a plain `push(rows, label, value)` with NO key at
+/// all (backend gap B7), so a null key here is the COMMON case, not an
+/// anomaly — which is why the salary box still has to match on the label.
 class ResumeFactRowDto extends Equatable {
-  const ResumeFactRowDto({this.label = '', this.value = ''});
+  const ResumeFactRowDto({
+    this.label = '',
+    this.value = '',
+    this.key,
+    this.rank,
+  });
 
   final String label;
   final String value;
+
+  /// The attribute id behind this row (`drawing_reading`, `tolerance_band`,
+  /// …). A RAW SLUG — never rendered.
+  final String? key;
+  final int? rank;
 
   factory ResumeFactRowDto.fromJson(Map<String, dynamic> json) =>
       ResumeFactRowDto(
         label: json['label'] as String? ?? '',
         value: json['value'] as String? ?? '',
+        key: json['key'] as String?,
+        rank: (json['rank'] as num?)?.toInt(),
       );
 
   @override
-  List<Object?> get props => <Object?>[label, value];
+  List<Object?> get props => <Object?>[label, value, key, rank];
 }
 
 /// One zoned section of a `format: "trade_sheet"` document — its own heading
@@ -1820,24 +1862,56 @@ class ResumeDocumentResponse extends Equatable {
     required this.resumeId,
     required this.version,
     required this.document,
+    this.renderStatus,
+    this.renderedAt,
   });
 
   final String resumeId;
   final int version;
   final ResumeDocument? document;
 
+  /// THE PDF's REAL STATE: `'pending' | 'rendered' | 'failed'`, straight from
+  /// `resumes.render_status` (apps/api resume.service.ts `myDocument`). Null
+  /// when the server did not send it (an older build).
+  ///
+  /// It exists here so the resume tab can stop CLAIMING the PDF is ready.
+  /// "Resume taiyaar ✓" was painted off the resume TEXT, which says nothing
+  /// about whether a PDF exists — so a worker saw a green success mark and
+  /// then got "PDF taiyaar ho rahi hai…" when they tapped Download. The READY
+  /// pill is now gated on `'rendered'` and on nothing else (ruling R6).
+  ///
+  /// A raw enum token — NEVER rendered. The screen maps it to a pill or to
+  /// no pill at all.
+  final String? renderStatus;
+
+  /// When that render finished. Null while pending, on a failure, or when the
+  /// server omits it. Parsed leniently: an unparseable timestamp degrades to
+  /// null rather than throwing away the whole document.
+  final DateTime? renderedAt;
+
+  /// True only when the server SAYS the PDF is rendered. Absent / pending /
+  /// failed / an unrecognised value are all "not rendered" — this fails
+  /// closed, because the cost of being wrong is telling a worker their resume
+  /// is ready to send when it is not.
+  bool get isRendered => renderStatus == 'rendered';
+
   factory ResumeDocumentResponse.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic>? doc =
         json['document'] as Map<String, dynamic>?;
+    final String? renderedAtRaw = json['rendered_at'] as String?;
     return ResumeDocumentResponse(
       resumeId: json['resume_id'] as String? ?? '',
       version: (json['version'] as num?)?.toInt() ?? 1,
       document: doc == null ? null : ResumeDocument.fromJson(doc),
+      renderStatus: json['render_status'] as String?,
+      renderedAt:
+          renderedAtRaw == null ? null : DateTime.tryParse(renderedAtRaw),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[resumeId, version, document];
+  List<Object?> get props =>
+      <Object?>[resumeId, version, document, renderStatus, renderedAt];
 }
 
 /// The worker-editable resume "safe fields" (GET /workers/me/resume-fields) — the

@@ -214,8 +214,8 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    expect(find.text('No more jobs right now.'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Refresh'), findsOneWidget);
+    expect(find.text('Abhi naye jobs nahi hain.'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Dobara dekhein'), findsOneWidget);
   });
 
   testWidgets('network error on load shows a retry', (

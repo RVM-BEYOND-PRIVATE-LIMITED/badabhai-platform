@@ -1,6 +1,7 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
     show WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_models.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_repository.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
@@ -182,5 +183,51 @@ void main() {
     expect(cubit.state.status, FinishingStatus.ready);
     expect(cubit.state.submitError, 'Gurgram nahi mila');
     verifyNever(() => repo.saveEmployment(any())); // never reached the 2nd write
+  });
+
+  // "Ask once, skip if known": what the chat already asked is not a page here.
+  test('a page whose fact the chat already recorded is skipped', () async {
+    final FinishingCubit cubit = FinishingCubit(
+      repo,
+      knownFacts: InMemoryKnownWorkerFactsStore(
+          <WorkerFact>[WorkerFact.preferredCities, WorkerFact.salary]),
+    );
+    await cubit.load();
+
+    expect(cubit.state.pages, hasLength(FinishingPage.values.length - 2));
+    expect(cubit.state.pages, isNot(contains(FinishingPage.cities)));
+    expect(cubit.state.pages, isNot(contains(FinishingPage.salary)));
+    for (int i = 0; i < 10; i++) {
+      cubit.nextPage();
+    }
+    expect(cubit.state.page, FinishingPage.history);
+    expect(cubit.state.isLastPage, isTrue);
+  });
+
+  test('an untouched work history is never sent (the PUT replaces it all)',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.toggleLanguage('hindi');
+
+    await cubit.submit();
+
+    expect(cubit.state.status, FinishingStatus.done);
+    verifyNever(() => repo.saveEmployment(any()));
+  });
+
+  test('adding then removing every employer still sends the empty list',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.addEmployer();
+    cubit.removeEmployer(0);
+
+    await cubit.submit();
+
+    final List<EmploymentEntry> sent =
+        verify(() => repo.saveEmployment(captureAny())).captured.single
+            as List<EmploymentEntry>;
+    expect(sent, isEmpty, reason: '"I have none" is a real answer');
   });
 }

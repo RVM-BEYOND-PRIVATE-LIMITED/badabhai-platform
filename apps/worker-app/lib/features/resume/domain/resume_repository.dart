@@ -1,5 +1,29 @@
 import '../../../core/api/api_models.dart' show ResumeDocument;
 
+/// What ONE `GET /resume/document` call learned: the structured document (or
+/// null) AND the PDF's real render state.
+///
+/// The two travel together because they arrive together. The alternative was
+/// a second method — and therefore a second HTTP call on every resume load —
+/// just to find out whether the PDF the first call described actually exists
+/// yet.
+class ResumeDocumentSnapshot {
+  const ResumeDocumentSnapshot({this.document, this.renderStatus});
+
+  /// The structured projection, or null for the two ORDINARY reasons the
+  /// wire documents (no projection yet / still pending its first render) and
+  /// for any transport failure. Never "the worker has no resume".
+  final ResumeDocument? document;
+
+  /// `'pending' | 'rendered' | 'failed'`, or null when unknown — a raw token
+  /// the UI never prints. See [ResumeDocumentResponse.renderStatus].
+  final String? renderStatus;
+
+  /// True only when the server said `'rendered'`. Fails closed: unknown is
+  /// not ready (ruling R6).
+  bool get isRendered => renderStatus == 'rendered';
+}
+
 /// Resume boundary. Generates the worker's resume from the confirmed profile,
 /// stores the resume id in the session, and returns the resume text.
 /// Implementations throw a [Failure] on error.
@@ -35,13 +59,19 @@ abstract interface class ResumeRepository {
   /// /resume/document), the same projection the PDF template renders from.
   /// Reads the session token; NO resume id is needed (the server derives it).
   ///
-  /// Returns null — and NEVER THROWS — when the server has none (an ordinary
-  /// `document: null` answer, or a 404 because there is no resume row at all
-  /// yet) OR on ANY transport failure. This is a best-effort UPGRADE over the
-  /// `resume_text` rendering path: that path stays the resume tab's source of
-  /// truth on any hiccup here, so a caller must treat null as "render the
-  /// text instead", never as "the worker has no resume".
-  Future<ResumeDocument?> loadResumeDocument();
+  /// Returns a snapshot whose [ResumeDocumentSnapshot.document] is null — and
+  /// NEVER THROWS — when the server has none (an ordinary `document: null`
+  /// answer, or a 404 because there is no resume row at all yet) OR on ANY
+  /// transport failure. This is a best-effort UPGRADE over the `resume_text`
+  /// rendering path: that path stays the resume tab's source of truth on any
+  /// hiccup here, so a caller must treat a null document as "render the text
+  /// instead", never as "the worker has no resume".
+  ///
+  /// It returns a [ResumeDocumentSnapshot] rather than a bare document so the
+  /// tab can gate its READY pill on the PDF's real `render_status` from the
+  /// SAME call (ruling R6) instead of inferring readiness from the presence
+  /// of resume text.
+  Future<ResumeDocumentSnapshot> loadResumeDocument();
 
   /// #1353/#1354 — records the worker's choice of which text prints for ONE
   /// work-history entry: [ownWords] `true` keeps what they typed (`source:

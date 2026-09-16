@@ -16,7 +16,7 @@
 //
 // It uses the standard automated test binding, so `tester.pump(Duration)`
 // advances a deterministic fake clock past the mock's ~300ms latency. We
-// deliberately NEVER call `pumpAndSettle`: BuildingScreen's BbSpinner and the
+// deliberately NEVER call `pumpAndSettle`: BuildingScreen's live-step spinner and the
 // profiling CircularProgressIndicator animate forever and would time it out.
 // Instead [_pumpUntil] advances in small steps until the next screen renders, so
 // the journey is robust to retuned mock latency / the 900ms Building window
@@ -43,7 +43,9 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/onboarding_select_field.dart';
 
 import '../core/auth/fakes.dart';
 
@@ -122,6 +124,10 @@ void main() {
       // FakeAsync. The Alerts feed awaits it before mapping a row, so the real
       // one would hang the badge assertion below rather than just losing state.
       readStore: const SessionOnlyNotificationReadStore(),
+      // Same reason again: the finishing form reads what the worker already
+      // told us before its first page, and the persisted store's
+      // SharedPreferences read never answers under FakeAsync.
+      knownWorkerFactsStore: InMemoryKnownWorkerFactsStore(),
       persistentAuthEnabled: true,
     );
     // Cold start: no remembered token → loggedOut → the journey starts at login.
@@ -158,10 +164,12 @@ void main() {
     await tester.pumpWidget(const BadaBhaiApp());
     await _pumpUntil(tester, find.text('Get started'));
 
-    // ── 1. SPLASH — brand + the CTA. The language picker is hidden for now
-    //     (no translated strings existed behind it); every worker rides the
-    //     LocaleStore default `hi`, so X-Locale is unchanged. ──
-    expect(find.text('BadaBhai'), findsOneWidget);
+    // ── 1. SPLASH — brand artwork + the CTA. The logo, wordmark and tagline
+    //     are inside the splash image; the button is Flutter. The language
+    //     picker is hidden for now (no translated strings existed behind it);
+    //     every worker rides the LocaleStore default `hi`, so X-Locale is
+    //     unchanged. ──
+    expect(find.byKey(const Key('splash_image')), findsOneWidget);
     expect(find.text('हिंदी'), findsNothing);
     await tester.tap(find.text('Get started'));
 
@@ -175,41 +183,58 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Send OTP'));
 
-    // ── 3. OTP ──
-    await _pumpUntil(tester, find.text('Verify'));
+    // ── 3. OTP — one transparent code field over the painted boxes; the kit
+    //     CTA is "Verify Code". ──
+    await _pumpUntil(tester, find.text('Verify Code'));
     await tester.enterText(find.byType(TextField), '123456');
-    await tester.tap(find.text('Verify'));
+    await tester.pump();
+    await tester.tap(find.text('Verify Code'));
 
     // ── 3b. SET-PIN (new user) — the OTP-verify flags route here (pin_set=false).
     //     ONE page: the enter row and confirm row are both on screen together;
-    //     fill each invisible field via the OS numeric keyboard. setPin then
-    //     authenticates and continues to consent (the onboarding). ──
+    //     fill each invisible field via the OS numeric keyboard. A matching
+    //     pair no longer auto-submits: it enables the kit's "Save PIN &
+    //     Continue", and tapping THAT runs setPin, which authenticates and
+    //     continues to consent (the onboarding). ──
     await _pumpUntil(tester, find.text('PIN banayein'));
     await tester.enterText(find.byKey(kSetPinFirstFieldKey), '7416');
     await tester.pump();
     await tester.enterText(find.byKey(kSetPinConfirmFieldKey), '7416');
     await tester.pump();
+    await tester.tap(find.byKey(const Key('setPinSaveButton')));
+    await tester.pump();
 
-    // ── 4. CONSENT (DPDP gate) ──
-    await _pumpUntil(tester, find.text('Your privacy'));
+    // ── 4. CONSENT (DPDP gate) — kit header `YOUR PRIVACY`; the "I agree"
+    //     tick still gates the "Aage Badhein" CTA. ──
+    await _pumpUntil(tester, find.text('YOUR PRIVACY'));
     await tester.tap(find.text('I agree'));
-    await _pumpUntil(tester, find.text('Continue'));
-    await tester.tap(find.text('Continue'));
+    await _pumpUntil(tester, find.text('Aage Badhein'));
+    await tester.tap(find.text('Aage Badhein'));
 
     // ── 4b. YOUR NAME + LOCATION — consent-gated capture (PATCH
     //     /workers/me/name), before the identity-free chat. Mock
-    //     ApiClient.updateName is a no-op. Four fields, all present from the
-    //     first frame (#1462): first name, last name, then the city and state
-    //     boxes. This types the location by hand rather than tapping the GPS
-    //     button, which would need the geolocator plugin — it has no platform
-    //     channel in a widget-test host. ──
+    //     ApiClient.updateName is a no-op. First and last name are text
+    //     fields; the location is chosen State FIRST, then City, through the
+    //     kit's searchable pickers (#1462 keeps both GPS and manual on screen).
+    //     This picks by hand rather than tapping GPS, which would need the
+    //     geolocator plugin — it has no platform channel in a widget-test host. ──
     await _pumpUntil(tester, find.text('Aapka naam?'));
     final Finder nameFields = find.byType(TextField);
     await tester.enterText(nameFields.at(0), 'Asha');
     await tester.enterText(nameFields.at(1), 'Kumari');
-    await tester.enterText(nameFields.at(2), 'Jaipur');
-    await tester.enterText(nameFields.at(3), 'Rajasthan');
     await tester.pump();
+    await tester.tap(find.text('State chunein (Select State)'));
+    await _pumpUntil(tester, find.byKey(kOnboardingPickerSearchKey));
+    await tester.enterText(find.byKey(kOnboardingPickerSearchKey), 'Rajasthan');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ListTile, 'Rajasthan'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('Sheher chunein (Select City)'));
+    await _pumpUntil(tester, find.byKey(kOnboardingPickerSearchKey));
+    await tester.enterText(find.byKey(kOnboardingPickerSearchKey), 'Jaipur');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ListTile, 'Jaipur'));
+    await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('Continue'));
 
     // ── 4c. THE TWO DOORS (#1499) — `/name` now hands here instead of
@@ -297,8 +322,11 @@ void main() {
     expect(_navIndex(tester), _kProfileTab,
         reason: 'opening the kit from Profile must not switch the tab');
 
-    // Back returns to Profile, still on the Profile tab.
-    await tester.pageBack();
+    // Back returns to Profile, still on the Profile tab. Not `pageBack()`:
+    // that looks for a MaterialLocalizations 'Back' tooltip, and the kit list
+    // no longer has an AppBar — its navy header's arrow carries the app-wide
+    // 'Wapas' tooltip, the same one Alerts uses below.
+    await tester.tap(find.byTooltip('Wapas'));
     await tester.pumpAndSettle();
     expect(find.text('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
