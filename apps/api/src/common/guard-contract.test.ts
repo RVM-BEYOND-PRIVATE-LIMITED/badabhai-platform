@@ -283,20 +283,24 @@ const CONTRACT: ControllerContract[] = [
   // them a consent-gated write of the worker's own profile, one of them the #1354 mitigation route
   // — were outside it, so dropping a @UseGuards from any of them would have been a silent green.
   // Added here rather than filed, because the gap is four lines wide and sits under this change.
+  // #1504 — each gains a worker SELF-READ (`getMy*`), the prefill for its page. Same [C, W] as the
+  // write beside it; `getMyEmployment` returns a decrypted employer name, so its guards are the
+  // load-bearing ones. The reflection test below requires every routed method on these three
+  // classes to be listed here, so a fourth route cannot join them unpinned.
   {
     name: "WorkerEmployment",
     ctor: WorkerEmploymentController,
-    routes: { setMyEmployment: [C, W], setDescriptionSource: [C, W] },
+    routes: { getMyEmployment: [C, W], setMyEmployment: [C, W], setDescriptionSource: [C, W] },
   },
   {
     name: "WorkerPreferences",
     ctor: WorkerPreferencesController,
-    routes: { options: [C, W], setMyPreferences: [C, W] },
+    routes: { options: [C, W], getMyPreferences: [C, W], setMyPreferences: [C, W] },
   },
   {
     name: "WorkerQualifications",
     ctor: WorkerQualificationsController,
-    routes: { options: [C, W], setMyQualifications: [C, W] },
+    routes: { options: [C, W], getMyQualifications: [C, W], setMyQualifications: [C, W] },
   },
   { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
   // PACE (ADR-0021) — ops-internal, guarded 2026-08-01. These were the LAST two
@@ -774,6 +778,34 @@ describe("API authz contract — guards on every controller route", () => {
           `${name}Controller.${method} must exist`,
         ).toBe("function");
       }
+    }
+  });
+
+  // #1504 — THE OTHER DIRECTION, for the controllers that serve a worker's own profile data. The
+  // check above is listed → exists; it cannot see a route that EXISTS and is not listed, which is
+  // how `ResumeController.myDocument` went two releases pinned nowhere (#1397). Reflecting the
+  // real routes closes that for these three: a new `@Get` added without a contract entry fails here.
+  describe("every routed method is in the contract (exists → listed)", () => {
+    const PATH_METADATA = "path";
+    for (const ctor of [
+      WorkerEmploymentController,
+      WorkerPreferencesController,
+      WorkerQualificationsController,
+    ] as Ctor[]) {
+      it(`${ctor.name} lists every route it serves`, () => {
+        const proto = ctor.prototype as Record<string, unknown>;
+        const routed = Object.getOwnPropertyNames(proto).filter(
+          (m) =>
+            m !== "constructor" &&
+            typeof proto[m] === "function" &&
+            Reflect.getMetadata(PATH_METADATA, proto[m] as object) !== undefined,
+        );
+        const entry = CONTRACT.find((c) => c.ctor === ctor);
+        expect(entry, `${ctor.name} has no CONTRACT entry`).toBeDefined();
+        // Non-vacuous: each of these classes routes at least a read and a write.
+        expect(routed.length).toBeGreaterThanOrEqual(2);
+        expect(routed.sort()).toEqual(Object.keys(entry!.routes).sort());
+      });
     }
   });
 

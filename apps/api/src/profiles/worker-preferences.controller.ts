@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, HttpCode, Put, UseGuards } from "@nestjs/common";
 
 import {
   WorkerAuthGuard,
@@ -8,7 +8,11 @@ import {
 import { ConsentGuard } from "../auth/consent.guard";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { SetMyPreferencesSchema, type SetMyPreferencesDto } from "./worker-preferences.dto";
+import {
+  SetMyPreferencesSchema,
+  type SetMyPreferencesDto,
+  type WorkPreferencesResponse,
+} from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
 import { CITY_CATALOGUE, STATE_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
@@ -95,6 +99,26 @@ export class WorkerPreferencesController {
       cities: CITY_CATALOGUE,
       states: STATE_CATALOGUE,
     };
+  }
+
+  /**
+   * The caller's STORED answers, in the PUT's own field names and value shapes (#1504).
+   *
+   * THE PREFILL. Every client rendered this page blank, and saving a blank page was the erase.
+   * `null` is no stored answer and `[]` is a stored "none of these" — kept apart, because a client
+   * that coalesced them and saved would clear every list the worker never answered.
+   *
+   * `no-store`, BECAUSE IT IS WORKER DATA: languages plus cities plus a salary narrow a person,
+   * and a shared or intermediary cache must not keep one. No event — a read changes nothing — and
+   * the worker id comes from the session, as everywhere on this controller.
+   */
+  @Get("me/work-preferences")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyPreferences(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<WorkPreferencesResponse> {
+    return this.preferences.getForWorker(worker.id);
   }
 
   /**

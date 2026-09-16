@@ -418,6 +418,50 @@ describe("WorkerAttributesRepository.upsertMany — the conflict SET", () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════
+ * loadKeys — the preferences prefill must never read a trade attribute (#1504)
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe("WorkerAttributesRepository.loadKeys — the key list is IN the statement", () => {
+  const KEYS = ["languages", "preferred_locations", "shift_preference"];
+
+  it("binds the worker AND an IN over exactly the requested keys, ANDed", async () => {
+    // Dropping the `inArray` compiles, runs, and hands a worker-facing GET every trade answer on
+    // file. The exact param list is asserted so neither leg can vanish behind the other.
+    const m = makeDb({ rows: [] });
+    await m.repo.loadKeys(WORKER, KEYS);
+    const call = selectCall(m.calls)!;
+    expect(call.table).toBe(workerAttributes);
+    const { sql, params } = compile(call.where);
+    expect(params).toEqual([WORKER, ...KEYS]);
+    expect(sql).toContain('"worker_id"');
+    expect(sql).toMatch(/"attribute_key" in \(/i);
+    expect(sql).not.toMatch(/ or /i);
+    expect(params).not.toContain("turning_machine");
+  });
+
+  it("issues NO statement for an empty key list — `IN ()` is a syntax error", async () => {
+    const m = makeDb({ rows: [row()] });
+    expect(await m.repo.loadKeys(WORKER, [])).toEqual([]);
+    expect(m.calls).toEqual([]);
+  });
+
+  it("projects the value columns and NO provenance columns", async () => {
+    // Pack/session nullness no longer identifies which surface wrote a row; a projection that
+    // carried them would invite a reader to derive exactly that.
+    const m = makeDb({ rows: [] });
+    await m.repo.loadKeys(WORKER, KEYS);
+    expect(Object.keys(selectCall(m.calls)!.projection).sort()).toEqual([
+      "attributeKey",
+      "valueBool",
+      "valueKind",
+      "valueNumber",
+      "valueText",
+      "valueTextList",
+    ]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
  * loadTradeSheet — the third collection the render path gates on
  * ══════════════════════════════════════════════════════════════════════════════════════════ */
 

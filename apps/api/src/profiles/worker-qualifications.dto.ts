@@ -204,3 +204,22 @@ export const SetMyQualificationsSchema = z
   });
 
 export type SetMyQualificationsDto = z.infer<typeof SetMyQualificationsSchema>;
+
+export type CertificateEntryDto = NonNullable<SetMyQualificationsDto["certificates"]>[number];
+export type EducationEntryDto = NonNullable<SetMyQualificationsDto["educations"]>[number];
+
+/**
+ * `GET /workers/me/qualifications` (#1504) — the PUT's own entry shapes, so the body round-trips.
+ *
+ * A STORED ROW THAT NO LONGER PARSES IS WITHHELD AND COUNTED, never returned. Both tables are
+ * plain text with no format check, so a backfill or a future writer can store a row this schema
+ * refuses; returning it would make the worker's unedited save a 400. `partial` names the list that
+ * lost a row, and a client must not re-send that list unless the worker edits it — the PUT
+ * replaces the whole list, so the withheld row would be erased.
+ */
+export interface MyQualificationsResponse {
+  readonly certificates: readonly CertificateEntryDto[];
+  readonly educations: readonly EducationEntryDto[];
+  readonly partial: readonly ("certificates" | "educations")[];
+  readonly dropped_count: number;
+}

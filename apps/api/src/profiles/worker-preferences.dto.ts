@@ -8,6 +8,7 @@ import {
   EDUCATION_CREDENTIALS,
   JOB_TYPES,
   LANGUAGES,
+  PREFERENCE_KEYS,
   SHIFTS,
 } from "./worker-preferences.vocabulary";
 
@@ -210,7 +211,85 @@ export const SetMyPreferencesSchema = z
      * belongs in a change that can be reviewed as one.
      */
     education_institute: z.string().trim().min(1).max(120).nullable().optional(),
+
+    /**
+     * THE NEW-BUILD SIGNAL (#1504, owner ruling 2026-09-15). `true` means "every key in this body
+     * is one the worker actually touched", and the server applies the strict three-state contract:
+     * absent leaves the stored value alone, `[]` clears, `false` is written as `false`.
+     *
+     * ABSENT MEANS AN OLD BUILD, and an old build cannot say which keys it touched. Every shipped
+     * client sends `languages`, `documents_ready` and `preferred_cities` as `[]` and both toggles as
+     * `false` on EVERY save, touched or not (`trade_form_models.dart` `TradeFormPreferences.toJson`,
+     * `finishing_models.dart` `WorkPreferences.toUpdateBody`), so a tap-through erased three lists
+     * and flipped a stored `true` to `false`. Without this signal the service treats those
+     * default-valued keys as UNTOUCHED wherever a stored value exists. The accepted cost, ruled: an
+     * old-build worker cannot use this page to clear those answers.
+     *
+     * A LITERAL `true`, NOT A BOOLEAN. `false` would be a third spelling of "old build" that a
+     * client could send by accident and then get the lenient path while believing it asked for the
+     * strict one. There is nothing for `false` to mean, so it is a 400.
+     *
+     * NOT WRITTEN ANYWHERE. It is a request mode, not an answer — it has no attribute key, no
+     * column and no place in the event payload.
+     */
+    touched_only: z.literal(true).optional(),
   })
   .strict();
 
 export type SetMyPreferencesDto = z.infer<typeof SetMyPreferencesSchema>;
+
+/** A field of the PUT body that carries an answer — every key except the request-mode signal. */
+export type PreferenceWireKey = Exclude<keyof SetMyPreferencesDto, "touched_only">;
+
+/**
+ * STORAGE KEY → WIRE KEY, the ONE table both directions read (#1504).
+ *
+ * THREE OF TWELVE DIFFER, AND THAT IS EXACTLY WHY IT IS A TABLE. `preferred_locations` is the
+ * attribute the interview also writes, `shift_preference` is `qp_universal`'s key and
+ * `relocation_willingness` was `qp_universal@1`'s — each name is fixed by a store the form shares —
+ * while the wire names are what two Flutter models already send. A writer and a reader that each
+ * spelled the pairing out would agree today and drift the first time one of them was edited: a GET
+ * that reads `preferred_locations` into `preferred_locations` is a response the PUT rejects as an
+ * unknown key, on a `.strict()` schema, for the whole save.
+ *
+ * `satisfies` A TOTAL MAP OVER BOTH SIDES. A storage key added to `PREFERENCE_KEYS` without a wire
+ * name here is a type error, and so is a wire name the schema does not have.
+ */
+export const PREFERENCE_WIRE_KEYS = {
+  languages: "languages",
+  documents_ready: "documents_ready",
+  preferred_locations: "preferred_cities",
+  job_type: "job_type",
+  shift_preference: "shift",
+  relocation_willingness: "willing_to_relocate",
+  accommodation_needed: "accommodation_needed",
+  salary_expected_max: "salary_expected_max",
+  education_credential: "education_credential",
+  education_council: "education_council",
+  education_year: "education_year",
+  education_institute: "education_institute",
+} as const satisfies Record<keyof typeof PREFERENCE_KEYS, PreferenceWireKey>;
+
+/**
+ * The stored answers, in EXACTLY the PUT's field names and value shapes (#1504).
+ *
+ * `null` MEANS NO STORED ROW; `[]` MEANS A STORED "NONE OF THESE". Coalescing the first into the
+ * second would make a prefill-then-save with `touched_only: true` clear every list the worker never
+ * answered — which is the tap-through erase this endpoint exists to end, re-created on the new build.
+ */
+export type WorkPreferenceValues = {
+  [K in PreferenceWireKey]-?: Exclude<SetMyPreferencesDto[K], undefined> | null;
+};
+
+export interface WorkPreferencesResponse {
+  readonly values: WorkPreferenceValues;
+  /**
+   * Wire keys whose stored value was NOT returned in full: a list that lost one or more values, or
+   * a scalar whose stored value no longer validates and so reads as `null`. A client must not
+   * re-send such a key unless the worker edits it, because a PUT replaces the whole value and the
+   * part that was withheld would be erased.
+   */
+  readonly partial: readonly PreferenceWireKey[];
+  /** How many stored values were withheld across every key in {@link partial}. */
+  readonly dropped_count: number;
+}

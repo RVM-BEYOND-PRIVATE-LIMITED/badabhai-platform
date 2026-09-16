@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { SetMyPreferencesSchema } from "./worker-preferences.dto";
+import { PREFERENCE_WIRE_KEYS, SetMyPreferencesSchema } from "./worker-preferences.dto";
 import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
 
 /**
@@ -48,10 +48,24 @@ const WORKER_APP_FINISHING_MODELS = join(
   "../../../../apps/worker-app/lib/features/finishing/domain/finishing_models.dart",
 );
 
-/** Every wire key `SetMyPreferencesSchema` accepts, derived — never restated. */
+/**
+ * The body keys that are REQUEST MODES, not answers — they have no storage kind by design.
+ *
+ * #1504 added `touched_only` (owner ruling 2026-09-15), the new-build signal that switches the
+ * server from the old-build blank-save protection to the strict three-state contract. It is listed
+ * here, by name, so the twelve-answer assertion below stays exact: a future answer field cannot hide
+ * in this list without a reviewer seeing it added.
+ */
+const REQUEST_MODE_KEYS = ["touched_only"];
+
+/** Every ANSWER key `SetMyPreferencesSchema` accepts, derived — never restated. */
 function acceptedWireKeys(): string[] {
   const shape = (SetMyPreferencesSchema as unknown as { shape: Record<string, unknown> }).shape;
-  return Object.keys(shape).sort();
+  const keys = Object.keys(shape);
+  for (const mode of REQUEST_MODE_KEYS) {
+    expect(keys, `request-mode key ${mode} is missing from the schema`).toContain(mode);
+  }
+  return keys.filter((k) => !REQUEST_MODE_KEYS.includes(k)).sort();
 }
 
 /** The body of `toUpdateBody()` — the map the app actually PATCHes. */
@@ -105,6 +119,19 @@ describe("the finishing form's server contract", () => {
       const stored = wireToStored[key] ?? key;
       expect(Object.keys(PREFERENCE_KEYS), `wire field ${key} has no storage kind`).toContain(
         stored,
+      );
+    }
+
+    // #1504 — the service now reads the pairing from ONE table, `PREFERENCE_WIRE_KEYS`, shared by
+    // the write and the new GET. The hand-transcribed pairs above are still the claim; this pins the
+    // table to them, so a swapped entry fails here rather than landing an answer under the wrong key.
+    const tableWireToStored = Object.fromEntries(
+      Object.entries(PREFERENCE_WIRE_KEYS).map(([storedKey, wire]) => [wire, storedKey]),
+    );
+    expect(Object.keys(tableWireToStored).sort()).toEqual(accepted);
+    for (const key of accepted) {
+      expect(tableWireToStored[key], `PREFERENCE_WIRE_KEYS maps ${key} wrongly`).toBe(
+        wireToStored[key] ?? key,
       );
     }
   });

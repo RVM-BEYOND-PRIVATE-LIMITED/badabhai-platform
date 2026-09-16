@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -7,8 +7,27 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
-import type { SetDescriptionSourceDto, SetMyEmploymentDto } from "./worker-employment.dto";
-import { WorkerEmploymentRepository } from "./worker-employment.repository";
+import type {
+  DescriptionSource,
+  EmploymentView,
+  MyEmploymentResponse,
+  SetDescriptionSourceDto,
+  SetMyEmploymentDto,
+} from "./worker-employment.dto";
+import {
+  EmploymentCountMismatchError,
+  WorkerEmploymentRepository,
+  readEmployerName,
+} from "./worker-employment.repository";
+
+/**
+ * Which text prints for one stint (#1354): a refusal wins over a rewrite, and no rewrite is `null`.
+ * The same precedence the renderer applies, restated as the one fact the edit page shows.
+ */
+function descriptionSourceOf(declined: boolean, hasPolish: boolean): DescriptionSource | null {
+  if (declined) return "own_words";
+  return hasPolish ? "polished" : null;
+}
 
 /**
  * Records the worker's own work history from the post-interview form (R4 Q1).
@@ -104,7 +123,35 @@ export class WorkerEmploymentService {
             ],
     }));
 
-    const { replacedExisting } = await this.employment.replaceForWorker(workerId, rows);
+    // #1504 — `expected_existing_count` is BOTH the stale-prefill guard and the new-build signal.
+    // Absent means an old build, whose `[]` over a stored history is a tap-through, not an answer
+    // (owner ruling 2026-09-15); present means `[]` clears, as it always has.
+    let outcome: Awaited<ReturnType<WorkerEmploymentRepository["replaceForWorker"]>>;
+    try {
+      outcome = await this.employment.replaceForWorker(workerId, rows, {
+        expectedExistingCount: dto.expected_existing_count,
+        preserveWhenEmpty: dto.expected_existing_count === undefined,
+      });
+    } catch (err) {
+      // 409, NOTHING WRITTEN, NO EVENT. The mismatch was detected inside the transaction before its
+      // delete, so there is nothing to roll back — and the client's remedy is to re-read.
+      if (err instanceof EmploymentCountMismatchError) {
+        this.logger.warn(
+          `employment replace refused for worker ${workerId}: expected ${err.expected} stored row(s), found ${err.actual}`,
+        );
+        throw new ConflictException("work history changed since it was loaded; reload and retry");
+      }
+      throw err;
+    }
+
+    if (outcome.skipped === true) {
+      // NO EVENT, NO RE-RENDER: nothing changed. Counts only.
+      this.logger.log(
+        `old-build empty employment save ignored for worker ${workerId}: ${outcome.existingCount} stored row(s) kept`,
+      );
+      return { worker_id: workerId, employer_count: outcome.existingCount };
+    }
+    const { replacedExisting } = outcome;
 
     await this.events.emit({
       event_name: "worker.employment_recorded",
@@ -136,6 +183,60 @@ export class WorkerEmploymentService {
     await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, employer_count: rows.length };
+  }
+
+  /**
+   * The caller's own work history, employer names decrypted, for their edit page (#1504).
+   *
+   * OWN-SESSION EGRESS, ON THE `getResumeFields` PRECEDENT (§2 ruling 2026-07-14). The worker typed
+   * these names; returning them to the same worker's session over TLS is not a cross-actor leak.
+   * What keeps it that narrow is everything this method does NOT do: the plaintext enters no event,
+   * no log line, no queue payload and no prompt, and the controller marks the response `no-store`.
+   *
+   * A ROW THAT WILL NOT DECRYPT IS WITHHELD AND COUNTED, NEVER THROWN. A rotated or corrupt token
+   * must not 500 the page, and it must not surface as a blank employer the PUT would refuse. The
+   * count is what lets the client send an honest `expected_existing_count`, and the replace carries
+   * such rows across rather than deleting them — see `readEmployerName`, the one predicate both use.
+   *
+   * THE EDIT READ, NOT THE RÉSUMÉ READ. `loadForResume` drops unreadable rows and never selects the
+   * voice-note id, so a prefill from it would erase both on save.
+   *
+   * NO EVENT — a read changes nothing.
+   */
+  async getForWorker(workerId: string): Promise<MyEmploymentResponse> {
+    const stored = await this.employment.loadForWorkerEdit(workerId);
+
+    const employments: EmploymentView[] = [];
+    let unreadable = 0;
+    for (const e of stored) {
+      const employerName = readEmployerName(this.pii, e.employerNameEnc);
+      if (employerName === null) {
+        unreadable += 1;
+        continue;
+      }
+      employments.push({
+        employment_id: e.id,
+        employer_name: employerName,
+        employer_city: e.employerCity,
+        employer_state: e.employerState,
+        start_ym: e.startYm,
+        end_ym: e.endYm,
+        roles: e.roles.map((r) => ({
+          role_label: r.roleLabel,
+          start_ym: r.startYm,
+          end_ym: r.endYm,
+          work_done: r.workDone,
+          work_done_voice_note_id: r.workDoneVoiceNoteId,
+          description_source: descriptionSourceOf(r.workDonePolishDeclined, r.hasPolish),
+        })),
+      });
+    }
+
+    // Counts only — never an employer name, a city, a date or a token.
+    this.logger.log(
+      `employment read for worker ${workerId}: ${employments.length} readable, ${unreadable} unreadable`,
+    );
+    return { employments, unreadable_count: unreadable };
   }
 
   /**
