@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
 
+import type { EmploymentSuggestion } from "./employment-suggestions";
+
 /**
  * The post-interview work-history form (R4 Q1, ruled: "Option A, simplified").
  *
@@ -206,6 +208,21 @@ export interface MyEmploymentResponse {
    * `expected_existing_count`, so a client sends `employments.length + unreadable_count`.
    */
   readonly unreadable_count: number;
+  /**
+   * Jobs the worker never confirmed — from an uploaded résumé, from the chat interview's Phase A,
+   * or both — offered beside his stored history (the ruling: "résumé-parsed jobs AND
+   * chat-described jobs prefill Work History rows; saved only when the worker saves").
+   *
+   * BOTH SOURCES CAN BE PRESENT AT ONCE, AND NEITHER IS DROPPED FOR THE OTHER. A worker who both
+   * uploaded a résumé and described a different job in chat sees two distinct entries, tagged by
+   * `source`, rather than this route silently preferring one — the same "offer both, let the
+   * worker choose" posture the résumé-import plan already states for a stored answer versus a
+   * résumé's value.
+   *
+   * NOT A PUT FIELD. A suggestion becomes a real row only when the worker edits `employments[]`
+   * himself and submits `PUT /workers/me/employment` — this array is never read by that route.
+   */
+  readonly employment_suggestions: readonly EmploymentSuggestion[];
 }
 
 /**

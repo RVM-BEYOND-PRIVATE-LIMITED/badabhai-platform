@@ -6,6 +6,7 @@ import type { ResumeImportRouteName } from "@badabhai/types";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
+import { buildResumeEmploymentSuggestions } from "../../profiles/employment-suggestions";
 import { OccupationService } from "../../occupation/occupation.service";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, routeToTradeForm, type TradeFormKind } from "../trade-form-router";
@@ -221,17 +222,36 @@ export class ResumeRouteService {
 
     const route: ResumeImportRouteName = formKind === null ? "chat" : "form";
     const suggestions = this.stage(workerId, draft.fields, items);
+    // THE WORK HISTORY GAP THIS CLOSES. `draft.employments` has survived the second wall
+    // (`filterEmployments` in `resume-parse.service.ts`) since RI-3 shipped, and until now
+    // nothing downstream ever read it — `ResumeParseService`'s own docblock only ever promised
+    // `fields`/`extractionMethod`/`pageCount`/`ocrConfidence` onward, so a parsed résumé's job
+    // history was computed and then silently dropped on every import. `buildResumeEmployment
+    // Suggestions` is the same "staged, not written" discipline `stage()` above already applies
+    // to pack answers, aimed at `worker-employment`'s own suggestion shape instead of a pack
+    // question's.
+    const employmentSuggestions = buildResumeEmploymentSuggestions(draft.employments);
 
     return {
       route,
       formKind,
       suggestionsEnc:
-        suggestions.size > 0
+        suggestions.size > 0 || employmentSuggestions.length > 0
           ? // ONE TOKEN OVER THE WHOLE PAYLOAD, never per leaf. The schema docblock records why:
             // a walker that encrypts leaves is the shape that rots, and `parse_masking.py` has a
             // measured bug of exactly that kind where employer names nested in an array crossed
             // a boundary nobody thought they could reach. One column cannot be partially covered.
-            this.crypto.encrypt(JSON.stringify(Object.fromEntries(suggestions)))
+            //
+            // `{ answers, employments }`, NOT THE OLD FLAT MAP, because a résumé now stages two
+            // different shapes under one column. `ResumeSuggestionReader.decodeEnvelope` reads a
+            // legacy flat row (no `answers` key) exactly as before — this is additive, not a
+            // migration.
+            this.crypto.encrypt(
+              JSON.stringify({
+                answers: Object.fromEntries(suggestions),
+                employments: employmentSuggestions,
+              }),
+            )
           : null,
       suggestionsOffered: suggestions.size,
     };

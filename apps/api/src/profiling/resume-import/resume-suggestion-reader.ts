@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 import { PiiCryptoService } from "../../common/pii-crypto.service";
+import type { EmploymentSuggestion } from "../../profiles/employment-suggestions";
 import { ResumeImportRepository } from "./resume-import.repository";
 import type { ResumeSuggestion } from "./resume-suggestions";
 
@@ -65,7 +66,7 @@ export class ResumeSuggestionReader {
       const row = await this.imports.findLatestForWorker(workerId);
       if (!row || row.status !== "parsed" || row.route !== "chat") return null;
 
-      const suggestions = this.decode(row.suggestionsEnc);
+      const suggestions = this.decodeEnvelope(row.suggestionsEnc).answers;
       return suggestions.size > 0 ? { importId: row.id, suggestions } : null;
     } catch (error) {
       // SOFT, like every other read here. A worker whose import row is unreadable gets the
@@ -86,7 +87,7 @@ export class ResumeSuggestionReader {
       // from outside this class, and there is no method here that could fetch another worker's
       // row even if one were somehow supplied.
       if (!row) return new Map();
-      return this.decode(row.suggestionsEnc);
+      return this.decodeEnvelope(row.suggestionsEnc).answers;
     } catch (error) {
       this.logger.warn(
         `résumé suggestions unreadable for import ${importId}: ${(error as Error).message}`,
@@ -101,7 +102,7 @@ export class ResumeSuggestionReader {
       // THE MOST RECENT IMPORT, not all of them. A worker who uploads twice has corrected
       // himself, and merging both would resurrect what the second upload was meant to replace.
       const row = await this.imports.findLatestForWorker(workerId);
-      return row ? this.decode(row.suggestionsEnc) : empty;
+      return row ? this.decodeEnvelope(row.suggestionsEnc).answers : empty;
     } catch (error) {
       this.logger.warn(
         `résumé suggestions unreadable for worker ${workerId.slice(0, 8)}…; serving the form ` +
@@ -112,27 +113,91 @@ export class ResumeSuggestionReader {
   }
 
   /**
-   * One encrypted column → validated suggestions.
+   * The employments a worker's most recent résumé parsed out, as Work History suggestions.
+   *
+   * THE ONE METHOD THAT READS THE ENVELOPE'S OTHER HALF. `forWorker`/`forImport`/`pendingForChat`
+   * exist for the pack-question form and never needed `employments` — this is the sole caller
+   * `WorkerEmploymentService.getForWorker` (#1504's edit page) reaches for résumé-sourced rows.
+   * SOFT, on the same terms as every other read here: a worker whose import row is unreadable
+   * gets the page with no résumé suggestion, never a 500.
+   */
+  async employmentSuggestionsForWorker(workerId: string): Promise<readonly EmploymentSuggestion[]> {
+    try {
+      const row = await this.imports.findLatestForWorker(workerId);
+      return row ? this.decodeEnvelope(row.suggestionsEnc).employments : [];
+    } catch (error) {
+      this.logger.warn(
+        `résumé employment suggestions unreadable for worker ${workerId.slice(0, 8)}…; serving ` +
+          `the page without them: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * One encrypted column → validated suggestions, of both kinds it may carry.
    *
    * VALIDATED ON THE WAY OUT, not trusted because we wrote it. This blob was written by an
    * earlier deploy and will be read by later ones; a shape that has drifted must degrade to "no
    * suggestion" rather than reach a response and fail its own contract in front of the worker.
    *
-   * SHARED BY ALL THREE READERS ON PURPOSE — the form's, the chat offer's and the by-id one.
-   * Three copies of this validation would be three chances for one of them to accept a shape
-   * the others reject, and the one that accepted it would be the one that shipped it onward.
+   * TWO ENVELOPE SHAPES, TOLD APART BY ONE KEY. Every row written before employment suggestions
+   * shipped is the FLAT `{ question_key: ResumeSuggestion }` map this column has always held —
+   * `ResumeRouteService` used to encrypt `Object.fromEntries(suggestions)` directly, with no
+   * wrapper. A row written after carries `{ answers: {...}, employments: [...] }` instead.
+   * `"answers" in record` distinguishes them: a legacy flat map would have to declare a pack
+   * question literally keyed `"answers"` to be misread here, and no pack ever has.
+   *
+   * SHARED BY EVERY READER ON PURPOSE — the form's, the chat offer's, the by-id one and the
+   * employment page's. Separate copies of this validation would be separate chances for one of
+   * them to accept a shape the others reject, and the one that accepted it would ship it onward.
    */
-  private decode(token: string | null): ReadonlyMap<string, ResumeSuggestion> {
-    const out = new Map<string, ResumeSuggestion>();
-    if (token === null) return out;
+  private decodeEnvelope(token: string | null): {
+    readonly answers: ReadonlyMap<string, ResumeSuggestion>;
+    readonly employments: readonly EmploymentSuggestion[];
+  } {
+    const answers = new Map<string, ResumeSuggestion>();
+    const employments: EmploymentSuggestion[] = [];
+    if (token === null) return { answers, employments };
 
     const parsed: unknown = JSON.parse(this.crypto.decrypt(token));
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return out;
-    for (const [questionKey, value] of Object.entries(parsed)) {
-      if (isSuggestion(value)) out.set(questionKey, value);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { answers, employments };
     }
-    return out;
+    const record = parsed as Record<string, unknown>;
+
+    const answersSource =
+      "answers" in record && typeof record.answers === "object" && record.answers !== null
+        ? (record.answers as Record<string, unknown>)
+        : record;
+    for (const [questionKey, value] of Object.entries(answersSource)) {
+      if (isSuggestion(value)) answers.set(questionKey, value);
+    }
+
+    if (Array.isArray(record.employments)) {
+      for (const value of record.employments) {
+        if (isEmploymentSuggestion(value)) employments.push(value);
+      }
+    }
+    return { answers, employments };
   }
+}
+
+function isEmploymentSuggestion(value: unknown): value is EmploymentSuggestion {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Partial<EmploymentSuggestion>;
+  if (candidate.source !== "resume" && candidate.source !== "chat") return false;
+  const values = candidate.values as Partial<EmploymentSuggestion["values"]> | undefined;
+  if (values === undefined || values === null || typeof values !== "object") return false;
+  const fields: readonly (keyof EmploymentSuggestion["values"])[] = [
+    "employer_name",
+    "employer_city",
+    "role_label",
+    "start_ym",
+    "end_ym",
+    "work_done",
+  ];
+  return fields.every((field) => values[field] === null || typeof values[field] === "string");
 }
 
 function isSuggestion(value: unknown): value is ResumeSuggestion {
