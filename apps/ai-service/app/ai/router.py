@@ -11,8 +11,9 @@ INVARIANTS:
 
   ONE SIGNED EXCEPTION, ADDED 2026-09-10:
   ``/resume/parse`` (ADR-0041 §3, ruling D5 as amended) may pass an UNMASKED
-  uploaded résumé, behind ``RESUME_PARSE_RAW_TEXT_ENABLED`` — default false, and
-  set in no committed file. It is still the ENDPOINT that decides: that route
+  uploaded résumé, behind ``RESUME_PARSE_RAW_TEXT_ENABLED`` — default false,
+  declared default-off in the staging compose file (2026-09-15) and armed only on
+  the box, never by a commit. It is still the ENDPOINT that decides: that route
   selects its masker explicitly in ``app/resume_import/parse_policy.py``, which is
   where the argument lives. The router's own contract is unchanged — it masks
   nothing and never did — and every other endpoint still masks before reaching it.

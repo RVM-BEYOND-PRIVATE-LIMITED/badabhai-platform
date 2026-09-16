@@ -779,47 +779,325 @@ def test_the_raw_text_flag_defaults_to_off():
     assert Settings(_env_file=None).resume_parse_raw_text_enabled is False
 
 
-def test_the_flag_is_armed_in_no_committed_file():
-    """THE GUARD ADR-0041 §3.3 ACTUALLY ASKED FOR.
+RAW_FLAG = "RESUME_PARSE_RAW_TEXT_ENABLED"
 
-    D5 permits an unmasked résumé to reach the model. Arming that is a decision a person takes
-    once, visibly, on a box — never a line that rides in on a deploy. So the name may appear in
-    a committed file only as prose: a comment explaining the posture, never an assignment
-    setting it.
+#: THE ONE COMMITTED LINE THE NAME MAY OCCUPY OUTSIDE A COMMENT (owner ruling 2026-09-15).
+#: Exact text, exact file, exact service, exact section — each of the four is checked, so a
+#: copy that differs in any one of them is a hit rather than a second allowance.
+RAW_FLAG_ALLOWED_FILE = "docker-compose.staging.yml"
+RAW_FLAG_ALLOWED_SERVICE = "ai-service"
+RAW_FLAG_ALLOWED_LINE = f"{RAW_FLAG}: ${{{RAW_FLAG}:-false}}"
 
-    Scans rather than trusting a default, because the default is not what would arm it.
+
+def _is_config_file(filename: str) -> bool:
+    """Every committed file shape that can put a value into a process environment.
+
+    WIDER THAN THE FIRST VERSION OF THIS SCAN, deliberately. It matched suffixes only, so a
+    `.env.staging` (suffix `.staging`) or a `Dockerfile` (no suffix) could have set the flag
+    unseen — and the moment the name became declarable, an `env_file:` pointing at exactly
+    such a file became the obvious way to route around the one allowed line.
+    """
+    lowered = filename.lower()
+    return (
+        lowered.endswith((".yml", ".yaml", ".env", ".example", ".sh", ".toml", ".dockerfile"))
+        or lowered.startswith((".env", "dockerfile"))
+        or ".env." in lowered
+    )
+
+
+def _compose_position(lines: list[str], index: int) -> tuple[str | None, str | None, str | None]:
+    """(top-level key, service, service section) that `lines[index]` sits under.
+
+    Indentation-anchored, the same way `apps/api/src/common/testing/compose-env.ts` reads
+    this file: 0-space top-level keys, 2-space service keys, 4-space sections. A shape change
+    loud enough to break this would break the deploy too.
+    """
+    top = service = section = None
+    for line in lines[:index]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        key = re.match(r"^\s*([A-Za-z0-9_.-]+):", line)
+        if key is None:
+            continue
+        if indent == 0:
+            top, service, section = key.group(1), None, None
+        elif indent == 2:
+            service, section = key.group(1), None
+        elif indent == 4:
+            section = key.group(1)
+    return top, service, section
+
+
+def _scan_raw_flag(root: Path) -> tuple[list[str], list[str]]:
+    """Every committed occurrence of the flag under `root`, split into (hits, allowed).
+
+    A HIT is any occurrence that is not a comment, except the single allowed compose line.
+    Everything that could ARM the flag is a hit: a truthy or empty default, a literal, a bare
+    substitution, a declaration on another service or in another file, an env-file assignment.
+
+    `.github/` IS STRICTER: a comment there is a hit too. A workflow is where the forbidden
+    second arming path — a `secrets.` bridge — would live, and a commented-out bridge line is
+    one keystroke from live. The prose belongs beside the declaration in the compose file.
+
+    `allowed` holds at most the one line. A SECOND byte-identical copy in the same block is a
+    hit, not a second allowance: YAML's last-key-wins would make the later copy the real one.
+
+    Parameterised by `root` so the forbidden forms can each be proven red against a synthetic
+    tree below, rather than only by someone remembering to mutate the real files.
     """
     # `os.walk` WITH IN-PLACE PRUNING, not `rglob`. `rglob` enumerates every path and only
     # then lets the caller skip it, so a filter on `node_modules` still WALKS the pnpm store —
     # hundreds of thousands of entries, per glob. Pruning `dirnames` stops the descent.
     skip = {"node_modules", ".git", ".venv", "dist", ".next", "build", ".turbo", "__pycache__"}
-    suffixes = (".yml", ".yaml", ".env", ".example", ".sh")
 
     hits: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
+    allowed: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [name for name in dirnames if name not in skip]
         for filename in filenames:
-            if not filename.endswith(suffixes):
+            if not _is_config_file(filename):
                 continue
             path = Path(dirpath) / filename
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            for number, line in enumerate(text.splitlines(), start=1):
+            if RAW_FLAG not in text:
+                continue
+            relative = path.relative_to(root).as_posix()
+            in_github = relative.startswith(".github/")
+            lines = text.splitlines()
+            for index, line in enumerate(lines):
                 stripped = line.strip()
-                if "RESUME_PARSE_RAW_TEXT_ENABLED" not in stripped:
+                if RAW_FLAG not in stripped:
                     continue
-                # A comment may NAME it; only an assignment can ARM it.
-                if stripped.startswith("#"):
+                # A comment may NAME it; only an assignment can ARM it. Not in `.github/`.
+                if stripped.startswith("#") and not in_github:
                     continue
-                hits.append(f"{path.relative_to(REPO_ROOT)}:{number}: {stripped}")
+                is_allowed_line = (
+                    relative == RAW_FLAG_ALLOWED_FILE
+                    and line == f"      {RAW_FLAG_ALLOWED_LINE}"
+                    and _compose_position(lines, index)
+                    == ("services", RAW_FLAG_ALLOWED_SERVICE, "environment")
+                    and not allowed
+                )
+                if is_allowed_line:
+                    allowed.append(
+                        f"{relative} [{RAW_FLAG_ALLOWED_SERVICE}]: {RAW_FLAG_ALLOWED_LINE}"
+                    )
+                else:
+                    hits.append(f"{relative}:{index + 1}: {stripped}")
+    return hits, allowed
 
+
+def test_the_flag_is_armed_in_no_committed_file():
+    """THE GUARD ADR-0041 §3.3 ACTUALLY ASKED FOR, NARROWED TO ONE ALLOWED LINE (2026-09-15).
+
+    D5 permits an unmasked résumé to reach the model. Arming that is a decision a person takes
+    once, visibly, on a box — never a line that rides in on a deploy. Until 2026-09-15 that was
+    enforced as "the name appears in no committed file", which also made the flag UNREACHABLE:
+    compose forwards only declared names, so the box had no way to set it. The owner ruled to
+    declare it default-off; this scan now permits that one declaration and nothing else.
+
+    Scans rather than trusting a default, because the default is not what would arm it.
+    """
+    hits, _allowed = _scan_raw_flag(REPO_ROOT)
     assert not hits, (
-        "RESUME_PARSE_RAW_TEXT_ENABLED is assigned in a committed file:\n  "
+        f"{RAW_FLAG} occurs outside its one allowed declaration:\n  "
         + "\n  ".join(hits)
-        + "\nADR-0041 section 3.3: the raw-text posture is armed on the box, by a person, once."
+        + "\nADR-0041 section 3.2 (amended 2026-09-15): the only committed line is "
+        f"`{RAW_FLAG_ALLOWED_LINE}` on the {RAW_FLAG_ALLOWED_SERVICE} service in "
+        f"{RAW_FLAG_ALLOWED_FILE}; arming is the box .env plus a deploy re-run."
     )
+
+
+def test_the_raw_flag_is_declared_default_off_on_the_ai_service():
+    """THE OTHER DIRECTION: the declaration must EXIST, exactly once, exactly here.
+
+    Without this, deleting the compose line would leave every scan green while the flag went
+    back to being unreachable — the defect the 2026-09-15 ruling fixed.
+    """
+    _hits, allowed = _scan_raw_flag(REPO_ROOT)
+    expected = f"{RAW_FLAG_ALLOWED_FILE} [{RAW_FLAG_ALLOWED_SERVICE}]: {RAW_FLAG_ALLOWED_LINE}"
+    assert allowed == [expected]
+
+
+def test_empty_string_is_not_a_legal_flag_value(monkeypatch: pytest.MonkeyPatch):
+    """WHY THE COMPOSE LINE CARRIES `:-false` AND NOT `:-`.
+
+    Measured through the process environment, because that is how compose delivers it: a bare
+    or empty substitution hands the container `""`, and pydantic refuses it — the ai-service
+    would not boot. If a validator ever maps "" to False, the reasoning in the compose comment
+    goes stale, and this is what says so.
+    """
+    from pydantic import ValidationError
+
+    monkeypatch.setenv(RAW_FLAG, "")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+    monkeypatch.setenv(RAW_FLAG, "false")
+    assert Settings(_env_file=None).resume_parse_raw_text_enabled is False
+
+
+_SYNTHETIC_STAGING = """\
+services:
+  api:
+    image: api
+    environment:
+      NODE_ENV: production
+{api_extra}
+  ai-service:
+    image: ai
+    environment:
+      # {flag} is explained here, in prose.
+      GEMINI_FLASH_API_KEY: ${{GEMINI_FLASH_API_KEY:-}}
+{ai_line}
+volumes:
+  pgdata:
+"""
+
+
+def _synthetic_repo(
+    tmp_path: Path,
+    ai_line: str = f"      {RAW_FLAG_ALLOWED_LINE}",
+    api_extra: str = "",
+    extra_files: dict[str, str] | None = None,
+) -> Path:
+    (tmp_path / RAW_FLAG_ALLOWED_FILE).write_text(
+        _SYNTHETIC_STAGING.format(flag=RAW_FLAG, ai_line=ai_line, api_extra=api_extra),
+        encoding="utf-8",
+    )
+    for relative, content in (extra_files or {}).items():
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return tmp_path
+
+
+def test_the_scan_permits_the_allowed_line_and_prose(tmp_path: Path):
+    """WHAT THE GUARD PERMITS, tested first — an over-broad scan passes every red case below
+    and gets deleted the first time it blocks the one legitimate declaration."""
+    root = _synthetic_repo(
+        tmp_path,
+        extra_files={
+            "docker-compose.yml": f"services:\n  ai-service:\n    # {RAW_FLAG} is off here.\n",
+            ".env.example": f"# {RAW_FLAG}=true  (never uncomment; see ADR-0041)\n",
+        },
+    )
+    hits, allowed = _scan_raw_flag(root)
+    assert hits == []
+    assert len(allowed) == 1
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        f"${{{RAW_FLAG}:-true}}",
+        f"${{{RAW_FLAG}:-TRUE}}",
+        f"${{{RAW_FLAG}:-1}}",
+        f"${{{RAW_FLAG}:-yes}}",
+        f"${{{RAW_FLAG}:-On}}",
+        f"${{{RAW_FLAG}:-}}",
+        f"${{{RAW_FLAG}}}",
+        f"${{{RAW_FLAG}-false}}",
+        f'"${{{RAW_FLAG}:-false}}"',
+        '"true"',
+        "true",
+        "1",
+    ],
+)
+def test_the_scan_is_red_for_every_other_value_on_the_ai_service(tmp_path: Path, value: str):
+    hits, allowed = _scan_raw_flag(_synthetic_repo(tmp_path, ai_line=f"      {RAW_FLAG}: {value}"))
+    assert hits, f"a declaration of {value!r} passed the scan"
+    assert allowed == []
+
+
+@pytest.mark.parametrize(
+    ("label", "kwargs"),
+    [
+        (
+            "declared on the api service",
+            {"ai_line": "", "api_extra": f"      {RAW_FLAG_ALLOWED_LINE}"},
+        ),
+        (
+            "declared on BOTH services",
+            {"api_extra": f"      {RAW_FLAG_ALLOWED_LINE}"},
+        ),
+        (
+            "duplicated inside the ai-service block",
+            {"ai_line": f"      {RAW_FLAG_ALLOWED_LINE}\n      {RAW_FLAG_ALLOWED_LINE}"},
+        ),
+        (
+            "YAML list form",
+            {"ai_line": f"      - {RAW_FLAG}=false"},
+        ),
+        (
+            "wrong indentation (not an environment entry)",
+            {"ai_line": f"    {RAW_FLAG_ALLOWED_LINE}"},
+        ),
+        (
+            "a trailing comment on the allowed line",
+            {"ai_line": f"      {RAW_FLAG_ALLOWED_LINE}  # armed later"},
+        ),
+        (
+            "duplicated in docker-compose.yml",
+            {
+                "extra_files": {
+                    "docker-compose.yml": "services:\n  ai-service:\n    environment:\n"
+                    f"      {RAW_FLAG_ALLOWED_LINE}\n"
+                }
+            },
+        ),
+        (
+            "declared in another compose file",
+            {
+                "extra_files": {
+                    "docker-compose.e2e.yml": "services:\n  ai-service:\n    environment:\n"
+                    f"      {RAW_FLAG_ALLOWED_LINE}\n"
+                }
+            },
+        ),
+        (
+            "an uncommented assignment in .env.example",
+            {"extra_files": {".env.example": f"{RAW_FLAG}=false\n"}},
+        ),
+        (
+            "an env file without a matched suffix",
+            {"extra_files": {"apps/ai-service/.env.staging": f"{RAW_FLAG}=true\n"}},
+        ),
+        (
+            "a Dockerfile ENV",
+            {"extra_files": {"apps/ai-service/Dockerfile": f"ENV {RAW_FLAG}=true\n"}},
+        ),
+        (
+            "a ci.yml secrets bridge",
+            {
+                "extra_files": {
+                    ".github/workflows/ci.yml": "jobs:\n  deploy:\n    env:\n"
+                    f"      {RAW_FLAG}: ${{{{ secrets.{RAW_FLAG} }}}}\n"
+                }
+            },
+        ),
+        (
+            "a ci.yml envs: token",
+            {"extra_files": {".github/workflows/ci.yml": f"        envs: REDIS_URL,{RAW_FLAG}\n"}},
+        ),
+        (
+            "a commented-out bridge in a workflow",
+            {
+                "extra_files": {
+                    ".github/workflows/ci.yml": "jobs:\n"
+                    f"      # {RAW_FLAG}: ${{{{ secrets.{RAW_FLAG} }}}}\n"
+                }
+            },
+        ),
+    ],
+)
+def test_the_scan_is_red_for_every_second_arming_path(tmp_path: Path, label: str, kwargs: dict):
+    hits, _allowed = _scan_raw_flag(_synthetic_repo(tmp_path, **kwargs))
+    assert hits, f"{label}: passed the scan"
 
 
 # ===========================================================================

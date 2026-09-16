@@ -722,18 +722,42 @@ services:
       # extracts the uploaded document itself, so the résumé's text never passes through
       # the api at all — and that only works if both sides agree which bucket it is in.
       #
-      # RESUME_PARSE_RAW_TEXT_ENABLED IS DELIBERATELY ABSENT FROM THIS FILE. ADR-0041 D5
-      # permits the unmasked document to reach the model; arming it is a decision a person
-      # takes once, visibly, on the box — not a line that rides in on a deploy.
-      #
-      # IT IS AN ai-service SETTING AND NOTHING ELSE. An earlier version of this note claimed
-      # "the default is false in packages/config and in app/config.py"; there is no such key
-      # in packages/config, because apps/api never reads it — only the service that builds the
-      # prompt does. `app/config.py` is the whole story.
-      #
-      # `test_the_flag_is_armed_in_no_committed_file` scans this file and every other one for
-      # the name, so adding it here turns the suite RED rather than quietly arming the policy.
       RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
+
+      # ---- ADR-0041 D5: THE RAW-TEXT RÉSUMÉ SWITCH — DECLARED, DEFAULT OFF (amended 2026-09-15).
+      #
+      # D5 permits the unmasked document to reach the model. Until 2026-09-15 this name was
+      # deliberately ABSENT from this file, and that absence did not mean "off until a person
+      # arms it" — it meant UNARMABLE: compose forwards only the names a service declares and
+      # no service here has `env_file:`, so a value on the box reached no container at all.
+      # The owner ruled (2026-09-15) to make it reachable, default off, and to arm it himself
+      # after a security check.
+      #
+      # ARMED ONLY FROM THE BOX'S `.env`, AND ONLY BY RE-RUNNING THE DEPLOY JOB. Compose
+      # interpolates this line from the box's `.env` because ci.yml does NOT bridge the name —
+      # measured on the production box 2026-09-11 with RESUME_UPLOADS_BUCKET, which has the same
+      # shape: set only in the box `.env`, deploy job re-run, `printenv` inside the container
+      # printed the box value. NEVER a manual `docker compose up` on the box to apply it: on
+      # 2026-09-11 exactly that bypassed the CI secret bridge, baked a wrong REDIS_URL from the
+      # box `.env` into the api container, and took production login down.
+      #
+      # NEVER ADD IT TO ci.yml's `env:`/`envs:` BRIDGE. The shell environment beats the box
+      # `.env` in compose interpolation, so a bridge would be a SECOND arming path that overrides
+      # the owner's box value — and an unset GitHub secret exports as "", which `:-` turns back
+      # into false, silently UN-arming a box the owner armed, behind a green deploy.
+      #
+      # `:-false`, NEVER `:-` AND NEVER BARE. pydantic REJECTS "" for this bool (measured), so an
+      # empty substitution would stop the ai-service booting; `:-` substitutes on unset AND empty.
+      #
+      # IT IS AN ai-service SETTING AND NOTHING ELSE — apps/api never reads it, so it is not
+      # declared on the api service. `app/config.py` is the whole story.
+      #
+      # A COMMIT CAN NEVER ARM IT. `test_the_flag_is_armed_in_no_committed_file`
+      # (apps/ai-service/tests/test_resume_parse.py) permits EXACTLY this one line, on this
+      # service, in this file: a truthy default, a literal, a bare or empty substitution, a copy
+      # on another service or in another compose file, an env file, or any mention in
+      # .github/ turns the suite RED. The api-side compose guard pins the same line.
+      RESUME_PARSE_RAW_TEXT_ENABLED: ${RESUME_PARSE_RAW_TEXT_ENABLED:-false}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
       # the per-task allowlist below still gates it (`tts_synthesis` / `stt_transcription` are

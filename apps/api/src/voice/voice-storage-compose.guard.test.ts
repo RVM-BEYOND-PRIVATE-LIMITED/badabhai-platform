@@ -31,9 +31,10 @@ const SHARED_STORAGE_VARS = [
   // change that gave the ai-service its `resume_uploads_bucket` field, not later, because
   // "later" is how the voice split-brain got in.
   //
-  // NOT listed: RESUME_PARSE_RAW_TEXT_ENABLED. It is read by the ai-service alone, and it
-  // is deliberately absent from every compose file — ADR-0041 D5's raw-input posture is
-  // armed by a person on the box, never by a line that rides in on a deploy.
+  // NOT listed: RESUME_PARSE_RAW_TEXT_ENABLED. It is read by the ai-service alone, so it is
+  // declared on the ai-service ONLY (default off, owner ruling 2026-09-15) and a symmetry rule
+  // would be wrong for it. Its posture is pinned in real-call-posture-compose.guard.test.ts;
+  // ADR-0041 D5's raw-input switch is armed by a person on the box, never by a commit.
   "RESUME_UPLOADS_BUCKET",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",

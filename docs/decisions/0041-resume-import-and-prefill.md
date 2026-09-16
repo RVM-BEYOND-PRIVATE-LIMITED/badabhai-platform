@@ -122,6 +122,23 @@ The override applies to **one task type, one route, one input class, behind one 
   not extend to transcripts, chat turns, voice notes, or any value already stored.
 - Behind `RESUME_PARSE_RAW_TEXT_ENABLED`, default `false`. With the flag unset the route runs
   fully masked or not at all.
+
+  **Amended 2026-09-15 (owner ruling): the flag is reachable, default off.** Until then the name
+  was absent from every compose file, which made it unarmable rather than merely off — compose
+  forwards only declared names, and no service has `env_file:`. It is now declared on the
+  `ai-service` service only, in `docker-compose.staging.yml`, as
+  `${RESUME_PARSE_RAW_TEXT_ENABLED:-false}` (`:-false`, because pydantic rejects `""` for the
+  bool and the service would not boot). **Arming:** the owner sets it in the box's `.env` after a
+  security check and **re-runs the deploy job** — compose interpolates the box `.env` for any name
+  ci.yml does not bridge (measured on the production box 2026-09-11 with `RESUME_UPLOADS_BUCKET`).
+  Never a manual `docker compose up` on the box: on 2026-09-11 that bypassed the CI secret bridge,
+  baked a wrong `REDIS_URL` into the api container and took production login down. **Never a
+  ci.yml bridge:** it would be a second arming path that overrides the box value.
+  `test_the_flag_is_armed_in_no_committed_file` (apps/ai-service/tests/test_resume_parse.py)
+  permits exactly that one compose line and is red for a truthy or empty default, a literal, a
+  declaration on another service or in another compose file, an env-file assignment, or any
+  occurrence under `.github/`; `real-call-posture-compose.guard.test.ts` pins the same line from
+  the api side.
 - **Nothing is masked. The document goes to the model exactly as extracted** — amended by owner
   ruling **2026-09-10**, superseding this ADR's first draft, which held back government
   identifiers, phone numbers and email addresses. The owner's words: _"go fully raw no need to
@@ -304,6 +321,9 @@ Four consequences, all of them good:
   "no résumé" door is the path that ships today, byte for byte — pinned by a test.
 - **Dormant on arrival.** `RESUME_UPLOADS_BUCKET` defaults to `""` and the three processing
   routes 503 until it is armed, exactly as voice and photo do.
+- **The raw-text switch is reachable but off (amended 2026-09-15).** One additive compose line on
+  the `ai-service` service resolves to `false`, identical to the behaviour before it; arming is
+  the box `.env` plus a deploy re-run, and a commit cannot arm it (§3.2).
 - **New dependencies** in the ai-service: `pypdf`, `python-docx`, `pytesseract`, `Pillow`,
   `pypdfium2`, plus the `tesseract-ocr` binary and `eng`/`hin` traineddata in the image.
   **`pypdfium2` rather than the `pymupdf` an earlier draft named**: PyMuPDF is AGPL-3.0, which a

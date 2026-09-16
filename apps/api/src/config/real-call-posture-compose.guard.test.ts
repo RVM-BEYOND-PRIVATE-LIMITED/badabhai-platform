@@ -165,6 +165,40 @@ describe("docker-compose.staging.yml — the deployed real-LLM posture (#798)", 
   });
 });
 
+describe("docker-compose.staging.yml — the raw-text résumé posture (ADR-0041 D5, 2026-09-15)", () => {
+  const api = environmentOfFile(STAGING_COMPOSE_PATH, "api");
+  const aiService = environmentOfFile(STAGING_COMPOSE_PATH, "ai-service");
+  const RAW_FLAG = "RESUME_PARSE_RAW_TEXT_ENABLED";
+
+  it("parses both service environments (canary)", () => {
+    expect(api.get("AI_SERVICE_URL")).toBe("http://ai-service:8000");
+    expect(aiService.get("GEMINI_FLASH_API_KEY")).toBe("${GEMINI_FLASH_API_KEY:-}");
+  });
+
+  it("is DECLARED on the ai-service, defaulting OFF, overridable from the box", () => {
+    // THE SAME TWO DEFECTS THIS FILE IS NAMED FOR, ON A PRIVACY FLAG. Until 2026-09-15 the name
+    // was undeclared (#798 defect 2: the box had no path in), and the owner ruled it reachable,
+    // default off. A literal would be defect 1; `:-true` would arm D5's unmasked-résumé path on
+    // every box by commit; `:-` or bare would hand pydantic "" and stop the ai-service booting.
+    //
+    // The ai-service's own scan (`test_the_flag_is_armed_in_no_committed_file`) permits exactly
+    // this line and nothing else; this is the api-side wall on the same line, read through the
+    // same parser every other posture guard here uses.
+    expect(aiService.get(RAW_FLAG), `${RAW_FLAG} missing or armed on the ai-service`).toBe(
+      overridableDefault(RAW_FLAG, "false"),
+    );
+  });
+
+  it("is NOT declared on the api — apps/api never reads it", () => {
+    // A second declaration implies a second source of truth for one decision.
+    expect(api.has(RAW_FLAG)).toBe(false);
+  });
+
+  it("is NOT declared in the DEV-LAPTOP file", () => {
+    expect(environmentOfFile(BASE_COMPOSE_PATH, "ai-service").has(RAW_FLAG)).toBe(false);
+  });
+});
+
 describe("docker-compose.yml — the DEV-LAPTOP file stays unarmed (#798)", () => {
   const aiService = environmentOfFile(BASE_COMPOSE_PATH, "ai-service");
 
