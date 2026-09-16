@@ -14,7 +14,6 @@ import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
 import 'widgets/trade_form_preferences_page.dart';
 import 'widgets/trade_form_progress_bar.dart';
-import '../domain/spoken_work_description.dart';
 import 'widgets/trade_form_qualifications_page.dart';
 import 'widgets/trade_form_question_body.dart';
 
@@ -505,14 +504,11 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       return TradeFormEmploymentPage(
         key: _empKey,
         enabled: enabled,
-        // #1472 — the spoken work description. Resolved HERE, not inside the
-        // card: the page's own tests wire a bare locator, and a widget that
-        // reached into get_it would break them. Null when the voice graph is
-        // not registered, which the mic renders as "no mic".
-        micRecorder: locator.isRegistered<SpokenWorkDescriptionRecorder>()
-            ? locator<SpokenWorkDescriptionRecorder>()
-            : null,
-        sessionId: state.sessionId,
+        // NOTHING VOICE-RELATED IS THREADED IN ANY MORE. The spoken work
+        // description is now the DEVICE recogniser, resolved by
+        // `DictationController` itself and tolerant of its own absence — so the
+        // page needs neither a recorder nor the form's `session_id`. Both were
+        // here only for the record-and-upload mic this replaced.
         // #1429 — the SAME options fetch the preferences marker uses; it
         // carries the state catalogue + the state-tagged city gazetteer.
         loadOptions: cubit.loadPreferenceOptions,
