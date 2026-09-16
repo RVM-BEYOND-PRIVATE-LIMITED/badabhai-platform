@@ -2142,6 +2142,29 @@ def _looks_like_a_year(num: str, unit: str | None, near: str) -> bool:
     return not any(cue.search(near) for cue in _MONEY_CUES)
 
 
+def _clause_guard_allows(between: str) -> bool:
+    """Does the text ``between`` an amount and a period cue's edge still let the cue fire?
+
+    R16 §2 (issue #1520 review). A bare clause terminator sitting alone between the amount and
+    the cue — "4.2 lakh, saal ka chahiye" has only ", " between the amount and "saal" — is a
+    speaker's PAUSE inside one sentence about one amount, not a boundary into a different clause,
+    and must not veto the cue. "15000 chahiye, 5 saal ho gaye" has real content on top of the
+    comma — "chahiye" before it, "5" after — a subject and a separate verb phrase about work
+    EXPERIENCE, not the salary's period, and that is what must still be vetoed.
+
+    The distinguishing signal is content, not the terminator's mere presence: strip the FIRST
+    terminator match out of ``between`` and see what is left. Nothing (once whitespace is
+    trimmed) means "amount, cue" with nothing wedged in — allow. Anything else — another word,
+    another number, a second clause — means real content sits between the amount and the cue —
+    veto.
+    """
+    found = _CLAUSE_TERMINATOR_RE.search(between)
+    if found is None:
+        return True
+    remainder = between[: found.start()] + between[found.end() :]
+    return remainder.strip() == ""
+
+
 def _cue_fires_after(cue: re.Pattern[str], near: str) -> bool:
     """Does ``cue`` match in ``near`` — the text AFTER an amount — with no clause boundary
     standing between the amount and where the cue starts? R16 §1 (issue #1507 case 1).
@@ -2161,11 +2184,15 @@ def _cue_fires_after(cue: re.Pattern[str], near: str) -> bool:
     region BEFORE the cue's match, rather than pre-cutting the text, leaves the cue free to match
     through its own punctuation; only a terminator standing between the amount and where the cue
     STARTS can veto it.
+
+    R16 §2 (issue #1520 review) narrowed the veto itself: a BARE terminator with nothing else in
+    that region — "4.2 lakh, saal ka chahiye" — is a mid-sentence pause about the SAME amount and
+    must not veto the cue; see :func:`_clause_guard_allows`.
     """
     found = cue.search(near)
     if found is None:
         return False
-    return _CLAUSE_TERMINATOR_RE.search(near, 0, found.start()) is None
+    return _clause_guard_allows(near[: found.start()])
 
 
 def _cue_fires_before(cue: re.Pattern[str], near: str) -> bool:
@@ -2173,7 +2200,7 @@ def _cue_fires_before(cue: re.Pattern[str], near: str) -> bool:
     found = cue.search(near)
     if found is None:
         return False
-    return _CLAUSE_TERMINATOR_RE.search(near, found.end()) is None
+    return _clause_guard_allows(near[found.end() :])
 
 
 def _period_months(near_before: str, near_after: str) -> int | None:

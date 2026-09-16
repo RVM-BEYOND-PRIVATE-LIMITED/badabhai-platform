@@ -676,6 +676,24 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
          "15000 by twelve to 1250 - measured twice, in the #1505 design pass and by its "
          "adversarial reviewer. The period window is now clause-clamped, the same guard the "
          "expectation window already had, applied to _period_months instead"),
+        ("4.2 lakh, saal ka chahiye",
+         "R16 2 (issue #1520 review) - CLOSED. The R16 1 guard above over-corrected: it vetoed "
+         "an annual cue whenever ANY clause terminator sat between the amount and the cue, with "
+         "no regard for whether real content sat in that gap. This comma is a bare pause before "
+         "the SAME sentence's own period phrase, not a boundary into another clause, and must "
+         "not veto 'saal ka'. Read as monthly it was 420000/month instead of 35000 - a 12x "
+         "overstatement, found by the #1520 adversarial reviewer"),
+        ("4.2 lakh saal ka chahiye",
+         "control for the row above: no comma at all, the reading that must not regress"),
+        ("2.5 lakh, saal ka chahiye",
+         "same shape as the R16 2 row above, a different amount - pins the arithmetic too"),
+        ("4.2 lakh, per annum chahiye",
+         "same shape, the English cue. 'per annum' is now matched WHOLE (R16 2) so the clause "
+         "guard sees nothing but whitespace between the comma and the cue - before that fix "
+         "'per' sitting between them (the 'annum'-only cue never covered it) counted as "
+         "unrelated content and vetoed a correct annual reading on its own"),
+        ("salary 4.2 lakh, saalana chahiye",
+         "same shape, the single-token Hindi cue"),
         ("5 lakh saal ka mahina",
          "AMBIGUOUS: an annual AND a monthly cue — records NOTHING, per prefer-no-number"),
         ("ctc 5 lakh",

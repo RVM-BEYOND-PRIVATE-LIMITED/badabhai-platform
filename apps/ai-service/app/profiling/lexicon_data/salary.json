@@ -210,6 +210,7 @@
     { "source": "{WB}salana{WE}", "flags": "i" },
     { "source": "{WB}salaana{WE}", "flags": "i" },
     { "source": "{WB}varsh{WE}", "flags": "i" },
+    { "source": "{WB}per\\s*annum{WE}", "flags": "i" },
     { "source": "{WB}annum{WE}", "flags": "i" },
     { "source": "{WB}annual{WC}*", "flags": "i" },
     { "source": "{WB}yearly{WE}", "flags": "i" },
@@ -234,7 +235,17 @@
     "25000 milta hai') — reading that as annual would divide a correct monthly wage by twelve,",
     "trading one wrong number for another. So the before-set carries only unambiguously annual",
     "words. Deleting a cue from the after-set or adding 'saal' to the before-set are both 12x",
-    "errors; the corpus pins each direction."
+    "errors; the corpus pins each direction.",
+    "",
+    "'per annum' AS ITS OWN CUE (R16 2, issue #1520 review). Before this the phrase was only",
+    "ever recognised via the bare 'annum' cue, with 'per' sitting outside the match entirely —",
+    "harmless while the clause guard only checked the cue's OWN position, but the guard now also",
+    "checks the text between a clause terminator and the cue (see cueFiresAfter/cueFiresBefore),",
+    "and 'per' sitting between the comma and 'annum' in '4.2 lakh, per annum chahiye' read as",
+    "unrelated content and wrongly vetoed a correct annual reading. Matching the whole phrase, the",
+    "same shape as the existing 'per year' cue, puts the cue's start right after the terminator",
+    "so the guard sees nothing but whitespace in between. 'annum' alone stays in the list for",
+    "phrasings that drop 'per' entirely."
   ],
 
   "monthlyCues": [

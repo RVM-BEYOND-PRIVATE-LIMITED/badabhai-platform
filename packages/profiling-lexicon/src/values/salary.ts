@@ -175,14 +175,37 @@ function looksLikeAYear(num: string, unit: string | null, near: string): boolean
 function cueFiresAfter(cue: RegExp, near: string): boolean {
   const found = cue.exec(near);
   if (found === null) return false;
-  return !CLAUSE_TERMINATOR.test(near.slice(0, found.index));
+  return clauseGuardAllows(near.slice(0, found.index));
 }
 
 /** The mirror of {@link cueFiresAfter} for text BEFORE an amount — same guard, other direction. */
 function cueFiresBefore(cue: RegExp, near: string): boolean {
   const found = cue.exec(near);
   if (found === null) return false;
-  return !CLAUSE_TERMINATOR.test(near.slice(found.index + found[0].length));
+  return clauseGuardAllows(near.slice(found.index + found[0].length));
+}
+
+/**
+ * Does the text `between` an amount and a period cue's edge still let the cue fire?
+ * `signals._clause_guard_allows`, R16 §2 (issue #1520 review).
+ *
+ * A bare clause terminator sitting alone between the amount and the cue — "4.2 lakh, saal ka
+ * chahiye" has only ", " between the amount and "saal" — is a speaker's PAUSE inside one sentence
+ * about one amount, not a boundary into a different clause, and must not veto the cue. "15000
+ * chahiye, 5 saal ho gaye" has real content on top of the comma — "chahiye" before it, "5" after
+ * — a subject and a separate verb phrase about work EXPERIENCE, not the salary's period, and that
+ * is what must still be vetoed.
+ *
+ * The distinguishing signal is content, not the terminator's mere presence: strip the FIRST
+ * terminator match out of `between` and see what is left. Nothing (once whitespace is trimmed)
+ * means "amount, cue" with nothing wedged in — allow. Anything else — another word, another
+ * number, a second clause — means real content sits between the amount and the cue — veto.
+ */
+function clauseGuardAllows(between: string): boolean {
+  const found = CLAUSE_TERMINATOR.exec(between);
+  if (found === null) return true;
+  const remainder = between.slice(0, found.index) + between.slice(found.index + found[0].length);
+  return remainder.trim() === "";
 }
 
 /**

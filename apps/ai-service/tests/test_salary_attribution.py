@@ -96,6 +96,53 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         None,
         "control for the row above: the bare ask, with no trailing clause, must not regress",
     ),
+    # ── a PAUSE comma between the amount and its own period cue — R16 §2 (issue #1520 review) ─
+    #
+    # The R16 §1 fix above over-corrected: it vetoed an annual cue whenever ANY clause terminator
+    # sat between the amount and the cue, with no regard for whether real content sat in that
+    # gap. "4.2 lakh, saal ka chahiye" has nothing between the amount and the comma but the comma
+    # itself, and the period phrase immediately follows it — the SAME sentence about the SAME
+    # amount, just with a speaker's natural pause. That was misread as monthly ₹4,20,000 instead
+    # of the correct ₹35,000/month annual figure — a 12x overstatement, the same failure mode as
+    # the original bug, now pointed the other way. Independently found and reproduced by the
+    # #1520 adversarial reviewer.
+    (
+        "comma_pause_before_annual_cue",
+        "4.2 lakh, saal ka chahiye",
+        (None, 35000),
+        None,
+        "CLOSED R16 §2 — a bare pause comma must not veto the cue it introduces",
+    ),
+    (
+        "comma_pause_before_annual_cue_control",
+        "4.2 lakh saal ka chahiye",
+        (None, 35000),
+        None,
+        "control for the row above: no comma at all, the reading this must not regress",
+    ),
+    (
+        "comma_pause_second_amount",
+        "2.5 lakh, saal ka chahiye",
+        (None, 20833),
+        None,
+        "same shape, a different amount — pins the arithmetic as well as the guard",
+    ),
+    (
+        "comma_pause_per_annum",
+        "4.2 lakh, per annum chahiye",
+        (None, 35000),
+        None,
+        "same shape, the English cue — 'per annum' is now matched whole (R16 §2) so the guard "
+        "sees nothing but whitespace between the comma and the cue; before this it also fixed "
+        "'per' between them counted as unrelated content and vetoed a correct annual reading",
+    ),
+    (
+        "comma_pause_saalana",
+        "salary 4.2 lakh, saalana chahiye",
+        (None, 35000),
+        None,
+        "same shape, the single-token Hindi cue",
+    ),
     # ── the cue sits AFTER the amount with a period word in between ───────────────────────
     #
     # THE ONE FAILURE MODE, IN FIVE COSTUMES — CLOSED BY R13 §1.1. `expectedWindowAfter` is 10
