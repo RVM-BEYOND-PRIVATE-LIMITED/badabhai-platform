@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ParsedField, QuestionPackItem } from "@badabhai/ai-contracts";
-import type { ResumeExtractionMethodName, ResumeImportRouteName } from "@badabhai/types";
+import { ProfileResumeParsedPayload } from "@badabhai/event-schema";
+import type { ResumeImportRouteName } from "@badabhai/types";
 
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import type { RequestContext } from "../../common/request-context";
@@ -36,11 +37,16 @@ import { buildSuggestions, type ResumeSuggestion } from "./resume-suggestions";
  *
  * ── DEGRADES, NEVER FAILS (ruling D9) ────────────────────────────────────────────────────
  *
- * Every path through {@link route} ends with a worker who can carry on. A failed parse, an
- * occupation index that is down, a document with no role in it — all of them produce the CHAT
- * route, which is today's behaviour byte for byte. There is no branch here that leaves a
- * worker with nothing to do, and the chat route is the DEFAULT rather than the fallback:
- * only 9 of 21 declared roles have a form at all.
+ * Every OUTAGE on the way to a route ends with a worker who can carry on. An occupation index
+ * that is down, a pack registry that cannot load, a document with no role in it — all of them
+ * produce the CHAT route, which is today's behaviour byte for byte. The chat route is the
+ * DEFAULT rather than the fallback: only 9 of 21 declared roles have a form at all.
+ *
+ * A FAULT IS NOT AN OUTAGE (amended 2026-09-15). A suggestion payload that cannot be built or
+ * encrypted is not degraded to chat — it throws, nothing is settled, and the worker's client
+ * falls through to the chat on its own (D9 served by the client, as the processor docblock
+ * says). Degrading there would mean writing a route that describes a decision this service
+ * failed to finish. CLAUDE.md §3: fail closed.
  */
 @Injectable()
 export class ResumeRouteService {
@@ -54,16 +60,110 @@ export class ResumeRouteService {
     private readonly events: EventsService,
   ) {}
 
-  async route(workerId: string, draft: ParsedDraft, ctx: RequestContext): Promise<RoutedImport> {
+  /**
+   * Decide, stage, and SETTLE the import — the parse's outcome and the route in one statement.
+   *
+   * ── ONE WRITE, ONE EVENT, OR NEITHER (amended 2026-09-15) ──────────────────────────────
+   *
+   * `settleParsed` writes `status = 'parsed'` together with the route, the form kind, the
+   * staged token and the extraction facts, guarded `WHERE status = 'parsing'`. The event is
+   * emitted on the same transaction, keyed `profile.resume_parsed:<importId>`. Before this, the
+   * parse service wrote `parsed` first and this service wrote the route second; a client that
+   * polled in between saw a terminal status with a null route and sent a form-routed worker to
+   * the chat.
+   *
+   * THE PAYLOAD IS VALIDATED BEFORE THE TRANSACTION OPENS. `emit` would refuse an invalid event
+   * anyway, but inside the transaction; checking first keeps a schema bug from ever holding a
+   * row lock, and makes the order of failure obvious to the next reader.
+   *
+   * `null` MEANS "THIS CALL SETTLED NOTHING": the draft was not a parse (the parse service has
+   * already recorded the failure), or the guard found the row no longer `parsing` — a
+   * redelivery, or a row erased mid-flight. In both cases nothing is emitted, because nothing
+   * this call did is a transition worth counting.
+   *
+   * WHAT THROWS, AND WHY IT IS ALLOWED TO. `buildSuggestions` and `crypto.encrypt` are not
+   * caught: a staged payload that could not be built or sealed is not a degraded route, it is a
+   * privacy or correctness fault, and CLAUDE.md §3 says stop. The transaction never opened, the
+   * row stays `parsing`, and a redelivery finds it past `uploaded` and does NOT read the
+   * document a second time — the parse is never billed twice. The cost is a row that stays
+   * `parsing` until something sweeps it; that is the fail-closed trade, recorded in ADR-0041 §7.
+   */
+  async route(
+    workerId: string,
+    draft: ParsedDraft,
+    ctx: RequestContext,
+  ): Promise<RoutedImport | null> {
     if (draft.status !== "parsed") {
       // A parse that produced nothing cannot route, and must not pretend to. The import row
       // already carries its own failure reason and `profile.resume_parse_failed` has already
       // been emitted by the parse service — emitting `resume_parsed` here as well would
       // double-count the funnel's middle step, which is the one number the four separate
       // events exist to keep answerable.
-      return { route: "chat", formKind: null, fieldsExtracted: 0, suggestionsOffered: 0 };
+      return null;
     }
 
+    const decision = await this.decide(workerId, draft);
+
+    const payload = ProfileResumeParsedPayload.parse({
+      worker_id: workerId,
+      import_id: draft.importId,
+      extraction_method: draft.extractionMethod,
+      route: decision.route,
+      form_kind: decision.formKind,
+      // TWO NUMBERS, NOT ONE. They differ by everything that mapped nowhere, and a widening
+      // gap is the earliest signal the prompt has drifted or a pack has moved a target field.
+      fields_extracted: Object.keys(draft.fields).length,
+      suggestions_offered: decision.suggestionsOffered,
+    });
+
+    const settled = await this.imports.withTransaction(async (tx) => {
+      const wrote = await this.imports.settleParsed(
+        draft.importId,
+        {
+          extractionMethod: draft.extractionMethod,
+          pageCount: draft.pageCount,
+          ocrConfidence: draft.ocrConfidence,
+        },
+        {
+          route: decision.route,
+          formKind: decision.formKind,
+          suggestionsEnc: decision.suggestionsEnc,
+        },
+        tx,
+      );
+      // THE BOOLEAN IS THE ENTITLEMENT TO EMIT. A redelivery that reached here found the row
+      // already settled; emitting anyway would count one document twice.
+      if (!wrote) return false;
+      await this.events.emit({
+        event_name: "profile.resume_parsed",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+        idempotencyKey: `profile.resume_parsed:${draft.importId}`,
+        tx,
+      });
+      return true;
+    });
+    if (!settled) return null;
+
+    return {
+      route: decision.route,
+      formKind: decision.formKind,
+      fieldsExtracted: payload.fields_extracted,
+      suggestionsOffered: decision.suggestionsOffered,
+    };
+  }
+
+  /**
+   * The route, the form kind and the sealed suggestion token — everything the settle writes
+   * that is not an extraction fact. Reads only; writes nothing.
+   */
+  private async decide(
+    workerId: string,
+    draft: Extract<ParsedDraft, { status: "parsed" }>,
+  ): Promise<RoutingDecision> {
     const roleLabel = stringValue(draft.fields.role_label);
     const domainLabel = stringValue(draft.fields.domain_label);
 
@@ -90,10 +190,31 @@ export class ResumeRouteService {
       occupationLabel: pinned.label,
     });
 
-    const route: ResumeImportRouteName = formKind === null ? "chat" : "form";
-    const suggestions = await this.stage(workerId, draft.fields, formKind);
+    // (3) THE PACKS — AND THE ONE FAILURE HERE THAT DEGRADES RATHER THAN STOPS (D9).
+    //
+    //     A pack registry that cannot load costs the worker his suggestions AND his form: a
+    //     form-routed worker with no pack behind the form would be handed screens nothing can
+    //     serve, so the honest degrade is the chat route with nothing staged — today's journey,
+    //     byte for byte. The catch is NARROW ON PURPOSE. It wraps the pack load and nothing
+    //     else; `buildSuggestions` and `crypto.encrypt` below are faults, not outages, and
+    //     catching them would turn a privacy failure into a quiet chat route.
+    let items: QuestionPackItem[];
+    try {
+      items = await this.packItems(formKind);
+    } catch (error) {
+      // THE CLASS NAME ONLY. A pack error message can quote a pack path or a question key, and
+      // this line sits next to a worker id; the class is enough to find the outage.
+      this.logger.error(
+        `question packs unavailable during résumé routing; degrading to chat ` +
+          `(${error instanceof Error ? error.constructor.name : typeof error})`,
+      );
+      return { route: "chat", formKind: null, suggestionsEnc: null, suggestionsOffered: 0 };
+    }
 
-    await this.imports.markRouted(draft.importId, {
+    const route: ResumeImportRouteName = formKind === null ? "chat" : "form";
+    const suggestions = this.stage(workerId, draft.fields, items);
+
+    return {
       route,
       formKind,
       suggestionsEnc:
@@ -104,31 +225,6 @@ export class ResumeRouteService {
             // a boundary nobody thought they could reach. One column cannot be partially covered.
             this.crypto.encrypt(JSON.stringify(Object.fromEntries(suggestions)))
           : null,
-    });
-
-    await this.events.emit({
-      event_name: "profile.resume_parsed",
-      actor: { actor_type: "worker", actor_id: workerId },
-      subject: { subject_type: "worker", subject_id: workerId },
-      payload: {
-        worker_id: workerId,
-        import_id: draft.importId,
-        extraction_method: draft.extractionMethod as ResumeExtractionMethodName,
-        route,
-        form_kind: formKind,
-        // TWO NUMBERS, NOT ONE. They differ by everything that mapped nowhere, and a widening
-        // gap is the earliest signal the prompt has drifted or a pack has moved a target field.
-        fields_extracted: Object.keys(draft.fields).length,
-        suggestions_offered: suggestions.size,
-      },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
-
-    return {
-      route,
-      formKind,
-      fieldsExtracted: Object.keys(draft.fields).length,
       suggestionsOffered: suggestions.size,
     };
   }
@@ -142,13 +238,12 @@ export class ResumeRouteService {
    * question this worker is never asked is a counted miss rather than a suggestion attached to
    * a screen he will not see.
    */
-  private async stage(
+  private stage(
     workerId: string,
     fields: Readonly<Record<string, ParsedField>>,
-    formKind: TradeFormKind | null,
-  ): Promise<Map<string, ResumeSuggestion>> {
-    const items = await this.packItems(formKind);
-    const built = buildSuggestions(fields, items);
+    items: readonly QuestionPackItem[],
+  ): Map<string, ResumeSuggestion> {
+    const built = buildSuggestions(fields, items as QuestionPackItem[]);
 
     if (built.misses.size > 0) {
       // COUNTS AND FIELD IDS, never values. A missed suggestion is otherwise invisible — no
@@ -215,6 +310,14 @@ export interface RoutedImport {
   route: ResumeImportRouteName;
   formKind: TradeFormKind | null;
   fieldsExtracted: number;
+  suggestionsOffered: number;
+}
+
+/** What `decide` hands the settle. `suggestionsEnc` is already sealed — never a payload. */
+interface RoutingDecision {
+  route: ResumeImportRouteName;
+  formKind: TradeFormKind | null;
+  suggestionsEnc: string | null;
   suggestionsOffered: number;
 }
 

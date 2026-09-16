@@ -237,6 +237,19 @@ POST /profiling/resume-import              → minted-key regex, mime + size via
 GET  /profiling/resume-import/:id          → { status, route: 'form' | 'chat', counts }
 ```
 
+**Amended 2026-09-15: the parse and the route settle in ONE write.** The first cut wrote
+`status = 'parsed'` from the parse step and `route` / `form_kind` / `suggestions_enc` from the route
+step in a second UPDATE. A client polling between the two read a terminal `parsed` beside a null
+route — which it treats as chat — and form-routed workers were sent to the chat. Now
+`ResumeImportRepository.settleParsed` is the only writer of every parse-derived column: one UPDATE
+sets status, route, form kind, the staged token and the extraction facts together,
+`WHERE status = 'parsing'`. `markFailed` carries the same guard. A successful parse writes no
+status; `extraction_method` is narrowed to the closed set, and a success without one is recorded
+as `parse_output_invalid`. A pack registry that cannot load degrades to the chat route with
+nothing staged (D9). A suggestion payload that cannot be built or encrypted is a fault, not an
+outage: it throws and nothing is settled (CLAUDE.md §3). No migration was needed — the single
+UPDATE satisfies every `wri_*` CHECK.
+
 `GET :id` is deliberately **not** purpose-gated, following the reasoning already written at
 [voice.controller.ts:77-84](../../apps/api/src/voice/voice.controller.ts): withdrawal must stop
 new processing, not hide from a worker what he already owns.
@@ -315,6 +328,16 @@ Four consequences, all of them good:
   capability claims a real worker résumé rarely carries; and only **9 of 21** declared roles have
   a form at all, so most workers route to chat regardless. RI-7 measures per-field coverage and
   error rate over a real corpus before any worker-facing claim about time saved is made.
+- **Events are exactly-once per import (amended 2026-09-15).** `profile.resume_parsed` and
+  `profile.resume_parse_failed` are emitted on the same transaction as the guarded status write,
+  only when that write matched a row, and with idempotency keys
+  `profile.resume_parsed:<importId>` / `profile.resume_parse_failed:<importId>`. The payload is
+  validated before the transaction opens. Payload shapes are unchanged (additive only).
+- **Retries never re-bill, and can strand a row (amended 2026-09-15).** A throw after the AI call
+  (a failed seal, a database error inside the settle) rolls back to `parsing` with no event. The
+  BullMQ redelivery sees a row past `uploaded`, does not read the document again, and completes
+  with `route: null`. The row stays `parsing` until a sweep marks stale rows
+  `parse_deadline_exceeded` — **that sweep does not exist yet and is owed before real traffic.**
 
 ## 8. Open
 

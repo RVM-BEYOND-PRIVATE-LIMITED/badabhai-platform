@@ -95,94 +95,143 @@ export class ResumeImportRepository {
   }
 
   /**
-   * The extraction facts, which can only come from the ai-service — apps/api never sees the
-   * document, so there is nowhere else for `extraction_method`, `page_count` or
-   * `ocr_confidence` to be learned.
-   *
-   * NO SUGGESTIONS WRITTEN HERE. `wri_suggestions_chk` permits a `parsed` row with none, and
-   * that is the correct RI-3 state: a parse has happened and nothing has been offered to the
-   * worker yet. Ruling D2 — a suggestion becomes a claim only when he confirms it — is what
-   * makes the intermediate state safe to persist.
+   * Run `cb` inside one Drizzle transaction. The parse and route services use it to commit a
+   * terminal status write and its event together: an emit that throws rolls the status back, so
+   * a row can never say `parsed` or `failed` without the event that counts it, and an event can
+   * never count a transition the row does not show.
    */
-  async markParsed(
-    id: string,
-    facts: {
-      extractionMethod: string | null;
-      pageCount: number | null;
-      ocrConfidence: number | null;
-    },
-  ): Promise<void> {
-    await this.db
-      .update(workerResumeImports)
-      .set({
-        status: "parsed",
-        extractionMethod: facts.extractionMethod as ResumeExtractionMethodName | null,
-        pageCount: facts.pageCount,
-        // `wri_ocr_confidence_chk` ties the score to the method, so a non-OCR parse must
-        // carry none. Writing one anyway would be a number nothing computed, which a later
-        // reader would average.
-        ocrConfidence: facts.extractionMethod === "ocr" ? facts.ocrConfidence : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(workerResumeImports.id, id));
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
   }
 
   /**
-   * `failed`, with the reason the CHECK constraint requires.
+   * `parsing` -> `parsed`, WITH the route, the form kind, the staged suggestions and the
+   * extraction facts, in ONE guarded UPDATE (ADR-0041 §4, amended 2026-09-15).
    *
-   * `wri_failure_reason_chk` is a BICONDITIONAL — a failed row must carry a reason and a
-   * non-failed row must not — so these two columns can only ever be written together. That is
-   * the constraint doing its job: a failure nobody can explain is not a state this table
-   * permits.
-   */
-  async markFailed(
-    id: string,
-    reason: ResumeImportFailureName,
-    extractionMethod: string | null,
-  ): Promise<void> {
-    await this.db
-      .update(workerResumeImports)
-      .set({
-        status: "failed",
-        failureReason: reason,
-        extractionMethod: extractionMethod as ResumeExtractionMethodName | null,
-        updatedAt: new Date(),
-      })
-      .where(eq(workerResumeImports.id, id));
-  }
-
-  /**
-   * The routing decision and the staged suggestions, written together (ADR-0041 RI-4).
+   * THIS IS THE ONLY WRITER OF EVERY PARSE-DERIVED COLUMN, AND THAT IS THE FIX. The first cut
+   * wrote `status = 'parsed'` in the parse service and `route`/`form_kind`/`suggestions_enc` in
+   * a SECOND update from the route service. Between the two, a polling client read `parsed` —
+   * which it treats as terminal — beside a null route, which it treats as chat, and a worker the
+   * router was about to send to his trade form was sent to the chat instead. Every CHECK on this
+   * table was satisfied the whole time; the row was legal and wrong. One statement has no
+   * "between".
    *
-   * ONE WRITE, BECAUSE THE CONSTRAINTS ARE BICONDITIONAL. `wri_form_kind_chk` requires
-   * `form_kind` to be present exactly when `route = 'form'`, and `wri_suggestions_chk` requires
-   * `status = 'parsed'` before `suggestions_enc` may hold anything. Splitting this into two
-   * updates would mean a moment where the row is legal but wrong, and a failure between them
-   * would leave a routed import with nothing to offer.
+   * THE WHERE CLAUSE IS THE SECOND LOCK. `markParsing` decided which delivery reads the document;
+   * `status = 'parsing'` here decides that exactly one outcome is ever recorded. A redelivery, or
+   * a failure that already landed, gets zero rows back — and the caller must then emit nothing,
+   * which is why this returns the boolean rather than `void`.
+   *
+   * `tx` IS REQUIRED, NOT DEFAULTED. The event that counts this transition is written on the same
+   * transaction; a default executor would make the un-atomic call the easy one to write.
    *
    * `suggestionsEnc` ARRIVES ALREADY ENCRYPTED. This class takes a token, never a payload — the
    * plaintext carries employer names and role titles lifted from the worker's document, and a
    * repository that accepted the object would be one refactor away from writing it plain. The
    * encryption boundary is the service's, and the type here is what keeps it there.
    */
-  async markRouted(
+  async settleParsed(
     id: string,
-    routing: {
-      route: ResumeImportRouteName;
-      formKind: string | null;
-      suggestionsEnc: string | null;
-    },
-  ): Promise<void> {
-    await this.db
-      .update(workerResumeImports)
-      .set({
-        route: routing.route,
-        // NULLED, NOT OMITTED, on the chat route. The CHECK is an equivalence in both
-        // directions, so leaving a stale `form_kind` behind on a re-route would fail the write.
-        formKind: routing.route === "form" ? routing.formKind : null,
-        suggestionsEnc: routing.suggestionsEnc,
-        updatedAt: new Date(),
-      })
-      .where(eq(workerResumeImports.id, id));
+    facts: ResumeParseFacts,
+    routing: ResumeRouting,
+    tx: Database,
+  ): Promise<boolean> {
+    const rows = await settleParsedStatement(tx, id, facts, routing);
+    return rows.length > 0;
   }
+
+  /**
+   * `parsing` -> `failed`, with the reason the CHECK constraint requires, and ONLY from `parsing`.
+   *
+   * `wri_failure_reason_chk` is a BICONDITIONAL — a failed row must carry a reason and a
+   * non-failed row must not — so these two columns can only ever be written together. That is
+   * the constraint doing its job: a failure nobody can explain is not a state this table
+   * permits.
+   *
+   * GUARDED FOR THE SAME REASON AS {@link settleParsed}. Unguarded, a late failure could
+   * overwrite a row another path already settled — a `parsed` import the worker was routed on
+   * would turn into a `failed` one behind his back. The boolean tells the caller whether it is
+   * entitled to emit `profile.resume_parse_failed`; `false` also covers a row erased by account
+   * deletion while the parse was in flight.
+   *
+   * `extractionMethod` IS THE CLOSED SET OR NULL. The contract types it as an open string; the
+   * service narrows it before it gets here, so no cast stands between the far side and the
+   * column's CHECK.
+   */
+  async markFailed(
+    id: string,
+    reason: ResumeImportFailureName,
+    extractionMethod: ResumeExtractionMethodName | null,
+    tx: Database,
+  ): Promise<boolean> {
+    const rows = await markFailedStatement(tx, id, reason, extractionMethod);
+    return rows.length > 0;
+  }
+}
+
+/** What only the ai-service can know about a parse: counts and a score, never text. */
+export interface ResumeParseFacts {
+  extractionMethod: ResumeExtractionMethodName;
+  pageCount: number | null;
+  ocrConfidence: number | null;
+}
+
+/** The routing decision and the staged suggestion token. */
+export interface ResumeRouting {
+  route: ResumeImportRouteName;
+  formKind: string | null;
+  suggestionsEnc: string | null;
+}
+
+/**
+ * The settle statement, BUILT but not awaited.
+ *
+ * EXPORTED SO THE GUARD CAN BE PINNED WHERE CI RUNS. RUN_DB_TESTS suites never run in CI, so a
+ * test that needs Postgres cannot be the only thing standing between this file and a dropped
+ * `status = 'parsing'`. `resume-import.repository.query.test.ts` compiles this with
+ * `drizzle.mock()` and reads the SQL — no connection, no skip.
+ */
+export function settleParsedStatement(
+  db: Database,
+  id: string,
+  facts: ResumeParseFacts,
+  routing: ResumeRouting,
+) {
+  return db
+    .update(workerResumeImports)
+    .set({
+      status: "parsed",
+      extractionMethod: facts.extractionMethod,
+      pageCount: facts.pageCount,
+      // `wri_ocr_confidence_chk` ties the score to the method, so a non-OCR parse must carry
+      // none. Writing one anyway would be a number nothing computed, which a later reader
+      // would average.
+      ocrConfidence: facts.extractionMethod === "ocr" ? facts.ocrConfidence : null,
+      route: routing.route,
+      // NULLED, NOT OMITTED, on the chat route. `wri_form_kind_chk` is an equivalence in both
+      // directions, so a form kind riding along on a chat route would fail the whole settle.
+      formKind: routing.route === "form" ? routing.formKind : null,
+      suggestionsEnc: routing.suggestionsEnc,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workerResumeImports.id, id), eq(workerResumeImports.status, "parsing")))
+    .returning({ id: workerResumeImports.id });
+}
+
+/** The failure statement, built but not awaited — exported for the same reason as the settle. */
+export function markFailedStatement(
+  db: Database,
+  id: string,
+  reason: ResumeImportFailureName,
+  extractionMethod: ResumeExtractionMethodName | null,
+) {
+  return db
+    .update(workerResumeImports)
+    .set({
+      status: "failed",
+      failureReason: reason,
+      extractionMethod,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workerResumeImports.id, id), eq(workerResumeImports.status, "parsing")))
+    .returning({ id: workerResumeImports.id });
 }

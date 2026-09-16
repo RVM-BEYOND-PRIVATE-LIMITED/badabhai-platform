@@ -11,11 +11,23 @@ import { ResumeRouteService } from "./resume-route.service";
 /**
  * The BullMQ ADAPTER for a résumé import — read the document, then route the worker.
  *
- * TWO SERVICES, ONE JOB, AND THE ORDER IS THE CONTRACT. RI-3 reads and gates; RI-4 decides and
- * stages. Splitting them into two queue hops would buy nothing and cost the one thing that
- * matters here: a parse that succeeded while its routing failed would leave a `parsed` row
- * with no route, which is a state the worker's client cannot act on. One job means the
- * document is read at most once (`markParsing` is the lock) and the decision follows it.
+ * TWO SERVICES, ONE JOB, AND THE ORDER IS THE CONTRACT. RI-3 reads and gates; RI-4 decides,
+ * stages and SETTLES. One job means the document is read at most once (`markParsing` is the
+ * lock) and the decision follows it.
+ *
+ * ONE JOB WAS NOT ENOUGH ON ITS OWN (amended 2026-09-15). The first cut had the two services
+ * write `parsed` and the route in two separate updates inside this one job, and a client polling
+ * between them read a terminal `parsed` beside a null route and sent a form-routed worker to the
+ * chat. The job boundary never made two statements atomic. `settleParsed` now writes status and
+ * route in ONE guarded UPDATE, with its event on the same transaction, so no reader can see a
+ * `parsed` row without its route.
+ *
+ * RETRIES ARE SAFE AND NEVER RE-BILL. A throw after the AI call — a suggestion payload that
+ * could not be sealed, a database error inside the settle — rolls the settle back and leaves
+ * the row `parsing`. BullMQ redelivers; the parse service sees a row past `uploaded` and returns
+ * `already_settled` without reading the document again, the route service settles nothing, and
+ * this job completes with `route: null`. The row then waits for a sweep (ADR-0041 §7) rather
+ * than a second charge.
  *
  * NO BUSINESS LOGIC LIVES HERE (CLAUDE.md §4). The only fact this class contributes is the one
  * only BullMQ knows — the job payload — and that a thrown error is how failure is reported.
@@ -34,7 +46,9 @@ export class ResumeImportProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<ResumeImportParseJobData>): Promise<{ import_id: string; route: string }> {
+  async process(
+    job: Job<ResumeImportParseJobData>,
+  ): Promise<{ import_id: string; route: string | null }> {
     const { workerId, importId, correlationId, requestId } = job.data;
     const ctx = { correlationId, requestId };
 
@@ -42,7 +56,9 @@ export class ResumeImportProcessor extends WorkerHost {
     const routed = await this.routing.route(workerId, draft, ctx);
 
     // IDS AND A CLOSED-SET ROUTE. This value is BullMQ's job result and is kept in Redis; it
-    // must carry no more than the event already does.
-    return { import_id: importId, route: routed.route };
+    // must carry no more than the event already does. `null` when THIS delivery settled no
+    // route — a failed parse, or a redelivery that found the row already past `parsing` — so
+    // the job result never claims a route the row does not show.
+    return { import_id: importId, route: routed?.route ?? null };
   }
 }
