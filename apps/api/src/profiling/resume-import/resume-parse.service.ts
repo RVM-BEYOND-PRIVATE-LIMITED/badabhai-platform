@@ -3,8 +3,10 @@ import type { ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 import type { ParsedField } from "@badabhai/ai-contracts";
 import {
   RESUME_EXTRACTION_METHODS,
+  TRADE_FORM_KINDS_ALL,
   type ResumeExtractionMethodName,
   type ResumeImportFailureName,
+  type TradeFormKindName,
 } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
@@ -81,6 +83,11 @@ export class ResumeParseService {
         storage_key: row.storageKey,
         mime: row.mime,
         target_fields: RESUME_PARSE_TARGET_FIELDS as unknown as TargetField[],
+        // Task 1 B2 — the CLOSED option list for the model's trade classification.
+        // Spread off the frozen source of truth so the wire can never carry a live
+        // reference a consumer could widen at runtime (same freeze discipline as
+        // the registry the kinds come from).
+        trade_kinds: [...TRADE_FORM_KINDS_ALL],
       },
       ctx,
     );
@@ -149,6 +156,10 @@ export class ResumeParseService {
       importId: row.id,
       fields: gated.accepted,
       employments,
+      // Task 1 B2 — the model's trade classification, narrowed to the closed list
+      // (or null). Recorded, NOT acted on: `routeToTradeForm` stays the decider
+      // until the handover-policy ruling lands the recall path.
+      associationKind: narrowTradeKind(out.trade_association?.kind),
       extractionMethod,
       pageCount: out.page_count,
       ocrConfidence: out.ocr_confidence,
@@ -219,6 +230,23 @@ function narrowExtractionMethod(
 }
 
 /**
+ * Task 1 B2 — the model's trade classification, narrowed to the closed
+ * 21-kind list, or null.
+ *
+ * A MEMBERSHIP TEST, NOT A CAST — the same posture as `narrowExtractionMethod`
+ * above, for the same reason: whatever is not in the set becomes null so the
+ * caller has to decide what an unknown kind means rather than inheriting a
+ * value the column CHECK would refuse. The far side already narrowed once;
+ * this is the second wall, and it runs even when the far side predates the
+ * classification entirely (`trade_association` absent ⇒ null).
+ */
+function narrowTradeKind(kind: string | null | undefined): TradeFormKindName | null {
+  return (TRADE_FORM_KINDS_ALL as readonly string[]).includes(kind ?? "")
+    ? (kind as TradeFormKindName)
+    : null;
+}
+
+/**
  * What RI-4 will be handed. Deliberately NOT persisted here: nothing about a parse is a claim
  * the worker has made, and ruling D2 says a suggestion becomes an answer only when he confirms
  * it. An import abandoned between this phase and the next must leave zero claims behind.
@@ -236,6 +264,13 @@ export type ParsedDraft =
       importId: string;
       fields: Record<string, ParsedField>;
       employments: ResumeEmployment[];
+      /**
+       * Task 1 B2 — which of the 21 declared trades the model judged this
+       * résumé, or null (no judgment / none fits / far side predates it).
+       * RECORDED, NOT ACTED ON: routing still comes from `routeToTradeForm`
+       * alone until the recall path is ruled in.
+       */
+      associationKind: TradeFormKindName | null;
       extractionMethod: ResumeExtractionMethodName;
       pageCount: number | null;
       ocrConfidence: number | null;

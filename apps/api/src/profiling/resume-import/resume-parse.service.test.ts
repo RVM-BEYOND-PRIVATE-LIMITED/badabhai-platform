@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResumeParseOutput } from "@badabhai/ai-contracts";
+import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
 
 import { ResumeParseService } from "./resume-parse.service";
 import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
@@ -42,6 +43,7 @@ function parseOutput(overrides: Partial<ResumeParseOutput> = {}): ResumeParseOut
   return {
     fields: {},
     employments: [],
+    trade_association: null,
     unparsed_field_ids: [],
     notes: [],
     extraction_method: "pdf_text",
@@ -324,7 +326,7 @@ describe("ResumeParseService", () => {
   });
 
   it("an import belonging to another worker is simply not found", async () => {
-    // `findForWorker` is worker-scoped BY CONSTRUCTION — the repository exposes no method
+    // `findForWorker` is worker-scoped BY CONSTRUCTION - the repository exposes no method
     // that can fetch this row by id alone, so the ownership check is the type system's
     // rather than a branch someone could forget. A miss here must spend nothing.
     const { svc, ai, aiCost } = setup({ row: null });
@@ -334,4 +336,38 @@ describe("ResumeParseService", () => {
     expect(ai.parseResume).not.toHaveBeenCalled();
     expect(aiCost.record).not.toHaveBeenCalled();
   });
+});
+
+describe("ResumeParseService — trade association (Task 1 B2)", () => {
+  it("sends the closed 21-kind list for the model to choose from", async () => {
+    const { svc, ai } = setup({});
+    await svc.parse(WORKER, IMPORT, CTX);
+
+    const sent = ai.parseResume.mock.calls[0]![0] as { trade_kinds: unknown };
+    expect(sent.trade_kinds).toEqual([...TRADE_FORM_KINDS_ALL]);
+    expect(sent.trade_kinds).toContain("cnc_turner");
+  });
+
+  it("carries a listed judgment on the draft", async () => {
+    const { svc } = setup({
+      out: parseOutput({ trade_association: { kind: "welder" } }),
+    });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(result).toMatchObject({ status: "parsed", associationKind: "welder" });
+  });
+
+  it.each([["unlisted id", "astronaut"], ["wrong case", "CNC_TURNER"], ["empty", ""], ["absent", undefined]])(
+    "narrows a %s judgment to null — never a value the CHECK would refuse",
+    async (_label, kind) => {
+      const { svc } = setup({
+        out: parseOutput(
+          kind === undefined ? {} : { trade_association: { kind: kind as string } },
+        ),
+      });
+      const result = await svc.parse(WORKER, IMPORT, CTX);
+
+      expect(result).toMatchObject({ status: "parsed", associationKind: null });
+    },
+  );
 });

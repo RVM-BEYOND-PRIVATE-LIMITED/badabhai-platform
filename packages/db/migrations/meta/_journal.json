@@ -758,6 +758,13 @@
       "when": 1789560907711,
       "tag": "0107_worker_profiles_source",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1789562343372,
+      "tag": "0108_resume_import_association_kind",
+      "breakpoints": true
     }
   ]
 }

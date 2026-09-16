@@ -1658,12 +1658,32 @@ class ResumeParseInput(BaseModel):
     storage_key: str = Field(min_length=1)
     mime: str = Field(min_length=1)
     target_fields: list[TargetField] = Field(default_factory=list)
+    #: The CLOSED trade-kind ids the model may return in `trade_association.kind`
+    #: (Task 1 B2 — the 21 `TRADE_FORM_KINDS_ALL`, supplied by apps/api, the single
+    #: source of truth). Rendered into the prompt verbatim, so bounded in count;
+    #: each entry is length-capped at render time, not here, because this list is
+    #: caller-controlled (our own server), never worker input.
+    trade_kinds: list[str] = Field(default_factory=list, max_length=32)
     #: BOUNDED, unlike `ProfileParseInput.language`, and matching the TypeScript mirror's
     #: `min(2).max(35)`. This is the one request field that reaches a trace attribute without
     #: passing through the masker, so an unbounded string here would be a free-text channel
     #: into observability. `build_resume_parse_messages` shape-checks it again before the
     #: prompt; this bounds what can be STORED even where the prompt drops it.
     language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class TradeAssociation(BaseModel):
+    """The model's closed-vocabulary answer to "which trade is this résumé".
+
+    `kind` is ONE id from the request's `trade_kinds`, or None when none fits.
+    A classification among caller-supplied options — never a canonical id the
+    model produced, chose or approved on its own. The gate (`resume_parse`)
+    drops anything outside `trade_kinds` to None, and apps/api narrows again
+    against `TRADE_FORM_KINDS_ALL` before persisting. Closed vocabulary, so it
+    is safe on an event, in analytics, and in the import row alike.
+    """
+
+    kind: str | None = None
 
 
 class ResumeEmployment(BaseModel):
@@ -1695,6 +1715,12 @@ class ResumeParseOutput(BaseModel):
     employments: list[ResumeEmployment] = Field(default_factory=list)
     unparsed_field_ids: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+    #: The model's trade classification, narrowed by the gate to the request's
+    #: `trade_kinds` (anything else becomes None). None on every degraded path
+    #: and when the model answers none — "no judgment" and "judged none" both
+    #: read as absent downstream, and the deterministic router decides alone.
+    trade_association: TradeAssociation | None = None
 
     extraction_method: str | None = None
     page_count: int | None = None

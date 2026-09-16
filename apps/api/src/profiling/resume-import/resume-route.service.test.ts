@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
 import type { ParsedField, ResumeEmployment } from "@badabhai/ai-contracts";
+import type { TradeFormKindName } from "@badabhai/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResumeRouteService } from "./resume-route.service";
@@ -151,11 +152,13 @@ function setup(
 const parsedDraft = (
   fields: Record<string, ParsedField>,
   employments: ResumeEmployment[] = [],
+  associationKind: TradeFormKindName | null = null,
 ): ParsedDraft => ({
   status: "parsed",
   importId: IMPORT,
   fields,
   employments,
+  associationKind,
   extractionMethod: "pdf_text",
   pageCount: 1,
   ocrConfidence: null,
@@ -168,6 +171,7 @@ const routingWritten = (imports: { settleParsed: { mock: { calls: unknown[][] } 
   imports.settleParsed.mock.calls[0]![2] as {
     route: string;
     formKind: string | null;
+    associationKind: string | null;
     suggestionsEnc: string | null;
   };
 
@@ -227,6 +231,53 @@ describe("the deterministic router decides, and the résumé only supplies its i
       expect.objectContaining({ route: "chat", formKind: null }),
     );
   });
+
+  it("Task 1 B2 — the model's judgment is settled beside the route, and the route does not listen", async () => {
+    // RECORDED, NOT ACTED ON. "Security Guard" matches no term rule, so the
+    // route is chat with or without the judgment; what changes is only the
+    // settled column. "fitter" is a real 21-kind the model may judge while the
+    // router cannot route it (declared, no enabled form). Wiring judgments in
+    // as a recall path waits on the handover ruling.
+    const { svc, imports } = setup();
+    const judged = await svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("Security Guard") }, [], "fitter"),
+      CTX,
+    );
+    const unjudged = await setup().svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("Security Guard") }),
+      CTX,
+    );
+
+    expect(judged?.route).toBe("chat");
+    expect(unjudged?.route).toBe("chat");
+    expect(routingWritten(imports)).toEqual(
+      expect.objectContaining({ route: "chat", formKind: null, associationKind: "fitter" }),
+    );
+  });
+
+  it("Task 1 B2 — a form route settles the judgment alongside the kind", async () => {
+    const { svc, imports } = setup();
+    const result = await svc.route(
+      WORKER,
+      parsedDraft(
+        { role_label: field("CNC Turner"), domain_label: field("CNC Machining") },
+        [],
+        "cnc_turner",
+      ),
+      CTX,
+    );
+
+    expect(result?.route).toBe("form");
+    expect(routingWritten(imports)).toEqual(
+      expect.objectContaining({
+        route: "form",
+        formKind: "cnc_turner",
+        associationKind: "cnc_turner",
+      }),
+    );
+  });
 });
 
 describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
@@ -258,7 +309,7 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
       fieldsExtracted: 1,
       suggestionsOffered: 0,
     });
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, associationKind: null, suggestionsEnc: null });
     expect(crypto.encrypt).not.toHaveBeenCalled();
     const call = emitCall(events);
     expect(call.payload).toMatchObject({ route: "chat", form_kind: null, suggestions_offered: 0 });
@@ -275,7 +326,7 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
     const result = await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
 
     expect(result?.route).toBe("chat");
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, associationKind: null, suggestionsEnc: null });
   });
 
   it("a failed parse settles nothing, emits nothing, and returns null — not a pretend chat route", async () => {

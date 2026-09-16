@@ -21,6 +21,12 @@ import {
   type TradeFormKind,
   type TradeFormOffer,
 } from "./trade-form-router";
+import {
+  FORM_OFFER_OPTIONS,
+  offerPrompt,
+  readFormOfferReply,
+  type FormOfferReply,
+} from "./trade-form-offer";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
@@ -1067,7 +1073,12 @@ export class ProfilingOrchestrator {
       const answersNow = answersOf(envelope);
       return this.turn(
         buffer,
-        { ...envelope, packId: packs.packId, packVersion: packs.packVersion, servedQuestionKey: null },
+        {
+          ...envelope,
+          packId: packs.packId,
+          packVersion: packs.packVersion,
+          servedQuestionKey: null,
+        },
         input,
         {
           reply: ESCAPE_TYPE_PROMPT,
@@ -1304,6 +1315,44 @@ export class ProfilingOrchestrator {
       }
       // FALL THROUGH to ordinary selection, so the next question arrives in the SAME bubble.
       // Returning here would cost the worker a round trip to be told "theek hai" and nothing else.
+    }
+
+    // --- The trade-form OFFER, settled (Task 1 recall path; ruling 2026-09-16) ----
+    //
+    // BEFORE ANY ANSWER CLASS, for the résumé-confirm block's reason directly above: the
+    // bubble on screen is not a pack question (`servedQuestionKey` is null while it is up),
+    // so the ordinary capture would find nothing and a "haan" would fall through to
+    // cross-question filling and be read as an answer to something else.
+    //
+    // THE OFFER IS NOT A GATE. Deterministic code decided ELIGIBILITY, on the turn the
+    // trade was named (`routeToTradeForm`); this block reads the worker's CHOICE. An
+    // unreadable reply is a DECLINE — never a re-ask — because the offer is a question and
+    // re-asking one the worker did not answer spends the ask twice.
+    if (next.formOfferPrompt?.state === "pending") {
+      const offeredKind = next.formOfferPrompt.kind;
+      const reply = readFormOfferReply(input.text);
+      // SETTLED WHATEVER HE SAID, so the offer is never served twice. The transcript still
+      // carries the words; only the state moves.
+      next = { ...next, formOfferPrompt: { kind: offeredKind, state: "settled" } };
+
+      if (reply === "accept") {
+        // THE SAME HANDOVER THE GATE USED TO RUN, now on the worker's word. `answers` is
+        // passed so the accept turn settles the draft exactly as the forced path did.
+        return this.completeFormHandover(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          turn,
+          offeredKind,
+          capture.excludeFromParse,
+        );
+      }
+
+      await this.recordFormOfferDeclined(input, offeredKind, reply);
+      // FALL THROUGH: the interview continues on this same bubble, exactly where it paused.
     }
 
     // --- Answer classes: write what the worker said -------------------------
@@ -1571,13 +1620,31 @@ export class ProfilingOrchestrator {
           // turner; their own "vmc" appears nowhere but the sentence they typed.
           workerText: input.text,
         });
-        if (formKind !== null) {
-          // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the
-          // interview closes, for the same reason the fallback branch settles: the form picks
-          // up from the answer map, and a handover that discarded the trade would open the form
-          // by asking a worker the one question they have already answered. Unguarded by
-          // `llmLedTurns` here -- unlike the fallback -- because routing REQUIRES a label, so
-          // there is always a draft to settle and never a bare retrieval pin to settle from.
+        if (formKind !== null && next.formOfferPrompt === null && !capped) {
+          // ── THE OFFER TURN (owner ruling 2026-09-16) ───────────────────────────────
+          //
+          // OFFER, NOT A GATE. `routeToTradeForm` above decided ELIGIBILITY — that part
+          // is unchanged and stays deterministic. What changed is who decides next: the
+          // worker, with the same Haan/Nahi reader every binary question uses. The gate
+          // this replaces closed the interview and pushed the worker onto the form; a
+          // worker who would rather finish in the chat now says so and the interview
+          // resumes on the NEXT turn's bubble.
+          //
+          // THE OFFER SPENDS AN ASK, AND MUST — the same argument as the résumé
+          // batch-confirm: it is a question, the worker can decline it, and a budget that
+          // stopped counting what he was asked would stop describing the thing
+          // `chat.session_abandoned` measures.
+          //
+          // NEVER OFFERED TWICE: `formOfferPrompt` settles on the first reply, and the
+          // `=== null` guard above is what makes a decline final. `capped` turns skip the
+          // offer entirely — past the turn cap the interview is closing, and a question
+          // there would be an ask the worker can no longer spend.
+          //
+          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words
+          // from Phase A — not a document's claims — and settling them is what Phase A's
+          // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
+          // a decline from walking back into a re-ask of the trade the conversation just
+          // named; the accept path settles again idempotently.
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -1588,37 +1655,40 @@ export class ProfilingOrchestrator {
           next = withAnswers(next, answers);
           next = {
             ...next,
-            formKind,
-            // PHASE A IS OFF FOR GOOD. `leads()` gates on the stage, so this is what makes the
-            // handover survive a reload -- and `llmGateOpen` closes with it, or the worker next
-            // sentence would be read as a yes/no to a question no longer on screen.
-            llmStage: "done",
-            llmGateOpen: false,
-            phase: "close",
+            formOfferPrompt: { kind: formKind, state: "pending" },
+            // The model-led stretch is still what owns the interview — the offer pauses it,
+            // it does not end it. Decline and the SAME branch set the ask branch below uses
+            // picks straight back up.
+            phase: "llm_interview",
+            // NO `servedQuestionKey`. This question belongs to no pack — the same reason
+            // the résumé-confirm turn claims none — and naming one would make the next
+            // turn's `askedItem` lookup capture "haan" as that question's answer.
             servedQuestionKey: null,
+            clarifyCount: 0,
+            engineAsks: next.engineAsks + 1,
           };
-          await this.recordFormHandoff(next, input, formKind);
-          const offer: TradeFormOffer = TRADE_FORM_OFFERS[formKind];
+          await this.recordFormOffered(next, input, formKind);
           return this.turn(buffer, next, input, {
-            reply: offer.reply,
-            kind: "close",
+            reply: offerPrompt(formKind),
+            // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped
+            // clients know, so a new value would reach a build in the field as an
+            // unrenderable turn. This IS an ask: a question with two chips, answered
+            // like any other single-select.
+            kind: "ask",
             questionKey: null,
-            options: [],
-            answerType: null,
+            options: [...FORM_OFFER_OPTIONS],
             whyText: null,
-            inputMode: "text",
+            answerType: "single_select",
+            // An ask CAN cross a checkpoint boundary, but nothing is on the line here
+            // beyond the offer itself.
+            checkpointDue: false,
             progress: progressOf(progressItems, answers),
             unansweredEssentials: essentialsOf(items, answers),
-            // COMPLETE, so the flush transaction runs and the answer map is DURABLE before the
-            // worker leaves for the form. A handover that left the session open would
-            // checkpoint only every fifth ask, and a two-turn interview never reaches a fifth.
-            complete: true,
-            completionReason: "form_handoff",
+            complete: false,
+            completionReason: null,
             replayed: false,
             excludeFromParse: capture.excludeFromParse,
             unavailable: false,
-            checkpointDue: false,
-            formOffer: offer,
           });
         }
 
@@ -1697,7 +1767,9 @@ export class ProfilingOrchestrator {
       // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
       // are never offered for confirmation in the chat; only trade/experience/city/availability
       // shrink the batch-confirm bubble here.
-      const facts = offer ? confirmableFacts(offer.suggestions, chatServableItems(items), answers) : [];
+      const facts = offer
+        ? confirmableFacts(offer.suggestions, chatServableItems(items), answers)
+        : [];
 
       if (offer && facts.length > 0) {
         next = {
@@ -2395,6 +2467,157 @@ export class ProfilingOrchestrator {
       this.logger.error(
         `the résumé prefill confirmation for import ${importId} was not recorded; the answers ` +
           `stand but RI-7 cannot see them: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * THE HANDOVER, ON THE WORKER'S WORD (Task 1 recall path; owner ruling 2026-09-16).
+   *
+   * The exact body the forced gate used to run, moved here so the ONLY caller is the
+   * accept branch of the offer capture: determinism kept the eligibility decision, the
+   * worker kept the choice, and everything downstream of an accept — the settlement, the
+   * sticky `formKind`, Phase A switched off, the close turn with its CTA — is byte for
+   * byte what a handover always was. Shipped clients already know this shape; nothing
+   * about the wire moved by adding the offer in front of it.
+   */
+  private async completeFormHandover(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    formKind: TradeFormKind,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the
+    // interview closes: the form picks up from the answer map, and a handover that
+    // discarded the trade would open the form by asking a worker the one question they
+    // have already answered. Unguarded by `llmLedTurns` here -- unlike the fallback --
+    // because routing REQUIRES a label, so there is always a draft to settle.
+    const settled = settleFromLlmDraft(
+      answers,
+      envelope.llmDraft,
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
+    );
+    let next = withAnswers(envelope, settled);
+    next = {
+      ...next,
+      formKind,
+      // SETTLED, NOT PENDING. The offer has been answered; the guard that stops a second
+      // offer reads this state on every later turn.
+      formOfferPrompt: { kind: formKind, state: "settled" },
+      // PHASE A IS OFF FOR GOOD. `leads()` gates on the stage, so this is what makes the
+      // handover survive a reload -- and `llmGateOpen` closes with it, or the worker's
+      // next sentence would be read as a yes/no to a question no longer on screen.
+      llmStage: "done",
+      llmGateOpen: false,
+      phase: "close",
+      servedQuestionKey: null,
+    };
+    await this.recordFormHandoff(next, input, formKind);
+    const offer: TradeFormOffer = TRADE_FORM_OFFERS[formKind];
+    return this.turn(buffer, next, input, {
+      reply: offer.reply,
+      kind: "close",
+      questionKey: null,
+      options: [],
+      answerType: null,
+      whyText: null,
+      inputMode: "text",
+      progress: progressOf(progressItems, settled),
+      unansweredEssentials: essentialsOf(items, settled),
+      // COMPLETE, so the flush transaction runs and the answer map is DURABLE before the
+      // worker leaves for the form. A handover that left the session open would
+      // checkpoint only every fifth ask, and a two-turn interview never reaches a fifth.
+      complete: true,
+      completionReason: "form_handoff",
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+      checkpointDue: false,
+      formOffer: offer,
+    });
+  }
+
+  /**
+   * The offer was SERVED (once per session).
+   *
+   * WHY OFFERED AND ENTERED ARE SEPARATE EVENTS, not one with an outcome: they answer
+   * different funnel questions. `form_offered` counts eligibility — workers whose trade
+   * the router recognised — and `form_mode_entered` stays exactly what it always was
+   * ("this worker took the form"). Offered minus entered minus declined is abandonment,
+   * and folding them together would delete the decline rate the offer ruling exists to
+   * produce. Counts and closed enums only; no labels.
+   */
+  private async recordFormOffered(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    formKind: TradeFormKind,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_offered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          form_kind: formKind,
+          llm_led_turns: envelope.llmLedTurns,
+          asks: envelope.llmAsks,
+        },
+        idempotencyKey: `profile.form_offered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the trade-form offer for session ${input.sessionId} was not recorded; the offer ` +
+          `still stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * The offer was declined — explicitly, or by a reply the binary reader could not read.
+   *
+   * THE TWO ARE COUNTED APART ON PURPOSE. `unclear` is treated exactly like a decline at
+   * the interview level (the offer is settled, never re-served), but as a measurement it
+   * is the reader's miss rate: a shrinking `declined` and a growing `unclear` means the
+   * parser needs teaching, not that workers changed their minds. Anything else treated
+   * as a decline would hide that entirely.
+   */
+  private async recordFormOfferDeclined(
+    input: TurnInput,
+    formKind: TradeFormKind,
+    reply: FormOfferReply,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_offer_declined",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          form_kind: formKind,
+          reply: reply === "unclear" ? "unclear" : "declined",
+        },
+        // ONCE PER SESSION -- the offer settles on the first reply, so a second row
+        // would misreport how often the offer was refused.
+        idempotencyKey: `profile.form_offer_declined:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the declined trade-form offer for session ${input.sessionId} was not recorded; ` +
+          `the interview continues and the decline is invisible: ${(error as Error).message}`,
       );
     }
   }
@@ -3511,15 +3734,14 @@ const YES_NO_PAIRS: ReadonlyArray<readonly [string, string]> = [
  */
 export function llmChipOptions(chips: readonly string[], gate: boolean): QuestionPackOption[] {
   if (gate) return chips.map(toLlmOption);
-  const kept = chips.filter(
-    (chip) => !ESCAPE_CHIP_ALIASES.includes(normalizeOccupationText(chip)),
-  );
+  const kept = chips.filter((chip) => !ESCAPE_CHIP_ALIASES.includes(normalizeOccupationText(chip)));
   const options = kept.map(toLlmOption);
   if (options.length === 0) return options;
 
   const normalized = kept.map((chip) => normalizeOccupationText(chip)).sort();
   const yesNo = YES_NO_PAIRS.some(
-    (pair) => normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
+    (pair) =>
+      normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
   );
   if (yesNo) return options;
 

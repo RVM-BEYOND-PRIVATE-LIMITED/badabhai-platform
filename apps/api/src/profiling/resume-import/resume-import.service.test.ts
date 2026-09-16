@@ -99,6 +99,37 @@ describe("ResumeImportService — dormancy covers EVERY door, not just the mint"
     });
     await expect(svc.get(WORKER, "import-1")).resolves.toMatchObject({ status: "uploaded" });
   });
+
+  it("exposes the settled trade judgment on the read route — closed vocabulary, never content", async () => {
+    // Task 1 B2 — what the worker's app needs to know ("did my résumé read as a
+    // trade?") without ever seeing parsed content (the DTO carries none, by design).
+    const { svc, imports } = setup();
+    imports.findForWorker.mockResolvedValueOnce({
+      id: "import-1",
+      status: "parsed",
+      route: "chat",
+      formKind: null,
+      associationKind: "fitter",
+      failureReason: null,
+    });
+    await expect(svc.get(WORKER, "import-1")).resolves.toMatchObject({
+      status: "parsed",
+      route: "chat",
+      association_kind: "fitter",
+    });
+  });
+
+  it("reads an import from before the classification as a null judgment, never a guess", async () => {
+    const { svc, imports } = setup();
+    imports.findForWorker.mockResolvedValueOnce({
+      id: "import-1",
+      status: "parsed",
+      route: "form",
+      formKind: "cnc_turner",
+      failureReason: null,
+    });
+    await expect(svc.get(WORKER, "import-1")).resolves.toMatchObject({ association_kind: null });
+  });
 });
 
 describe("ResumeImportService — the minted key is checked, never trusted", () => {

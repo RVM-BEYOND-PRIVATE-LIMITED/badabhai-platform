@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { ParsedField, QuestionPackItem } from "@badabhai/ai-contracts";
 import { ProfileResumeParsedPayload } from "@badabhai/event-schema";
-import type { ResumeImportRouteName } from "@badabhai/types";
+import type { ResumeImportRouteName, TradeFormKindName } from "@badabhai/types";
 
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import type { RequestContext } from "../../common/request-context";
@@ -28,6 +28,15 @@ import { buildSuggestions, type ResumeSuggestion } from "./resume-suggestions";
  * A résumé reading "CNC Turner cum VMC Operator" hits the existing conflict veto and correctly
  * falls through to the chat — not because anything here knows what a VMC is, but because the
  * routing table already did.
+ *
+ * ── TASK 1 B2: THE MODEL NOW ALSO CLASSIFIES, AND THE ROUTE STILL DOES NOT LISTEN ─────────
+ *
+ * The parse carries `associationKind` — the model's judgment against the closed 21-kind
+ * list. It is RECORDED (settled onto the import row, exposed on the read route) and NOT
+ * acted on: `route` below still comes from `routeToTradeForm` alone. Wiring the
+ * classification in as a recall path (term-match misses, classification hits, vetoes
+ * still apply) waits on the handover-policy ruling — that change alters which road
+ * workers take, and it lands as its own small commit, not smuggled inside plumbing.
  *
  * ── THE SUGGESTIONS ARE STAGED, NEVER WRITTEN AS ANSWERS ─────────────────────────────────
  *
@@ -128,6 +137,7 @@ export class ResumeRouteService {
         {
           route: decision.route,
           formKind: decision.formKind,
+          associationKind: decision.associationKind,
           suggestionsEnc: decision.suggestionsEnc,
         },
         tx,
@@ -217,12 +227,11 @@ export class ResumeRouteService {
         `question packs unavailable during résumé routing; degrading to chat ` +
           `(${error instanceof Error ? error.constructor.name : typeof error})`,
       );
-      return { route: "chat", formKind: null, suggestionsEnc: null, suggestionsOffered: 0 };
+      return { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null, suggestionsOffered: 0 };
     }
 
     const route: ResumeImportRouteName = formKind === null ? "chat" : "form";
     const suggestions = this.stage(workerId, draft.fields, items);
-    // THE WORK HISTORY GAP THIS CLOSES. `draft.employments` has survived the second wall
     // (`filterEmployments` in `resume-parse.service.ts`) since RI-3 shipped, and until now
     // nothing downstream ever read it — `ResumeParseService`'s own docblock only ever promised
     // `fields`/`extractionMethod`/`pageCount`/`ocrConfidence` onward, so a parsed résumé's job
@@ -235,6 +244,9 @@ export class ResumeRouteService {
     return {
       route,
       formKind,
+      // Task 1 B2 — the model's classification, recorded and NOT acted on (see the
+      // class docblock): the route above is still `routeToTradeForm` alone.
+      associationKind: draft.associationKind,
       suggestionsEnc:
         suggestions.size > 0 || employmentSuggestions.length > 0
           ? // ONE TOKEN OVER THE WHOLE PAYLOAD, never per leaf. The schema docblock records why:
@@ -349,6 +361,11 @@ export interface RoutedImport {
 interface RoutingDecision {
   route: ResumeImportRouteName;
   formKind: TradeFormKind | null;
+  /**
+   * Task 1 B2 — the model's closed-list judgment, settled beside the route for
+   * observability (RI-7) and the future recall path. Never read by the router.
+   */
+  associationKind: TradeFormKindName | null;
   suggestionsEnc: string | null;
   suggestionsOffered: number;
 }
