@@ -10,6 +10,7 @@ import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_spacing.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
+import 'package:badabhai_worker_app/core/widgets/kit/kit_check_row.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_info_chip.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
@@ -17,6 +18,7 @@ import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dar
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_screen.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_card_slots.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_document_view.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 
@@ -396,7 +398,8 @@ void main() {
     }
 
     testWidgets(
-      'chipRows render as pills, tickRows as ✓ items, factRows as label: value',
+      'SHORT values pack into pills whatever the sheet said — chipRows AND '
+      'tickRows — and factRows stay label: value',
       (WidgetTester tester) async {
         const TradeSheetResumeDocument document = TradeSheetResumeDocument(
           header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
@@ -433,12 +436,165 @@ void main() {
         // chipRows -> v3 fact chips.
         expect(find.widgetWithText(KitInfoChip, 'CNC lathe'), findsOneWidget);
         expect(find.widgetWithText(KitInfoChip, 'VMC'), findsOneWidget);
-        // tickRows -> a full-width check row per value (spec §4).
-        expect(find.text('Tool offset'), findsOneWidget);
-        expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+        // tickRows -> ALSO chips now. The sheet's tick styling is the PDF's
+        // ink; 'Tool offset' is three words and does not need a row of its
+        // own (see kChipValueMaxChars).
+        expect(find.widgetWithText(KitInfoChip, 'Tool offset'), findsOneWidget);
+        expect(find.byType(KitCheckRow), findsNothing);
+        // …so no value on this card carries a ✓ nobody verified.
+        expect(find.byIcon(Icons.check_rounded), findsNothing);
         // factRows -> inline "label: value" (RichText — see _FactRow).
         expect(
           find.textContaining('Tolerance held: ±0.02 mm', findRichText: true),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // ── The owner's complaint, and the two cases that keep rows ─────────────
+    //
+    // Every card used to draw a `tickRows` group as one full-width row per
+    // value, so 'Measuring instruments: Micrometer, Vernier caliper' and
+    // 'Documents ready: Aadhaar, PAN, UAN' each ate a stack of rows to print a
+    // handful of words. The matrix is the default now; rows survive only where
+    // a value genuinely cannot read as a chip.
+
+    testWidgets(
+      'a TICK-flagged group of short values renders the chip matrix — on the '
+      'instrument card and on the qualification card alike',
+      (WidgetTester tester) async {
+        const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(),
+          trade: 'cnc_turner',
+          sections: <ResumeDocumentSectionDto>[
+            ResumeDocumentSectionDto(
+              id: 'capability',
+              title: 'Machines, controllers & capability',
+              tickRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  key: 'measuring_tools',
+                  label: 'Measuring instruments',
+                  values: <String>['Micrometer', 'Vernier caliper', 'Gauge'],
+                ),
+                ResumeListRowDto(
+                  key: 'setting_operation',
+                  label: 'Setting',
+                  values: <String>['Tool offset setting', 'Job centering'],
+                ),
+              ],
+            ),
+            ResumeDocumentSectionDto(
+              id: 'qualifications',
+              title: 'Qualification, documents & languages',
+              tickRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  label: 'Documents ready',
+                  values: <String>['Aadhaar', 'PAN', 'UAN'],
+                ),
+              ],
+            ),
+          ],
+        );
+        await pumpView(tester, document);
+
+        for (final String value in <String>[
+          'Micrometer',
+          'Vernier caliper',
+          'Gauge',
+          'Tool offset setting',
+          'Job centering',
+          'Aadhaar',
+          'PAN',
+          'UAN',
+        ]) {
+          expect(
+            find.widgetWithText(KitInfoChip, value),
+            findsOneWidget,
+            reason: '"$value" should pack into the chip matrix',
+          );
+        }
+        // Not one of them kept a full-width row — and not one of them grew a
+        // ✓ nobody verified.
+        expect(find.byType(KitCheckRow), findsNothing);
+        expect(find.byIcon(Icons.check_rounded), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a group whose values are long SENTENCES keeps full-width rows, because '
+      'a chip would truncate them',
+      (WidgetTester tester) async {
+        // 33 and 60 characters: both past kChipValueMaxChars, so the whole
+        // group falls back rather than half of it.
+        const String long =
+            'Reads 2D drawings and GD&T symbols on turned components';
+        const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(),
+          trade: 'cnc_turner',
+          sections: <ResumeDocumentSectionDto>[
+            ResumeDocumentSectionDto(
+              id: 'capability',
+              title: 'Capability',
+              chipRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  key: 'quality_work',
+                  label: 'Inspection work',
+                  values: <String>[long, 'Micrometer'],
+                ),
+              ],
+            ),
+          ],
+        );
+        await pumpView(tester, document);
+
+        expect(long.length, greaterThan(kChipValueMaxChars));
+        expect(find.widgetWithText(KitCheckRow, long), findsOneWidget);
+        // The short value in the SAME group comes with it: half a group in
+        // chips and half in rows would read as two kinds of data.
+        expect(find.widgetWithText(KitCheckRow, 'Micrometer'), findsOneWidget);
+        expect(find.byType(KitInfoChip), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'CONTROLLERS KNOWN keeps its scannable rows however short the '
+      'designations are (spec §4)',
+      (WidgetTester tester) async {
+        const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(),
+          trade: 'cnc_turner',
+          sections: <ResumeDocumentSectionDto>[
+            ResumeDocumentSectionDto(
+              id: 'capability',
+              title: 'Machines, controllers & capability',
+              chipRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  key: 'turning_machine',
+                  label: 'Machines',
+                  values: <String>['CNC lathe / turning centre'],
+                ),
+                ResumeListRowDto(
+                  key: kControllerRowKey,
+                  label: 'Controllers',
+                  values: <String>['Fanuc Oi-TF', 'Siemens 828D'],
+                ),
+              ],
+            ),
+          ],
+        );
+        await pumpView(tester, document);
+
+        // Short enough to be a chip — and deliberately still a row.
+        expect('Fanuc Oi-TF'.length, lessThan(kChipValueMaxChars));
+        expect(find.text('CONTROLLERS KNOWN'), findsOneWidget);
+        expect(find.widgetWithText(KitCheckRow, 'Fanuc Oi-TF'), findsOneWidget);
+        expect(
+          find.widgetWithText(KitCheckRow, 'Siemens 828D'),
+          findsOneWidget,
+        );
+        // The machines above them still pack as the matrix.
+        expect(
+          find.widgetWithText(KitInfoChip, 'CNC lathe / turning centre'),
           findsOneWidget,
         );
       },

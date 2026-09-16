@@ -19,6 +19,7 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_card.dart';
+import 'package:badabhai_worker_app/core/widgets/kit/kit_info_chip.dart';
 import 'package:badabhai_worker_app/features/resume/domain/photo_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -399,6 +400,94 @@ void main() {
 
       await tester.tap(find.text('Cancel'));
       await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  // ── The chip matrix at both extremes (the owner's space complaint) ───────
+  //
+  // Every value group packs several values per row now instead of one
+  // full-width row per value. The two shapes that can break that are the
+  // narrowest phone at the largest font — where a chip must WRAP inside the
+  // card rather than overflow it — and a tablet, where the card stops at the
+  // 600 tab cap and the chips must fill the row rather than stack.
+  group('the chip matrix', () {
+    setUp(() async {
+      await harness.wire(
+        document: kTurnerSheet,
+        renderStatus: 'rendered',
+        profileConfirmed: true,
+      );
+    });
+
+    /// Scrolls [value]'s chip into view and returns its rect.
+    Future<Rect> chipRect(WidgetTester tester, String value) async {
+      final Finder chip = find.widgetWithText(KitInfoChip, value);
+      if (chip.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          chip,
+          120,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      return tester.getRect(chip);
+    }
+
+    testWidgets('320x568 @2.0 — the instrument chips wrap INSIDE the card, and '
+        'nothing overflows', (WidgetTester tester) async {
+      setKitSurface(tester, const Size(320, 568));
+      await tester.pumpWidget(kitTestApp(harness.screen, textScale: 2.0));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The group the owner pointed at: a tickRow on the sheet, chips now.
+      final Rect first = await chipRect(tester, 'Micrometer');
+      final Rect second = await chipRect(tester, 'Vernier caliper');
+
+      // At 200% font on a 320dp phone two of these cannot share a row, so the
+      // matrix WRAPS — which is the behaviour that keeps them inside the card.
+      expect(
+        second.top,
+        greaterThan(first.top),
+        reason: 'the second chip should wrap to the next run',
+      );
+      for (final Rect r in <Rect>[first, second]) {
+        expect(r.left, greaterThanOrEqualTo(0));
+        expect(
+          r.right,
+          lessThanOrEqualTo(320),
+          reason: 'a chip painted past the screen edge',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('768 — the same chips sit SEVERAL TO A ROW inside the 600 cap', (
+      WidgetTester tester,
+    ) async {
+      setKitSurface(tester, const Size(768, 1024));
+      await tester.pumpWidget(kitTestApp(harness.screen));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final Rect first = await chipRect(tester, 'Micrometer');
+      final Rect second = await chipRect(tester, 'Vernier caliper');
+
+      // THE POINT OF THE CHANGE: one row, not two.
+      expect(
+        second.top,
+        first.top,
+        reason: 'with room to spare the matrix must pack, not stack',
+      );
+      expect(second.left, greaterThan(first.right));
+      // Still inside the tab content cap, not stretched across the glass.
+      expect(
+        second.right,
+        lessThanOrEqualTo(
+          (768 + OnboardingLayout.maxTabContentWidth) / 2,
+        ),
+      );
       expect(tester.takeException(), isNull);
     });
   });

@@ -528,6 +528,23 @@ String? _seedSingleKey(
   return null;
 }
 
+/// The paint every résumé-hint surface shares (#1499, ruling D2): the kit's
+/// informational fill with a hairline of the same blue, never a shadow.
+///
+/// ONE definition, because the hint banner and the framed card below it are
+/// read as a pair — restyling one without the other would split the pair. The
+/// fill is [OnboardingColors.infoBg], the kit's token for an informational
+/// panel; `shieldCircle` is the same value but names the privacy shield's disc.
+/// Only [radius] differs: a card's frame is rounder than a note's.
+BoxDecoration _suggestionFrame(double radius) => BoxDecoration(
+  color: OnboardingColors.infoBg,
+  borderRadius: BorderRadius.circular(radius),
+  border: Border.all(
+    color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
+    width: 1.2,
+  ),
+);
+
 /// #1499, ruling D2 — the frame around an option card an uploaded résumé
 /// pointed at: a soft BLUE tint with a "Resume mein tha" tag.
 ///
@@ -547,14 +564,7 @@ class TradeFormSuggestedOption extends StatelessWidget {
       child: Container(
         // No bottom padding: the kit card carries its own 10px bottom gap.
         padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
-        decoration: BoxDecoration(
-          color: OnboardingColors.shieldCircle,
-          borderRadius: BorderRadius.circular(OnboardingRadii.card + 2),
-          border: Border.all(
-            color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
-            width: 1.2,
-          ),
-        ),
+        decoration: _suggestionFrame(OnboardingRadii.card + 2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
@@ -611,15 +621,7 @@ class _SuggestionConfirm extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: OnboardingColors.shieldCircle,
-        borderRadius: BorderRadius.circular(OnboardingRadii.note),
-        // Hairline, never a shadow.
-        border: Border.all(
-          color: OnboardingColors.shiftBlueLight.withValues(alpha: 0.35),
-          width: 1.2,
-        ),
-      ),
+      decoration: _suggestionFrame(OnboardingRadii.note),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

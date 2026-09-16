@@ -101,13 +101,16 @@ class _CapabilityCard extends StatelessWidget {
             const SizedBox(height: 12),
             const KitMicroLabel('OPERATED MACHINES'),
             const SizedBox(height: 8),
-            _ChipWrap(values: slots.machines),
+            _ValueMatrix(values: slots.machines),
           ],
           if (slots.controllers.isNotEmpty) ...<Widget>[
             const SizedBox(height: 14),
             const KitMicroLabel('CONTROLLERS KNOWN'),
             const SizedBox(height: 8),
-            _CheckRows(values: slots.controllers),
+            // The ONE group that keeps full-width rows however short its
+            // values measure — spec §4's scannable controller list (see
+            // [kControllerRowKey] for why this one is worth the space).
+            _ValueMatrix(values: slots.controllers, forceRows: true),
           ],
         ],
       ),
@@ -139,7 +142,7 @@ class _MaterialsCard extends StatelessWidget {
             count: slots.materials.length,
           ),
           const SizedBox(height: 12),
-          _ChipWrap(values: slots.materials),
+          _ValueMatrix(values: slots.materials),
         ],
       ),
     );
@@ -159,28 +162,27 @@ class _OperationsCard extends StatelessWidget {
       if (slots.operations.isNotEmpty)
         _LabelledBlock(
           label: slots.operationsTitle ?? 'Operations',
-          child: _ChipWrap(values: slots.operations),
+          child: _ValueMatrix(values: slots.operations),
         ),
       if (slots.workholding.isNotEmpty)
         _LabelledBlock(
           label: 'WORKHOLDING KNOWLEDGE',
-          child: _ChipWrap(values: slots.workholding),
+          child: _ValueMatrix(values: slots.workholding),
         ),
+      // Measuring instruments, quality and inspection rows pack like the
+      // operations above them now: the sheet prints them with ticks, but
+      // 'Micrometer' and 'Vernier caliper' are two words, not two rows.
       for (final ResumeValueGroup group in slots.instrumentGroups)
         _LabelledBlock(
           label: group.label,
-          child: group.tick
-              ? _CheckRows(values: group.values)
-              : _ChipWrap(values: group.values),
+          child: _ValueMatrix(values: group.values),
         ),
       // Never dropped: a row whose key this build does not know still prints,
       // under the label the server gave it.
       for (final ResumeValueGroup group in slots.otherGroups)
         _LabelledBlock(
           label: group.label,
-          child: group.tick
-              ? _CheckRows(values: group.values)
-              : _ChipWrap(values: group.values),
+          child: _ValueMatrix(values: group.values),
         ),
       if (slots.drawingReading != null)
         KitCallout(
@@ -239,18 +241,22 @@ class _ExtraSectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           _CardHeader(icon: _icon(section.id), title: section.title),
+          // Both row styles draw through the SAME matrix. The sheet's tick
+          // rows are this card's 'Documents ready: Aadhaar, PAN, UAN' — three
+          // short words that were costing three full-width rows on the
+          // 'Qualification, documents & languages' card.
           for (final ResumeValueGroup group in section.chipGroups) ...<Widget>[
             const SizedBox(height: 12),
             _LabelledBlock(
               label: group.label,
-              child: _ChipWrap(values: group.values),
+              child: _ValueMatrix(values: group.values),
             ),
           ],
           for (final ResumeValueGroup group in section.tickGroups) ...<Widget>[
             const SizedBox(height: 12),
             _LabelledBlock(
               label: group.label,
-              child: _CheckRows(values: group.values),
+              child: _ValueMatrix(values: group.values),
             ),
           ],
           for (final ResumeFact fact in section.facts) ...<Widget>[
@@ -384,8 +390,39 @@ class _LabelledBlock extends StatelessWidget {
   }
 }
 
-/// Spec §4's chip wrap. No green check: a tick means "someone verified this",
-/// and nobody did (see [_CardHeader]).
+/// A value group's values — the WRAPPING CHIP MATRIX by default, full-width
+/// rows only where a value cannot read as a chip.
+///
+/// This is the one place either drawing is chosen, so every card in the tab
+/// packs its values the same way. The decision comes from the VALUES
+/// ([valuesReadAsChips]) rather than from the sheet's `tick` flag, which is why
+/// the instrument, setting and documents groups now sit several to a row
+/// instead of one per line — see [kChipValueMaxChars] for the threshold and the
+/// measurement behind it.
+///
+/// [forceRows] is the deliberate exception, used only for spec §4's
+/// 'CONTROLLERS KNOWN' list.
+///
+/// An empty group draws NOTHING: real data only, and a row is never padded to
+/// make a card look full.
+class _ValueMatrix extends StatelessWidget {
+  const _ValueMatrix({required this.values, this.forceRows = false});
+
+  final List<String> values;
+  final bool forceRows;
+
+  @override
+  Widget build(BuildContext context) {
+    if (values.isEmpty) return const SizedBox.shrink();
+    return forceRows || !valuesReadAsChips(values)
+        ? _CheckRows(values: values)
+        : _ChipWrap(values: values);
+  }
+}
+
+/// Spec §4's chip wrap — the horizontal matrix, several values per row. No
+/// green check: a tick means "someone verified this", and nobody did (see
+/// [_CardHeader]).
 class _ChipWrap extends StatelessWidget {
   const _ChipWrap({required this.values});
 
@@ -403,8 +440,14 @@ class _ChipWrap extends StatelessWidget {
   }
 }
 
-/// Full-width rows for values too long to read as chips (spec §4's
-/// 'CONTROLLERS KNOWN' list).
+/// Full-width rows — the FALLBACK, for the controller list and for a group
+/// whose values are long sentences a chip would truncate (spec §4's
+/// 'CONTROLLERS KNOWN' list). Reached only through [_ValueMatrix], so the two
+/// drawings can never drift apart.
+///
+/// Same design family as the chips by construction: `KitCheckRow` is the kit's
+/// row form of the same fact, so a group that falls back still reads as part of
+/// the same card rather than as a second renderer.
 class _CheckRows extends StatelessWidget {
   const _CheckRows({required this.values});
 

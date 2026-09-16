@@ -48,8 +48,13 @@ const Set<String> kMachineRowKeys = <String>{
   'toolroom_machine',
 };
 
-/// The controller-brand chip row, drawn as full-width rows instead of chips:
-/// "Fanuc Oi-TF" style values are too long to read as pills.
+/// The controller-brand chip row — the ONE group that keeps full-width rows
+/// whatever its values measure (spec §4's 'CONTROLLERS KNOWN' list).
+///
+/// A controller is the worker's single most-searched capability and an employer
+/// reads the exact designation ('Fanuc Oi-TF' is not 'Fanuc 0i-MF'), so the
+/// spec gives it its own scannable list rather than a pill in a crowd. Every
+/// OTHER group now defaults to the chip matrix — see [kChipValueMaxChars].
 const String kControllerRowKey = 'controller_brand';
 
 /// Rows that are MATERIALS. Deliberately several keys: the same slot is
@@ -92,7 +97,45 @@ const String kCapabilitySectionId = 'capability';
 /// pins the exact coupling rather than leaving it implicit.
 const String kSalaryFactLabel = 'Salary expected';
 
-/// A labelled group of values, rendered as chips or as check rows.
+/// The longest a single value may be and still be drawn as a CHIP.
+///
+/// ── WHY A MEASURED LENGTH, AND NOT THE SERVER'S `tick` FLAG ──────────────────
+///
+/// Every value group used to be drawn the way the SHEET prints it: a
+/// `chipRows` row became the wrapping chip matrix, a `tickRows` row became one
+/// full-width ✓ row per value. But that flag describes the PDF's ink, not the
+/// phone's space — so 'Documents ready: Aadhaar, PAN, UAN', 'Measuring
+/// instruments: Micrometer, Vernier caliper' and 'Setting: Tool offset
+/// setting, Job centering' each spent three stacked full-width rows printing
+/// three short words, and the worker scrolled past a screen of whitespace to
+/// read their own resume. So the drawing is now decided from the DATA: values
+/// pack several per row unless one of them genuinely cannot read as a chip.
+///
+/// WHY 32 CHARACTERS. A group's values are drawn by `KitInfoChip`, whose label
+/// wraps to at most TWO lines and ellipsises past them. On the narrowest phone
+/// the product targets (320dp) a card leaves a chip about 224dp
+/// of text width, and at the largest text scale the app honours (2.0, ruling
+/// R1) two lines of the bundled Inter 12px face hold ~34 characters —
+/// measured with a `TextPainter` against the real font, not guessed. 32 keeps a
+/// margin under that. Below it nothing is ever ellipsised; above it a chip
+/// would SILENTLY TRUNCATE a value the worker gave us, which is lost data — so
+/// such a group keeps full-width rows, whose text wraps with no line limit.
+///
+/// For scale: the longest chip value the server actually sends is 'CNC lathe /
+/// turning centre' (26), and the qualification / instrument / setting values
+/// the owner complained about are 15–19, so all of them become chips.
+const int kChipValueMaxChars = 32;
+
+/// Whether [values] can be drawn as the space-saving chip matrix.
+///
+/// ONE over-long value sends the WHOLE group to rows: half a group in chips and
+/// half in rows would read as two different kinds of data. An empty group reads
+/// as chips and renders nothing at all — a row is never padded to fill space.
+bool valuesReadAsChips(Iterable<String> values) =>
+    values.every((String v) => v.trim().length <= kChipValueMaxChars);
+
+/// A labelled group of values, drawn as the chip matrix or — when a value is
+/// too long to read as a chip — as full-width rows.
 class ResumeValueGroup {
   const ResumeValueGroup({
     required this.label,
@@ -104,7 +147,17 @@ class ResumeValueGroup {
   final List<String> values;
 
   /// True when the server printed this row as a ✓ list rather than pills.
+  ///
+  /// NO LONGER DECIDES THE DRAWING. It is the PDF's styling choice, and
+  /// honouring it on a phone is exactly what wasted the card space the owner
+  /// asked us to reclaim (see [kChipValueMaxChars]). Kept because it describes
+  /// the row the server really sent, and because the mapper's contract is to
+  /// lose nothing about it.
   final bool tick;
+
+  /// True when this group packs into the chip matrix rather than full-width
+  /// rows — decided from the values, never from [tick].
+  bool get readsAsChips => valuesReadAsChips(values);
 
   bool get isEmpty => values.isEmpty;
 }
