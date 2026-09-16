@@ -331,6 +331,42 @@ Four consequences, all of them good:
    handing over a document. Best written in one pass alongside the outstanding `employer_sharing`
    and E4 copy.
 
+## 9. Amendment 2026-09-15 — the universal append is removed from trade forms (#1503)
+
+**What changed.** `f455bb36` (2026-09-12) made §5 work for résumé facts by appending all eight
+`qp_universal@2` questions (`primary_trade`, `experience_years`, `current_city`,
+`salary_expected`, `preferred_locations`, `availability`, `education`, `shift_preference`) to every
+trade form, so a suggestion keyed to one had a question to sit beside. Five of those were facts the
+same form already asked: the tier question, and the Preferences and Qualifications pages served a
+few screens later. Workers answered them twice, and the page's write raced the question's. #1503
+removes the append. `GET /profiling/form` serves the trade pack's visible questions and the marker
+pages again, exactly as before `f455bb36`.
+
+**Owner rulings (2026-09-15)** that bind this:
+- Résumé facts live on the pages that **own** them (Preferences, Qualifications, Work History).
+  They never get extra question screens.
+- The pages own shift, preferred city, salary and education.
+- `primary_trade` is removed from trade forms.
+- `f455bb36` is fixed forward, not reverted.
+
+**The legacy-key shim.** An app holding a pre-deploy schema can still `POST /profiling/form/answer`
+with one of those eight keys. A 400 would strand the worker on that screen, because skipping POSTs
+the same key (CLAUDE.md §3). Those eight keys, and only those, are accepted from a frozen literal
+(`legacy-universal-answer.ts`). Each is answered 200 with `schema_stale: true` so the app re-fetches.
+The row is stored where `f455bb36` stored it, under the trade pack id. The shim writes **no**
+`worker_attributes` row and runs **no** completion evaluation. It logs the key slug and counts,
+never the value. Remove it once that log reads zero across a release window.
+
+**Numbers.** Form number fields now accept exactly one numeric token. The old digit-strip stored
+"pata nahi" as 0 and "5 se 7 saal" as 57. Trade questions 400 on anything else; the shim declines.
+
+**The gap, recorded rather than implied away.** §5's "suggestion beside the question" no longer
+holds for the universal facts. **On current app builds, a worker routed to a form by his résumé sees
+none of his résumé's experience, city, salary, education or availability anywhere** until the owning
+pages render suggestions. That work is tracked on #1503/#1504. Suggestions keyed to his trade pack's
+own questions are unaffected. A worker-fact registry (`apps/api/src/profiling/facts/`) now names
+every spelling of each fact across packs, pages and tables. It is the foundation those pages build on.
+
 ---
 
 ```
