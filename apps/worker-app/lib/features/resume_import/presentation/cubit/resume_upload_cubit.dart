@@ -5,11 +5,11 @@ import '../../domain/resume_document.dart';
 import '../../domain/resume_document_picker.dart';
 import '../../domain/resume_importer.dart';
 
-/// What the three-door screen is doing.
+/// What the two-door screen is doing.
 enum ResumeUploadStatus {
-  /// The three doors, and NOTHING has been asked of the network. This is the
-  /// state the screen is built in and returns to, and it is why doors 2 and 3
-  /// are byte-for-byte today's behaviour.
+  /// The two doors, and NOTHING has been asked of the network. This is the
+  /// state the screen is built in and returns to, and it is why the no-résumé
+  /// door is byte-for-byte today's behaviour.
   doors,
 
   /// The platform picker is open.
@@ -63,7 +63,7 @@ class ResumeUploadState extends Equatable {
   final ResumeUploadDestination? destination;
 
   /// The line to show. May be set WITHOUT [status] being done — a rejected pick
-  /// (wrong type, too large) leaves the worker on the three doors with an
+  /// (wrong type, too large) leaves the worker on the two doors with an
   /// explanation, because there is a useful thing for him to do from there.
   final ResumeUploadNotice? notice;
 
@@ -83,11 +83,12 @@ class ResumeUploadState extends Equatable {
 ///
 /// It makes NO request when it is created, and none at all unless the worker
 /// taps the upload door. That is the pin holding the issue's hardest
-/// requirement: doors 2 and 3 must be today's behaviour byte for byte, and the
-/// only way to guarantee an identical request sequence and an identical first
-/// chat turn is for the new screen to have contributed no requests to it. A
-/// capability probe on entry — however cheap, however well-meant — would break
-/// that, so the 503 is discovered by attempting the mint instead.
+/// requirement: the no-résumé door must be today's behaviour byte for byte,
+/// and the only way to guarantee an identical request sequence and an
+/// identical first chat turn is for the new screen to have contributed no
+/// requests to it. A capability probe on entry — however cheap, however
+/// well-meant — would break that, so the 503 is discovered by attempting the
+/// mint instead.
 ///
 /// ── IT HOLDS NO DOCUMENT ────────────────────────────────────────────────────
 ///
@@ -152,14 +153,11 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
     });
   }
 
-  /// Doors 2 and 3 — "Hinglish mein baat karein" and "Mere paas resume nahi
-  /// hai".
+  /// Door 2 — "Mere paas resume nahi hai".
   ///
-  /// TWO DOORS, ONE METHOD, and no notice: both are a plain continue to the
-  /// chat, which is exactly what `/name` did before this screen existed. They
-  /// are separate BUTTONS because they answer different questions a worker
-  /// might be asking — but they must not be separate BEHAVIOUR, or one of them
-  /// would drift off today's path.
+  /// A plain continue to the chat with no notice, because that is exactly what
+  /// `/name` did before this screen existed and nothing has happened yet that
+  /// the worker needs told.
   ///
   /// Emits state only; it issues no request of its own, so the chat's own first
   /// call is the first thing the network sees.

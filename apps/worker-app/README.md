@@ -10,10 +10,9 @@ flow runs end-to-end before the backend is wired.
 ChatProfiling → (VoiceNote) → ProfilePreview → Finishing | TradeForm →
 Building → Resume`
 
-`ResumeUpload` (#1499) is the three-door step: upload a résumé, talk in
-Hinglish, or say there is no résumé. The two "no" doors are the handover
-`Name` made directly before that screen existed — same route, same request
-sequence, pinned by a test.
+`ResumeUpload` (#1499) is the two-door step: upload a résumé, or say there is
+no résumé. The "no résumé" door is the handover `Name` made directly before
+that screen existed — same route, same request sequence, pinned by a test.
 
 ```
 lib/

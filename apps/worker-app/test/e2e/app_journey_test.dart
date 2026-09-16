@@ -212,8 +212,8 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Continue'));
 
-    // ── 4c. THE THREE DOORS (#1499) — `/name` now hands here instead of
-    //     straight to the chat. This journey walks DOOR 3 ("mere paas resume
+    // ── 4c. THE TWO DOORS (#1499) — `/name` now hands here instead of
+    //     straight to the chat. This journey walks DOOR 2 ("mere paas resume
     //     nahi hai"), which must be byte-for-byte the old handover: one tap,
     //     no request, and the chat's own first turn is the first thing the
     //     network sees. Door 1 is not walked here — it needs a document picker,
