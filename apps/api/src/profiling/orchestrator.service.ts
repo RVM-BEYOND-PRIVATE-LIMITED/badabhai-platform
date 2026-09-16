@@ -72,6 +72,7 @@ import {
   confirmPrompt,
   readConfirmReply,
   RESUME_CONFIRM_OPTIONS,
+  type ResumeConfirmFact,
 } from "./resume-confirm";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
@@ -741,6 +742,110 @@ export class ProfilingOrchestrator {
       const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
 
+      // ── THE RÉSUMÉ CONFIRM OPENS THE SCREEN (Task 1 B3; ADR-0042 D8) ──────────────────
+      //
+      // A session whose résumé was routed to the chat opens on "Resume se ye mila: … Sahi
+      // hai?" — the SAME bubble the turn path would serve as its reply, moved to the front
+      // so the worker's first act is confirming what we read instead of answering a generic
+      // question the document already answered. The client asks for this explicitly
+      // (`confirm_first` on session start); a build that does not ask sees nothing new.
+      //
+      // BEFORE THE OUTSTANDING-ASK RE-SERVES BELOW, deliberately: a pending confirm is the
+      // most recent thing on screen, so if it and a stale offer are both outstanding, it is
+      // the one a reopened app must redraw.
+      if (envelope.resumeConfirm?.state === "pending") {
+        const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
+        if (pending && pending.facts.length > 0) {
+          // RE-SERVE ONLY — no write, no ask. The turn that served it already persisted the
+          // pending state and the assistant line; a reload must not spend a second ask.
+          return {
+            reply: confirmPrompt(pending.facts),
+            kind: "ask",
+            questionKey: null,
+            options: [...RESUME_CONFIRM_OPTIONS],
+            whyText: null,
+            answerType: "single_select",
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: true,
+            excludeFromParse: false,
+            unavailable: false,
+            checkpointDue: false,
+          };
+        }
+      }
+
+      // NEVER OFFERED, AND THIS IS THE FIRST TURN — serve it AND persist the pending state,
+      // because the worker's reply must be captured as the confirm's answer (the capture block
+      // in `decide` reads `resumeConfirm.state === "pending"`). Without the write, the tap
+      // would fall through to ordinary selection and the confirm would be served a second time.
+      if (envelope.resumeConfirm === null && buffer.turnCount === 0) {
+        const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
+        if (pending && pending.facts.length > 0) {
+          const reply = confirmPrompt(pending.facts);
+          const next: ProfilingEnvelope = {
+            ...envelope,
+            packId: packs.packId,
+            packVersion: packs.packVersion,
+            resumeConfirm: { importId: pending.importId, state: "pending" },
+            // IT SPENDS AN ASK, AND MUST — the same rule the turn path serves it under: it is
+            // a question, the worker can decline it, and the budget must keep counting.
+            engineAsks: envelope.engineAsks + 1,
+            // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
+            servedQuestionKey: null,
+            clarifyCount: 0,
+          };
+          // ONLY THE ASSISTANT LINE, exactly like the ordinary opening write: there is no
+          // worker message, and `turnCount` is not bumped for the same reason.
+          const at = input.now.toISOString();
+          const opened: TranscriptBuffer = {
+            ...buffer,
+            messages: [
+              ...buffer.messages,
+              { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+            ],
+            profiling: next,
+          };
+          if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
+            await this.persistPin(envelope, next, {
+              sessionId: input.sessionId,
+              workerId: input.workerId,
+              text: "",
+              now: input.now,
+              // No submission, no clip — nothing was sent or spoken to open the screen.
+              submissionId: null,
+              voiceNoteId: null,
+              ctx: input.ctx,
+            });
+            return {
+              reply,
+              kind: "ask",
+              questionKey: null,
+              options: [...RESUME_CONFIRM_OPTIONS],
+              whyText: null,
+              answerType: "single_select",
+              progress: progressOf(progressItems, answers),
+              unansweredEssentials: essentialsOf(items, answers),
+              complete: false,
+              completionReason: null,
+              replayed: false,
+              excludeFromParse: false,
+              unavailable: false,
+              checkpointDue: false,
+            };
+          }
+          this.logger.log(
+            `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
+              `attempt=${attempt + 1}; reloading — the winner may already have served the résumé confirm`,
+          );
+          continue;
+        }
+        // NOTHING SERVABLE (every fact already settled) — fall through to the ordinary
+        // opening path below, which serves the first pack question exactly as it always has.
+      }
+
       // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
       //
       // `identify()`'s offer branch patches `needsDisambiguation`, `disambiguationOffer`, `phase`
@@ -966,6 +1071,46 @@ export class ProfilingOrchestrator {
         `nothing was written and the worker is asked to retry`,
     );
     return unavailable();
+  }
+
+  /**
+   * OPEN the résumé confirm for a session that has not served it yet — or report `null`.
+   *
+   * ── WHY THIS IS NOT JUST `openTurn` (Task 1 B3; ADR-0042 D8) ────────────────────────────
+   *
+   * `ChatService.startSession` must know whether the opening it just served IS the résumé
+   * confirm before it announces one to the client — announcing the ordinary first question as
+   * a résumé confirm would put a lie in the start response. This wrapper answers that: it
+   * performs the cheap gates, delegates to `openTurn`, and returns non-null ONLY when the turn
+   * that came back is the confirm (the chip key is the discriminator, and the constants live
+   * in this module so the check cannot drift from what was served).
+   *
+   * THE GATES, and each is deliberate:
+   *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
+   *     from the start path would duplicate the bubble in the client's first frame.
+   *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
+   *     it would re-litigate something settled.
+   *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
+   *     not appear beneath a conversation the worker is already having.
+   *   - no pending import ⇒ null, WITHOUT calling `openTurn` — so a normal session's opening
+   *     question is never pre-served by this path.
+   */
+  async openResumeConfirm(input: OpenTurnInput): Promise<TurnResult | null> {
+    const loaded = await this.buffer.load(input.sessionId);
+    const envelope = loaded?.profiling ?? null;
+    if (envelope?.resumeConfirm != null) return null;
+    if (loaded !== null && loaded.turnCount > 0) return null;
+
+    const pending = await this.resumeSuggestions.pendingForChat(input.workerId);
+    if (!pending) return null;
+
+    const opened = await this.openTurn(input);
+    // ONLY THE CONFIRM IS AN ANNOUNCEABLE OPENING. `openTurn` falls through to the ordinary
+    // first question when every fact is already settled — and the caller must not label that
+    // as the résumé confirm. The chip key is the discriminator.
+    const confirmKey = RESUME_CONFIRM_OPTIONS[0]!.option_key;
+    if (!opened.options.some((option) => option.option_key === confirmKey)) return null;
+    return opened;
   }
 
   /**
@@ -1762,16 +1907,9 @@ export class ProfilingOrchestrator {
     // NOT WHEN THE TURN IS CAPPED. Past `MAX_ENGINE_TURNS` the interview is closing, and opening
     // a new question there would be an ask the worker can no longer spend.
     if (next.resumeConfirm === null && !capped) {
-      const offer = await this.resumeSuggestions.pendingForChat(input.workerId);
-      // `chatServableItems(items)` — the same shared filter the accept path above runs through
-      // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
-      // are never offered for confirmation in the chat; only trade/experience/city/availability
-      // shrink the batch-confirm bubble here.
-      const facts = offer
-        ? confirmableFacts(offer.suggestions, chatServableItems(items), answers)
-        : [];
+      const offer = await this.resolveResumeConfirm(input.workerId, items, answers);
 
-      if (offer && facts.length > 0) {
+      if (offer && offer.facts.length > 0) {
         next = {
           ...next,
           resumeConfirm: { importId: offer.importId, state: "pending" },
@@ -1786,7 +1924,7 @@ export class ProfilingOrchestrator {
           clarifyCount: 0,
         };
         return this.turn(buffer, next, input, {
-          reply: confirmPrompt(facts),
+          reply: confirmPrompt(offer.facts),
           // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped clients
           // know, so a new value would reach a build in the field as an unrenderable turn. This
           // IS an ask: a question with two chips, answered like any other single-select.
@@ -2439,6 +2577,35 @@ export class ProfilingOrchestrator {
    * NEVER FAILS THE TURN. The answers are already durable in the envelope; a worker must not
    * lose a confirmed prefill because an event INSERT hit a connection blip.
    */
+  /**
+   * THE PENDING RÉSUMÉ CONFIRM, RESOLVED AGAINST THE PACK AND THE CURRENT ANSWERS — or null.
+   *
+   * ONE RESOLVER FOR BOTH SURFACES (Task 1 B3; ADR-0042 D8). The turn path (`decide`'s offer
+   * block, RI-5) and the open path (`openTurn`'s confirm branches) must never disagree about
+   * what a résumé entitles the worker to be asked — a second copy of `pendingForChat` +
+   * `confirmableFacts` + `chatServableItems` is exactly the kind of duplicate that drifts, and
+   * its drift would surface as one surface offering facts the other has already settled.
+   *
+   * A NON-NULL RESULT WITH EMPTY `facts` IS MEANINGFUL, not a bug: it means an import is
+   * pending but every fact is already settled, and the turn path records it `settled` so the
+   * storage read + decrypt do not re-run on every remaining turn. The open path treats the
+   * same shape as "nothing to serve here".
+   */
+  private async resolveResumeConfirm(
+    workerId: string,
+    items: readonly QuestionPackItem[],
+    answers: AnswerMap,
+  ): Promise<{ importId: string; facts: ResumeConfirmFact[] } | null> {
+    const offer = await this.resumeSuggestions.pendingForChat(workerId);
+    if (!offer) return null;
+    // `chatServableItems(items)` — the same shared filter the accept path runs through
+    // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
+    // are never offered for confirmation in the chat; only trade/experience/city/availability
+    // shrink the batch-confirm bubble.
+    const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
+    return { importId: offer.importId, facts };
+  }
+
   private async recordPrefillApplied(
     input: TurnInput,
     importId: string,

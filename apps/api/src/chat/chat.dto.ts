@@ -8,7 +8,18 @@ import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/val
  * Starting a session needs nothing from the body: the worker is taken from the
  * authenticated session (WorkerAuthGuard), never from a client-supplied id.
  */
-export const StartSessionSchema = z.object({});
+export const StartSessionSchema = z.object({
+  /**
+   * Task 1 B3 (ADR-0042 D8) — may this session OPEN on the résumé confirm?
+   *
+   * When a résumé was routed to the chat and nothing has been confirmed yet, the session
+   * can open on "Resume se ye mila: … Sahi hai?" with its two chips, instead of the generic
+   * greeting. The client asks for it explicitly because rendering a server-served opening
+   * turn is a client capability: a build that does not ask must keep today's synthetic
+   * opener, byte for byte. Absent/false ⇒ the old flow, unchanged.
+   */
+  confirm_first: z.boolean().optional(),
+});
 export type StartSessionDto = z.infer<typeof StartSessionSchema>;
 
 export const PostMessageSchema = z.object({
@@ -281,6 +292,28 @@ export const StartSessionResponseSchema = z.object({
   status: z.string(),
   started_at: z.union([z.string(), z.date()]),
   opening_text: z.string().optional(),
+  /**
+   * Task 1 B3 (ADR-0042 D8) — the opening just served is the RÉSUMÉ CONFIRM.
+   *
+   * Present only when the client asked (`confirm_first: true`) and a pending résumé confirm
+   * had not been served yet: `opening_text` is the confirm question and `opening_options`
+   * are its two chips. A build that does not understand this field never receives it, and a
+   * build that asks but has no pending résumé sees the ordinary greeting flow untouched.
+   */
+  resume_pending: z.boolean().optional(),
+  /**
+   * The opening's chips — `option_key` + `label_text`, the renderable pair. The worker
+   * answers by sending the option KEY back as the session's first message, exactly as a
+   * chip answer works on any later turn.
+   */
+  opening_options: z
+    .array(
+      z.object({
+        option_key: z.string(),
+        label_text: z.string(),
+      }),
+    )
+    .optional(),
   /**
    * `opening_text` in Devanagari for read-aloud (#896) — the first thing a worker ever hears.
    *
