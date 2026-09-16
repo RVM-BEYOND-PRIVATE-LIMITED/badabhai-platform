@@ -145,6 +145,9 @@ const FULL: ProfilingEnvelope = {
   // NON-DEFAULT, like every field here: 0 is what a `narrow` that dropped it would rebuild (#1506
   // HIGH-1 review fix).
   identifyStalledTurns: 2,
+  // NON-DEFAULT, like every field here: `[]` is what a `narrow` that dropped it would rebuild
+  // (#1504 item 5, city-seed).
+  prefilledKeys: ["current_city"],
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

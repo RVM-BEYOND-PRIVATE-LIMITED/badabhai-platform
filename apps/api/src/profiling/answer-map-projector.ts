@@ -16,7 +16,7 @@
  */
 
 import type { AnswerRecord, ParsedField } from "@badabhai/ai-contracts";
-import { CROSSWALK_DRAFT_FIELDS, crosswalkFor } from "@badabhai/profiling-lexicon";
+import { canonicalCity, CROSSWALK_DRAFT_FIELDS, crosswalkFor } from "@badabhai/profiling-lexicon";
 import {
   PROFILE_VALUE_SOURCES,
   type AttributeValueKind,
@@ -84,7 +84,19 @@ function liveValues(answerMap: readonly AnswerRecord[]): Map<string, unknown> {
   for (const record of answerMap) {
     if (record.status !== "answered") continue;
     if (record.value_normalized === null || record.value_normalized === undefined) continue;
-    values.set(record.target_field ?? record.question_key, record.value_normalized);
+    const fieldId = record.target_field ?? record.question_key;
+    // A NON-GAZETTEER `current_city` NEVER REACHES THE DRAFT (#1504 item 5, city-seed fix #1).
+    // Every value `answer-capture.ts`'s own normalizer writes is already `canonicalCity(...) ??
+    // null` — a genuine chat answer that fails the gazetteer is `null` and is filtered out by
+    // the check one line up. The ONE writer that puts a non-canonical string here on purpose is
+    // the city-seed, which keeps the worker's raw `/name` city AS TYPED so the interview
+    // correctly treats the question as settled and skips it (see `worker-record-seed.ts`) — but
+    // that value must never reach `location_preference.current_city`, which
+    // `reach.mappers.ts`'s `readCity` reads verbatim with no gazetteer check of its own. Guarded
+    // HERE, independent of who wrote the record, rather than by threading "was this seeded"
+    // through this pure function: the rule is about the FIELD, not the source.
+    if (fieldId === "current_city" && !canonicalCity(String(record.value_normalized))) continue;
+    values.set(fieldId, record.value_normalized);
   }
   return values;
 }

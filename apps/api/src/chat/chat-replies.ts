@@ -48,6 +48,16 @@ export const CHAT_UNAVAILABLE_REPLY =
  * never saw it either. A module whose header claims to hold EVERY STRING THE INTERVIEW CAN EVER
  * SAY cannot reach into the Nest DI graph to read one, so the constant moved to the import-free
  * side instead — the same trade, and the same reasoning, as `CHAT_UNAVAILABLE_REPLY` above.
+ *
+ * ⚠ THE CITY CLAUSE IS GONE (#1504 item 5, city-seed). `/name` already collects
+ * `workers.current_city`, and the interview now SEEDS its own `current_city` question from that
+ * column before this opener is ever served — see `worker-record-seed.ts`. Asking "kahan rehte
+ * hain" here re-asked a question the engine had already settled by the time the reply reached
+ * the worker, which is precisely the duplication (#1504) this whole change removes. A worker
+ * whose city was NOT captured at `/name` (blank column, or a v1 buffer with no seed applied)
+ * still gets asked — the seed is a skip, never a suppression: the pack's own `current_city`
+ * item is untouched, and `nextQuestion` asks it exactly when it is unsettled, same as any other
+ * question.
  */
 export const CHAT_OPENING_TEXT =
-  "Namaste. Aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?";
+  "Namaste. Aap kaun sa kaam karte hain, aur kitna tajurba hai?";

@@ -14,6 +14,7 @@ import type {
   QuestionPackItem,
   QuestionPackOption,
 } from "@badabhai/ai-contracts";
+import type { ChatSession, WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -28,6 +29,7 @@ import {
   type TurnResult,
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { narrowAnswerRecords } from "./conversation-state";
 import { isSettled } from "./answer-map";
 import { clipId } from "./reply-closure";
 import { ttsField } from "./question-tts-text";
@@ -348,15 +350,25 @@ export class ProfilingSessionService {
     const flushed = await this.chat.listPackAnswers(sessionId);
     const rows =
       flushed.length > 0
-        ? flushed.map((row) => ({
-            question_key: row.questionKey,
-            prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
-            status: row.status as "answered" | "declined" | "unanswered",
-            display_value: this.displayValueOf(
-              row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
-              row.status,
-            ),
-          }))
+        ? [
+            ...flushed.map((row) => ({
+              question_key: row.questionKey,
+              prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
+              status: row.status as "answered" | "declined" | "unanswered",
+              display_value: this.displayValueOf(
+                row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
+                row.status,
+              ),
+            })),
+            // #1504 item 5 (city-seed), mandatory fix. A seeded key NEVER gets a
+            // `worker_pack_answer` row (`toPackAnswerRows` skips `prefilledKeys` deliberately —
+            // see `chat.service.ts`), so `flushed` alone would silently drop it from a review
+            // shown AFTER the session ended, even though the worker's profile carries it. A
+            // PURE DISPLAY-VALUE MERGE, never a written row: read straight off
+            // `chat_sessions.conversation_state`, which `finalizeInterview` already persisted
+            // `prefilled_keys` and `answer_map` into before the Redis buffer was dropped.
+            ...(await this.reviewPrefilledRows(session, flushed, prompts)),
+          ]
         : // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the
           // array is the contract's stable order. Keying it first would hand the screen whatever
           // order the object happened to hold, which for a worker reading their answers back is
@@ -709,6 +721,61 @@ export class ProfilingSessionService {
     // because `matchOptions` scans for each label independently — the separator is a separator,
     // not a syntax, so a label containing a comma cannot confuse it.
     return matched.join(", ");
+  }
+
+  /**
+   * The review row(s) a FLUSHED session's `worker_pack_answer` rows cannot show, because
+   * `toPackAnswerRows` deliberately never wrote one for a city-seed key (#1504 item 5, mandatory
+   * fix #2).
+   *
+   * A PURE DISPLAY-VALUE MERGE. Nothing here writes a row anywhere — it reads
+   * `chat_sessions.conversation_state`, which `finalizeInterview`/`abandonInterview` already
+   * persisted `prefilled_keys` and `answer_map` into before the Redis envelope was dropped, and
+   * renders whatever `prefilledKeys` names that `flushed` does not already cover. A key that WAS
+   * later corrected (`correctAnswer` removes it from `prefilled_keys` and inserts a real
+   * `worker_pack_answer` row) is already in `flushed` and is excluded here by the same key check,
+   * so a corrected answer is never shown twice.
+   */
+  private async reviewPrefilledRows(
+    session: Pick<ChatSession, "conversationState">,
+    flushed: readonly Pick<WorkerPackAnswer, "questionKey">[],
+    prompts: ReadonlyMap<string, string>,
+  ): Promise<
+    Array<{
+      question_key: string;
+      prompt_text: string;
+      status: "answered" | "declined" | "unanswered";
+      display_value: string | null;
+    }>
+  > {
+    const state = (session.conversationState ?? {}) as Record<string, unknown>;
+    const prefilledKeys = Array.isArray(state.prefilled_keys)
+      ? state.prefilled_keys.filter((key): key is string => typeof key === "string")
+      : [];
+    if (prefilledKeys.length === 0) return [];
+
+    const flushedKeys = new Set(flushed.map((row) => row.questionKey));
+    const missing = prefilledKeys.filter((key) => !flushedKeys.has(key));
+    if (missing.length === 0) return [];
+
+    const answerMap = narrowAnswerRecords(state.answer_map);
+    const byKey = new Map(answerMap.map((record) => [record.question_key, record]));
+
+    return missing.flatMap((key) => {
+      const record = byKey.get(key);
+      if (!record || record.status === "superseded") return [];
+      return [
+        {
+          question_key: record.question_key,
+          prompt_text: prompts.get(record.question_key) ?? record.question_key,
+          status: record.status as "answered" | "declined" | "unanswered",
+          display_value: this.displayValueOf(
+            record.value_normalized ?? record.value_raw,
+            record.status,
+          ),
+        },
+      ];
+    });
   }
 
   /**
