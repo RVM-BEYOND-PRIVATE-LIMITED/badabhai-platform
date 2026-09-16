@@ -117,17 +117,39 @@ describe("formatReport — privacy: only counts and rates ever reach the table",
   const DISTINCTIVE_CITY = "Zzqrxvantownistan-9182";
   const DISTINCTIVE_TRADE = "Fabled Unicorn Welder Grade-7";
 
-  it("a summary derived from fixtures containing distinctive raw strings never prints them", () => {
-    // The raw strings never even reach aggregateCoverage — by construction, FieldObservation
-    // has no string/number field. This test still fixes a literal string in a comment near the
-    // fixture so a reviewer sees exactly what the leak-then-fix proof checked.
-    void DISTINCTIVE_CITY;
-    void DISTINCTIVE_TRADE;
+  /**
+   * A test-only widened shape — what a FUTURE regression might look like if someone added an
+   * optional raw-value field to `FieldObservation` (e.g. "just for debugging"). This type is
+   * never exported and never read by production code. TypeScript's structural typing means an
+   * object built from it still satisfies `FieldObservation`, so it can be handed to the REAL,
+   * unmodified `aggregateCoverage`/`formatReport` below: the proof that the distinctive string
+   * doesn't leak has to run through the actual pipeline, not a stand-in for it.
+   */
+  interface LeakableFieldObservation extends FieldObservation {
+    readonly _futureRawValue?: string;
+  }
 
+  function leaking(raw: string): FieldObservation {
+    const widened: LeakableFieldObservation = {
+      covered: true,
+      confirmed: true,
+      matched: false,
+      _futureRawValue: raw,
+    };
+    return widened;
+  }
+
+  it("a summary derived from fixtures carrying raw strings on a widened observation never prints them", () => {
+    // Each observation below is a real FieldObservation as far as aggregateCoverage/formatReport
+    // are concerned — it just happens to also carry `_futureRawValue`, structurally. Nothing in
+    // this test tells the pipeline to ignore that field; the pipeline's own row-building (it
+    // constructs each summary row from named fields, never a spread) is what has to do the work.
+    // PROVEN (see session notes / PR description): temporarily mutating aggregateCoverage's row
+    // constructor to spread `...obs` into the row turned this test RED; reverting turned it GREEN.
     const observations: ImportObservation[] = [
       importObs("pdf_text", {
-        current_city: COVERED_CONFIRMED_OVERRIDDEN,
-        role_label: COVERED_CONFIRMED_OVERRIDDEN,
+        current_city: leaking(DISTINCTIVE_CITY),
+        role_label: leaking(DISTINCTIVE_TRADE),
       }),
     ];
     const summary = aggregateCoverage(observations);
@@ -138,33 +160,51 @@ describe("formatReport — privacy: only counts and rates ever reach the table",
     expect(serialized).not.toContain(DISTINCTIVE_TRADE);
   });
 
-  it("FieldObservation's type itself admits no value field (structural proof)", () => {
-    // TypeScript enforces this at compile time; this runtime check is a belt-and-braces pin so
-    // a future refactor that widens the type is caught by a failing assertion, not just a type
-    // error someone could `as any` around.
-    const obs: FieldObservation = COVERED_CONFIRMED_OVERRIDDEN;
-    expect(Object.keys(obs).sort()).toEqual(["confirmed", "covered", "matched"]);
-  });
+  // A prior "structural proof" here asserted `Object.keys()` of one hardcoded literal — it could
+  // never fail from a widened `FieldObservation`, since nothing forces that literal to grow a new
+  // key just because the type gained an optional one. Its actual intent (catch a widened type
+  // carrying real data into the report) is what the test above proves directly, by constructing
+  // an object that HAS the extra field and sending it through the unmodified real pipeline: it
+  // only stays green because `aggregateCoverage` builds each row from named fields and never
+  // forwards unknown ones. Removed as redundant rather than kept as a check that cannot fail.
 
-  it("formatReport output contains no field/method values outside the closed vocabularies", () => {
+  it("formatReport output matches a closed grammar — no numeric or word token outside the expected shape", () => {
     const observations: ImportObservation[] = [
       importObs("ocr", { education_level: COVERED_CONFIRMED_MATCHED }),
+      importObs("pdf_text", { salary_expected: COVERED_CONFIRMED_OVERRIDDEN }),
     ];
     const summary = aggregateCoverage(observations);
     const lines = formatReport(summary, observations.length);
-    const body = lines.join("\n");
-    const ALLOWED_WORDS = new Set([
-      "field", "method", "offered", "confirmed", "overrides", "override", "rate",
-      ...RESUME_PREFILL_FIELDS.flatMap((f) => f.split("_")),
-      "pdf", "text", "docx", "ocr", "unknown",
-      "eval", "resume", "prefill", "parsed", "imports", "with", "a", "suggestion", "payload",
-      "no", "covered", "fields", "observed",
-    ]);
-    // Every alphabetic word on the table must be drawn from the closed vocabulary above — a
-    // worker-derived string (a city, a trade label) would introduce a word this set does not
-    // contain, and this assertion is what the leak-then-fix proof (below) actually exercised.
-    for (const word of body.match(/[A-Za-z]+/g) ?? []) {
-      expect(ALLOWED_WORDS.has(word), `unexpected word "${word}" in report output`).toBe(true);
+
+    const HEADER_LINE = /^\[eval:resume-prefill] parsed imports with a suggestion payload: \d+$/;
+    const COLUMN_HEADER_LINE = /^ {2}field\s+method\s+offered\s+confirmed\s+overrides\s+override_rate$/;
+    // A row line's ENTIRE shape, not just its words: a known field name, a known extraction
+    // method, then exactly three small integers and one percentage — nothing else is permitted
+    // anywhere on the line. Earlier this only scanned `[A-Za-z]+`, which is blind to a numeric
+    // leak (e.g. a real salary figure) since digits never match that pattern at all; anchoring
+    // the whole line closes that gap for both the alphabetic and the numeric tokens.
+    const ROW_LINE = new RegExp(
+      `^ {2}(${RESUME_PREFILL_FIELDS.join("|")})\\s+(pdf_text|docx|ocr|unknown)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+\\.\\d)%$`,
+    );
+
+    expect(lines[0]).toMatch(HEADER_LINE);
+    expect(lines[1]).toMatch(COLUMN_HEADER_LINE);
+    const rowLines = lines.slice(2);
+    for (const line of rowLines) {
+      expect(line, `line does not match the closed report grammar: ${JSON.stringify(line)}`).toMatch(ROW_LINE);
+    }
+
+    // Cross-check each row's three integers against the summary it was built from, so a
+    // substituted numeric token (e.g. a leaked figure standing in for `importsConfirmed`) can't
+    // pass merely by fitting the `\d+` shape — it has to equal the count that produced it.
+    for (const row of summary) {
+      const match = rowLines
+        .map((line) => line.match(ROW_LINE))
+        .find((m) => m !== null && m[1] === row.field && m[2] === row.extractionMethod);
+      expect(match, `no report line found for ${row.field}/${row.extractionMethod}`).toBeTruthy();
+      expect(Number(match![3])).toBe(row.importsWithSuggestion);
+      expect(Number(match![4])).toBe(row.importsConfirmed);
+      expect(Number(match![5])).toBe(row.overrideCount);
     }
   });
 });

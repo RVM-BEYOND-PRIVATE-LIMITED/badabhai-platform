@@ -56,6 +56,10 @@
  * interview (never through a trade-form pack question, an attribute, or a marker page) is
  * measured here as `confirmed: false` — the true confirmation rate for `experience_years`,
  * `availability` and (partially) `current_city` is therefore a LOWER BOUND, not an exact number.
+ * ("Partially" for `current_city`: the chat/voice path lands it in `WorkerProfileDraft` jsonb —
+ * `apps/api/src/profiling/answer-capture.ts`'s `NORMALIZER_BY_FIELD.current_city`, not directly
+ * in `workers.current_city` — so a chat/voice-only confirmation is invisible here even though the
+ * column itself IS queried at line 359 below for the trade-form/marker-page path.)
  * `role_label`, `salary_expected` and `education_level` are unaffected in practice: their
  * confirming surfaces are the trade form / marker pages this script does query, per the routing
  * rulings in `resume-suggestion-reader.ts`'s docblock (#1503/#1504).
