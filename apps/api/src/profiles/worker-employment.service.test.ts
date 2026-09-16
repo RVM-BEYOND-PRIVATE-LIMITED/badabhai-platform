@@ -550,6 +550,35 @@ describe("reading the worker's own history back (#1504)", () => {
       null,
     ]);
   });
+
+  it("never carries the rewrite text onto the GET response, even if the stored row already has it (M4)", async () => {
+    // `hasPolish`/`workDonePolishDeclined` say NOTHING about text — `descriptionSourceOf` can
+    // legitimately return the literal string "polished" for a role that has a rewrite, and that
+    // string appearing on the wire is correct, not a leak. To keep this test from tripping on
+    // that legitimate value, the role below has no rewrite at all: `hasPolish: false` so
+    // `description_source` comes back `null`, and the ONLY way "polished" or the rewrite text
+    // could appear on the wire is if the service starts forwarding the extra field checked below.
+    //
+    // `WorkerEmploymentEditRecord["roles"]` has no text field for the rewrite — only the boolean
+    // `hasPolish` — so a row that carries `workDonePolished` text is not constructible without
+    // bypassing the type. That bypass belongs here, in the fixture, never in production code: it
+    // stands in for a future change that threads the rewrite text into the interface (e.g. for a
+    // "preview the rewrite" screen) without updating `getForWorker`'s explicit key list.
+    const leakyRole = {
+      ...editRecord().roles[0]!,
+      hasPolish: false,
+      workDonePolishDeclined: false,
+      workDonePolished: "Operated CNC lathes.",
+    } as unknown as WorkerEmploymentEditRecord["roles"][number];
+    const h = readSetup([editRecord({ roles: [leakyRole] })]);
+
+    const res = await h.svc.getForWorker(WORKER);
+    const wire = JSON.stringify(res);
+
+    expect(wire).not.toContain("Operated CNC lathes.");
+    expect(wire).not.toContain("workDonePolished");
+    expect(wire).not.toContain("polished");
+  });
 });
 
 describe("the projection rule from a GET row to a PUT entry (#1504)", () => {

@@ -336,8 +336,13 @@ describe("reading the stored answers back (#1504)", () => {
       stored("job_type", { valueText: "permanent" }),
     ]);
     const res = await svc.getForWorker(WORKER);
-    expect(res.values.languages).toEqual(["hindi"]);
-    expect(res.values.preferred_cities).toEqual(cities.slice(0, 5));
+    // NULL, NOT THE SURVIVORS (M1). A field that lost anything comes back `null` — never the
+    // partial list that is left once the drops are applied — so "non-null" means "complete" and a
+    // client that blindly re-sends every non-null value on an unedited save cannot echo back a
+    // withheld answer as if it were whole. `partial` / `dropped_count` are what still say it
+    // happened.
+    expect(res.values.languages).toBeNull();
+    expect(res.values.preferred_cities).toBeNull();
     expect(res.values.shift).toBeNull();
     expect(res.values.willing_to_relocate).toBeNull();
     expect(res.values.job_type).toBe("permanent");
@@ -347,6 +352,28 @@ describe("reading the stored answers back (#1504)", () => {
     expect(res.dropped_count).toBe(5);
     // And what it DID return is a body the PUT accepts — the property the withholding is for.
     const body = Object.fromEntries(Object.entries(res.values).filter(([, v]) => v !== null));
+    expect(() => SetMyPreferencesSchema.parse(body)).not.toThrow();
+  });
+
+  it("returns null, never the truncated survivors, when a stored list only trips the cap (M1)", async () => {
+    // Isolates the exact path the fix is for: EVERY stored value is individually valid — nothing
+    // here is a bad slug or a wrong-kind column — the list is simply longer than today's cap. A
+    // worker with more than five stored `preferred_locations` is a real path: the resume-import
+    // projector writes this same key and is not bound by this endpoint's five-city cap.
+    const cities = CITY_CATALOGUE.slice(0, 6).map((c) => c.value);
+    const { svc } = setup(null, [
+      stored("preferred_locations", { valueKind: "text_list", valueTextList: cities }),
+    ]);
+    const res = await svc.getForWorker(WORKER);
+    // The defect this guards: `cities.slice(0, 5)` — a full, valid-looking list — used to come
+    // back here instead of `null`.
+    expect(res.values.preferred_cities).toBeNull();
+    expect(res.partial).toEqual(["preferred_cities"]);
+    expect(res.dropped_count).toBeGreaterThan(0);
+    // A round trip of what it DID return drops the field entirely rather than re-sending a
+    // truncated stand-in for the worker's real answer.
+    const body = Object.fromEntries(Object.entries(res.values).filter(([, v]) => v !== null));
+    expect(body).not.toHaveProperty("preferred_cities");
     expect(() => SetMyPreferencesSchema.parse(body)).not.toThrow();
   });
 

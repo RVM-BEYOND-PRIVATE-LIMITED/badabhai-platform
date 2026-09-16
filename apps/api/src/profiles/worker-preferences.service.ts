@@ -211,10 +211,18 @@ export class WorkerPreferencesService {
         continue;
       }
       const read = readStoredValue(key, row, SetMyPreferencesSchema.shape[wire]);
-      values[wire] = read.value;
       if (read.dropped > 0) {
+        // NULL, NEVER THE SURVIVORS (M1). `read.value` can still be a non-empty list here — the
+        // cap trims from the end until it validates, and what is left is real data, just not all
+        // of it. Wiring it out unchanged would hand a client a value that LOOKS complete, and a
+        // save-without-editing round trip (the naive client both #1504 tests model) would re-send
+        // it as if it were, permanently losing the trimmed tail. `null` makes "non-null" mean
+        // "safe to re-send" by construction; `partial` / `dropped_count` still say it happened.
+        values[wire] = null;
         partial.push(wire);
         droppedCount += read.dropped;
+      } else {
+        values[wire] = read.value;
       }
     }
 
