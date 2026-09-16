@@ -11,8 +11,8 @@ import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
 
-/// Onboarding "Resume ban raha hai…" screen (spec §5.1 / `.aw-build`; master
-/// Flutter UI kit screen 22).
+/// Onboarding "Resume ban raha hai…" screen (v3 spec §3.22; master Flutter UI
+/// kit screen 22).
 ///
 /// Generates the resume on mount (the real work), then enters the shell at the
 /// Resume tab — passing the generated text so the tab shows it without
@@ -209,41 +209,51 @@ class _BuildingBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        const ShiftBlueHeader(
-          title: 'Resume ban raha hai…',
-          subtitle:
-              'Aapki baat se ek branded, share-ready resume taiyaar kar rahe hain.',
-        ),
-        Expanded(
-          child: SafeArea(
-            top: false,
-            // Scroll instead of overflowing on a short handset at large text.
-            child: OnboardingBody(
-              padding: const EdgeInsets.all(16),
-              // The pacing tween — 0 → 0.92 so the bar never claims "done"
-              // before the cubit actually navigates away. Determinate
-              // throughout; at its end the last row is still live, not done.
-              child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: 0.92),
-                duration: AppMotion.slower * 6, // ~2.9s across the four steps
-                curve: AppMotion.easeInOut,
-                builder: (BuildContext context, double t, _) {
-                  final int step =
-                      (t * _steps.length).clamp(0, _steps.length - 0.001).floor();
-                  return _ProgressCard(progress: t, currentStep: step);
-                },
+    // Spec §3.22 puts this one screen on a full SHIFT BLUE field — the header
+    // and the body are one navy surface, with the white progress card the only
+    // thing on it. Painted here rather than on the Scaffold because the failed
+    // and no-profile views below are ordinary status screens and keep the
+    // canvas.
+    return ColoredBox(
+      color: OnboardingColors.shiftBlue,
+      child: Column(
+        children: <Widget>[
+          const ShiftBlueHeader(
+            title: 'Resume ban raha hai…',
+            subtitle:
+                'Aapki baat se ek branded, share-ready resume taiyaar kar rahe hain.',
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              // Scroll instead of overflowing on a short handset at large text.
+              child: OnboardingBody(
+                padding: const EdgeInsets.all(16),
+                // The pacing tween — 0 → 0.92 so the bar never claims "done"
+                // before the cubit actually navigates away. Determinate
+                // throughout; at its end the last row is still live, not done.
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: 0.92),
+                  duration: AppMotion.slower * 6, // ~2.9s across the four steps
+                  curve: AppMotion.easeInOut,
+                  builder: (BuildContext context, double t, _) {
+                    final int step = (t * _steps.length)
+                        .clamp(0, _steps.length - 0.001)
+                        .floor();
+                    return _ProgressCard(progress: t, currentStep: step);
+                  },
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// The white progress card: bar + step count + the four ticker rows.
+/// The white progress card: bar + step count + the four ticker rows, under the
+/// spec's "subtle animated card scan glow".
 class _ProgressCard extends StatelessWidget {
   const _ProgressCard({required this.progress, required this.currentStep});
 
@@ -261,40 +271,94 @@ class _ProgressCard extends StatelessWidget {
     final int total = _BuildingBody._steps.length;
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: OnboardingColors.paperWhite,
         border: Border.all(color: OnboardingColors.borderSubtle),
         borderRadius: BorderRadius.circular(OnboardingRadii.card),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: <Widget>[
-          Text(
-            'STEP ${currentStep + 1}/$total',
-            style: OnboardingTypography.monoLabel(
-              color: OnboardingColors.shiftBlue,
+          Positioned.fill(child: _ScanGlow(progress: progress)),
+          Padding(padding: const EdgeInsets.all(16), child: _content(total)),
+        ],
+      ),
+    );
+  }
+
+  Widget _content(int total) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'STEP ${currentStep + 1}/$total',
+          style: OnboardingTypography.monoLabel(
+            color: OnboardingColors.shiftBlue,
+          ),
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            backgroundColor: OnboardingColors.cardIconBg,
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              OnboardingColors.safetyYellow,
             ),
           ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 6,
-              backgroundColor: OnboardingColors.cardIconBg,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                OnboardingColors.safetyYellow,
+        ),
+        const SizedBox(height: 12),
+        for (int i = 0; i < total; i++) ...<Widget>[
+          if (i > 0)
+            const Divider(height: 1, color: OnboardingColors.borderSubtle),
+          _StepRow(label: _BuildingBody._steps[i], state: _stateOf(i)),
+        ],
+      ],
+    );
+  }
+}
+
+/// The spec's "subtle animated card scan glow": a soft safety-yellow band that
+/// travels down the card as the generation progresses.
+///
+/// Driven by the SAME pacing value the bar and the ticker read — it is not a
+/// second, independent animation and it starts no ticker of its own. A
+/// perpetual shimmer would keep a frame scheduled for as long as the screen is
+/// up (and would pump forever under `pumpAndSettle`); this simply is wherever
+/// the progress is.
+///
+/// Decoration only: no shadow (D10 — the glow is a gradient), no hit test, and
+/// nothing for a screen reader to read, since the ticker rows already say what
+/// is happening.
+class _ScanGlow extends StatelessWidget {
+  const _ScanGlow({required this.progress});
+
+  /// 0 → 1 down the card.
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: Align(
+          // Alignment runs -1 (top) → 1 (bottom).
+          alignment: Alignment(0, (progress.clamp(0.0, 1.0) * 2) - 1),
+          child: Container(
+            height: 56,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Color(0x00FFB32C),
+                  OnboardingColors.yellowTint20,
+                  Color(0x00FFB32C),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          for (int i = 0; i < total; i++) ...<Widget>[
-            if (i > 0)
-              const Divider(height: 1, color: OnboardingColors.borderSubtle),
-            _StepRow(label: _BuildingBody._steps[i], state: _stateOf(i)),
-          ],
-        ],
+        ),
       ),
     );
   }

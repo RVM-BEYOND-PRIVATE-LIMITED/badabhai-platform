@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,6 +15,7 @@ import '../../../core/session/session_repository.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/date_label.dart';
+import '../../../core/widgets/kit/otp_code_field.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -132,8 +131,9 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   void _onCode(String code) {
     if (!mounted) return;
     _controller.text = code;
-    _controller.selection =
-        TextSelection.collapsed(offset: _controller.text.length);
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
   }
 
   /// #336 — start (or restart) the countdown over whatever [_cooldown] the
@@ -218,7 +218,8 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
     BuildContext context,
     DateTime scheduledFor,
   ) async {
-    final bool cancelRequested = await showDialog<bool>(
+    final bool cancelRequested =
+        await showDialog<bool>(
           context: context,
           barrierDismissible: false,
           builder: (BuildContext dialogContext) => AlertDialog(
@@ -263,14 +264,17 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
       messenger
         ..clearSnackBars()
         ..showSnackBar(
-            const SnackBar(content: Text('Account delete cancel ho gaya')));
+          const SnackBar(content: Text('Account delete cancel ho gaya')),
+        );
     } catch (error) {
       messenger
         ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          backgroundColor: AppColors.danger,
-          content: Text(failureReason(mapError(error)).reason),
-        ));
+        ..showSnackBar(
+          SnackBar(
+            backgroundColor: AppColors.danger,
+            content: Text(failureReason(mapError(error)).reason),
+          ),
+        );
     }
   }
 
@@ -291,12 +295,14 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
       case OtpResendStatus.failure:
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            backgroundColor: AppColors.danger,
-            // The honest reason (rate-limited vs offline) — the worker can only
-            // act on it if we say which one it was.
-            content: Text(state.resendMessage ?? 'Code bhej nahi paaye.'),
-          ));
+          ..showSnackBar(
+            SnackBar(
+              backgroundColor: AppColors.danger,
+              // The honest reason (rate-limited vs offline) — the worker can only
+              // act on it if we say which one it was.
+              content: Text(state.resendMessage ?? 'Code bhej nahi paaye.'),
+            ),
+          );
       case OtpResendStatus.idle:
       case OtpResendStatus.sending:
         break;
@@ -330,7 +336,8 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
               SnackBar(
                 backgroundColor: AppColors.danger,
                 content: Text(
-                  state.message ?? 'Could not verify the code. Please try again.',
+                  state.message ??
+                      'Could not verify the code. Please try again.',
                 ),
               ),
             );
@@ -372,9 +379,9 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                           onPressed: state.isSubmitting
                               ? null
                               : () => context.read<OtpVerifyCubit>().verify(
-                                    phone: phone,
-                                    otp: _controller.text.trim(),
-                                  ),
+                                  phone: phone,
+                                  otp: _controller.text.trim(),
+                                ),
                         ),
                         const SizedBox(height: 20),
                         Center(
@@ -417,114 +424,34 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
     GoRouter.maybeOf(context)?.go(Routes.phoneLogin);
   }
 
-  /// #336 — the segmented code entry: [kOtpLength] painted cells with ONE real
-  /// [TextField] laid invisibly over them.
+  /// The segmented code entry: [kOtpLength] painted cells with ONE real
+  /// [TextField] laid invisibly over them — the kit's [OtpCodeField] (spec
+  /// §3.3: 48x54 cells, 10dp corners, the cell being typed into ringed NAVY at
+  /// 1.8, and the cells shrunk rather than overflowed on a 320dp handset).
   ///
   /// Six real fields is the obvious build and the wrong one — it breaks every
   /// path that actually gets a code into this screen. SMS auto-read and iOS
   /// `oneTimeCode` autofill deliver the whole code to a single field; a worker
-  /// pasting the code copied out of their SMS app has one place to drop it,
-  /// not six; and TalkBack would announce six disconnected "edit box"es to
-  /// exactly the worker who cannot read the screen to work out what they mean.
-  ///
-  /// So the cells are pure decoration — [ExcludeSemantics] and never hit-tested
-  /// — and the field on top keeps the real keyboard, selection/paste menu,
-  /// autofill and a single semantics node. Its text is drawn transparent (not
-  /// zero-sized: a collapsed field cannot be tapped or long-pressed) and the
-  /// cells below render the digits.
-  ///
-  /// The kit draws six 48×56 boxes. They are sized from the width actually
-  /// available instead — full size wherever they fit, proportionally smaller on
-  /// a 320pt handset — so the row can never overflow.
+  /// pasting the code copied out of their SMS app has one place to drop it, not
+  /// six; and TalkBack would announce six disconnected "edit box"es to exactly
+  /// the worker who cannot read the screen to work out what they mean. The kit
+  /// widget owns that shape; this screen only supplies the caret it blinks.
   Widget _buildCodeField() {
-    return LayoutBuilder(
-      builder: (BuildContext context, BoxConstraints constraints) {
-        const double gap = 6;
-        final double boxWidth = math.min(
-          48,
-          (constraints.maxWidth - gap * (kOtpLength - 1)) / kOtpLength,
-        );
-        final double boxHeight = boxWidth * 56 / 48;
-        return SizedBox(
-          height: boxHeight,
-          child: _codeStack(boxWidth: boxWidth, boxHeight: boxHeight),
-        );
-      },
-    );
-  }
-
-  Widget _codeStack({required double boxWidth, required double boxHeight}) {
-    return Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: ExcludeSemantics(
-              child: ListenableBuilder(
-                listenable: Listenable.merge(<Listenable>[
-                  _controller,
-                  _focusNode,
-                ]),
-                builder: (BuildContext context, _) => _OtpCells(
-                  code: _controller.text,
-                  focused: _focusNode.hasFocus,
-                  boxWidth: boxWidth,
-                  boxHeight: boxHeight,
-                ),
-              ),
-            ),
-          ),
-          Positioned.fill(
-            // MergeSemantics collapses the label into the field's own node, so
-            // TalkBack reads one "SMS code, 6 digits, edit box" instead of a
-            // stray label followed by an unnamed box (the bb_job_card pattern).
-            child: MergeSemantics(
-              child: Semantics(
-                label: kOtpFieldSemanticLabel,
-                child: TextField(
-                  key: const Key('otpCodeField'),
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  // Single-purpose screen: the worker arrives here to type one
-                  // thing, so the keyboard is up without a hunt for the field.
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  textAlignVertical: TextAlignVertical.center,
-                  // Digits only, capped at the length the API mints — so a
-                  // pasted "Your OTP is 123456" cannot land as-is, and a stray
-                  // 7th digit cannot silently push the code out of range.
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(kOtpLength),
-                  ],
-                  // iOS: this is the whole auto-fill story — the OS surfaces the
-                  // SMS code above the keyboard natively. Android ignores it
-                  // unless an autofill service handles SMS OTP, which is why the
-                  // real Android path is SmsOtpAutofill (Play Services User
-                  // Consent) wired in initState.
-                  autofillHints: const <String>[AutofillHints.oneTimeCode],
-                  // Long-press → Paste stays alive; it is how a worker who
-                  // switched to the SMS app gets the code back here.
-                  enableInteractiveSelection: true,
-                  // The caret would sit at the centre of the row, nowhere near
-                  // the cell being filled. The active cell's ring is the caret.
-                  showCursor: false,
-                  cursorColor: Colors.transparent,
-                  style: OnboardingTypography.otpDigit(
-                    color: Colors.transparent,
-                  ),
-                  decoration: const InputDecoration(
-                    counterText: '',
-                    filled: false,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
+    return OtpCodeField(
+      controller: _controller,
+      focusNode: _focusNode,
+      length: kOtpLength,
+      fieldKey: const Key('otpCodeField'),
+      semanticLabel: kOtpFieldSemanticLabel,
+      // The kit field works without a caret (its navy ring IS the cursor). This
+      // screen passes the PIN rows' blinking bar so the OTP boxes and the PIN
+      // boxes one screen later behave identically — including the frozen-caret
+      // test seam, which is why it is injected rather than imported there.
+      caretBuilder: (double height) => BbPinCaret(
+        color: OnboardingColors.shiftBlue,
+        height: height,
+        caretKey: kOtpCaretKey,
+      ),
     );
   }
 
@@ -532,7 +459,10 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// SAYS how long is left: a dead button with no explanation reads as a broken
   /// app to a first-time worker, who then reinstalls or gives up.
   Widget _buildResend(
-      BuildContext context, OtpVerifyState state, String phone) {
+    BuildContext context,
+    OtpVerifyState state,
+    String phone,
+  ) {
     final bool canResend = _cooldown == 0 && !state.isResending;
     final Widget label;
     if (_cooldown > 0) {
@@ -578,10 +508,14 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
         ),
       );
     }
-    return SizedBox(
-      // Full tap height even while disabled, so the row does not resize when it
-      // re-arms and shove the Verify button under the worker's thumb mid-tap.
-      height: 48,
+    return ConstrainedBox(
+      // A FLOOR, not a cap. 48 keeps the tap height even while disabled, so the
+      // row does not resize when it re-arms and shove the Verify button under
+      // the worker's thumb mid-tap — but a fixed `height: 48` also CAPPED it,
+      // and at a 2.0 system font 'Resend code in 0:29' wraps to two lines
+      // (~72dp) and the second line, the timer itself, was cut through the
+      // digits. The one thing this row exists to say.
+      constraints: const BoxConstraints(minHeight: 48),
       child: Align(
         alignment: Alignment.centerLeft,
         child: TextButton(
@@ -592,8 +526,8 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
           ),
           onPressed: canResend
               ? () => unawaited(
-                    context.read<OtpVerifyCubit>().resend(phone: phone),
-                  )
+                  context.read<OtpVerifyCubit>().resend(phone: phone),
+                )
               : null,
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -617,77 +551,4 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
   /// `29` → `0:29`, `75` → `1:15` — the kit's timer format.
   static String _formatCooldown(int seconds) =>
       '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
-}
-
-/// The painted OTP cells. Decoration only — it is handed the code the real
-/// field already holds and never owns or mutates it.
-///
-/// Onboarding kit boxes: white, 12 radius, a 1.2px `borderDefault` hairline,
-/// and on the box being typed into a 1.8px `borderActive` ring plus the same
-/// blinking caret the PIN rows use.
-class _OtpCells extends StatelessWidget {
-  const _OtpCells({
-    required this.code,
-    required this.focused,
-    required this.boxWidth,
-    required this.boxHeight,
-  });
-
-  /// The digits typed so far. NOT persisted, NOT logged, NOT put in cubit
-  /// state (CLAUDE.md §2): a one-time code in an error dump is a credential.
-  final String code;
-
-  /// Whether the real field has focus — only then does a box show the ring.
-  final bool focused;
-  final double boxWidth;
-  final double boxHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: <Widget>[
-        for (int i = 0; i < kOtpLength; i++) _cell(i),
-      ],
-    );
-  }
-
-  Widget _cell(int index) {
-    final bool filled = index < code.length;
-    // The next empty box is the one being typed into; once the code is full
-    // the ring stays on the last box rather than vanishing off the end.
-    final bool active = focused &&
-        index == (code.length >= kOtpLength ? kOtpLength - 1 : code.length);
-    final Widget? child;
-    if (filled) {
-      child = FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text(code[index], style: OnboardingTypography.otpDigit()),
-      );
-    } else if (active) {
-      child = BbPinCaret(
-        color: OnboardingColors.shiftBlue,
-        height: boxHeight * 0.45,
-        caretKey: kOtpCaretKey,
-      );
-    } else {
-      child = null;
-    }
-    return Container(
-      width: boxWidth,
-      height: boxHeight,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        borderRadius: BorderRadius.circular(OnboardingRadii.otpBox),
-        border: Border.all(
-          color: active
-              ? OnboardingColors.borderActive
-              : OnboardingColors.borderDefault,
-          width: active ? 1.8 : 1.2,
-        ),
-      ),
-      child: child,
-    );
-  }
 }

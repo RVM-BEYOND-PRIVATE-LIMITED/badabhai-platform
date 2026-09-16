@@ -8,8 +8,10 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/education_label.dart';
+import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
@@ -21,10 +23,6 @@ import 'cubit/profile_cubit.dart';
 
 /// Corner radius of one confirm-row card (Master UI Kit: "white r14 cards").
 const double _kConfirmRowRadius = 14;
-
-/// Corner radius of the outlined secondary button — matches the 12px radius of
-/// [QuestionnaireBottomBar]'s yellow next button it sits beside.
-const double _kSecondaryButtonRadius = 12;
 
 class ProfilePreviewScreen extends StatelessWidget {
   const ProfilePreviewScreen({super.key});
@@ -70,7 +68,9 @@ class _ProfileViewState extends State<_ProfileView> {
     // after the frame, same reason as `BbScaffold.dispose`: writing the
     // (listened) notifier synchronously here would markNeedsBuild the FAB
     // overlay mid-build.
-    WidgetsBinding.instance.addPostFrameCallback((_) => bottomBarInset.value = 0);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => bottomBarInset.value = 0,
+    );
     super.dispose();
   }
 
@@ -86,8 +86,7 @@ class _ProfileViewState extends State<_ProfileView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final double measured = _bottomBarKey.currentContext?.size?.height ?? 0;
-      bottomBarInset.value =
-          hasBar ? math.max(0, measured - systemInset) : 0;
+      bottomBarInset.value = hasBar ? math.max(0, measured - systemInset) : 0;
     });
   }
 
@@ -112,9 +111,11 @@ class _ProfileViewState extends State<_ProfileView> {
           // work-history + preferences, THEN generates the resume (Building)
           // and enters the shell. context.go clears the onboarding stack
           // (point of no return).
-          context.go(state.routeTarget == ProfileRouteTarget.tradeForm
-              ? Routes.tradeForm
-              : Routes.finishing);
+          context.go(
+            state.routeTarget == ProfileRouteTarget.tradeForm
+                ? Routes.tradeForm
+                : Routes.finishing,
+          );
           return;
         }
         final Failure? failed = state.confirmFailure;
@@ -129,7 +130,8 @@ class _ProfileViewState extends State<_ProfileView> {
         }
       },
       builder: (BuildContext context, ProfileState state) {
-        final bool isReady = state.status == ProfileStatus.ready ||
+        final bool isReady =
+            state.status == ProfileStatus.ready ||
             state.status == ProfileStatus.confirmed;
         _syncBottomInset(
           hasBar: isReady,
@@ -147,8 +149,9 @@ class _ProfileViewState extends State<_ProfileView> {
                 // The ready view asks its question in the header; every other
                 // status keeps the screen's plain title.
                 title: isReady ? 'Yeh sahi hai?' : 'Your profile',
-                subtitle:
-                    isReady ? 'Neeche di gayi jaankari confirm karein.' : null,
+                subtitle: isReady
+                    ? 'Neeche di gayi jaankari confirm karein.'
+                    : null,
                 onBack: canGoBack ? () => Navigator.maybePop(context) : null,
               ),
               Expanded(
@@ -163,8 +166,7 @@ class _ProfileViewState extends State<_ProfileView> {
                     ProfileStatus.routing => const _ProgressPanel(),
                     ProfileStatus.failed => _buildFailed(context, state),
                     ProfileStatus.draft => _buildDraft(context),
-                    ProfileStatus.ready ||
-                    ProfileStatus.confirmed =>
+                    ProfileStatus.ready || ProfileStatus.confirmed =>
                       _buildProfile(context, state.summary),
                   },
                 ),
@@ -244,7 +246,8 @@ class _ProfileViewState extends State<_ProfileView> {
       iconColor: OnboardingColors.shiftBlue,
       iconBackground: OnboardingColors.cardIconBg,
       title: 'Thodi aur detail chahiye.',
-      subtitle: 'Bada Bhai aapki poori profile banane ke liye thoda aur jaanna '
+      subtitle:
+          'Bada Bhai aapki poori profile banane ke liye thoda aur jaanna '
           'chahta hai. Chaliye do-teen baatein aur bata dijiye.',
       actions: <Widget>[
         PrimaryActionButton(
@@ -281,11 +284,10 @@ class _ProfileViewState extends State<_ProfileView> {
       // rows — and still let the worker confirm (the profile does exist).
       rows.add(const _ConfirmRow(label: 'Profile', value: 'Ready'));
     } else {
-      final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
-          ? summary.tradeLabel!
-          : 'Tayyar ho raha hai…';
-      final String? city =
-          (summary.city?.isNotEmpty ?? false) ? summary.city : null;
+      final String trade = _tradeText(summary) ?? 'Tayyar ho raha hai…';
+      final String? city = (summary.city?.isNotEmpty ?? false)
+          ? summary.city
+          : null;
       // PII-free education labels — shown only when present, never fabricated.
       final String? education = _educationLabel(summary);
 
@@ -297,17 +299,19 @@ class _ProfileViewState extends State<_ProfileView> {
       // renders the row.
       final List<({String label, String value, bool editable})> specs =
           <({String label, String value, bool editable})>[
-        (label: 'Trade', value: trade, editable: true),
-        if (city != null) (label: 'City', value: city, editable: true),
-        if (education != null)
-          (label: 'Education', value: education, editable: true),
-      ];
+            (label: 'Trade', value: trade, editable: true),
+            if (city != null) (label: 'City', value: city, editable: true),
+            if (education != null)
+              (label: 'Education', value: education, editable: true),
+          ];
       for (final ({String label, String value, bool editable}) s in specs) {
-        rows.add(_ConfirmRow(
-          label: s.label,
-          value: s.value,
-          onEdit: s.editable ? () => _backToChat(context) : null,
-        ));
+        rows.add(
+          _ConfirmRow(
+            label: s.label,
+            value: s.value,
+            onEdit: s.editable ? () => _backToChat(context) : null,
+          ),
+        );
       }
     }
 
@@ -333,6 +337,23 @@ class _ProfileViewState extends State<_ProfileView> {
   }
 }
 
+/// The trade line, guaranteed worker-readable (D11: no raw id, slug or enum
+/// ever reaches a screen).
+///
+/// `trade.display_name` is normally already a label ('Welder', 'CNC operator
+/// and VMC setter'), and a label is returned UNTOUCHED — re-casing a real
+/// sentence would mangle it. Only a token-shaped value is humanised
+/// (`cnc_turner` → 'CNC Turner'), and an INTERNAL id (`role_welder`,
+/// `mskill_*`) returns null so the caller shows the honest "being finalised"
+/// line instead of an id the worker cannot read.
+String? _tradeText(ProfileSummary summary) {
+  final String raw = summary.tradeLabel?.trim() ?? '';
+  if (raw.isEmpty) return null;
+  if (!raw.contains('_')) return raw;
+  final String label = tradeKeyLabel(raw);
+  return label.isEmpty ? null : label;
+}
+
 /// "12th • Electronics" / "12th" / "Electronics"; `null` when both are absent so
 /// the preview row is omitted entirely. PII-free labels, never fabricated.
 String? _educationLabel(ProfileSummary s) {
@@ -349,11 +370,7 @@ String? _educationLabel(ProfileSummary s) {
 /// optional edit glyph. When [onEdit] is set the whole card is the tap target
 /// (≥48px), routing back to the chat to change the fact.
 class _ConfirmRow extends StatelessWidget {
-  const _ConfirmRow({
-    required this.label,
-    required this.value,
-    this.onEdit,
-  });
+  const _ConfirmRow({required this.label, required this.value, this.onEdit});
 
   final String label;
   final String value;
@@ -362,8 +379,7 @@ class _ConfirmRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget content = ConstrainedBox(
-      constraints:
-          const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
+      constraints: const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -373,7 +389,15 @@ class _ConfirmRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  Text(label, style: OnboardingTypography.fieldMicroLabel()),
+                  // UPPERCASED at the display edge, like every other §1.2
+                  // field micro-label in the app ('MOBILE NUMBER', 'PEHLA
+                  // NAAM', 'AAPKI BAAT'). Title Case here made the one screen
+                  // that confirms a worker's own facts read as a different
+                  // form family.
+                  Text(
+                    label.toUpperCase(),
+                    style: OnboardingTypography.fieldMicroLabel(),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     value,
@@ -413,8 +437,9 @@ class _ConfirmRow extends StatelessWidget {
   }
 }
 
-/// The kit's white outlined secondary action: shiftBlue border, r12, 48px tall,
-/// shiftBlue Anek label (and optional leading icon). Sized to its label unless
+/// The kit's white outlined secondary action ([KitButtonStyles.outline]): navy
+/// border, r12, 48px tall, navy Anek label (and optional leading icon). Sized
+/// to its label unless
 /// [expand], so it can sit as [QuestionnaireBottomBar.leading] beside the yellow
 /// next button.
 class _SecondaryButton extends StatelessWidget {
@@ -443,17 +468,10 @@ class _SecondaryButton extends StatelessWidget {
             HapticFeedback.lightImpact();
             onPressed();
           },
-          style: OutlinedButton.styleFrom(
-            backgroundColor: OnboardingColors.paperWhite,
-            foregroundColor: OnboardingColors.shiftBlue,
-            side: const BorderSide(color: OnboardingColors.shiftBlue, width: 1.5),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            minimumSize: const Size(OnboardingLayout.tapTarget,
-                OnboardingLayout.tapTarget),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(_kSecondaryButtonRadius),
-            ),
-          ),
+          // The shared v3 outline paint (white fill, navy 1.5 border, navy
+          // Anek label, r12, 48dp floor) — one source, so this button cannot
+          // drift from the yellow next button it sits beside.
+          style: KitButtonStyles.outline,
           child: FittedBox(
             fit: BoxFit.scaleDown,
             child: Row(
@@ -484,8 +502,7 @@ class _ProgressPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
+    return _CentredBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
@@ -517,6 +534,46 @@ class _ProgressPanel extends StatelessWidget {
   }
 }
 
+/// Vertically centres a short panel, scrolls a tall one, and caps the column at
+/// [OnboardingLayout.maxContentWidth] on a tablet or a landscape phone.
+///
+/// NOT [OnboardingBody]`(fillViewport: true)`, deliberately — the same reason
+/// the voice-note screen records. That widget reaches the contract through an
+/// [IntrinsicHeight], which exists so a column of `Spacer`s can centre on a
+/// tall screen; intrinsics cannot be measured through a [LayoutBuilder], and
+/// these panels contain them. Nothing here uses a `Spacer`, so a [Column]
+/// inside a `minHeight` box already sizes to `max(its content, the viewport)`.
+class _CentredBody extends StatelessWidget {
+  const _CentredBody({required this.child});
+
+  static const EdgeInsets _padding = EdgeInsets.all(20);
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double minHeight = constraints.maxHeight.isFinite
+            ? math.max(0, constraints.maxHeight - _padding.vertical)
+            : 0.0;
+        return SingleChildScrollView(
+          padding: _padding,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: minHeight,
+                maxWidth: OnboardingLayout.maxContentWidth,
+              ),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// A centred icon disc + title + subtitle + actions — the failed and draft
 /// views, in kit colours. Scrolls, so it never overflows on a small phone.
 class _StatusPanel extends StatelessWidget {
@@ -538,21 +595,22 @@ class _StatusPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
+    return _CentredBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Center(
             child: Container(
-              width: 72,
-              height: 72,
+              // The kit's status disc (D12 / [BbStatusView]): 54 with a 28dp
+              // glyph, so a status view reads the same size everywhere.
+              width: 54,
+              height: 54,
               decoration: BoxDecoration(
                 color: iconBackground,
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 36, color: iconColor),
+              child: Icon(icon, size: 28, color: iconColor),
             ),
           ),
           const SizedBox(height: 16),

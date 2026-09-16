@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
@@ -41,6 +42,55 @@ String _stepBadge(int position, int total, String category) =>
     category.isEmpty
         ? 'Step $position of $total'
         : 'Step $position of $total • $category';
+
+/// Whether the keyboard has left too little room for this screen's full
+/// chrome — the navy header, the STEP line AND the progress strip — above the
+/// docked bar.
+///
+/// MEASURED, not guessed: on a 320x568 handset at a 200% system font with the
+/// keyboard up, the form-flow header (223dp), the progress strip (67dp) and
+/// the docked bar (81dp) come to 371dp of chrome in the 308dp the keyboard
+/// leaves. The scrollable question then gets 0dp and the docked bar overflows
+/// the column — a red error band under the worker's thumb. So while the
+/// keyboard crowds the screen the chrome sheds the two parts that are pure
+/// context (the STEP line and the strip, which say the same thing twice) and
+/// keeps the parts the worker is using: the question, the field and the
+/// action. Both come straight back when the keyboard closes.
+///
+/// CALL THIS ABOVE THE SCAFFOLD — from the widget that BUILDS it, as both
+/// callers do. A [Scaffold] with the default `resizeToAvoidBottomInset`
+/// consumes `viewInsets.bottom` and hands its body a shorter box with the
+/// inset zeroed, so the same question asked inside the body always answers 0.
+///
+/// [MediaQuery] rather than `View.of`, deliberately: reading the window gives
+/// the right number but subscribes to nothing, so the build that read it never
+/// re-runs when the keyboard opens — the chrome would only collapse if some
+/// other rebuild happened to follow. `viewInsetsOf`/`sizeOf` register the two
+/// dependencies, so the keyboard appearing IS the rebuild.
+///
+/// Duplicated verbatim in `features/finishing/presentation/finishing_screen.dart`,
+/// whose wizard has the identical header + strip + docked-bar column; keep
+/// both in sync if this ever changes.
+bool _keyboardCrowdsChrome(BuildContext context) {
+  final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+  if (keyboard <= 0) return false;
+  return MediaQuery.sizeOf(context).height - keyboard < 480;
+}
+
+/// Whether the HEADER should fall back to the kit's collapsed drawing.
+///
+/// A superset of [_keyboardCrowdsChrome]: the keyboard is one way to run out of
+/// vertical space, a 320x568 handset at a 2.0 system font is another. There the
+/// approved form-flow header measured 266dp and the strip another 65 — 58% of
+/// the screen — so the page opened with NO answer control on it and the worker
+/// had to scroll blind past a question to find the options.
+///
+/// R14 keeps the DRAWING, not the height: the progress strip, the traced option
+/// glyphs, the hint chip and the decline link all stay (they are gated on
+/// [_keyboardCrowdsChrome], not on this), and on any screen with room the
+/// approved header is what ships.
+bool _chromeCrowdsChrome(BuildContext context) =>
+    _keyboardCrowdsChrome(context) || chromeCrowdsViewport(context);
 
 /// (category, topic) for the header's step line and the progress strip —
 /// from the question's own key, or the marker page's fixed pair. Labels only:
@@ -135,6 +185,7 @@ class _StatusScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool crowded = _keyboardCrowdsChrome(context);
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
       body: Column(
@@ -142,7 +193,14 @@ class _StatusScaffold extends StatelessWidget {
           ShiftBlueHeader(
             title: title,
             onBack: () => context.pop(),
-            variant: OnboardingVariant.formFlow,
+            // The approved form-flow drawing, except on a keyboard-crowded
+            // short screen where it alone is taller than the viewport — see
+            // [_keyboardCrowdsChrome].
+            variant: crowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: crowded,
+            autoCompact: false,
           ),
           Expanded(child: SafeArea(top: false, child: child)),
         ],
@@ -151,26 +209,13 @@ class _StatusScaffold extends StatelessWidget {
   }
 }
 
+/// The kit's captioned loader ([BbStatusView.loading]) — the app's one loading
+/// drawing (decision D12), not a fourth local spinner.
 class _LoadingBody extends StatelessWidget {
   const _LoadingBody();
   @override
-  Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const CircularProgressIndicator(color: OnboardingColors.shiftBlue),
-          const SizedBox(height: 16),
-          Text(
-            _kLoading,
-            textAlign: TextAlign.center,
-            style: OnboardingTypography.bodyMuted(),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const BbStatusView.loading(caption: _kLoading);
 }
 
 /// The honest "nothing to fill here" state for a 404 — DISTINCT from a blank
@@ -180,25 +225,19 @@ class _NoFormBody extends StatelessWidget {
   const _NoFormBody();
   @override
   Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            _kNoFormTitle,
-            textAlign: TextAlign.center,
-            style: OnboardingTypography.questionHeadline(),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _kNoFormBody,
-            textAlign: TextAlign.center,
-            style: OnboardingTypography.bodyMuted(),
-          ),
-        ],
-      ),
+    // The kit's status view (decision D12): the 54dp informational disc, the
+    // Anek title and the muted line, centred while there is room and SCROLLED
+    // when there is not. The copy is unchanged.
+    //
+    // It replaces a local `OnboardingBody(fillViewport: true)` column, which
+    // sized itself through `IntrinsicHeight`: a Text reports its intrinsic
+    // height for ONE unwrapped line, so on a landscape phone at a 2.0 system
+    // font the box came out 36dp shorter than the wrapped copy and the state
+    // overflowed instead of scrolling.
+    return const BbStatusView(
+      icon: Icons.inbox_outlined,
+      title: _kNoFormTitle,
+      subtitle: _kNoFormBody,
     );
   }
 }
@@ -210,25 +249,17 @@ class _ErrorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: OnboardingTypography.body(),
-          ),
-          const SizedBox(height: 16),
-          // The screen's only action — the kit's single hero CTA.
-          PrimaryActionButton(
-            label: _kRetry,
-            showArrow: false,
-            onPressed: onRetry,
-          ),
-        ],
+    // The kit's status view (decision D12), scroll-safe at every text scale.
+    // The TITLE is the server's real reason — never a generic "kuch galat ho
+    // gaya" over the top of it — and the retry stays the kit's hero CTA.
+    return BbStatusView(
+      icon: Icons.cloud_off_rounded,
+      iconColor: OnboardingColors.errorRed,
+      title: message,
+      action: PrimaryActionButton(
+        label: _kRetry,
+        showArrow: false,
+        onPressed: onRetry,
       ),
     );
   }
@@ -465,6 +496,12 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     final int position = state.visiblePosition;
 
     final (String category, String topic) = _topicFor(step);
+    // The keyboard is up on a short screen: the chrome sheds its two
+    // context-only parts so the question, the field and the docked action
+    // still fit. See [_keyboardCrowdsChrome] for the measurement.
+    final bool crowded = _keyboardCrowdsChrome(context);
+    // The header collapses on a short screen too, not only under a keyboard.
+    final bool headerCrowded = _chromeCrowdsChrome(context);
 
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
@@ -473,8 +510,19 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
           ShiftBlueHeader(
             title: state.currentSectionTitle ?? '',
             titleColor: OnboardingColors.safetyYellow,
-            variant: OnboardingVariant.formFlow,
-            stepBadge: total == 0 ? null : _stepBadge(position, total, category),
+            // The form-flow drawing is the one the user approved, so it is
+            // what ships — EXCEPT while the keyboard crowds a short screen,
+            // where it does not fit at all (see [_keyboardCrowdsChrome]).
+            // There the header falls back to the kit's collapsed drawing
+            // (back arrow + one-line title on a single row), which is the
+            // same collapse every other screen in the app already does.
+            variant: headerCrowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: headerCrowded,
+            stepBadge: (total == 0 || crowded)
+                ? null
+                : _stepBadge(position, total, category),
             // #1384 item 2 — a marker mid-way through its own internal pages
             // walks BACKWARD through those first; only once it is back on
             // its own first internal page does the SAME back arrow fall
@@ -485,7 +533,11 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                 : (state.isFirstStep ? () => context.pop() : cubit.goBack),
           ),
           // Full width, directly under the header — outside the body padding.
-          FormProgressStrip(topic: topic, position: position, total: total),
+          // Hidden only while the keyboard crowds the screen (see
+          // [_keyboardCrowdsChrome]); it is the same progress the STEP line
+          // states, and a worker mid-typing is reading their own words.
+          if (!crowded)
+            FormProgressStrip(topic: topic, position: position, total: total),
           Expanded(
             // Bottom inset is handed to the docked bar itself
             // (`QuestionnaireBottomBar` pads for it), so its white ground

@@ -171,10 +171,14 @@ class OptionRadio extends StatelessWidget {
   }
 }
 
-/// An empty indicator's grey ring; a selected one's yellow ring — which the
-/// form flow drops, leaving the navy fill alone.
+/// An empty indicator's grey ring; a selected one's yellow ring.
+///
+/// The yellow ring is now drawn in EVERY variant. The v3 strict guideline reads
+/// "checkbox active = navy fill + yellow border + yellow tick", and the form
+/// flow used to drop the border on a ticked box — so the one control a worker
+/// looks at to confirm what they picked was drawn two different ways in one
+/// app. [form] is kept because the SIZE still differs per variant.
 Border? _indicatorBorder({required bool isSelected, required bool form}) {
-  if (isSelected && form) return null;
   return Border.all(
     color: isSelected
         ? OnboardingColors.safetyYellow
@@ -214,11 +218,7 @@ class OptionIconTile extends StatelessWidget {
           form ? FormFlowLayout.tileRadius : 10,
         ),
       ),
-      child: Icon(
-        icon,
-        size: FormFlowLayout.tileGlyphSize,
-        color: glyph,
-      ),
+      child: Icon(icon, size: FormFlowLayout.tileGlyphSize, color: glyph),
     );
   }
 }
@@ -252,8 +252,9 @@ class _SelectionCardShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool form = variant == OnboardingVariant.formFlow;
-    final BorderRadius radius =
-        BorderRadius.circular(FormFlowLayout.cardRadius);
+    final BorderRadius radius = BorderRadius.circular(
+      FormFlowLayout.cardRadius,
+    );
     final BorderSide side = BorderSide(
       color: isSelected
           ? OnboardingColors.safetyYellow
@@ -318,7 +319,8 @@ class _SelectionCardShell extends StatelessWidget {
                                   weight: FontWeight.w700,
                                 ),
                         ),
-                        if (subtitle != null && subtitle!.isNotEmpty) ...<Widget>[
+                        if (subtitle != null &&
+                            subtitle!.isNotEmpty) ...<Widget>[
                           const SizedBox(height: 3),
                           Text(subtitle!, style: _subtitleStyle(form)),
                         ],

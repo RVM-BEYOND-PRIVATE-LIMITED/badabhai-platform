@@ -43,10 +43,14 @@ IconData tradeFormOptionIcon({
 /// Nothing here carries behaviour of its own: every widget is a paint over a
 /// callback its caller already owned before the redesign.
 
-/// The kit's input look — white, 10 radius, 1.2px `borderDefault`, the yellow
-/// `borderActive` focus ring, Inter — as an [InputDecoration], shared by
-/// [TradeFormTextField] and the question screen's search box so the two can
-/// never drift apart.
+/// The kit's input look — white, 10 radius, 1.2px `borderDefault`, a navy
+/// focus ring, Inter — as an [InputDecoration], shared by [TradeFormTextField]
+/// and the question screen's search box so the two can never drift apart.
+///
+/// UI kit v3, decision D8: FOCUS is `shiftBlue` at 1.8 (the spec's only focus
+/// rule, §3.3's OTP cell). Safety yellow is reserved for SELECTED — a picked
+/// card, a ticked checkbox, a chosen chip — so a caret resting in a field can
+/// never read as an answer already given.
 InputDecoration tradeFormInputDecoration({
   required String hint,
   String? errorText,
@@ -78,7 +82,7 @@ InputDecoration tradeFormInputDecoration({
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
     border: border(OnboardingColors.borderDefault, 1.2),
     enabledBorder: border(OnboardingColors.borderDefault, 1.2),
-    focusedBorder: border(OnboardingColors.borderActive, 1.5),
+    focusedBorder: border(OnboardingColors.shiftBlue, 1.8),
     errorBorder: border(OnboardingColors.errorRed, 1.5),
     focusedErrorBorder: border(OnboardingColors.errorRed, 1.5),
     disabledBorder: border(OnboardingColors.borderSubtle, 1.2),

@@ -72,9 +72,14 @@ class FormProgressStrip extends StatelessWidget {
                         Row(
                           children: <Widget>[
                             Expanded(
+                              // TWO lines: at 320 with a large system font
+                              // every real section label truncated
+                              // ('LANGUAGES SPO…', 'MACHINES & EQU…'), so the
+                              // strip never told the worker which section they
+                              // were in — the one thing it is for.
                               child: Text(
                                 topic.toUpperCase(),
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: OnboardingTypography.formStripLabel(),
                               ),

@@ -42,10 +42,7 @@ class _StubHttpClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     requested.add(request.url);
-    return http.StreamedResponse(
-      Stream<List<int>>.value(body),
-      statusCode,
-    );
+    return http.StreamedResponse(Stream<List<int>>.value(body), statusCode);
   }
 }
 
@@ -72,11 +69,13 @@ class _SharedDocument {
 void main() {
   /// The signed credential the API mints. Its token is deliberately a
   /// searchable sentinel: every test asserts it never reaches the share sheet.
-  const String signedUrl = 'https://storage.example.test/resumes/r-1.pdf'
+  const String signedUrl =
+      'https://storage.example.test/resumes/r-1.pdf'
       '?token=SIGNED-SECRET-SIGNATURE&expires=9999';
 
-  final Uint8List pdfBytes =
-      Uint8List.fromList(utf8.encode('%PDF-1.4 pretend resume bytes'));
+  final Uint8List pdfBytes = Uint8List.fromList(
+    utf8.encode('%PDF-1.4 pretend resume bytes'),
+  );
 
   late MockResumeRepository repo;
   late MockResumeEditRepository editRepo;
@@ -104,14 +103,18 @@ void main() {
     when(() => repo.reportShared(any())).thenAnswer((_) async {});
     // #1343 — the ordinary answer; this file exercises the share flow, not the
     // structured-document render (see resume_document_render_test.dart).
-    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
+    when(
+      () => repo.loadResumeDocument(),
+    ).thenAnswer((_) async => const ResumeDocumentSnapshot());
     // Collapsed to a single attempt (matches the pre-retry behaviour
     // exactly) — a real retry against the null mock above would leave a
     // pending Timer past this file's fixed pump counts and trip the
     // widget-test binding's `!timersPending` assertion.
     ResumeCubit.documentPollMaxAttempts = 1;
     ResumeCubit.documentPollInterval = Duration.zero;
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
+    locator.registerFactory<ResumeCubit>(
+      () => ResumeCubit(repo, editRepo, MockProfileRepository()),
+    );
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     // The share button reads the worker's name from here to name the document.
@@ -138,230 +141,266 @@ void main() {
   /// "other" channel). Reporting tests pass a dismissed / WhatsApp result.
   Future<void> pumpShareButton(
     WidgetTester tester, {
-    ShareResult shareResult =
-        const ShareResult('com.example.other', ShareResultStatus.success),
+    ShareResult shareResult = const ShareResult(
+      'com.example.other',
+      ShareResultStatus.success,
+    ),
   }) async {
     sizeView(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: BlocProvider<ResumeCubit>(
-        create: (_) => locator<ResumeCubit>()..showGenerated('MOCK RESUME BODY'),
-        child: Scaffold(
-          body: ResumeShareButton(
-            httpClient: client,
-            share: ({
-              required Uint8List bytes,
-              required String fileName,
-              required String text,
-            }) async {
-              shared.add(_SharedDocument(
-                bytes: bytes,
-                fileName: fileName,
-                text: text,
-              ));
-              return shareResult;
-            },
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: BlocProvider<ResumeCubit>(
+          create: (_) =>
+              locator<ResumeCubit>()..showGenerated('MOCK RESUME BODY'),
+          child: Scaffold(
+            body: ResumeShareButton(
+              httpClient: client,
+              share:
+                  ({
+                    required Uint8List bytes,
+                    required String fileName,
+                    required String text,
+                  }) async {
+                    shared.add(
+                      _SharedDocument(
+                        bytes: bytes,
+                        fileName: fileName,
+                        text: text,
+                      ),
+                    );
+                    return shareResult;
+                  },
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pump();
   }
 
   testWidgets(
-      'the share affordance renders on the resume card, alongside Download',
-      (WidgetTester tester) async {
-    sizeView(tester);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: const ResumePreviewScreen(initialResume: 'MOCK RESUME BODY'),
-    ));
-    await tester.pump();
-    await tester.pump();
+    'the share affordance renders on the resume card, alongside Download',
+    (WidgetTester tester) async {
+      sizeView(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: const ResumePreviewScreen(initialResume: 'MOCK RESUME BODY'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
 
-    // The parity gap #336 named: the worker could save the PDF but had no way
-    // to send it to the factory owner who asked for it.
-    expect(find.widgetWithText(BbButton, kResumeShareLabel), findsOneWidget);
-    // …and it is ADDITIVE — Download and Edit are untouched.
-    expect(find.widgetWithText(BbButton, 'PDF download karein'), findsOneWidget);
-    expect(find.widgetWithText(BbButton, 'Edit resume'), findsOneWidget);
-  });
-
-  testWidgets(
-      'shares the PDF FILE — bytes + the derived document name — and the '
-      'signed url never crosses the share boundary (#354)',
-      (WidgetTester tester) async {
-    when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
-    await pumpShareButton(tester);
-
-    await tester.tap(find.text(kResumeShareLabel));
-    await tester.pumpAndSettle();
-
-    expect(shared, hasLength(1));
-    final _SharedDocument doc = shared.single;
-
-    // The DOCUMENT ITSELF travelled — the factory owner opens a PDF, not a link.
-    expect(doc.bytes, pdfBytes);
-    // Named from the worker's OWN name, so the chat shows whose resume it is.
-    expect(doc.fileName, 'RAMESH_KUMAR_RESUME.pdf');
-
-    // #354 — the credential must appear NOWHERE in what left the app. A signed
-    // url in a chat thread is forwardable forever and pulls the worker's resume
-    // until the signature expires.
-    expect(doc.text, isNot(contains('SIGNED-SECRET-SIGNATURE')));
-    expect(doc.text, isNot(contains('http')));
-    expect(doc.fileName, isNot(contains('SIGNED-SECRET-SIGNATURE')));
-    expect(utf8.decode(doc.bytes), isNot(contains('SIGNED-SECRET-SIGNATURE')));
-
-    // The url WAS spent — in-app, on exactly one byte fetch.
-    expect(client.requested, <Uri>[Uri.parse(signedUrl)]);
-  });
+      // The parity gap #336 named: the worker could save the PDF but had no way
+      // to send it to the factory owner who asked for it.
+      expect(find.widgetWithText(BbButton, kResumeShareLabel), findsOneWidget);
+      // …and it is ADDITIVE — Download and Edit are untouched.
+      expect(
+        find.widgetWithText(BbButton, 'PDF download karein'),
+        findsOneWidget,
+      );
+      // The edit affordance moved into the profile card's name row (spec §4),
+      // where it reads 'Edit' and carries the full accessible name
+      // 'Edit resume' (asserted in resume_tab_data_rules_test.dart).
+      expect(find.byKey(const Key('resume-edit-button')), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
+    },
+  );
 
   testWidgets(
-      'never downloaded: share mints and fetches the PDF itself — busy button, '
-      'honest "taiyaar kar rahe hain" notice, then a real file. No dead button, '
-      'no silent no-op', (WidgetTester tester) async {
-    // Gate the mint so the in-between state is deterministically observable.
-    final Completer<String> urlGate = Completer<String>();
-    when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
-    await pumpShareButton(tester);
+    'shares the PDF FILE — bytes + the derived document name — and the '
+    'signed url never crosses the share boundary (#354)',
+    (WidgetTester tester) async {
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      await pumpShareButton(tester);
 
-    // Download was NEVER tapped — nothing is staged in Downloads.
-    await tester.tap(find.text(kResumeShareLabel));
-    await tester.pump();
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
 
-    expect(find.text(kResumeSharePreparingNotice), findsOneWidget);
-    expect(
-      tester
-          .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
-          .loading,
-      isTrue,
-    );
+      expect(shared, hasLength(1));
+      final _SharedDocument doc = shared.single;
 
-    // A second tap while busy is inert (BbButton drops onPressed) — one sheet,
-    // one fetch.
-    await tester.tap(find.text(kResumeShareLabel), warnIfMissed: false);
-    await tester.pump();
+      // The DOCUMENT ITSELF travelled — the factory owner opens a PDF, not a link.
+      expect(doc.bytes, pdfBytes);
+      // Named from the worker's OWN name, so the chat shows whose resume it is.
+      expect(doc.fileName, 'RAMESH_KUMAR_RESUME.pdf');
 
-    urlGate.complete(signedUrl);
-    await tester.pumpAndSettle();
+      // #354 — the credential must appear NOWHERE in what left the app. A signed
+      // url in a chat thread is forwardable forever and pulls the worker's resume
+      // until the signature expires.
+      expect(doc.text, isNot(contains('SIGNED-SECRET-SIGNATURE')));
+      expect(doc.text, isNot(contains('http')));
+      expect(doc.fileName, isNot(contains('SIGNED-SECRET-SIGNATURE')));
+      expect(
+        utf8.decode(doc.bytes),
+        isNot(contains('SIGNED-SECRET-SIGNATURE')),
+      );
 
-    // Download-then-share resolved on its own: the worker got the file without
-    // ever being told to "download it first".
-    expect(shared, hasLength(1));
-    expect(shared.single.bytes, pdfBytes);
-    verify(() => repo.resumeDownloadUrl()).called(1);
-    expect(client.requested, hasLength(1));
-
-    // Busy state released, and the "taiyaar kar rahe hain" line is gone — the
-    // share sheet is the confirmation, so we don't stack a notice on top of it.
-    expect(
-      tester
-          .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
-          .loading,
-      isFalse,
-    );
-    expect(find.text(kResumeSharePreparingNotice), findsNothing);
-  });
+      // The url WAS spent — in-app, on exactly one byte fetch.
+      expect(client.requested, <Uri>[Uri.parse(signedUrl)]);
+    },
+  );
 
   testWidgets(
-      'a failed mint states the REAL reason and shares NOTHING — never falls '
-      'back to sharing the link', (WidgetTester tester) async {
-    when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
-    await pumpShareButton(tester);
+    'never downloaded: share mints and fetches the PDF itself — busy button, '
+    'honest "taiyaar kar rahe hain" notice, then a real file. No dead button, '
+    'no silent no-op',
+    (WidgetTester tester) async {
+      // Gate the mint so the in-between state is deterministically observable.
+      final Completer<String> urlGate = Completer<String>();
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
+      await pumpShareButton(tester);
 
-    await tester.tap(find.text(kResumeShareLabel));
-    await tester.pumpAndSettle();
+      // Download was NEVER tapped — nothing is staged in Downloads.
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pump();
 
-    // The actual cause ("Session khatam ho gaya…"), not a generic
-    // "check your internet".
-    expect(
-      find.text(failureReason(const UnauthorizedFailure()).reason),
-      findsOneWidget,
-    );
-    expect(shared, isEmpty);
-    expect(client.requested, isEmpty);
-  });
+      expect(find.text(kResumeSharePreparingNotice), findsOneWidget);
+      expect(
+        tester
+            .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
+            .loading,
+        isTrue,
+      );
+
+      // A second tap while busy is inert (BbButton drops onPressed) — one sheet,
+      // one fetch.
+      await tester.tap(find.text(kResumeShareLabel), warnIfMissed: false);
+      await tester.pump();
+
+      urlGate.complete(signedUrl);
+      await tester.pumpAndSettle();
+
+      // Download-then-share resolved on its own: the worker got the file without
+      // ever being told to "download it first".
+      expect(shared, hasLength(1));
+      expect(shared.single.bytes, pdfBytes);
+      verify(() => repo.resumeDownloadUrl()).called(1);
+      expect(client.requested, hasLength(1));
+
+      // Busy state released, and the "taiyaar kar rahe hain" line is gone — the
+      // share sheet is the confirmation, so we don't stack a notice on top of it.
+      expect(
+        tester
+            .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
+            .loading,
+        isFalse,
+      );
+      expect(find.text(kResumeSharePreparingNotice), findsNothing);
+    },
+  );
 
   testWidgets(
-      'a non-200 on the byte fetch surfaces the server status and shares '
-      'nothing', (WidgetTester tester) async {
-    client = _StubHttpClient(statusCode: 404, body: const <int>[]);
-    when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
-    await pumpShareButton(tester);
+    'a failed mint states the REAL reason and shares NOTHING — never falls '
+    'back to sharing the link',
+    (WidgetTester tester) async {
+      when(
+        () => repo.resumeDownloadUrl(),
+      ).thenThrow(const UnauthorizedFailure());
+      await pumpShareButton(tester);
 
-    await tester.tap(find.text(kResumeShareLabel));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
 
-    expect(
-      find.text(failureReason(const ServerFailure(404)).reason),
-      findsOneWidget,
-    );
-    // A half-fetched or empty body must never be passed off as the resume.
-    expect(shared, isEmpty);
-  });
+      // The actual cause ("Session khatam ho gaya…"), not a generic
+      // "check your internet".
+      expect(
+        find.text(failureReason(const UnauthorizedFailure()).reason),
+        findsOneWidget,
+      );
+      expect(shared, isEmpty);
+      expect(client.requested, isEmpty);
+    },
+  );
 
   testWidgets(
-      'mock mode says so instead of sending a corrupt zero-byte "resume"',
-      (WidgetTester tester) async {
-    when(() => repo.resumeDownloadUrl())
-        .thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
-    await pumpShareButton(tester);
+    'a non-200 on the byte fetch surfaces the server status and shares '
+    'nothing',
+    (WidgetTester tester) async {
+      client = _StubHttpClient(statusCode: 404, body: const <int>[]);
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      await pumpShareButton(tester);
 
-    await tester.tap(find.text(kResumeShareLabel));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
 
-    expect(find.text(kResumeShareMockNotice), findsOneWidget);
-    expect(shared, isEmpty);
-    expect(client.requested, isEmpty);
-  });
+      expect(
+        find.text(failureReason(const ServerFailure(404)).reason),
+        findsOneWidget,
+      );
+      // A half-fetched or empty body must never be passed off as the resume.
+      expect(shared, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'mock mode says so instead of sending a corrupt zero-byte "resume"',
+    (WidgetTester tester) async {
+      when(
+        () => repo.resumeDownloadUrl(),
+      ).thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
+      await pumpShareButton(tester);
+
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kResumeShareMockNotice), findsOneWidget);
+      expect(shared, isEmpty);
+      expect(client.requested, isEmpty);
+    },
+  );
 
   // #1317 — the app shares the resume but never told the server, so the
   // `resume.shared` metric read zero by construction. The button now reports it
   // AFTER a completed share, with a closed-enum channel derived from the target.
   group('resume.shared reporting (#1317)', () {
     testWidgets(
-        'a dismissed/cancelled share reports NOTHING — the metric only counts '
-        'shares the worker actually made', (WidgetTester tester) async {
-      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
-      await pumpShareButton(
-        tester,
-        shareResult: const ShareResult('', ShareResultStatus.dismissed),
-      );
+      'a dismissed/cancelled share reports NOTHING — the metric only counts '
+      'shares the worker actually made',
+      (WidgetTester tester) async {
+        when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+        await pumpShareButton(
+          tester,
+          shareResult: const ShareResult('', ShareResultStatus.dismissed),
+        );
 
-      await tester.tap(find.text(kResumeShareLabel));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text(kResumeShareLabel));
+        await tester.pumpAndSettle();
 
-      // The sheet was opened (the PDF was fetched + handed over) but the worker
-      // backed out — so no `resume.shared` is reported.
-      expect(shared, hasLength(1));
-      verifyNever(() => repo.reportShared(any()));
-    });
-
-    testWidgets(
-        'a completed WhatsApp share reports resume.shared ONCE with channel '
-        '"whatsapp"', (WidgetTester tester) async {
-      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
-      await pumpShareButton(
-        tester,
-        // `raw` names the chosen app; a WhatsApp target maps to the "whatsapp"
-        // channel (case-insensitive substring).
-        shareResult: const ShareResult(
-          'com.whatsapp.ContactPicker',
-          ShareResultStatus.success,
-        ),
-      );
-
-      await tester.tap(find.text(kResumeShareLabel));
-      await tester.pumpAndSettle();
-
-      expect(shared, hasLength(1));
-      verify(() => repo.reportShared('whatsapp')).called(1);
-    });
+        // The sheet was opened (the PDF was fetched + handed over) but the worker
+        // backed out — so no `resume.shared` is reported.
+        expect(shared, hasLength(1));
+        verifyNever(() => repo.reportShared(any()));
+      },
+    );
 
     testWidgets(
-        'a completed non-WhatsApp share reports the "other" channel',
-        (WidgetTester tester) async {
+      'a completed WhatsApp share reports resume.shared ONCE with channel '
+      '"whatsapp"',
+      (WidgetTester tester) async {
+        when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+        await pumpShareButton(
+          tester,
+          // `raw` names the chosen app; a WhatsApp target maps to the "whatsapp"
+          // channel (case-insensitive substring).
+          shareResult: const ShareResult(
+            'com.whatsapp.ContactPicker',
+            ShareResultStatus.success,
+          ),
+        );
+
+        await tester.tap(find.text(kResumeShareLabel));
+        await tester.pumpAndSettle();
+
+        expect(shared, hasLength(1));
+        verify(() => repo.reportShared('whatsapp')).called(1);
+      },
+    );
+
+    testWidgets('a completed non-WhatsApp share reports the "other" channel', (
+      WidgetTester tester,
+    ) async {
       when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
       await pumpShareButton(
         tester,
@@ -378,31 +417,36 @@ void main() {
     });
 
     testWidgets(
-        'a FAILED report never fails the share — the file still went and no '
-        'error notice is shown', (WidgetTester tester) async {
-      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
-      // The report errors (offline / 5xx / session gone). It is fire-and-forget
-      // and swallowed, so the share the worker just made must be untouched.
-      when(() => repo.reportShared(any()))
-          .thenAnswer((_) async => throw Exception('report failed'));
-      await pumpShareButton(tester);
+      'a FAILED report never fails the share — the file still went and no '
+      'error notice is shown',
+      (WidgetTester tester) async {
+        when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+        // The report errors (offline / 5xx / session gone). It is fire-and-forget
+        // and swallowed, so the share the worker just made must be untouched.
+        when(
+          () => repo.reportShared(any()),
+        ).thenAnswer((_) async => throw Exception('report failed'));
+        await pumpShareButton(tester);
 
-      await tester.tap(find.text(kResumeShareLabel));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text(kResumeShareLabel));
+        await tester.pumpAndSettle();
 
-      // The share itself succeeded — a real file crossed the boundary.
-      expect(shared, hasLength(1));
-      expect(shared.single.bytes, pdfBytes);
-      verify(() => repo.reportShared('other')).called(1);
-      // No failure notice, and the button released — the failed report is
-      // invisible to the worker.
-      expect(find.text(kResumeShareGenericFailureNotice), findsNothing);
-      expect(
-        tester
-            .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
-            .loading,
-        isFalse,
-      );
-    });
+        // The share itself succeeded — a real file crossed the boundary.
+        expect(shared, hasLength(1));
+        expect(shared.single.bytes, pdfBytes);
+        verify(() => repo.reportShared('other')).called(1);
+        // No failure notice, and the button released — the failed report is
+        // invisible to the worker.
+        expect(find.text(kResumeShareGenericFailureNotice), findsNothing);
+        expect(
+          tester
+              .widget<BbButton>(
+                find.widgetWithText(BbButton, kResumeShareLabel),
+              )
+              .loading,
+          isFalse,
+        );
+      },
+    );
   });
 }

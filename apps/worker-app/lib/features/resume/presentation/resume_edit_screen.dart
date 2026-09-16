@@ -7,22 +7,23 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/title_case.dart';
-import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toggle.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_docked_bar.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import 'cubit/resume_edit_cubit.dart';
 import 'widgets/photo_picker_sheet.dart';
 import '../domain/resume_safe_fields.dart';
+import '../../../core/widgets/feedback_fab.dart';
 
-/// Resume safe-field edit (spec §5.2 / `.aw-field`). Full-screen; back returns
-/// to the resume. The worker controls only this small set of fields — the rest
-/// of the resume is owned by the extraction pipeline.
+/// Resume safe-field edit (`/resume/edit`). Full-screen; back returns to the
+/// resume. The worker controls only this small set of fields — the rest of the
+/// resume is owned by the extraction pipeline.
 class ResumeEditScreen extends StatelessWidget {
   const ResumeEditScreen({super.key});
 
@@ -68,35 +69,68 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
           _shownError = state.saveErrorNonce;
           ScaffoldMessenger.of(context)
             ..clearSnackBars()
-            ..showSnackBar(SnackBar(
-              content: Text(failureReason(state.saveFailure).reason),
-            ));
+            ..showSnackBar(
+              SnackBar(content: Text(failureReason(state.saveFailure).reason)),
+            );
         }
       },
       builder: (BuildContext context, ResumeEditState state) {
         final ResumeEditCubit cubit = context.read<ResumeEditCubit>();
-        return switch (state.status) {
-          ResumeEditStatus.loading => const BbScaffold(
-              appBar: BbAppBar(title: 'Aap control karte hain'),
-              body: BbStatusView.loading(),
-            ),
-          ResumeEditStatus.failed => BbScaffold(
-              appBar: const BbAppBar(title: 'Aap control karte hain'),
-              body: BbStatusView(
-                icon: failureReason(state.failure).icon,
-                title: 'Details load nahi hue.',
-                subtitle: failureReason(state.failure).reason,
-                action: FilledButton(
-                  onPressed: cubit.load,
-                  child: const Text('Try again'),
-                ),
+        final bool ready = state.status == ResumeEditStatus.ready;
+        return Scaffold(
+          backgroundColor: OnboardingColors.canvasBg,
+          body: Column(
+            children: <Widget>[
+              // A PUSHED route, so it gets the back-arrow header rather than a
+              // tab header. No brand badge: the worker is mid-task, not being
+              // introduced to the app. It auto-collapses once the name
+              // dialog's keyboard crowds a small screen.
+              ShiftBlueHeader(
+                title: 'Aap control karte hain',
+                showBrandBadge: false,
+                onBack: () => Navigator.of(context).maybePop(),
               ),
-            ),
-          ResumeEditStatus.ready =>
-            _ready(context, cubit, state, state.fields!),
-        };
+              Expanded(child: _body(context, cubit, state)),
+            ],
+          ),
+          // Only the loaded screen has something to save. Publishes its height
+          // to `bottomBarInset` so the floating Feedback pill (which still
+          // shows on this pushed route) floats clear of the CTA.
+          bottomNavigationBar: ready
+              ? KitDockedBar(
+                  child: BbButton(
+                    label: 'Save karein',
+                    block: true,
+                    size: BbButtonSize.md,
+                    iconLeft: Icons.check,
+                    loading: state.saving,
+                    onPressed: state.saving ? null : cubit.save,
+                  ),
+                )
+              : null,
+        );
       },
     );
+  }
+
+  Widget _body(
+    BuildContext context,
+    ResumeEditCubit cubit,
+    ResumeEditState state,
+  ) {
+    return switch (state.status) {
+      ResumeEditStatus.loading => const BbStatusView.loading(),
+      ResumeEditStatus.failed => BbStatusView(
+        icon: failureReason(state.failure).icon,
+        title: 'Details load nahi hue.',
+        subtitle: failureReason(state.failure).reason,
+        action: FilledButton(
+          onPressed: cubit.load,
+          child: const Text('Try again'),
+        ),
+      ),
+      ResumeEditStatus.ready => _ready(context, cubit, state, state.fields!),
+    };
   }
 
   Widget _ready(
@@ -105,60 +139,61 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
     ResumeEditState state,
     ResumeSafeFields fields,
   ) {
-    return BbScaffold(
-      appBar: const BbAppBar(title: 'Aap control karte hain'),
-      bottomBar: BbButton(
-        label: 'Save karein',
-        block: true,
-        iconLeft: Icons.check,
-        loading: state.saving,
-        onPressed: state.saving ? null : cubit.save,
+    final double width = MediaQuery.sizeOf(context).width;
+    // A FORM, so it caps at 440 rather than the 600 tab lists use (R13).
+    final EdgeInsets side = KitInsets.list(
+      width,
+      max: OnboardingLayout.maxContentWidth,
+      gutter: 16,
+    );
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        side.left,
+        16,
+        side.right,
+        // Plus the floating Feedback pill's band, so it floats over empty
+        // canvas rather than the last row. See [FeedbackFabInset].
+        24 + FeedbackFabInset.of(context),
       ),
-      body: ListView(
-        padding: const EdgeInsets.only(
-          top: AppSpacing.s4,
-          bottom: AppSpacing.s4,
+      children: <Widget>[
+        Text(
+          'Sirf yeh fields aap badal sakte hain. Baaki resume bada bhai '
+          'sambhalta hai.',
+          style: OnboardingTypography.bodyMuted(),
         ),
-        children: <Widget>[
-          Text(
-            'Sirf yeh fields aap badal sakte hain. Baaki resume bada bhai '
-            'sambhalta hai.',
-            style: AppTypography.body(color: AppColors.textMuted),
+        const SizedBox(height: 16),
+        // The editable safe fields grouped in one flat card — the card's
+        // hairline border plus the inter-row hairlines carry separation, never
+        // a shadow.
+        KitCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: <Widget>[
+              _NameField(
+                value: fields.displayName,
+                onEdit: () => _editName(context, cubit, fields.displayName),
+              ),
+              _PhotoField(
+                hasPhoto: fields.hasPhoto,
+                photoUrl: state.photoUrl,
+                busy: state.photoBusy,
+                onEdit: () => _editPhoto(context, cubit, fields.hasPhoto),
+              ),
+              _ToggleField(
+                label: 'Photo dikhayein',
+                value: fields.showPhoto,
+                onChanged: cubit.setShowPhoto,
+              ),
+              _ToggleField(
+                label: 'Night shift ke liye taiyaar',
+                value: fields.nightShiftReady,
+                onChanged: cubit.setNightShiftReady,
+                last: true,
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.s4),
-          // Kit 10: the editable safe fields grouped in a single flat card — the
-          // card's hairline border + the inter-row dividers carry separation,
-          // never a shadow.
-          Card(
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: <Widget>[
-                _NameField(
-                  value: fields.displayName,
-                  onEdit: () => _editName(context, cubit, fields.displayName),
-                ),
-                _PhotoField(
-                  hasPhoto: fields.hasPhoto,
-                  photoUrl: state.photoUrl,
-                  busy: state.photoBusy,
-                  onEdit: () => _editPhoto(context, cubit, fields.hasPhoto),
-                ),
-                _ToggleField(
-                  label: 'Photo dikhayein',
-                  value: fields.showPhoto,
-                  onChanged: cubit.setShowPhoto,
-                ),
-                _ToggleField(
-                  label: 'Night shift ke liye taiyaar',
-                  value: fields.nightShiftReady,
-                  onChanged: cubit.setNightShiftReady,
-                  last: true,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -213,8 +248,9 @@ class _NameDialog extends StatefulWidget {
 }
 
 class _NameDialogState extends State<_NameDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initial);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
 
   @override
   void dispose() {
@@ -225,9 +261,15 @@ class _NameDialogState extends State<_NameDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      // SCROLLABLE, because this dialog opens WITH a keyboard: on a 320x568
+      // handset at a 200% system font the keyboard leaves ~250dp, and the
+      // title + field + actions need more than that — the dialog overflowed
+      // its own box by 52px and the buttons went under the edge. Material
+      // only wraps the title/content in a scroll view when asked.
+      scrollable: true,
       title: Text(
         'Naam ki spelling',
-        style: AppTypography.display(size: AppTypography.sizeLg),
+        style: OnboardingTypography.anek(size: 18, weight: FontWeight.w800),
       ),
       content: TextField(
         controller: _controller,
@@ -250,8 +292,8 @@ class _NameDialogState extends State<_NameDialog> {
   }
 }
 
-/// `.aw-field` — the name row: label + current spelling subtitle, with a pencil
-/// icon-button that opens the edit dialog.
+/// The name row: label + current spelling, with a pencil icon-button that opens
+/// the edit dialog.
 class _NameField extends StatelessWidget {
   const _NameField({required this.value, required this.onEdit});
 
@@ -267,29 +309,21 @@ class _NameField extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  'Naam ki spelling',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeMd,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s1 / 2),
-                Text(
-                  value,
-                  style: AppTypography.body(color: AppColors.textMuted),
-                ),
+                Text('Naam ki spelling', style: _kRowLabelStyle),
+                const SizedBox(height: 2),
+                Text(value, style: _kRowValueStyle),
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.s3),
+          const SizedBox(width: 12),
           IconButton(
             tooltip: 'Edit',
             onPressed: onEdit,
             iconSize: 22,
+            color: OnboardingColors.shiftBlue,
             constraints: const BoxConstraints(
-              minWidth: AppSpacing.tap,
-              minHeight: AppSpacing.tap,
+              minWidth: OnboardingLayout.tapTarget,
+              minHeight: OnboardingLayout.tapTarget,
             ),
             icon: const Icon(Icons.edit_outlined),
           ),
@@ -299,10 +333,10 @@ class _NameField extends StatelessWidget {
   }
 }
 
-/// `.aw-field` — the photo row (ADR-0032): a thumbnail (or add affordance) +
-/// a pencil that opens the camera/gallery/remove sheet. The thumbnail loads
-/// from a SHORT-LIVED signed url held in memory only; a load failure degrades
-/// to the placeholder (never an error state — the photo is cosmetic here).
+/// The photo row (ADR-0032): a thumbnail (or add affordance) + a pencil that
+/// opens the camera/gallery/remove sheet. The thumbnail loads from a SHORT-LIVED
+/// signed url held in memory only; a load failure degrades to the placeholder
+/// (never an error state — the photo is cosmetic here).
 class _PhotoField extends StatelessWidget {
   const _PhotoField({
     required this.hasPhoto,
@@ -325,38 +359,36 @@ class _PhotoField extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  'Aapki photo',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeMd,
-                    weight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s1 / 2),
+                Text('Aapki photo', style: _kRowLabelStyle),
+                const SizedBox(height: 2),
                 Text(
                   hasPhoto ? 'Photo lagi hai' : 'Photo add karein',
-                  style: AppTypography.body(color: AppColors.textMuted),
+                  style: _kRowValueStyle,
                 ),
               ],
             ),
           ),
-          const SizedBox(width: AppSpacing.s3),
+          const SizedBox(width: 12),
           _thumb(context),
-          const SizedBox(width: AppSpacing.s3),
+          const SizedBox(width: 12),
           if (busy)
             const SizedBox(
               width: 22,
               height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: OnboardingColors.shiftBlue,
+              ),
             )
           else
             IconButton(
               tooltip: hasPhoto ? 'Change photo' : 'Add photo',
               onPressed: onEdit,
               iconSize: 22,
+              color: OnboardingColors.shiftBlue,
               constraints: const BoxConstraints(
-                minWidth: AppSpacing.tap,
-                minHeight: AppSpacing.tap,
+                minWidth: OnboardingLayout.tapTarget,
+                minHeight: OnboardingLayout.tapTarget,
               ),
               icon: Icon(
                 hasPhoto ? Icons.edit_outlined : Icons.add_a_photo_outlined,
@@ -373,7 +405,7 @@ class _PhotoField extends StatelessWidget {
     final int cachePx = (44 * MediaQuery.devicePixelRatioOf(context)).round();
     return CircleAvatar(
       radius: 22,
-      backgroundColor: AppColors.divider,
+      backgroundColor: OnboardingColors.surfaceMuted,
       child: (hasPhoto && url != null)
           ? ClipOval(
               child: Image.network(
@@ -384,16 +416,23 @@ class _PhotoField extends StatelessWidget {
                 cacheHeight: cachePx,
                 fit: BoxFit.cover,
                 // Signed url expired / offline → placeholder, never an error.
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.person_outline, size: 24),
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.person_outline,
+                  size: 24,
+                  color: OnboardingColors.ink500,
+                ),
               ),
             )
-          : const Icon(Icons.person_outline, size: 24),
+          : const Icon(
+              Icons.person_outline,
+              size: 24,
+              color: OnboardingColors.ink500,
+            ),
     );
   }
 }
 
-/// `.aw-field` — a labelled toggle row.
+/// A labelled toggle row.
 class _ToggleField extends StatelessWidget {
   const _ToggleField({
     required this.label,
@@ -413,16 +452,8 @@ class _ToggleField extends StatelessWidget {
       last: last,
       child: Row(
         children: <Widget>[
-          Expanded(
-            child: Text(
-              label,
-              style: AppTypography.body(
-                size: AppTypography.sizeMd,
-                weight: FontWeight.w600,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.s3),
+          Expanded(child: Text(label, style: _kRowLabelStyle)),
+          const SizedBox(width: 12),
           BbToggle(value: value, onChanged: onChanged, semanticLabel: label),
         ],
       ),
@@ -430,8 +461,8 @@ class _ToggleField extends StatelessWidget {
   }
 }
 
-/// Shared `.aw-field` shell: vertical padding + a hairline bottom divider
-/// (omitted on the last row).
+/// Shared row shell: padding + a hairline bottom divider (omitted on the last
+/// row, where the card's own border closes the group).
 class _FieldRow extends StatelessWidget {
   const _FieldRow({required this.child, this.last = false});
 
@@ -444,13 +475,21 @@ class _FieldRow extends StatelessWidget {
       decoration: BoxDecoration(
         border: last
             ? null
-            : const Border(bottom: BorderSide(color: AppColors.divider)),
+            : const Border(
+                bottom: BorderSide(color: OnboardingColors.borderSubtle),
+              ),
       ),
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s4,
-        vertical: AppSpacing.s3,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: child,
     );
   }
 }
+
+final TextStyle _kRowLabelStyle = OnboardingTypography.inter(
+  size: 14,
+  weight: FontWeight.w600,
+);
+final TextStyle _kRowValueStyle = OnboardingTypography.inter(
+  size: 13,
+  color: OnboardingColors.ink600,
+);

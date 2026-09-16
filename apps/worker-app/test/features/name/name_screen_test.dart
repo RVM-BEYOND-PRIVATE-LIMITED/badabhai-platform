@@ -39,15 +39,21 @@ Future<void> _pump(
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   registerFallbackValue('');
-  when(() => repo.submitName(any(),
+  when(
+    () => repo.submitName(
+      any(),
       city: any(named: 'city'),
-      state: any(named: 'state'))).thenAnswer((_) async {});
+      state: any(named: 'state'),
+    ),
+  ).thenAnswer((_) async {});
   // Default: GPS is NOT silently available, so the resume check never fires
   // unless a test opts in. Tests that never touch it still need the stub —
   // an unstubbed mocktail call would throw inside the lifecycle callback.
   when(() => locationLookup.isAvailable()).thenAnswer((_) async => false);
   locator.registerFactory<NameRepository>(() => repo);
-  locator.registerFactory<NameCubit>(() => NameCubit(locator<NameRepository>()));
+  locator.registerFactory<NameCubit>(
+    () => NameCubit(locator<NameRepository>()),
+  );
   locator.registerLazySingleton<LocationLookup>(() => locationLookup);
 
   tester.view.physicalSize = size;
@@ -99,10 +105,8 @@ Future<void> _pumpDialog(WidgetTester tester) async {
 
 /// The screen and the prompt deliberately offer the SAME GPS action, so a bare
 /// label finder matches twice while the prompt is up. Scope to the modal.
-Finder _inPrompt(String label) => find.descendant(
-      of: find.byType(AlertDialog),
-      matching: find.text(label),
-    );
+Finder _inPrompt(String label) =>
+    find.descendant(of: find.byType(AlertDialog), matching: find.text(label));
 
 /// The Continue button in the docked bottom bar.
 Finder get _continueButton => find.widgetWithText(ElevatedButton, 'Continue');
@@ -124,9 +128,11 @@ Future<void> _pickInSheet(
 }) async {
   await tester.enterText(find.byKey(kOnboardingPickerSearchKey), search);
   await tester.pump();
-  await tester.tap(custom
-      ? find.byKey(kOnboardingPickerCustomKey)
-      : find.widgetWithText(ListTile, option!));
+  await tester.tap(
+    custom
+        ? find.byKey(kOnboardingPickerCustomKey)
+        : find.widgetWithText(ListTile, option!),
+  );
   await _pumpDialog(tester);
 }
 
@@ -162,37 +168,60 @@ void main() {
   tearDown(() async => locator.reset());
 
   testWidgets(
-      'renders separate first/last name fields, no single "poora naam" field',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+    'renders separate first/last name fields, no single "poora naam" field',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        repo: MockNameRepository(),
+        locationLookup: MockLocationLookup(),
+      );
 
-    expect(find.text('PEHLA NAAM'), findsOneWidget);
-    expect(find.text('AAKHRI NAAM'), findsOneWidget);
-    // Exactly two typed fields — the name halves. Location is chosen through
-    // the two pickers, which are always present.
-    expect(find.byType(TextField), findsNWidgets(2));
-    expect(find.byType(OnboardingSelectField), findsNWidgets(2));
-  });
+      // R17 — the spec's bilingual labels, so a worker who reads only one of
+      // the two scripts' vocabularies still knows which box is which.
+      expect(find.text('PEHLA NAAM (FIRST NAME)'), findsOneWidget);
+      expect(find.text('AAKHRI NAAM (LAST NAME)'), findsOneWidget);
+      // Exactly two typed fields — the name halves. Location is chosen through
+      // the two pickers, which are always present.
+      expect(find.byType(TextField), findsNWidgets(2));
+      expect(find.byType(OnboardingSelectField), findsNWidgets(2));
+    },
+  );
 
   // #1462 rule 1 — the headline bug. The section used to render exactly ONE of
   // three states, so declining the permission swapped GPS out for the manual
   // boxes and there was no way back to it.
-  testWidgets('GPS and the manual pickers are BOTH on screen from the first frame',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+  testWidgets(
+    'GPS and the manual pickers are BOTH on screen from the first frame',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        repo: MockNameRepository(),
+        locationLookup: MockLocationLookup(),
+      );
 
-    expect(find.text('Location se bharein'), findsOneWidget);
-    expect(find.text('STATE (RAJYA)'), findsOneWidget);
-    expect(find.text('SHEHER (CITY)'), findsOneWidget);
-    expect(find.text('Ya sheher aur state neeche khud chunein:'), findsOneWidget);
-    // State precedes city on screen, not just in the widget list.
-    expect(tester.getTopLeft(find.text('STATE (RAJYA)')).dy,
-        lessThan(tester.getTopLeft(find.text('SHEHER (CITY)')).dy));
-  });
+      expect(find.text('Location se bharein'), findsOneWidget);
+      expect(find.text('STATE (RAJYA)'), findsOneWidget);
+      expect(find.text('SHEHER (CITY)'), findsOneWidget);
+      expect(
+        find.text('Ya sheher aur state neeche khud chunein:'),
+        findsOneWidget,
+      );
+      // State precedes city on screen, not just in the widget list.
+      expect(
+        tester.getTopLeft(find.text('STATE (RAJYA)')).dy,
+        lessThan(tester.getTopLeft(find.text('SHEHER (CITY)')).dy),
+      );
+    },
+  );
 
-  testWidgets('the city picker stays disabled until a state is chosen',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+  testWidgets('the city picker stays disabled until a state is chosen', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      repo: MockNameRepository(),
+      locationLookup: MockLocationLookup(),
+    );
 
     expect(tester.widget<OnboardingSelectField>(_cityField).enabled, isFalse);
     await tester.tap(_cityField);
@@ -203,9 +232,14 @@ void main() {
     expect(tester.widget<OnboardingSelectField>(_cityField).enabled, isTrue);
   });
 
-  testWidgets('changing the state to a different one clears the city',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+  testWidgets('changing the state to a different one clears the city', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      repo: MockNameRepository(),
+      locationLookup: MockLocationLookup(),
+    );
 
     await _chooseState(tester, 'Rajasthan');
     await _chooseCity(tester, 'Jaipur');
@@ -221,100 +255,120 @@ void main() {
   });
 
   testWidgets(
-      'a GPS failure never hides the GPS button — a later retry still works',
-      (WidgetTester tester) async {
-    final MockLocationLookup lookup = MockLocationLookup();
-    when(() => lookup.resolveCurrent()).thenThrow(
-      const LocationLookupFailure(LocationLookupFailureReason.permissionDenied),
-    );
-    await _pump(tester, repo: MockNameRepository(), locationLookup: lookup);
+    'a GPS failure never hides the GPS button — a later retry still works',
+    (WidgetTester tester) async {
+      final MockLocationLookup lookup = MockLocationLookup();
+      when(() => lookup.resolveCurrent()).thenThrow(
+        const LocationLookupFailure(
+          LocationLookupFailureReason.permissionDenied,
+        ),
+      );
+      await _pump(tester, repo: MockNameRepository(), locationLookup: lookup);
 
-    await tester.tap(find.text('Location se bharein'));
-    await tester.pump();
-    await tester.pump();
+      await tester.tap(find.text('Location se bharein'));
+      await tester.pump();
+      await tester.pump();
 
-    expect(tester.takeException(), isNull);
-    expect(find.text('Location ki permission nahi mili. Neeche khud chunein.'),
-        findsOneWidget);
-    // BOTH paths survive the failure: the button is still there AND still
-    // enabled, and the manual pickers are untouched beside it.
-    expect(find.text('Location se bharein'), findsOneWidget);
-    expect(find.text('STATE (RAJYA)'), findsOneWidget);
-    expect(find.text('SHEHER (CITY)'), findsOneWidget);
-    expect(find.byType(OnboardingSelectField), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+      expect(
+        find.text('Location ki permission nahi mili. Neeche khud chunein.'),
+        findsOneWidget,
+      );
+      // BOTH paths survive the failure: the button is still there AND still
+      // enabled, and the manual pickers are untouched beside it.
+      expect(find.text('Location se bharein'), findsOneWidget);
+      expect(find.text('STATE (RAJYA)'), findsOneWidget);
+      expect(find.text('SHEHER (CITY)'), findsOneWidget);
+      expect(find.byType(OnboardingSelectField), findsNWidgets(2));
 
-    // The worker grants the permission and taps again — the retry resolves.
-    when(() => lookup.resolveCurrent()).thenAnswer(
-      (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
-    );
-    await tester.tap(find.text('Location se bharein'));
-    await tester.pump();
-    await tester.pump();
+      // The worker grants the permission and taps again — the retry resolves.
+      when(() => lookup.resolveCurrent()).thenAnswer(
+        (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
+      );
+      await tester.tap(find.text('Location se bharein'));
+      await tester.pump();
+      await tester.pump();
 
-    expect(_valueOf(tester, _cityField), 'Pune');
-    expect(_valueOf(tester, _stateField), 'Maharashtra');
-  });
+      expect(_valueOf(tester, _cityField), 'Pune');
+      expect(_valueOf(tester, _stateField), 'Maharashtra');
+    },
+  );
 
   testWidgets(
-      'a successful GPS resolve fills the two fields and submits what it found',
-      (WidgetTester tester) async {
-    final MockNameRepository repo = MockNameRepository();
-    final MockLocationLookup lookup = MockLocationLookup();
-    when(() => lookup.resolveCurrent()).thenAnswer(
-      (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
-    );
-    await _pump(tester, repo: repo, locationLookup: lookup);
+    'a successful GPS resolve fills the two fields and submits what it found',
+    (WidgetTester tester) async {
+      final MockNameRepository repo = MockNameRepository();
+      final MockLocationLookup lookup = MockLocationLookup();
+      when(() => lookup.resolveCurrent()).thenAnswer(
+        (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
+      );
+      await _pump(tester, repo: repo, locationLookup: lookup);
 
-    await tester.tap(find.text('Location se bharein'));
-    await tester.pump(); // loading frame
-    await tester.pump(); // resolveCurrent() resolves
+      await tester.tap(find.text('Location se bharein'));
+      await tester.pump(); // loading frame
+      await tester.pump(); // resolveCurrent() resolves
 
-    // The result lands IN the changeable fields — one source of truth, and a
-    // wrong reading stays correctable.
-    expect(_valueOf(tester, _cityField), 'Pune');
-    expect(_valueOf(tester, _stateField), 'Maharashtra');
-    expect(find.text('Location mil gayi. Galat ho toh neeche badal sakte hain.'),
-        findsOneWidget);
+      // The result lands IN the changeable fields — one source of truth, and a
+      // wrong reading stays correctable.
+      expect(_valueOf(tester, _cityField), 'Pune');
+      expect(_valueOf(tester, _stateField), 'Maharashtra');
+      expect(
+        find.text('Location mil gayi. Galat ho toh neeche badal sakte hain.'),
+        findsOneWidget,
+      );
 
-    await _enterName(tester);
-    await tester.tap(_continueButton);
-    await tester.pump();
+      await _enterName(tester);
+      await tester.tap(_continueButton);
+      await tester.pump();
 
-    verify(() => repo.submitName('Asha Kumari',
-            city: 'Pune', state: 'Maharashtra'))
-        .called(1);
-  });
+      verify(
+        () =>
+            repo.submitName('Asha Kumari', city: 'Pune', state: 'Maharashtra'),
+      ).called(1);
+    },
+  );
 
   // #1428 — the manual path used to send ONE free-text `address` line, which
   // the API's zod object silently dropped (there is no address column), so a
   // hand-choosing worker's location was never stored at all. It now submits
   // the same city/state pair the GPS path does — and a city the list does not
   // carry is still accepted as typed, then title-cased.
-  testWidgets('manual entry submits the chosen state and typed city, title-cased',
-      (WidgetTester tester) async {
-    final MockNameRepository repo = MockNameRepository();
-    await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
+  testWidgets(
+    'manual entry submits the chosen state and typed city, title-cased',
+    (WidgetTester tester) async {
+      final MockNameRepository repo = MockNameRepository();
+      await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
 
-    await _enterName(tester);
-    await tester.tap(_stateField);
-    await _pumpDialog(tester);
-    await _pickInSheet(tester, search: 'rajasthan', option: 'Rajasthan');
-    await tester.tap(_cityField);
-    await _pumpDialog(tester);
-    await _pickInSheet(tester, search: 'kotputli', custom: true);
-    expect(_valueOf(tester, _cityField), 'kotputli');
+      await _enterName(tester);
+      await tester.tap(_stateField);
+      await _pumpDialog(tester);
+      await _pickInSheet(tester, search: 'rajasthan', option: 'Rajasthan');
+      await tester.tap(_cityField);
+      await _pumpDialog(tester);
+      await _pickInSheet(tester, search: 'kotputli', custom: true);
+      expect(_valueOf(tester, _cityField), 'kotputli');
 
-    await tester.tap(_continueButton);
-    await tester.pump();
+      await tester.tap(_continueButton);
+      await tester.pump();
 
-    verify(() => repo.submitName('Asha Kumari',
-            city: 'Kotputli', state: 'Rajasthan'))
-        .called(1);
-  });
+      verify(
+        () => repo.submitName(
+          'Asha Kumari',
+          city: 'Kotputli',
+          state: 'Rajasthan',
+        ),
+      ).called(1);
+    },
+  );
 
-  testWidgets('Continue stays disabled until the name is complete',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+  testWidgets('Continue stays disabled until the name is complete', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      repo: MockNameRepository(),
+      locationLookup: MockLocationLookup(),
+    );
 
     expect(tester.widget<ElevatedButton>(_continueButton).onPressed, isNull);
 
@@ -330,8 +384,9 @@ void main() {
 
   // #1462 rule 3 — location no longer DISABLES Continue, because a disabled
   // button can never show the prompt that asks for the location.
-  testWidgets('Continue with both fields empty asks for the location instead',
-      (WidgetTester tester) async {
+  testWidgets('Continue with both fields empty asks for the location instead', (
+    WidgetTester tester,
+  ) async {
     final MockNameRepository repo = MockNameRepository();
     await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
 
@@ -341,30 +396,38 @@ void main() {
 
     expect(find.text(_kSubmitPromptTitle), findsOneWidget);
     expect(find.text(_kSkipLabel), findsOneWidget);
-    verifyNever(() => repo.submitName(any(),
-        city: any(named: 'city'), state: any(named: 'state')));
+    verifyNever(
+      () => repo.submitName(
+        any(),
+        city: any(named: 'city'),
+        state: any(named: 'state'),
+      ),
+    );
   });
 
   testWidgets(
-      'closing the submit-time prompt saves the name WITHOUT a location',
-      (WidgetTester tester) async {
-    final MockNameRepository repo = MockNameRepository();
-    await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
+    'closing the submit-time prompt saves the name WITHOUT a location',
+    (WidgetTester tester) async {
+      final MockNameRepository repo = MockNameRepository();
+      await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
 
-    await _enterName(tester);
-    await tester.tap(_continueButton);
-    await _pumpDialog(tester);
-    await tester.tap(find.text(_kSkipLabel));
-    await _pumpDialog(tester);
+      await _enterName(tester);
+      await tester.tap(_continueButton);
+      await _pumpDialog(tester);
+      await tester.tap(find.text(_kSkipLabel));
+      await _pumpDialog(tester);
 
-    // `city`/`state` are optional on SetMyNameSchema and the cubit sends null
-    // for an empty field, so this is a valid call — the worker is never stuck.
-    verify(() => repo.submitName('Asha Kumari', city: null, state: null))
-        .called(1);
-  });
+      // `city`/`state` are optional on SetMyNameSchema and the cubit sends null
+      // for an empty field, so this is a valid call — the worker is never stuck.
+      verify(
+        () => repo.submitName('Asha Kumari', city: null, state: null),
+      ).called(1);
+    },
+  );
 
-  testWidgets('the prompt\'s GPS action resolves and fills the fields',
-      (WidgetTester tester) async {
+  testWidgets('the prompt\'s GPS action resolves and fills the fields', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenAnswer(
       (_) async => const ResolvedLocation(city: 'Pune', state: 'Maharashtra'),
@@ -383,50 +446,62 @@ void main() {
   });
 
   testWidgets(
-      'the prompt\'s manual action opens the State picker, then the City picker',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+    'the prompt\'s manual action opens the State picker, then the City picker',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        repo: MockNameRepository(),
+        locationLookup: MockLocationLookup(),
+      );
 
-    await _enterName(tester);
-    await tester.tap(_continueButton);
-    await _pumpDialog(tester);
-    await tester.tap(_inPrompt('Khud chunein'));
-    await _pumpDialog(tester);
+      await _enterName(tester);
+      await tester.tap(_continueButton);
+      await _pumpDialog(tester);
+      await tester.tap(_inPrompt('Khud chunein'));
+      await _pumpDialog(tester);
 
-    expect(find.text(_kSubmitPromptTitle), findsNothing);
-    expect(find.text(_kStateSheetTitle), findsOneWidget);
-    await _pickInSheet(tester, search: 'Maharashtra', option: 'Maharashtra');
-    await _pumpDialog(tester);
+      expect(find.text(_kSubmitPromptTitle), findsNothing);
+      expect(find.text(_kStateSheetTitle), findsOneWidget);
+      await _pickInSheet(tester, search: 'Maharashtra', option: 'Maharashtra');
+      await _pumpDialog(tester);
 
-    // The city sheet follows on its own — the worker is not left to find it.
-    expect(find.text(_kCitySheetTitle), findsOneWidget);
-    await _pickInSheet(tester, search: 'Pune', option: 'Pune');
+      // The city sheet follows on its own — the worker is not left to find it.
+      expect(find.text(_kCitySheetTitle), findsOneWidget);
+      await _pickInSheet(tester, search: 'Pune', option: 'Pune');
 
-    expect(_valueOf(tester, _stateField), 'Maharashtra');
-    expect(_valueOf(tester, _cityField), 'Pune');
-  });
+      expect(_valueOf(tester, _stateField), 'Maharashtra');
+      expect(_valueOf(tester, _cityField), 'Pune');
+    },
+  );
 
   testWidgets(
-      'the prompt\'s manual action goes straight to the City picker when the '
-      'state is already chosen', (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+    'the prompt\'s manual action goes straight to the City picker when the '
+    'state is already chosen',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        repo: MockNameRepository(),
+        locationLookup: MockLocationLookup(),
+      );
 
-    await _enterName(tester);
-    await _chooseState(tester, 'Rajasthan');
-    await tester.tap(_continueButton);
-    await _pumpDialog(tester);
-    expect(find.text(_kSubmitPromptTitle), findsOneWidget);
-    await tester.tap(_inPrompt('Khud chunein'));
-    await _pumpDialog(tester);
+      await _enterName(tester);
+      await _chooseState(tester, 'Rajasthan');
+      await tester.tap(_continueButton);
+      await _pumpDialog(tester);
+      expect(find.text(_kSubmitPromptTitle), findsOneWidget);
+      await tester.tap(_inPrompt('Khud chunein'));
+      await _pumpDialog(tester);
 
-    expect(find.text(_kStateSheetTitle), findsNothing);
-    expect(find.text(_kCitySheetTitle), findsOneWidget);
-  });
+      expect(find.text(_kStateSheetTitle), findsNothing);
+      expect(find.text(_kCitySheetTitle), findsOneWidget);
+    },
+  );
 
   // #1462 rule 2 — declined the permission, carried on filling, then turned it
   // on from the shade. Coming back through `resumed` must offer GPS again.
-  testWidgets('granting the permission mid-form offers GPS again on resume',
-      (WidgetTester tester) async {
+  testWidgets('granting the permission mid-form offers GPS again on resume', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenThrow(
       const LocationLookupFailure(LocationLookupFailureReason.permissionDenied),
@@ -447,8 +522,9 @@ void main() {
     expect(find.text(_kSkipLabel), findsNothing);
   });
 
-  testWidgets('the mid-form offer fires ONCE, not on every later resume',
-      (WidgetTester tester) async {
+  testWidgets('the mid-form offer fires ONCE, not on every later resume', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenThrow(
       const LocationLookupFailure(LocationLookupFailureReason.serviceDisabled),
@@ -469,8 +545,9 @@ void main() {
     expect(find.text(_kResumePromptTitle), findsNothing);
   });
 
-  testWidgets('no mid-form offer while the permission is still refused',
-      (WidgetTester tester) async {
+  testWidgets('no mid-form offer while the permission is still refused', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenThrow(
       const LocationLookupFailure(LocationLookupFailureReason.permissionDenied),
@@ -485,8 +562,9 @@ void main() {
     expect(find.text(_kResumePromptTitle), findsNothing);
   });
 
-  testWidgets('no mid-form offer once the worker has chosen a location',
-      (WidgetTester tester) async {
+  testWidgets('no mid-form offer once the worker has chosen a location', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenThrow(
       const LocationLookupFailure(LocationLookupFailureReason.permissionDenied),
@@ -508,8 +586,9 @@ void main() {
 
   // A dead geocoder or a timeout is not something a trip to Settings fixes,
   // so it must not arm the resume offer at all.
-  testWidgets('an unresolvable fix does not arm the resume offer',
-      (WidgetTester tester) async {
+  testWidgets('an unresolvable fix does not arm the resume offer', (
+    WidgetTester tester,
+  ) async {
     final MockLocationLookup lookup = MockLocationLookup();
     when(() => lookup.resolveCurrent()).thenThrow(
       const LocationLookupFailure(LocationLookupFailureReason.unresolved),
@@ -530,9 +609,14 @@ void main() {
   // The floating Feedback button hides on /name because the bottom bar owns
   // this action — so the pill must actually reach the feedback page, and
   // report the route the worker was on.
-  testWidgets('the Feedback pill opens the feedback page from /name',
-      (WidgetTester tester) async {
-    await _pump(tester, repo: MockNameRepository(), locationLookup: MockLocationLookup());
+  testWidgets('the Feedback pill opens the feedback page from /name', (
+    WidgetTester tester,
+  ) async {
+    await _pump(
+      tester,
+      repo: MockNameRepository(),
+      locationLookup: MockLocationLookup(),
+    );
 
     await tester.tap(find.text('Feedback'));
     await _pumpDialog(tester);
@@ -547,10 +631,12 @@ void main() {
         'and 2.0 text scale', (WidgetTester tester) async {
       tester.platformDispatcher.textScaleFactorTestValue = 2.0;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-      await _pump(tester,
-          repo: MockNameRepository(),
-          locationLookup: MockLocationLookup(),
-          size: size);
+      await _pump(
+        tester,
+        repo: MockNameRepository(),
+        locationLookup: MockLocationLookup(),
+        size: size,
+      );
 
       expect(tester.takeException(), isNull);
       expect(_continueButton, findsOneWidget);

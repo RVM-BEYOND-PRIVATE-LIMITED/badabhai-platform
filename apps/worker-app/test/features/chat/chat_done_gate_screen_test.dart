@@ -127,6 +127,53 @@ void main() {
       expect(find.byType(TextField), findsOneWidget, reason: 'back in the chat');
     });
 
+    testWidgets('BOTH ways out of the gate are ON SCREEN at 320x568 @2.0',
+        (WidgetTester tester) async {
+      // The screen's own rule: a client-side gate must never be able to trap a
+      // worker in a chat they cannot leave. With the two actions at the end of
+      // the sheet's SCROLLING body, the smallest supported phone at the
+      // largest supported font showed a half-cut primary CTA and pushed the
+      // escape hatch off the sheet entirely. They are docked now, so both are
+      // painted inside the viewport with no scrolling at all.
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/chat',
+        routes: <RouteBase>[
+          GoRoute(path: '/chat', builder: (_, __) => const ChatProfilingScreen()),
+          GoRoute(
+            path: Routes.profilePreview,
+            builder: (_, __) => const Scaffold(body: Text(kPreviewMarker)),
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      await sendOneMessage(tester);
+      await tester.tap(find.text(kChatDoneNotReadyLabel));
+      await tester.pumpAndSettle();
+
+      for (final String label in <String>[
+        kChatNudgeContinueLabel,
+        kChatNudgeProceedLabel,
+      ]) {
+        final Rect box = tester.getRect(find.text(label));
+        expect(box.bottom, lessThanOrEqualTo(568), reason: '$label is below the fold');
+        expect(box.top, greaterThanOrEqualTo(0), reason: '$label is above the sheet');
+      }
+      // And the escape hatch really works from there, with no scroll first.
+      await tester.tap(find.text(kChatNudgeProceedLabel));
+      await tester.pumpAndSettle();
+      expect(find.text(kPreviewMarker), findsOneWidget);
+    });
+
     testWidgets('the ESCAPE HATCH works — a not-ready worker can still build '
         'their profile', (WidgetTester tester) async {
       // The whole reason the gate is soft: if readiness never arrives (an older

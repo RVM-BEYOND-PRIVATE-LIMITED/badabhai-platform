@@ -1,22 +1,32 @@
 import 'package:flutter/material.dart';
 
-/// Tokens for the worker's resume-creation flow — splash through the building
-/// screen: auth, consent, name, resume options, chat, the trade form, finishing
-/// and building. Source: `badabhai_worker_app_master_flutter_ui_kit_spec.md`
-/// (v2), which supersedes the earlier 5-screen kit.
+/// **The app-wide v3 token layer.** Source: `ui_kit_v3_spec.md` §1.1 / §1.2.
 ///
-/// ── SCOPED ON PURPOSE ───────────────────────────────────────────────────────
+/// ── NO LONGER SCOPED ────────────────────────────────────────────────────────
 ///
-/// This is NOT a re-skin of the app. Every other screen stays on [AppColors] /
-/// [AppTypography] (the JUL31 "Josh" system), and nothing here is referenced
-/// from outside those six screens and their shared chrome. Changing
-/// `AppColors.blue` instead would have repainted chat, jobs, résumé and the
-/// shell with a palette nobody asked to apply there.
+/// This file used to carry a "SCOPED ON PURPOSE — not a re-skin" warning: it
+/// was the onboarding flow's private palette, and the rest of the app stayed on
+/// the JUL31 "Josh" [AppColors] / [AppTypography]. **That is no longer true.**
+/// UI kit v3 applies to the WHOLE worker app, so these classes are now the
+/// canonical token layer and the one place a colour, radius or type style is
+/// defined.
 ///
-/// ── THE KIT'S VALUES ARE COPIED, NOT APPROXIMATED ───────────────────────────
+/// New code and every migrated screen import ONLY these, plus
+/// `lib/core/widgets/kit/*` and the restyled `Bb*` widgets.
 ///
-/// Names and hexes mirror the kit's §1.1 one-for-one so a reviewer can diff this
-/// file against the document. Where the kit's own prose and its "Exact Dart
+/// [AppColors] / [AppTypography] survive as a LEGACY FACADE: every member name
+/// is kept (so the ~120 files importing them still compile) with its VALUE
+/// re-pointed here. They are not deleted and not mass-renamed — see the role
+/// notes in `app_colors.dart`, which explain the two names whose *role* meaning
+/// differs from the spec's name for the same hex (`AppColors.haldi` is the CTA
+/// yellow #FFB32C, not the spec's `haldi` #FFC400; `AppColors.borderSubtle` is
+/// the default 1px outline #D8DEE9, not the spec's hairline #E2E8F0).
+///
+/// ── THE SPEC'S VALUES ARE COPIED, NOT APPROXIMATED ──────────────────────────
+///
+/// Names and hexes mirror §1.1 one-for-one so a reviewer can diff this file
+/// against the document, and `test/core/theme/token_parity_test.dart` asserts
+/// exactly that, hex by hex. Where the kit's own prose and its "Exact Dart
 /// Widget" code disagree (the privacy shield circle: prose `#E0E7FF`, code
 /// `#EFF6FF`), the CODE value is used and the literal is named below.
 class OnboardingColors {
@@ -25,6 +35,7 @@ class OnboardingColors {
   // Brand core
   static const Color shiftBlue = Color(0xFF05194C); // header + brand deep navy
   static const Color shiftBlueLight = Color(0xFF0A256E); // active item borders
+  static const Color shiftBlueSurface = Color(0xFF0F2B7A); // pill on navy
   static const Color blueThemeDark = Color(0xFF05194C); // checkbox filled bg
   static const Color safetyYellow = Color(0xFFFFB32C); // hero CTA yellow
   static const Color safetyYellowDark = Color(0xFFE09A1F); // pressed yellow
@@ -35,6 +46,16 @@ class OnboardingColors {
   static const Color canvasIvory = Color(0xFFF3F5F4);
   static const Color paperWhite = Color(0xFFFFFFFF);
   static const Color chipBg = Color(0xFFF8FAFC); // subtle pill / input bg
+
+  /// The spec's own name for [chipBg] (§1.1 `surfaceMuted`) — input and pill
+  /// backgrounds. Same hex; both names are kept so a reviewer can find either.
+  static const Color surfaceMuted = chipBg;
+
+  /// A full-width check row's fill (spec §4, the controllers list).
+  static const Color rowBg = Color(0xFFF8FAFC);
+
+  /// A neutral count / status pill's fill (spec §4 '7 Verified', 'DRAFT').
+  static const Color pillMutedBg = Color(0xFFF1F5F9);
 
   // Borders
   static const Color borderDefault = Color(0xFFD8DEE9);
@@ -55,16 +76,35 @@ class OnboardingColors {
   // Semantic
   static const Color successGreen = Color(0xFF1E7A3C);
   static const Color successBg = Color(0xFFDCFCE7);
+  static const Color successBorder = Color(0xFF86EFAC); // salary box hairline
   static const Color errorRed = Color(0xFFC62828);
   static const Color errorBg = Color(0xFFFEE2E2);
   static const Color disabledBg = Color(0xFFC5CEDF);
   static const Color disabledText = Color(0xFF8A9BAD);
 
+  // Informational callout (spec §4 "BLUEPRINTS & GD&T KNOWLEDGE").
+  static const Color infoBg = shieldCircle; // #EFF6FF — same disc as §3.5
+  static const Color infoBorder = Color(0xFFBFDBFE);
+  static const Color infoTitle = Color(0xFF1E3A8A);
+  static const Color infoText = Color(0xFF1E40AF);
+
+  /// Safety yellow at 20% — a pill on navy (spec §4 'READY').
+  static const Color yellowTint20 = Color(0x33FFB32C);
+
+  /// The modal scrim: [shiftBlue] at 56%. A dialog separates by scrim + fill,
+  /// never a shadow.
+  static const Color scrim = Color(0x8F05194C);
+
+  /// White at 70% — a subline on the navy status banner (spec §4).
+  static const Color textOnBlue70 = Color(0xB3FFFFFF);
+
   // Screen literals from the kit's widget code, named rather than inlined.
   static const Color shieldCircle = Color(0xFFEFF6FF); // privacy shield disc
   static const Color noteBg = Color(0xFFF8FAFC); // privacy "Dhyaan dein" box
   static const Color selectedCardBg = Color(0xFFFFFBEB); // selected card fill
-  static const Color cardIconBg = Color(0xFFF1F5F9); // unselected card icon tile
+  static const Color cardIconBg = Color(
+    0xFFF1F5F9,
+  ); // unselected card icon tile
 }
 
 /// Which drawing of a shared kit widget to render.
@@ -233,10 +273,32 @@ class OnboardingRadii {
   static const double button = 14;
   static const double phoneField = 14;
   static const double pinBox = 14;
-  static const double otpBox = 12;
+
+  /// Spec §3.3: the OTP cell is a 10, not the 12 the v2 kit drew.
+  static const double otpBox = 10;
   static const double nameField = 10;
   static const double card = 16;
   static const double note = 12;
+
+  /// The BADABHAI pill in the navy header (spec §2.1: radius 16).
+  static const double brandBadge = 16;
+
+  /// An info / select chip (spec §4).
+  static const double chip = 10;
+
+  /// A full-width check row (spec §4).
+  static const double row = 10;
+
+  /// A small status pill — 'READY', 'DRAFT' (spec §4).
+  static const double pillSm = 4;
+
+  /// A count pill — '7' (spec §4).
+  static const double countPill = 12;
+
+  /// A docked bar's button (spec §2.2).
+  static const double docked = 12;
+
+  /// Kept at 20: shared by the building, chat and trade-form badges.
   static const double badge = 20;
   static const double feedbackButton = 12;
 }
@@ -250,6 +312,11 @@ class OnboardingLayout {
   /// 1000px of glass. Matches `AppSpacing.appMax`.
   static const double maxContentWidth = 440;
 
+  /// Tab content (Jobs / Resume / Profile lists and cards) is wider than a
+  /// form: 600 before it stops and centres. Navy headers and the nav bar stay
+  /// full-bleed; only their inner rows cap here.
+  static const double maxTabContentWidth = 600;
+
   /// Chrome (the blue header, CTA labels) honours the worker's font size up to
   /// this factor and no further. Past it, a two-line header at 200% ate 577 of
   /// a 640px screen and left the PIN rows a 63px sliver (measured on the old
@@ -258,6 +325,14 @@ class OnboardingLayout {
   static const double chromeMaxTextScale = 1.3;
 
   static const double buttonHeight = 52;
+
+  /// The button inside a docked bar (spec §2.2) — shorter than the in-body
+  /// [buttonHeight] because the bar adds its own padding around it.
+  static const double dockedButtonHeight = 48;
+
+  /// The title / action row of a tab header (spec §4). 48 so every action in
+  /// it clears the touch floor without a taller band than the artboard's.
+  static const double tabHeaderRowHeight = 48;
 
   /// The worker-app touch floor. The kit draws a 32px back glyph; the TAP area
   /// around it is kept at 48 without moving what is painted.
@@ -303,16 +378,15 @@ class OnboardingTypography {
     Color color = OnboardingColors.ink900,
     double? height,
     double? letterSpacing,
-  }) =>
-      TextStyle(
-        fontFamily: displayFamily,
-        fontFamilyFallback: displayFallback,
-        fontSize: size,
-        fontWeight: weight,
-        color: color,
-        height: height,
-        letterSpacing: letterSpacing,
-      );
+  }) => TextStyle(
+    fontFamily: displayFamily,
+    fontFamilyFallback: displayFallback,
+    fontSize: size,
+    fontWeight: weight,
+    color: color,
+    height: height,
+    letterSpacing: letterSpacing,
+  );
 
   /// Inter at an arbitrary size/weight — for the kit's inline styles.
   static TextStyle inter({
@@ -322,18 +396,17 @@ class OnboardingTypography {
     double? height,
     double? letterSpacing,
     TextDecoration? decoration,
-  }) =>
-      TextStyle(
-        fontFamily: bodyFamily,
-        fontFamilyFallback: bodyFallback,
-        fontSize: size,
-        fontWeight: weight,
-        color: color,
-        height: height,
-        letterSpacing: letterSpacing,
-        decoration: decoration,
-        decorationColor: color,
-      );
+  }) => TextStyle(
+    fontFamily: bodyFamily,
+    fontFamilyFallback: bodyFallback,
+    fontSize: size,
+    fontWeight: weight,
+    color: color,
+    height: height,
+    letterSpacing: letterSpacing,
+    decoration: decoration,
+    decorationColor: color,
+  );
 
   /// Roboto Mono with tabular figures, so a ticking timer never jitters.
   static TextStyle mono({
@@ -341,15 +414,14 @@ class OnboardingTypography {
     FontWeight weight = FontWeight.w500,
     Color color = OnboardingColors.ink600,
     double? letterSpacing,
-  }) =>
-      TextStyle(
-        fontFamily: monoFamily,
-        fontSize: size,
-        fontWeight: weight,
-        color: color,
-        letterSpacing: letterSpacing,
-        fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-      );
+  }) => TextStyle(
+    fontFamily: monoFamily,
+    fontSize: size,
+    fontWeight: weight,
+    color: color,
+    letterSpacing: letterSpacing,
+    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+  );
 
   // ---- the kit's named styles, verbatim ----
 
@@ -360,10 +432,15 @@ class OnboardingTypography {
       anek(size: 20, weight: FontWeight.w700, height: 1.25, color: color);
 
   static TextStyle subheadBold({Color color = OnboardingColors.ink900}) =>
-      anek(size: 16, weight: FontWeight.w600, height: 1.3, color: color);
+      anek(size: 16, weight: FontWeight.w700, height: 1.3, color: color);
 
   static TextStyle fieldMicroLabel({Color color = OnboardingColors.ink600}) =>
-      inter(size: 11, weight: FontWeight.w700, letterSpacing: 0.8, color: color);
+      inter(
+        size: 11,
+        weight: FontWeight.w700,
+        letterSpacing: 0.8,
+        color: color,
+      );
 
   static TextStyle body({Color color = OnboardingColors.ink900}) =>
       inter(size: 14, weight: FontWeight.w400, height: 1.45, color: color);
@@ -372,7 +449,44 @@ class OnboardingTypography {
       inter(size: 13, weight: FontWeight.w400, height: 1.4, color: color);
 
   static TextStyle buttonLabel({Color color = OnboardingColors.shiftBlue}) =>
-      anek(size: 16, weight: FontWeight.w700, letterSpacing: 0.3, color: color);
+      anek(size: 16, weight: FontWeight.w800, letterSpacing: 0.3, color: color);
+
+  /// A salary / count / code in mono (spec §1.2 `monoBold`).
+  ///
+  /// Roboto Mono has no w800 face at all, so the spec's w800 renders as the
+  /// bundled w700. Accepted deliberately rather than shipping a synthesised
+  /// weight.
+  static TextStyle monoBold({Color color = OnboardingColors.ink900}) =>
+      mono(size: 14, weight: FontWeight.w700, color: color);
+
+  /// An ALL-CAPS micro label over a group of chips or rows (spec §4
+  /// 'OPERATED MACHINES'). The caller uppercases the text — [KitMicroLabel]
+  /// does it at render so the source string stays readable.
+  static TextStyle microLabel({Color color = OnboardingColors.ink500}) => inter(
+    size: 10,
+    weight: FontWeight.w700,
+    letterSpacing: 0.8,
+    color: color,
+  );
+
+  /// A small status pill's label — 'READY', 'DRAFT' (spec §4).
+  ///
+  /// Inter's bundled instances stop at w700, so the spec's w800 renders as
+  /// w700 here and in [pillLabel]'s callers.
+  static TextStyle pillLabel({Color color = OnboardingColors.safetyYellow}) =>
+      inter(size: 10, weight: FontWeight.w800, color: color);
+
+  /// A card header's count pill — digits only (spec §4, ruling R8).
+  static TextStyle countPill({Color color = OnboardingColors.ink600}) =>
+      inter(size: 11, weight: FontWeight.w700, color: color);
+
+  /// A resume / profile card's title (spec §4 'Machines & CNC Controllers').
+  static TextStyle cardTitle({Color color = OnboardingColors.shiftBlue}) =>
+      anek(size: 15, weight: FontWeight.w800, color: color);
+
+  /// An info / select chip's label (spec §4).
+  static TextStyle chipLabel({Color color = OnboardingColors.ink900}) =>
+      inter(size: 12, weight: FontWeight.w600, color: color);
 
   /// Mono badge / timer / progress (master spec v2 `monoLabel`).
   static TextStyle monoLabel({Color color = OnboardingColors.ink600}) =>
@@ -391,49 +505,49 @@ class OnboardingTypography {
 
   /// A form question: Anek Bold in navy with a loose 1.45 line pitch.
   static TextStyle formQuestionHeadline() => anek(
-        size: 18.5,
-        weight: FontWeight.w700,
-        height: 1.45,
-        color: OnboardingColors.shiftBlue,
-      ).copyWith(leadingDistribution: TextLeadingDistribution.even);
+    size: 18.5,
+    weight: FontWeight.w700,
+    height: 1.45,
+    color: OnboardingColors.shiftBlue,
+  ).copyWith(leadingDistribution: TextLeadingDistribution.even);
 
   /// The explanation under a form question: a ~20.8dp line pitch.
   static TextStyle formWhyText() => inter(
-        size: 12.3,
-        weight: FontWeight.w500,
-        height: 1.69,
-        color: FormFlowColors.whyText,
-      ).copyWith(leadingDistribution: TextLeadingDistribution.even);
+    size: 12.3,
+    weight: FontWeight.w500,
+    height: 1.69,
+    color: FormFlowColors.whyText,
+  ).copyWith(leadingDistribution: TextLeadingDistribution.even);
 
   /// The header's uppercase "STEP n OF m • CATEGORY" line.
   static TextStyle formStepLine() => inter(
-        size: 10,
-        weight: FontWeight.w700,
-        letterSpacing: FormFlowLayout.headerStepLetterSpacing,
-        color: FormFlowColors.headerStepLine,
-      );
+    size: 10,
+    weight: FontWeight.w700,
+    letterSpacing: FormFlowLayout.headerStepLetterSpacing,
+    color: FormFlowColors.headerStepLine,
+  );
 
   /// The progress strip's topic and percentage labels.
   static TextStyle formStripLabel() => inter(
-        size: 10,
-        weight: FontWeight.w700,
-        letterSpacing: FormFlowLayout.stripLabelLetterSpacing,
-        color: OnboardingColors.shiftBlue,
-      );
+    size: 10,
+    weight: FontWeight.w700,
+    letterSpacing: FormFlowLayout.stripLabelLetterSpacing,
+    color: OnboardingColors.shiftBlue,
+  );
 
   /// An option card's title.
   static TextStyle formCardTitle() => anek(
-        size: 15,
-        weight: FontWeight.w700,
-        color: OnboardingColors.shiftBlue,
-      );
+    size: 15,
+    weight: FontWeight.w700,
+    color: OnboardingColors.shiftBlue,
+  );
 
   /// An option card's description line(s).
   static TextStyle formCardSubtitle() => inter(
-        size: 12,
-        height: 1.36,
-        color: FormFlowColors.whyText,
-      ).copyWith(leadingDistribution: TextLeadingDistribution.even);
+    size: 12,
+    height: 1.36,
+    color: FormFlowColors.whyText,
+  ).copyWith(leadingDistribution: TextLeadingDistribution.even);
 
   /// An option card's description in mono — for measurement specs.
   static TextStyle formCardSubtitleMono() =>

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/app_theme.dart';
 import '../../theme/onboarding_theme.dart';
 
 /// The kit's primary yellow CTA (§1.3 `PrimaryActionButton`): full width, 52px,
@@ -23,6 +24,7 @@ class PrimaryActionButton extends StatelessWidget {
     this.showArrow = true,
     this.isLoading = false,
     this.buttonKey,
+    this.leadingIcon,
   });
 
   final String label;
@@ -32,43 +34,30 @@ class PrimaryActionButton extends StatelessWidget {
   final bool showArrow;
   final bool isLoading;
 
+  /// An optional glyph BEFORE the label (e.g. a GPS pin). The trailing arrow
+  /// is [showArrow]'s job.
+  final IconData? leadingIcon;
+
   /// Key on the underlying Material button, for tests.
   final Key? buttonKey;
 
-  static ButtonStyle get _style => ButtonStyle(
-        elevation: const WidgetStatePropertyAll<double>(0),
-        shape: const WidgetStatePropertyAll<OutlinedBorder>(
-          RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.all(Radius.circular(OnboardingRadii.button)),
-          ),
-        ),
-        padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
-          EdgeInsets.symmetric(horizontal: 16),
-        ),
-        backgroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) {
-          if (s.contains(WidgetState.disabled)) {
-            return OnboardingColors.disabledBg;
-          }
-          if (s.contains(WidgetState.pressed)) {
-            return OnboardingColors.safetyYellowDark;
-          }
-          return OnboardingColors.safetyYellow;
-        }),
-        foregroundColor: WidgetStateProperty.resolveWith((Set<WidgetState> s) =>
-            s.contains(WidgetState.disabled)
-                ? OnboardingColors.disabledText
-                : OnboardingColors.shiftBlue),
-        // The pressed colour IS the feedback; a translucent ripple on top of it
-        // would muddy the kit's flat yellow.
-        overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
-      );
+  /// The shared yellow CTA paint, re-cornered to this button's own 14 radius
+  /// (the docked bar's is 12). One source for the fill, the pressed shade and
+  /// the disabled shade means the hero CTA cannot drift between screens.
+  static ButtonStyle get _style => KitButtonStyles.primary.copyWith(
+    shape: const WidgetStatePropertyAll<OutlinedBorder>(
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(OnboardingRadii.button)),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     final bool enabled = onPressed != null && !isLoading;
-    final Color ink =
-        enabled ? OnboardingColors.shiftBlue : OnboardingColors.disabledText;
+    final Color ink = enabled
+        ? OnboardingColors.shiftBlue
+        : OnboardingColors.disabledText;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: SizedBox(
@@ -100,8 +89,14 @@ class PrimaryActionButton extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Text(label,
-                          style: OnboardingTypography.buttonLabel(color: ink)),
+                      if (leadingIcon != null) ...<Widget>[
+                        Icon(leadingIcon, size: 20, color: ink),
+                        const SizedBox(width: 8),
+                      ],
+                      Text(
+                        label,
+                        style: OnboardingTypography.buttonLabel(color: ink),
+                      ),
                       if (showArrow) ...<Widget>[
                         const SizedBox(width: 8),
                         Icon(Icons.arrow_forward_rounded, size: 20, color: ink),

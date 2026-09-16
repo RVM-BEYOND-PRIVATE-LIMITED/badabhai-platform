@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
+import '../../../core/widgets/kit/secure_note.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -113,7 +114,8 @@ class _SetPinViewState extends State<_SetPinView> {
             children: <Widget>[
               ShiftBlueHeader(
                 title: widget.isReset ? 'Naya PIN' : 'PIN banayein',
-                subtitle: 'Pehle naya PIN daalein, fir confirm karne ke liye '
+                subtitle:
+                    'Pehle naya PIN daalein, fir confirm karne ke liye '
                     'wahi PIN dobara daalein.',
                 // Reached with `go` (after OTP, or on a cold-start resume), so
                 // there is normally nothing behind it. A back arrow that led to
@@ -155,27 +157,10 @@ class _SetPinViewState extends State<_SetPinView> {
                               : null,
                         ),
                         const SizedBox(height: 18),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            const Icon(
-                              Icons.shield_outlined,
-                              size: 16,
-                              color: OnboardingColors.ink500,
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                '100% Safe & Secure • No agent fees',
-                                textAlign: TextAlign.center,
-                                style: OnboardingTypography.inter(
-                                  size: 12,
-                                  color: OnboardingColors.ink500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        // Spec §3.4's reassurance line, same words, drawn by
+                        // the shared kit widget (a real shield glyph, never an
+                        // emoji — see [SecureNote]).
+                        const SecureNote(),
                       ],
                     ),
                   ),

@@ -322,8 +322,11 @@ void main() {
     expect(_navIndex(tester), _kProfileTab,
         reason: 'opening the kit from Profile must not switch the tab');
 
-    // Back returns to Profile, still on the Profile tab.
-    await tester.pageBack();
+    // Back returns to Profile, still on the Profile tab. Not `pageBack()`:
+    // that looks for a MaterialLocalizations 'Back' tooltip, and the kit list
+    // no longer has an AppBar — its navy header's arrow carries the app-wide
+    // 'Wapas' tooltip, the same one Alerts uses below.
+    await tester.tap(find.byTooltip('Wapas'));
     await tester.pumpAndSettle();
     expect(find.text('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);

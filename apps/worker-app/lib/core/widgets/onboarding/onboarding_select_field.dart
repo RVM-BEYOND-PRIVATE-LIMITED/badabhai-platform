@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/onboarding_theme.dart';
+import '../bb_bottom_sheet.dart';
 
 /// Key on the picker sheet's search box — tests type into it.
 const Key kOnboardingPickerSearchKey = Key('onboarding_picker_search');
@@ -38,7 +39,9 @@ class OnboardingSelectField extends StatelessWidget {
       label: semanticLabel,
       value: hasValue ? value : hint,
       child: Material(
-        color: enabled ? OnboardingColors.paperWhite : OnboardingColors.canvasBg,
+        color: enabled
+            ? OnboardingColors.paperWhite
+            : OnboardingColors.canvasBg,
         borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
         child: InkWell(
           onTap: enabled ? onTap : null,
@@ -48,7 +51,10 @@ class OnboardingSelectField extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
-              border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+              border: Border.all(
+                color: OnboardingColors.borderDefault,
+                width: 1.2,
+              ),
             ),
             child: Row(
               children: <Widget>[
@@ -56,14 +62,21 @@ class OnboardingSelectField extends StatelessWidget {
                   child: Text(
                     hasValue ? value : hint,
                     style: hasValue
-                        ? OnboardingTypography.inter(size: 14, weight: FontWeight.w500)
+                        ? OnboardingTypography.inter(
+                            size: 14,
+                            weight: FontWeight.w500,
+                          )
                         : OnboardingTypography.inter(
-                            size: 14, color: OnboardingColors.ink500),
+                            size: 14,
+                            color: OnboardingColors.ink500,
+                          ),
                   ),
                 ),
                 Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: enabled ? OnboardingColors.ink900 : OnboardingColors.ink500,
+                  color: enabled
+                      ? OnboardingColors.ink900
+                      : OnboardingColors.ink500,
                 ),
               ],
             ),
@@ -93,7 +106,9 @@ Future<String?> showOnboardingPicker(
     isScrollControlled: true,
     backgroundColor: OnboardingColors.paperWhite,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(OnboardingRadii.card)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(OnboardingRadii.card),
+      ),
     ),
     builder: (BuildContext _) => _PickerSheet(
       title: title,
@@ -146,9 +161,9 @@ class _PickerSheetState extends State<_PickerSheet> {
   }
 
   static OutlineInputBorder _border(Color c, double w) => OutlineInputBorder(
-        borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
-        borderSide: BorderSide(color: c, width: w),
-      );
+    borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
+    borderSide: BorderSide(color: c, width: w),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -156,23 +171,35 @@ class _PickerSheetState extends State<_PickerSheet> {
     final String q = query.toLowerCase();
     final List<String> visible = q.isEmpty
         ? widget.options
-        : widget.options.where((String o) => o.toLowerCase().contains(q)).toList();
+        : widget.options
+              .where((String o) => o.toLowerCase().contains(q))
+              .toList();
     final bool exact = widget.options.any((String o) => o.toLowerCase() == q);
     final bool offerCustom = widget.allowCustom && query.isNotEmpty && !exact;
 
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-            20, 20, 20, MediaQuery.viewInsetsOf(context).bottom + 16),
+          20,
+          20,
+          20,
+          MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
         child: Center(
           heightFactor: 1,
           child: ConstrainedBox(
-            constraints:
-                const BoxConstraints(maxWidth: OnboardingLayout.maxContentWidth),
+            constraints: const BoxConstraints(
+              maxWidth: OnboardingLayout.maxContentWidth,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
+                // The SAME drag handle `showBbBottomSheet` draws, so the app's
+                // two sheet shapes are one shape: this one had none, and the
+                // worker had no affordance telling them it could be dragged
+                // away.
+                const Align(child: BbSheetGrip()),
                 Text(widget.title, style: OnboardingTypography.anek(size: 18)),
                 const SizedBox(height: 14),
                 TextField(
@@ -181,52 +208,75 @@ class _PickerSheetState extends State<_PickerSheet> {
                   autofocus: true,
                   textCapitalization: TextCapitalization.words,
                   maxLength: widget.customMaxLength,
-                  style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
+                  style: OnboardingTypography.inter(
+                    size: 14,
+                    weight: FontWeight.w500,
+                  ),
                   decoration: InputDecoration(
                     hintText: widget.searchHint,
                     hintStyle: OnboardingTypography.inter(
-                        size: 14, color: OnboardingColors.ink500),
+                      size: 14,
+                      color: OnboardingColors.ink500,
+                    ),
                     counterText: '',
                     filled: true,
                     fillColor: OnboardingColors.paperWhite,
                     isDense: true,
-                    prefixIcon: const Icon(Icons.search_rounded,
-                        color: OnboardingColors.ink600),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: OnboardingColors.ink600,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
                     enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-                    focusedBorder: _border(OnboardingColors.borderActive, 1.5),
+                    // Spec §3.3: a FOCUSED input rings navy at 1.8. Yellow
+                    // (borderActive) means selected, which a text box never is.
+                    focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
                   ),
                 ),
                 const SizedBox(height: 8),
                 ConstrainedBox(
                   constraints: BoxConstraints(
-                      maxHeight: MediaQuery.sizeOf(context).height * 0.45),
+                    maxHeight: MediaQuery.sizeOf(context).height * 0.45,
+                  ),
                   child: ListView(
                     shrinkWrap: true,
                     children: <Widget>[
                       if (offerCustom)
                         ListTile(
                           key: kOnboardingPickerCustomKey,
-                          leading: const Icon(Icons.edit_location_alt_outlined,
-                              color: OnboardingColors.shiftBlue),
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.edit_location_alt_outlined,
+                            color: OnboardingColors.shiftBlue,
+                          ),
                           title: Text(
                             '"$query" use karein',
                             style: OnboardingTypography.inter(
-                                size: 14,
-                                weight: FontWeight.w600,
-                                color: OnboardingColors.shiftBlue),
+                              size: 14,
+                              weight: FontWeight.w600,
+                              color: OnboardingColors.shiftBlue,
+                            ),
                           ),
                           onTap: () => Navigator.of(context).pop(query),
                         ),
                       if (visible.isEmpty && !offerCustom)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Text(widget.emptyHint,
-                              style: OnboardingTypography.bodyMuted()),
+                          child: Text(
+                            widget.emptyHint,
+                            style: OnboardingTypography.bodyMuted(),
+                          ),
                         ),
                       for (final String option in visible)
                         ListTile(
+                          // The sheet's title and search field sit at its own
+                          // gutter; ListTile's default 16dp indent put every
+                          // row 13dp further in, so the labels did not line up
+                          // with the field above them.
+                          contentPadding: EdgeInsets.zero,
                           title: Text(
                             option,
                             style: OnboardingTypography.inter(
@@ -237,8 +287,10 @@ class _PickerSheetState extends State<_PickerSheet> {
                             ),
                           ),
                           trailing: option == widget.selected
-                              ? const Icon(Icons.check_rounded,
-                                  color: OnboardingColors.shiftBlue)
+                              ? const Icon(
+                                  Icons.check_rounded,
+                                  color: OnboardingColors.shiftBlue,
+                                )
                               : null,
                           onTap: () => Navigator.of(context).pop(option),
                         ),

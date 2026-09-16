@@ -878,8 +878,12 @@ class _ChatViewState extends State<_ChatView> {
   Future<void> _confirmEarlyFinish() async {
     final bool? proceed = await showBbBottomSheet<bool>(
       context: context,
-      // Scrolls so a large system font on a short phone reaches both actions
-      // instead of overflowing the sheet.
+      // The EXPLANATION scrolls; the two ways out are DOCKED below it (the
+      // sheet's `footer`). With the actions at the end of the scrolling body, a
+      // 320x568 screen at a 2.0 system font showed a half-cut 'Baat jaari
+      // rakhein' and pushed the escape hatch off the sheet entirely — exactly
+      // what this screen's own rule forbids: a client-side gate must never be
+      // able to trap a worker in a chat they cannot leave.
       builder: (BuildContext sheetContext) => SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -896,38 +900,44 @@ class _ChatViewState extends State<_ChatView> {
               kChatNudgeBody,
               style: OnboardingTypography.body(color: OnboardingColors.ink600),
             ),
-            const SizedBox(height: AppSpacing.s5),
-            PrimaryActionButton(
-              label: kChatNudgeContinueLabel,
-              showArrow: false,
-              onPressed: () => Navigator.of(sheetContext).pop(false),
-            ),
-            const SizedBox(height: AppSpacing.s2),
-            // The escape hatch stays a quiet text action under the yellow CTA —
-            // present and thumb-sized, never competing with "keep talking".
-            MediaQuery.withClampedTextScaling(
-              maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
-              child: TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: OnboardingColors.shiftBlue,
-                  minimumSize: const Size(
-                    double.infinity,
-                    OnboardingLayout.tapTarget,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(OnboardingRadii.button),
-                  ),
-                ),
-                onPressed: () => Navigator.of(sheetContext).pop(true),
-                child: Text(
-                  kChatNudgeProceedLabel,
-                  textAlign: TextAlign.center,
-                  style: OnboardingTypography.buttonLabel(),
-                ),
-              ),
-            ),
           ],
         ),
+      ),
+      footer: (BuildContext sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const SizedBox(height: AppSpacing.s5),
+          PrimaryActionButton(
+            label: kChatNudgeContinueLabel,
+            showArrow: false,
+            onPressed: () => Navigator.of(sheetContext).pop(false),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          // The escape hatch stays a quiet text action under the yellow CTA —
+          // present and thumb-sized, never competing with "keep talking".
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+            child: TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: OnboardingColors.shiftBlue,
+                minimumSize: const Size(
+                  double.infinity,
+                  OnboardingLayout.tapTarget,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(OnboardingRadii.button),
+                ),
+              ),
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              child: Text(
+                kChatNudgeProceedLabel,
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.buttonLabel(),
+              ),
+            ),
+          ),
+        ],
       ),
     );
     if (proceed != true) return;
@@ -949,6 +959,25 @@ class _ChatViewState extends State<_ChatView> {
     // B7 display lever: a non-empty notice is shown above the composer. Empty by
     // default, so nothing renders unless ops set one.
     final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
+    // D3: the header's inner row sits on the SAME grid as the body. The
+    // transcript and the composer both stop at
+    // [OnboardingLayout.maxContentWidth] and centre, so on a tablet the 'BB /
+    // Bada Bhai / online' lockup and the Feedback action sat ~144dp outside the
+    // column they belong to.
+    //
+    // It is the SAME expression the transcript's `listGutter` uses, applied as
+    // PADDING with `titleSpacing: 0` rather than as titleSpacing: an AppBar
+    // charges `titleSpacing` against BOTH sides of the middle slot, so pushing
+    // the gutter through it took the width away twice and overflowed the
+    // lockup on a landscape phone.
+    final double headerGutter = math.max(
+      AppSpacing.s4,
+      (MediaQuery.sizeOf(context).width - OnboardingLayout.maxContentWidth) / 2,
+    );
+    final double headerActionGutter = math.max(
+      AppSpacing.s2,
+      (MediaQuery.sizeOf(context).width - OnboardingLayout.maxContentWidth) / 2,
+    );
     return Scaffold(
       backgroundColor: OnboardingColors.canvasBg,
       appBar: AppBar(
@@ -967,8 +996,10 @@ class _ChatViewState extends State<_ChatView> {
         systemOverlayStyle: SystemUiOverlayStyle.light,
         // Kit gutter of left space so the BB avatar + title are not flush
         // against the screen edge — aligns the header with the body's margin.
-        titleSpacing: AppSpacing.s4,
-        title: MediaQuery.withClampedTextScaling(
+        titleSpacing: 0,
+        title: Padding(
+          padding: EdgeInsets.only(left: headerGutter),
+          child: MediaQuery.withClampedTextScaling(
           maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
           child: Row(
             children: <Widget>[
@@ -1044,6 +1075,7 @@ class _ChatViewState extends State<_ChatView> {
               ),
             ],
           ),
+          ),
         ),
         // Feedback lives HERE instead of the app-wide floating button on this
         // screen (both the onboarding chat and the Bada Bhai tab reuse it) —
@@ -1051,7 +1083,7 @@ class _ChatViewState extends State<_ChatView> {
         // only the position differs.
         actions: <Widget>[
           Padding(
-            padding: const EdgeInsets.only(right: AppSpacing.s2),
+            padding: EdgeInsets.only(right: headerActionGutter),
             child: MediaQuery.withClampedTextScaling(
               maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
               child: TextButton(
@@ -1142,7 +1174,12 @@ class _ChatViewState extends State<_ChatView> {
                 math.min(screenWidth, OnboardingLayout.maxContentWidth) * 0.78;
             return Stack(
               children: <Widget>[
+                // bottom: false — the docked composer panel consumes the
+                // system inset ITSELF (see [_bottomComposerSegment]), so its
+                // white ground runs to the screen edge instead of stopping
+                // above the home-indicator area and showing canvas under it.
                 SafeArea(
+                  bottom: false,
                   child: LayoutBuilder(
                    builder: (BuildContext context, BoxConstraints body) =>
                     Column(
@@ -1271,6 +1308,14 @@ class _ChatViewState extends State<_ChatView> {
     // is exactly the keyed Column.
     return ColoredBox(
       color: OnboardingColors.paperWhite,
+      // The system bottom inset is consumed HERE, inside the white panel and
+      // OUTSIDE the measured Column: the panel paints to the screen edge while
+      // `bottomBarInset` keeps reporting the height above the inset, which is
+      // exactly what the floating Feedback pill adds the inset to.
+      child: Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewPaddingOf(context).bottom,
+      ),
       child: Column(
       key: _bottomSegmentKey,
       mainAxisSize: MainAxisSize.min,
@@ -1316,6 +1361,7 @@ class _ChatViewState extends State<_ChatView> {
         else
           _doneCta(state),
       ],
+      ),
       ),
     );
   }
@@ -1409,11 +1455,15 @@ class _ChatViewState extends State<_ChatView> {
                   width: 1.2,
                 ),
               ),
-              // Master UI Kit: every focus ring is the yellow borderActive.
+              // UI kit v3 (decision D8): FOCUS is navy at 1.8 — the spec's one
+              // focus rule (§3.3, the OTP cell). Safety yellow now means
+              // SELECTED (a picked card, a ticked checkbox, a chosen chip) and
+              // nothing else, so a caret sitting in the composer can no longer
+              // read as an answer the worker has already given.
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadii.md),
                 borderSide: const BorderSide(
-                  color: OnboardingColors.borderActive,
+                  color: OnboardingColors.shiftBlue,
                   width: 1.8,
                 ),
               ),

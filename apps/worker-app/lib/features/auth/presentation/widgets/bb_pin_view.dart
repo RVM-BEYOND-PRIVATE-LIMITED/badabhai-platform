@@ -71,9 +71,13 @@ class BbPinSlotStyle {
   );
 
   /// The kit's `_buildPinRow`: 58×60 boxes, 6px margin each side, 14 radius,
-  /// white fill, a 1.2px `borderDefault` hairline and a navy `•` per digit. The
-  /// active slot takes the kit's focused-input treatment (`borderActive`,
-  /// 1.8px) — the same ring the kit draws on the OTP boxes one screen earlier.
+  /// white fill, a 1.2px `borderDefault` hairline and a navy `•` per digit.
+  ///
+  /// The active slot takes v3's ONE focus rule (spec §3.3, decision D8): a
+  /// NAVY ring at 1.8 — the same ring the OTP boxes one screen earlier draw.
+  /// It used to be `borderActive`, i.e. safety yellow; in v3 yellow means
+  /// SELECTED (a card, a chip, a checkbox border) and a PIN box being typed
+  /// into is focused, never selected.
   static const BbPinSlotStyle shiftBlue = BbPinSlotStyle(
     boxWidth: 58,
     boxHeight: 60,
@@ -82,7 +86,7 @@ class BbPinSlotStyle {
     fill: OnboardingColors.paperWhite,
     borderIdle: OnboardingColors.borderDefault,
     borderFilled: OnboardingColors.borderDefault,
-    borderActive: OnboardingColors.borderActive,
+    borderActive: OnboardingColors.shiftBlue,
     errorColor: OnboardingColors.errorRed,
     borderWidth: 1.2,
     activeBorderWidth: 1.8,

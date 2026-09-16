@@ -69,16 +69,16 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
   /// The one honest line per notice. Hinglish, `aap`-form, no jargon and no
   /// machine cause — a worker cannot act on `ocr_below_floor`.
   static String _noticeText(ResumeUploadNotice notice) => switch (notice) {
-        ResumeUploadNotice.uploadsUnavailable =>
-          'Resume upload abhi shuru nahi hua hai. Hum Hinglish mein baat karke '
-              'aage badhte hain.',
-        ResumeUploadNotice.couldNotRead =>
-          'Resume se jaankari nahi mil paayi. Hum Hinglish mein baat karke aage '
-              'badhte hain.',
-        ResumeUploadNotice.unsupportedType =>
-          'Sirf PDF, DOCX, JPG ya PNG file chalegi.',
-        ResumeUploadNotice.tooLarge => 'File 10 MB se chhoti honi chahiye.',
-      };
+    ResumeUploadNotice.uploadsUnavailable =>
+      'Resume upload abhi shuru nahi hua hai. Hum Hinglish mein baat karke '
+          'aage badhte hain.',
+    ResumeUploadNotice.couldNotRead =>
+      'Resume se jaankari nahi mil paayi. Hum Hinglish mein baat karke aage '
+          'badhte hain.',
+    ResumeUploadNotice.unsupportedType =>
+      'Sirf PDF, DOCX, JPG ya PNG file chalegi.',
+    ResumeUploadNotice.tooLarge => 'File 10 MB se chhoti honi chahiye.',
+  };
 
   void _onState(BuildContext context, ResumeUploadState state) {
     if (!state.isDone) return;
@@ -128,7 +128,8 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
               children: <Widget>[
                 const ShiftBlueHeader(
                   title: 'Resume hai aapke paas?',
-                  subtitle: 'Resume upload karne se aadhi jaankari apne aap '
+                  subtitle:
+                      'Resume upload karne se aadhi jaankari apne aap '
                       'bhar jaati hai. Nahi hai to koi baat nahi.',
                 ),
                 Expanded(
@@ -198,7 +199,8 @@ class _Doors extends StatelessWidget {
           title: 'Resume upload karein',
           subtitle: 'PDF, DOCX ya resume ka photo',
           emphasis: true,
-          loading: state.status == ResumeUploadStatus.picking ||
+          loading:
+              state.status == ResumeUploadStatus.picking ||
               state.status == ResumeUploadStatus.working,
           onTap: busy ? null : cubit.chooseDocument,
         ),
@@ -207,7 +209,9 @@ class _Doors extends StatelessWidget {
         // DOOR 2 — today's path, unchanged.
         ResumeDoorTile(
           tileKey: const Key('resume_door_chat'),
-          icon: Icons.chat_bubble_outline,
+          // The v3 rounded glyph, so "talk to Bada Bhai" wears the same icon
+          // here, in the nav bar and on the Feedback pill.
+          icon: Icons.chat_bubble_outline_rounded,
           title: 'Hinglish mein baat karein',
           subtitle: 'Bada Bhai sawaal poochhega, aap jawaab dijiye',
           onTap: busy ? null : cubit.continueInChat,

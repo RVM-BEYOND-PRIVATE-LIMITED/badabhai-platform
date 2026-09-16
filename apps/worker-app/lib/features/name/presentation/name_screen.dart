@@ -120,7 +120,8 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
   }
 
   void _onNameChanged() {
-    final bool has = _firstNameController.text.trim().isNotEmpty &&
+    final bool has =
+        _firstNameController.text.trim().isNotEmpty &&
         _lastNameController.text.trim().isNotEmpty;
     if (has != _hasName) setState(() => _hasName = has);
   }
@@ -286,7 +287,8 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
     // same state under another spelling ("NCT of Delhi" from the geocoder,
     // "Delhi" from the list) is not a different state, so the city stays.
     final String previous = _effectiveState;
-    final bool sameState = previous == picked ||
+    final bool sameState =
+        previous == picked ||
         (canonicalIndianState(previous) ?? previous) == picked;
     _stateController.text = picked;
     if (!sameState) _cityController.clear();
@@ -363,11 +365,7 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
     final String fullName =
         '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}'
             .trim();
-    cubit.submit(
-      fullName,
-      city: _effectiveCity,
-      state: _effectiveState,
-    );
+    cubit.submit(fullName, city: _effectiveCity, state: _effectiveState);
   }
 
   @override
@@ -410,7 +408,8 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
               // only when there is genuinely something to pop to.
               ShiftBlueHeader(
                 title: 'Aapka naam?',
-                subtitle: 'Yeh sirf aapke resume par chhapega. Hum ise kisi '
+                subtitle:
+                    'Yeh sirf aapke resume par chhapega. Hum ise kisi '
                     'aur ko nahi dikhate.',
                 onBack: navigator.canPop() ? navigator.maybePop : null,
               ),
@@ -422,7 +421,7 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: <Widget>[
-                        const _MicroLabel('PEHLA NAAM'),
+                        const _MicroLabel('PEHLA NAAM (FIRST NAME)'),
                         _NameField(
                           controller: _firstNameController,
                           hint: 'Jaise: Asha / Ramesh',
@@ -430,7 +429,7 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
                           onSubmitted: (_) => _submit(context, state),
                         ),
                         const SizedBox(height: 16),
-                        const _MicroLabel('AAKHRI NAAM'),
+                        const _MicroLabel('AAKHRI NAAM (LAST NAME)'),
                         _NameField(
                           controller: _lastNameController,
                           hint: 'Jaise: Kumari / Kumar',
@@ -466,7 +465,8 @@ class _NameViewState extends State<_NameView> with WidgetsBindingObserver {
                   // This screen owns its Feedback action (the floating button
                   // hides on /name). The route travels as `extra`, exactly as
                   // the floating button sends it.
-                  onTap: () => context.push(Routes.feedback, extra: Routes.name),
+                  onTap: () =>
+                      context.push(Routes.feedback, extra: Routes.name),
                 ),
               ),
             ],
@@ -526,18 +526,26 @@ class _NameField extends StatelessWidget {
       style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
       decoration: InputDecoration(
         hintText: hint,
-        hintStyle:
-            OnboardingTypography.inter(size: 14, color: OnboardingColors.ink500),
+        hintStyle: OnboardingTypography.inter(
+          size: 14,
+          color: OnboardingColors.ink500,
+        ),
         counterText: '',
         filled: true,
         fillColor: OnboardingColors.paperWhite,
         isDense: true,
-        constraints: const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+        constraints: const BoxConstraints(
+          minHeight: OnboardingLayout.tapTarget,
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 15,
+        ),
         border: _border(OnboardingColors.borderDefault, 1.2),
         enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-        focusedBorder: _border(OnboardingColors.borderActive, 1.5),
+        // Spec §3.3's one focus rule (D8): navy at 1.8. Yellow is reserved for
+        // a SELECTED card, chip or checkbox — an input is never selected.
+        focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
       ),
     );
   }
@@ -662,7 +670,10 @@ class _OutlineActionButton extends StatelessWidget {
             // says "busy", so the button never looks like it vanished.
             disabledForegroundColor: OnboardingColors.shiftBlue,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            side: const BorderSide(color: OnboardingColors.shiftBlue, width: 1.5),
+            side: const BorderSide(
+              color: OnboardingColors.shiftBlue,
+              width: 1.5,
+            ),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
             ),
@@ -719,8 +730,11 @@ class _LocationHint extends StatelessWidget {
         children: <Widget>[
           const Padding(
             padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.error_outline_rounded,
-                size: 16, color: OnboardingColors.errorRed),
+            child: Icon(
+              Icons.error_outline_rounded,
+              size: 16,
+              color: OnboardingColors.errorRed,
+            ),
           ),
           const SizedBox(width: 6),
           Expanded(
@@ -742,8 +756,11 @@ class _LocationHint extends StatelessWidget {
         children: <Widget>[
           const Padding(
             padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.check_rounded,
-                size: 16, color: OnboardingColors.successGreen),
+            child: Icon(
+              Icons.check_rounded,
+              size: 16,
+              color: OnboardingColors.successGreen,
+            ),
           ),
           const SizedBox(width: 6),
           Expanded(
@@ -767,8 +784,10 @@ class _LocationHint extends StatelessWidget {
   }
 }
 
-/// This screen's Feedback action, docked left of Continue: a Shift Blue pill
-/// (48px, 12 radius) with a chat-bubble icon and a white Anek label.
+/// This screen's Feedback action, docked left of Continue: the SAME pill the
+/// app-wide floating Feedback button draws (D9) — navy, 12 radius, 48dp tall,
+/// `chat_bubble_outline_rounded` 16 over an Inter 13 w700 white label — because
+/// the two are the same action and only ever appear one at a time.
 class _FeedbackPill extends StatelessWidget {
   const _FeedbackPill({required this.onTap});
 
@@ -793,14 +812,14 @@ class _FeedbackPill extends StatelessWidget {
               children: <Widget>[
                 const Icon(
                   Icons.chat_bubble_outline_rounded,
-                  size: 18,
+                  size: 16,
                   color: OnboardingColors.textOnBlue,
                 ),
                 const SizedBox(width: 8),
                 Text(
                   'Feedback',
-                  style: OnboardingTypography.anek(
-                    size: 15,
+                  style: OnboardingTypography.inter(
+                    size: 13,
                     weight: FontWeight.w700,
                     color: OnboardingColors.textOnBlue,
                   ),
@@ -877,9 +896,9 @@ Future<_LocationPromptChoice> _askForLocation(
             Text(
               submitOnDismiss
                   ? 'Jobs aapke sheher ke hisaab se aati hain. GPS se bhar '
-                      'dein, ya sheher aur state khud chunein.'
+                        'dein, ya sheher aur state khud chunein.'
                   : 'Ab GPS se aapka sheher aur state apne aap bhar sakte '
-                      'hain, ya khud chunein.',
+                        'hain, ya khud chunein.',
               textAlign: TextAlign.center,
               style: OnboardingTypography.body(color: OnboardingColors.ink600),
             ),
@@ -918,7 +937,9 @@ Future<_LocationPromptChoice> _askForLocation(
                   // The submit-time close is a SKIP, and says so — a worker who
                   // taps it must know the name saves without a location, not
                   // that they were sent back to try again.
-                  submitOnDismiss ? 'Bina location aage badhein' : 'Band karein',
+                  submitOnDismiss
+                      ? 'Bina location aage badhein'
+                      : 'Band karein',
                   textAlign: TextAlign.center,
                   style: OnboardingTypography.inter(
                     size: 14,
@@ -964,8 +985,9 @@ class _PromptPrimaryButton extends StatelessWidget {
             elevation: 0,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(OnboardingRadii.feedbackButton),
+              borderRadius: BorderRadius.circular(
+                OnboardingRadii.feedbackButton,
+              ),
             ),
           ),
           child: Row(

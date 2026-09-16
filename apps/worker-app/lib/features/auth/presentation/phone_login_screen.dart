@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +7,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/push_once.dart';
+import '../../../core/widgets/kit/phone_number_field.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
@@ -15,10 +15,14 @@ import '../../../router.dart';
 import 'cubit/phone_login_cubit.dart';
 import 'otp_verify_screen.dart';
 
-/// Phone login — onboarding kit **Screen 2**: the Shift Blue header, a
-/// `MOBILE NUMBER` label over a white 56px field with a fixed `+91` and a
-/// hairline divider, the "Verified & Secure Platform" trust line, and the
-/// yellow "Send OTP" CTA.
+/// TalkBack's name for the number box. The hint disappears behind the typed
+/// digits, so without this the field announces as an unnamed edit box.
+const String kPhoneFieldSemanticLabel = 'Mobile number';
+
+/// Phone login — v3 **screen 2**: the Shift Blue header, a `MOBILE NUMBER`
+/// label over the kit's 54dp [PhoneNumberField] (fixed `+91`, hairline divider,
+/// mono digits), the "Verified & Secure Platform" trust line, and the yellow
+/// "Send OTP" CTA.
 class PhoneLoginScreen extends StatelessWidget {
   const PhoneLoginScreen({super.key});
 
@@ -46,7 +50,8 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
   /// arrived.
   final TextEditingController _controller = TextEditingController();
 
-  /// Drives the field's focused border (the kit's `borderActive`).
+  /// Drives the field's focus ring — [PhoneNumberField] listens to this node
+  /// itself, so the ring repaints without this screen rebuilding.
   final FocusNode _focusNode = FocusNode();
 
   /// Enables the CTA only once the number can actually be dialled.
@@ -55,9 +60,8 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
   @override
   void initState() {
     super.initState();
-    // Repaint the CTA as the digit count crosses 10, and the border on focus.
+    // Repaint the CTA as the digit count crosses 10.
     _controller.addListener(_onChanged);
-    _focusNode.addListener(_onChanged);
   }
 
   void _onChanged() => setState(() {});
@@ -65,7 +69,6 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
   @override
   void dispose() {
     _controller.removeListener(_onChanged);
-    _focusNode.removeListener(_onChanged);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -132,9 +135,10 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                           style: OnboardingTypography.fieldMicroLabel(),
                         ),
                         const SizedBox(height: 8),
-                        _PhoneField(
+                        PhoneNumberField(
                           controller: _controller,
                           focusNode: _focusNode,
+                          semanticLabel: kPhoneFieldSemanticLabel,
                         ),
                         const SizedBox(height: 18),
                         Row(
@@ -168,9 +172,9 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                           // only ever fail.
                           onPressed: state.isSubmitting || !_isComplete
                               ? null
-                              : () => context
-                                  .read<PhoneLoginCubit>()
-                                  .submit(toE164(_controller.text)),
+                              : () => context.read<PhoneLoginCubit>().submit(
+                                  toE164(_controller.text),
+                                ),
                         ),
                       ],
                     ),
@@ -181,89 +185,6 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
           ),
         );
       },
-    );
-  }
-}
-
-/// The kit's phone input: a 56px white box, 14 radius, fixed `+91`, a 1×24
-/// divider, then the digits in Roboto Mono.
-class _PhoneField extends StatelessWidget {
-  const _PhoneField({required this.controller, required this.focusNode});
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-
-  @override
-  Widget build(BuildContext context) {
-    final bool focused = focusNode.hasFocus;
-    return GestureDetector(
-      // The whole box is the target, not only the text run inside it.
-      onTap: focusNode.requestFocus,
-      child: Container(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: OnboardingColors.paperWhite,
-          borderRadius: BorderRadius.circular(OnboardingRadii.phoneField),
-          border: Border.all(
-            color: focused
-                ? OnboardingColors.borderActive
-                : OnboardingColors.borderDefault,
-            width: focused ? 1.8 : 1.2,
-          ),
-        ),
-        child: Row(
-          children: <Widget>[
-            // Fixed chrome — drawn beside the field, never inside its
-            // controller, so it cannot be selected or backspaced away.
-            Text(
-              kIndiaDialCode,
-              style: OnboardingTypography.subheadBold(
-                color: OnboardingColors.shiftBlue,
-              ),
-            ),
-            Container(
-              width: 1,
-              height: 24,
-              margin: const EdgeInsets.symmetric(horizontal: 14),
-              color: OnboardingColors.borderDefault,
-            ),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                focusNode: focusNode,
-                keyboardType: TextInputType.phone,
-                style: OnboardingTypography.mono(
-                  size: 16,
-                  weight: FontWeight.w600,
-                  color: OnboardingColors.ink900,
-                ),
-                // Digits only, capped at 10: the field cannot hold a country
-                // code, spaces, or punctuation, so there is nothing to strip
-                // and nothing malformed to send.
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(kNationalNumberDigits),
-                ],
-                decoration: InputDecoration(
-                  hintText: 'XXXXXXXXXX',
-                  hintStyle: OnboardingTypography.mono(
-                    size: 16,
-                    weight: FontWeight.w600,
-                    color: OnboardingColors.ink500,
-                  ),
-                  counterText: '',
-                  filled: false,
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

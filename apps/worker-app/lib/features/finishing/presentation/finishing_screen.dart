@@ -9,6 +9,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/session/known_worker_facts_store.dart' show WorkerFact;
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/tap_guard.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/onboarding/form_flow_parts.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/option_icons.dart';
@@ -130,6 +131,46 @@ const String _kMultiHint = 'Multiple options select kar sakte hain';
       FinishingPage.educationDetail => ('Qualifications', 'Education details'),
       FinishingPage.history => ('Work history', 'Past jobs'),
     };
+
+/// Whether the keyboard has left too little room for this screen's full
+/// chrome — the navy header, the STEP line AND the progress strip — above the
+/// docked bar.
+///
+/// MEASURED, not guessed: on a 320x568 handset at a 200% system font with the
+/// keyboard up, the form-flow header, the progress strip and the docked bar
+/// come to ~370dp of chrome in the 308dp the keyboard leaves, so the
+/// scrollable page gets 0dp and the docked bar overflows the column — a red
+/// error band under the worker's thumb on the one page that types (work
+/// history). While the keyboard crowds the screen the chrome therefore sheds
+/// the STEP line and the strip, and the header falls back to the kit's
+/// collapsed drawing; all three come straight back when the keyboard closes.
+///
+/// CALL THIS ABOVE THE SCAFFOLD — from the widget that BUILDS it, as both
+/// callers do. A [Scaffold] with the default `resizeToAvoidBottomInset`
+/// consumes `viewInsets.bottom` and hands its body a shorter box with the
+/// inset zeroed, so the same question asked inside the body always answers 0.
+///
+/// [MediaQuery] rather than `View.of`, deliberately: reading the window gives
+/// the right number but subscribes to nothing, so the build that read it never
+/// re-runs when the keyboard opens. `viewInsetsOf`/`sizeOf` register the two
+/// dependencies, so the keyboard appearing IS the rebuild.
+///
+/// Duplicated verbatim in
+/// `features/trade_form/presentation/trade_form_screen.dart`, whose wizard has
+/// the identical header + strip + docked-bar column; keep both in sync if this
+/// ever changes.
+bool _keyboardCrowdsChrome(BuildContext context) {
+  final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+  if (keyboard <= 0) return false;
+  return MediaQuery.sizeOf(context).height - keyboard < 480;
+}
+
+/// Whether the HEADER should fall back to the kit's collapsed drawing — the
+/// keyboard, OR a short screen at a large system font. See the identical
+/// helper in `trade_form_screen.dart` for the measurement and why R14 is
+/// untouched by it (the strip, glyphs, hint chip and decline link all stay).
+bool _chromeCrowdsChrome(BuildContext context) =>
+    _keyboardCrowdsChrome(context) || chromeCrowdsViewport(context);
 
 /// Pages whose closed set allows several answers.
 bool _isMultiSelect(FinishingPage page) =>
@@ -270,15 +311,23 @@ class _StatusScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool crowded = _keyboardCrowdsChrome(context);
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          const ShiftBlueHeader(
+          ShiftBlueHeader(
             title: _kHistoryTitle,
             subtitle: _kRewardLine,
             titleColor: OnboardingColors.safetyYellow,
-            variant: OnboardingVariant.formFlow,
+            // The approved form-flow drawing, except on a keyboard-crowded
+            // short screen: this header carries a title AND a subtitle, which
+            // at a 2.0 system font on a 320dp phone is taller than what the
+            // keyboard leaves of the viewport — see [_keyboardCrowdsChrome].
+            variant: crowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: crowded,
           ),
           Expanded(child: SafeArea(top: false, child: child)),
         ],
@@ -287,24 +336,13 @@ class _StatusScaffold extends StatelessWidget {
   }
 }
 
+/// The kit's captioned loader ([BbStatusView.loading]) — the app's one loading
+/// drawing (decision D12), not a local spinner of its own.
 class _LoadingBody extends StatelessWidget {
   const _LoadingBody();
   @override
-  Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const CircularProgressIndicator(color: OnboardingColors.shiftBlue),
-          const SizedBox(height: 16),
-          Text(_kLoading,
-              textAlign: TextAlign.center,
-              style: OnboardingTypography.bodyMuted()),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const BbStatusView.loading(caption: _kLoading);
 }
 
 class _ErrorBody extends StatelessWidget {
@@ -314,26 +352,26 @@ class _ErrorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OnboardingBody(
-      fillViewport: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          const Icon(Icons.error_outline_rounded,
-              size: 32, color: OnboardingColors.errorRed),
-          const SizedBox(height: 12),
-          // The real reason from the cubit — never a generic "check internet".
-          Text(message,
-              textAlign: TextAlign.center,
-              style: OnboardingTypography.inter(
-                  size: 15, weight: FontWeight.w500, height: 1.4)),
-          const SizedBox(height: 20),
-          PrimaryActionButton(
-            label: _kRetry,
-            showArrow: false,
-            onPressed: onRetry,
-          ),
-        ],
+    // The kit's status view (decision D12): the 54dp error disc, the reason as
+    // the title, the retry as the kit's hero CTA. Centred while there is room
+    // and SCROLLED when there is not.
+    //
+    // It replaces a local `OnboardingBody(fillViewport: true)` column, which
+    // sized itself through `IntrinsicHeight`: a Text reports its intrinsic
+    // height for ONE unwrapped line, so on a landscape phone at a 2.0 system
+    // font the box came out shorter than the wrapped copy and the state
+    // overflowed instead of scrolling.
+    //
+    // [message] is the real reason from the cubit — never a generic "check
+    // internet".
+    return BbStatusView(
+      icon: Icons.error_outline_rounded,
+      iconColor: OnboardingColors.errorRed,
+      title: message,
+      action: PrimaryActionButton(
+        label: _kRetry,
+        showArrow: false,
+        onPressed: onRetry,
       ),
     );
   }
@@ -384,6 +422,12 @@ class _WizardScaffold extends StatelessWidget {
     // asked is skipped, so the two can differ.
     final int i = state.page.index;
     final ValueChanged<String>? listen = onListen;
+    // The keyboard is up on a short screen (the work-history page): the chrome
+    // sheds its context-only parts so the card being filled and the docked
+    // action still fit. See [_keyboardCrowdsChrome] for the measurement.
+    final bool crowded = _keyboardCrowdsChrome(context);
+    // The header collapses on a short screen too, not only under a keyboard.
+    final bool headerCrowded = _chromeCrowdsChrome(context);
     return Scaffold(
       backgroundColor: FormFlowColors.canvas,
       body: Column(
@@ -392,16 +436,26 @@ class _WizardScaffold extends StatelessWidget {
           // body's headline.
           ShiftBlueHeader(
             title: _topicFor(state.page).$1,
-            stepBadge: _stepBadge(state),
+            stepBadge: crowded ? null : _stepBadge(state),
             titleColor: OnboardingColors.safetyYellow,
             onBack: state.isFirstPage ? null : cubit.previousPage,
-            variant: OnboardingVariant.formFlow,
+            // The approved form-flow drawing everywhere except a crowded short
+            // screen, where it does not fit at all and the kit's collapsed
+            // drawing takes over.
+            variant: headerCrowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: headerCrowded,
           ),
-          FormProgressStrip(
-            topic: _topicFor(state.page).$2,
-            position: state.pageIndex + 1,
-            total: state.pages.length,
-          ),
+          // Hidden only while the keyboard crowds the screen: it states the
+          // same progress as the STEP line, and a worker mid-typing is reading
+          // their own words.
+          if (!crowded)
+            FormProgressStrip(
+              topic: _topicFor(state.page).$2,
+              position: state.pageIndex + 1,
+              total: state.pages.length,
+            ),
           Expanded(
             // Bottom inset is the docked bar's job; keep only the side insets.
             child: SafeArea(

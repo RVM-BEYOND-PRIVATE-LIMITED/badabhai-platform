@@ -91,9 +91,9 @@ void main() {
       expect(find.text('Badlo'), findsOneWidget);
 
       // The data rows the worker confirms stay.
-      expect(find.text('Trade'), findsOneWidget);
+      expect(find.text('TRADE'), findsOneWidget);
       expect(find.text('Welder'), findsOneWidget);
-      expect(find.text('City'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
       expect(find.text('Pune'), findsOneWidget);
 
       // The strength row is gone — no label, no "N/max cheezein complete", no
@@ -144,7 +144,7 @@ void main() {
           textScale: 2.0);
 
       expect(tester.takeException(), isNull);
-      expect(find.text('Profile'), findsOneWidget);
+      expect(find.text('PROFILE'), findsOneWidget);
       expect(find.text('Ready'), findsOneWidget);
     });
 

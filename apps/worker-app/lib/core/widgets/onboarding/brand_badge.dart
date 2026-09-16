@@ -20,11 +20,11 @@ class BrandBadge extends StatelessWidget {
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: form ? FormFlowLayout.brandBadgePaddingH : 10,
-        vertical: 5,
+        vertical: 4,
       ),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(OnboardingRadii.badge),
+        borderRadius: BorderRadius.circular(OnboardingRadii.brandBadge),
         border: Border.all(
           color: form
               ? FormFlowColors.brandBadgeBorder
@@ -39,18 +39,19 @@ class BrandBadge extends StatelessWidget {
           else
             const Icon(
               Icons.people_alt_rounded,
-              size: 14,
+              size: 13,
               color: OnboardingColors.safetyYellow,
             ),
-          SizedBox(width: form ? FormFlowLayout.brandBadgeIconGap : 6),
+          SizedBox(width: form ? FormFlowLayout.brandBadgeIconGap : 5),
           Text(
             'BADABHAI',
             style: OnboardingTypography.anek(
               size: form ? FormFlowLayout.brandBadgeWordmarkSize : 11,
               weight: FontWeight.w800,
               color: OnboardingColors.textOnBlue,
-              letterSpacing:
-                  form ? FormFlowLayout.brandBadgeLetterSpacing : 0.5,
+              letterSpacing: form
+                  ? FormFlowLayout.brandBadgeLetterSpacing
+                  : 0.5,
             ),
           ),
         ],

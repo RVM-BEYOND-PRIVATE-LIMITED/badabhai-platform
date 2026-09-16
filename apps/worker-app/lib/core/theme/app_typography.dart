@@ -2,41 +2,58 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
+import 'onboarding_theme.dart';
 
-/// BadaBhai typography — **"Josh" system** (LOCKED 2026-07-27).
+/// BadaBhai typography — **LEGACY FACADE over UI kit v3**.
 ///
-///  - **Anek** — display & brand voice (Ek Type). Distinctive, Indian; a
-///    matching Anek Devanagari family means Hindi & English speak alike.
-///    Headlines, the logo, big worker-facing moments, buttons, ₹ salaries.
-///  - **Roboto** — body & all UI, with Noto Sans Devanagari fallback. Neutral,
-///    free, renders perfectly on budget handsets at low-literacy sizes.
+/// [OnboardingTypography] is the canonical v3 type layer (spec §1.2), and new
+/// code uses its NAMED styles. This class is kept so the ~54 files that import
+/// it still compile: every member name survives, with the FAMILIES re-pointed
+/// to the bundled v3 faces.
+///
+///  - **Anek Latin** — display & brand voice. Headlines, the wordmark, buttons,
+///    ₹ salaries. Falls back to the bundled Baloo 2, then Noto Sans Devanagari.
+///  - **Inter** — body & all UI. Falls back to the bundled Mukta, then Noto
+///    Sans Devanagari, so Devanagari copy still renders rather than tofu.
 ///  - **Roboto Mono** — data: wages, IDs, OTP, counts. Tabular numerals.
 ///    Self-hosted (see pubspec) so figures render identically offline.
 ///
-/// Body never below 16px; worker-facing copy skews larger (18–20). Generous
-/// line-height (1.5); headlines tight (1.1) with slight negative tracking.
+/// **THE FAMILY NAMES USED TO BE WRONG, AND SILENTLY SO.** [displayFamily] was
+/// `'Anek'` and [bodyFamily] was `'Roboto'`; neither is a family this app
+/// bundles, so Flutter resolved both to the platform font — every heading and
+/// button in the un-migrated app rendered in system sans while the code claimed
+/// Anek. They now name the real bundled families declared in pubspec
+/// (`Anek Latin`, `Inter`), which is the whole fix.
+///
+/// Default SIZES are deliberately unchanged: about 30 call sites lay out against
+/// them, and reflowing those is not this change. Migrated screens move to
+/// [OnboardingTypography]'s named styles instead.
 ///
 /// **#350 — brand-font DELIVERY.** This class is the ONLY google_fonts call site
 /// in `lib/`, so it is also the single seam where font delivery is decided. See
-/// [bundledBrandFonts] and `assets/fonts/README.md` for the state of that
-/// migration and the exact binaries it is waiting on.
+/// [bundledBrandFonts] and `assets/fonts/README.md`.
 class AppTypography {
   AppTypography._();
 
   /// Self-hosted data font family (declared in pubspec under `fonts:`).
   static const String monoFamily = 'Roboto Mono';
 
-  /// Display family — **Anek** (Ek Type). Doubles as the pubspec `fonts:`
-  /// family name once the binaries land — see [bundledBrandFonts]. Until then
-  /// the string falls back (the bundled Baloo 2 assets don't match this name).
-  static const String displayFamily = 'Anek';
+  /// Display family — **Anek Latin**, the bundled v3 display face. This is the
+  /// exact pubspec `fonts:` family name, so it resolves off the asset with no
+  /// google_fonts call and no platform-font substitution.
+  static const String displayFamily = OnboardingTypography.displayFamily;
 
-  /// Body/UI family — **Roboto** (a platform font on Android). Devanagari copy
-  /// falls through to [bodyFallback].
-  static const String bodyFamily = 'Roboto';
+  /// Body/UI family — **Inter**, the bundled v3 body face (pubspec family name).
+  static const String bodyFamily = OnboardingTypography.bodyFamily;
 
-  /// Devanagari fallback for body copy — free system font on budget handsets.
-  static const List<String> bodyFallback = <String>['Noto Sans Devanagari'];
+  /// Display fallbacks: the bundled Baloo 2, then Devanagari. Anek Latin is
+  /// subset to Latin, so a Devanagari glyph falls through rather than tofu.
+  static const List<String> displayFallback =
+      OnboardingTypography.displayFallback;
+
+  /// Body fallbacks: the bundled Mukta, then Noto Sans Devanagari — a free
+  /// system font on budget handsets.
+  static const List<String> bodyFallback = OnboardingTypography.bodyFallback;
 
   /// Whether [display]/[body]/[eyebrow] resolve straight off a font FAMILY name
   /// (a bundled asset or a platform font) instead of going through google_fonts.
@@ -112,6 +129,7 @@ class AppTypography {
     if (bundledBrandFonts) {
       return TextStyle(
         fontFamily: displayFamily,
+        fontFamilyFallback: displayFallback,
         fontSize: size,
         fontWeight: weight,
         color: color,

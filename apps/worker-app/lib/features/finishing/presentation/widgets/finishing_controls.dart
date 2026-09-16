@@ -19,6 +19,7 @@ class FinishingChip extends StatelessWidget {
     required this.label,
     this.selected = false,
     this.trailingIcon,
+    this.labelStyle,
     required this.onTap,
   });
 
@@ -26,6 +27,12 @@ class FinishingChip extends StatelessWidget {
   final bool selected;
   final IconData? trailingIcon;
   final VoidCallback? onTap;
+
+  /// Overrides the Inter label. Spec §1.2 puts counters, years and codes in
+  /// Roboto Mono, so the year chips pass a mono style here — the same override
+  /// the trade form's `TradeFormPillChip` already carries, so the two pickers
+  /// cannot drift apart again.
+  final TextStyle? labelStyle;
 
   static const double _radius = 12;
 
@@ -62,10 +69,11 @@ class FinishingChip extends StatelessWidget {
                   Flexible(
                     child: Text(
                       label,
-                      style: OnboardingTypography.inter(
-                        size: 14,
-                        weight: FontWeight.w600,
-                      ),
+                      style: labelStyle ??
+                          OnboardingTypography.inter(
+                            size: 14,
+                            weight: FontWeight.w600,
+                          ),
                     ),
                   ),
                   if (trailingIcon != null) ...<Widget>[

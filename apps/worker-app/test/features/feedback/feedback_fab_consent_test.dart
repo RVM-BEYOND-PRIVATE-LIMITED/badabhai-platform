@@ -14,9 +14,11 @@
 // stays dead.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:badabhai_worker_app/app.dart';
+import 'package:badabhai_worker_app/router.dart';
 import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
 import 'package:badabhai_worker_app/core/auth/auth_api.dart';
 import 'package:badabhai_worker_app/core/auth/locale_store.dart';
@@ -37,10 +39,14 @@ class _ScriptedConsentApi extends MockAuthApi {
   bool? consentAccepted;
 
   @override
-  Future<PinVerifyResult> pinVerify(String pin,
-      {required String refreshToken}) async {
-    final PinVerifyResult result =
-        await super.pinVerify(pin, refreshToken: refreshToken);
+  Future<PinVerifyResult> pinVerify(
+    String pin, {
+    required String refreshToken,
+  }) async {
+    final PinVerifyResult result = await super.pinVerify(
+      pin,
+      refreshToken: refreshToken,
+    );
     return PinVerifyResult(
       tokens: result.tokens,
       consentAccepted: consentAccepted,
@@ -67,8 +73,11 @@ Future<_ScriptedConsentApi> _wire({required bool? consentAccepted}) async {
   return api;
 }
 
-Future<void> _pumpUntil(WidgetTester tester, Finder finder,
-    {int maxFrames = 50}) async {
+Future<void> _pumpUntil(
+  WidgetTester tester,
+  Finder finder, {
+  int maxFrames = 50,
+}) async {
   for (int i = 0; i < maxFrames; i++) {
     await tester.pump(const Duration(milliseconds: 100));
     if (finder.evaluate().isNotEmpty) {
@@ -81,12 +90,64 @@ Future<void> _pumpUntil(WidgetTester tester, Finder finder,
 
 Future<void> _enterPin(WidgetTester tester, String pin) async {
   for (final String d in pin.split('')) {
-    await tester.tap(find.descendant(
-      of: find.byType(BbPinKeypad),
-      matching: find.text(d),
-    ));
+    await tester.tap(
+      find.descendant(of: find.byType(BbPinKeypad), matching: find.text(d)),
+    );
     await tester.pump();
   }
+}
+
+/// The route these tests step onto to see the pill, and why it is this one.
+///
+/// The three tab roots (/jobs, /resume, /profile) no longer carry the floating
+/// pill: their `KitTabHeader` owns the Feedback action itself (R2), so the
+/// overlay would be a duplicate control sitting over the bottom nav. The
+/// overlay's live-auth wiring still has to be proven, so these tests step one
+/// route deeper — onto a screen with no header Feedback of its own.
+///
+/// It is reached with `push`, because that is how the app itself navigates:
+/// every screen under a tab is pushed onto it.
+///
+/// And that is exactly what the overlay's route source has to survive. It
+/// resolves the route from `routerDelegate.currentConfiguration` (see its own
+/// doc: the RESOLVED match list, so a refreshListenable redirect is tracked) —
+/// but from the TOP-MOST match, not from `uri`. An IMPERATIVE PUSH does not
+/// change `uri`: pushing `/invite` renders the Invite screen while `uri.path`
+/// still reads `/resume`. Reading `uri.path` therefore judged every pushed
+/// screen by the tab root it was pushed from, and since the tab roots are
+/// hidden (R2), that stripped the pill from `/resume/edit`,
+/// `/profile/settings`, `/jobs/search`, `/devices` and `/alerts` — none of
+/// which has a header Feedback action of its own. A test that navigated with
+/// `go` here would prove the pill on a route the worker never arrives at that
+/// way.
+const String _kShownRoute = Routes.invite;
+
+/// PUSHES [_kShownRoute] through the REAL router, from the landing screen.
+Future<void> _pushShownRoute(WidgetTester tester) async {
+  final GoRouter router = GoRouter.of(tester.element(find.text('Your resume')));
+  router.push(_kShownRoute);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  // The overlay defers its rebuild to a POST-FRAME callback (the router
+  // delegate can notify mid-build), so the new route needs one more frame to
+  // reach the button than the navigation itself does.
+  await tester.pump(const Duration(milliseconds: 400));
+
+  // Pin the values the overlay actually reads: a missing pill after this means
+  // the predicate or the rebuild, never the navigation.
+  final RouteMatchList config = router.routerDelegate.currentConfiguration;
+  expect(
+    config.lastOrNull?.matchedLocation,
+    _kShownRoute,
+    reason: 'the overlay reads the TOP-MOST match, so a PUSH counts',
+  );
+  expect(
+    config.uri.path,
+    Routes.resume,
+    reason:
+        'and the shell location still reads the tab root — reading THIS '
+        'is what hid the pill on every pushed screen',
+  );
 }
 
 void main() {
@@ -114,45 +175,55 @@ void main() {
   }
 
   testWidgets(
-      'consent_accepted=false: the Feedback button is GONE, not dead — the '
-      'router would bounce its push back to /consent',
-      (WidgetTester tester) async {
-    bigCanvas(tester);
-    await _wire(consentAccepted: false);
-    await tester.pumpWidget(const BadaBhaiApp());
-    await _pumpUntil(tester, find.text('PIN daalein'));
-    await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('YOUR PRIVACY'));
+    'consent_accepted=false: the Feedback button is GONE, not dead — the '
+    'router would bounce its push back to /consent',
+    (WidgetTester tester) async {
+      bigCanvas(tester);
+      await _wire(consentAccepted: false);
+      await tester.pumpWidget(const BadaBhaiApp());
+      await _pumpUntil(tester, find.text('PIN daalein'));
+      await _enterPin(tester, '7416');
+      await _pumpUntil(tester, find.text('YOUR PRIVACY'));
 
-    // On the consent gate (the kit's 'YOUR PRIVACY' top bar) — the only route
-    // reachable in this state.
-    expect(find.text('YOUR PRIVACY'), findsOneWidget);
-    expect(find.text('Feedback'), findsNothing,
-        reason: 'a button whose push the router swallows must not be offered');
-  });
+      // On the consent gate (the kit's 'YOUR PRIVACY' top bar) — the only route
+      // reachable in this state.
+      expect(find.text('YOUR PRIVACY'), findsOneWidget);
+      expect(
+        find.text('Feedback'),
+        findsNothing,
+        reason: 'a button whose push the router swallows must not be offered',
+      );
+    },
+  );
 
   testWidgets(
-      'the tri-state UNKNOWN keeps the button: an older server must not cost '
-      'every worker their way to report a problem',
-      (WidgetTester tester) async {
-    bigCanvas(tester);
-    await _wire(consentAccepted: null);
-    await tester.pumpWidget(const BadaBhaiApp());
-    await _pumpUntil(tester, find.text('PIN daalein'));
-    await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('Your resume'));
+    'the tri-state UNKNOWN keeps the button: an older server must not cost '
+    'every worker their way to report a problem',
+    (WidgetTester tester) async {
+      bigCanvas(tester);
+      await _wire(consentAccepted: null);
+      await tester.pumpWidget(const BadaBhaiApp());
+      await _pumpUntil(tester, find.text('PIN daalein'));
+      await _enterPin(tester, '7416');
+      await _pumpUntil(tester, find.text('Your resume'));
 
-    expect(find.text('Feedback'), findsOneWidget);
+      // The Resume TAB itself no longer carries the floating pill — its header
+      // owns the Feedback action (R2).
+      expect(find.text('Feedback'), findsNothing);
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
-    // mock latency 300ms) AND the resume document fetch (#1398 —
-    // showGenerated()'s awaitingDocument window, documentPollMaxAttempts=1
-    // so exactly one 300ms mock call) so no timer outlives the test.
-    await tester.pump(const Duration(milliseconds: 700));
-    await tester.pump(const Duration(milliseconds: 700));
-  });
+      // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
+      // mock latency 300ms) AND the resume document fetch (#1398 —
+      // showGenerated()'s awaitingDocument window, documentPollMaxAttempts=1
+      // so exactly one 300ms mock call) so no timer outlives the test.
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pump(const Duration(milliseconds: 700));
 
-  testWidgets('consent_accepted=true shows it on the shell', (
+      await _pushShownRoute(tester);
+      expect(find.text('Feedback'), findsOneWidget);
+    },
+  );
+
+  testWidgets('consent_accepted=true shows it on a pushed route', (
     WidgetTester tester,
   ) async {
     bigCanvas(tester);
@@ -161,10 +232,11 @@ void main() {
     await _pumpUntil(tester, find.text('PIN daalein'));
     await _enterPin(tester, '7416');
     await _pumpUntil(tester, find.text('Your resume'));
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pump(const Duration(milliseconds: 700));
 
+    await _pushShownRoute(tester);
     expect(find.text('Feedback'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 700));
-    await tester.pump(const Duration(milliseconds: 700));
   });
 
   // The overlay has held the current route in `_path` since it was written and
@@ -183,15 +255,20 @@ void main() {
     await _pumpUntil(tester, find.text('Your resume'));
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
+    await _pushShownRoute(tester);
 
     await tester.tap(find.text('Feedback'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(FeedbackScreen), findsOneWidget,
-        reason: 'with consent given the push is not redirected');
+    expect(
+      find.byType(FeedbackScreen),
+      findsOneWidget,
+      reason: 'with consent given the push is not redirected',
+    );
     expect(
       tester.widget<FeedbackScreen>(find.byType(FeedbackScreen)).fromRoute,
-      '/resume',
+      _kShownRoute,
+      reason: 'the tap must carry the route the worker was actually ON',
     );
   });
 }

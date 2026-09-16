@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/kit/kit_docked_bar.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
@@ -133,24 +134,15 @@ class _ConsentView extends StatelessWidget {
                   ),
                 ),
               ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Center(
-                    heightFactor: 1,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        maxWidth: OnboardingLayout.maxContentWidth,
-                      ),
-                      child: PrimaryActionButton(
-                        label: 'Aage Badhein',
-                        isLoading: state.isSubmitting,
-                        // Still gated on the explicit tick — see [_NoticeCard].
-                        onPressed: state.canSubmit ? cubit.submit : null,
-                      ),
-                    ),
-                  ),
+              // Spec §3.5 docks this CTA: the kit's white bar with its hairline
+              // top border, which also carries the safe-area inset and
+              // publishes its own height (so nothing floating can cover it).
+              KitDockedBar(
+                child: PrimaryActionButton(
+                  label: 'Aage Badhein',
+                  isLoading: state.isSubmitting,
+                  // Still gated on the explicit tick — see [_NoticeCard].
+                  onPressed: state.canSubmit ? cubit.submit : null,
                 ),
               ),
             ],
@@ -198,10 +190,18 @@ class _PrivacyTopBar extends StatelessWidget {
                       : IconButton(
                           tooltip: 'Wapas',
                           onPressed: onBack,
+                          padding: EdgeInsets.zero,
+                          alignment: Alignment.centerLeft,
+                          constraints: const BoxConstraints.tightFor(
+                            width: OnboardingLayout.tapTarget,
+                            height: OnboardingLayout.tapTarget,
+                          ),
+                          // Spec §2.1's glyph, so back means the same shape
+                          // here as on every other header in the flow.
                           icon: const Icon(
-                            Icons.arrow_back_ios_new_rounded,
+                            Icons.arrow_back_rounded,
                             color: OnboardingColors.textOnBlue,
-                            size: 20,
+                            size: 22,
                           ),
                         ),
                 ),
@@ -229,9 +229,20 @@ class _PrivacyTopBar extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
-                        '🇮🇳',
-                        style: TextStyle(fontSize: 14),
+                      // A WORD, not the flag emoji. The app bundles
+                      // Latin-subset faces only, so a regional-indicator pair
+                      // has no glyph of its own and fell through to whatever
+                      // emoji font the ROM happened to ship — two tofu boxes
+                      // on a device without one, in the header of the screen
+                      // that has to look the most trustworthy in the app.
+                      child: Text(
+                        'INDIA',
+                        style: OnboardingTypography.inter(
+                          size: 9,
+                          weight: FontWeight.w800,
+                          letterSpacing: 0.6,
+                          color: OnboardingColors.textOnBlue,
+                        ),
                       ),
                     ),
                   ),
@@ -245,21 +256,20 @@ class _PrivacyTopBar extends StatelessWidget {
   }
 }
 
-/// The kit's shield card: a white card holding a soft-blue disc with the navy
-/// shield outline.
+/// The kit's shield disc: a soft-blue 54x54 circle carrying the navy shield
+/// outline, ON THE CANVAS.
+///
+/// Spec §3.5 asks for the disc and nothing else. The white card that used to
+/// wrap it burned about 70dp of a DPDP gate screen that already has to scroll
+/// to reach its 'I agree' tick — on a 320x568 handset at a large system font
+/// that is the difference between the tick being on the page and being below
+/// the fold.
 class _ShieldCard extends StatelessWidget {
   const _ShieldCard();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      decoration: BoxDecoration(
-        color: OnboardingColors.paperWhite,
-        borderRadius: BorderRadius.circular(OnboardingRadii.card),
-        border: Border.all(color: OnboardingColors.borderSubtle),
-      ),
-      alignment: Alignment.center,
+    return Align(
       child: Container(
         width: 54,
         height: 54,
@@ -305,8 +315,7 @@ class _NoticeCard extends StatelessWidget {
   final bool accepted;
   final ValueChanged<bool> onAcceptedChanged;
 
-  static TextStyle get _bold =>
-      const TextStyle(fontWeight: FontWeight.w700);
+  static TextStyle get _bold => const TextStyle(fontWeight: FontWeight.w700);
 
   @override
   Widget build(BuildContext context) {
@@ -398,7 +407,8 @@ class _NoticeCard extends StatelessWidget {
                   ),
                   TextSpan(text: 'poora interview type karke', style: _bold),
                   const TextSpan(
-                    text: ' de sakte hain. Kuch bhi kam nahi hota — sirf mic '
+                    text:
+                        ' de sakte hain. Kuch bhi kam nahi hota — sirf mic '
                         'band rehta hai.',
                   ),
                 ],
@@ -415,13 +425,12 @@ class _NoticeCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
                 children: <Widget>[
+                  // No local fill / side overrides: the app-wide checkbox theme
+                  // is the v3 drawing (navy fill, yellow border, yellow tick),
+                  // and an override here is how this tick quietly ended up
+                  // wearing a grey border while every other one wore yellow.
                   Checkbox(
                     value: accepted,
-                    activeColor: OnboardingColors.shiftBlue,
-                    side: const BorderSide(
-                      color: OnboardingColors.borderDefault,
-                      width: 1.5,
-                    ),
                     onChanged: (bool? v) => onAcceptedChanged(v ?? false),
                   ),
                   const SizedBox(width: 8),

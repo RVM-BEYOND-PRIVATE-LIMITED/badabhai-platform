@@ -304,10 +304,18 @@ class BbSetPinFormState extends State<BbSetPinForm> {
   }) {
     return Column(
       children: <Widget>[
-        Text(
-          label,
-          style: widget.labelStyle ??
-              AppTypography.eyebrow(color: AppColors.textMuted),
+        // LEFT, on the gutter. Spec §1.2's field micro-label is a left-aligned
+        // ALL-CAPS label, and every other one in the app sits on the gutter
+        // ('MOBILE NUMBER', 'OTP DAALEIN', 'PEHLA NAAM'); the PIN rows were
+        // the only centred ones, inside the same auth flow. The boxes below
+        // keep their own centring.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            label,
+            style: widget.labelStyle ??
+                AppTypography.eyebrow(color: AppColors.textMuted),
+          ),
         ),
         const SizedBox(height: AppSpacing.s3),
         // NO GestureDetector wrapper. The capture field below spans the whole

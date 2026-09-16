@@ -339,7 +339,7 @@ void main() {
     expect(find.text('Your resume'), findsOneWidget);
     expect(find.text('YOUR PRIVACY'), findsNothing); // consent never shown
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -390,7 +390,7 @@ void main() {
     expect(find.text('Your resume'), findsOneWidget);
     expect(find.text('YOUR PRIVACY'), findsNothing);
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -452,7 +452,7 @@ void main() {
 
       // Falls back to the Resume tab exactly as before.
       expect(find.text('Your resume'), findsOneWidget);
-      // Settle the ResumePhotoHeader's fetch AND the resume document fetch
+      // Settle the resume profile card's fetch AND the resume document fetch
       // (#1398 — see the other Resume-tab-landing test's own comment above).
       await tester.pump(const Duration(milliseconds: 700));
       await tester.pump(const Duration(milliseconds: 700));

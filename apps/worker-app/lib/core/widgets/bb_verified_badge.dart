@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
-/// Inline "Verified" pill — green check on a soft green tint.
+/// Inline "Verified" pill — a green check on the success tint.
 ///
-/// Ports `.aw-badge-verified` (ui.css 201): the trust marker shown next to a
-/// confirmed skill, KYC step, or profile field. Green is the BadaBhai "go" /
-/// verified colour.
+/// The trust marker shown next to a CONFIRMED fact. It means someone checked;
+/// never put it beside a self-declared value.
+///
+/// It CLAMPS ITS OWN TEXT SCALING at [OnboardingLayout.chromeMaxTextScale],
+/// like the rest of the chrome. A pill is a status marker, not body copy, and
+/// its icon and label sit in a `Row` with no flexible child — at a 2.0 system
+/// font that Row asked for 211dp inside the 168dp identity column on a 320dp
+/// phone and overflowed. The label cannot be made `Flexible` instead: callers
+/// legitimately place the pill under a `FittedBox`, where the incoming width is
+/// unbounded and a flex child would assert.
 class BbVerifiedBadge extends StatelessWidget {
   const BbVerifiedBadge({super.key, this.label = 'Verified'});
 
@@ -16,35 +22,40 @@ class BbVerifiedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-      decoration: const BoxDecoration(
-        color: AppColors.successTint,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(Icons.verified, size: 16, color: AppColors.success),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              weight: FontWeight.w700,
-              color: AppColors.success,
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: const BoxDecoration(
+          color: OnboardingColors.successBg,
+          borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(
+              Icons.verified,
+              size: 14,
+              color: OnboardingColors.successGreen,
             ),
-          ),
-        ],
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: OnboardingTypography.inter(
+                size: 12,
+                weight: FontWeight.w700,
+                color: OnboardingColors.successGreen,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Circular verified seal for avatar / photo overlays.
-///
-/// Ports `.aw-prof__seal` (ui.css 197): a green check sitting on a white card
-/// disc so it reads as a badge when stamped onto a worker's photo.
+/// Circular verified seal for avatar / photo overlays: a green check on a white
+/// disc, so it reads as a badge when stamped onto a worker's photo.
 class BbSeal extends StatelessWidget {
   const BbSeal({super.key, this.size = 20});
 
@@ -56,10 +67,14 @@ class BbSeal extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(2),
       decoration: const BoxDecoration(
-        color: AppColors.surfaceCard,
+        color: OnboardingColors.paperWhite,
         shape: BoxShape.circle,
       ),
-      child: Icon(Icons.verified, size: size, color: AppColors.success),
+      child: Icon(
+        Icons.verified,
+        size: size,
+        color: OnboardingColors.successGreen,
+      ),
     );
   }
 }

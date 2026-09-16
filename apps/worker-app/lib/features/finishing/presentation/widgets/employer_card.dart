@@ -13,8 +13,14 @@ const String _kRoleLabel = 'Aapka kaam / role';
 // `trade_form/presentation/widgets/trade_form_employment_page.dart`; keep
 // both in sync if this ever changes.
 const String _kRoleHint = 'Jaise: Operator';
-const String _kCityLabel = 'Sheher';
-const String _kStateLabel = 'State';
+// Spec §3.21 / ruling R17: the work-history location labels name the field in
+// Hinglish AND in English, because a worker who reads only one of the two must
+// still know which box is which. The HINTS stay the bare words — a hint sits
+// inside the box, where the label above it has already said the rest.
+const String _kCityLabel = 'Sheher (City)';
+const String _kStateLabel = 'State (Rajya)';
+const String _kCityHint = 'Sheher';
+const String _kStateHint = 'State';
 const String _kStartLabel = 'Kab shuru kiya';
 const String _kEndLabel = 'Kab tak';
 const String _kStillWorking = 'Abhi yahin kaam kar rahe hain';
@@ -43,10 +49,14 @@ TextStyle finishingFieldLabelStyle() => OnboardingTypography.inter(
       color: OnboardingColors.ink600,
     );
 
-/// A themed text field for the finishing form, in the master kit's input
-/// style: white, 48px floor, 10 radius, `borderDefault` hairline, yellow focus
-/// ring. A persistent [Semantics] label keeps TalkBack meaningful after the hint
+/// A themed text field for the finishing form, in the kit's input style: white,
+/// 48px floor, 10 radius, `borderDefault` hairline, a navy focus ring. A
+/// persistent [Semantics] label keeps TalkBack meaningful after the hint
 /// disappears on input (low-literacy accessibility).
+///
+/// UI kit v3, decision D8: FOCUS is `shiftBlue` at 1.8 (the spec's only focus
+/// rule, §3.3's OTP cell); safety yellow now means SELECTED and nothing else,
+/// so a caret in a field cannot read as an answer already given.
 class FinishingTextField extends StatelessWidget {
   const FinishingTextField({
     super.key,
@@ -106,7 +116,7 @@ class FinishingTextField extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           border: _border(OnboardingColors.borderDefault, 1.2),
           enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
-          focusedBorder: _border(OnboardingColors.borderActive, 1.5),
+          focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
         ),
       ),
     );
@@ -242,7 +252,7 @@ class _EmployerCardState extends State<EmployerCard> {
                           _label(_kStateLabel),
                           FinishingTextField(
                             controller: _state,
-                            hint: _kStateLabel,
+                            hint: _kStateHint,
                             label: _kStateLabel,
                             onChanged: (v) =>
                                 _push(e.copyWith(employerState: v)),
@@ -258,7 +268,7 @@ class _EmployerCardState extends State<EmployerCard> {
                           _label(_kCityLabel),
                           FinishingTextField(
                             controller: _city,
-                            hint: _kCityLabel,
+                            hint: _kCityHint,
                             label: _kCityLabel,
                             // Last text field of the pair now, so it closes
                             // the keyboard (the next control is a picker).
@@ -459,6 +469,14 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                           for (int y = _latestYear; y > _latestYear - _span; y--)
                             FinishingChip(
                               label: '$y',
+                              // Spec §1.2: a year is a number, so it is set in
+                              // Roboto Mono — and tabular figures keep the 45
+                              // chips the same width instead of jittering.
+                              labelStyle: OnboardingTypography.mono(
+                                size: 14,
+                                weight: FontWeight.w600,
+                                color: OnboardingColors.ink900,
+                              ),
                               onTap: () => setState(() => _year = y),
                             )
                         else

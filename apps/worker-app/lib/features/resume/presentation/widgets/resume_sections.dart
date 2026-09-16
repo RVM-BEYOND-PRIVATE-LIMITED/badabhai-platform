@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/education_label.dart';
+import '../../../../core/widgets/kit/kit_card.dart';
 
 /// One `Label: value` line parsed out of the deterministic resume text.
 class ResumeEntry {
@@ -21,6 +20,15 @@ class ResumeEntry {
 /// showed as one plain block.
 class ParsedResume {
   const ParsedResume({required this.isDraft, required this.entries});
+
+  /// Whether the text carried the `WORKER PROFILE (DRAFT)` marker.
+  ///
+  /// NO LONGER DRIVES THE DRAFT PILL. ai-service stamps that marker on every
+  /// resume it builds (backend gap B11), so it was permanently true and told
+  /// a confirmed worker their profile was a draft forever. The pill now reads
+  /// `profile_status` from the profile summary (ruling R7). Kept because the
+  /// flag describes the TEXT honestly and the parser's contract is to lose
+  /// nothing.
   final bool isDraft;
   final List<ResumeEntry> entries;
 
@@ -61,7 +69,9 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
     // Indented line with an open entry → a soft-wrapped continuation of it.
     if (RegExp(r'^\s').hasMatch(raw) && entries.isNotEmpty) {
       final ResumeEntry last = entries.removeLast();
-      entries.add(ResumeEntry(last.label, '${last.value} ${raw.trim()}'.trim()));
+      entries.add(
+        ResumeEntry(last.label, '${last.value} ${raw.trim()}'.trim()),
+      );
       continue;
     }
 
@@ -79,7 +89,8 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
     // The education-level field carries a raw scalar (`below_10`); humanize it
     // here so the tab shows "10th se kam", never the token. Every other field is
     // free text / already-resolved taxonomy and passes through untouched.
-    final String value = label.toLowerCase() == kEducationLevelLabel.toLowerCase()
+    final String value =
+        label.toLowerCase() == kEducationLevelLabel.toLowerCase()
         ? humanizeEducationLevel(rawValue)
         : rawValue;
     entries.add(ResumeEntry(label, value));
@@ -93,8 +104,10 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
   // turned into a one-line night-shift section.
   if (nightShiftReady != null &&
       entries.isNotEmpty &&
-      !entries.any((ResumeEntry e) =>
-          e.label.toLowerCase() == kNightShiftLabel.toLowerCase())) {
+      !entries.any(
+        (ResumeEntry e) =>
+            e.label.toLowerCase() == kNightShiftLabel.toLowerCase(),
+      )) {
     entries.add(ResumeEntry(kNightShiftLabel, nightShiftReady ? 'Yes' : 'No'));
   }
 
@@ -103,8 +116,12 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
 
 /// A resume section: an icon + title and the labels that live under it.
 class _SectionSpec {
-  const _SectionSpec(this.title, this.icon, this.labels,
-      {this.hideRowLabels = false});
+  const _SectionSpec(
+    this.title,
+    this.icon,
+    this.labels, {
+    this.hideRowLabels = false,
+  });
   final String title;
   final IconData icon;
   final List<String> labels;
@@ -122,14 +139,20 @@ class _SectionSpec {
 ///  - Work history (`_work_history_lines`, a repeatable `Work history:` label),
 ///  - Availability + Expected salary (the worker's job preferences).
 const List<_SectionSpec> _sections = <_SectionSpec>[
-  _SectionSpec('General Info', Icons.work_outline_rounded,
-      <String>['Role', 'Trade', 'Experience']),
-  _SectionSpec('Technical Skills', Icons.settings_rounded,
-      <String>['Machines', 'Skills']),
+  _SectionSpec('General Info', Icons.work_outline_rounded, <String>[
+    'Role',
+    'Trade',
+    'Experience',
+  ]),
+  _SectionSpec('Technical Skills', Icons.settings_suggest_rounded, <String>[
+    'Machines',
+    'Skills',
+  ]),
   // Each job is its own `Work history:` line — show the values only under the
   // section title (repeated labels would read redundantly).
-  _SectionSpec('Work History', Icons.work_history_outlined,
-      <String>['Work history'], hideRowLabels: true),
+  _SectionSpec('Work History', Icons.work_history_outlined, <String>[
+    'Work history',
+  ], hideRowLabels: true),
   _SectionSpec('Education & Certifications', Icons.school_outlined, <String>[
     'Education level',
     'Field of study',
@@ -137,18 +160,32 @@ const List<_SectionSpec> _sections = <_SectionSpec>[
     'Certifications',
   ]),
   // Night-shift readiness sits under Location, right BELOW the current city.
-  _SectionSpec('Location', Icons.location_on_outlined,
-      <String>['Current location', kNightShiftLabel, 'Preferred locations']),
+  _SectionSpec('Location', Icons.location_on_outlined, <String>[
+    'Current location',
+    kNightShiftLabel,
+    'Preferred locations',
+  ]),
   // When the worker can start + their asked pay — their own document, last.
-  _SectionSpec('Availability & Salary', Icons.event_available_outlined,
-      <String>['Availability', 'Expected salary']),
+  _SectionSpec(
+    'Availability & Salary',
+    Icons.event_available_outlined,
+    <String>['Availability', 'Expected salary'],
+  ),
 ];
 
-/// Renders a [ParsedResume] as the design's grouped, icon-led sections.
+/// Renders a [ParsedResume] as the v3 card stack (spec §4 chrome), one card per
+/// section.
+///
+/// THE LEGACY PATH, DELIBERATELY KEPT. `document == null` and
+/// `format: "generic"` both render through here (#1343's acceptance bar: a
+/// non-CNC worker's tab must read exactly as it did before), so the section
+/// titles, their label ownership and the trailing "More" bucket are unchanged —
+/// only the paint moved to v3. The trade sheet, which has real zoned rows, goes
+/// through `ResumeDocumentView` instead.
 ///
 /// Every parsed entry is shown: entries whose label is not owned by one of the
-/// four known sections fall into a trailing "More" section, so an added field
-/// from a future template version is surfaced rather than silently dropped.
+/// known sections fall into a trailing "More" section, so an added field from a
+/// future template version is surfaced rather than silently dropped.
 class ResumeSectionsView extends StatelessWidget {
   const ResumeSectionsView({super.key, required this.parsed});
 
@@ -158,7 +195,8 @@ class ResumeSectionsView extends StatelessWidget {
   Widget build(BuildContext context) {
     // Case-insensitive lookup from label → the entries carrying it (a label can
     // in principle repeat; keep them all).
-    final Map<String, List<ResumeEntry>> byLabel = <String, List<ResumeEntry>>{};
+    final Map<String, List<ResumeEntry>> byLabel =
+        <String, List<ResumeEntry>>{};
     for (final ResumeEntry e in parsed.entries) {
       byLabel.putIfAbsent(e.label.toLowerCase(), () => <ResumeEntry>[]).add(e);
     }
@@ -176,12 +214,14 @@ class ResumeSectionsView extends StatelessWidget {
         }
       }
       if (rows.isEmpty) continue; // never render an empty section
-      sections.add(_ResumeSection(
-        title: spec.title,
-        icon: spec.icon,
-        rows: rows,
-        hideRowLabels: spec.hideRowLabels,
-      ));
+      sections.add(
+        _ResumeSection(
+          title: spec.title,
+          icon: spec.icon,
+          rows: rows,
+          hideRowLabels: spec.hideRowLabels,
+        ),
+      );
     }
 
     // Anything the template emitted that no known section owns — surface it,
@@ -190,18 +230,20 @@ class ResumeSectionsView extends StatelessWidget {
         .where((ResumeEntry e) => !claimed.contains(e.label.toLowerCase()))
         .toList();
     if (leftover.isNotEmpty) {
-      sections.add(_ResumeSection(
-        title: 'More',
-        icon: Icons.info_outline_rounded,
-        rows: leftover,
-      ));
+      sections.add(
+        _ResumeSection(
+          title: 'More',
+          icon: Icons.info_outline_rounded,
+          rows: leftover,
+        ),
+      );
     }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (int i = 0; i < sections.length; i++) ...<Widget>[
-          if (i > 0) const SizedBox(height: AppSpacing.s5),
+          if (i > 0) const SizedBox(height: 12),
           sections[i],
         ],
       ],
@@ -224,38 +266,22 @@ class _ResumeSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            Icon(icon, size: 20, color: AppColors.textBrand),
-            const SizedBox(width: AppSpacing.s2),
-            Text(
-              title,
-              style: AppTypography.display(
-                size: AppTypography.sizeMd,
-                weight: FontWeight.w700,
-              ),
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          KitCardHeader(icon: icon, title: title),
+          const SizedBox(height: 12),
+          for (int i = 0; i < rows.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: 8),
+            _EntryRow(
+              label: rows[i].label,
+              value: rows[i].value,
+              hideLabel: hideRowLabels,
             ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Padding(
-          // Indent the rows under the icon so the section reads as a group.
-          padding: const EdgeInsets.only(left: AppSpacing.s7),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              for (final ResumeEntry e in rows) ...<Widget>[
-                _EntryRow(
-                    label: e.label, value: e.value, hideLabel: hideRowLabels),
-                if (e != rows.last) const SizedBox(height: AppSpacing.s1),
-              ],
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -279,28 +305,27 @@ class _EntryRow extends StatelessWidget {
     if (hideLabel) {
       return Text(
         value,
-        style: AppTypography.body(
-          size: AppTypography.sizeMd,
-          color: AppColors.textPrimary,
-        ),
+        style: OnboardingTypography.inter(size: 13, height: 1.45),
       );
     }
-    return RichText(
-      text: TextSpan(
-        style: AppTypography.body(size: AppTypography.sizeMd),
+    return Text.rich(
+      TextSpan(
+        style: OnboardingTypography.inter(size: 13, height: 1.45),
         children: <InlineSpan>[
           TextSpan(
             text: '$label: ',
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textSecondary,
+            style: OnboardingTypography.inter(
+              size: 13,
+              height: 1.45,
+              color: OnboardingColors.ink600,
             ),
           ),
           TextSpan(
             text: value,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textPrimary,
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w600,
+              height: 1.45,
             ),
           ),
         ],
