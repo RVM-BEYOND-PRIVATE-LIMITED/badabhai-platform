@@ -67,10 +67,23 @@ void main() {
     );
   }
 
-  /// Tap the mic and let the start leg settle.
+  /// TWO BARE PUMPS, NEVER `pumpAndSettle`.
+  ///
+  /// The waveform is a continuous animation for as long as the mic is hot, so
+  /// `pumpAndSettle` has nothing to settle TO and times out — which is exactly
+  /// how this suite first went red. Two frames is enough for every assertion
+  /// here: one to run the microtask the tap or the reading queued, one to paint
+  /// the rebuild. The same shape `feedback_screen_voice_test` uses, for the same
+  /// reason.
+  Future<void> settle(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump();
+  }
+
+  /// Tap the mic and let the start leg run.
   Future<void> startSpeaking(WidgetTester tester) async {
     await tester.tap(find.byKey(kWorkDictationButtonKey));
-    await tester.pumpAndSettle();
+    await settle(tester);
   }
 
   group('TradeFormWorkDictation', () {
@@ -104,9 +117,9 @@ void main() {
       await startSpeaking(tester);
 
       speech.hear('Turning machine par kaam kiya', isFinal: true);
-      await tester.pumpAndSettle();
+      await settle(tester);
       await tester.tap(find.byKey(kWorkDictationButtonKey)); // Rokein
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(field.text, 'Turning machine par kaam kiya');
       // The host is told, because assigning the controller bypasses the field's
@@ -123,9 +136,9 @@ void main() {
       await startSpeaking(tester);
 
       speech.hear('aur quality check kiya', isFinal: true);
-      await tester.pumpAndSettle();
+      await settle(tester);
       await tester.tap(find.byKey(kWorkDictationButtonKey));
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(field.text, 'Lathe chalaya aur quality check kiya');
     });
@@ -137,9 +150,9 @@ void main() {
       await startSpeaking(tester);
 
       speech.hear('abcdefghijklmnopqrstuvwxyz', isFinal: true);
-      await tester.pumpAndSettle();
+      await settle(tester);
       await tester.tap(find.byKey(kWorkDictationButtonKey));
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(field.text.length, lessThanOrEqualTo(10));
       expect(pushed.last.length, lessThanOrEqualTo(10));
@@ -155,9 +168,9 @@ void main() {
       // to nothing; the control must name the script rule — the one thing the
       // worker can act on — rather than claim it could not hear them.
       speech.hear('मैंने टर्निंग मशीन पर काम किया', isFinal: true);
-      await tester.pumpAndSettle();
+      await settle(tester);
       await tester.tap(find.byKey(kWorkDictationButtonKey));
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(find.byKey(kWorkDictationStatusKey), findsOneWidget);
       expect(find.text(kDevanagariBlockedHint), findsOneWidget);
@@ -172,7 +185,7 @@ void main() {
 
       // Stop having heard nothing at all.
       await tester.tap(find.byKey(kWorkDictationButtonKey));
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(find.text(kWorkDictationHeardNothing), findsOneWidget);
       // THE REGRESSION GUARD. The old mic latched an `_unavailable` flag and
