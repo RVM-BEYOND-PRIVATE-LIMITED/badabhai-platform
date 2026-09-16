@@ -1134,7 +1134,7 @@ class MockApiClient extends ApiClient {
 
   /// #1499 — DEFAULT FALSE, matching production reality exactly as
   /// [mockHasTradeForm] does: `RESUME_UPLOADS_BUCKET` is unset on every box
-  /// today, so every processing route answers 503 and the three-door screen's
+  /// today, so every processing route answers 503 and the résumé screen's
   /// REAL behaviour is the dormant one. Mock mode must show that by default,
   /// or the door nobody can open looks open in every dev build.
   ///

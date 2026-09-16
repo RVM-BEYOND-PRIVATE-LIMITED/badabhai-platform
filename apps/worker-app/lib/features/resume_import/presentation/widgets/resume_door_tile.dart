@@ -6,11 +6,11 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_spinner.dart';
 
-/// One of the three doors (#1499) — a big, obvious, two-line tap target.
+/// One of the two doors (#1499) — a big, obvious, two-line tap target.
 ///
 /// A BUTTON WOULD HAVE BEEN TOO SMALL. Each door needs a title the worker
 /// recognises AND a line explaining what happens next, because the choice is
-/// between three unfamiliar things and the second line is what makes it a
+/// between two unfamiliar things and the second line is what makes it a
 /// choice rather than a guess. [BbButton] truncates to one line by design, so
 /// this is a tile: hairline border, no shadow, `AppRadii.md`, ink title over a
 /// muted subtitle — the JUL31 `.aw-kitrow` shape, sized up to the full width.

@@ -19,13 +19,13 @@ import 'package:badabhai_worker_app/features/resume_import/domain/resume_documen
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_document_picker.dart';
 import 'package:badabhai_worker_app/features/resume_import/domain/resume_importer.dart';
 import 'package:badabhai_worker_app/features/resume_import/presentation/resume_upload_screen.dart';
+import 'package:badabhai_worker_app/features/resume_import/presentation/widgets/resume_door_tile.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 const String _kChatMarker = 'CHAT_SCREEN_MARKER';
 const String _kTradeFormMarker = 'TRADE_FORM_SCREEN_MARKER';
 
 const String _kDoorUpload = 'Resume upload karein';
-const String _kDoorChat = 'Hinglish mein baat karein';
 const String _kDoorNoResume = 'Mere paas resume nahi hai';
 
 /// A picker that hands back whatever the test tells it to, and records that it
@@ -114,8 +114,8 @@ String _where(GoRouter router) =>
     router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
 
 void main() {
-  group('the three doors', () {
-    testWidgets('all three are on screen from the first frame', (
+  group('the two doors', () {
+    testWidgets('both are on screen from the first frame', (
       WidgetTester tester,
     ) async {
       await _pump(
@@ -125,15 +125,56 @@ void main() {
       );
 
       expect(find.text(_kDoorUpload), findsOneWidget);
-      expect(find.text(_kDoorChat), findsOneWidget);
       expect(find.text(_kDoorNoResume), findsOneWidget);
+      // TWO, counted — not "these two are present". The owner's ruling is a
+      // door COUNT, so a fourth tile with copy nobody thought to forbid must
+      // redden this suite the same way restoring the deleted one does.
+      expect(find.byType(ResumeDoorTile), findsNWidgets(2));
+    });
+
+    testWidgets('the no-résumé door says what happens instead', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+      );
+
+      // The subtitle is the only place the worker is told what taking this
+      // door costs him. A refusal with no stated consequence is where he
+      // stalls, so the copy is pinned, not just the tile.
+      expect(
+        find.text('Bada Bhai sawaal poochhega aur profile banayega'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the deleted third door stays deleted — OWNER RULING', (
+      WidgetTester tester,
+    ) async {
+      // There WAS a middle door, "Hinglish mein baat karein" / the
+      // `resume_door_chat` key. The owner ruled it away: it offered a METHOD
+      // beside a FACT, so a worker with no résumé had to read both tiles to
+      // discover they did the same thing. This is a regression pin, not a
+      // coverage test — re-adding the door as a "helpful" third option needs
+      // the ruling reversed first, and deleting this test is how that would
+      // otherwise happen silently.
+      await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+      );
+
+      expect(find.text('Hinglish mein baat karein'), findsNothing);
+      expect(find.byKey(const Key('resume_door_chat')), findsNothing);
     });
   });
 
   // ── THE REQUIREMENT THIS WHOLE SCREEN IS SHAPED BY ────────────────────────
   //
-  // "Doors 2 and 3 must be today's behaviour byte for byte. Pin with a test
-  // that the request sequence and first chat turn are identical to main."
+  // "The no-résumé door must be today's behaviour byte for byte. Pin with a
+  // test that the request sequence and first chat turn are identical to main."
   //
   // On `main`, `/name` handed straight to `Routes.chatProfiling` and the FIRST
   // request anything made after that was the chat's own. So the property to
@@ -145,9 +186,9 @@ void main() {
   //
   // The chat's own first turn follows from that: if the sequence up to the
   // moment `/chat` builds is byte-identical, the chat's first request is
-  // whatever it always was. (`app_journey_test.dart` walks door 3 through the
+  // whatever it always was. (`app_journey_test.dart` walks door 2 through the
   // real chat end-to-end, which is the other half of this pin.)
-  group('doors 2 and 3 are today\'s behaviour, byte for byte', () {
+  group('door 2 is today\'s behaviour, byte for byte', () {
     /// The real importer over a client that records — and fails — any request.
     ({ResumeImporterImpl importer, List<String> requests}) recordingImporter() {
       final List<String> requests = <String>[];
@@ -192,7 +233,7 @@ void main() {
         importer: h.importer,
       );
 
-      await tester.tap(find.text(_kDoorChat));
+      await tester.tap(find.text(_kDoorNoResume));
       await tester.pumpAndSettle();
 
       expect(_where(router), Routes.chatProfiling);
@@ -202,27 +243,7 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
-    testWidgets('door 3 goes to /chat with NO request of its own', (
-      WidgetTester tester,
-    ) async {
-      final ({ResumeImporterImpl importer, List<String> requests}) h =
-          recordingImporter();
-      final GoRouter router = await _pump(
-        tester,
-        picker: _FakePicker(_picked()),
-        importer: h.importer,
-      );
-
-      await tester.tap(find.text(_kDoorNoResume));
-      await tester.pumpAndSettle();
-
-      expect(_where(router), Routes.chatProfiling);
-      expect(find.text(_kChatMarker), findsOneWidget);
-      expect(h.requests, isEmpty);
-      expect(find.byType(SnackBar), findsNothing);
-    });
-
-    testWidgets('neither door opens the document picker', (
+    testWidgets('door 2 never opens the document picker', (
       WidgetTester tester,
     ) async {
       final _FakePicker picker = _FakePicker(_picked());
@@ -246,7 +267,7 @@ void main() {
         importer: _FakeImporter(const ResumeImportRoutedToChat()),
       );
 
-      await tester.tap(find.text(_kDoorChat));
+      await tester.tap(find.text(_kDoorNoResume));
       await tester.pumpAndSettle();
 
       // One entry, not two: onboarding is a one-way sequence and a pushed step
@@ -462,7 +483,7 @@ void main() {
       expect(importer.calls, 1);
     });
 
-    testWidgets('door 2 is inert while an upload is in flight', (
+    testWidgets('the no-résumé door is inert while an upload is in flight', (
       WidgetTester tester,
     ) async {
       final _CountingImporter importer = _CountingImporter();
@@ -474,7 +495,7 @@ void main() {
 
       await tester.tap(find.text(_kDoorUpload));
       await tester.pump();
-      await tester.tap(find.text(_kDoorChat), warnIfMissed: false);
+      await tester.tap(find.text(_kDoorNoResume), warnIfMissed: false);
       await tester.pump();
 
       // Still here: a half-registered import must not be left behind him.

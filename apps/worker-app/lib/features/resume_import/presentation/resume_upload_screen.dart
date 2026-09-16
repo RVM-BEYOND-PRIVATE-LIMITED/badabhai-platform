@@ -15,16 +15,21 @@ import '../domain/resume_importer.dart';
 import 'cubit/resume_upload_cubit.dart';
 import 'widgets/resume_door_tile.dart';
 
-/// The three doors between `/name` and `/chat` (#1499, ADR-0041 RI-6).
+/// The two doors between `/name` and `/chat` (#1499, ADR-0041 RI-6).
 ///
 /// ── WHY A SCREEN AND NOT A QUESTION IN THE CHAT ─────────────────────────────
 ///
 /// A worker who HAS a résumé has already done the work this app is asking him
 /// to redo, and asking him about it inside the chat means asking him to type
-/// "haan" and then find a paperclip. The three doors put the whole decision on
-/// one screen, in his words, with the two "no" answers costing exactly one tap.
+/// "haan" and then find a paperclip. Two doors put the whole decision on one
+/// screen, in his words, with the "no" answer costing exactly one tap.
 ///
-/// ── DOORS 2 AND 3 ARE TODAY'S BEHAVIOUR, BYTE FOR BYTE ──────────────────────
+/// There were three. "Hinglish mein baat karein" was removed by owner ruling:
+/// it offered a METHOD beside a FACT ("I don't have one"), so a worker with no
+/// résumé had to read both tiles to discover they did the same thing. One
+/// question per door — `resume_upload_screen_test.dart` pins its absence.
+///
+/// ── DOOR 2 IS TODAY'S BEHAVIOUR, BYTE FOR BYTE ──────────────────────────────
 ///
 /// This is the requirement that shapes the file. Before #1499, `/name` handed
 /// straight to `/chat`; now it hands here, and a worker who does not upload
@@ -36,7 +41,7 @@ import 'widgets/resume_door_tile.dart';
 /// a cubit and nothing else. The 503 that says résumé uploads are switched off
 /// is discovered by attempting the mint when — and only when — the worker taps
 /// door 1. `resume_upload_screen_test.dart` pins this with a recording client
-/// that asserts zero requests for doors 2 and 3.
+/// that asserts zero requests for door 2.
 ///
 /// ── AND IT NEVER BECOMES A DEAD END (ruling D9) ─────────────────────────────
 ///
@@ -154,9 +159,9 @@ class _Doors extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ResumeUploadCubit cubit = context.read<ResumeUploadCubit>();
-    // While anything is in flight EVERY door is inert — including doors 2 and
-    // 3. A worker who taps "upload" and then "baat karein" must not end up
-    // with a half-registered import behind him in the chat.
+    // While anything is in flight BOTH doors are inert — including door 2. A
+    // worker who taps "upload" and then "mere paas resume nahi hai" must not
+    // end up with a half-registered import behind him in the chat.
     final bool busy = state.isBusy || state.isDone;
 
     return Column(
@@ -186,25 +191,15 @@ class _Doors extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s4),
 
-        // DOOR 2 — today's path, unchanged.
-        ResumeDoorTile(
-          tileKey: const Key('resume_door_chat'),
-          icon: Icons.chat_bubble_outline,
-          title: 'Hinglish mein baat karein',
-          subtitle: 'Bada Bhai sawaal poochhega, aap jawaab dijiye',
-          onTap: busy ? null : cubit.continueInChat,
-        ),
-        const SizedBox(height: AppSpacing.s4),
-
-        // DOOR 3 — a DIFFERENT question, the SAME behaviour. Separate because a
-        // worker who has no résumé is not choosing a method, he is telling us a
-        // fact, and a screen that makes him read door 2 as the answer to that
-        // is a screen he stalls on.
+        // DOOR 2 — the only non-upload door, and it is worded as the fact the
+        // worker is actually telling us ("I don't have one") rather than as a
+        // method he has to pick. The subtitle carries what happens instead,
+        // because a refusal with no stated consequence is where he stalls.
         ResumeDoorTile(
           tileKey: const Key('resume_door_no_resume'),
           icon: Icons.do_not_disturb_on_outlined,
           title: 'Mere paas resume nahi hai',
-          subtitle: 'Koi dikkat nahi, baat karke bana denge',
+          subtitle: 'Bada Bhai sawaal poochhega aur profile banayega',
           onTap: busy ? null : cubit.continueInChat,
         ),
 
