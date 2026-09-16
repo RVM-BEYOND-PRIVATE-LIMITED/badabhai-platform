@@ -17,6 +17,7 @@ import '../../../voice_form/presentation/widgets/voice_choice_chips.dart'
 import '../../domain/form_fact_registry.dart'
     show kTradeFormCurrentCityQuestionKey;
 import '../../domain/trade_form_models.dart';
+import 'tenure_tier_labels.dart';
 import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
 
@@ -459,6 +460,10 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       label: c.label,
       questionKey: q.id,
     );
+    // Screen 8 draws the tenure rungs as career tiers. Display only: the key
+    // this card submits and the pack's gating number are untouched.
+    final TenureTierLabel? tier =
+        tenureTierLabelFor(questionKey: q.id, optionKey: c.key);
     final Widget card = q.isMultiSelect
         ? MultiSelectQuestionCard(
             title: c.label,
@@ -470,7 +475,8 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             variant: OnboardingVariant.formFlow,
           )
         : SingleSelectQuestionCard(
-            title: c.label,
+            title: tier?.title ?? c.label,
+            subtitle: tier?.description,
             leadingIcon: icon,
             isSelected: _singleKey == c.key,
             onTap: () => setState(() => _singleKey = c.key),
