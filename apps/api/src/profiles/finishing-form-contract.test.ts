@@ -41,6 +41,15 @@ import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
  * WHAT MAKES THE READ SAFE. It matches on `toUpdateBody`'s own body, so an unrelated mention of a
  * key elsewhere in the file — a comment, a model field, a test helper — cannot satisfy it. If the
  * file moves, the test fails loudly with the path rather than silently passing on an empty string.
+ *
+ * ── #1521 (UI kit v3) LIFTED FIVE KEYS INTO CONSTANTS, AND THIS FILE GOT LITERAL ─────────────
+ *
+ * `_kLanguagesKey = 'languages'` and four siblings replaced the inline literals in the body.
+ * The wire contract did not move one inch, but a literal-grep can no longer see the keys —
+ * and the break hid behind turbo's cache: the API task's inputs do not include the Dart file,
+ * so worker-app-only PRs replayed a green cache while the real read went red on the next API
+ * change. `bodySendsKey` now resolves `const String` indirection in the body it already reads;
+ * a key reachable by neither a literal nor a resolved constant still fails.
  */
 
 const WORKER_APP_FINISHING_MODELS = join(
@@ -68,14 +77,43 @@ function acceptedWireKeys(): string[] {
   return keys.filter((k) => !REQUEST_MODE_KEYS.includes(k)).sort();
 }
 
-/** The body of `toUpdateBody()` — the map the app actually PATCHes. */
-function toUpdateBodySource(): string {
+/** The body of `toUpdateBody()` — the map the app actually PATCHes — plus the file's
+ * Dart key constants it may route through. */
+function toUpdateBodySource(): { body: string; constants: Map<string, string> } {
   const src = readFileSync(WORKER_APP_FINISHING_MODELS, "utf8");
   const start = src.indexOf("Map<String, dynamic> toUpdateBody()");
   expect(start, `toUpdateBody() not found in ${WORKER_APP_FINISHING_MODELS}`).toBeGreaterThan(-1);
   // To the next method at the same indentation — `@override` on `props` in the shipped file.
   const end = src.indexOf("\n  @override", start);
-  return src.slice(start, end === -1 ? undefined : end);
+  return {
+    body: src.slice(start, end === -1 ? undefined : end),
+    constants: dartKeyConstants(src),
+  };
+}
+
+/**
+ * Dart string constants that carry wire keys — `const String _kLanguagesKey = 'languages';`.
+ *
+ * #1521 (UI kit v3) lifted five of the seven body keys into these constants, and the
+ * plain literal-grep this file used to run went red on a refactor that kept the wire
+ * contract exactly. The keys still have to be SENT; the test now resolves the
+ * indirection instead of forbidding it. A constant whose value is not a string is
+ * ignored, and a key reachable by neither a literal nor a resolved constant still fails.
+ */
+function dartKeyConstants(src: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /const\s+String\s+(\w+)\s*=\s*'([^']+)'/g;
+  for (const match of src.matchAll(re)) map.set(match[1]!, match[2]!);
+  return map;
+}
+
+/** True when `body` sends `key` — as a literal, or through a resolved Dart constant. */
+function bodySendsKey(body: string, key: string, constants: Map<string, string>): boolean {
+  if (body.includes(`'${key}'`)) return true;
+  for (const [name, value] of constants) {
+    if (value === key && body.includes(name)) return true;
+  }
+  return false;
 }
 
 describe("the finishing form's server contract", () => {
@@ -156,7 +194,7 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
   it("sends the seven keys it already carries", () => {
     // The seven the form has always sent. Kept as its own case so a mobile refactor that adds
     // fields cannot quietly drop one of the originals — the assertion below would still pass.
-    const body = toUpdateBodySource();
+    const { body, constants } = toUpdateBodySource();
     for (const key of [
       "languages",
       "documents_ready",
@@ -166,7 +204,9 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
       "job_type",
       "shift",
     ]) {
-      expect(body, `toUpdateBody() no longer sends '${key}'`).toContain(`'${key}'`);
+      expect(bodySendsKey(body, key, constants), `toUpdateBody() no longer sends '${key}'`).toBe(
+        true,
+      );
     }
   });
 
@@ -183,7 +223,7 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
     // salary was mandatory in name only, and the ruling that closed Q5 asked specifically for
     // completion rate on it — a number that could not exist while the field could not be
     // answered. It can now.
-    const body = toUpdateBodySource();
+    const { body, constants } = toUpdateBodySource();
     for (const key of [
       "salary_expected_max",
       "education_credential",
@@ -191,7 +231,10 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
       "education_year",
       "education_institute",
     ]) {
-      expect(body, `toUpdateBody() does not send '${key}' — #1298`).toContain(`'${key}'`);
+      expect(
+        bodySendsKey(body, key, constants),
+        `toUpdateBody() does not send '${key}' — #1298`,
+      ).toBe(true);
     }
   });
 });
