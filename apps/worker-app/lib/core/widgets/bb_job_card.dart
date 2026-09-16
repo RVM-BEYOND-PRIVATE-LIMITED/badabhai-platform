@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../theme/onboarding_theme.dart';
@@ -168,8 +166,9 @@ class BbJobCard extends StatelessWidget {
     final bool isDeck = layout == BbJobCardLayout.deck;
     final BorderRadius radius = BorderRadius.circular(OnboardingRadii.card);
     return Container(
-      // The deck card is sized by its Stack; the list row owns the gap to the
-      // next card. Neither carries a side margin (see the class doc).
+      // The deck card is sized by the DECK (it fills the deck box, see
+      // [_DeckBody]); the list row owns the gap to the next card. Neither
+      // carries a side margin (see the class doc).
       margin: isDeck ? EdgeInsets.zero : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: OnboardingColors.paperWhite,
@@ -587,7 +586,20 @@ class _MatchNote extends StatelessWidget {
 // here comes from a tint panel and a border, never an elevation.
 
 /// The swipe card's body: title, place, the money box, the shift chip and the
-/// match note.
+/// match note — DISTRIBUTED over the height the deck gives it.
+///
+/// THE HEIGHT CONTRACT. [JobDeck] hands the card a tight box (the deck's own
+/// height, less the strip the next card's edge shows through), so this body is
+/// laid out against a real box rather than against its own text:
+///
+///  - the narrative (title, place, note, requirement chips) takes the TOP and
+///    is the only part that clips;
+///  - the money block sits on the BOTTOM edge;
+///  - the height the job does not need is the space between them.
+///
+/// A taller card therefore shows MORE of the job — every line of a long title,
+/// the whole match note instead of two ellipsised lines, the requirement chips
+/// — instead of the same four rows pinned to the top of a white slab.
 class _DeckBody extends StatelessWidget {
   const _DeckBody({
     required this.data,
@@ -649,26 +661,48 @@ class _DeckBody extends StatelessWidget {
         // produced at 320x568 with a 2.0 system font — is worse than a
         // shortened title: the pay is the one fact this card exists to state.
         //
-        // The money block is itself capped at the box, because a Column hands
-        // an inflexible child UNBOUNDED main-axis space: without the cap a
-        // money block taller than the whole card (a landscape phone at 2.0
-        // leaves 148dp) overflowed the Column, and a RenderFlex reports its
-        // overflow wherever it is clipped.
+        // WHERE THE SURPLUS GOES — `spaceBetween`. The deck hands this card a
+        // TIGHT box now (the card fills the deck's height instead of shrinking
+        // to its text), and a start-aligned column would answer that by
+        // stacking four rows in the top 200dp of a ~550dp card and leaving a
+        // white slab underneath: exactly the half-loaded screen this layout
+        // exists to avoid. So the narrative keeps the TOP, the money block
+        // sits on the BOTTOM edge, and the height the job does not need
+        // becomes the space between the two.
+        //
+        // In a LOOSE box — a deck card laid out at its natural height, i.e.
+        // every host that is not the deck — there is no surplus to
+        // distribute, so nothing moves and `MainAxisSize.min` still sizes the
+        // column to its content.
         final double gap = compact ? 10 : 16;
-        final double factsMax = math.max(0, box.maxHeight - gap);
         return ClipRect(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               Flexible(child: _clipped(_narrative())),
-              if (hasFacts) ...<Widget>[
-                SizedBox(height: gap),
+              if (hasFacts)
+                // The gap lives INSIDE this block as a padding, not beside it
+                // as a `SizedBox` sibling: `spaceBetween` shares the surplus
+                // out BETWEEN siblings, so a gap child would have taken a
+                // third of it and floated in the middle of the card. As a
+                // padding it stays what it was — the MINIMUM breathing room
+                // between the narrative and the money on a card that has no
+                // surplus at all.
                 ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: factsMax),
-                  child: _clipped(_facts(pay, meta)),
+                  // The cap covers the block WITH its gap, because a Column
+                  // hands an inflexible child UNBOUNDED main-axis space:
+                  // without it a money block taller than the whole card (a
+                  // landscape phone at 2.0 leaves 148dp) overflowed the
+                  // Column, and a RenderFlex reports its overflow wherever it
+                  // is clipped.
+                  constraints: BoxConstraints(maxHeight: box.maxHeight),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: gap),
+                    child: _clipped(_facts(pay, meta)),
+                  ),
                 ),
-              ],
             ],
           ),
         );
@@ -693,9 +727,21 @@ class _DeckBody extends StatelessWidget {
     child: child,
   );
 
-  /// Title, place and the "why am I seeing this" note — the part that gives way
-  /// on a short card.
+  /// Title, place, the "why am I seeing this" note and the job's requirement
+  /// chips — the part that gives way on a short card.
+  ///
+  /// The chips are what the EXTRA height of a full-height deck card buys: the
+  /// same read-only fact chip the job detail prints its requirements with (a
+  /// grey dot and no check — a job requirement is not something anybody
+  /// verified on this worker), and they come LAST, so they are the first thing
+  /// the clip takes back when the card is short. [compact] drops them outright
+  /// rather than showing a row of half-chips.
+  ///
+  /// `GET /feed` carries no requirements today, so on the live feed the row is
+  /// simply absent — an empty list renders nothing and nothing is invented to
+  /// fill the space.
   Widget _narrative() {
+    final List<String> tags = compact ? const <String>[] : data.tags;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -722,6 +768,21 @@ class _DeckBody extends StatelessWidget {
         if (data.matchNote != null) ...<Widget>[
           SizedBox(height: compact ? 8 : 12),
           _MatchNote(text: data.matchNote!, maxLines: compact ? 2 : null),
+        ],
+        if (tags.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final String tag in tags)
+                KitInfoChip(
+                  label: tag,
+                  dot: OnboardingColors.ink500,
+                  showCheck: false,
+                ),
+            ],
+          ),
         ],
       ],
     );

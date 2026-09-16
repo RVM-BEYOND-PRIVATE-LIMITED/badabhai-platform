@@ -277,6 +277,86 @@ void main() {
     });
   });
 
+  // ── The chips-vs-rows decision, decided from the VALUES ─────────────────
+  //
+  // The sheet's `tick` flag used to decide it, which cost every short-value
+  // group ('Measuring instruments', 'Setting', 'Documents ready') a stack of
+  // full-width rows. The flag is still carried — it describes the row the
+  // server sent — but the DATA decides the drawing.
+  group('valuesReadAsChips — the space rule', () {
+    String ofLength(int n) => List<String>.filled(n, 'a').join();
+
+    test('short values read as chips', () {
+      expect(valuesReadAsChips(<String>['Micrometer', 'Vernier caliper']), isTrue);
+      expect(valuesReadAsChips(<String>['Aadhaar', 'PAN', 'UAN']), isTrue);
+      // The longest value the server actually sends today.
+      expect(valuesReadAsChips(<String>['CNC lathe / turning centre']), isTrue);
+    });
+
+    test('the threshold is inclusive, and one char past it flips the group', () {
+      expect(valuesReadAsChips(<String>[ofLength(kChipValueMaxChars)]), isTrue);
+      expect(
+        valuesReadAsChips(<String>[ofLength(kChipValueMaxChars + 1)]),
+        isFalse,
+      );
+      // Surrounding whitespace is not length — the mapper trims before this.
+      expect(
+        valuesReadAsChips(<String>['  ${ofLength(kChipValueMaxChars)}  ']),
+        isTrue,
+      );
+    });
+
+    test('ONE long value sends the whole group to rows', () {
+      expect(
+        valuesReadAsChips(<String>[
+          'Micrometer',
+          'Reads 2D drawings and GD&T symbols on turned components',
+        ]),
+        isFalse,
+      );
+    });
+
+    test('a group carries its own answer, and never asks the tick flag', () {
+      const ResumeValueGroup ticked = ResumeValueGroup(
+        label: 'Documents ready',
+        values: <String>['Aadhaar', 'PAN'],
+        tick: true,
+      );
+      expect(ticked.tick, isTrue, reason: 'the server\'s own styling, kept');
+      expect(ticked.readsAsChips, isTrue, reason: 'but the data decides');
+
+      const ResumeValueGroup sentences = ResumeValueGroup(
+        label: 'Inspection work',
+        values: <String>['Reads 2D drawings and GD&T symbols on turned parts'],
+      );
+      expect(sentences.tick, isFalse);
+      expect(sentences.readsAsChips, isFalse);
+    });
+
+    test('an empty group asks for chips and draws nothing — no padded row', () {
+      const ResumeValueGroup empty = ResumeValueGroup(
+        label: 'Documents ready',
+        values: <String>[],
+      );
+      expect(empty.isEmpty, isTrue);
+      expect(empty.readsAsChips, isTrue);
+    });
+
+    test('the real sheet\'s tick groups all became chips — the owner\'s '
+        'complaint, at the mapper level', () {
+      final ResumeSlots slots = mapTradeSheet(kTurnerSheet);
+      expect(slots.instrumentGroups.single.readsAsChips, isTrue);
+      for (final ResumeValueGroup g in slots.otherGroups) {
+        expect(g.readsAsChips, isTrue, reason: '${g.label} should pack');
+      }
+      for (final ResumeExtraSection e in slots.extraSections) {
+        for (final ResumeValueGroup g in e.tickGroups) {
+          expect(g.readsAsChips, isTrue, reason: '${g.label} should pack');
+        }
+      }
+    });
+  });
+
   group('resolveProfileFacts', () {
     ParsedResume parse(String text) => parseResumeText(text);
 

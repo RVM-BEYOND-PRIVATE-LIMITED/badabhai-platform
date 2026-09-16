@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_motion.dart';
@@ -8,6 +10,16 @@ import '../../../../core/widgets/kit/kit_square_icon_button.dart';
 
 /// TalkBack label for the deck's icon-only skip circle (#375).
 const String kSkipSemanticLabel = 'Skip karein';
+
+/// The strip along the bottom of the deck's box that the NEXT card's edge shows
+/// through, in logical pixels.
+///
+/// It is the deck's whole height contract: the front card fills the box except
+/// for this strip. Reserved whether or not there is a next card, so the card a
+/// worker is reading never changes size as the queue drains — and it is the
+/// reason a scaled-down behind card can peek at all, since a front card that
+/// took the last pixel of the box would leave nothing for it to peek into.
+const double kJobDeckBehindPeek = 14;
 
 /// One swipeable card: a stable [id] (used for the widget key + the detail
 /// route) plus the rendered [data].
@@ -64,8 +76,9 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   static const double _maxAngle = 0.12;
 
   // How far (px) the behind card peeks below the front card at rest; it slides
-  // up to 0 as the front card is dragged away.
-  static const double _behindPeek = 14;
+  // up to 0 as the front card is dragged away. Public because the height
+  // contract it defines is what the deck's layout tests measure.
+  static const double _behindPeek = kJobDeckBehindPeek;
 
   // How much smaller the behind card sits at rest. Small on purpose: enough to
   // read as a second card in a stack, not enough to look like a different size
@@ -257,38 +270,44 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
                 child: LayoutBuilder(
                   builder: (BuildContext context, BoxConstraints box) {
                     // A short screen gives the card less than its full drawing
-                    // needs, so the card COMPACTS and the box CLIPS — it can
+                    // needs, so the card COMPACTS and its body CLIPS — it can
                     // never overflow. Deliberately no inner scroll view: it
                     // would steal the #374 vertical follow-drag.
                     final bool compact =
                         box.maxHeight.isFinite &&
                         box.maxHeight < _compactHeight;
+                    // THE CARD FILLS THE BOX, less the [kJobDeckBehindPeek]
+                    // strip the next card's edge shows through. Measured HERE
+                    // and handed down as a tight size, which is the difference
+                    // from the `Positioned.fill` build that had to be reverted:
+                    // a filled Stack child is sized by whatever box the Stack
+                    // itself ends up with, and that box was not this one — on a
+                    // 390x844 phone the card came out a ~410x1590 slab with
+                    // four rows of content in its top 200dp. This height comes
+                    // from the deck's own constraints, and [BbJobCard]'s deck
+                    // body distributes itself over it (narrative at the top,
+                    // money on the bottom edge) instead of stacking its rows at
+                    // the top of an empty canvas.
+                    final double? cardHeight = box.hasBoundedHeight
+                        ? math.max(0, box.maxHeight - _behindPeek)
+                        : null;
                     return ClipRect(
-                      // topCenter Align, and the cards are NON-positioned: the
-                      // Stack sizes to its tallest child, so a card is as tall
-                      // as the job it carries and the rest of the deck area is
-                      // canvas. With `Positioned.fill` the card was sized by
-                      // the BOX instead, which on a 390x844 phone drew a ~410
-                      // x1590 white slab with four rows of content in its top
-                      // 200dp — and on a tablet a 410x770 one. It read as a
-                      // half-loaded screen on the app's primary tab. topCenter
-                      // rather than centre so that when the card IS taller
-                      // than the area, what survives is the top of it.
-                      child: Align(
+                      // The cards are NON-positioned and pinned to the top of
+                      // the box, so the behind card's translated edge lands
+                      // exactly on the box's bottom edge and the clip is what
+                      // takes the fly-off and the drag tilt.
+                      child: Stack(
+                        clipBehavior: Clip.none,
                         alignment: Alignment.topCenter,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          alignment: Alignment.topCenter,
-                          children: <Widget>[
-                            // The behind card is the next REAL job, rendered at
-                            // full size / full fidelity. It peeks below the
-                            // front card and animates up to the front position
-                            // as the front card is dragged away.
-                            if (cards.length > 1)
-                              _behind(cards[1], width, compact),
-                            _front(cards.first, width, compact),
-                          ],
-                        ),
+                        children: <Widget>[
+                          // The behind card is the next REAL job, rendered at
+                          // full size / full fidelity. It peeks below the
+                          // front card and animates up to the front position
+                          // as the front card is dragged away.
+                          if (cards.length > 1)
+                            _behind(cards[1], width, cardHeight, compact),
+                          _front(cards.first, width, cardHeight, compact),
+                        ],
                       ),
                     );
                   },
@@ -315,15 +334,24 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   /// #363 — the card subtree is built ONCE and handed to the builder as `child`,
   /// so a drag frame re-runs only the Transform; the RepaintBoundary keeps
   /// BbFestiveCard's blur shadow + dashed-border CustomPaint out of the repaint.
-  Widget _behind(JobDeckItem item, double width, bool compact) {
+  Widget _behind(
+    JobDeckItem item,
+    double width,
+    double? height,
+    bool compact,
+  ) {
     return IgnorePointer(
       child: ValueListenableBuilder<Offset>(
         valueListenable: _drag,
-        child: RepaintBoundary(
-          child: BbJobCard(
-            data: item.data,
-            layout: BbJobCardLayout.deck,
-            compact: compact,
+        child: _sized(
+          width,
+          height,
+          RepaintBoundary(
+            child: BbJobCard(
+              data: item.data,
+              layout: BbJobCardLayout.deck,
+              compact: compact,
+            ),
           ),
         ),
         builder: (BuildContext ctx, Offset drag, Widget? child) {
@@ -338,25 +366,59 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
           final double scale = _behindScale + (1 - _behindScale) * t;
           return Transform.translate(
             offset: Offset(0, dy),
-            child: Transform.scale(scale: scale, child: child),
+            // Scaled from the BOTTOM edge, not the centre. Both cards are now
+            // as tall as the deck box, and a centre-scaled card of that height
+            // pulls its bottom edge up by 3% of the card — ~18dp on a 390x844
+            // phone — which swallowed the whole 14dp peek and left the stack
+            // reading as a single card. From the bottom the peek is exactly
+            // [kJobDeckBehindPeek] at any card height, and it still lands on
+            // the front card's rect when the promotion completes (dy 0,
+            // scale 1).
+            child: Transform.scale(
+              scale: scale,
+              alignment: Alignment.bottomCenter,
+              child: child,
+            ),
           );
         },
       ),
     );
   }
 
-  Widget _front(JobDeckItem item, double width, bool compact) {
+  /// Gives a card the deck's measured box size, so its body is laid out against
+  /// the deck's height instead of its own text. [height] is null only when the
+  /// deck sits under an unbounded parent, where the card keeps its natural
+  /// height (the old behaviour) rather than being sized by a box that does not
+  /// exist.
+  ///
+  /// OUTSIDE the card's `RepaintBoundary`: the boundary has to stay the card's
+  /// direct parent so a drag frame re-composites a cached raster (#363).
+  static Widget _sized(double width, double? height, Widget card) {
+    if (height == null) return card;
+    return SizedBox(width: width, height: height, child: card);
+  }
+
+  Widget _front(
+    JobDeckItem item,
+    double width,
+    double? height,
+    bool compact,
+  ) {
     // #363 — built once per head/lock change, NOT per drag frame.
-    final Widget card = RepaintBoundary(
-      child: BbJobCard(
-        data: item.data,
-        layout: BbJobCardLayout.deck,
-        compact: compact,
-        // Gate the title tap too: during a commit/decision the (stale)
-        // head must not open a detail for a card already being applied.
-        onTitleTap: (_locked || widget.onTitleTap == null)
-            ? null
-            : () => widget.onTitleTap!(item.id),
+    final Widget card = _sized(
+      width,
+      height,
+      RepaintBoundary(
+        child: BbJobCard(
+          data: item.data,
+          layout: BbJobCardLayout.deck,
+          compact: compact,
+          // Gate the title tap too: during a commit/decision the (stale)
+          // head must not open a detail for a card already being applied.
+          onTitleTap: (_locked || widget.onTitleTap == null)
+              ? null
+              : () => widget.onTitleTap!(item.id),
+        ),
       ),
     );
 

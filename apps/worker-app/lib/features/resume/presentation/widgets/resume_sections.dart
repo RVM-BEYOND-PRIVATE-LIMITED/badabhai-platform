@@ -289,6 +289,22 @@ class _ResumeSection extends StatelessWidget {
 /// One `Label: value` line — the label muted, the value in body weight, wrapping
 /// naturally for long skill/machine lists. With [hideLabel] it renders the VALUE
 /// alone (the section title carries the label), for repeated-label sections.
+///
+/// ── WHY THIS PATH KEEPS TEXT LINES AND NOT THE CHIP MATRIX ────────────────
+///
+/// The trade sheet's cards now pack every value group into a wrapping chip
+/// matrix (see `kChipValueMaxChars`), and it is worth saying why this renderer
+/// does not: it has no value GROUPS to pack. `build_resume` hands this path ONE
+/// ALREADY-JOINED STRING per label — 'Machines: VMC, HMC' arrives as a single
+/// value, not as a list — and it is drawn as one wrapping line, which already
+/// packs several values per row and costs no more card height than chips would.
+///
+/// Splitting that string back on ', ' to make chips would INVENT values the
+/// worker never stated the moment one of them contains a comma ('Gurugram,
+/// Haryana' under Preferred locations becomes two cities), and a fabricated
+/// entry on a worker's own resume is a worse bug than a wasted row. The
+/// structured document is where per-value data actually exists, so that is
+/// where the matrix lives.
 class _EntryRow extends StatelessWidget {
   const _EntryRow({
     required this.label,
