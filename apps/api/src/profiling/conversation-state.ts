@@ -634,6 +634,18 @@ export interface ProfilingEnvelope {
   readonly formKind: TradeFormKind | null;
 
   /**
+   * The trade-form OFFER (Task 1 recall path; owner ruling 2026-09-16) — `null` before it is
+   * considered, `pending` while the bubble is on screen, `settled` forever after.
+   *
+   * THREE STATES, NOT TWO, mirroring {@link resumeConfirm} and for the same reason:
+   * collapsing `settled` back to `null` would re-offer the form on the turn after a worker
+   * said "nahi" — the one response that plainly means stop. `kind` is stored rather than
+   * re-derived because an accept must honour the trade the OFFER was made for, not
+   * whatever the draft would route to a turn later.
+   */
+  readonly formOfferPrompt: FormOfferPromptState | null;
+
+  /**
    * The résumé batch-confirm offer (ADR-0041 RI-5) — `null` before it is considered at all.
    *
    * THREE STATES, NOT TWO, and the third is why this is an object rather than a boolean.
@@ -712,6 +724,12 @@ export interface ProfilingEnvelope {
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
 export interface ResumeConfirmState {
   readonly importId: string;
+  readonly state: "pending" | "settled";
+}
+
+/** See {@link ProfilingEnvelope.formOfferPrompt}. */
+export interface FormOfferPromptState {
+  readonly kind: TradeFormKind;
   readonly state: "pending" | "settled";
 }
 
@@ -805,6 +823,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: true,
+  formOfferPrompt: true,
   resumeConfirm: true,
   identifyTypeRequested: true,
   identifyStalledTurns: true,
@@ -846,6 +865,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    formOfferPrompt: null,
     resumeConfirm: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
@@ -933,6 +953,25 @@ function narrowResumeConfirm(value: unknown): ResumeConfirmState | null {
   if (typeof v.importId !== "string" || v.importId.length === 0) return null;
   if (v.state !== "pending" && v.state !== "settled") return null;
   return { importId: v.importId, state: v.state };
+}
+
+/**
+ * The trade-form offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, the same posture `narrowResumeConfirm` documents: a value this
+ * cannot read narrows to `null` = "not considered yet", which costs at most one extra
+ * offer. Narrowing it to `settled` would silently withhold the offer a worker was
+ * entitled to and nothing anywhere would say so. The KIND must be a declared trade form —
+ * an unreadable kind would let an accept complete a handover to a form that does not
+ * exist.
+ */
+function narrowFormOfferPrompt(value: unknown): FormOfferPromptState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  const kind = TRADE_FORM_KINDS.find((candidate) => candidate === v.kind);
+  if (kind === undefined) return null;
+  return { kind, state: v.state };
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -1122,6 +1161,12 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // engine they started on. Trusting the stored string instead would let a stale value from
     // a retired form route a live worker into a surface that no longer exists.
     formKind: TRADE_FORM_KINDS.find((candidate) => candidate === v.formKind) ?? null,
+    // ABSENT READS AS null — "never offered" — which is right for every envelope in flight
+    // across the deploy that adds this field: the offer is considered once on their next
+    // turn, exactly as for a fresh interview. An unreadable value also reads as null rather
+    // than as `settled` — withholding an offer a worker was entitled to is the worse failure
+    // (same posture as `resumeConfirm` directly below).
+    formOfferPrompt: narrowFormOfferPrompt(v.formOfferPrompt),
     // ABSENT READS AS null — "never considered" — which is right for every envelope in flight
     // across the deploy that adds this field. Those interviews get the offer considered once on
     // their next turn, which is the same thing a fresh interview gets. An unreadable value also

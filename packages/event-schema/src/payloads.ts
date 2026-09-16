@@ -3665,6 +3665,54 @@ export const ProfileFormModeEnteredPayload = z
 export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
 
 /**
+ * THE TRADE-FORM OFFER WENT ON SCREEN — the eligibility half of the handover funnel
+ * (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * WHY THIS IS NOT `form_mode_entered`. That event says a worker was SENT to a form, and
+ * it still says exactly that — the offer ruling did not change it. This one says the
+ * router RECOGNISED a form-enabled trade and the worker was ASKED whether to take it.
+ * Without it the decline rate the ruling exists to produce is uncomputable: offered minus
+ * entered (accepted) minus declined = workers who abandoned mid-offer.
+ *
+ * PII-FREE: two ids, one closed-set form kind, two counts. NO LABELS. `.strict()`.
+ */
+export const ProfileFormOfferedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model asked before the offer. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormOfferedPayload = z.infer<typeof ProfileFormOfferedPayload>;
+
+/**
+ * THE WORKER DECLINED THE TRADE-FORM OFFER (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * `reply` IS TWO-VALUED ON PURPOSE AND THE SPLIT IS THE MEASUREMENT. `declined` is an
+ * explicit no. `unclear` is a reply the binary reader could not read — treated exactly
+ * like a decline at the interview level (settled, never re-served) but counted apart, so
+ * a growing `unclear` share reads as the parser needing teaching rather than as workers
+ * changing their minds.
+ *
+ * PII-FREE: two ids, one closed-set form kind, one closed-set reply. `.strict()`.
+ */
+export const ProfileFormOfferDeclinedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    reply: z.enum(["declined", "unclear"]),
+  })
+  .strict();
+export type ProfileFormOfferDeclinedPayload = z.infer<typeof ProfileFormOfferDeclinedPayload>;
+
+/**
  * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
  *
  * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══

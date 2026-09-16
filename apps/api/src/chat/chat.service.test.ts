@@ -85,6 +85,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    formOfferPrompt: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],
@@ -380,7 +381,10 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
         },
       });
 
-      const [, state] = chat.saveConversationState.mock.calls[0] as [string, Record<string, unknown>];
+      const [, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
       expect(state.prefilled_keys).toEqual(["current_city"]);
     });
 

@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 179 event names (175 prior + the four résumé-import steps)", () => {
-    expect(EVENT_NAMES).toHaveLength(179);
+  it("exposes all 181 event names (179 prior + the two trade-form offer steps)", () => {
+    expect(EVENT_NAMES).toHaveLength(181);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4438,9 +4438,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
       { extracted_text: "CNC Turner, 5 years" },
       { signed_url: "https://example.invalid/x" },
     ]) {
-      expect(validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success).toBe(
-        false,
-      );
+      expect(
+        validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success,
+      ).toBe(false);
     }
   });
 
@@ -4449,7 +4449,8 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // it as an enum means that even if that sourcing regressed, an attacker-chosen content-type
     // string still could not ride onto the spine as untrusted text in analytics.
     expect(
-      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" })).success,
+      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(
@@ -4495,8 +4496,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // be representable without inventing a kind. The pairing itself is enforced in the database
     // by `wri_form_kind_chk`; the event only has to be able to express both.
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }))
-        .success,
+      validateEvent(
+        imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }),
+      ).success,
     ).toBe(true);
     expect(
       validateEvent(imported("profile.resume_parsed", { ...parsed, form_kind: "not_a_trade" }))
@@ -4506,7 +4508,8 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
 
   it("REFUSES negative counts", () => {
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 })).success,
+      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,
