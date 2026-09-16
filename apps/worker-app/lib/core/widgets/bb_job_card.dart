@@ -682,6 +682,21 @@ class _DeckBody extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               Flexible(child: _clipped(_narrative())),
+              // THE SURPLUS GETS CONTENT, NOT JUST AIR. A full-height card on
+              // a real feed job (title, place, pay, shift, note — `GET /feed`
+              // carries no requirement chips) left ~500dp of empty white
+              // between the place and the money block, which reads as a
+              // half-loaded card. The note the feed DOES carry is drawn here,
+              // centred in exactly that height, so a taller card shows the
+              // same facts with the reason placed where the eye lands. With no
+              // note there is nothing honest to put there, so `spaceBetween`
+              // keeps its plain gap rather than inventing a filler.
+              if (_notePlacedInFreeSpace)
+                Expanded(
+                  child: Center(
+                    child: _clipped(_freeSpaceNote()),
+                  ),
+                ),
               if (hasFacts)
                 // The gap lives INSIDE this block as a padding, not beside it
                 // as a `SizedBox` sibling: `spaceBetween` shares the surplus
@@ -740,6 +755,15 @@ class _DeckBody extends StatelessWidget {
   /// `GET /feed` carries no requirements today, so on the live feed the row is
   /// simply absent — an empty list renders nothing and nothing is invented to
   /// fill the space.
+  /// True when the bounded (deck) layout draws the match note ITSELF, in the
+  /// height the job does not need, so [_narrative] must not draw it twice.
+  bool get _notePlacedInFreeSpace => !compact && data.matchNote != null;
+
+  /// The "why am I seeing this" note, drawn on its own so the deck layout can
+  /// put it in the card's free space instead of stacking it under the place.
+  Widget _freeSpaceNote() =>
+      _MatchNote(text: data.matchNote!, maxLines: null);
+
   Widget _narrative() {
     final List<String> tags = compact ? const <String>[] : data.tags;
     return Column(
@@ -765,7 +789,7 @@ class _DeckBody extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         _SubtitleRow(data: data),
-        if (data.matchNote != null) ...<Widget>[
+        if (data.matchNote != null && !_notePlacedInFreeSpace) ...<Widget>[
           SizedBox(height: compact ? 8 : 12),
           _MatchNote(text: data.matchNote!, maxLines: compact ? 2 : null),
         ],
