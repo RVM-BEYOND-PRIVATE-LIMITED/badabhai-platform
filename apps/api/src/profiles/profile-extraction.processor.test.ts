@@ -1323,6 +1323,62 @@ describe("the 77% reaches worker_attributes", () => {
   });
 });
 
+describe("fill-gap Phase 1 — the two new chat facts reach worker_attributes", () => {
+  /**
+   * `languages` and `work_types` joined the chat tail with `qp_universal@3` (ADR-0042 D9
+   * amendment). Both are attribute-kind `multi_select`s over closed chip vocabularies, so the
+   * crosswalk must type them into `worker_attributes` as `text_list` — the exact shape the
+   * finishing form's own multis write, which is what keeps ONE Languages row on the sheet
+   * instead of two stores that can disagree. The pack pin is v3 because these questions do not
+   * exist in v2, and a stored value is re-readable only against the version it was asked in.
+   */
+  const phase1Map = () => ({
+    conversationState: {
+      answer_map: [
+        record({
+          question_key: "languages",
+          target_field: "languages",
+          value_normalized: ["hindi", "english"],
+        }),
+        record({
+          question_key: "work_types",
+          target_field: "work_types",
+          value_normalized: ["permanent", "daily_wage"],
+        }),
+      ],
+      occupation: PIN,
+      pack_id: "qp_universal",
+      pack_version: 3,
+    },
+  });
+
+  const phase1Rows = (w: { upsertMany: { mock: { calls: unknown[][] } } }) =>
+    (w.upsertMany.mock.calls[0]?.[0] ?? []) as Record<string, unknown>[];
+
+  it("writes both as text_list rows, pinned to qp_universal@3", async () => {
+    const { proc, workerAttributes } = make(phase1Map());
+    await proc.process(makeJob());
+
+    const rows = phase1Rows(workerAttributes);
+    expect(rows.map((r) => r.attributeKey).sort()).toEqual(["languages", "work_types"]);
+    const by = (k: string) => rows.find((r) => r.attributeKey === k)!;
+    expect(by("languages")).toMatchObject({
+      valueKind: "text_list",
+      valueTextList: ["hindi", "english"],
+      valueText: null,
+      valueBool: null,
+      valueNumber: null,
+      packId: "qp_universal",
+      packVersion: 3,
+    });
+    expect(by("work_types")).toMatchObject({
+      valueKind: "text_list",
+      valueTextList: ["permanent", "daily_wage"],
+      valueText: null,
+    });
+  });
+});
+
 describe("the interview's one LLM call is ledgered", () => {
   /**
    * THE ECONOMIC CASE FOR THE WHOLE CUTOVER, AND IT WAS INVISIBLE. Phase 8's claim is "~12

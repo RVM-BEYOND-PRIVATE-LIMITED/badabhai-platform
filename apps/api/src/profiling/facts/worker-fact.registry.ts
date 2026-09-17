@@ -266,7 +266,15 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
   // answered one of these on the finishing form must never be asked it again (D4).
   work_types: {
     id: "work_types",
-    aliases: [settles("attribute_key", "work_types"), settles("marker_dto_field", "work_types")],
+    aliases: [
+      settles("attribute_key", "work_types"),
+      settles("marker_dto_field", "work_types"),
+      // Fill-gap Phase 1: `qp_universal@3` asks this straight from the chat, so the pack item's
+      // `target_field` names the fact too. Without this alias the ownership table's entry for
+      // `work_types` is DEAD — the item resolves to no fact, and `isChatOwnedItem` passes it
+      // unconditionally, so a future flip back to "pages" would not stop the ask.
+      settles("target_field", "work_types"),
+    ],
   },
   salary_period: {
     id: "salary_period",

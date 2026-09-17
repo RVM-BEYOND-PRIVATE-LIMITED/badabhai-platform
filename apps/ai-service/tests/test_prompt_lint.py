@@ -135,3 +135,21 @@ def test_source_linting_is_meaningful_because_managed_prompts_are_off():
     from app.config import Settings
 
     assert Settings.model_fields["langfuse_prompts_enabled"].default is False
+
+
+# ---------------------------------------------------------------------------
+# The PII ban is a DIFFERENT class from §8.5's decision rules, and it drifted once already: the
+# sentence forbade a name, phone, address, Aadhaar and PAN but not licence or certificate NUMBERS,
+# even though §2 of the prompt builder and the credential-id egress gate both treat those as
+# identifiers. The interview asks "kya aapke paas licence hai?" (a boolean) and must never be
+# instructed to ask WHICH licence, or to read the number off one.
+# ---------------------------------------------------------------------------
+PII_BAN_TERMS = ["name", "phone number", "address", "Aadhaar", "PAN", "licence or certificate number"]
+
+
+def test_interview_prompt_bans_credential_numbers_explicitly():
+    text = _prompt_text(APP / "profiling" / "interview_prompts.py")
+    ban = re.search(r"Never ask for (.+?)\. ", text, re.DOTALL)
+    assert ban is not None, "the PII ban sentence has moved or been deleted"
+    for term in PII_BAN_TERMS:
+        assert term in ban.group(1), f"the PII ban no longer names: {term}"

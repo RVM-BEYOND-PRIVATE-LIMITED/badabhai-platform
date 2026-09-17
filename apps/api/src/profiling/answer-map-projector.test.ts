@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AnswerRecord, ParsedField, ProfileParseOutput } from "@badabhai/ai-contracts";
 
-import {
-  PROJECTABLE_DRAFT_FIELDS,
-  projectProfile,
-} from "./answer-map-projector";
+import { PROJECTABLE_DRAFT_FIELDS, projectProfile } from "./answer-map-projector";
 import { applyParseGates } from "./parse-gates";
 
 function answer(over: Partial<AnswerRecord> & { question_key: string }): AnswerRecord {
@@ -71,7 +68,11 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     // interview correctly treats the question as settled — but that raw string must NEVER reach
     // `location_preference.current_city`, which `reach.mappers.ts`'s `readCity` reads verbatim.
     const { draft } = projectProfile([
-      answer({ question_key: "current_city", target_field: "current_city", value_normalized: "Patna Gaon XYZ" }),
+      answer({
+        question_key: "current_city",
+        target_field: "current_city",
+        value_normalized: "Patna Gaon XYZ",
+      }),
     ]);
     expect(draft.current_city).toBeUndefined();
   });
@@ -80,7 +81,11 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     // The guard runs `canonicalCity` again on the way out — it does not merely check "is this
     // exactly a gazetteer value" — so a seeded lower-case/alias spelling still resolves.
     const { draft } = projectProfile([
-      answer({ question_key: "current_city", target_field: "current_city", value_normalized: "poona" }),
+      answer({
+        question_key: "current_city",
+        target_field: "current_city",
+        value_normalized: "poona",
+      }),
     ]);
     expect(draft.current_city?.value).toBe("poona");
   });
@@ -92,6 +97,38 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
       answer({ question_key: "q", target_field: "work_history", value_normalized: "Tata Motors" }),
     ]);
     expect(draft).toEqual({});
+  });
+
+  it("fill-gap Phase 1: `languages` stays off the draft but DOES become an attribute", () => {
+    // The one carve-out. The crosswalk entry says "no résumé COLUMN" (the sheet's Languages row
+    // reads `worker_attributes.languages`, which the finishing form's preferences page writes
+    // directly); the chat's only write path is this projector, so refusing here would turn
+    // `qp_universal@3`'s new question into a no-op the worker cannot even notice.
+    const { draft, attributes } = projectProfile([
+      answer({
+        question_key: "languages",
+        target_field: "languages",
+        value_normalized: ["hindi", "english"],
+      }),
+    ]);
+    expect(draft).toEqual({});
+    expect(attributes).toEqual([
+      {
+        attributeKey: "languages",
+        valueKind: "text_list",
+        value: ["hindi", "english"],
+        source: "answer_map",
+      },
+    ]);
+  });
+
+  it("the work_history drop is NOT widened by the languages carve-out", () => {
+    // A `work_history` STRING reaching the map (nothing asks it, but the carve-out above is a rule
+    // about field ids and this is the edge it must not leak through) still writes no attribute.
+    const { attributes } = projectProfile([
+      answer({ question_key: "q", target_field: "work_history", value_normalized: "Tata Motors" }),
+    ]);
+    expect(attributes).toEqual([]);
   });
 
   it("ignores an RFS id the crosswalk does not know", () => {
@@ -143,7 +180,13 @@ describe("the split field", () => {
   it("fans one answer across several draft fields when a splitter is supplied", () => {
     // `tools_equipment` is trade-agnostic: a VMC and a Fanuc arrive in one phrase.
     const { draft } = projectProfile(
-      [answer({ question_key: "q", target_field: "tools_equipment", value_normalized: "VMC Fanuc" })],
+      [
+        answer({
+          question_key: "q",
+          target_field: "tools_equipment",
+          value_normalized: "VMC Fanuc",
+        }),
+      ],
       {},
       { split: () => ({ machines: ["VMC"], controllers: ["Fanuc"] }) },
     );
