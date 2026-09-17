@@ -196,7 +196,7 @@ export type ProfileValueSource = (typeof PROFILE_VALUE_SOURCES)[number];
  * and a `city` are both one string to Postgres, and only `multi_select` genuinely needs a list.
  * Keeping the two vocabularies separate is what stops a new answer type from forcing a migration.
  */
-export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list"] as const;
+export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list", "json"] as const;
 export type AttributeValueKind = (typeof ATTRIBUTE_VALUE_KINDS)[number];
 
 // ---- AI jobs ----
