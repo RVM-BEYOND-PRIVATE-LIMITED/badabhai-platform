@@ -144,7 +144,14 @@ def test_source_linting_is_meaningful_because_managed_prompts_are_off():
 # identifiers. The interview asks "kya aapke paas licence hai?" (a boolean) and must never be
 # instructed to ask WHICH licence, or to read the number off one.
 # ---------------------------------------------------------------------------
-PII_BAN_TERMS = ["name", "phone number", "address", "Aadhaar", "PAN", "licence or certificate number"]
+PII_BAN_TERMS = [
+    "name",
+    "phone number",
+    "address",
+    "Aadhaar",
+    "PAN",
+    "licence or certificate number",
+]
 
 
 def test_interview_prompt_bans_credential_numbers_explicitly():
