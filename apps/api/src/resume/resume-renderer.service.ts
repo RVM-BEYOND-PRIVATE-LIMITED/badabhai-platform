@@ -84,6 +84,13 @@ export interface ResumeRenderInput {
   availability: string | null;
   /** `{{summary}}` — short professional summary. */
   summary: string | null;
+  /**
+   * Layer A (h) — the deterministic headline `{{headline}}` prints, when the mapper built one:
+   * "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens" (role · tenure · tools). Null keeps the legacy
+   * behaviour — `canonicalRole` alone fills the slot — so every pre-existing render is
+   * byte-identical. See `resume-headline.ts` for why the segments are exactly these.
+   */
+  profileHeadline?: string | null;
   /** Repeat regions `{{#skills}}` / `{{#machines}}` / `{{#controllers}}` / … */
   skills: string[];
   machines: string[];
@@ -486,7 +493,7 @@ export class ResumeRenderer {
   private static fillSlots(skeleton: string, input: ResumeRenderInput): string {
     const scalars: Record<string, string> = {
       full_name: input.displayName ?? "",
-      headline: input.canonicalRole ?? "",
+      headline: input.profileHeadline ?? input.canonicalRole ?? "",
       location: input.location ?? "",
       experience_years: input.experienceYears != null ? String(input.experienceYears) : "",
       availability: input.availability ?? "",
