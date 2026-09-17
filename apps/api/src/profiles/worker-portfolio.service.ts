@@ -9,6 +9,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import { WORKER_PORTFOLIO_PREFIX } from "@badabhai/types";
 
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -47,6 +48,12 @@ const PORTFOLIO_SIGNED_URL_TTL_SECONDS = 900;
  *
  * Nothing on the employer copy reads this table (the renderer's audience gate is where any future
  * printing decision lands). The worker-self GET is the only read.
+ *
+ * ═══ DSAR IS PART OF ARMING ═══
+ *
+ * `AccountDeletionService` sweeps `portfolio/{workerId}/` from the same shared prefix constant the
+ * minted key is built from (#1548), so setting `WORKER_PORTFOLIO_BUCKET` arms uploads AND erasure
+ * together. The `link` kind needs no sweep — it erases with the row.
  */
 @Injectable()
 export class WorkerPortfolioService {
@@ -71,7 +78,7 @@ export class WorkerPortfolioService {
     if (!extension || !this.contentTypeMatchesKind(dto, extension)) {
       throw new BadRequestException("unsupported content type for this kind");
     }
-    const key = `portfolio/${workerId}/${randomUUID()}.${extension}`;
+    const key = `${WORKER_PORTFOLIO_PREFIX}/${workerId}/${randomUUID()}.${extension}`;
     const signed = await this.storage.createSignedUploadUrl(key, bucket);
     return { upload_url: signed.url, storage_key: key, expires_in: signed.expiresIn };
   }

@@ -14,7 +14,7 @@ provisioned **out-of-band**, directly against the Supabase project, via the idem
 | `worker-profile-photos` | Worker profile photos ([ADR-0032](../../docs/decisions/0032-worker-profile-photo.md)). A face photo is high-sensitivity PII. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key), signed read URL for the worker's OWN photo. Never payer-readable (faceless invariant). |
 | `worker-voice-notes` | Raw recorded voice notes ([ADR-0029](../../docs/decisions/0029-voice-audio-at-rest-and-upload-seam.md), TD29 G2). **Audio is PII** — the worker is speaking, so a clip can carry their own name, employer names, and a spoken phone number. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key `voice-notes/{workerId}/{uuid}.m4a`); read is service_role-only, by the ai-service, to transcribe. Never worker- or payer-readable. **R25** (#280) / **TD58** (#281). |
 | `worker-feedback-attachments` | Images a worker attaches to a **feedback** submission (#1191). Personal data in the same class as the message: workers photograph payslips, gate passes, supervisors, themselves. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key `feedback-attachments/{workerId}/{uuid}.jpg`, re-validated against the session worker at submit); read is a short-TTL signed GET minted per admin page view, with `Content-Disposition: attachment`. Never payer-readable. **`allowed_mime_types = {image/jpeg}` is a security control** — it is what stops worker-supplied markup being rendered on the storage origin when an admin clicks a thumbnail. |
-| `worker-portfolio` | The worker's work samples — photos/videos of their own work ([ADR-0042 D9](../../docs/decisions/0042-profile-road-separation.md) / migration `0113`). Server-chosen opaque keys `portfolio/{workerId}/{uuid}.{ext}`; `link` items live as URLs on the row, not in Storage. | **PRIVATE** | Signed **upload** URL in (re-validated against the session worker at register); short-TTL signed read URL for the worker's OWN media. No payer path — **never employer-visible**. **⚠ Do not arm `WORKER_PORTFOLIO_BUCKET` until `AccountDeletionService` sweeps `portfolio/{workerId}/`** (leg not yet built — [#1548](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/issues/1548)). |
+| `worker-portfolio` | The worker's work samples — photos/videos of their own work ([ADR-0042 D9](../../docs/decisions/0042-profile-road-separation.md) / migration `0113`). Server-chosen opaque keys `portfolio/{workerId}/{uuid}.{ext}`; `link` items live as URLs on the row, not in Storage. | **PRIVATE** | Signed **upload** URL in (re-validated against the session worker at register); short-TTL signed read URL for the worker's OWN media. No payer path — **never employer-visible**. `AccountDeletionService` sweeps `portfolio/{workerId}/` ([#1548](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/issues/1548)), so arming the env var arms uploads and erasure together. |
 | ~~`worker-conversations`~~ | ~~Raw conversation JSON~~ — **RETIRED, do not provision.** [ADR-0003 is Withdrawn](../../docs/decisions/0003-worker-conversation-storage-boundary.md#withdrawal-2026-08-14); the bucket was never provisioned and nothing ever wrote `conversation_storage_path`. `chat_messages` is the durable transcript, so this bucket would be a second copy of raw PII — which was risk **R10**, now **Closed by the retirement**. | — | Not provisioned. `CONVERSATIONS_BUCKET` config remains only so the DSAR erasure sweep (`conversationWorkerPrefix`) keeps running as defence in depth. |
 
 ## Source of truth (CLI / config, not dashboard clicks)
@@ -279,11 +279,12 @@ local `supabase start` stack.
 bucket at all and keeps working. Notation: the bucket **media** objects are PRIVATE and
 worker-self-readable only — never payer-readable.
 
-**⚠ STEP 0 — A DSAR PRECONDITION THAT IS NOT PAID BY PROVISIONING.** `AccountDeletionService`
-sweeps `photos/`, `voice-notes/` and `feedback-attachments/` per worker; it does **not** yet sweep
-`portfolio/{workerId}/`. Media cannot exist while the var is unset, but arming it before that leg
-lands means account deletion leaves portfolio objects behind — a DPDP problem, not a cosmetic one.
-**Do not perform steps 2–4 until the portfolio sweep leg has shipped** (#1548).
+**DSAR IS PAID, SO ARMING IS UNBLOCKED (#1548).** `AccountDeletionService` sweeps
+`portfolio/{workerId}/` against this bucket exactly as it sweeps `photos/`, `voice-notes/` and
+`feedback-attachments/` — same prefix built from the shared `WORKER_PORTFOLIO_PREFIX`, same
+`deleted`/`failed`/`skipped` audit leg (`portfolio_prefix`), gated on this same env var. Setting
+the var arms the upload path AND the sweep in one act; there is no window in which media can exist
+while erasure is dormant.
 
 1. **Provision + verify the private bucket:** run `storage-buckets.sql` (above), then the two
    checks under "Verify it is PRIVATE" against `worker-portfolio` — `public = f`, and the public
@@ -322,11 +323,12 @@ lands means account deletion leaves portfolio objects behind — a DPDP problem,
    URL.
 
 **Operator step (verbatim):** set `WORKER_PORTFOLIO_BUCKET=<bucket-name>` in each environment
-(local `.env`, staging, prod) and restart the API — after the DSAR sweep leg has shipped.
+(local `.env`, staging, prod) and restart the API.
 
 **Rollback:** unset `WORKER_PORTFOLIO_BUCKET` and recreate the container (the mint 503s again;
-`link` items still render). Already-stored objects stay put and stay private — and become
-unswept on deletion while the var is unset, which is the same reason step 0 gates arming.
+`link` items still render). Already-stored objects stay put and stay private. The deletion sweep
+leg then records `skipped` rather than a sweep — media that exists while the var is unset is not
+erased, which is why re-arming the SAME bucket name is the only path to a clean re-run.
 
 ## Drift / re-assert
 
