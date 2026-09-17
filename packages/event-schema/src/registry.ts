@@ -53,6 +53,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerPortfolioRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (f) - the worker's declared secondary occupations were replaced.
+  // Counts only: no role ids.
+  "worker.occupations_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerOccupationsRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",

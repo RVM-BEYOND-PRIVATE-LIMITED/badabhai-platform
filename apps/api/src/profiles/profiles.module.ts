@@ -25,6 +25,9 @@ import { WorkerLanguagesController } from "./worker-languages.controller";
 import { WorkerPortfolioRepository } from "./worker-portfolio.repository";
 import { WorkerPortfolioService } from "./worker-portfolio.service";
 import { WorkerPortfolioController } from "./worker-portfolio.controller";
+import { WorkerOccupationsRepository } from "./worker-occupations.repository";
+import { WorkerOccupationsService } from "./worker-occupations.service";
+import { WorkerOccupationsController } from "./worker-occupations.controller";
 import { WorkersModule } from "../workers/workers.module";
 // Layer A (e) — the portfolio mint/read seam. NOT @Global (WorkersModule imports it explicitly
 // for the photo seam), so ProfilesModule imports it too rather than assuming it.
@@ -95,6 +98,10 @@ import {
     WorkerLanguagesController,
     // Migration 0113 — the portfolio page (work samples).
     WorkerPortfolioController,
+    // Migration 0114 — the secondary-occupations page (Layer A (f)). Its write re-derives the
+    // worker's match supply through the @Global MatchModule's WorkerSkillsService, so this adds
+    // no module edge.
+    WorkerOccupationsController,
   ],
   providers: [
     ProfilesService,
@@ -144,6 +151,10 @@ import {
     // Migration 0113 — `worker_portfolio`. @Global DATABASE + StorageService only.
     WorkerPortfolioRepository,
     WorkerPortfolioService,
+    // Migration 0114 — `worker_occupation`. @Global DATABASE + the @Global WorkerSkillsService,
+    // so it adds two providers and no module edge.
+    WorkerOccupationsRepository,
+    WorkerOccupationsService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

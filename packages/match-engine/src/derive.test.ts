@@ -101,4 +101,38 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
     const rows = deriveWorkerSkills({ canonicalRoleId: "role_vmc_operator", totalYears: 2.5 }, yearly);
     expect(rows[0]?.monthsBucketed).toBe(24);
   });
+
+  it("adds a DECLARED SECONDARY role through the same bridge (Layer A (f))", () => {
+    const rows = deriveWorkerSkills(
+      {
+        canonicalRoleId: "role_welder",
+        additionalRoleIds: ["role_plumber"],
+        totalYears: 3,
+      },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_mig_welder", "mskill_plumber"]);
+    // The coarse rule is not special-cased for secondaries: one bucketed total on every row.
+    for (const r of rows) expect(r.monthsBucketed).toBe(36);
+  });
+
+  it("secondary roles are a UNION — a duplicate of the primary adds nothing", () => {
+    const rows = deriveWorkerSkills(
+      {
+        canonicalRoleId: "role_plumber",
+        additionalRoleIds: ["role_plumber", "role_carpenter"],
+        totalYears: 1,
+      },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_carpenter", "mskill_plumber"]);
+  });
+
+  it("a secondary role alone derives its bridge row, and an unknown id contributes nothing", () => {
+    const rows = deriveWorkerSkills(
+      { additionalRoleIds: ["role_designer", "role_invented", null as unknown as string] },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_designer"]);
+  });
 });

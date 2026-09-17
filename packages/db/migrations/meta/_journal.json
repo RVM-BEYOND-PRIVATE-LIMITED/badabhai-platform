@@ -800,6 +800,13 @@
       "when": 1789628736289,
       "tag": "0113_worker_portfolio",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1789634573196,
+      "tag": "0114_worker_occupation",
+      "breakpoints": true
     }
   ]
 }

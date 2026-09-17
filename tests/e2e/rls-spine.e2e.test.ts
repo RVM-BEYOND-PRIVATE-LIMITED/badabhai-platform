@@ -130,6 +130,10 @@ const LOCKED_TABLES = [
   // 0113: the worker's work samples (ADR-0042 D9 / Layer A (e)) — a storage key for photo/video
   // or a URL for a link. Deny-by-default, FORCE, no policy.
   "worker_portfolio",
+  // 0114: the worker's declared SECONDARY occupations (ADR-0042 D9 / Layer A (f)) — closed
+  // `role_*` ids in the worker's order; the supply path derives extra match skills from them.
+  // Deny-by-default, FORCE, no policy.
+  "worker_occupation",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.

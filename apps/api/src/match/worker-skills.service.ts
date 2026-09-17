@@ -83,9 +83,13 @@ export class WorkerSkillsService {
     //
     // UNION, never replace: a worker can have both an extracted profile and a completed pack, and
     // whichever arrived second must not silently delete the other's evidence.
-    const packSkills = corpusSkillsForPackAttributes(
-      await this.repo.findPackAttributeOptions(workerId),
-    );
+    const [packSkills, secondaryRoleIds] = await Promise.all([
+      this.repo.findPackAttributeOptions(workerId).then(corpusSkillsForPackAttributes),
+      // Layer A (f) — the worker's DECLARED extra occupations (migration 0114). Read here, on
+      // every rebuild, so the live path and the batch path see the same rows; each id rides the
+      // existing role bridge in `deriveWorkerSkills` below. Closed ids only, no free text.
+      this.repo.findSecondaryRoleIds(workerId),
+    ]);
 
     // THE GUARD MOVED BELOW THE PACK READ, AND THE CONDITION CHANGED WITH IT (M1).
     //
@@ -102,14 +106,16 @@ export class WorkerSkillsService {
     // does not merely write nothing — it DELETES whatever `worker_skill` rows he already had.
     // That is load-bearing for the interview path, where a worker can sit between "extraction
     // started" and "profile row written". `!signals` was a proxy for "no evidence"; with a second
-    // evidence source it is the wrong proxy. The condition is now the thing it always meant.
-    if (!signals && packSkills.length === 0) return null;
+    // evidence source it is the wrong proxy. Declared secondary occupations are evidence too
+    // (Layer A (f)): a worker who only ever opened that page must still derive their bridge rows
+    // rather than have the rebuild delete the ones he has.
+    if (!signals && packSkills.length === 0 && secondaryRoleIds.length === 0) return null;
 
     const profileSkills = [...new Set([...(signals?.profileSkills ?? []), ...packSkills])].sort();
 
-    // ① The set: role bridge ∪ attribute bridge. EMPTY is a legitimate answer — a worker
-    //    whose role and attributes imply no postable skill reaches nothing, and we never
-    //    fabricate a skill to give a man a feed.
+    // ① The set: role bridge ∪ secondary-role bridge ∪ attribute bridge. EMPTY is a legitimate
+    //    answer — a worker whose roles and attributes imply no postable skill reaches nothing,
+    //    and we never fabricate a skill to give a man a feed.
     const derived: WorkerSkillRow[] = deriveWorkerSkills(
       {
         // `signals` is undefined for a form-only worker: no profile row, so no role and no
@@ -117,6 +123,7 @@ export class WorkerSkillsService {
         // role contributes no role-bridge skill and a null tenure buckets to zero — so the
         // pack bridge stands on its own rather than needing a synthesised profile.
         canonicalRoleId: signals?.canonicalRoleId ?? null,
+        additionalRoleIds: secondaryRoleIds,
         profileSkills,
         totalYears: signals?.totalYears ?? null,
       },
