@@ -105,6 +105,21 @@ export const WorkerWhatsappRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (b) — the worker recorded how they know each language they listed
+// (PUT /workers/me/languages, migration 0110).
+//
+// COUNTS, NEVER THE LANGUAGES. A single language slug is not an identifier, but a regional
+// language plus a worker id plus a timestamp narrows a person considerably — the same ruling
+// `worker.qualifications_recorded` carries, and the spine needs to know the page was answered
+// rather than what it said.
+export const WorkerLanguagesRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    language_count: z.number().int().nonnegative(),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the

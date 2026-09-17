@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 182 event names (179 prior + the two trade-form offer steps + Layer A's whatsapp)", () => {
-    expect(EVENT_NAMES).toHaveLength(182);
+  it("exposes all 183 event names (179 prior + the two trade-form offer steps + Layer A)", () => {
+    expect(EVENT_NAMES).toHaveLength(183);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4406,6 +4406,50 @@ describe("worker.whatsapp_recorded (Layer A (a) / ADR-0042 D9)", () => {
   it("requires the boolean — 'set or cleared' may not be silently omitted", () => {
     expect(validateEvent(recorded({ worker_id: UUID_A })).success).toBe(false);
     expect(validateEvent(recorded({ ...valid, has_whatsapp: "yes" })).success).toBe(false);
+  });
+});
+
+describe("worker.languages_recorded (Layer A (b) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.languages_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, language_count: 2, replaced_existing: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, language_count: 0 })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the languages themselves", () => {
+    // `.strict()` is the whole guard: a future writer cannot attach the slugs, the printed
+    // labels, or the abilities. Asserted valid first, so a rejection is the extra key.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { languages: ["hindi", "english"] },
+      { language: "hindi" },
+      { can_speak: true },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the count and the replaced flag", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
+    expect(validateEvent(recorded({ worker_id: UUID_A, language_count: 1 })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, language_count: -1 })).success).toBe(false);
   });
 });
 

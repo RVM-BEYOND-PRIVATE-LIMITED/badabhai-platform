@@ -10,6 +10,8 @@ import {
   certificateLine,
   educationFacts,
   educationLine,
+  languageFacts,
+  languageLine,
   qualificationFactsFrom,
   type WorkerCertificateRecord,
   type WorkerEducationRecord,
@@ -418,5 +420,87 @@ describe("parity with the attribute-scalar composition it replaces", () => {
       const viaAttributes = readPreferenceFacts({ education_credential: slug }).educationCredential;
       expect(viaRow).toBe(viaAttributes);
     }
+  });
+});
+
+/**
+ * ZONE 5's language row (migration 0110, ADR-0042 D9 / Layer A (b)).
+ *
+ * THE SAME PURE-COMPOSITION SPLIT as the credential rows above: the repository reads rows, this
+ * turns them into the string the sheet prints. The closed ability words are §8's fabrication gate
+ * made concrete — every character is either the worker's slug through its reviewed label or a
+ * boolean they ticked, and nothing here can claim a proficiency level nobody collected.
+ */
+describe("languageLine — the worker's own ticks, in reviewed words", () => {
+  const FULL = { language: "hindi", canSpeak: true, canRead: true, canWrite: true };
+  const READER = { language: "english", canSpeak: false, canRead: true, canWrite: false };
+  const SPEAKER_WRITER = { language: "haryanvi", canSpeak: true, canRead: false, canWrite: true };
+
+  it("prints the label with every ability the worker ticked", () => {
+    expect(languageLine(FULL)).toBe("Hindi (speaks, reads, writes)");
+    expect(languageLine(READER)).toBe("English (reads)");
+    expect(languageLine(SPEAKER_WRITER)).toBe("Haryanvi (speaks, writes)");
+  });
+
+  it("drops an unknown slug rather than printing it raw", () => {
+    // `labelFor`'s safety property, restated for this table: the DTO validates against LANGUAGES,
+    // so this is reachable only from a hand-written row or a retired option — and a raw slug on a
+    // sheet is worse than an absent row.
+    expect(languageLine({ ...FULL, language: "klingon" })).toBeNull();
+  });
+
+  it("drops a row that ticks nothing — the CHECK is one layer up, this is the print guard", () => {
+    expect(
+      languageLine({ language: "hindi", canSpeak: false, canRead: false, canWrite: false }),
+    ).toBeNull();
+  });
+
+  it("keeps the worker's order in languageFacts, never sorting by slug", () => {
+    expect(languageFacts([READER, FULL])).toEqual([
+      "English (reads)",
+      "Hindi (speaks, reads, writes)",
+    ]);
+  });
+});
+
+describe("qualificationFactsFrom — languages are a per-field override", () => {
+  const LANGUAGES = [{ language: "hindi", canSpeak: true, canRead: false, canWrite: false }];
+
+  it("omits the field entirely when there are no language rows, so the attribute still prints", () => {
+    // `undefined` IS THE FALLBACK. The mapper resolves `qualification?.languages ??
+    // preferences.languages`; an empty ARRAY here would assert "this worker speaks no language"
+    // and suppress the `languages` attribute the finishing form still writes.
+    const facts = qualificationFactsFrom({
+      certificates: [certificate()],
+      educations: [],
+      languages: [],
+    });
+    expect(facts).toBeDefined();
+    expect(facts?.languages).toBeUndefined();
+  });
+
+  it("carries the composed rows when there are any", () => {
+    const facts = qualificationFactsFrom({
+      certificates: [],
+      educations: [],
+      languages: LANGUAGES,
+    });
+    expect(facts?.languages).toEqual(["Hindi (speaks)"]);
+  });
+
+  it("a languages-only submission still defines the block — one surface, one answer", () => {
+    // All-or-nothing on the surface, per-field within it: the worker used a Zone 5 surface, so
+    // the empty credential lists are authoritative and the extraction does not fill them back in.
+    const facts = qualificationFactsFrom({
+      certificates: [],
+      educations: [],
+      languages: LANGUAGES,
+    });
+    expect(facts).toEqual({
+      educationHeadline: null,
+      education: [],
+      certifications: [],
+      languages: ["Hindi (speaks)"],
+    });
   });
 });

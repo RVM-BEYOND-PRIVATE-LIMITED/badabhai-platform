@@ -19,6 +19,9 @@ import { WorkerPreferencesController } from "./worker-preferences.controller";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
 import { WorkerQualificationsController } from "./worker-qualifications.controller";
+import { WorkerLanguagesRepository } from "./worker-languages.repository";
+import { WorkerLanguagesService } from "./worker-languages.service";
+import { WorkerLanguagesController } from "./worker-languages.controller";
 import { WorkersModule } from "../workers/workers.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
@@ -77,6 +80,10 @@ import {
     WorkerAnswerSourceController,
     WorkerPreferencesController,
     WorkerQualificationsController,
+    // Migration 0110 — the finishing form's Languages page. Its own controller for the same
+    // reason the qualifications one has one: the page owns repeatable, ordered rows through
+    // delete-then-insert, not single attribute keys.
+    WorkerLanguagesController,
   ],
   providers: [
     ProfilesService,
@@ -119,6 +126,10 @@ import {
     // uses, so this adds two providers and no module edge.
     WorkerQualificationsRepository,
     WorkerQualificationsService,
+    // Migration 0110 — `worker_language`, the richer languages source. Same @Global-only
+    // dependency shape as the qualifications pair above, so it adds two providers and no edge.
+    WorkerLanguagesRepository,
+    WorkerLanguagesService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],
@@ -137,6 +148,9 @@ import {
     // this repository itself, exactly as it provides the attribute and employment ones, so that
     // its boot never depends on the profiles subtree.
     WorkerQualificationsRepository,
+    // Migration 0110 — the résumé render worker reads the richer language rows the same way it
+    // reads the credential rows. Exported for the same reason and with the same graph shape.
+    WorkerLanguagesRepository,
   ],
 })
 export class ProfilesModule {}
