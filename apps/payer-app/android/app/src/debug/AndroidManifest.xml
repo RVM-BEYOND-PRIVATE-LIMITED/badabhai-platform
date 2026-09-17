@@ -4,4 +4,19 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- DEBUG-ONLY: allow cleartext (http://) so the app can reach a LAN dev API
+         such as http://<laptop-ip>:3001 or the emulator's http://10.0.2.2:3001.
+         Android 9+ (API 28) blocks cleartext by default, so without this every
+         request to a local API fails before it leaves the handset — which reads
+         as "the app is broken" rather than "the transport was refused".
+
+         This overlay applies only to debug builds (flutter run); release builds
+         inherit the main manifest and keep cleartext DISABLED. `app_config.dart`
+         enforces the same rule from the other side: an `API_BASE_URL` override
+         must be https in a release build or the app refuses to boot.
+
+         Mirrors apps/worker-app/android/app/src/debug/AndroidManifest.xml, which
+         has carried this for the same reason. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

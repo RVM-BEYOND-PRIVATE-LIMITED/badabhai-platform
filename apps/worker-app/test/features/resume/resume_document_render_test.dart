@@ -557,8 +557,8 @@ void main() {
     );
 
     testWidgets(
-      'CONTROLLERS KNOWN keeps its scannable rows however short the '
-      'designations are (spec §4)',
+      'CONTROLLERS KNOWN packs into the chip matrix like every other group '
+      '(owner ruling 2026-09-16, over spec §4 rows)',
       (WidgetTester tester) async {
         const TradeSheetResumeDocument document = TradeSheetResumeDocument(
           header: ResumeDocumentHeaderDto(),
@@ -584,19 +584,57 @@ void main() {
         );
         await pumpView(tester, document);
 
-        // Short enough to be a chip — and deliberately still a row.
+        // Short designations, so they pack several to a row exactly like the
+        // machines above them and like OPERATIONS — no per-group exception.
         expect('Fanuc Oi-TF'.length, lessThan(kChipValueMaxChars));
         expect(find.text('CONTROLLERS KNOWN'), findsOneWidget);
-        expect(find.widgetWithText(KitCheckRow, 'Fanuc Oi-TF'), findsOneWidget);
+        expect(find.widgetWithText(KitInfoChip, 'Fanuc Oi-TF'), findsOneWidget);
         expect(
-          find.widgetWithText(KitCheckRow, 'Siemens 828D'),
+          find.widgetWithText(KitInfoChip, 'Siemens 828D'),
           findsOneWidget,
         );
+        expect(find.byType(KitCheckRow), findsNothing);
         // The machines above them still pack as the matrix.
         expect(
           find.widgetWithText(KitInfoChip, 'CNC lathe / turning centre'),
           findsOneWidget,
         );
+      },
+    );
+
+    testWidgets(
+      'a controller designation too long for a chip still gets rows, so no '
+      'value the worker gave us is ever truncated',
+      (WidgetTester tester) async {
+        const String long = 'Fanuc Series 0i-TF Plus with Manual Guide i';
+        const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(),
+          trade: 'cnc_turner',
+          sections: <ResumeDocumentSectionDto>[
+            ResumeDocumentSectionDto(
+              id: 'capability',
+              title: 'Machines, controllers & capability',
+              chipRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  key: kControllerRowKey,
+                  label: 'Controllers',
+                  values: <String>[long, 'Siemens 828D'],
+                ),
+              ],
+            ),
+          ],
+        );
+        await pumpView(tester, document);
+
+        expect(long.length, greaterThan(kChipValueMaxChars));
+        expect(find.widgetWithText(KitCheckRow, long), findsOneWidget);
+        // The short one comes with it: half a group in chips and half in rows
+        // would read as two kinds of data.
+        expect(
+          find.widgetWithText(KitCheckRow, 'Siemens 828D'),
+          findsOneWidget,
+        );
+        expect(find.byType(KitInfoChip), findsNothing);
       },
     );
 

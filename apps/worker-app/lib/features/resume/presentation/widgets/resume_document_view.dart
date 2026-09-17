@@ -110,7 +110,7 @@ class _CapabilityCard extends StatelessWidget {
             // The ONE group that keeps full-width rows however short its
             // values measure — spec §4's scannable controller list (see
             // [kControllerRowKey] for why this one is worth the space).
-            _ValueMatrix(values: slots.controllers, forceRows: true),
+            _ValueMatrix(values: slots.controllers),
           ],
         ],
       ),
@@ -400,23 +400,28 @@ class _LabelledBlock extends StatelessWidget {
 /// instead of one per line — see [kChipValueMaxChars] for the threshold and the
 /// measurement behind it.
 ///
-/// [forceRows] is the deliberate exception, used only for spec §4's
-/// 'CONTROLLERS KNOWN' list.
+/// THERE IS NO PER-GROUP EXCEPTION. 'CONTROLLERS KNOWN' used to be forced to
+/// full-width rows because spec §4 draws it that way, but a controller
+/// designation is as short as an operation ('Fanuc Oi-TF', 'Siemens 828D'), so
+/// the owner ruled it packs like every other group. The only thing that still
+/// sends a group to rows is a value too long to read as a chip, which is a
+/// property of the DATA — so a controller string that ever arrives long
+/// (a full 'Fanuc Series 0i-TF Plus with manual guide i') still gets rows
+/// rather than being truncated.
 ///
 /// An empty group draws NOTHING: real data only, and a row is never padded to
 /// make a card look full.
 class _ValueMatrix extends StatelessWidget {
-  const _ValueMatrix({required this.values, this.forceRows = false});
+  const _ValueMatrix({required this.values});
 
   final List<String> values;
-  final bool forceRows;
 
   @override
   Widget build(BuildContext context) {
     if (values.isEmpty) return const SizedBox.shrink();
-    return forceRows || !valuesReadAsChips(values)
-        ? _CheckRows(values: values)
-        : _ChipWrap(values: values);
+    return valuesReadAsChips(values)
+        ? _ChipWrap(values: values)
+        : _CheckRows(values: values);
   }
 }
 
