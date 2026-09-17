@@ -1,10 +1,9 @@
 <svg width="160" height="140" viewBox="0 0 160 140" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BadaBhai">
   <!-- The BadaBhai two-figure mark: the smaller white worker on the left, the
-       larger safety-yellow one on the right. This is the SOURCE ART for the
-       Flutter vector port in
-       apps/worker-app/lib/core/widgets/bada_bhai_mark.dart (BadaBhaiMark) —
-       the app has no SVG runtime, so the widget paints these exact paths.
-       Edit both together. -->
+       larger safety-yellow one on the right. SOURCE ART for the shipped mark at
+       apps/worker-app/assets/fonts/image/badabhai_main.png, which the worker
+       app shows left of the "BadaBhai" wordmark in every Shift Blue header
+       (apps/worker-app/lib/core/widgets/onboarding/brand_badge.dart). -->
   <circle cx="50" cy="34" r="22" fill="#FFFFFF"/>
   <path d="M8 140V92A40 40 0 0 1 48 52H50A40 40 0 0 1 90 92V140Z" fill="#FFFFFF"/>
   <circle cx="114" cy="26" r="27" fill="#FFB32C"/>

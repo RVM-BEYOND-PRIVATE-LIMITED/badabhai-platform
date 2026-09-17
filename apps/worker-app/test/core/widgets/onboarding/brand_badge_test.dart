@@ -1,23 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:badabhai_worker_app/core/widgets/bada_bhai_mark.dart';
 import 'package:badabhai_worker_app/core/widgets/onboarding/brand_badge.dart';
 
 import '../../../support/kit_matrix.dart';
 
 void main() {
   group('BrandBadge — the global no-pill lockup', () {
-    testWidgets('draws the two-figure mark and no pill, border or wash', (
+    testWidgets('shows the badabhai_main mark and no pill, border or wash', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         kitTestApp(const Scaffold(body: Center(child: BrandBadge()))),
       );
 
-      // The global vector mark (one white man + one yellow man), never the old
-      // Material `people_alt` glyph.
-      expect(find.byType(BadaBhaiMark), findsOneWidget);
+      // The owner's image asset, shown to the LEFT of the wordmark.
+      final Image mark = tester.widget<Image>(find.byType(Image));
+      expect(
+        (mark.image as AssetImage).assetName,
+        BrandBadge.markAsset,
+      );
+      expect(BrandBadge.markAsset, 'assets/fonts/image/badabhai_main.png');
 
       // NO PILL: the owner removed the border and the 12%-white background
       // permanently, so there is no decorated Container left in the lockup.

@@ -213,6 +213,10 @@ flutter:
     # Splash screen artwork (logo, tagline, handshake). The "Get started" button
     # is drawn by Flutter on top of it, not baked into the image.
     - assets/fonts/image/screen.png
+    # The BadaBhai lockup's two-figure mark (small white man + large yellow man),
+    # shown left of the "BadaBhai" wordmark in every Shift Blue header
+    # (see core/widgets/onboarding/brand_badge.dart).
+    - assets/fonts/image/badabhai_main.png
 
   # #315 — run gen-l10n from l10n.yaml. flutter_tools gates localization
   # codegen on exactly this flag (packages.dart: `if
