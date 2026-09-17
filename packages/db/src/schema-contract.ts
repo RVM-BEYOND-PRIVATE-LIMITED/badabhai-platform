@@ -427,6 +427,34 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "by the same migration and fails together",
   },
   {
+    id: "0113-worker-portfolio-table",
+    migration: "0113_worker_portfolio",
+    kind: "table",
+    table: "worker_portfolio",
+    requiredBy:
+      "WorkerPortfolioRepository on PUT+GET /workers/me/portfolio and the media mint route — the " +
+      "table is named unconditionally, not behind a flag (the bucket flag gates MINTING, not the " +
+      "row store)",
+    failureMode:
+      "every portfolio save 500s (relation does not exist) and the GET comes back empty. A worker " +
+      "sees their samples vanish; nothing else on the profile is affected",
+  },
+  {
+    id: "0113-worker-portfolio-rls",
+    migration: "0113_worker_portfolio",
+    kind: "rls",
+    table: "worker_portfolio",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. Storage keys and captions are a worker's personal record; without FORCE the owner " +
+      "bypasses every policy and without the REVOKEs every PostgREST role can read the whole " +
+      "portfolio base. Both surfaces keep working, so nothing reports it",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

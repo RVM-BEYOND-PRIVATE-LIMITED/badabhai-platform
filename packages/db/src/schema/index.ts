@@ -39,6 +39,7 @@ import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { workerLanguages } from "./language";
+import { workerPortfolio } from "./portfolio";
 import {
   generatedResumes,
   profileQuestions,
@@ -111,6 +112,7 @@ export * from "./profiling";
 export * from "./employment";
 export * from "./qualification";
 export * from "./language";
+export * from "./portfolio";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -357,6 +359,7 @@ export const schema = {
   workerEducations,
   workerTrainings,
   workerLanguages,
+  workerPortfolio,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,
