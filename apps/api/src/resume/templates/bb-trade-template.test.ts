@@ -235,10 +235,67 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
     expect(body).toContain('<div class="phone">{{phone}}</div>');
   });
 
+  it("carries the #1547 footer brand — mark + mixed-case wordmark left, wordmark lockup right", () => {
+    // THE TWINS STAY IN STEP. `v1` is frozen only about the v2-only `whatsapp_line`; the footer
+    // brand is an owner-required visual correction applied to BOTH files, so every assertion here
+    // runs over both.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    const marks: string[] = [];
+    for (const [name, file] of [
+      ["v1", v1],
+      ["v2", html],
+    ] as const) {
+      // LEFT: the two-figure mark as an inline SVG data URI (offline — no network asset), then
+      // the MIXED-CASE wordmark. `text-transform: uppercase` is what made the old footer read
+      // BADABHAI, and it must not come back on this line.
+      const markSrc = /class="foot-mark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
+      expect(markSrc, `${name}: the footer mark data URI is missing`).toBeTruthy();
+      marks.push(markSrc!);
+      expect(file, `${name}: the wordmark is not mixed case`).toContain(
+        'alt="" />BadaBhai</div>',
+      );
+      const style = /<style>([^]*?)<\/style>/.exec(file)?.[1] ?? "";
+      const markCss = /\.foot-mark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markCss, `${name}: .foot-mark uppercases the wordmark`).not.toContain(
+        "text-transform",
+      );
+
+      // RIGHT: the wordmark lockup, ink, as its own non-shrinking slot.
+      expect(file, `${name}: the right logo lockup is missing`).toContain(
+        '<div class="foot-logo">BADABHAI <span class="hi">बड़ाभाई</span></div>',
+      );
+      const logoCss = /\.foot-logo\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(logoCss, `${name}: the right logo may shrink`).toMatch(/flex:\s*0 0 auto/);
+      expect(logoCss, `${name}: the right logo may wrap`).toMatch(/white-space:\s*nowrap/);
+
+      // NO OVERLAP IS STRUCTURAL, not a width guess: the text column absorbs the leftover width
+      // and wraps internally (`flex: 1 1 auto` + `min-width: 0`, since a flex item otherwise
+      // refuses to shrink below its content's preferred width), while the QR, mark and logo keep
+      // their intrinsic size. The two-page spill case is the same rules on a flowing `.foot`.
+      const txtCss = /\.foot-txt\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(txtCss, `${name}: the text column cannot shrink`).toMatch(/flex:\s*1 1 auto/);
+      expect(txtCss, `${name}: the text column has no min-width: 0`).toMatch(/min-width:\s*0/);
+
+      // QR / caption / short link / footer meta / disclaimer unchanged.
+      for (const slot of ["{{#qr}}", "{{qr_caption}}", "{{short_link}}", "{{footer_meta}}"]) {
+        expect(file, `${name}: ${slot} went missing`).toContain(slot);
+      }
+      expect(file, `${name}: the disclaimer changed`).toContain(
+        "Details as stated by the worker. BadaBhai does not guarantee hiring.",
+      );
+    }
+    // ONE MARK, TWO FILES: the same encoded bytes, so the twins cannot drift apart.
+    expect(marks[0]).toBe(marks[1]);
+  });
+
   it("keeps v1 frozen on disk — a shipped version is immutable", () => {
     // v1 still renders for every PDF already issued under it (the registry's own contract), so
     // it must remain byte-identical at the path old rows resolve to. If this fails, someone
     // edited history rather than adding v2.
+    //
+    // #1547 IS THE ONE SANCTIONED IN-PLACE AMENDMENT TO BOTH FILES: the footer brand lockup is a
+    // visual correction the owner required on the twins together. What this test protects is the
+    // VERSION BOUNDARY — the v2-only `whatsapp_line` must never appear in v1.
     const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
     expect(v1).toContain('id: "bb_trade", version: 1');
     expect(v1).not.toContain("whatsapp_line");

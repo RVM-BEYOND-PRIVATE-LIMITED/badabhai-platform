@@ -52,7 +52,11 @@ every existing `bb_trade` row at the new file exactly as an in-place edit does. 
 isolation, and costs a 400-line duplicate plus a second copy of every structural guard. So this
 sheet is amended in place while it is pre-production, ADDITIVELY: #1403 added the `emp-more`
 region, the 2026-09-08 ruling added `{{location_line}}`, and both collapse when their slot is
-empty, so any sheet that does not supply them renders byte-identically. The day a stored resume
+empty, so any sheet that does not supply them renders byte-identically. #1547 replaced the
+uppercase text mark with the brand lockup — the two-figure mark (inline SVG data URI) plus the
+mixed-case "BadaBhai" on the left, the "BADABHAI बड़ाभाई" lockup on the right — on **both** v1
+and v2, since the owner required the twins to match; it adds no slot and the QR/caption/link/
+meta/disclaimer are untouched. The day a stored resume
 must be re-renderable exactly as issued, that guarantee needs version-aware resolution in
 `registry.ts` — not a v2 file, which would not deliver it.
 
