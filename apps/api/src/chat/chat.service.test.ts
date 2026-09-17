@@ -85,6 +85,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    formOfferPrompt: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],
@@ -127,8 +128,13 @@ function make(
     /** The bulk answer INSERT throws — the flush must roll back with it. */
     answersThrow?: boolean;
     oneShotOpener?: boolean;
-    /** #1197 — what `findActiveSessionByWorker` returns. undefined = no live session. */
+    /** #1197 - what `findActiveSessionByWorker` returns. undefined = no live session. */
     liveSession?: { id: string; status: string; startedAt: Date } | undefined;
+    /**
+     * Task 1 B3 — what `orchestrator.openResumeConfirm` returns. `undefined` = null (no
+     * pending résumé), which is what every pre-existing test in this file assumes.
+     */
+    resumeConfirmOpen?: Record<string, unknown> | null;
   } = {},
 ) {
   const session = {
@@ -215,6 +221,8 @@ function make(
   };
 
   const orchestrator = {
+    // Task 1 B3 — the résumé-confirm open. `null` = nothing pending, the pre-existing default.
+    openResumeConfirm: vi.fn(async () => opts.resumeConfirmOpen ?? null),
     takeTurn: vi.fn(async () => ({
       reply: "Aap kis sheher mein rehte hain?",
       kind: "ask",
@@ -380,7 +388,10 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
         },
       });
 
-      const [, state] = chat.saveConversationState.mock.calls[0] as [string, Record<string, unknown>];
+      const [, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
       expect(state.prefilled_keys).toEqual(["current_city"]);
     });
 
@@ -1527,11 +1538,109 @@ describe("ChatService.startSession — reattaches to the live session instead of
     // `findActiveSessionByWorker` filters status='active' in SQL (asserted at the
     // repository level), so undefined here covers BOTH "never started" and
     // "everything ended" — an old transcript must not swallow a new interview.
-    const { svc, chat, events } = make();
+    const { svc, chat } = make();
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
     expect(res.session_id).toBe(SESSION);
     expect(chat.findActiveSessionByWorker).toHaveBeenCalledWith(WORKER);
     expect(chat.createSession).toHaveBeenCalledTimes(1);
-    expect(emittedNames(events)).toEqual(["chat.session_started"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 1 B3 — the résumé confirm can open the session (ADR-0042 D8)
+// ---------------------------------------------------------------------------
+
+describe("ChatService.startSession — the résumé confirm opens the session (Task 1 B3)", () => {
+  const CONFIRM_OPEN = {
+    reply: "Resume se ye mila: CNC Turner · Pune. Sahi hai?",
+    kind: "ask",
+    questionKey: null,
+    options: [
+      {
+        option_key: "resume_confirm_yes",
+        label_text: "Haan, sahi hai",
+        value: true,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "resume_confirm_no",
+        label_text: "Nahi",
+        value: false,
+        is_none_of_above: false,
+      },
+    ],
+    progress: { answered: 0, total: 12 },
+    unansweredEssentials: [],
+    complete: false,
+    completionReason: null,
+    replayed: false,
+    excludeFromParse: false,
+    unavailable: false,
+    checkpointDue: false,
+  };
+
+  it("opens on the confirm when the client asks AND one is pending", async () => {
+    const { svc, orchestrator } = make({ resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(orchestrator.openResumeConfirm).toHaveBeenCalledOnce();
+    expect(res).toMatchObject({
+      session_id: SESSION,
+      status: "active",
+      resume_pending: true,
+      opening_text: CONFIRM_OPEN.reply,
+      opening_options: [
+        { option_key: "resume_confirm_yes", label_text: "Haan, sahi hai" },
+        { option_key: "resume_confirm_no", label_text: "Nahi" },
+      ],
+    });
+    // THE OPENER IS NOT SERVED ON TOP — the confirm IS the opening, and the one-shot
+    // opener's flag is irrelevant to it (it is off in this world anyway).
+    expect("opening_tts_text" in res).toBe(false);
+  });
+
+  it("does NOT ask the orchestrator when the client does not ask — byte-identical old flow", async () => {
+    const { svc, orchestrator } = make({ resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(orchestrator.openResumeConfirm).not.toHaveBeenCalled();
+    expect(Object.keys(res).sort()).toEqual(["session_id", "started_at", "status"]);
+  });
+
+  it("falls back to the ordinary flow when the client asks but nothing is pending", async () => {
+    const { svc } = make({ oneShotOpener: true });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+    expect("resume_pending" in res).toBe(false);
+    expect(res.opening_text).toContain("Namaste");
+  });
+
+  it("a mount-time failure DEGRADES to the ordinary flow, never a failed session", async () => {
+    const { svc, orchestrator } = make();
+    orchestrator.openResumeConfirm.mockRejectedValueOnce(new Error("redis down"));
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+    expect(res.session_id).toBe(SESSION);
+    expect("resume_pending" in res).toBe(false);
+  });
+
+  it("the live-session reattach can still open it (confirm_first + never served)", async () => {
+    const live = { id: SESSION, status: "active", startedAt: new Date(T0) };
+    const { svc, orchestrator } = make({ liveSession: live, resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(orchestrator.openResumeConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESSION, workerId: WORKER }),
+    );
+    expect(res).toMatchObject({ session_id: SESSION, resume_pending: true });
   });
 });

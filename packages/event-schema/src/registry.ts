@@ -32,6 +32,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLocationRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (a) — the optional WhatsApp number was set, replaced or cleared.
+  // Payload is the resulting state only; the number itself never leaves the workers row.
+  "worker.whatsapp_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerWhatsappRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",
@@ -901,6 +908,27 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfileFormModeEnteredPayload,
+  },
+
+  // THE OFFER, NOT THE GATE (Task 1 recall path; owner ruling 2026-09-16). The router
+  // recognised a form-enabled trade and the worker was ASKED whether to take the form —
+  // eligibility is code's, the choice is the worker's. `form_mode_entered` above still
+  // counts accepts; offered minus entered minus declined is the abandonment the offer
+  // ruling created the ability to measure. Two ids, one closed-set kind, two counts. v1.
+  "profile.form_offered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferedPayload,
+  },
+
+  // The worker declined the offer — explicitly (`declined`) or with a reply the binary
+  // reader could not read (`unclear`; treated exactly like a decline at the interview
+  // level, counted apart so the reader's miss rate stays visible rather than hiding in
+  // the decline count). Ids and closed enums only. v1.
+  "profile.form_offer_declined": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferDeclinedPayload,
   },
 
   // One physical submission arrived twice and the second copy was served from the reply cache

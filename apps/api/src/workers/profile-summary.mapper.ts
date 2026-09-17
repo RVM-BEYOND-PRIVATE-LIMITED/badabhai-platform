@@ -1,4 +1,4 @@
-import type { ProfileStatus } from "@badabhai/types";
+import type { ProfileSource, ProfileStatus } from "@badabhai/types";
 import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
 import { resolveTradeContent } from "../resume/trade-content";
 import type { WorkerProfileSummary } from "./workers.dto";
@@ -22,6 +22,12 @@ import type { WorkerProfileSummary } from "./workers.dto";
  * labels below, narrowed defensively (never spread — the blob can carry other keys). */
 export interface ProfileSummarySource {
   profileStatus: ProfileStatus;
+  /**
+   * Task 1 — the road, `worker_profiles.source`. Optional because rows written
+   * before migration 0107 carry NULL; the mapper narrows defensively and the
+   * wire carries `null` (unknown), never a guessed road.
+   */
+  source?: ProfileSource | string | null;
   canonicalTradeId: string | null;
   canonicalRoleId: string | null;
   skills: unknown;
@@ -112,6 +118,15 @@ function readCity(locationPreference: unknown, workerCity?: string | null): stri
 function readAvailabilityStatus(availability: unknown): string | null {
   if (typeof availability === "string") return nonBlankStringOrNull(availability);
   return nonBlankStringOrNull(asObject(availability)?.status);
+}
+
+/**
+ * Task 1 — `worker_profiles.source` → the wire road. Closed vocabulary only:
+ * anything outside `form`/`chat` (including pre-0107 NULL) maps to `null`
+ * (unknown), never to a guessed road, and never throws.
+ */
+function readSource(source: unknown): ProfileSource | null {
+  return source === "form" || source === "chat" ? source : null;
 }
 
 /**
@@ -234,11 +249,7 @@ function computeStrength(p: ProfileSummarySource): number {
  * All four are PII-free by class: closed education tokens, and the occupational labels the
  * model wrote, which the ai-service's pseudonymize gate already certified on the way in.
  */
-type RawProfileStringKey =
-  | "education_level"
-  | "education_field"
-  | "role_label"
-  | "domain_label";
+type RawProfileStringKey = "education_level" | "education_field" | "role_label" | "domain_label";
 
 function readRawProfileString(rawProfile: unknown, key: RawProfileStringKey): string | null {
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
@@ -256,7 +267,8 @@ function computeMissingFields(p: ProfileSummarySource): string[] {
   if (!Array.isArray(p.machines) || p.machines.length === 0) missing.push("machines");
   if (asObject(p.experience)?.total_years == null) missing.push("experience");
   const salary = asObject(p.salaryExpectation);
-  if (salary == null || (salary.amount_min == null && salary.amount_max == null)) missing.push("salary");
+  if (salary == null || (salary.amount_min == null && salary.amount_max == null))
+    missing.push("salary");
   const cities = asObject(p.locationPreference)?.preferred_cities;
   if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
   const status = readAvailabilityStatus(p.availability);
@@ -268,12 +280,23 @@ function computeMissingFields(p: ProfileSummarySource): string[] {
 /** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
 const NO_PROFILE: WorkerProfileSummary = {
   profile_status: "none",
+  source: null,
   confirmed_at: null,
   trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
   city: null,
   strength: 0,
   strength_max: STRENGTH_MAX,
-  missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
+  missing_fields: [
+    "role",
+    "trade",
+    "skills",
+    "machines",
+    "experience",
+    "salary",
+    "location",
+    "availability",
+    "photo",
+  ],
   skills: [],
   machines: [],
   experience_years: null,
@@ -293,6 +316,7 @@ export function toProfileSummary(
 
   return {
     profile_status: profile.profileStatus,
+    source: readSource(profile.source),
     confirmed_at: toIsoOrNull(profile.confirmedAt),
     trade: {
       canonical_trade_id: canonicalTradeId,

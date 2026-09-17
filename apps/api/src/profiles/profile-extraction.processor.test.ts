@@ -78,6 +78,12 @@ function make(
     conversationState?: unknown;
     /** The session read fails; the processor must degrade to the legacy path. */
     sessionThrows?: boolean;
+    /**
+     * Task 1 — the worker's latest résumé import road. Omit entirely = no import
+     * row (the common chat case). `{ route: "form" }` reproduces the no-session
+     * upload-to-form road; `{ route: "chat" }` the upload-to-chat road.
+     */
+    resumeImport?: { route: "form" | "chat" | null };
     /** What `/profile/parse` returned. `null` = unreachable/blocked/mis-shaped. */
     parsed?: unknown;
     /**
@@ -216,6 +222,17 @@ function make(
   const workerAttributes = {
     upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
   };
+  // Task 1 — the résumé-import road record. `undefined` = the worker never
+  // uploaded (the common chat case); a row reproduces the upload roads.
+  const resumeImports = {
+    findLatestForWorker: vi
+      .fn()
+      .mockResolvedValue(
+        "resumeImport" in opts && opts.resumeImport !== undefined
+          ? { route: opts.resumeImport.route, formKind: null }
+          : undefined,
+      ),
+  };
   const traces = fakeAiTraceRecorder();
   const proc = new ProfileExtractionProcessor(
     profiles as never,
@@ -229,6 +246,7 @@ function make(
     matchSkills as never,
     skills as never,
     workerAttributes as never,
+    resumeImports as never,
     // The REAL recorder over the fake events service, not a stub — the emit assertions below
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
     // one of them pass without an event ever being built (#738).
@@ -252,6 +270,7 @@ function make(
     matchSkills,
     skills,
     workerAttributes,
+    resumeImports,
     traces,
   };
 }
@@ -281,6 +300,73 @@ describe("ProfileExtractionProcessor", () => {
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).not.toContain("ai.cost_recorded");
+  });
+
+  describe("profile source — Task 1 flow separation", () => {
+    const createdSource = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+      (profiles.create.mock.calls[0]![0] as Record<string, unknown>).source;
+
+    it("a handover session (form_kind) stamps source:'form'", async () => {
+      const { proc, profiles } = make({
+        conversationState: { form_kind: "cnc_turner", answer_map: [] },
+      });
+      await proc.process(makeJob());
+      expect(profiles.create).toHaveBeenCalledOnce();
+      expect(createdSource(profiles)).toBe("form");
+    });
+
+    it("a résumé routed to a form stamps source:'form' with no session evidence", async () => {
+      const { proc, profiles } = make({
+        conversationState: { answer_map: [] },
+        resumeImport: { route: "form" },
+      });
+      await proc.process(makeJob());
+      expect(createdSource(profiles)).toBe("form");
+    });
+
+    it("an ordinary chat interview stamps source:'chat'", async () => {
+      const { proc, profiles } = make({
+        conversationState: { answer_map: [] },
+        resumeImport: { route: "chat" },
+      });
+      await proc.process(makeJob());
+      expect(createdSource(profiles)).toBe("chat");
+    });
+
+    it("no session and no import stamps source:'chat' (the voice-form path)", async () => {
+      const { proc, profiles } = make();
+      // makeJob() returns `as never`, which cannot be spread — build the
+      // session-less job inline in the same shape.
+      const job = {
+        data: { ...JOB, sessionId: null },
+        attemptsMade: 0,
+        opts: { attempts: 3 },
+      } as never;
+      await proc.process(job);
+      expect(createdSource(profiles)).toBe("chat");
+    });
+
+    it("an unreadable form_kind is not a road — stamps source:'chat'", async () => {
+      const { proc, profiles } = make({
+        conversationState: { form_kind: "not_a_trade", answer_map: [] },
+      });
+      await proc.process(makeJob());
+      expect(createdSource(profiles)).toBe("chat");
+    });
+
+    it("an unreadable session still consults the import, and never fails the job", async () => {
+      const { proc, profiles } = make({ sessionThrows: true, resumeImport: { route: "form" } });
+      const res = await proc.process(makeJob());
+      expect(res).toEqual({ profile_id: PROFILE });
+      expect(createdSource(profiles)).toBe("form");
+    });
+
+    it("an unreadable session with no import degrades to source:'chat', job succeeds", async () => {
+      const { proc, profiles } = make({ sessionThrows: true });
+      const res = await proc.process(makeJob());
+      expect(res).toEqual({ profile_id: PROFILE });
+      expect(createdSource(profiles)).toBe("chat");
+    });
   });
 
   it("issue #419: PERSISTS the rich WorkerProfileDraft instead of discarding it", async () => {
@@ -2325,19 +2411,18 @@ describe("OIE O2 — the canonical scope on the legacy extract branch", () => {
     expect(Object.keys(sent).sort()).toEqual(["messages", "transcript", "worker_ref"]);
   });
 
-  it.each([
-    "unmatched_below_floor",
-    "unmatched_llm_declined",
-    "unmatched_degraded",
-  ])("refuses to scope on an %s pin", async (match_status) => {
-    // A pin OBJECT is not a confirmed trade. Five of the seven statuses are `unmatched_*` and
-    // `OccupationPinSchema` DEFAULTS the field to one of them, so "occupation is present" would
-    // have scoped retrieval to a domain nobody established.
-    const { proc, ai, skills } = make({ conversationState: pinnedNoAnswers({ match_status }) });
-    await proc.process(makeJob());
-    expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
-    expect(skills.isSelectableDomain).not.toHaveBeenCalled(); // refused before the query
-  });
+  it.each(["unmatched_below_floor", "unmatched_llm_declined", "unmatched_degraded"])(
+    "refuses to scope on an %s pin",
+    async (match_status) => {
+      // A pin OBJECT is not a confirmed trade. Five of the seven statuses are `unmatched_*` and
+      // `OccupationPinSchema` DEFAULTS the field to one of them, so "occupation is present" would
+      // have scoped retrieval to a domain nobody established.
+      const { proc, ai, skills } = make({ conversationState: pinnedNoAnswers({ match_status }) });
+      await proc.process(makeJob());
+      expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
+      expect(skills.isSelectableDomain).not.toHaveBeenCalled(); // refused before the query
+    },
+  );
 
   it("falls back to the LEGACY scope when the domain is no longer selectable", async () => {
     // The catalogue moves between the interview and this job. Scoping to a deprecated domain

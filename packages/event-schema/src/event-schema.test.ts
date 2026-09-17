@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 179 event names (175 prior + the four résumé-import steps)", () => {
-    expect(EVENT_NAMES).toHaveLength(179);
+  it("exposes all 182 event names (179 prior + the two trade-form offer steps + Layer A's whatsapp)", () => {
+    expect(EVENT_NAMES).toHaveLength(182);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4365,6 +4365,50 @@ describe("worker.location_recorded (#1428)", () => {
   });
 });
 
+describe("worker.whatsapp_recorded (Layer A (a) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.whatsapp_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, has_whatsapp: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: false })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the number — or any derivative of it", () => {
+    // The number is the whole feature and it never leaves `workers.whatsapp_enc`. `.strict()` is
+    // what makes that structural: a future writer cannot "helpfully" attach the plaintext, a
+    // masked tail, or a hash. The base case is asserted valid first, so a rejection here is the
+    // extra key and not a malformed envelope.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { whatsapp: "+919876543210" },
+      { whatsapp_e164: "+919876543210" },
+      { last4: "3210" },
+      { phone_hash: "deadbeef" },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the boolean — 'set or cleared' may not be silently omitted", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: "yes" })).success).toBe(false);
+  });
+});
+
 describe("résumé import (ADR-0041) — the funnel carries ids, enums and counts, never the document", () => {
   const imported = (eventName: string, payload: Record<string, unknown>) => ({
     event_id: UUID_A,
@@ -4438,9 +4482,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
       { extracted_text: "CNC Turner, 5 years" },
       { signed_url: "https://example.invalid/x" },
     ]) {
-      expect(validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success).toBe(
-        false,
-      );
+      expect(
+        validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success,
+      ).toBe(false);
     }
   });
 
@@ -4449,7 +4493,8 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // it as an enum means that even if that sourcing regressed, an attacker-chosen content-type
     // string still could not ride onto the spine as untrusted text in analytics.
     expect(
-      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" })).success,
+      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(
@@ -4495,8 +4540,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // be representable without inventing a kind. The pairing itself is enforced in the database
     // by `wri_form_kind_chk`; the event only has to be able to express both.
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }))
-        .success,
+      validateEvent(
+        imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }),
+      ).success,
     ).toBe(true);
     expect(
       validateEvent(imported("profile.resume_parsed", { ...parsed, form_kind: "not_a_trade" }))
@@ -4506,7 +4552,8 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
 
   it("REFUSES negative counts", () => {
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 })).success,
+      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,

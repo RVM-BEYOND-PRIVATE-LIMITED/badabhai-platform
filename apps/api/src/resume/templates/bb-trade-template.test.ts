@@ -23,7 +23,10 @@ import { describe, expect, it } from "vitest";
 import { getResumeTemplate, RESUME_TEMPLATES } from "./registry";
 
 const TEMPLATE_ID = "bb_trade";
-const html = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+// THE LIVE VERSION, resolved through the registry rather than pinned to a filename: the
+// structural invariants below must hold for whatever version the registry serves, and v1 is
+// frozen on disk (asserted separately below) precisely so it no longer needs to be re-tested.
+const html = readFileSync(join(__dirname, getResumeTemplate(TEMPLATE_ID).file), "utf8");
 
 /**
  * The file with its comments removed — BOTH syntaxes.
@@ -37,11 +40,12 @@ const html = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
  */
 const body = html.replace(/<!--[^]*?-->/g, "").replace(/\/\*[^]*?\*\//g, "");
 
-describe("bb_trade.v1 — the locked trade sheet", () => {
+describe("bb_trade — the locked trade sheet (current version)", () => {
   it("is registered, and is NOT the fallback", () => {
     const t = getResumeTemplate(TEMPLATE_ID);
     expect(t.id).toBe(TEMPLATE_ID);
-    expect(t.version).toBe(1);
+    // v2 = v1 + the worker-copy-only WhatsApp line (ADR-0042 D9 / Layer A (a)).
+    expect(t.version).toBe(2);
     expect(t.fallback ?? false).toBe(false);
     // Exactly one fallback across the whole registry — `getResumeTemplate` returns `find(fallback)!`
     // and a second one would make which layout an unknown id resolves to depend on array order.
@@ -218,5 +222,25 @@ describe("bb_trade.v1 — the locked trade sheet", () => {
     // squeeze rather than the mapper deciding what to drop. Caps belong in resume-render-input.ts.
     expect(html).not.toMatch(/transform:\s*scale/);
     expect(html).not.toMatch(/font-size:\s*[\d.]+v[wh]/);
+  });
+
+  it("v2 adds exactly the WhatsApp line, and it collapses when absent (Layer A (a))", () => {
+    // THE SLOT IS `.wa` WITH `.wa:empty` — the mapper composes "WhatsApp: …" as one string, so
+    // an absent number leaves the element empty and the rule removes it. A label written into
+    // the template would survive an absent number (`.wa:empty` can never match), which is why
+    // this test pins BOTH halves rather than just the token.
+    expect(body).toContain('<div class="wa">{{whatsapp_line}}</div>');
+    expect(body).toMatch(/\.wa:empty\s*\{\s*display:\s*none/);
+    // The WhatsApp slot is the ONE addition; the phone slot it sits beside is untouched.
+    expect(body).toContain('<div class="phone">{{phone}}</div>');
+  });
+
+  it("keeps v1 frozen on disk — a shipped version is immutable", () => {
+    // v1 still renders for every PDF already issued under it (the registry's own contract), so
+    // it must remain byte-identical at the path old rows resolve to. If this fails, someone
+    // edited history rather than adding v2.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    expect(v1).toContain('id: "bb_trade", version: 1');
+    expect(v1).not.toContain("whatsapp_line");
   });
 });

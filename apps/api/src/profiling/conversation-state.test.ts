@@ -140,6 +140,10 @@ const FULL: ProfilingEnvelope = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: "cnc_turner",
+  // NON-DEFAULT, like every field here — and a DIFFERENT kind than `formKind` on purpose:
+  // a narrower that confused the two fields (or dropped this one and rebuilt the default)
+  // cannot pass. Task 1 recall path; ruling 2026-09-16.
+  formOfferPrompt: { kind: "welder", state: "pending" },
   // NON-DEFAULT, like every field here: `false` is what a `narrow` that dropped it would rebuild.
   identifyTypeRequested: true,
   // NON-DEFAULT, like every field here: 0 is what a `narrow` that dropped it would rebuild (#1506

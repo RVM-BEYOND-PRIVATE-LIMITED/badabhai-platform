@@ -89,6 +89,22 @@ export const WorkerLocationRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (a) — the worker recorded, replaced or cleared an optional WhatsApp
+// number (PATCH /workers/me/whatsapp).
+//
+// PII-FREE BY CONSTRUCTION. The number is AES-256-GCM ciphertext in
+// `workers.whatsapp_enc`; it never appears on the spine, in a log line, or in an analytics
+// read. This event carries the RESULTING STATE, not the value — the same "counts, never the
+// answers" rule `WorkerLocationRecordedPayload` follows, and for the same reason: a number
+// plus a worker id is identity.
+export const WorkerWhatsappRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** TRUE when a number is now on file; FALSE when the worker cleared it. */
+    has_whatsapp: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
@@ -652,6 +668,11 @@ export const VoiceNoteTranscriptionFailedPayload = z.object({
 // profile.*
 // ---------------------------------------------------------------------------
 const profileStatus = z.enum(["draft", "extracting", "extracted", "confirmed"]);
+// Task 1 — the road that produced the profile (`worker_profiles.source`).
+// Closed vocabulary, shared by the profile/resume payloads below. Nullable
+// with a null default: rows written before migration 0107 carry no road, and
+// an additive field must never break an old emitter or reader.
+const profileSource = z.enum(["form", "chat"]);
 
 export const ProfileExtractionRequestedPayload = z.object({
   worker_id: uuidSchema,
@@ -671,6 +692,7 @@ export const ProfileConfirmedPayload = z.object({
   worker_id: uuidSchema,
   profile_id: uuidSchema,
   confirmed_at: isoDateTimeSchema,
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** Terminal failure of an async (BullMQ) extraction job — keeps failures in the stream. */
@@ -790,6 +812,7 @@ export const ResumeGeneratedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   format: z.enum(["text", "json"]).default("text"),
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
@@ -3658,6 +3681,54 @@ export const ProfileFormModeEnteredPayload = z
 export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
 
 /**
+ * THE TRADE-FORM OFFER WENT ON SCREEN — the eligibility half of the handover funnel
+ * (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * WHY THIS IS NOT `form_mode_entered`. That event says a worker was SENT to a form, and
+ * it still says exactly that — the offer ruling did not change it. This one says the
+ * router RECOGNISED a form-enabled trade and the worker was ASKED whether to take it.
+ * Without it the decline rate the ruling exists to produce is uncomputable: offered minus
+ * entered (accepted) minus declined = workers who abandoned mid-offer.
+ *
+ * PII-FREE: two ids, one closed-set form kind, two counts. NO LABELS. `.strict()`.
+ */
+export const ProfileFormOfferedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model asked before the offer. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormOfferedPayload = z.infer<typeof ProfileFormOfferedPayload>;
+
+/**
+ * THE WORKER DECLINED THE TRADE-FORM OFFER (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * `reply` IS TWO-VALUED ON PURPOSE AND THE SPLIT IS THE MEASUREMENT. `declined` is an
+ * explicit no. `unclear` is a reply the binary reader could not read — treated exactly
+ * like a decline at the interview level (settled, never re-served) but counted apart, so
+ * a growing `unclear` share reads as the parser needing teaching rather than as workers
+ * changing their minds.
+ *
+ * PII-FREE: two ids, one closed-set form kind, one closed-set reply. `.strict()`.
+ */
+export const ProfileFormOfferDeclinedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    reply: z.enum(["declined", "unclear"]),
+  })
+  .strict();
+export type ProfileFormOfferDeclinedPayload = z.infer<typeof ProfileFormOfferDeclinedPayload>;
+
+/**
  * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
  *
  * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══
@@ -3808,9 +3879,7 @@ export const ProfileResumePrefillAppliedPayload = z
     accepted: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileResumePrefillAppliedPayload = z.infer<
-  typeof ProfileResumePrefillAppliedPayload
->;
+export type ProfileResumePrefillAppliedPayload = z.infer<typeof ProfileResumePrefillAppliedPayload>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache

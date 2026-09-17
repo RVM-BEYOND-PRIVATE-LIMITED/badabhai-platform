@@ -92,6 +92,7 @@ contract above:
 | slot | kind | notes |
 | ---- | ---- | ----- |
 | `{{phone}}`, `{{name_devanagari}}`, `{{trust_badge}}` | scalar | badge collapses when absent; no tier is hardcoded |
+| `{{whatsapp_line}}` | scalar | **v2.** "WhatsApp: +91 98765 43210" under the location line, **worker copy only** (ADR-0042 D9 / Layer A (a)): composed by `composeWhatsappLine` from `workers.whatsapp_enc` (decrypted by the render worker) and forced null on the employer audience by the mapper. Collapses when no number is on file. |
 | `{{location_line}}` | scalar | "Faridabad, Haryana" under the name, 9pt (owner ruling 2026-09-08). Composed by `buildLocationLine` from `workers.current_city` / `current_state` — the worker's own registration answer, **not** the snapshot's `{{location}}`. Collapses when he gave neither. |
 | `{{headline_line}}`, `{{subhead_line}}` | scalar | the two-line Verdict Line, composed by the mapper |
 | `{{cap_section_title}}` | **attribute** | per-trade heading, read back via `attr(data-title)` |

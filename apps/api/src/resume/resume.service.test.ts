@@ -389,6 +389,24 @@ describe("ResumeService — TD5 rate-limit, events, and render enqueue", () => {
     expect(call.event_name).toBe("resume.generated");
     expect(call.payload.version).toBe(1);
     expect(call.payload).not.toHaveProperty("previous_version");
+    // Task 1 — the mocked row carries no road: unknown (null), never a guess.
+    expect(call.payload.profile_source).toBeNull();
+  });
+
+  it("resume.generated carries the road of the profile it renders", async () => {
+    const { svc, profiles } = setup(null);
+    profiles.findById.mockResolvedValueOnce({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "confirmed",
+      rawProfile: {},
+      source: "form",
+    });
+    const events = lastEvents(svc);
+    await svc.generate(DTO, CTX);
+    const call = events.emit.mock.calls[0]![0];
+    expect(call.event_name).toBe("resume.generated");
+    expect(call.payload.profile_source).toBe("form");
   });
 
   it("emits resume.regenerated with previous_version on an explicit regenerate (version > 1)", async () => {

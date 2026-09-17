@@ -89,6 +89,22 @@ export const workerResumeImports = pgTable(
     route: text("route").$type<ResumeImportRouteName>(),
     /** A `TradeFormKind`. Set only when {@link route} is `form` — see `wri_form_kind_chk`. */
     formKind: text("form_kind"),
+    // ── Task 1 B2: the model's closed-list judgment ──────────────────────────
+    //
+    // Which of the 21 declared trades (`TRADE_FORM_KINDS_ALL`) the parse judged
+    // this résumé — or NULL (no judgment, none fits, or parsed before the
+    // classification existed). RECORDED, NOT ACTED ON: the route still comes
+    // from the deterministic router alone; this column is the observability the
+    // recall path will read.
+    //
+    // Any of the 21, on EITHER route — including chat, where "judged none" is
+    // the common case. Hence a plain membership CHECK, not a biconditional
+    // with `route` like `form_kind` carries: constraining it to one road would
+    // make the chat-road judgments it exists to count unwritable.
+    //
+    // NULLABLE with no backfill: NULL honestly means "parsed before the
+    // classification existed", exactly like the sibling nullable columns.
+    associationKind: text("association_kind"),
 
     /** AES-256-GCM token over the staged suggestion payload. NEVER read without PiiCrypto. */
     suggestionsEnc: text("suggestions_enc"),
@@ -115,6 +131,14 @@ export const workerResumeImports = pgTable(
       sql`${t.extractionMethod} IS NULL OR ${t.extractionMethod} IN ('pdf_text', 'docx', 'ocr')`,
     ),
     check("wri_route_chk", sql`${t.route} IS NULL OR ${t.route} IN ('form', 'chat')`),
+    // Task 1 B2 — the closed 21-kind vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // out like every other CHECK here rather than referenced: a migration is a
+    // frozen record, and a future 22nd kind widens the registry AND this list in
+    // the same change (the settle test pins the SQL it compiles).
+    check(
+      "wri_association_kind_chk",
+      sql`${t.associationKind} IS NULL OR ${t.associationKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+    ),
     check("wri_byte_size_chk", sql`${t.byteSize} > 0`),
     check("wri_storage_key_present_chk", sql`length(btrim(${t.storageKey})) > 0`),
     check("wri_page_count_chk", sql`${t.pageCount} IS NULL OR ${t.pageCount} > 0`),

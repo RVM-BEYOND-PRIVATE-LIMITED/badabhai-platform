@@ -68,6 +68,11 @@ import {
   AvailabilitySchema,
   WorkerProfileDraftSchema,
 } from "./index";
+import {
+  ResumeParseInputSchema,
+  ResumeParseOutputSchema,
+  TradeAssociationSchema,
+} from "./resume-import";
 
 describe("DraftProfileSchema", () => {
   it("fills sensible defaults from an empty object", () => {
@@ -1006,5 +1011,27 @@ describe("availability — the model's vocabulary vs the canonical enum (product
     expect(AvailabilitySchema.parse({ status: "immediate" }).status).toBe("immediate");
     // The day count is where the granularity lives, and it is untouched.
     expect(AvailabilitySchema.parse({ status: "15_days", notice_period_days: 15 }).notice_period_days).toBe(15);
+  });
+});
+
+describe("ResumeParse trade association (Task 1 B2 — contracts.py parity)", () => {
+  it("trade_kinds defaults to [] — old callers send nothing and nothing is classified", () => {
+    const input = ResumeParseInputSchema.parse({
+      worker_ref: "wr_1",
+      storage_key: "resume-uploads/w/x.pdf",
+      mime: "application/pdf",
+    });
+    expect(input.trade_kinds).toEqual([]);
+  });
+
+  it("trade_association defaults to null — degraded/older far sides judge nothing", () => {
+    expect(ResumeParseOutputSchema.parse({}).trade_association).toBeNull();
+  });
+
+  it("kind stays an open string here — the second wall narrows it, not the contract", () => {
+    // Mirrors extraction_method's posture exactly: transport, not decision.
+    expect(TradeAssociationSchema.parse({ kind: "cnc_turner" }).kind).toBe("cnc_turner");
+    expect(TradeAssociationSchema.parse({}).kind).toBeNull();
+    expect(TradeAssociationSchema.parse({ kind: null }).kind).toBeNull();
   });
 });

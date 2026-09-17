@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ProfileStatus } from "@badabhai/types";
+import { e164PhoneSchema } from "@badabhai/validators";
+import type { ProfileSource, ProfileStatus } from "@badabhai/types";
 
 /** True if the string contains any ASCII control character (C0 or DEL). */
 function hasControlChars(s: string): boolean {
@@ -111,6 +112,38 @@ export const ConfirmPhotoSchema = z
   })
   .strict();
 export type ConfirmPhotoDto = z.infer<typeof ConfirmPhotoSchema>;
+
+/**
+ * ADR-0042 D9 / Layer A (a) — set, replace or clear the worker's optional WhatsApp number
+ * (PUT /workers/me/whatsapp).
+ *
+ * `null` CLEARS. Unlike the preferences page there is no three-state subtlety: this PUT owns
+ * the one value, and `null` and "unset" mean the same thing for a nullable column.
+ *
+ * THE NUMBER MUST BE E.164 (`+919876543210`) — the shared `e164PhoneSchema`, so the app
+ * normalises and the server never guesses a country code. A guessed prefix stores a wrong
+ * number on a résumé, which is worse than refusing the write. The value is PII: encrypted at
+ * rest by the service, never echoed in the response, never logged, never evented.
+ */
+export const SetMyWhatsappSchema = z
+  .object({
+    whatsapp: e164PhoneSchema.nullable(),
+  })
+  .strict();
+export type SetMyWhatsappDto = z.infer<typeof SetMyWhatsappSchema>;
+
+/**
+ * Response of `GET /workers/me/whatsapp` — the worker's OWN number, decrypted.
+ *
+ * `whatsapp` is null when nothing is on file OR when the stored token cannot be decrypted
+ * (a retired key, a tampered row); `has_whatsapp` tells the two apart, so a client never
+ * offers to "replace" a number that merely failed to read. The value never enters an event,
+ * a log line or an AI boundary — this is a worker-self read.
+ */
+export interface MyWhatsappResponse {
+  whatsapp: string | null;
+  has_whatsapp: boolean;
+}
 
 /**
  * Response of `GET /workers/me/resume-fields` — the worker-editable "safe fields"
@@ -233,4 +266,13 @@ export interface WorkerProfileSummary {
    */
   education_level: string | null;
   education_field: string | null;
+  /**
+   * Task 1 — which road produced this profile: `form` (trade-form road) or
+   * `chat` (LLM-chat road). Written deterministically at extraction, read by
+   * navigation and profile/resume screens so the two roads stop sharing one
+   * flow. `null` when unknown (no profile row yet, or a pre-0107 row) —
+   * clients must treat `null` as unknown, never as a road. Additive
+   * (backward-compatible): older clients ignore it.
+   */
+  source: ProfileSource | null;
 }
