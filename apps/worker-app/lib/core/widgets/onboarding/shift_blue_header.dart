@@ -50,7 +50,7 @@ bool chromeCrowdsViewport(BuildContext context) {
 }
 
 /// The Shift Blue header (spec §2.1): a full-bleed navy band carrying the
-/// status-bar inset; a top row with the back arrow and the BADABHAI badge; an
+/// status-bar inset; a top row with the back arrow and the BadaBhai lockup; an
 /// optional uppercase STEP badge; then the white Anek title and an optional
 /// muted subtitle.
 ///
@@ -69,8 +69,10 @@ bool chromeCrowdsViewport(BuildContext context) {
 ///    scarce thing — see [autoCompact].
 ///
 /// [OnboardingVariant.formFlow] draws the form-flow mockups' header: a 20dp
-/// gutter, a lower top row, a more spaced slate STEP line, a deeper bottom and
-/// the form-flow [BrandBadge]. Every other screen keeps the standard drawing.
+/// gutter, a lower top row, a more spaced slate STEP line and a deeper bottom.
+/// The brand lockup ([BrandBadge]) is the SAME on every variant — the owner
+/// removed its pill and made it one global drawing. Every other screen keeps
+/// the standard header drawing.
 class ShiftBlueHeader extends StatelessWidget {
   const ShiftBlueHeader({
     super.key,
@@ -182,7 +184,7 @@ class ShiftBlueHeader extends StatelessWidget {
                 _BackButton(onBack: onBack!)
               else
                 const SizedBox(width: 24),
-              _trailingSlot(form),
+              _trailingSlot(),
             ],
           ),
         ),
@@ -245,12 +247,12 @@ class ShiftBlueHeader extends StatelessWidget {
     );
   }
 
-  Widget _trailingSlot(bool form) {
+  Widget _trailingSlot() {
     if (actions.isNotEmpty) {
       return Row(mainAxisSize: MainAxisSize.min, children: actions);
     }
     if (trailing != null) return trailing!;
-    if (showBrandBadge) return BrandBadge(variant: variant);
+    if (showBrandBadge) return const BrandBadge();
     return const SizedBox.shrink();
   }
 

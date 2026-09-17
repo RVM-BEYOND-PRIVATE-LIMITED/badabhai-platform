@@ -1,44 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bada_bhai_mark.dart';
 import 'package:badabhai_worker_app/core/widgets/onboarding/brand_badge.dart';
 
 import '../../../support/kit_matrix.dart';
 
 void main() {
-  group('BrandBadge — spec §2.1', () {
-    testWidgets('is a 16-radius pill padded 10/4 with a 13dp glyph', (
+  group('BrandBadge — the global no-pill lockup', () {
+    testWidgets('draws the two-figure mark and no pill, border or wash', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         kitTestApp(const Scaffold(body: Center(child: BrandBadge()))),
       );
 
-      final Container pill = tester.widget<Container>(
-        find
-            .descendant(
-              of: find.byType(BrandBadge),
-              matching: find.byType(Container),
-            )
-            .first,
-      );
-      expect(
-        pill.padding,
-        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      );
+      // The global vector mark (one white man + one yellow man), never the old
+      // Material `people_alt` glyph.
+      expect(find.byType(BadaBhaiMark), findsOneWidget);
 
-      final BoxDecoration decoration = pill.decoration! as BoxDecoration;
+      // NO PILL: the owner removed the border and the 12%-white background
+      // permanently, so there is no decorated Container left in the lockup.
       expect(
-        decoration.borderRadius,
-        BorderRadius.circular(OnboardingRadii.brandBadge),
+        find.descendant(
+          of: find.byType(BrandBadge),
+          matching: find.byType(Container),
+        ),
+        findsNothing,
       );
-
-      final Icon glyph = tester.widget<Icon>(
-        find.byIcon(Icons.people_alt_rounded),
-      );
-      expect(glyph.size, 13);
-      expect(glyph.color, OnboardingColors.safetyYellow);
     });
 
     testWidgets('spells the wordmark as one word, two capitals', (
@@ -47,7 +36,10 @@ void main() {
       await tester.pumpWidget(
         kitTestApp(const Scaffold(body: Center(child: BrandBadge()))),
       );
-      expect(find.text('BADABHAI'), findsOneWidget);
+
+      expect(find.text('BadaBhai'), findsOneWidget);
+      // The old ALL-CAPS wordmark is gone for good.
+      expect(find.text('BADABHAI'), findsNothing);
     });
   });
 }
