@@ -1348,3 +1348,35 @@ describe("the masthead location line reaches the sheet", () => {
     expect(input.locationLine).toBe("Faridabad, Haryana");
   });
 });
+
+/**
+ * Layer A (a) / ADR-0042 D9 — the WhatsApp line is a WORKER-COPY-ONLY slot.
+ *
+ * THE GATE IS THE TEST: the employer copy receives null even when the context carries a
+ * number, because the audience switch lives in the mapper rather than at the call site.
+ */
+describe("the WhatsApp line is a worker-copy slot (Layer A (a))", () => {
+  const build = (audience: "worker" | "employer", whatsapp: string | null) =>
+    buildResumeRenderInput(
+      { role_label: "CNC Turner" },
+      "Rohit Kumar",
+      "bb_trade",
+      null,
+      false,
+      audience,
+      { packId: null, attributes: {}, whatsapp },
+    );
+
+  it("prints on the worker's own copy, formatted with the phone helper", () => {
+    expect(build("worker", "+919876543210").whatsappLine).toBe("WhatsApp: +91 98765 43210");
+  });
+
+  it("never reaches the employer copy, even when the context carries one", () => {
+    expect(build("employer", "+919876543210").whatsappLine).toBeNull();
+  });
+
+  it("collapses when no number is on file, on both audiences", () => {
+    expect(build("worker", null).whatsappLine).toBeNull();
+    expect(build("employer", null).whatsappLine).toBeNull();
+  });
+});

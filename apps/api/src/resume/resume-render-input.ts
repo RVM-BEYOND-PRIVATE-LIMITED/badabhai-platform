@@ -24,6 +24,7 @@ import {
   buildQualificationRows,
   buildLocationLine,
   buildVerdictLine,
+  composeWhatsappLine,
   formatSalaryBand,
 } from "./resume-sheet-rows";
 
@@ -98,6 +99,14 @@ export interface TradeSheetContext {
    * payer copy is only ever produced after an unlock. Never logged, never echoed into an error.
    */
   readonly phone?: string | null;
+  /**
+   * The worker's optional WhatsApp number, DECRYPTED BY THE CALLER — same contract as
+   * {@link phone} and the same degrade: a rotated token costs the line, never the PDF.
+   *
+   * WORKER COPY ONLY (ADR-0042 D9 / Layer A (a)). The audience gate lives in this function,
+   * not at the call site, so an employer-facing disclosure cannot print it.
+   */
+  readonly whatsapp?: string | null;
   /**
    * The name in Devanagari. AUDIENCE-GATED INSIDE THIS FUNCTION, not at the call site.
    *
@@ -275,6 +284,7 @@ type TradeCapabilitySlots = Pick<
   | "employments"
   | "employmentsMore"
   | "phone"
+  | "whatsappLine"
   | "nameDevanagari"
   | "locationLine"
   | "trustBadge"
@@ -484,6 +494,10 @@ function buildUndegraded(
     // FORMATTED HERE, INSIDE THE MAPPER, so no call site can print an unformatted number and
     // no fixture can show a grouping the product does not produce (R10 §2.4).
     phone: formatWorkerPhone(tradeSheet?.phone),
+    // ADR-0042 D9 / Layer A (a) — WORKER COPY ONLY, gated here exactly like `nameDevanagari`
+    // below: a payer-facing disclosure must never carry the worker's second number, and the
+    // rule lives in the mapper rather than at the call site so it cannot be forgotten.
+    whatsappLine: audience === "worker" ? composeWhatsappLine(tradeSheet?.whatsapp ?? null) : null,
     // §11 #17 — LATIN ONLY ON THE EMPLOYER ARTIFACT. Structural, like the photo: a caller
     // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
     // lives here rather than at the call site.

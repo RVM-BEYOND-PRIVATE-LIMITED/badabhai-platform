@@ -32,6 +32,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLocationRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (a) — the optional WhatsApp number was set, replaced or cleared.
+  // Payload is the resulting state only; the number itself never leaves the workers row.
+  "worker.whatsapp_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerWhatsappRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",

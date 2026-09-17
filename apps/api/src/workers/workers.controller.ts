@@ -40,6 +40,9 @@ import {
   type UpdateResumePrefsDto,
   ConfirmPhotoSchema,
   type ConfirmPhotoDto,
+  SetMyWhatsappSchema,
+  type SetMyWhatsappDto,
+  type MyWhatsappResponse,
   type WorkerProfileSummary,
   type WorkerResumeFields,
   type WorkerProfileBundle,
@@ -128,6 +131,35 @@ export class WorkersController {
     @CurrentWorker() worker: AuthenticatedWorker,
   ): Promise<{ url: string; expires_in: number }> {
     return this.workersService.getPhotoUrl(worker.id);
+  }
+
+  /**
+   * ADR-0042 D9 / Layer A (a) — the worker's optional WhatsApp number, OWN SESSION ONLY.
+   *
+   * GET returns the caller's own number (decrypted); PUT sets, replaces or clears it
+   * (`null` clears). The number is PII: encrypted at rest, never in an event or log, and it
+   * appears on the worker's own résumé copy only — `ResumeAudience` gates the employer copy.
+   * `no-store` on the GET because the response is the number itself.
+   *
+   * ROUTE ORDER: declared BEFORE the `:id/profile` param route so the literal "me" segment
+   * is never captured as an `:id` (Nest matches in declaration order).
+   */
+  @Get("me/whatsapp")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyWhatsapp(@CurrentWorker() worker: AuthenticatedWorker): Promise<MyWhatsappResponse> {
+    return this.workersService.getWhatsapp(worker.id);
+  }
+
+  @Put("me/whatsapp")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async setMyWhatsapp(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(SetMyWhatsappSchema)) dto: SetMyWhatsappDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_whatsapp: boolean }> {
+    return this.workersService.setWhatsapp(worker.id, dto, ctx);
   }
 
   /**
