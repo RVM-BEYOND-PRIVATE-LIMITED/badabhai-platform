@@ -138,9 +138,6 @@ class FormFlowColors {
   /// the edge, fading out over [FormFlowLayout.headerShadowExtent]).
   static const Color headerShadow = Color(0x0F000000);
 
-  /// The BADABHAI pill's barely-visible hairline (~9% white).
-  static const Color brandBadgeBorder = Color(0x17FFFFFF);
-
   /// The progress strip's bottom hairline.
   static const Color stripBorder = Color(0xFFEAEDF2);
 
@@ -191,12 +188,6 @@ class FormFlowLayout {
   static const double headerRowToStepGap = 14;
   static const double headerStepLetterSpacing = 1.5;
   static const double headerShadowExtent = 10;
-
-  // ---- BADABHAI pill ----
-  static const double brandBadgePaddingH = 12;
-  static const double brandBadgeIconGap = 8;
-  static const double brandBadgeLetterSpacing = 1.5;
-  static const double brandBadgeWordmarkSize = 11.5;
 
   // ---- progress strip ----
   static const double stripPaddingTop = 17;
@@ -279,9 +270,6 @@ class OnboardingRadii {
   static const double nameField = 10;
   static const double card = 16;
   static const double note = 12;
-
-  /// The BADABHAI pill in the navy header (spec §2.1: radius 16).
-  static const double brandBadge = 16;
 
   /// An info / select chip (spec §4).
   static const double chip = 10;
