@@ -793,6 +793,13 @@
       "when": 1789626840583,
       "tag": "0112_worker_training_licence",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1789628736289,
+      "tag": "0113_worker_portfolio",
+      "breakpoints": true
     }
   ]
 }

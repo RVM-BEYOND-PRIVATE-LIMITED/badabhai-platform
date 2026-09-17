@@ -46,6 +46,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLanguagesRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (e) — the worker's portfolio was replaced. Counts only: no captions,
+  // no storage keys, no URLs.
+  "worker.portfolio_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPortfolioRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",
