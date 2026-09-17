@@ -17,6 +17,7 @@ import { WorkerEmploymentRepository } from "../profiles/worker-employment.reposi
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
+import { verificationBadgeFor } from "../resume/verification-tier";
 import { containsOtherAnswerMarker } from "../resume/other-answer-leak-guard";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
@@ -324,6 +325,11 @@ export class ResumeDisclosureService {
       ...tradeSheet,
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
+      // ADR-0042 D9 / Layer A (g) — THE VERIFICATION TIER CROSSES TO THE PAYER, deliberately.
+      // It is a trust signal about the worker's record — the entire point of the badge — and it is
+      // not one of the three things this surface withholds (real name, photo, expected salary).
+      // Off the row already loaded above for the mask, so it costs no extra query.
+      trustBadge: verificationBadgeFor(worker?.verificationState),
       // Unconditional for the same reason, and load-bearing for a different one: the merge above
       // only runs when `employments.length > 0`, which is never true on the path where this flag
       // matters. Without this line a failed history read would reach the mapper as a trustworthy

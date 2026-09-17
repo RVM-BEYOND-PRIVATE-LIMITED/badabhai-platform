@@ -210,6 +210,9 @@ function setup(
     // nullable, exactly as the columns are.
     currentCity?: string | null;
     currentState?: string | null;
+    // Layer A (g) — the stored verification tier, as `workers.verification_state` holds it.
+    // `null` (the default) is the unverified worker: no badge anywhere.
+    verificationState?: string | null;
     // The worker's settled pack answers, and the failure mode of reading them.
     tradeSheet?: {
       packId: string | null;
@@ -263,6 +266,7 @@ function setup(
       resumeNightShiftReady: opts.nightShiftReady ?? false,
       currentCity: opts.currentCity ?? null,
       currentState: opts.currentState ?? null,
+      verificationState: opts.verificationState ?? null,
     })),
   };
   const pii = {
@@ -497,9 +501,34 @@ describe("ResumeRenderProcessor — the bb_trade footer and identity slots", () 
     const meta = renderer.renderPdf.mock.calls[0]![0].footerMeta!;
     expect(meta).toMatch(/^Generated \d{1,2} \w+ \d{4}/);
     expect(meta).toMatch(/Ref [ACDEFGHJKLMNPQRTUVWXY34679]{6}$/);
-    // No verification tier exists yet, so the badge collapses rather than printing a warning.
+    // The unverified worker: the badge collapses rather than printing a warning, and the footer
+    // never grows a dangling separator for it (ASSUMPTIONS A1 / Part 10.2).
     expect(renderer.renderPdf.mock.calls[0]![0].trustBadge).toBeNull();
     expect(meta).not.toMatch(/·\s*·/);
+  });
+
+  it("fills BOTH verification slots from the stored tier (Layer A (g))", async () => {
+    // The two-slots contract: the masthead's right slot and the footer segment carry the SAME
+    // string, both derived from `workers.verification_state` by `verificationBadgeFor`.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      verificationState: "RVM-attested",
+    });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.trustBadge).toBe("BadaBhai Verified");
+    expect(input.footerMeta).toContain("BadaBhai Verified");
+  });
+
+  it("prints NOTHING for a self-declared tier — a self-claim is not a platform verification", async () => {
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      verificationState: "self-declared",
+    });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.trustBadge).toBeNull();
+    expect(input.footerMeta).not.toContain("BadaBhai Verified");
   });
 });
 

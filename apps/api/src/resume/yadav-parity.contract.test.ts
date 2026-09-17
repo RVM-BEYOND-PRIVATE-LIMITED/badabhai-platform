@@ -6,6 +6,7 @@ import { buildSheetFooterMeta } from "./resume-sheet-footer";
 import { appendConfiguration, buildTradeCapabilityRows } from "./trade-resume-map";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput } from "./resume-render-input";
+import { verificationBadgeFor } from "./verification-tier";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -662,17 +663,16 @@ describe("R9 §6 rule 8 — the verification state appears twice", () => {
     expect(html.split("RVM-attested").length - 1).toBeGreaterThanOrEqual(2);
   });
 
-  it.fails("is reachable for a real worker — something must be able to SET it", () => {
-    // The two slots exist and both render. NOTHING CAN FILL THEM: there is no verification column
-    // on `workers` or `worker_profiles`, and `resume-render.processor.ts` hardcodes
-    // `trustBadge: null` with the comment "No verification tier exists in the schema yet".
-    //
-    // So Yadav's "RVM-attested" is unreachable for every worker in the database, and the
-    // unverified state — a blank right slot — is the only state the product can currently
-    // produce. That is Phase 2 by ruling 3, and it is recorded here so the slot is not mistaken
-    // for a working feature.
-    const source = String(buildSheetFooterMeta);
-    expect(source).toContain("VERIFICATION_IS_REACHABLE");
+  it("is reachable for a real worker — the stored tier now fills both slots (Layer A (g))", () => {
+    // UNTIL Layer A (g) THIS WAS `it.fails`: both slots rendered, and NOTHING could set them —
+    // there was no verification column on `workers` and the processor hardcoded `trustBadge:
+    // null`. Migration 0115 added `verification_state`/`verified_at` and
+    // `resume-render.processor.ts` now maps the stored tier through `verificationBadgeFor`, so
+    // Yadav's "RVM-attested" is finally producible for a real row. The end-to-end pin (the
+    // processor hands the label to the renderer and the footer) lives in
+    // `resume-render.processor.test.ts`; this asserts the mapping link the parity file needed.
+    expect(verificationBadgeFor("RVM-attested")).toBe("BadaBhai Verified");
+    expect(verificationBadgeFor(null)).toBeNull();
   });
 });
 

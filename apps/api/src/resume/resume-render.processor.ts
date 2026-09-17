@@ -20,6 +20,7 @@ import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 import { buildResumeQrDataUri } from "./resume-qr";
+import { verificationBadgeFor } from "./verification-tier";
 import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 
@@ -180,6 +181,13 @@ export class ResumeRenderProcessor extends WorkerHost {
         this.logger.warn(`could not decrypt whatsapp for worker ${workerId}; rendering without it`);
       }
     }
+
+    // ADR-0042 D9 / Layer A (g) — the verification tier, read off the worker row already loaded
+    // above for the name, the photo and the phone. Pure mapping, no decrypt, no I/O, no failure
+    // mode of its own: the states that ARE BadaBhai verification print `BadaBhai Verified`, and
+    // unverified / self-declared / employer-rated print nothing. See `verification-tier.ts` for
+    // why a self-declaration may not wear the badge.
+    const trustBadge = verificationBadgeFor(worker?.verificationState);
 
     // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>` page
     // is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR that
@@ -387,15 +395,17 @@ export class ResumeRenderProcessor extends WorkerHost {
       // ruling). A missing row leaves both halves null and the line collapses.
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
-      // No verification tier exists in the schema yet, so the masthead's right slot collapses.
-      // The unverified state must read as neutral, never as a warning.
-      trustBadge: null,
+      // ADR-0042 D9 / Layer A (g) — the masthead's right slot, off the worker row already loaded
+      // above for the name/phone/photo (so it costs no extra query). `null` for the unverified,
+      // self-declared or employer-rated states; the unverified state must read as neutral, never
+      // as a warning. The five-value→label mapping lives in `verification-tier.ts`.
+      trustBadge,
       qrDataUri,
       qrCaption: "Scan to open this worker's live profile",
       shortLink: RESUME_PROFILE_ORIGIN.replace(/^https?:\/\//, ""),
       footerMeta: buildSheetFooterMeta({
         generatedAt: renderedAt,
-        trustBadge: null,
+        trustBadge,
         refCode: resumeRefCode(resumeId),
       }),
     };
