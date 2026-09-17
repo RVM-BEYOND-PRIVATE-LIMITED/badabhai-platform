@@ -177,7 +177,9 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
       trade: null,
       header,
       footerMeta,
-      headline: input.canonicalRole,
+      // Layer A (h): the deterministic headline when the mapper built one, else the role alone —
+      // the pre-existing behaviour, so an old server or an old snapshot renders unchanged.
+      headline: input.profileHeadline ?? input.canonicalRole,
       summary: input.summary,
       location: input.location,
       availability: input.availability,

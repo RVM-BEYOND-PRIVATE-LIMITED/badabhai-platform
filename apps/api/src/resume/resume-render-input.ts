@@ -16,6 +16,7 @@ import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
 import { buildFresherRows, tenureStatusLabel } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
+import { buildProfileHeadline, buildProfileSummary } from "./resume-headline";
 import {
   bareAvailability,
   bareAvailabilityLabel,
@@ -665,6 +666,13 @@ function buildUndegraded(
     draft.skills.map(labelForTaxonomyId),
     draft.skill_labels.map(labelForTaxonomyId),
   );
+  // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
+  // so the strip and the generic slots cannot name different tools.
+  const legacyHeadlineTools = headlineToolsOrFallback(
+    capability.headlineTools,
+    legacyMachines,
+    legacySkills,
+  );
   const legacyAvailability = bareAvailability(draft.availability);
   // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
   // price by someone adding a second call site. Same rule and same shape as the container path.
@@ -714,7 +722,7 @@ function buildUndegraded(
       // THE REASON THE DIVERGENCE EXISTED IS GONE. The container branch had no machines list
       // until R15 §1 gave it one; `draftQualification.machines` is the same draft column the
       // legacy branch reads, so this is now literally the same fact on both sides.
-      tools: headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills),
+      tools: legacyHeadlineTools,
       city: legacyCity,
       availability: legacyAvailability,
       // §6.2 — see `tenureLabel`'s definition above the branch. THE LEGACY PATH IS THE ONE THAT
@@ -869,6 +877,13 @@ function buildUndegraded(
       trade?.display_name ??
       resolveId(draft.canonical_role_id) ??
       titleCaseRoleLabel(draft.role_label),
+    // Layer A (h) — the richer `{{headline}}`, same segments and helpers as the Verdict Line.
+    profileHeadline: buildProfileHeadline({
+      role: legacyRole ?? draft.domain_label,
+      years: renderedTotalYears(draft.experience.total_years, employedYears),
+      tenureLabel,
+      tools: legacyHeadlineTools,
+    }),
     // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
     // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
     // the split the current city was prepended to that list, so for every profile
@@ -891,7 +906,19 @@ function buildUndegraded(
       nightShiftReady,
       preferences.shiftLabel,
     ),
-    summary: buildSummary(draft, trade),
+    // Layer A (h) — three sources, in precedence order: the worker's OWN summary, then the
+    // ratified trade copy (only where a trade exists), then the deterministic strip
+    // (role · tenure · tools · city). Every leg is confirmed data; none is an LLM composition.
+    summary:
+      draft.experience.summary ??
+      (trade ? buildSummary(draft, trade) : null) ??
+      buildProfileSummary({
+        role: legacyRole ?? draft.domain_label,
+        years: renderedTotalYears(draft.experience.total_years, employedYears),
+        tenureLabel,
+        tools: legacyHeadlineTools,
+        city: legacyCity,
+      }),
     // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
     // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
     // The snapshot labels were extraction-clamped and are pseudonymize-gated by the
@@ -1047,16 +1074,18 @@ function fromResumeProfile(
   fresherRows: readonly ResumeExperienceLine[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
-  // as their own fields and again by `summaryFor` — and certifying at each read site is how the
-  // two drift: a summary built from the raw value would reprint exactly what the fields below
-  // just suppressed. One pass, and every consumer below reads the cleaned value.
+  // as their own fields and again by the Layer A (h) headline/summary builders — and certifying
+  // at each read site is how the two drift: a summary built from the raw value would reprint
+  // exactly what the fields below just suppressed. One pass, and every consumer below reads the
+  // cleaned value.
   //
   // `experiences` needs no pass of its own: `_certified()` in the ai-service has always dropped
   // an entry whose role/duration/work carries blocked text, so stored entries are already
   // covered. It is the SCALARS that were never gated.
   // CASED AT THE SOURCE, for the same reason the certification above is (#1434). The container's
   // `role_label` is the same model free text as the legacy branch's, and all three consumers below
-  // are display surfaces — the Verdict Line's `role`, `canonicalRole`, and `summaryFor`. Casing at
+  // are display surfaces — the Verdict Line's `role`, `canonicalRole`, and the Layer A (h)
+  // headline/summary. Casing at
   // one of them and not the others is how "CNC turner" would survive on the sheet it was reported
   // on while disappearing from the one beside it.
   const roleLabel = titleCaseRoleLabel(cleanScalar(rp.role_label));
@@ -1124,6 +1153,15 @@ function fromResumeProfile(
   });
   const ownWords = ownWordsSelection.phrases;
 
+  // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
+  // so the strip at the top of the sheet and the `{{headline}}`/`{{summary}}` slots can never
+  // name different tools. See the legacy branch for the precedence's own history.
+  const headlineToolsResolved = headlineToolsOrFallback(
+    headlineTools,
+    [...draftQualification.machines],
+    skillChips,
+  );
+
   return {
     ...capabilitySlots,
     ownWords,
@@ -1137,7 +1175,7 @@ function fromResumeProfile(
       role: roleLabel,
       years: totalYears,
       // R16 §2 — the SAME expression the legacy branch uses. See the note there.
-      tools: headlineToolsOrFallback(headlineTools, [...draftQualification.machines], skillChips),
+      tools: headlineToolsResolved,
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
@@ -1182,6 +1220,16 @@ function fromResumeProfile(
     // there is no canonical id on this path and inventing one would put an unvalidated value
     // where the match engine trusts absolutely.
     canonicalRole: roleLabel,
+    // Layer A (h) — the richer `{{headline}}`: role · tenure · tools, the same segments the
+    // Verdict Line composes with the same helpers, from confirmed fields only. The renderer
+    // prefers this slot and falls back to `canonicalRole`, so an old snapshot without the
+    // inputs renders exactly as before.
+    profileHeadline: buildProfileHeadline({
+      role: roleLabel ?? domainLabel,
+      years: totalYears,
+      tenureLabel,
+      tools: headlineToolsResolved,
+    }),
     trade: domainLabel,
     // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
     // `preferred_locations` gets its own line rather than being conflated into this one.
@@ -1208,7 +1256,14 @@ function fromResumeProfile(
       preferences.shiftLabel,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
-    summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
+    // Layer A (h) — the deterministic strip: role · tenure · tools · city.
+    summary: buildProfileSummary({
+      role: roleLabel ?? domainLabel,
+      years: totalYears,
+      tenureLabel,
+      tools: headlineToolsResolved,
+      city: cleanScalar(rp.current_city),
+    }),
     // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy
     // resolution, because nothing here is a `skill_*` id — `toExtractionOutput` never writes
     // canonical ids on this path, and running `labelForTaxonomyId` over free text would be a
@@ -1394,47 +1449,19 @@ function monthsAsText(months: number | null): string {
 }
 
 /**
- * The summary for an LLM-led profile: role, tenure, trade — each clause only when its value
- * exists, and null when none do.
+ * The trade's ratified summary copy (NO LLM):
+ *  1. the trade's experienced template filled with profile facts; else
+ *  2. the trade's fresher phrase; else
+ *  3. null — the caller falls through to Layer A (h)'s deterministic strip.
  *
- * NOT FABRICATION (§11). Every clause restates something the worker said and the model
- * recorded; nothing is inferred or filled with a plausible default. A profile with neither a
- * role nor a trade gets no summary rather than a sentence about a worker we know nothing of.
- */
-function summaryFor(rp: {
-  role_label: string | null;
-  domain_label: string | null;
-  /** The SETTLED total (see `renderedTotalYears`), never re-derived — one sheet, one number. */
-  years: number | null;
-}): string | null {
-  const role = rp.role_label?.trim();
-  const domain = rp.domain_label?.trim();
-  if (!role && !domain) return null;
-  const head = role ?? domain!;
-  const years = rp.years;
-  const tenure =
-    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
-  // The trade only earns its own clause when it says something the role does not already —
-  // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context =
-    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
-  return `${head}${tenure}${context}.`;
-}
-
-/**
- * Deterministic resume summary (NO LLM):
- *  1. the worker's OWN summary, if present; else
- *  2. the trade's experienced template filled with profile facts; else
- *  3. the trade's fresher phrase; else
- *  4. the LLM-led path's own labels, if the model captured any; else
- *  5. null (nothing known → nothing fabricated).
+ * The worker's OWN summary outranks this and is handled at the call site; it used to be checked
+ * here first, which was fine while this was the only composer, but the caller now chains three
+ * sources and a hidden first leg would have made the chain unreadable.
  */
 function buildSummary(
   draft: ReturnType<typeof DraftProfileSchema.parse>,
-  trade: TradeContent | undefined,
+  trade: TradeContent,
 ): string | null {
-  if (draft.experience.summary) return draft.experience.summary;
-  if (!trade) return summaryFromLabels(draft);
   const years = draft.experience.total_years;
   if (years && years > 0) {
     const primaryMachine = draft.machines[0]
@@ -1446,36 +1473,6 @@ function buildSummary(
       .replace(/\{\{\s*primary_machine\s*\}\}/g, primaryMachine);
   }
   return trade.fresher_phrases[0] ?? null;
-}
-
-/**
- * Leg 4 — the summary an LLM-led profile can build when the taxonomy knows nothing about it.
- *
- * `resolveTradeContent` keys off the canonical ids, and `toExtractionOutput` hardcodes BOTH to
- * null on this path, so `trade` is undefined for every OIE-path profile and this function used
- * to `return null` outright. `{{summary}}` was blank on every LLM-led resume — alongside the
- * blank `{{headline}}` — even when the model had named the role and the trade in plain language.
- *
- * NOT FABRICATION, and the distinction is the whole point (§11). Every clause here is a value
- * the worker said and the model recorded; nothing is inferred, averaged, or filled with a
- * plausible default. A field that is null contributes NO clause rather than a hedge — which is
- * why this returns null when the model captured nothing, instead of a sentence about a worker
- * it knows nothing about.
- */
-function summaryFromLabels(draft: ReturnType<typeof DraftProfileSchema.parse>): string | null {
-  const role = draft.role_label?.trim();
-  const domain = draft.domain_label?.trim();
-  if (!role && !domain) return null;
-
-  const years = draft.experience.total_years;
-  const head = role ?? domain!;
-  // The domain only earns its own clause when it says something the role does not already —
-  // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context =
-    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
-  const tenure =
-    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
-  return `${head}${tenure}${context}.`;
 }
 
 /** Null-safe id → display name (keeps `null` as `null` for optional fields). */
@@ -1593,8 +1590,8 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  * taiyaar" says one thing twice. Every OTHER shift value survives, because each says something
  * the toggle does not: `day` is what they work now, `any` includes days too, `rotational` is a
  * pattern. "Day shift · Night shift ke liye taiyaar" is not a contradiction — it is the whole
- * signal, and dropping either half would lose a real answer. Same rule as `summaryFor`'s trade
- * clause and `mergeSkillsWithLabels`: keep both sources, drop only the true duplicate.
+ * signal, and dropping either half would lose a real answer. Same rule as the Layer A (h)
+ * builder's clauses and `mergeSkillsWithLabels`: keep both sources, drop only the true duplicate.
  */
 function humanizeAvailability(
   status: string | null,

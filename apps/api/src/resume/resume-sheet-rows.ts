@@ -12,7 +12,10 @@ import { titleCaseName } from "./resume-text-case";
  */
 
 /** Joins segments the way the design does, dropping empties WITH their separator. */
-function joinSegments(parts: readonly (string | null | undefined)[], sep = " · "): string | null {
+export function joinSegments(
+  parts: readonly (string | null | undefined)[],
+  sep = " · ",
+): string | null {
   const kept = parts.map((p) => p?.trim()).filter((p): p is string => Boolean(p));
   return kept.length > 0 ? kept.join(sep) : null;
 }
@@ -131,7 +134,7 @@ function knownYearsPhrase(years: number | null): string | null {
  * status label get its turn, and only where there is neither does §11 #3's text print, unchanged
  * and for exactly the case it was written for.
  */
-function tenurePhrase(years: number | null, tenureLabel: string | null): string {
+export function tenurePhrase(years: number | null, tenureLabel: string | null): string {
   const figure = knownYearsPhrase(years);
   if (figure !== null) return figure;
   // An EMPTY label is treated as no label, not as an empty segment: `joinSegments` drops empties
@@ -167,7 +170,7 @@ function axesPhrase(axes: readonly string[]): string | null {
 }
 
 /** Up to three, guideline §4.3 (controllers max 3). More than three stops being scannable. */
-function toolsPhrase(tools: string[]): string | null {
+export function toolsPhrase(tools: readonly string[]): string | null {
   const kept = tools
     .map((t) => t.trim())
     .filter(Boolean)
