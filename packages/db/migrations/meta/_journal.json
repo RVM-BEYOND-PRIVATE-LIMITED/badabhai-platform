@@ -772,6 +772,13 @@
       "when": 1789621600409,
       "tag": "0109_worker_whatsapp_enc",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1789622711478,
+      "tag": "0110_worker_language",
+      "breakpoints": true
     }
   ]
 }

@@ -10,8 +10,9 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
 import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
-import { qualificationFactsFrom } from "./resume-qualification-rows";
+import { qualificationFactsFrom, type WorkerLanguageRecord } from "./resume-qualification-rows";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
@@ -62,6 +63,9 @@ export class ResumeRenderProcessor extends WorkerHost {
     // Migration 0098 — Zone 5's credentials. The Certificates row has never had a writer on this
     // path, so it has never printed for a form-first worker.
     private readonly qualifications: WorkerQualificationsRepository,
+    // Migration 0110 - the richer languages rows. A SEPARATE repository on the same section:
+    // when it fails, Zone 5 loses its language values and keeps its credentials.
+    private readonly languages: WorkerLanguagesRepository,
     private readonly transcript: WorkerTranscriptRepository,
     // #1350 — the one field on this sheet the model may compose. Off by two independent
     // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
@@ -326,7 +330,19 @@ export class ResumeRenderProcessor extends WorkerHost {
     // the catch names the worker id and nothing from the rows reaches a log line or an event.
     let qualification: ReturnType<typeof qualificationFactsFrom>;
     try {
-      qualification = qualificationFactsFrom(await this.qualifications.loadForResume(workerId));
+      const credentials = await this.qualifications.loadForResume(workerId);
+      // Migration 0110 - the language rows, loaded INSIDE this try because they belong to the
+      // same section: a failure here costs the Languages row and nothing else, and the languages
+      // attribute still prints through the mapper's `??` fallback.
+      let languageRows: readonly WorkerLanguageRecord[] = [];
+      try {
+        languageRows = await this.languages.loadForResume(workerId);
+      } catch {
+        this.logger.warn(
+          `could not load languages for worker ${workerId}; rendering Zone 5 without them`,
+        );
+      }
+      qualification = qualificationFactsFrom({ ...credentials, languages: languageRows });
     } catch {
       this.logger.warn(
         `could not load credentials for worker ${workerId}; rendering Zone 5 from the draft`,
