@@ -217,6 +217,46 @@ void main() {
     },
   );
 
+  // #1524 — a chat-sourced profile is labelled so it can never be silently
+  // mistaken for the form road's trade-sheet profile; form and unknown stay
+  // exactly as they rendered before.
+  testWidgets(
+    'a CHAT-sourced profile carries the chat-road badge',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Welder',
+          strengthSignals: 4,
+          source: 'chat',
+        ),
+      );
+
+      expect(find.text(kChatProfileSourceLabel), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'a FORM-sourced (and a null-source) profile carries no chat-road badge',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Welder',
+          strengthSignals: 4,
+          source: 'form',
+        ),
+      );
+      expect(find.text(kChatProfileSourceLabel), findsNothing);
+
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Welder', strengthSignals: 4),
+      );
+      expect(find.text(kChatProfileSourceLabel), findsNothing);
+    },
+  );
+
   testWidgets(
     'the worker NAME comes from the resume fields (R5) and leads the identity '
     'card, with the trade moving to the subline',

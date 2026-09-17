@@ -5,6 +5,7 @@ import '../../../core/observability/crash_reporter.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_repository.dart';
+import '../domain/chat_session_opening.dart';
 import '../domain/chat_turn.dart';
 
 /// Reports a caught, NON-FATAL error to the app's observability sink.
@@ -70,10 +71,10 @@ class ChatRepositoryImpl implements ChatRepository {
   /// and mint two sessions. Memoising the in-flight future makes concurrent callers
   /// await the SAME open, so exactly one session is minted. Cleared on completion
   /// so a later entry (or a self-heal after a failed open) starts fresh.
-  Future<String?>? _inFlightOpen;
+  Future<ChatSessionOpening?>? _inFlightOpen;
 
   @override
-  Future<String?> ensureSession() async {
+  Future<ChatSessionOpening?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
     if (_session.sessionId != null) return null; // already open (in-memory)
@@ -88,7 +89,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
   /// Resumes the worker's latest session, or opens a new one. Wrapped so any
   /// transport error becomes a mapped [Failure] for the caller.
-  Future<String?> _openSession(String token) async {
+  Future<ChatSessionOpening?> _openSession(String token) async {
     try {
       // RESUME the worker's latest session before opening a new one. The session
       // id lives in memory only, so after a cold restart (or opening the "Bada
@@ -106,9 +107,23 @@ class ChatRepositoryImpl implements ChatRepository {
       // An old-build POST that returns the worker's EXISTING session (once the
       // backend reattach guard, #1197, ships) carries no `opening_text`, so
       // [ChatSessionStart.openingText] is null and the caller keeps its canned
-      // greeting — no re-greet, no regression.
+      // greeting — no re-greet, no regression. The SAME null contract covers a
+      // flag-off / AI-service-down open: without a server bubble there is
+      // nothing to swap in, so the bloc renders `kChatOpeningText` untouched.
       _session.setSession(start.sessionId);
-      return start.openingText;
+      final String? openingText = start.openingText;
+      if (openingText == null) return null;
+      // A résumé-confirm open (#1523) arrives with the same `opening_text` field
+      // plus `resume_pending` and its Haan/Nahi `opening_options`; the bloc
+      // suppresses the canned opener and renders the confirm as bubble 0 with
+      // those chips. The confirm's content is the SERVER's reply — the client
+      // never parses a résumé locally.
+      return ChatSessionOpening(
+        text: openingText,
+        ttsText: start.openingTtsText,
+        resumePending: start.resumePending,
+        options: start.openingOptions,
+      );
     } catch (error) {
       throw mapError(error);
     }

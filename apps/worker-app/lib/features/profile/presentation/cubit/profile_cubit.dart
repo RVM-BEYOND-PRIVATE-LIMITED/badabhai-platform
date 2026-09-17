@@ -23,14 +23,16 @@ enum ProfileStatus {
 }
 
 /// #1344 (scoped retirement) — where a [ProfileStatus.confirmed] state routes
-/// next. `tradeForm` when [TradeFormRepository.loadForm] returned a real form
-/// for this worker's trade (server's `TRADE_FORM_KINDS`, growing over time);
-/// `finishing` otherwise — including the network-check-failed fail-safe —
-/// which is EXACTLY the single, unconditional destination this screen used
-/// before this change. Only touch this file / the screen to widen coverage;
-/// server-side trade-form coverage expanding requires zero further client
-/// changes.
-enum ProfileRouteTarget { tradeForm, finishing }
+/// next. `tradeForm` when the server's `next` said `trade_form`, or when
+/// [TradeFormRepository.loadForm] returned a real form for this worker's trade
+/// (server's `TRADE_FORM_KINDS`, growing over time); `resume` when the server's
+/// `next` said `chat_complete` — the chat road goes STRAIGHT to resume building
+/// and must never be sent through `/finishing` (#1528); `finishing` otherwise —
+/// including the network-check-failed fail-safe — which is EXACTLY the single,
+/// unconditional destination this screen used before this change. Only touch
+/// this file / the screen to widen coverage; server-side trade-form coverage
+/// expanding requires zero further client changes.
+enum ProfileRouteTarget { tradeForm, resume, finishing }
 
 class ProfileState extends Equatable {
   const ProfileState({
@@ -158,14 +160,17 @@ class ProfileCubit extends Cubit<ProfileState> {
       confirming: true,
     ));
     try {
-      await _repo.confirmProfile();
+      // #1522/#1528 — the server now tells us the destination it wants (`next`:
+      // "trade_form" | "chat_complete" | null). It is additive: an older server
+      // / a pre-migration row returns null and we fall back to today's probe.
+      final String? next = await _repo.confirmProfile();
       if (isClosed) return;
       // #1344 (scoped) — the confirm write landed; now decide WHERE to route,
-      // which needs its own round trip. Announce it (routing) rather than
+      // which may need its own round trip. Announce it (routing) rather than
       // holding the worker on the prior frame with no signal at all — the
       // #360 lesson (an unbound wait at the last step reads as a dead app).
       emit(ProfileState(status: ProfileStatus.routing, summary: state.summary));
-      final ProfileRouteTarget target = await _resolveRouteTarget();
+      final ProfileRouteTarget target = await _resolveRouteTarget(next);
       if (isClosed) return;
       emit(ProfileState(
         status: ProfileStatus.confirmed,
@@ -190,6 +195,16 @@ class ProfileCubit extends Cubit<ProfileState> {
     }
   }
 
+  /// #1522/#1528 — resolves the post-confirm destination from the server's
+  /// `next` first, falling back to today's probe only when the road is unknown:
+  ///
+  ///  - `'trade_form'`   → the trade form (server-declared form road).
+  ///  - `'chat_complete'`→ [ProfileRouteTarget.resume] — STRAIGHT to résumé
+  ///    building, NEVER the trade form and never `/finishing` (the chat road
+  ///    has no closed-set form pages to collect; issue #1528).
+  ///  - anything else (null / unknown) → today's `TradeFormRepository.loadForm`
+  ///    probe, byte for byte.
+  ///
   /// #1344 (scoped retirement ruling) — `null` from [TradeFormRepository.loadForm]
   /// is the clean, expected "this worker's trade has no form yet" (404) signal
   /// and means [ProfileRouteTarget.finishing], exactly the app's one prior
@@ -202,7 +217,9 @@ class ProfileCubit extends Cubit<ProfileState> {
   /// can retry from here; at the very last step of onboarding, ambiguity
   /// always resolves to the one path already proven to work, never to a
   /// stuck spinner or an error screen. Hence the bare `catch` below.
-  Future<ProfileRouteTarget> _resolveRouteTarget() async {
+  Future<ProfileRouteTarget> _resolveRouteTarget(String? next) async {
+    if (next == 'chat_complete') return ProfileRouteTarget.resume;
+    if (next == 'trade_form') return ProfileRouteTarget.tradeForm;
     try {
       final TradeForm? form = await _tradeForm.loadForm();
       return form != null

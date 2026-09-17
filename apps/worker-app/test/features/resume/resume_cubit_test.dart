@@ -435,7 +435,7 @@ void main() {
         when(
           () => profileRepo.extractProfile(),
         ).thenAnswer((_) async => 'profile-1');
-        when(() => profileRepo.confirmProfile()).thenAnswer((_) async {});
+        when(() => profileRepo.confirmProfile()).thenAnswer((_) async => null);
         when(
           () => repo.loadResumeDocument(),
         ).thenAnswer((_) async => sheetSnapshot);

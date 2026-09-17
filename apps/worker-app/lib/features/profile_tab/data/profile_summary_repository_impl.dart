@@ -56,6 +56,10 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         // real extraction ('extracted') from a content-poor one ('draft') and
         // refuse to confirm the latter into an empty resume.
         profileStatus: dto.profileStatus,
+        // #1524: carry the road that produced the profile ('form' | 'chat' |
+        // null). The DTO already restricts the value to those literals, so an
+        // unknown/absent value arrives here as null — today's rendering.
+        source: dto.source,
       );
     } catch (error) {
       throw mapError(error);
