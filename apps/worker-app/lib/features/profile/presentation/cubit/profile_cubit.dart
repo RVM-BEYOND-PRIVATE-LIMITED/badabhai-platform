@@ -1,11 +1,13 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../profile_tab/domain/profile_summary.dart';
 import '../../../profile_tab/domain/profile_summary_repository.dart';
-import '../../../trade_form/domain/trade_form_models.dart' show TradeForm;
+import '../../../trade_form/domain/trade_form_models.dart'
+    show TradeForm, TradeFormEmploymentEntry;
 import '../../../trade_form/domain/trade_form_repository.dart';
 import '../../domain/profile_repository.dart';
 
@@ -42,6 +44,7 @@ class ProfileState extends Equatable {
     this.confirming = false,
     this.confirmFailure,
     this.routeTarget,
+    this.employments = const <TradeFormEmploymentEntry>[],
   });
 
   final ProfileStatus status;
@@ -72,6 +75,28 @@ class ProfileState extends Equatable {
   /// screen the listener routes to next. `null` at every other status.
   final ProfileRouteTarget? routeTarget;
 
+  /// #issue5 — the work-history rows the worker added on the confirm screen's
+  /// experience editor this session. Held so the screen can SHOW them and so a
+  /// re-edit opens with them (the employment endpoint is a PUT that replaces
+  /// the whole list, never a patch). Empty until the worker adds one.
+  final List<TradeFormEmploymentEntry> employments;
+
+  /// A copy of this state with [employments] replaced — used by
+  /// [ProfileCubit.saveEmployments]. Every other field, the nullable routing
+  /// slots included, is carried through unchanged (so a save never clears a
+  /// pending failure or the confirmed route).
+  ProfileState withEmployments(List<TradeFormEmploymentEntry> employments) {
+    return ProfileState(
+      status: status,
+      failure: failure,
+      summary: summary,
+      confirming: confirming,
+      confirmFailure: confirmFailure,
+      routeTarget: routeTarget,
+      employments: employments,
+    );
+  }
+
   @override
   List<Object?> get props => <Object?>[
         status,
@@ -80,6 +105,7 @@ class ProfileState extends Equatable {
         confirming,
         confirmFailure,
         routeTarget,
+        employments,
       ];
 }
 
@@ -158,6 +184,7 @@ class ProfileCubit extends Cubit<ProfileState> {
       status: ProfileStatus.ready,
       summary: state.summary,
       confirming: true,
+      employments: state.employments,
     ));
     try {
       // #1522/#1528 — the server now tells us the destination it wants (`next`:
@@ -169,13 +196,18 @@ class ProfileCubit extends Cubit<ProfileState> {
       // which may need its own round trip. Announce it (routing) rather than
       // holding the worker on the prior frame with no signal at all — the
       // #360 lesson (an unbound wait at the last step reads as a dead app).
-      emit(ProfileState(status: ProfileStatus.routing, summary: state.summary));
+      emit(ProfileState(
+        status: ProfileStatus.routing,
+        summary: state.summary,
+        employments: state.employments,
+      ));
       final ProfileRouteTarget target = await _resolveRouteTarget(next);
       if (isClosed) return;
       emit(ProfileState(
         status: ProfileStatus.confirmed,
         summary: state.summary,
         routeTarget: target,
+        employments: state.employments,
       ));
     } on Failure catch (failure) {
       if (isClosed) return;
@@ -189,6 +221,7 @@ class ProfileCubit extends Cubit<ProfileState> {
         status: ProfileStatus.ready,
         summary: state.summary,
         confirmFailure: failure,
+        employments: state.employments,
       ));
     } finally {
       _confirming = false;
@@ -228,5 +261,23 @@ class ProfileCubit extends Cubit<ProfileState> {
     } catch (_) {
       return ProfileRouteTarget.finishing;
     }
+  }
+
+  /// #issue5 — the same options fetch the form's employment editor uses
+  /// (#1429): the state catalogue + the state-tagged city gazetteer for an
+  /// added employer's location.
+  Future<WorkPrefOptionsDto> loadEmploymentOptions() =>
+      _tradeForm.loadPreferenceOptions();
+
+  /// #issue5 — persists the work history the worker built in the confirm
+  /// screen's experience editor. The route REPLACES the whole list, so
+  /// [entries] is always the editor's complete (non-blank) set, never a delta.
+  /// A [Failure] from the write propagates untouched so the editor can name the
+  /// real reason; on success the rows are held in state so the confirm screen
+  /// shows what was added and a re-edit opens with it.
+  Future<void> saveEmployments(List<TradeFormEmploymentEntry> entries) async {
+    await _tradeForm.saveEmployment(entries);
+    if (isClosed) return;
+    emit(state.withEmployments(entries));
   }
 }

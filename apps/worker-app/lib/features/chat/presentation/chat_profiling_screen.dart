@@ -981,8 +981,8 @@ class _ChatViewState extends State<_ChatView> {
     return Scaffold(
       backgroundColor: OnboardingColors.canvasBg,
       appBar: AppBar(
-        // Master UI Kit chat header: a SHIFT BLUE bar with the yellow 'BB'
-        // avatar + 'Bada Bhai / online'. The voice-note entry moved OUT of the
+        // Master UI Kit chat header: a SHIFT BLUE bar with the brand mark
+        // (badabhai_main.png) + 'Bada Bhai / online'. The voice-note entry moved OUT of the
         // app bar and INTO the composer (the haldi mic), per the kit — its kill
         // switch (`showVoice`) still governs it. The back arrow is still the
         // AppBar's own implied one: drawn only when this route can pop (the
@@ -994,7 +994,7 @@ class _ChatViewState extends State<_ChatView> {
         scrolledUnderElevation: 0,
         iconTheme: const IconThemeData(color: OnboardingColors.textOnBlue),
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        // Kit gutter of left space so the BB avatar + title are not flush
+        // Kit gutter of left space so the brand mark + title are not flush
         // against the screen edge — aligns the header with the body's margin.
         titleSpacing: 0,
         title: Padding(
@@ -1003,22 +1003,13 @@ class _ChatViewState extends State<_ChatView> {
           maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
           child: Row(
             children: <Widget>[
-              Container(
+              Image.asset(
+                // The brand mark, same asset as the global BrandBadge lockup.
+                'assets/fonts/image/badabhai_main.png',
                 width: 36,
                 height: 36,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: OnboardingColors.safetyYellow,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  'BB',
-                  style: OnboardingTypography.anek(
-                    size: 14,
-                    weight: FontWeight.w800,
-                    color: OnboardingColors.textOnYellow,
-                  ),
-                ),
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
               ),
               const SizedBox(width: 10),
               Flexible(

@@ -56,6 +56,8 @@ Map<String, dynamic> _job({
   int? payMin,
   int? payMax,
   String? shift,
+  int? minExp,
+  int? maxExp,
 }) {
   return <String, dynamic>{
     'job_id': id,
@@ -67,6 +69,8 @@ Map<String, dynamic> _job({
     if (payMin != null) 'pay_min': payMin,
     if (payMax != null) 'pay_max': payMax,
     if (shift != null) 'shift': shift,
+    if (minExp != null) 'min_experience_years': minExp,
+    if (maxExp != null) 'max_experience_years': maxExp,
   };
 }
 
@@ -174,6 +178,40 @@ void main() {
     // Every card carries the inline green "APPLY →"; the swipe deck is retired.
     expect(find.byKey(const Key('jobCardApplyButton')), findsOneWidget);
     expect(find.byKey(const Key('swipeSkipButton')), findsNothing);
+  });
+
+  // #issue3 — every field the feed carries now reaches the card: the humanised
+  // trade (never the raw slug) and the experience window, alongside the title
+  // and place already covered above.
+  testWidgets('renders the humanised trade and the experience window', (
+    WidgetTester tester,
+  ) async {
+    locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
+    addTearDown(() => locator.unregister<JobFeedViewStore>());
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'jobs': <Map<String, dynamic>>[
+            _job(
+              id: 'job-1',
+              trade: 'cnc_operator',
+              title: 'VMC Operator',
+              city: 'Pune',
+              minExp: 1,
+              maxExp: 4,
+            ),
+          ],
+        }),
+        200,
+      );
+    }));
+
+    await tester.pumpWidget(_harness(bloc));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VMC Operator'), findsOneWidget);
+    expect(find.text('CNC Operator'), findsOneWidget); // humanised slug
+    expect(find.text('1–4 yrs experience'), findsOneWidget);
   });
 
   testWidgets('a feed job WITHOUT pay/shift keys (old shape) renders no pay '

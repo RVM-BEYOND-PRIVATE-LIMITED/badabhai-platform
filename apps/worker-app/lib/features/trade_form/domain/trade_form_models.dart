@@ -512,6 +512,7 @@ class TradeFormEmploymentEntry extends Equatable {
     this.endYm,
     this.workDone,
     this.workDoneVoiceNoteId,
+    this.stillWorking = true,
   });
 
   final String employerName;
@@ -524,6 +525,15 @@ class TradeFormEmploymentEntry extends Equatable {
 
   /// "YYYY-MM" or null. Null = CURRENT (still working here) — never "missing".
   final String? endYm;
+
+  /// Whether the worker has told us this is his CURRENT job (the "Abhi yahin
+  /// kaam kar rahe hain" switch). [endYm] null ALONE cannot express this: the
+  /// switch starts ON for a fresh card, and a worker who turns it OFF without
+  /// picking an end date must be blocked rather than saved as "still working"
+  /// (the résumé would otherwise print "Present" for a job he left). Defaults
+  /// TRUE so a loaded entry with no end reads as current, never as missing.
+  final bool stillWorking;
+
   final String? workDone;
 
   /// The clip [workDone] was SPOKEN into, when the worker used the mic (#1472).
@@ -556,6 +566,7 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? endYm = _sentinel,
     Object? workDone = _sentinel,
     Object? workDoneVoiceNoteId = _sentinel,
+    bool? stillWorking,
   }) {
     return TradeFormEmploymentEntry(
       employerName: employerName ?? this.employerName,
@@ -572,6 +583,7 @@ class TradeFormEmploymentEntry extends Equatable {
       workDoneVoiceNoteId: workDoneVoiceNoteId == _sentinel
           ? this.workDoneVoiceNoteId
           : workDoneVoiceNoteId as String?,
+      stillWorking: stillWorking ?? this.stillWorking,
     );
   }
 
@@ -615,6 +627,7 @@ class TradeFormEmploymentEntry extends Equatable {
         employerState,
         startYm,
         endYm,
+        stillWorking,
         workDone,
         workDoneVoiceNoteId,
       ];

@@ -12,12 +12,15 @@ import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/trade_form_screen.dart';
+import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_employment_page.dart';
 import 'package:badabhai_worker_app/features/voice/domain/speech_reader.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../support/kit_matrix.dart';
 
 class _MockRepo extends Mock implements TradeFormRepository {}
 
@@ -90,6 +93,25 @@ Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
     await tester.tap(find.text('Aage badhein'));
     await tester.pumpAndSettle();
   }
+}
+
+/// Picks a start date on the employment card through the month/year sheet:
+/// the field reads "Nahi bataya" until set, then a year chip, then a month
+/// chip. Issue #issue2 makes the start date required on any used card.
+Future<void> _pickStartDate(
+  WidgetTester tester, {
+  String year = '2021',
+  String month = 'Jan',
+}) async {
+  await tester.ensureVisible(find.text('Nahi bataya').first);
+  await tester.tap(find.text('Nahi bataya').first);
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(year));
+  await tester.tap(find.text(year));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(month));
+  await tester.tap(find.text(month));
+  await tester.pumpAndSettle();
 }
 
 const VoiceQuestion _plainQuestion = VoiceQuestion(
@@ -1599,6 +1621,9 @@ void main() {
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
       await tester.pump();
+      // #issue2 — every used card needs a start date before the walk can
+      // finish, including the one no longer on screen when "Ho gaya" is hit.
+      await _pickStartDate(tester, year: '2021', month: 'Jan');
 
       await tester.ensureVisible(find.text('Aur ek jagah jodein'));
       await tester.tap(find.text('Aur ek jagah jodein')); // employer #2
@@ -1611,6 +1636,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(0), 'Beta Corp');
       await tester.enterText(find.byType(TextField).at(1), 'Welder');
       await tester.pump();
+      await _pickStartDate(tester, year: '2022', month: 'Feb');
 
       // This IS the marker's last internal page AND the outer walk's last
       // step — "Ho gaya", not "Aage badhein".
@@ -1628,6 +1654,256 @@ void main() {
       expect(sent[0].roleLabel, 'Fitter');
       expect(sent[1].employerName, 'Beta Corp');
       expect(sent[1].roleLabel, 'Welder');
+    });
+  });
+
+  // #issue2 — a saved work history with no start (and no end) is what printed
+  // "Duration not stated" on the résumé. Every card the worker actually USED
+  // must carry a start, and an end unless it is his current job; a blank card
+  // is not an answer and must never block finishing.
+  group('employment dates are required on a used card (#issue2)', () {
+    Future<void> walkToEmploymentPage(WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
+      await tester.pumpAndSettle();
+      await _walkThroughPreferencesPages(tester);
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> fillUsedCard(WidgetTester tester) async {
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.pump();
+    }
+
+    testWidgets(
+        'a used card with no start date blocks the finish and saves nothing',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+      await fillUsedCard(tester);
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Kab shuru kiya — saal aur mahina chunein.'), findsOneWidget);
+      verifyNever(() => repo.saveEmployment(any()));
+
+      // Dismiss the banner, pick the start date, and the same finish works.
+      await tester.tap(find.text('Theek hai'));
+      await tester.pumpAndSettle();
+      await _pickStartDate(tester);
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+      verify(() => repo.saveEmployment(any())).called(1);
+    });
+
+    testWidgets('turning "Abhi yahin" OFF requires an end date',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+      await fillUsedCard(tester);
+      await _pickStartDate(tester);
+
+      await tester.ensureVisible(find.text('Abhi yahin kaam kar rahe hain'));
+      await tester.tap(find.text('Abhi yahin kaam kar rahe hain'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+            'Kab tak kaam kiya — saal aur mahina chunein, ya "Abhi yahin" ON rakhein.'),
+        findsOneWidget,
+      );
+      verifyNever(() => repo.saveEmployment(any()));
+
+      // The end field is the only one still reading "Nahi bataya".
+      await tester.tap(find.text('Theek hai'));
+      await tester.pumpAndSettle();
+      await _pickStartDate(tester, year: '2023', month: 'Mar');
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+      verify(() => repo.saveEmployment(any())).called(1);
+    });
+
+    testWidgets('a blank added card can be finished with no dates at all',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      // A card with nothing on it is not an answer, so it is never blocked —
+      // skipping work history entirely still works.
+      expect(
+          find.text('Kab shuru kiya — saal aur mahina chunein.'), findsNothing);
+    });
+  });
+
+  // #issue2 follow-up — "required" alone still lets an unusable date through:
+  // a future month, a 1900 typo, or an end before its start are all refused,
+  // and the picker itself never OFFERS a future year or month so the worker
+  // cannot even reach one. The two hard bounds are asserted directly against
+  // the page's own blocker, because a picker cannot produce them anyway.
+  group('valid-date bounds on a used card (#issue2)', () {
+    const List<String> months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    Widget host(
+      GlobalKey<TradeFormEmploymentPageState> key,
+      List<TradeFormEmploymentEntry> entries,
+    ) {
+      return kitTestApp(
+        Scaffold(
+          // The wizard hosts this page inside its scroll body; the page itself
+          // is an unbounded Column, so the test stand-in must scroll it too.
+          body: SingleChildScrollView(
+            child: TradeFormEmploymentPage(
+              key: key,
+              enabled: true,
+              onSave: (_) {},
+              loadOptions: () async => const WorkPrefOptionsDto(
+                languages: <String, String>{},
+                documentsReady: <String, String>{},
+                jobType: <String, String>{},
+                shift: <String, String>{},
+              ),
+              initialEntries: entries,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a start in the future is refused before it can print',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      final String future = '${DateTime.now().year + 1}-01';
+      await tester.pumpWidget(
+        host(key, <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: future,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aage ke mahine ki taareekh nahi ho sakti — aaj tak ka chunein.',
+      );
+    });
+
+    testWidgets('a start before 1950 is refused as a typo',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: '1900-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Itna purana saal sahi nahi lagta — sahi saal chunein.',
+      );
+    });
+
+    testWidgets('an end before its start is refused', (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: '2020-06',
+            endYm: '2019-05',
+            stillWorking: false,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Khatam hone ki date shuru hone ke baad honi chahiye.',
+      );
+    });
+
+    testWidgets('the picker offers no future year and no future month',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(employerName: '', roleLabel: ''),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      final int nowYear = DateTime.now().year;
+      final int nowMonth = DateTime.now().month;
+
+      await tester.ensureVisible(find.text('Nahi bataya').first);
+      await tester.tap(find.text('Nahi bataya').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('$nowYear'), findsOneWidget);
+      expect(find.text('${nowYear + 1}'), findsNothing);
+
+      await tester.ensureVisible(find.text('$nowYear'));
+      await tester.tap(find.text('$nowYear'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(months[nowMonth - 1]), findsOneWidget);
+      if (nowMonth < 12) {
+        expect(find.text(months[nowMonth]), findsNothing);
+      }
     });
   });
 
@@ -1711,6 +1987,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1747,6 +2024,7 @@ void main() {
       // The city field is the third: employer, role, then city.
       await tester.enterText(find.byType(TextField).at(2), 'Muzaffarpur');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1804,6 +2082,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(2), 'Rajasthan');
       await tester.enterText(find.byType(TextField).at(3), 'Kota');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();

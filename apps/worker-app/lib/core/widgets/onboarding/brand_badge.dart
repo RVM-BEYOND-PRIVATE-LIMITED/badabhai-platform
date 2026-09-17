@@ -27,20 +27,26 @@ class BrandBadge extends StatelessWidget {
       children: <Widget>[
         Image.asset(
           markAsset,
-          width: 16,
-          height: 16,
+          // #issue4 — the lockup was 16px with a 12px wordmark, which read as a
+          // speck in the header's top corner. The owner asked for it across
+          // every screen: big enough to register at a glance, still quiet
+          // beside the title. One size for all — this widget is the single
+          // source of the lockup, so there is nothing per-screen to keep in
+          // step (it still fits comfortably in the header's 48dp top row).
+          width: 22,
+          height: 22,
           // Downscaled from 1080px, so ask for a smooth resample rather than
           // the default nearest.
           filterQuality: FilterQuality.high,
           // Decorative: the wordmark beside it already names the brand.
           excludeFromSemantics: true,
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 8),
         Text(
           // Brand name is always one word, two capitals.
           'BadaBhai',
           style: OnboardingTypography.anek(
-            size: 12,
+            size: 14,
             weight: FontWeight.w800,
             color: OnboardingColors.textOnBlue,
           ),

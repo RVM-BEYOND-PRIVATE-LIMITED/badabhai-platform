@@ -61,6 +61,22 @@ const String _kPickMonth = 'Mahina chunein';
 const int _kWorkDoneMax = 300;
 const String _kDateOrderError =
     'Khatam hone ki date shuru hone ke baad honi chahiye.';
+// #issue2 — a work history with no start/end is what put "Duration not stated"
+// on the résumé. Both are now REQUIRED on a card the worker actually used:
+// start always, end unless the card is marked his current job.
+const String _kStartRequiredError = 'Kab shuru kiya — saal aur mahina chunein.';
+const String _kEndRequiredError =
+    'Kab tak kaam kiya — saal aur mahina chunein, ya "Abhi yahin" ON rakhein.';
+// #issue2 follow-up — the REQUIRED check was not enough on its own: a
+// "9999-12" or a "1900-01" is just as unusable on a résumé as a blank one, and
+// a worker can reach either through stale saved data or a hand-built entry.
+// These are the "other validations a date should have" bounds, all fail-closed.
+const int _kEarliestWorkYear = 1950; // same living-memory floor as qualifications
+const String _kDateTooOldError =
+    'Itna purana saal sahi nahi lagta — sahi saal chunein.';
+const String _kDateFutureError =
+    'Aage ke mahine ki taareekh nahi ho sakti — aaj tak ka chunein.';
+const String _kDateInvalidError = 'Sahi mahina aur saal chunein.';
 
 const List<String> _kMonths = <String>[
   'Jan',
@@ -209,6 +225,15 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
         .toList();
   }
 
+  /// The cards the worker actually FILLED, as they currently stand — for a
+  /// host that persists them itself rather than through the wizard's [save]
+  /// (the chat road's experience editor, #issue5). Blank cards are dropped,
+  /// mirroring `TradeFormCubit.saveEmploymentAndAdvance`; completeness and the
+  /// date rules are the caller's to check via [currentPageError].
+  List<TradeFormEmploymentEntry> get nonBlankEntries => _entries
+      .where((TradeFormEmploymentEntry e) => !e.isBlank)
+      .toList(growable: false);
+
   /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() {
@@ -220,13 +245,55 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
     widget.onSave(_entries);
   }
 
-  /// Always null: the year/month fields here come from a bounded PICKER
-  /// SHEET (`_YearMonthSheet`), not free text, so an invalid or future date
-  /// cannot be entered in the first place — nothing to block. Present only
-  /// so `_WizardScaffoldState` can check every marker's validity the same
-  /// way; see `TradeFormPreferencesPageState.currentPageError`'s doc for
-  /// why this check exists at all.
-  String? currentPageError() => null;
+  /// #issue2 — every card the worker actually USED must carry a start date, and
+  /// an end date unless it is marked his current job ("Abhi yahin", carried on
+  /// [TradeFormEmploymentEntry.stillWorking]); without this the résumé printed
+  /// "Duration not stated". EVERY card is checked, not only [_page]: employers
+  /// are added with "Aur ek jagah jodein", which jumps to the new card WITHOUT
+  /// passing through the advance button, so a per-page check would leave an
+  /// earlier card unvalidated and save it dateless. A BLANK card is not an
+  /// answer and is never blocked — the worker can skip work history entirely.
+  /// When the offending card is not the one on screen, the page jumps to it so
+  /// the worker sees the fields the message is about.
+  String? currentPageError() {
+    for (int i = 0; i < _entries.length; i++) {
+      final TradeFormEmploymentEntry e = _entries[i];
+      if (e.isBlank) continue;
+      final String? error = _dateErrorFor(e);
+      if (error != null) {
+        if (i != _page) {
+          setState(() => _page = i);
+          widget.onPageChanged?.call(_page, pageCount);
+        }
+        return error;
+      }
+    }
+    return null;
+  }
+
+  /// The date rules for one card, in priority order: a start is always
+  /// required once a card has content; both dates must be well-formed, within
+  /// [_kEarliestWorkYear]…today; an end is required when the card is NOT the
+  /// worker's current job; and the end may not fall before the start. See
+  /// [currentPageError].
+  String? _dateErrorFor(TradeFormEmploymentEntry e) {
+    final String? start = _dateFieldError(
+      e.startYm,
+      requiredMessage: _kStartRequiredError,
+    );
+    if (start != null) return start;
+    if (!e.stillWorking) {
+      final String? end = _dateFieldError(
+        e.endYm,
+        requiredMessage: _kEndRequiredError,
+      );
+      if (end != null) return end;
+      // Start after end — the same rule each picker enforces with a snackbar,
+      // restated here for a value that arrived without passing through one.
+      if (_compareYearMonth(e.endYm, e.startYm) < 0) return _kDateOrderError;
+    }
+    return null;
+  }
 
   /// What the wizard's listen button reads on the CURRENT internal page: the
   /// marker's question (with its note on the first page, where both show) —
@@ -363,6 +430,37 @@ int _compareYearMonth(String? a, String? b) {
   return ma.compareTo(mb);
 }
 
+/// The CURRENT month as "YYYY-MM" — the latest date a work history may hold.
+/// Read at call time (never cached) so the bound rolls over with the calendar
+/// instead of going stale in a constant, the way the picker's old fixed
+/// `_latestYear` did.
+String _currentYearMonth() {
+  final DateTime now = DateTime.now();
+  return '${now.year}-${now.month.toString().padLeft(2, '0')}';
+}
+
+/// Validates ONE work-history date ("YYYY-MM"), returning the message to show
+/// or null when it is sound. [requiredMessage] is used when the value is
+/// missing. The bounds, in order: present → well-formed → not before
+/// [_kEarliestWorkYear] → not in the future. The picker refuses an
+/// out-of-range year/month up front; this is the fail-closed net for values
+/// that arrive from saved/legacy data rather than a pick.
+String? _dateFieldError(String? ym, {required String requiredMessage}) {
+  if (ym == null) return requiredMessage;
+  final List<String> parts = ym.split('-');
+  if (parts.length != 2) return _kDateInvalidError;
+  final int? year = int.tryParse(parts[0]);
+  final int? month = int.tryParse(parts[1]);
+  if (year == null || month == null || month < 1 || month > 12) {
+    return _kDateInvalidError;
+  }
+  if (year < _kEarliestWorkYear) return _kDateTooOldError;
+  if (_compareYearMonth(ym, _currentYearMonth()) > 0) {
+    return _kDateFutureError;
+  }
+  return null;
+}
+
 class _EmployerCardState extends State<_EmployerCard> {
   late final TextEditingController _name = TextEditingController(
     text: widget.entry.employerName,
@@ -374,7 +472,13 @@ class _EmployerCardState extends State<_EmployerCard> {
     text: widget.entry.workDone ?? '',
   );
 
-  late bool _stillWorking = widget.entry.endYm == null;
+  /// The switch reflects BOTH signals: an end date forces "not current", and
+  /// an entry the worker left switched OFF with no end yet (a blocked, unsaved
+  /// state) must come back OFF so the missing end field stays visible and the
+  /// same block can fire again. Defaults ON for a fresh card ([stillWorking]
+  /// defaults true and [endYm] is null).
+  late bool _stillWorking =
+      widget.entry.endYm == null && widget.entry.stillWorking;
 
   @override
   void dispose() {
@@ -441,7 +545,10 @@ class _EmployerCardState extends State<_EmployerCard> {
             value: _stillWorking,
             onChanged: (bool on) {
               setState(() => _stillWorking = on);
-              _push(e.copyWith(endYm: null));
+              // ON — current job: drop any end date. OFF — an end date is now
+              // REQUIRED (see [currentPageError]); it is only dropped if the
+              // worker had not picked one.
+              _push(e.copyWith(stillWorking: on, endYm: on ? null : e.endYm));
             },
           ),
           if (!_stillWorking) ...<Widget>[
@@ -844,6 +951,7 @@ class _YearMonthField extends StatelessWidget {
 
 class _YearMonthSheet extends StatefulWidget {
   const _YearMonthSheet();
+
   @override
   State<_YearMonthSheet> createState() => _YearMonthSheetState();
 }
@@ -851,12 +959,14 @@ class _YearMonthSheet extends StatefulWidget {
 class _YearMonthSheetState extends State<_YearMonthSheet> {
   int? _year;
 
-  /// A fixed span of recent years (newest first) — no wall-clock dependence.
-  static const int _latestYear = 2026;
-  static const int _span = 45;
-
   @override
   Widget build(BuildContext context) {
+    final DateTime now = DateTime.now();
+    // Newest first, and never a future one: the top chip is the CURRENT year
+    // and the floor is [_kEarliestWorkYear], so "1900" and next year cannot be
+    // chosen at all. The current year only offers months up to TODAY, which
+    // closes the last future slot (picking December while it is September).
+    final int firstMonthThisYear = _year == now.year ? now.month : 12;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
@@ -869,7 +979,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
               style: OnboardingTypography.anek(size: 18),
             ),
             const SizedBox(height: 14),
-            // 45 year chips do not fit a 568px screen — the list scrolls
+            // The year chips do not fit a 568px screen — the list scrolls
             // inside the sheet instead of overflowing it.
             ConstrainedBox(
               constraints: BoxConstraints(
@@ -881,7 +991,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                         spacing: 8,
                         runSpacing: 8,
                         children: <Widget>[
-                          for (int y = _latestYear; y > _latestYear - _span; y--)
+                          for (int y = now.year; y >= _kEarliestWorkYear; y--)
                             TradeFormPillChip(
                               label: '$y',
                               labelStyle: OnboardingTypography.mono(
@@ -897,7 +1007,7 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                         spacing: 8,
                         runSpacing: 8,
                         children: <Widget>[
-                          for (int m = 1; m <= 12; m++)
+                          for (int m = 1; m <= firstMonthThisYear; m++)
                             TradeFormPillChip(
                               label: _kMonths[m - 1],
                               onTap: () => Navigator.of(

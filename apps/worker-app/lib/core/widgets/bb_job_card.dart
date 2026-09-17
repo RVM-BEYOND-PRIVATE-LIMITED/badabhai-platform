@@ -17,6 +17,7 @@ class BbJobCardData {
     required this.place,
     this.trade,
     this.shift,
+    this.experience,
     this.tags = const <String>[],
     this.spotsLeft,
     this.matchNote,
@@ -51,6 +52,12 @@ class BbJobCardData {
 
   /// Shift — retained on the model; not rendered on the compact list card.
   final String? shift;
+
+  /// The job's experience window as one honest line ("1–4 yrs experience"),
+  /// already formatted by the caller via `experienceLabel`; null when the feed
+  /// stated no window. Shown as a fact chip on the deck and a quiet line under
+  /// the place on the list row.
+  final String? experience;
 
   /// Only ever shown for a REAL employer; never a badge on an invented name.
   final bool verified;
@@ -87,6 +94,15 @@ class BbJobCardData {
   /// The value the card shows in its right-hand meta slot: an explicit
   /// [metaRight] wins, otherwise [shift].
   String? get effectiveMetaRight => metaRight ?? shift;
+
+  /// Whether [trade] earns its own line: present AND not merely a restatement of
+  /// the [title]. A job titled "CNC Operator" whose trade is also "CNC Operator"
+  /// would otherwise print the same words twice; the title has already said it.
+  bool get showsTrade {
+    final String? t = trade;
+    if (t == null || t.trim().isEmpty) return false;
+    return t.trim().toLowerCase() != title.trim().toLowerCase();
+  }
 }
 
 /// TalkBack label for the title button. Hinglish, matching the app voice and the
@@ -245,7 +261,7 @@ class _HeaderRow extends StatelessWidget {
                 _titleText(data.title)
               else
                 _TitleButton(onTap: onTitleTap!, title: _titleText(data.title)),
-              if (data.trade != null && data.trade!.isNotEmpty) ...<Widget>[
+              if (data.showsTrade) ...<Widget>[
                 const SizedBox(height: 2),
                 Text(
                   data.trade!,
@@ -260,6 +276,15 @@ class _HeaderRow extends StatelessWidget {
               ],
               const SizedBox(height: 2),
               _SubtitleRow(data: data),
+              if (data.experience != null) ...<Widget>[
+                const SizedBox(height: 2),
+                Text(
+                  data.experience!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: OnboardingTypography.bodyMuted(),
+                ),
+              ],
             ],
           ),
         ),
@@ -638,7 +663,7 @@ class _DeckBody extends StatelessWidget {
     // #374 follow-and-snap-back gesture owns.
     final String? meta = data.effectiveMetaRight;
     final String? pay = data.payBand;
-    final bool hasFacts = pay != null || meta != null;
+    final bool hasFacts = pay != null || meta != null || data.experience != null;
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints box) {
         if (!box.maxHeight.isFinite) {
@@ -787,6 +812,19 @@ class _DeckBody extends StatelessWidget {
             ],
           ],
         ),
+        if (data.showsTrade) ...<Widget>[
+          const SizedBox(height: 4),
+          Text(
+            data.trade!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w600,
+              color: OnboardingColors.ink600,
+            ),
+          ),
+        ],
         const SizedBox(height: 4),
         _SubtitleRow(data: data),
         if (data.matchNote != null && !_notePlacedInFreeSpace) ...<Widget>[
@@ -828,6 +866,13 @@ class _DeckBody extends StatelessWidget {
         if (meta != null)
           KitInfoChip(
             label: meta,
+            dot: OnboardingColors.ink500,
+            showCheck: false,
+            maxLines: 1,
+          ),
+        if (data.experience != null)
+          KitInfoChip(
+            label: data.experience!,
             dot: OnboardingColors.ink500,
             showCheck: false,
             maxLines: 1,

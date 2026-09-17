@@ -224,6 +224,34 @@ void main() {
       handle.dispose();
     });
 
+    // #issue3 — the feed carries the experience window and the card must show
+    // it (never invent one when the feed states none).
+    testWidgets('shows the experience line when given, hides it when not', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          const BbJobCard(
+            data: BbJobCardData(
+              title: 'CNC Operator',
+              place: 'Pimpri, Pune',
+              experience: '1–4 yrs experience',
+            ),
+          ),
+        ),
+      );
+      expect(find.text('1–4 yrs experience'), findsOneWidget);
+
+      await tester.pumpWidget(
+        _host(
+          const BbJobCard(
+            data: BbJobCardData(title: 'CNC Operator', place: 'Pimpri, Pune'),
+          ),
+        ),
+      );
+      expect(find.textContaining('yrs experience'), findsNothing);
+    });
+
     testWidgets('omits the quota line when spotsLeft is null', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -278,6 +306,28 @@ void main() {
       // The list row keeps `shift` on the model and never renders it; the deck
       // card has the room, so it shows it.
       expect(find.text('Day shift'), findsOneWidget);
+    });
+
+    // #issue3 — the deck surfaces the trade/skill line and the experience
+    // window, the two feed facts the deck previously dropped.
+    testWidgets('surfaces the trade line and the experience chip', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        deckHost(
+          const BbJobCardData(
+            title: 'VMC Operator',
+            trade: 'CNC Operator',
+            place: 'Chakan, Pune',
+            payBand: '₹16k–26k',
+            shift: 'Night',
+            experience: '1–4 yrs experience',
+          ),
+        ),
+      );
+
+      expect(find.text('CNC Operator'), findsOneWidget); // trade, own line
+      expect(find.text('1–4 yrs experience'), findsOneWidget); // facts chip
     });
 
     // The CARD carries no Skip/Apply affordance of its own: the deck's two big

@@ -11,6 +11,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
+import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
@@ -686,7 +687,8 @@ class _ActiveFilterChip extends StatelessWidget {
 }
 
 /// Maps a REAL [FeedItem] to the card. Per the ADR-0024 addendum (2026-07-16)
-/// the feed now carries the REAL pay band + shift, so the card shows them when
+/// the feed carries the REAL pay band + shift, and it also carries the
+/// experience window and the trade/skill, so the card now shows all four when
 /// present — a null field simply leaves its row hidden (never invented). Still
 /// NEVER set here: company (employer identity is hidden entirely — nothing
 /// employer-shaped, PII per CLAUDE.md §2), tags, spots-left, and `hot` (no real
@@ -699,13 +701,33 @@ class _ActiveFilterChip extends StatelessWidget {
 BbJobCardData _cardData(FeedItem item) {
   return BbJobCardData(
     title: item.title,
+    trade: _feedTrade(item),
     place: (item.area == null || item.area!.isEmpty)
         ? item.city
         : '${item.area}, ${item.city}',
     payBand: formatPayBandCompact(item.payMin, item.payMax),
     shift: shiftLabel(item.shift),
+    experience: experienceLabel(
+      item.minExperienceYears,
+      item.maxExperienceYears,
+    ),
     matchNote: matchNoteFor(item),
   );
+}
+
+/// The card's trade/skill line, humanised and never an id (the #1027 rule).
+/// The server's matched-skill LABEL wins when it names one; otherwise the
+/// legacy `trade_key` is humanised ("cnc_operator" → "CNC Operator").
+///
+/// A RELATED match ([FeedItem.viaRelated]) drops the line because [matchNoteFor]
+/// already prints that same skill in the "why this job" note — showing both
+/// would repeat one fact twice.
+String? _feedTrade(FeedItem item) {
+  if (item.viaRelated) return null;
+  final String? label = item.matchedSkillLabel;
+  if (label != null && label.trim().isNotEmpty) return label.trim();
+  final String legacy = tradeKeyLabel(item.tradeKey);
+  return legacy.isEmpty ? null : legacy;
 }
 
 /// E18 (ADR-0036) — the card's "why am I seeing this" line.

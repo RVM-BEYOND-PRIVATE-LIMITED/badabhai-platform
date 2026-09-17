@@ -449,6 +449,13 @@ BbJobCardData _cardData(JobSearchItem item) {
     place: item.place,
     payBand: formatPayBandCompact(item.payMin, item.payMax),
     shift: shiftLabel(item.shift),
+    // The matched-skill label already rides [matchNote] here, and the place line
+    // already carries the state, so experience is the one payload field left to
+    // surface; a null window hides the row rather than inventing one.
+    experience: experienceLabel(
+      item.minExperienceYears,
+      item.maxExperienceYears,
+    ),
     matchNote: _searchMatchNote(item),
   );
 }
