@@ -22,7 +22,9 @@ import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
 import '../../profile_tab/presentation/widgets/profile_identity_card.dart'
     show profileExperienceLabel;
+import '../../trade_form/domain/trade_form_models.dart';
 import 'cubit/profile_cubit.dart';
+import 'experience_editor_screen.dart';
 
 /// Corner radius of one confirm-row card (Master UI Kit: "white r14 cards").
 const double _kConfirmRowRadius = 14;
@@ -177,7 +179,7 @@ class _ProfileViewState extends State<_ProfileView> {
                     ProfileStatus.failed => _buildFailed(context, state),
                     ProfileStatus.draft => _buildDraft(context),
                     ProfileStatus.ready || ProfileStatus.confirmed =>
-                      _buildProfile(context, state.summary),
+                      _buildProfile(context, state),
                   },
                 ),
               ),
@@ -300,11 +302,12 @@ class _ProfileViewState extends State<_ProfileView> {
   /// glyph (tap → back to chat to change it). Every value is actual data or an
   /// honest "being finalised" note — never a fabricated placeholder (the worker
   /// confirms what they can actually see).
-  Widget _buildProfile(BuildContext context, ProfileSummary? summary) {
+  Widget _buildProfile(BuildContext context, ProfileState state) {
+    final ProfileSummary? summary = state.summary;
     // #1524 — the chat road gets its own visibly distinct variant. The form
     // road and the unknown (`null`) road keep today's exact rendering.
     if (summary != null && summary.isChatSourced) {
-      return _buildChatProfile(context, summary);
+      return _buildChatProfile(context, summary, state.employments);
     }
     final List<Widget> rows = <Widget>[];
     if (summary == null) {
@@ -370,7 +373,11 @@ class _ProfileViewState extends State<_ProfileView> {
   /// and a chat-road heading sets it apart from the form's Trade/City/Education
   /// sheet (the two are never silently mixed). Every value is real or an honest
   /// "being finalised" note; nothing is fabricated.
-  Widget _buildChatProfile(BuildContext context, ProfileSummary summary) {
+  Widget _buildChatProfile(
+    BuildContext context,
+    ProfileSummary summary,
+    List<TradeFormEmploymentEntry> employments,
+  ) {
     final String occupation = _tradeText(summary) ?? 'Tayyar ho raha hai…';
     final double? years = summary.experienceYears;
     final String? experience =
@@ -402,10 +409,99 @@ class _ProfileViewState extends State<_ProfileView> {
               onEdit: () => _editProfile(context, summary),
             ),
           ],
+          // #issue5 — the chat road told the truth about ONE aggregate
+          // "Anubhav" and stopped there, so a worker with two or three jobs had
+          // no way to record them. The form's repeated-card editor is reused
+          // (same validation, same endpoint) and every added row is shown here
+          // so the write is never blind — tapping a row reopens the editor.
+          for (final TradeFormEmploymentEntry e in employments) ...<Widget>[
+            const SizedBox(height: 10),
+            _ConfirmRow(
+              label: 'Kaam ki jagah',
+              value: _employmentLine(e),
+              onEdit: () => _openExperienceEditor(context, employments),
+            ),
+          ],
+          const SizedBox(height: 14),
+          _SecondaryButton(
+            label: 'Aur anubhav jodein',
+            icon: Icons.add,
+            expand: true,
+            onPressed: () => _openExperienceEditor(context, employments),
+          ),
         ],
       ),
     );
   }
+
+  /// #issue5 — opens the reused form employment editor over this screen. The
+  /// live [ProfileCubit] is re-provided to the pushed route (it sits above the
+  /// app's Navigator, so the route does not inherit it), letting the editor
+  /// save and the confirm screen rebuild with the new rows.
+  Future<void> _openExperienceEditor(
+    BuildContext context,
+    List<TradeFormEmploymentEntry> employments,
+  ) async {
+    final ProfileCubit cubit = context.read<ProfileCubit>();
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => BlocProvider<ProfileCubit>.value(
+          value: cubit,
+          child: ExperienceEditorScreen(
+            initialEntries: employments,
+            loadOptions: cubit.loadEmploymentOptions,
+            onSave: cubit.saveEmployments,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// #issue5 — one banked work-history row as a single confirm line:
+/// "Sandhar · Operator · Mar 2020 – abhi". Missing pieces are simply dropped;
+/// nothing is invented for a field the worker left out.
+String _employmentLine(TradeFormEmploymentEntry e) {
+  final String employer = e.employerName.trim();
+  final String role = e.roleLabel.trim();
+  final String when = _employmentWhen(e);
+  final String head = role.isEmpty ? employer : '$employer · $role';
+  return when.isEmpty ? head : '$head · $when';
+}
+
+/// "Mar 2020 – Feb 2023", "Mar 2020 – abhi", or "" when both ends are absent.
+String _employmentWhen(TradeFormEmploymentEntry e) {
+  final String? start = _shortYearMonth(e.startYm);
+  final String? end = e.stillWorking ? 'abhi' : _shortYearMonth(e.endYm);
+  if (start == null) return end ?? '';
+  if (end == null) return start;
+  return '$start – $end';
+}
+
+const List<String> _kShortMonths = <String>[
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+/// "2023-03" → "Mar 2023"; null/unparsable returns null so the caller can drop
+/// the segment rather than print a raw id-shaped value.
+String? _shortYearMonth(String? ym) {
+  if (ym == null) return null;
+  final List<String> parts = ym.split('-');
+  if (parts.length != 2) return null;
+  final int? month = int.tryParse(parts[1]);
+  if (month == null || month < 1 || month > 12) return null;
+  return '${_kShortMonths[month - 1]} ${parts[0]}';
 }
 
 /// #1524 — the chat-road marker on the confirm variant: a chat glyph plus the

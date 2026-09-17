@@ -10,6 +10,8 @@ import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_client.dart'
+    show WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
@@ -491,6 +493,152 @@ void main() {
       expect(find.text('Welder'), findsOneWidget);
       expect(find.text('CITY'), findsOneWidget);
       expect(find.text(kChatProfileHeading), findsNothing);
+    });
+  });
+
+  // ---- #issue5 — add another experience from the chat confirm screen -------
+  //
+  // The chat road used to show ONE aggregate "Anubhav" and stop, so a worker
+  // with several jobs could not record them. The confirm screen now offers the
+  // form's own repeated-card editor (same validation, same PUT endpoint).
+  group('#issue5 add experience on the chat confirm screen', () {
+    Future<MockTradeFormRepository> pumpForExperience(
+      WidgetTester tester, {
+      String? source = 'chat',
+    }) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      await locator.reset();
+      final MockProfileRepository repo = MockProfileRepository();
+      final MockProfileSummaryRepository summaryRepo =
+          MockProfileSummaryRepository();
+      final MockTradeFormRepository tradeFormRepo = MockTradeFormRepository();
+      when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
+      when(() => summaryRepo.summary()).thenAnswer(
+        (_) async => ProfileSummary(
+          tradeLabel: 'Welder',
+          strengthSignals: 4,
+          experienceYears: 3,
+          source: source,
+        ),
+      );
+      when(() => tradeFormRepo.loadPreferenceOptions()).thenAnswer(
+        (_) async => const WorkPrefOptionsDto(
+          languages: <String, String>{},
+          documentsReady: <String, String>{},
+          jobType: <String, String>{},
+          shift: <String, String>{},
+        ),
+      );
+      when(() => tradeFormRepo.saveEmployment(any())).thenAnswer((_) async {});
+      locator.registerFactory<ProfileCubit>(
+        () => ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo),
+      );
+
+      tester.view.physicalSize = const Size(900, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(),
+          home: const ProfilePreviewScreen(),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      return tradeFormRepo;
+    }
+
+    testWidgets('the chat confirm screen offers the add-experience action',
+        (WidgetTester tester) async {
+      await pumpForExperience(tester);
+
+      expect(find.text('Aur anubhav jodein'), findsOneWidget);
+      expect(find.text('Haan, sahi hai'), findsOneWidget);
+    });
+
+    testWidgets('the form road does not get the chat add action',
+        (WidgetTester tester) async {
+      await pumpForExperience(tester, source: 'form');
+
+      expect(find.text('Aur anubhav jodein'), findsNothing);
+    });
+
+    testWidgets(
+        'adding a job opens the form editor, saves, and shows the new row',
+        (WidgetTester tester) async {
+      final MockTradeFormRepository tradeFormRepo =
+          await pumpForExperience(tester);
+
+      await tester.tap(find.text('Aur anubhav jodein'));
+      await tester.pumpAndSettle();
+
+      // The reused form editor, with its own save button.
+      expect(find.text('Kaam ka anubhav'), findsOneWidget);
+      expect(find.text('Save karein'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.pump();
+
+      // The form's own date rule still applies: a start is required.
+      await tester.ensureVisible(find.text('Nahi bataya').first);
+      await tester.tap(find.text('Nahi bataya').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('2021'));
+      await tester.tap(find.text('2021'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Jan'));
+      await tester.tap(find.text('Jan'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save karein'));
+      await tester.pumpAndSettle();
+
+      verify(() => tradeFormRepo.saveEmployment(any())).called(1);
+      // Back on the confirm screen, the added job is visible — the write was
+      // not blind.
+      expect(find.text('Aur anubhav jodein'), findsOneWidget);
+      expect(find.textContaining('Acme'), findsOneWidget);
+    });
+
+    testWidgets('a failed save keeps the editor open and names the reason',
+        (WidgetTester tester) async {
+      final MockTradeFormRepository tradeFormRepo =
+          await pumpForExperience(tester);
+      when(() => tradeFormRepo.saveEmployment(any()))
+          .thenThrow(const NetworkFailure());
+
+      await tester.tap(find.text('Aur anubhav jodein'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Nahi bataya').first);
+      await tester.tap(find.text('Nahi bataya').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('2021'));
+      await tester.tap(find.text('2021'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Jan'));
+      await tester.tap(find.text('Jan'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save karein'));
+      await tester.pumpAndSettle();
+
+      // Still on the editor, with the real reason surfaced — never a silent
+      // pop that pretends the save worked.
+      expect(find.text('Kaam ka anubhav'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
     });
   });
 }
