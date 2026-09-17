@@ -29,6 +29,13 @@ import type { WorkerSkillRow } from "./types";
 export interface DeriveWorkerSkillsInput {
   /** The canonical `role_*` id from the worker profile, if one was resolved. */
   canonicalRoleId?: string | null;
+  /**
+   * Layer A (f) — the worker's DECLARED SECONDARY `role_*` ids (migration 0114), in the worker's
+   * own order. Each rides the SAME `ROLE_TO_MATCH_SKILL` bridge as the primary role; an id the
+   * bridge does not cover contributes nothing and stays display-only. This adds no vocabulary and
+   * no rank key — it is one more declared id through an existing bridge.
+   */
+  additionalRoleIds?: readonly string[];
   /** Canonical corpus (`skill_*`) attribute ids on the worker profile. */
   profileSkills?: readonly string[];
   /** The worker's estimated TOTAL experience, in years. `null` when unknown. */
@@ -39,6 +46,7 @@ export interface DeriveWorkerSkillsInput {
  * Derive the worker's V1 skill rows.
  *
  * SET   = `ROLE_TO_MATCH_SKILL[canonicalRoleId]` (if any)
+ *       ∪ `ROLE_TO_MATCH_SKILL[r]` for every declared secondary role id `r` (Layer A (f))
  *       ∪ `ATTRIBUTE_TO_MATCH_SKILLS[s]` for every corpus attribute `s`
  * MONTHS= `bucketMonths(totalYears)` — identically on every row (the coarse rule)
  * WANTS = `true` — the launch default; a worker who says otherwise flips the row
@@ -53,11 +61,12 @@ export function deriveWorkerSkills(
 ): WorkerSkillRow[] {
   const skillIds = new Set<MatchSkillId>();
 
-  const fromRole =
-    typeof input.canonicalRoleId === "string"
-      ? matchSkillForRole(input.canonicalRoleId)
-      : undefined;
-  if (fromRole !== undefined) skillIds.add(fromRole);
+  const roleIds = [input.canonicalRoleId, ...(input.additionalRoleIds ?? [])];
+  for (const roleId of roleIds) {
+    if (typeof roleId !== "string") continue;
+    const fromRole = matchSkillForRole(roleId);
+    if (fromRole !== undefined) skillIds.add(fromRole);
+  }
 
   for (const attribute of input.profileSkills ?? []) {
     if (typeof attribute !== "string") continue;

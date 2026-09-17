@@ -133,6 +133,20 @@ export const WorkerPortfolioRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (f) — the worker replaced their list of SECONDARY occupations
+// (PUT /workers/me/occupations, migration 0114).
+//
+// COUNTS ONLY. The role ids are a closed public vocabulary, but a per-worker list of trades he
+// can also do is a supply profile the spine has no reader for — the same rule
+// `worker.match_skills_rebuilt` already applies to skill ids.
+export const WorkerOccupationsRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    occupation_count: z.number().int().min(0).max(4),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the

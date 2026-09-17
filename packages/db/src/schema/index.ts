@@ -17,7 +17,7 @@
 
 import { workerConsents, workerCredentials, workerDevices, workers } from "./worker";
 import { skillAliases, skillRelated, skills, unresolvedPhrases } from "./skill";
-import { jobDomainAliases, jobDomains } from "./occupation";
+import { jobDomainAliases, jobDomains, workerOccupations } from "./occupation";
 import { jobDomainSkills, jobPostingSkills, workerProfileSkills } from "./taxonomy";
 import {
   skillCandidateMatches,
@@ -360,6 +360,9 @@ export const schema = {
   workerTrainings,
   workerLanguages,
   workerPortfolio,
+  // Layer A (f) — the worker's declared secondary occupations (migration 0114). Present on
+  // every migrated database, so it belongs in this object as well as the `export *` above.
+  workerOccupations,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,
