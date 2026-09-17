@@ -807,6 +807,13 @@
       "when": 1789634573196,
       "tag": "0114_worker_occupation",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1789636256316,
+      "tag": "0115_worker_verification",
+      "breakpoints": true
     }
   ]
 }

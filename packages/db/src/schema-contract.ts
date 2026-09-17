@@ -485,6 +485,22 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "role can read the whole table. Both surfaces keep working, so nothing reports it",
   },
   {
+    id: "0115-worker-verification-columns",
+    migration: "0115_worker_verification",
+    kind: "column",
+    table: "workers",
+    object: "verification_state",
+    requiredBy:
+      "WorkersRepository.findById is `select()` = every model column, on the render path " +
+      "(resume-render.processor) AND the worker-auth path — both name the columns " +
+      "unconditionally. `verified_at` is added by the same migration and fails together",
+    failureMode:
+      "every worker read 500s (column does not exist): login, guard, profile summary, résumé " +
+      "render — the whole worker surface. Old builds on a migrated database are fine (a " +
+      "superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",
