@@ -120,6 +120,19 @@ export const WorkerLanguagesRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (e) — the worker replaced their portfolio (PUT /workers/me/portfolio,
+// migration 0113).
+//
+// COUNTS ONLY. A caption is worker-typed free text and a storage key is a pointer to personal
+// media; neither may ride the spine. `item_count` is the resulting list length.
+export const WorkerPortfolioRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    item_count: z.number().int().min(0).max(12),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the

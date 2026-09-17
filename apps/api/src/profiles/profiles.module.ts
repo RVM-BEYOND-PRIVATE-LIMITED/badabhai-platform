@@ -22,6 +22,9 @@ import { WorkerQualificationsController } from "./worker-qualifications.controll
 import { WorkerLanguagesRepository } from "./worker-languages.repository";
 import { WorkerLanguagesService } from "./worker-languages.service";
 import { WorkerLanguagesController } from "./worker-languages.controller";
+import { WorkerPortfolioRepository } from "./worker-portfolio.repository";
+import { WorkerPortfolioService } from "./worker-portfolio.service";
+import { WorkerPortfolioController } from "./worker-portfolio.controller";
 import { WorkersModule } from "../workers/workers.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
@@ -84,6 +87,9 @@ import {
     // reason the qualifications one has one: the page owns repeatable, ordered rows through
     // delete-then-insert, not single attribute keys.
     WorkerLanguagesController,
+    // Migration 0113 — the portfolio page (work samples). Needs StorageService for the signed
+    // mint/read URLs; StorageModule is @Global, so no module edge is added.
+    WorkerPortfolioController,
   ],
   providers: [
     ProfilesService,
@@ -130,6 +136,9 @@ import {
     // dependency shape as the qualifications pair above, so it adds two providers and no edge.
     WorkerLanguagesRepository,
     WorkerLanguagesService,
+    // Migration 0113 — `worker_portfolio`. @Global DATABASE + StorageService only.
+    WorkerPortfolioRepository,
+    WorkerPortfolioService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

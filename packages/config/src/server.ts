@@ -131,6 +131,15 @@ export const serverEnvSchema = z.object({
   // dormant. The photo is for the worker's OWN app + OWN resume PDF only — it must
   // NEVER reach the payer surface, the disclosure PDF, events, ai_jobs, or logs.
   WORKER_PHOTOS_BUCKET: z.string().default(""),
+  /**
+   * Layer A (e) — private Storage bucket for the worker's PORTFOLIO media (photos/videos).
+   *
+   * SAME DORMANCY CONTRACT as the photos bucket above: empty means the feature is dark and the
+   * mint route answers 503. Same Storage Mode A (service-role, backend-only) and the same
+   * server-chosen opaque key shape: `portfolio/{workerId}/{uuid}.{ext}`, never client-supplied.
+   * External LINKS need no bucket at all — they are stored as URLs on `worker_portfolio`.
+   */
+  WORKER_PORTFOLIO_BUCKET: z.string().default(""),
   // #1191 — private Storage bucket for the images a worker attaches to a FEEDBACK
   // submission. Same Storage Mode A (service-role, backend-only) and the same
   // server-chosen opaque key shape as the photos bucket above:

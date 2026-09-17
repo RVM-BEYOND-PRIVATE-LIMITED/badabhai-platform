@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 183 event names (179 prior + the two trade-form offer steps + Layer A)", () => {
-    expect(EVENT_NAMES).toHaveLength(183);
+  it("exposes all 184 event names (179 prior + the two trade-form offer steps + Layer A)", () => {
+    expect(EVENT_NAMES).toHaveLength(184);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4602,5 +4602,48 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     expect(
       validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,
     ).toBe(false);
+  });
+});
+
+describe("worker.portfolio_recorded (Layer A (e) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.portfolio_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, item_count: 2, replaced_existing: true };
+
+  it("validates the counts-only shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, item_count: 0 })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying a caption, a storage key or a URL", () => {
+    // `.strict()` is the guard: a worker's caption is free text and a storage key points at
+    // personal media — neither may ride the spine. Asserted valid first.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { caption: "Meri welding clip" },
+      { storage_key: "portfolio/w/key.jpg" },
+      { url: "https://youtu.be/abc" },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the count and the replaced flag", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
+    expect(validateEvent(recorded({ ...valid, item_count: 13 })).success).toBe(false);
   });
 });
