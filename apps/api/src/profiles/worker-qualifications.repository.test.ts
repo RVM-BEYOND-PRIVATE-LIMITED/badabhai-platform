@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
-import { type Database, workerCertificates, workerEducations } from "@badabhai/db";
+import { type Database, workerCertificates, workerEducations, workerTrainings } from "@badabhai/db";
 
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 
@@ -60,6 +60,7 @@ type Call = SelectCall | DeleteCall | InsertCall;
 interface Rows {
   certificates?: Record<string, unknown>[];
   educations?: Record<string, unknown>[];
+  trainings?: Record<string, unknown>[];
 }
 
 /**
@@ -75,7 +76,11 @@ function makeDb(rows: Rows = {}, failInsertOn?: unknown) {
   const calls: Call[] = [];
   const state = { entered: 0, aborted: false };
   const rowsFor = (table: unknown): Record<string, unknown>[] =>
-    table === workerCertificates ? (rows.certificates ?? []) : (rows.educations ?? []);
+    table === workerCertificates
+      ? (rows.certificates ?? [])
+      : table === workerTrainings
+        ? (rows.trainings ?? [])
+        : (rows.educations ?? []);
 
   const makeOps = (via: Via) => ({
     select: (projection: Record<string, unknown>) => ({
@@ -229,6 +234,7 @@ describe("WorkerQualificationsRepository.replaceForWorker — one submission, on
     expect(result).toEqual({
       certificatesWritten: 0,
       educationsWritten: 0,
+      trainingsWritten: 0,
       replacedExisting: false,
     });
   });
@@ -289,6 +295,9 @@ describe("WorkerQualificationsRepository.replaceForWorker — sort_order is the 
       name: "Internal Auditor — IATF 16949",
       issuer: "TÜV",
       year: 2021,
+      // Layer A (d): the columns exist on every row even when no licence was given.
+      licenceNumberEnc: null,
+      licenceExpiry: null,
       sortOrder: 0,
     });
   });
@@ -373,19 +382,23 @@ describe("WorkerQualificationsRepository.loadForResume — the read", () => {
     return { calls: m.calls, state: m.state, result };
   }
 
-  it("reads BOTH tables outside any transaction", async () => {
-    // A read-only pair of statements; wrapping them would hold a transaction open on the render
+  it("reads ALL THREE tables outside any transaction", async () => {
+    // A read-only set of statements; wrapping them would hold a transaction open on the render
     // path for nothing.
     const { calls, state } = await load();
     expect(state.entered).toBe(0);
-    expect(calls.map((c) => c.table)).toEqual([workerCertificates, workerEducations]);
+    expect(calls.map((c) => c.table)).toEqual([
+      workerCertificates,
+      workerEducations,
+      workerTrainings,
+    ]);
   });
 
-  it("binds THIS worker's id in the WHERE of both statements", async () => {
-    // The only scoping there is — neither table is otherwise filtered, so an unbound or
+  it("binds THIS worker's id in the WHERE of every statement", async () => {
+    // The only scoping there is — none of the tables is otherwise filtered, so an unbound or
     // mis-bound predicate prints someone else's credentials on this worker's sheet.
     const { calls } = await load({}, OTHER_WORKER);
-    for (const table of [workerCertificates, workerEducations]) {
+    for (const table of [workerCertificates, workerEducations, workerTrainings]) {
       const { sql, params } = compile(selectOn(calls, table)?.where);
       expect(sql).toContain('"worker_id"');
       expect(params).toEqual([OTHER_WORKER]);
@@ -397,7 +410,7 @@ describe("WorkerQualificationsRepository.loadForResume — the read", () => {
     // from `year` reshuffles rows between renders. A `desc` regression would print the worker's
     // list upside down with nothing failing.
     const { calls } = await load();
-    for (const table of [workerCertificates, workerEducations]) {
+    for (const table of [workerCertificates, workerEducations, workerTrainings]) {
       const orderBy = selectOn(calls, table)?.orderBy;
       expect(orderBy).toHaveLength(1);
       const { sql } = compile(orderBy?.[0]);
@@ -406,12 +419,16 @@ describe("WorkerQualificationsRepository.loadForResume — the read", () => {
     }
   });
 
-  it("projects exactly the columns the renderer prints — no ids, no worker_id, no timestamps", async () => {
+  it("projects exactly the columns the reader needs — no ids, no worker_id, no timestamps", async () => {
     // Zone 5 composes from these and nothing else. An over-wide projection hands the render path
-    // columns it has no business reading; a missing one blanks a segment silently.
+    // columns it has no business reading; a missing one blanks a segment silently. The licence
+    // columns ARE projected from `worker_certificate` now: the worker-self GET decrypts the
+    // number, and the composition ignores both fields (asserted in its own suite).
     const { calls } = await load();
     expect(Object.keys(selectOn(calls, workerCertificates)!.projection).sort()).toEqual([
       "issuer",
+      "licenceExpiry",
+      "licenceNumberEnc",
       "name",
       "year",
     ]);
@@ -420,6 +437,11 @@ describe("WorkerQualificationsRepository.loadForResume — the read", () => {
       "credential",
       "field",
       "institute",
+      "year",
+    ]);
+    expect(Object.keys(selectOn(calls, workerTrainings)!.projection).sort()).toEqual([
+      "name",
+      "provider",
       "year",
     ]);
   });
@@ -440,10 +462,10 @@ describe("WorkerQualificationsRepository.loadForResume — the read", () => {
     ]);
   });
 
-  it("returns two empty lists for a worker with no credentials", async () => {
+  it("returns three empty lists for a worker with no credentials", async () => {
     // The ordinary case for every worker who has not opened the page. Absence must not be an
     // error, because Zone 5 is optional on the sheet.
     const { result } = await load();
-    expect(result).toEqual({ certificates: [], educations: [] });
+    expect(result).toEqual({ certificates: [], educations: [], trainings: [] });
   });
 });

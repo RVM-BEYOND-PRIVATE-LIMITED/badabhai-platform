@@ -221,6 +221,14 @@ export const WorkerQualificationsRecordedPayload = z
     certificate_count: z.number().int().min(0).max(8),
     /** How many education rows this submission stored. */
     education_count: z.number().int().min(0).max(4),
+    /**
+     * ADR-0042 D9 / Layer A (d) — how many TRAINING rows this submission stored.
+     *
+     * OPTIONAL, AND THAT IS THE SCHEMA-CONTRACT POSTURE: rows emitted before migration 0112
+     * carry no such field and must stay valid (invariant #8), so this is `.optional()` rather
+     * than defaulted. New rows always carry it.
+     */
+    training_count: z.number().int().min(0).max(8).optional(),
     /** True when this replaced rows the worker already had, rather than creating the first ones. */
     replaced_existing: z.boolean(),
   })

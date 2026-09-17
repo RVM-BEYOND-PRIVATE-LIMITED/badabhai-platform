@@ -50,6 +50,24 @@ export interface WorkerCertificateRecord {
   readonly name: string;
   readonly issuer: string | null;
   readonly year: number | null;
+  /**
+   * Layer A (d) — PRESENT ON THE ROW, NEVER PRINTED HERE.
+   *
+   * The licence number (ciphertext, decrypted only by the worker-self GET) and the expiry date
+   * are structurally outside every composition in this file. They are declared so the repository's
+   * row type and this one agree, and a test asserts that a record carrying both composes the same
+   * line as a record without them — so no future edit to `certificateLine` can leak them by
+   * accident.
+   */
+  readonly licenceNumberEnc?: string | null;
+  readonly licenceExpiry?: string | null;
+}
+
+/** One `worker_training` row (migration 0112, Layer A (d)). PII-free: a course, not identity. */
+export interface WorkerTrainingRecord {
+  readonly name: string;
+  readonly provider: string | null;
+  readonly year: number | null;
 }
 
 /**
@@ -171,6 +189,25 @@ export function certificateFacts(records: readonly WorkerCertificateRecord[]): s
 }
 
 /**
+ * One training as the sheet prints it: "3-month CNC Operator Course (Govt. ITI, 2019)".
+ *
+ * DELEGATES TO {@link certificateLine}, DELIBERATELY: the grammar is identical (name, then a
+ * conditional parenthetical holding provider and year) and the two compositions exist in one
+ * function so they cannot drift a comma apart. `provider` maps onto the `issuer` segment.
+ *
+ * ONLY THE THREE PRINTABLE FIELDS. The record type carries no licence fields at all — a training
+ * has no number and no expiry (Layer A (d)); those belong to the certificate that is a licence.
+ */
+export function trainingLine(record: WorkerTrainingRecord): string | null {
+  return certificateLine({ name: record.name, issuer: record.provider, year: record.year });
+}
+
+/** Every training the worker attended, in their own order. */
+export function trainingFacts(records: readonly WorkerTrainingRecord[]): string[] {
+  return records.map(trainingLine).filter((line): line is string => line !== null);
+}
+
+/**
  * One language row as the sheet prints it, e.g. "Hindi (speaks, reads, writes)".
  *
  * AN UNKNOWN SLUG IS DROPPED, not printed raw — `labelFor`'s safety property, and the same rule
@@ -236,19 +273,24 @@ export function qualificationFactsFrom(loaded: {
    * back to the `languages` attribute exactly as it does today.
    */
   readonly languages?: readonly WorkerLanguageRecord[];
+  /** Migration 0112 / Layer A (d) — the worker's courses. Same optional-override contract. */
+  readonly trainings?: readonly WorkerTrainingRecord[];
 }):
   | {
       educationHeadline: string | null;
       education: string[];
       certifications: string[];
       languages?: string[];
+      trainings?: string[];
     }
   | undefined {
   const languageLines = languageFacts(loaded.languages ?? []);
+  const trainingLines = trainingFacts(loaded.trainings ?? []);
   if (
     loaded.certificates.length === 0 &&
     loaded.educations.length === 0 &&
-    languageLines.length === 0
+    languageLines.length === 0 &&
+    trainingLines.length === 0
   )
     return undefined;
   const education = educationFacts(loaded.educations);
@@ -261,5 +303,7 @@ export function qualificationFactsFrom(loaded: {
     // array is an ASSERTION ("this worker speaks no language") that would suppress the attribute
     // list the finishing form still writes. Undefined means "nothing to say" and lets it through.
     languages: languageLines.length > 0 ? languageLines : undefined,
+    // Training lines follow the same per-field rule: present rows win, absent says nothing.
+    trainings: trainingLines.length > 0 ? trainingLines : undefined,
   };
 }
