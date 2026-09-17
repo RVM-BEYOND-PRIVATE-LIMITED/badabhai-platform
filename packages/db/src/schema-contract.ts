@@ -337,6 +337,38 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "that is the smaller half of the blast radius",
   },
   {
+    id: "0110-worker-language-table",
+    migration: "0110_worker_language",
+    kind: "table",
+    table: "worker_language",
+    requiredBy:
+      "WorkerLanguagesRepository.loadForResume / .replaceForWorker on GET+PUT /workers/me/languages " +
+      "and the résumé render processor's language load — all name the table unconditionally, none " +
+      "is behind a flag. The render path degrades on failure (the row falls back to the `languages` " +
+      "attribute), so the PUT is the loud surface",
+    failureMode:
+      "PUT /workers/me/languages 500s (relation does not exist) and the languages row silently " +
+      "falls back to the older attribute list on every render. The fallback is CORRECT, which is " +
+      "why this is listed rather than left to be noticed: nothing looks broken, the richer fact " +
+      "is simply never stored",
+  },
+  {
+    id: "0110-worker-language-rls",
+    migration: "0110_worker_language",
+    kind: "rls",
+    table: "worker_language",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. These rows are a worker's own declared abilities for THIS platform's matching and " +
+      "résumé surfaces. Without FORCE the table owner — the only connection the backend uses — " +
+      "bypasses every policy, and without the REVOKEs every PostgREST role can read the worker " +
+      "base's language profile. Both surfaces keep working, so nothing reports it",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

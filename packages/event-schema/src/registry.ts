@@ -39,6 +39,13 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerWhatsappRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (b) — the worker's language rows were replaced. Counts only: the
+  // languages themselves never reach the spine.
+  "worker.languages_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerLanguagesRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",

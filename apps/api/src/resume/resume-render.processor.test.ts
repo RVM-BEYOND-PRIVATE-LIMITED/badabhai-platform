@@ -16,9 +16,14 @@ import type { StorageService } from "../storage/storage.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import type { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import type { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
 import type { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
-import type { WorkerCertificateRecord, WorkerEducationRecord } from "./resume-qualification-rows";
+import type {
+  WorkerCertificateRecord,
+  WorkerEducationRecord,
+  WorkerLanguageRecord,
+} from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const RESUME_ID = "res-1";
@@ -235,6 +240,9 @@ function setup(
       educations: WorkerEducationRecord[];
     };
     qualThrows?: boolean;
+    // Zone 5 (0110) — the richer language rows, and the failure mode of reading them.
+    languages?: WorkerLanguageRecord[];
+    langThrows?: boolean;
     // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
     workerSaid?: string[];
     transcriptThrows?: boolean;
@@ -297,6 +305,14 @@ function setup(
       return opts.qualifications ?? { certificates: [], educations: [] };
     }),
   };
+  // Zone 5's language rows (migration 0110). An independent read on the same section: when it
+  // throws, the Languages row falls back to the `languages` attribute and nothing else moves.
+  const languages = {
+    loadForResume: vi.fn(async () => {
+      if (opts.langThrows) throw new Error("language boom");
+      return opts.languages ?? [];
+    }),
+  };
   // R8 §2/§4. Same degrade contract as the two reads above: a failed transcript load must cost
   // the quote block and the veto, never the PDF.
   const transcript = {
@@ -341,6 +357,7 @@ function setup(
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
     qualifications as unknown as WorkerQualificationsRepository,
+    languages as unknown as WorkerLanguagesRepository,
     transcript as unknown as WorkerTranscriptRepository,
     polish as never,
     config,
@@ -508,9 +525,9 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently eleven:
+    // NON-EVENT deps, currently twelve:
     //   resumes · workers · pii · renderer · storage · attributes · employments · qualifications
-    //   · transcript · polish · config
+    //   · languages · transcript · polish · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
     // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
     // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
@@ -528,9 +545,13 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // has no event surface either. Checked before the number below was bumped, exactly as the
     // three above were.
     //
+    // `languages` (WorkerLanguagesRepository) joined for migration 0110 — Zone 5's richer
+    // Languages row. The same shape as `qualifications`: @Global-only, no ciphertext, no service,
+    // no event surface. Checked before the number below was bumped again.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(11);
+    expect(ResumeRenderProcessor.length).toBe(12);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

@@ -15,27 +15,10 @@
  * backend service role only.
  */
 
-import {
-  workerConsents,
-  workerCredentials,
-  workerDevices,
-  workers,
-} from "./worker";
-import {
-  skillAliases,
-  skillRelated,
-  skills,
-  unresolvedPhrases,
-} from "./skill";
-import {
-  jobDomainAliases,
-  jobDomains,
-} from "./occupation";
-import {
-  jobDomainSkills,
-  jobPostingSkills,
-  workerProfileSkills,
-} from "./taxonomy";
+import { workerConsents, workerCredentials, workerDevices, workers } from "./worker";
+import { skillAliases, skillRelated, skills, unresolvedPhrases } from "./skill";
+import { jobDomainAliases, jobDomains } from "./occupation";
+import { jobDomainSkills, jobPostingSkills, workerProfileSkills } from "./taxonomy";
 import {
   skillCandidateMatches,
   skillCandidateSources,
@@ -49,21 +32,13 @@ import {
   questionPackOptions,
   questionPacks,
 } from "./question-pack";
-import {
-  chatMessages,
-  chatSessions,
-  voiceNotes,
-} from "./chat";
-import {
-  workerPackAnswers,
-} from "./pack-answer";
+import { chatMessages, chatSessions, voiceNotes } from "./chat";
+import { workerPackAnswers } from "./pack-answer";
 import { workerResumeImports } from "./resume-import";
-import {
-  profilingVoiceAnswers,
-  workerAttributes,
-} from "./profiling";
+import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations } from "./qualification";
+import { workerLanguages } from "./language";
 import {
   generatedResumes,
   profileQuestions,
@@ -72,11 +47,7 @@ import {
   workerAnswers,
   workerProfiles,
 } from "./profile";
-import {
-  applications,
-  jobPostings,
-  jobs,
-} from "./job";
+import { applications, jobPostings, jobs } from "./job";
 import {
   creditLedger,
   payerCapacity,
@@ -95,17 +66,8 @@ import {
   unlockRouting,
   unlocks,
 } from "./payer";
-import {
-  jobReach,
-  jobReachWiden,
-  matchConfig,
-  workerIndustryTenure,
-  workerSkills,
-} from "./match";
-import {
-  learnLabels,
-  learnLabelsCursor,
-} from "./learn";
+import { jobReach, jobReachWiden, matchConfig, workerIndustryTenure, workerSkills } from "./match";
+import { learnLabels, learnLabelsCursor } from "./learn";
 import {
   agencyInvites,
   agencyKyc,
@@ -148,6 +110,7 @@ export * from "./resume-import";
 export * from "./profiling";
 export * from "./employment";
 export * from "./qualification";
+export * from "./language";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -392,6 +355,7 @@ export const schema = {
   workerEmploymentRole,
   workerCertificates,
   workerEducations,
+  workerLanguages,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,

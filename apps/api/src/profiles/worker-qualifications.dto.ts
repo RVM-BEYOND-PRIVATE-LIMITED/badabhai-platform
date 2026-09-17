@@ -84,7 +84,7 @@ function freeText(max: number, what: string) {
 }
 
 /** `z.enum` over a dictionary's keys, so validation and printing cannot drift apart. */
-function optionsOf(vocabulary: PreferenceVocabulary): [string, ...string[]] {
+export function optionsOf(vocabulary: PreferenceVocabulary): [string, ...string[]] {
   const keys = Object.keys(vocabulary);
   // Not reachable with the shipped dictionaries; asserted so an emptied one fails loudly at
   // module load rather than producing a schema that accepts nothing and reports no reason.
