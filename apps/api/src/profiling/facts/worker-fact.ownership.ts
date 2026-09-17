@@ -55,14 +55,22 @@ export const CHAT_FACT_OWNER: Readonly<Record<WorkerFactId, ChatFactOwner>> = {
   education: "pages",
   certifications: "pages",
   work_history: "pages",
-  languages: "pages",
+  // ADR-0042 D9 amendment (fill-gap Phase 1, 2026-09-17): `languages` is CHAT. The chat now asks
+  // the language LIST (a closed multi over the same slugs the preferences page writes); the
+  // richer proficiencies (speak/read/write) remain pages-owned on `worker_language`, because a
+  // chip question cannot express a 16-language x 3-tick matrix honestly.
+  languages: "chat",
   documents_ready: "pages",
   job_type: "pages",
   relocation: "pages",
   accommodation: "pages",
   // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys. Same rule: the chat never
   // solicits them structurally, and the page's write is what settles them.
-  work_types: "pages",
+  //
+  // ADR-0042 D9 amendment (fill-gap Phase 1, 2026-09-17): `work_types` is CHAT — the multi that
+  // supersedes the single `job_type` (which stays pages-owned, and stays the sheet's fallback for
+  // every row written before the multi existed).
+  work_types: "chat",
   salary_period: "pages",
   commute_max_km: "pages",
   willing_to_travel: "pages",

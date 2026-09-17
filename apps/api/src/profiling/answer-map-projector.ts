@@ -198,6 +198,19 @@ export function projectProfile(
 }
 
 /**
+ * Crosswalk fields with a `null` `draftPath` that are ALSO attribute destinations.
+ *
+ * The crosswalk's null-`draftPath` entries say "no résumé COLUMN", not "not storable". For most of
+ * them — `work_history` is the other one — the only honest reading is dropped. `languages` is the
+ * exception the fill-gap Phase 1 created: the chat now asks it (`qp_universal@3`), the finishing
+ * form's preferences page writes `worker_attributes.languages` directly, and the sheet's Languages
+ * row reads that one key — so refusing the chat's answer here would make the new question a no-op
+ * and leave the two surfaces disagreeing about the same worker. This is ADDITIVE: before v3 no
+ * answer map could carry a `languages` record, so no existing projection changes.
+ */
+const ATTRIBUTE_FIELDS_WITHOUT_DRAFT_PATH: ReadonlySet<string> = new Set(["languages"]);
+
+/**
  * Route a NON-RFS answer to `worker_attributes`.
  *
  * HOW IT KNOWS IT IS AN ATTRIBUTE, without being handed the pack: the crosswalk already answers
@@ -207,8 +220,10 @@ export function projectProfile(
  * fact the crosswalk already holds.
  *
  * A field WITH an entry but a `null` `draftPath` (`work_history`, `languages`) is deliberately not
- * carried onto the resume. It is still RFS, so it does not become an attribute either — it stays
- * exactly as dropped as it was.
+ * carried onto the resume. For `work_history` that is the whole story — it stays exactly as
+ * dropped as it was. For `languages` the drop applies to the DRAFT only: it is an attribute
+ * destination by owner ruling (Layer A (b)/(c), see
+ * {@link ATTRIBUTE_FIELDS_WITHOUT_DRAFT_PATH}), and the chat's only write path is this harness.
  *
  * THE VALUE'S SHAPE PICKS THE COLUMN. `value_kind` is derived from the projected value rather than
  * from `answer_type`, because by this point normalization has already happened and the shape IS the
@@ -220,7 +235,10 @@ function collectAttribute(
   value: unknown,
   source: ValueSource,
 ): void {
-  if (crosswalkFor(fieldId)) return;
+  const entry = crosswalkFor(fieldId);
+  if (entry && (entry.draftPath !== null || !ATTRIBUTE_FIELDS_WITHOUT_DRAFT_PATH.has(fieldId))) {
+    return;
+  }
   const typed = classifyAttributeValue(value);
   // An unrepresentable value is dropped rather than stringified. `worker_attributes` is a matchable
   // inventory; coercing an object into "[object Object]" would put a row there that no query can

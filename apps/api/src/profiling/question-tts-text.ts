@@ -176,6 +176,8 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Kya aap ghar jaakar service dete hain?": "क्या आप घर जाकर सर्विस देते हैं?",
   "Kya aap chemical se safai karte hain?": "क्या आप केमिकल से सफाई करते हैं?",
   "Aap kahaan kaam karna chahte hain?": "आप कहाँ काम करना चाहते हैं?",
+  "Aap kaun kaun si bhasha bolte hain?": "आप कौन-कौन सी भाषा बोलते हैं?",
+  "Aap kis tarah ka kaam lena chahte hain?": "आप किस तरह का काम लेना चाहते हैं?",
   "Aap kaunse maapne ke auzaar use karte hain?": "आप कौनसे मापने के औज़ार इस्तेमाल करते हैं?",
   "Kya aap masala banate hain?": "क्या आप मसाला बनाते हैं?",
   "Kya aap rotating shift kar sakte hain?": "क्या आप रोटेटिंग शिफ्ट कर सकते हैं?",
@@ -597,6 +599,8 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "फैक्ट्री वाले सेफ्टी ट्रेनिंग वाले को पहले रखते हैं।",
   "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge.":
     "जहाँ आप काम करना चाहते हैं, वहीं की नौकरी पहले दिखाएँगे।",
+  "Bhasha se kaam ke mauke badh jaate hain.": "भाषा से काम के मौके बढ़ जाते हैं।",
+  "Permanent aur daily kaam mein farak hota hai.": "परमानेंट और डेली काम में फ़र्क होता है।",
   "Machine wale ko badi jagah kaam milta hai.": "मशीन वाले को बड़ी जगह काम मिलता है।",
   "Polish alag se paisa deta hai.": "पॉलिश अलग से पैसा देता है।",
   "Har machine ka kaam alag hota hai.": "हर मशीन का काम अलग होता है।",

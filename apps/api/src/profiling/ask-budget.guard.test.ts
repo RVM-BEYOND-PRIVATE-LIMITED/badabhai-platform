@@ -107,9 +107,7 @@ function asksFor(items: readonly PackItem[]): number {
  */
 function tierValues(occupation: Pack): number[] {
   const gated = occupation.items.filter((i) => i.ask_if);
-  const fields = new Set(
-    gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean),
-  );
+  const fields = new Set(gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean));
   if (fields.size !== 1) return [];
   const gate = occupation.items.find((i) => i.target_field === [...fields][0]);
   const values = (gate?.options ?? [])
@@ -167,9 +165,7 @@ function worstCaseAsks(occupation: Pack, tail: Pack): number {
 /** The single field every gate in this pack reads. */
 function gateFieldOf(occupation: Pack): string {
   const gated = occupation.items.filter((i) => i.ask_if);
-  const fields = new Set(
-    gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean),
-  );
+  const fields = new Set(gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean));
   return [...fields][0] ?? "";
 }
 
@@ -204,10 +200,13 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // this one turns red the moment any pack adds or removes a question, which is the authoring
     // signal that did not exist. Update it in the same commit as the pack, on purpose.
     //
-    // 26 = qp_cnc_turning's 15 + qp_universal@2's 8 + one retry each for the three mandatory
-    // questions (turning_experience, primary_trade, current_city).
+    // 28 = qp_cnc_turning's 15 + qp_universal@3's 10 + one retry each for the three mandatory
+    // questions (turning_experience, primary_trade, current_city). v3 added `languages` and
+    // `work_types` (fill-gap Phase 1) — the headroom is now ZERO, which is the deliberate split:
+    // no further tail question fits, so the remaining allow-listed fields stay pages-owned and are
+    // surfaced by the Phase 3 settled-vs-missing view instead.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(26);
+    expect(worst).toBe(28);
   });
 
   it("keeps the headroom small enough to be a decision rather than a default", () => {
@@ -215,6 +214,10 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // answering in Hinglish on a mid-range Android between shifts. The cap should sit just above
     // what the corpus needs, with room for the specific asks that are actually proposed — today
     // that is the two Zone 5 credential questions in docs/profiling/sample-parity-gap.md.
+    //
+    // ZERO HEADROOM AS OF THE FILL-GAP PHASE 1 is the point of this assertion at its limit: the
+    // worst-case worker spends the cap exactly, so the next tail question requires either a
+    // removed item or a new owner ruling on MAX_ENGINE_ASKS — not a quiet authoring edit.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
     expect(MAX_ENGINE_ASKS - worst).toBeLessThanOrEqual(2);
   });

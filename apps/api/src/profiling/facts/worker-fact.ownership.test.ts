@@ -10,7 +10,10 @@ import {
 } from "./worker-fact.ownership";
 import { WORKER_FACT_IDS } from "./worker-fact.registry";
 
-function item(questionKey: string, targetField: string | null): Pick<QuestionPackItem, "question_key" | "target_field"> {
+function item(
+  questionKey: string,
+  targetField: string | null,
+): Pick<QuestionPackItem, "question_key" | "target_field"> {
   return { question_key: questionKey, target_field: targetField };
 }
 
@@ -19,9 +22,14 @@ describe("CHAT_FACT_OWNER", () => {
     expect(Object.keys(CHAT_FACT_OWNER).sort()).toEqual([...WORKER_FACT_IDS].sort());
   });
 
-  it("owns exactly trade/experience/current_city/availability", () => {
+  it("owns exactly trade/experience/current_city/availability + languages/work_types (Phase 1)", () => {
+    // The first four since #1505. `languages` and `work_types` joined in the fill-gap Phase 1
+    // (ADR-0042 D9 amendment): the chat asks the language LIST and the work-type multi, and the
+    // ownership table is what makes those pack items servable at all.
     const chatOwned = WORKER_FACT_IDS.filter((id) => CHAT_FACT_OWNER[id] === "chat");
-    expect(chatOwned.sort()).toEqual(["availability", "current_city", "experience", "trade"].sort());
+    expect(chatOwned.sort()).toEqual(
+      ["availability", "current_city", "experience", "languages", "trade", "work_types"].sort(),
+    );
   });
 
   it("defaults every other fact — including the pages the design names explicitly — to 'pages'", () => {
@@ -32,6 +40,11 @@ describe("CHAT_FACT_OWNER", () => {
     // Not named by the design, and still pages — the DEFAULT, not a special case.
     expect(CHAT_FACT_OWNER.certifications).toBe("pages");
     expect(CHAT_FACT_OWNER.relocation).toBe("pages");
+    // Phase 1 did NOT flip the rest of the allow-list — the ask budget (headroom 0 at 28) is why
+    // they stay pages-owned and are surfaced by the Phase 3 settled-vs-missing view instead.
+    expect(CHAT_FACT_OWNER.commute_max_km).toBe("pages");
+    expect(CHAT_FACT_OWNER.willing_to_travel).toBe("pages");
+    expect(CHAT_FACT_OWNER.salary_period).toBe("pages");
   });
 });
 

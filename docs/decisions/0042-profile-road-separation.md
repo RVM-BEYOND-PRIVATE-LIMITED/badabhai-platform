@@ -194,3 +194,30 @@ the privacy override (§3 there) are untouched.
 Recorded on the owner's behalf from the rulings given 2026-09-16.
 Signed (CEO / Prakash): Prakash Kantumutchu          Date: 2026-09-16
 ```
+
+---
+
+## 9. Amendment — fill-gap Phase 1: `languages` and `work_types` join the chat (2026-09-17)
+
+D9's universal-field programme picked its first two CHAT elicitations, resolving follow-up §8.1 in
+part. `qp_universal@3` adds `languages` and `work_types` as `attribute` `multi_select`s over the
+closed chip vocabularies the finishing form already writes (`LANGUAGES`, `WORK_TYPES`/`JOB_TYPES`),
+and `CHAT_FACT_OWNER` flips both facts to `chat`. Four consequences are explicit:
+
+1. **The ask budget is the limit, and it is now spent.** `MAX_ENGINE_ASKS` is 28 and the worst-case
+   worker (`qp_cnc_turning`'s 15 + three mandatory re-asks + the tail) now consumes it exactly —
+   headroom 0, pinned by `ask-budget.guard.test.ts`. The remaining allow-listed fields (language
+   proficiency, `commute_max_km`, `willing_to_travel`, `available_from`, `salary_period`, training,
+   secondary occupations) stay **pages-owned**; the Phase 3 settled-vs-missing view is their
+   discoverability surface, not the chat.
+2. **Proficiency stays out of the chat deliberately** — speak/read/write is a 16-language x 3-tick
+   matrix a chip question cannot express honestly; `worker_language` (0110) remains its home.
+3. **One projector carve-out, named and test-pinned.** `languages` carries a crosswalk entry with a
+   `null` `draftPath` (no résumé column), which until now meant "dropped from every projection".
+   `worker_attributes.languages` is the one store the sheet's Languages row reads and the form
+   writes, so the projector's attribute leg now admits it by explicit allowlist
+   (`ATTRIBUTE_FIELDS_WITHOUT_DRAFT_PATH`); the draft still refuses it, and `work_history`'s drop is
+   unchanged.
+4. **No rank input, no new authority.** Both fields are attribute/filter values; the capture path is
+   deterministic (`matchOptions` over closed chips), no LLM call is added, no migration and no event
+   is introduced. v2 is deprecated but retained — pinned sessions keep resolving.

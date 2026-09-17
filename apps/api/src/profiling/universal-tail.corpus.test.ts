@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
-import { loadQuestionPackCorpus, type PackRecord } from "@badabhai/db";
 
 import { recordAnswer, toAnswerMap, type AnswerMap } from "./answer-map";
+import { universalPack } from "./corpus-packs.fixture";
 import { emptyProfilingEnvelope, toEngineState, withAnswers } from "./conversation-state";
 import { chatServableItems } from "./facts/worker-fact.ownership";
 import { nextQuestion } from "./next-question";
@@ -34,66 +34,6 @@ import { nextQuestion } from "./next-question";
  * only), not of what the chat currently chooses to ask, and filtering them would test the wrong
  * thing.
  */
-
-/**
- * The corpus record → the engine's item shape.
- *
- * NOT A CAST. The JSON omits every field it does not need (`parent_item_key`, `ask_if`,
- * `options`, …) and the engine reads them as `null`/`[]` — `PackRepository` does this mapping
- * when it loads from Postgres. Casting instead makes `item.parent_item_key` `undefined`, which
- * `isServable` compares `!== null` and then treats as a follow-up whose parent is unanswered:
- * EVERY item becomes unservable and the walk closes on turn one with `complete`. That is a
- * silently green test, so the mapping is written out rather than asserted away.
- */
-function toItem(raw: Record<string, unknown>, displayOrder: number): QuestionPackItem {
-  const options = (raw.options as Array<Record<string, unknown>> | undefined) ?? [];
-  return {
-    question_key: raw.question_key as string,
-    prompt_text: raw.prompt_text as string,
-    display_order: displayOrder,
-    target_kind: (raw.target_kind as QuestionPackItem["target_kind"]) ?? "none",
-    target_field: (raw.target_field as string | undefined) ?? null,
-    target_skill_id: (raw.target_skill_id as string | undefined) ?? null,
-    // The corpus carries three authoring types the contract does not (`city`, `salary`,
-    // `duration`); the seed path narrows them the same way. Only `select` matters to selection.
-    answer_type: (["city", "salary", "duration"].includes(raw.answer_type as string)
-      ? "text"
-      : raw.answer_type) as QuestionPackItem["answer_type"],
-    is_mandatory: (raw.is_mandatory as boolean | undefined) ?? false,
-    is_core: (raw.is_core as boolean | undefined) ?? false,
-    max_asks: (raw.max_asks as number | undefined) ?? 2,
-    min_turn: (raw.min_turn as number | undefined) ?? null,
-    max_turn: (raw.max_turn as number | undefined) ?? null,
-    ask_if: (raw.ask_if as QuestionPackItem["ask_if"]) ?? null,
-    skip_if: (raw.skip_if as QuestionPackItem["skip_if"]) ?? null,
-    parent_item_key: (raw.parent_item_key as string | undefined) ?? null,
-    retry_text: (raw.retry_text as string | undefined) ?? null,
-    why_text: (raw.why_text as string | undefined) ?? null,
-    options: options.map((o) => ({
-      option_key: o.option_key as string,
-      label_text: o.label_text as string,
-      value: (o.value_text ?? o.value_bool ?? null) as QuestionPackItem["options"][number]["value"],
-      implies_skill_id: null,
-      is_none_of_above: (o.is_none_of_above as boolean | undefined) ?? false,
-    })),
-  };
-}
-
-function universal(version: number): QuestionPack {
-  const record = loadQuestionPackCorpus().packs.find(
-    (p: PackRecord) => p.pack_id === "qp_universal" && p.version === version,
-  );
-  if (!record) throw new Error(`qp_universal@${version} is not in the corpus`);
-  return {
-    pack_id: record.pack_id,
-    version: record.version,
-    family_id: record.family_id,
-    locale: record.locale ?? "hi-IN",
-    status: (record.status ?? "active") as QuestionPack["status"],
-    content_hash: `corpus_${record.pack_id}_${record.version}`,
-    items: (record.items as unknown as Array<Record<string, unknown>>).map(toItem),
-  };
-}
 
 /** Answer whatever the engine serves, in order, and report what it asked. */
 function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unknown>): string[] {
@@ -144,7 +84,7 @@ const AFTER_PHASE_A = { primary_trade: "tandoor cook", experience_years: 4 };
 
 /** The pack the CHAT actually serves — `qp_universal@2`'s items, through the ownership filter. */
 function chatUniversal(version: number): QuestionPack {
-  const pack = universal(version);
+  const pack = universalPack(version);
   return { ...pack, items: chatServableItems(pack.items) };
 }
 
@@ -185,19 +125,71 @@ describe("the template tail, over the REAL corpus", () => {
     // thing. Pinned as a regression rather than described in a comment. `current_city` is
     // mandatory and carried `max_turn: 5`, so a tail entered at turn 8 closed `complete` having
     // never asked a worker where they live. v1 is frozen and keeps the defect; v2 must not have it.
-    const late = walk(universal(1), 8, {});
+    const late = walk(universalPack(1), 8, {});
     expect(late).not.toContain("current_city");
     expect(late).not.toContain("salary_expected");
 
-    expect(walk(universal(2), 8, {})).toContain("current_city");
-    expect(walk(universal(2), 8, {})).toContain("salary_expected");
+    expect(walk(universalPack(2), 8, {})).toContain("current_city");
+    expect(walk(universalPack(2), 8, {})).toContain("salary_expected");
   });
 
   it("drops `relocation`, which `preferred_locations` subsumes", () => {
     // RAW, UNFILTERED PACKS — a retired item's presence in v1 only is a corpus-DATA fact, not a
     // chat-ownership one.
-    expect(walk(universal(2), 1, {})).not.toContain("relocation");
+    expect(walk(universalPack(2), 1, {})).not.toContain("relocation");
     // v1 keeps it — a published version's question set is frozen for the sessions pinned to it.
-    expect(walk(universal(1), 1, {})).toContain("relocation");
+    expect(walk(universalPack(1), 1, {})).toContain("relocation");
+  });
+});
+
+/**
+ * FILL-GAP PHASE 1 (ADR-0042 D9 amendment): `languages` and `work_types` join the tail.
+ *
+ * The TWO questions above are history — v2 sessions stay pinned to v2, and nothing here may
+ * rewrite them. What v3 adds is a longer tail: the language LIST and the work-type multi, both
+ * ATTRIBUTE multis whose chips carry the same slug vocabularies the pages write, so the chat
+ * answer lands in `worker_attributes` through the existing projector. They are ungated
+ * (no min_turn) and they sit at the END of the raw pack, so they run AFTER availability —
+ * the explicit ordering this walk pins.
+ */
+describe("the fill-gap tail, over the REAL corpus (qp_universal@3)", () => {
+  const V3_TAIL = ["current_city", "availability", "languages", "work_types"];
+
+  it("asks FOUR once Phase A has handed over — the two new ones run after availability", () => {
+    expect(walk(chatUniversal(3), 8, AFTER_PHASE_A)).toEqual(V3_TAIL);
+  });
+
+  it("asks the same four whether the tail is reached early or late", () => {
+    for (const startTurn of [4, 6, 8, 12]) {
+      expect(
+        walk(chatUniversal(3), startTurn, AFTER_PHASE_A),
+        `entered at turn ${startTurn}`,
+      ).toEqual(V3_TAIL);
+    }
+  });
+
+  it("still drops the four pages-owned settlers — v3 flips languages/work_types and nothing else", () => {
+    const asked = walk(chatUniversal(3), 1, {});
+    for (const pagesOwned of [
+      "salary_expected",
+      "preferred_locations",
+      "education",
+      "shift_preference",
+    ]) {
+      expect(asked, `${pagesOwned} must never serve through the chat`).not.toContain(pagesOwned);
+    }
+  });
+
+  it("serves the two new questions on the model-less fallback path too", () => {
+    // Nothing pre-settled: the pack asks its own core pair first, then the city, the experience,
+    // availability, and finally the two new multis — RAW authoring order, no special casing.
+    expect(walk(chatUniversal(3), 1, {})).toEqual([
+      "primary_trade",
+      "current_city",
+      "experience_years",
+      "availability",
+      "languages",
+      "work_types",
+    ]);
   });
 });
