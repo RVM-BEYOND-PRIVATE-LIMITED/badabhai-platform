@@ -137,6 +137,48 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- worker-portfolio — the worker's work samples (ADR-0042 D9 / Layer A (e); migration 0113).
+-- A portfolio item is either a media object the worker uploaded (a photo or a short clip of
+-- their own work — routinely their face, their shop floor, or a customer's premises) or an
+-- external link. The media bucket MUST be PRIVATE: the only write path is a short-TTL signed
+-- UPLOAD url minted by the backend over a SERVER-chosen opaque key
+-- `portfolio/{workerId}/{uuid}.{ext}` (worker-portfolio.service.ts `createUploadUrl`; the
+-- PUT /workers/me/portfolio register step re-validates that exact shape against the SESSION
+-- worker, so one worker cannot claim another's object) and the only read path is a short-TTL
+-- signed GET for the worker's OWN media (`getForWorker`). NEVER payer-readable, NEVER
+-- world-readable. LINKS need no bucket at all — they are URLs on the `worker_portfolio` row.
+--
+-- `allowed_mime_types` MIRRORS THE SERVER'S CLOSED CONTENT-TYPE MAP EXACTLY
+-- (`EXTENSION_BY_CONTENT_TYPE` + `contentTypeMatchesKind` in worker-portfolio.service.ts):
+-- photo = jpeg/png/webp, video = mp4/quicktime. It is a SECURITY control, same as the feedback
+-- bucket's: the signed upload url cannot constrain what the client PUTs, and the register step
+-- performs no per-object `getObjectInfo`, so THIS LIST is what stops a worker storing markup
+-- (`text/html`) that a later surface would render on the storage origin. Adding a type to one
+-- side without the other is drift — the service refuses an unmapped content type at mint, so
+-- keep the two lists in step.
+--
+-- Size cap: 25 MiB (26214400). One ceiling for both kinds: a phone-shot photo is well under it
+-- and a short proof-of-work clip fits comfortably. THE BUCKET IS WHERE THE CEILING IS ENFORCED
+-- — Supabase refuses the PUT itself, before any of our code runs, and (as with feedback) no
+-- confirm step measures the stored object afterwards.
+--
+-- ⚠ DSAR PRECONDITION — DO NOT ARM `WORKER_PORTFOLIO_BUCKET` YET. `AccountDeletionService`
+-- sweeps the photos, voice-notes and feedback-attachments buckets by `{prefix}/{workerId}/`,
+-- and it does NOT yet sweep `portfolio/{workerId}/`. While the env var is unset the mint 503s
+-- and no media can exist — but the moment it is armed, an account deletion would leave
+-- portfolio media behind. The prefix-sweep leg is tracked as #1548; this insert only
+-- provisions the container.
+--
+-- NOTE: `supabase/config.toml` does not declare this bucket for the local stack — the same
+-- known gap as the voice/photos/feedback buckets.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('worker-portfolio', 'worker-portfolio', false, 26214400,
+        array['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- worker-resume-uploads — the resume a worker HANDS US (ADR-0041). This is the densest single
 -- artefact of personal data anyone on this platform owns: name, address, email, every employer
 -- they have worked for, dates, past salaries, and not rarely a PAN or Aadhaar number. PRIVATE

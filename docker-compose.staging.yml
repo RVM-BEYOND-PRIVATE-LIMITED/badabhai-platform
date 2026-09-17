@@ -343,6 +343,24 @@ services:
       # anything — the same reason every other cap in this file is passed through.
       FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: ${FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR:-}
       FEEDBACK_ATTACHMENT_MAX_BYTES: ${FEEDBACK_ATTACHMENT_MAX_BYTES:-}
+      # ---- ADR-0042 D9 / LAYER A (e) PORTFOLIO MEDIA: PASS-THROUGH, NEVER REQUIRED — the same
+      # shape as the photos block (`:-` keeps the required-secret set unchanged; unset expands to
+      # empty and compose still starts clean), for the same reason it exists at all: compose
+      # forwards only the names a service's `environment:` block lists, so an operator's
+      # `export WORKER_PORTFOLIO_BUCKET=...` on the box is invisible to this container without
+      # the line below. That is the WORKER_PHOTOS_BUCKET (#794) / CHAT_LLM_INTERVIEW_ENABLED
+      # (#798) failure class, and the reason the line lands with the feature.
+      #
+      # EMPTY = DORMANT IS THE SHIPPED CONTRACT. While unset, the mint route 503s fail-closed and
+      # only the `link` portfolio kind works; nothing can be uploaded, so nothing can be orphaned.
+      # Arming needs TWO things: the private `worker-portfolio` bucket with its own
+      # `file_size_limit` (25 MiB) and `allowed_mime_types` mirroring the service's closed
+      # content-type map (infra/supabase/storage-buckets.sql), and — still missing — the
+      # account-deletion prefix sweep for `portfolio/{workerId}/`. Do not arm until that leg
+      # ships (step 0 of the portfolio runbook in infra/supabase/storage-buckets.md).
+      #
+      # api-only: portfolio media never crosses the AI boundary and never reaches a payer surface.
+      WORKER_PORTFOLIO_BUCKET: ${WORKER_PORTFOLIO_BUCKET:-}
       # ADR-0041 (RI-1) — private bucket for a résumé a worker UPLOADS. `:-` NOT `:?`, like
       # every other bucket here: a `${VAR:?}` in ANY service breaks `config` and `pull` for
       # EVERY other service in the file, which nearly bricked a live deploy once already.
