@@ -164,6 +164,19 @@ export class ResumeRenderProcessor extends WorkerHost {
       }
     }
 
+    // Layer A (a) — the worker's OPTIONAL WhatsApp number, on the same degrade as the phone
+    // above: a rotated or tampered token costs the worker the WhatsApp line, never the PDF.
+    // WORKER COPY ONLY: the mapper gates the line on the audience, so this value cannot reach
+    // a payer-facing disclosure even though it is decrypted here.
+    let whatsapp: string | null = null;
+    if (worker?.whatsappEnc) {
+      try {
+        whatsapp = this.pii.decrypt(worker.whatsappEnc);
+      } catch {
+        this.logger.warn(`could not decrypt whatsapp for worker ${workerId}; rendering without it`);
+      }
+    }
+
     // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>` page
     // is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR that
     // resolves to the homepage: the sheet outlives the render, and paper cannot be re-issued once
@@ -347,6 +360,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // cannot date its footer one day and compute a current job's tenure against the next.
       asOf: renderedAt,
       phone,
+      whatsapp,
       // Devanagari is not transliterated yet; the slot stays null rather than printing the
       // Latin name twice. `nameDevanagari` is audience-gated inside the mapper regardless.
       nameDevanagari: null,

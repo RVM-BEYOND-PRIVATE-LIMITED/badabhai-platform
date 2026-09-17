@@ -989,3 +989,108 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
     expect(events.emit).toHaveBeenCalled();
   });
 });
+
+/**
+ * Layer A (a) / ADR-0042 D9 — the optional WhatsApp number.
+ *
+ * THE THREE PROPERTIES THAT MATTER: the plaintext never reaches the repository or the event;
+ * the event carries only the resulting state; and clearing is fail-closed on the re-render
+ * because it removes a value the worker asked to take off their sheet.
+ */
+describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
+  const WHATSAPP = "+919876543210";
+
+  function whatsappSetup(
+    worker: Record<string, unknown> | null = { id: "w-1", whatsappEnc: null },
+  ) {
+    const repo = {
+      findById: vi.fn(async (_id: string) => worker ?? undefined),
+      updateWhatsapp: vi.fn(async (_id: string, _token: string | null) => ({ id: "w-1" })),
+      latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
+    };
+    const pii = {
+      encrypt: vi.fn((_plaintext: string) => "v1.encryptedwhatsapp"),
+      decrypt: vi.fn((_token: string) => WHATSAPP),
+    };
+    const events = { emit: vi.fn(async (_e: unknown) => true) };
+    const renderQueue = mockRenderQueue();
+    const svc = newSvc(repo, pii, events, mockStorage(), mockConfig(), renderQueue);
+    return { svc, repo, pii, events, renderQueue };
+  }
+
+  it("encrypts before storing, never persists or returns the plaintext", async () => {
+    const { svc, repo, pii } = whatsappSetup();
+    const res = await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(pii.encrypt).toHaveBeenCalledWith(WHATSAPP);
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", "v1.encryptedwhatsapp");
+    expect(JSON.stringify(res)).not.toContain(WHATSAPP);
+    expect(res).toEqual({ worker_id: "w-1", has_whatsapp: true });
+  });
+
+  it("emits the resulting state only — never the number", async () => {
+    const { svc, events } = whatsappSetup();
+    await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    const emitted = events.emit.mock.calls[0]?.[0] as { event_name: string; payload: unknown };
+    expect(emitted.event_name).toBe("worker.whatsapp_recorded");
+    expect(emitted.payload).toEqual({ worker_id: "w-1", has_whatsapp: true });
+    expect(JSON.stringify(emitted)).not.toContain(WHATSAPP);
+  });
+
+  it("clears with null and re-renders fail-closed — the number must come off the PDF", async () => {
+    const { svc, repo, events, renderQueue } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.old" });
+    const res = await svc.setWhatsapp("w-1", { whatsapp: null }, CTX);
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", null);
+    expect(res.has_whatsapp).toBe(false);
+    const emitted = events.emit.mock.calls[0]?.[0] as { payload: unknown };
+    expect(emitted.payload).toEqual({ worker_id: "w-1", has_whatsapp: false });
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ failClosed: true }),
+    );
+  });
+
+  it("a same-state write is not an event and does not burn a re-render", async () => {
+    const { svc, events, renderQueue } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.same" });
+    await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("reads a stored number back decrypted", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.stored" });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: WHATSAPP,
+      has_whatsapp: true,
+    });
+    expect(pii.decrypt).toHaveBeenCalledWith("v1.stored");
+  });
+
+  it("no number on file is an absence, not an error", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: null });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: null,
+      has_whatsapp: false,
+    });
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("a decrypt failure reports unreadable-on-file, never a fabricated absence", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.rotated" });
+    pii.decrypt.mockImplementation(() => {
+      throw new Error("unknown kid");
+    });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: null,
+      has_whatsapp: true,
+    });
+  });
+
+  it("404s a missing worker on both surfaces", async () => {
+    const { svc } = whatsappSetup(null);
+    await expect(svc.getWhatsapp("gone")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.setWhatsapp("gone", { whatsapp: null }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});

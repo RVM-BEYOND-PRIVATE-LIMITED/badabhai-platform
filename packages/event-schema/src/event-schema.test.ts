@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 181 event names (179 prior + the two trade-form offer steps)", () => {
-    expect(EVENT_NAMES).toHaveLength(181);
+  it("exposes all 182 event names (179 prior + the two trade-form offer steps + Layer A's whatsapp)", () => {
+    expect(EVENT_NAMES).toHaveLength(182);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4362,6 +4362,50 @@ describe("worker.location_recorded (#1428)", () => {
 
   it("rejects a non-boolean flag", () => {
     expect(validateEvent(located({ ...valid, city_recorded: "yes" })).success).toBe(false);
+  });
+});
+
+describe("worker.whatsapp_recorded (Layer A (a) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.whatsapp_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, has_whatsapp: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: false })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the number — or any derivative of it", () => {
+    // The number is the whole feature and it never leaves `workers.whatsapp_enc`. `.strict()` is
+    // what makes that structural: a future writer cannot "helpfully" attach the plaintext, a
+    // masked tail, or a hash. The base case is asserted valid first, so a rejection here is the
+    // extra key and not a malformed envelope.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { whatsapp: "+919876543210" },
+      { whatsapp_e164: "+919876543210" },
+      { last4: "3210" },
+      { phone_hash: "deadbeef" },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the boolean — 'set or cleared' may not be silently omitted", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: "yes" })).success).toBe(false);
   });
 });
 

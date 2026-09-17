@@ -200,6 +200,22 @@ export class WorkersRepository {
   }
 
   /**
+   * Set or clear the worker's optional WhatsApp number (migration 0109, ADR-0042 D9 / Layer A (a)).
+   *
+   * SAME CONTRACT AS {@link updateFullName}: the caller passes an ALREADY-ENCRYPTED token, or
+   * `null` to clear. This repository never stores a plaintext number, and there is no
+   * write path that could — the column's shape CHECK refuses one at the database.
+   */
+  async updateWhatsapp(id: string, encryptedWhatsapp: string | null): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ whatsappEnc: encryptedWhatsapp, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  /**
    * Patch the worker's coarse home location (#1428). A partial set — only the provided halves
    * are written, so an absent key leaves the stored value alone.
    *
@@ -315,10 +331,7 @@ export class WorkersRepository {
       .where(
         and(
           eq(workers.id, id),
-          or(
-            isNull(workers.notificationsReadAt),
-            lt(workers.notificationsReadAt, stampedAt),
-          )!,
+          or(isNull(workers.notificationsReadAt), lt(workers.notificationsReadAt, stampedAt))!,
         ),
       )
       .returning({ id: workers.id });
@@ -369,12 +382,8 @@ export class WorkersRepository {
     const rows = await this.db
       .select({ key: generatedResumes.pdfStorageKey })
       .from(generatedResumes)
-      .where(
-        eq(generatedResumes.workerId, workerId),
-      );
-    return rows
-      .map((r) => r.key)
-      .filter((k): k is string => typeof k === "string" && k.length > 0);
+      .where(eq(generatedResumes.workerId, workerId));
+    return rows.map((r) => r.key).filter((k): k is string => typeof k === "string" && k.length > 0);
   }
 
   /**
@@ -390,9 +399,7 @@ export class WorkersRepository {
       .select({ key: voiceNotes.storagePath })
       .from(voiceNotes)
       .where(eq(voiceNotes.workerId, workerId));
-    return rows
-      .map((r) => r.key)
-      .filter((k): k is string => typeof k === "string" && k.length > 0);
+    return rows.map((r) => r.key).filter((k): k is string => typeof k === "string" && k.length > 0);
   }
 
   /** Every chat session id for the worker, captured PRE-DELETE.

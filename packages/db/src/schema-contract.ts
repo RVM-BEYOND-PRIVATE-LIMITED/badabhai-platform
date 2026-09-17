@@ -83,7 +83,8 @@ const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: str
   },
   {
     table: "agency_payout_accruals",
-    holds: "the commission accrual ledger — ₹ amounts and opaque ids, of which source_unlock_id is one hop from a worker",
+    holds:
+      "the commission accrual ledger — ₹ amounts and opaque ids, of which source_unlock_id is one hop from a worker",
   },
   {
     table: "agency_payout_requests",
@@ -130,21 +131,23 @@ export const R39_TABLES: readonly R39Table[] = [
   { table: "payer_member_invites", cls: "declared-by-0084" },
 ];
 
-const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(({ table, holds }) => ({
-  id: `0082-${table.replace(/_/g, "-")}-rls`,
-  migration: "0082_rls_lock_seven_tables",
-  kind: "rls" as const,
-  table,
-  requiredBy:
-    "no code path — this is the platform-wide table-DEFAULT lock (TD20). 0048 declares it for " +
-    "this table and its REVOKE tail never reached production, so the grant, not RLS, is what " +
-    "governs `service_role` here: that role has rolbypassrls = true, which means RLS does not " +
-    "apply to it at all and an open grant is an open table",
-  failureMode:
-    `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
-    "yet — the exposure begins with the first row written, and no surface degrades to announce " +
-    "it. Only db:audit:rls or this audit will ever say so",
-}));
+const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(
+  ({ table, holds }) => ({
+    id: `0082-${table.replace(/_/g, "-")}-rls`,
+    migration: "0082_rls_lock_seven_tables",
+    kind: "rls" as const,
+    table,
+    requiredBy:
+      "no code path — this is the platform-wide table-DEFAULT lock (TD20). 0048 declares it for " +
+      "this table and its REVOKE tail never reached production, so the grant, not RLS, is what " +
+      "governs `service_role` here: that role has rolbypassrls = true, which means RLS does not " +
+      "apply to it at all and an open grant is an open table",
+    failureMode:
+      `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
+      "yet — the exposure begins with the first row written, and no surface degrades to announce " +
+      "it. Only db:audit:rls or this audit will ever say so",
+  }),
+);
 
 /**
  * The four GAP-DB-21 tables, now that `0084` creates them everywhere.
@@ -212,7 +215,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "column",
     table: "unresolved_phrase",
     object: "job_domain_id",
-    requiredBy: "SkillsRepository.recordUnresolved — named in the INSERT column list and the ON CONFLICT target, unconditionally",
+    requiredBy:
+      "SkillsRepository.recordUnresolved — named in the INSERT column list and the ON CONFLICT target, unconditionally",
     failureMode:
       "every unresolved write throws. POST /skills/unresolved and POST /occupation/unresolved return 500; the interview path catches and logs, so canonical growth signal is lost SILENTLY",
   },
@@ -222,7 +226,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "index",
     table: "unresolved_phrase",
     object: "unresolved_phrase_scope_uq",
-    requiredBy: "SkillsRepository.recordUnresolved — ON CONFLICT (scope, phrase, domain_id, job_domain_id, lang)",
+    requiredBy:
+      "SkillsRepository.recordUnresolved — ON CONFLICT (scope, phrase, domain_id, job_domain_id, lang)",
     failureMode:
       "with the old 4-column index the ON CONFLICT target does not match any index and the INSERT throws; if it were widened WITHOUT NULLS NOT DISTINCT, occupation-scope rows would stop deduping instead",
   },
@@ -232,7 +237,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "constraint",
     table: "unresolved_phrase",
     object: "unresolved_phrase_one_domain_chk",
-    requiredBy: "the at-most-one-vocabulary invariant; the repository also refuses pre-DB, so this is defence in depth",
+    requiredBy:
+      "the at-most-one-vocabulary invariant; the repository also refuses pre-DB, so this is defence in depth",
     failureMode:
       "a row carrying BOTH domain_id and job_domain_id becomes storable. Nothing throws; the row is simply meaningless to both retrieval paths",
   },
@@ -307,9 +313,28 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "column",
     table: "workers",
     object: "current_state",
-    requiredBy: "the same `workers` model column list as its city sibling — one migration adds both",
+    requiredBy:
+      "the same `workers` model column list as its city sibling — one migration adds both",
     failureMode:
       "identical to the city column and listed separately for the same reason 0081 is: the two are added by one migration but a database can be missing either, and the audit must name the object that is actually absent",
+  },
+  {
+    id: "0109-worker-whatsapp-enc-column",
+    migration: "0109_worker_whatsapp_enc",
+    kind: "column",
+    table: "workers",
+    object: "whatsapp_enc",
+    requiredBy:
+      "the `workers` drizzle model's full column list — WorkersRepository.findById and every other " +
+      "bare `select()` over the table unconditionally, and those sit under worker authentication " +
+      "itself. Also named by the WhatsApp self-read/write service (Layer A (a)) and the résumé " +
+      "render worker's own-copy decrypt",
+    failureMode:
+      "the same total-worker-outage shape as 0099's city columns: a bare `select()` compiles to " +
+      "every column the MODEL declares, so a database missing this one fails EVERY read of " +
+      "`workers` — WorkerAuthGuard, profile summary, résumé render, deletion — with " +
+      "`column workers.whatsapp_enc does not exist`. The WhatsApp endpoints themselves 500, but " +
+      "that is the smaller half of the blast radius",
   },
   {
     id: "0084-ai-call-traces-table",
@@ -388,7 +413,10 @@ export function evaluateContract(
   requirements: readonly SchemaRequirement[],
   presence: PresenceMap,
 ): ContractResult[] {
-  return requirements.map((requirement) => ({ requirement, present: presence[requirement.id] === true }));
+  return requirements.map((requirement) => ({
+    requirement,
+    present: presence[requirement.id] === true,
+  }));
 }
 
 /**

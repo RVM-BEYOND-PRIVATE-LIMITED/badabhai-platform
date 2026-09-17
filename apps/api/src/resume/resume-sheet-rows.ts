@@ -1,4 +1,5 @@
 import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import { formatWorkerPhone } from "./resume-phone";
 import { titleCaseName } from "./resume-text-case";
 
 /**
@@ -230,6 +231,23 @@ export function buildLocationLine(location: {
   // LEADING lowercase letter is raised, so a state abbreviation the worker typed in capitals
   // survives — see `resume-text-case.ts`.
   return joinSegments([titleCaseName(location.city), titleCaseName(location.state)], ", ");
+}
+
+/**
+ * The worker-copy WhatsApp line, e.g. "WhatsApp: +91 98765 43210" — or null.
+ *
+ * ADR-0042 D9 / Layer A (a). ONE STRING, LABEL INCLUDED, and that is load-bearing: the
+ * template collapses the line with `.wa:empty`, which can only match if the element's whole
+ * content is the slot. A label written in the template would survive an absent number and
+ * print "WhatsApp" alone under the masthead.
+ *
+ * The number arrives already DECRYPTED (caller contract, see `TradeSheetContext.whatsapp`)
+ * and is formatted by the same helper the phone line uses, so both numbers on the sheet share
+ * one formatting and one degrade-to-unformatted rule. Never logged, never echoed.
+ */
+export function composeWhatsappLine(whatsapp: string | null | undefined): string | null {
+  const formatted = formatWorkerPhone(whatsapp);
+  return formatted === null ? null : `WhatsApp: ${formatted}`;
 }
 
 /**

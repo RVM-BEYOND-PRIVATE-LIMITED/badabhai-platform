@@ -89,6 +89,22 @@ export const WorkerLocationRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (a) — the worker recorded, replaced or cleared an optional WhatsApp
+// number (PATCH /workers/me/whatsapp).
+//
+// PII-FREE BY CONSTRUCTION. The number is AES-256-GCM ciphertext in
+// `workers.whatsapp_enc`; it never appears on the spine, in a log line, or in an analytics
+// read. This event carries the RESULTING STATE, not the value — the same "counts, never the
+// answers" rule `WorkerLocationRecordedPayload` follows, and for the same reason: a number
+// plus a worker id is identity.
+export const WorkerWhatsappRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** TRUE when a number is now on file; FALSE when the worker cleared it. */
+    has_whatsapp: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
