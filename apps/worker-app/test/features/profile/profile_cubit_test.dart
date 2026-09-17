@@ -168,7 +168,7 @@ void main() {
     'routeTarget finishing (#1344, byte-identical to the pre-existing '
     'destination)',
     build: () {
-      when(() => repo.confirmProfile()).thenAnswer((_) async {});
+      when(() => repo.confirmProfile()).thenAnswer((_) async => null);
       return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
     seed: () =>
@@ -228,7 +228,7 @@ void main() {
   blocTest<ProfileCubit, ProfileState>(
     'a retry after a failed confirm clears the previous confirmFailure',
     build: () {
-      when(() => repo.confirmProfile()).thenAnswer((_) async {});
+      when(() => repo.confirmProfile()).thenAnswer((_) async => null);
       return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
     seed: () => const ProfileState(
@@ -250,7 +250,7 @@ void main() {
     'concurrent confirm calls only invoke the repo once',
     build: () {
       when(() => repo.confirmProfile()).thenAnswer(
-        (_) => Future<void>.delayed(const Duration(milliseconds: 20)),
+        (_) => Future<String?>.delayed(const Duration(milliseconds: 20)),
       );
       return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
@@ -278,7 +278,7 @@ void main() {
     blocTest<ProfileCubit, ProfileState>(
       'loadForm() returns a real TradeForm -> routeTarget tradeForm',
       build: () {
-        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.confirmProfile()).thenAnswer((_) async => null);
         when(() => tradeFormRepo.loadForm())
             .thenAnswer((_) async => kSomeTradeForm);
         return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
@@ -304,7 +304,7 @@ void main() {
       'loadForm() returns null (404, uncovered trade) -> routeTarget '
       'finishing — byte-identical to the pre-#1344 destination',
       build: () {
-        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.confirmProfile()).thenAnswer((_) async => null);
         when(() => tradeFormRepo.loadForm()).thenAnswer((_) async => null);
         return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
       },
@@ -329,7 +329,7 @@ void main() {
       'loadForm() throws -> FAILS SAFE to routeTarget finishing, never '
       'strands the worker on the routing spinner or an error state',
       build: () {
-        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.confirmProfile()).thenAnswer((_) async => null);
         when(() => tradeFormRepo.loadForm()).thenThrow(const NetworkFailure());
         return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
       },
@@ -356,7 +356,7 @@ void main() {
     blocTest<ProfileCubit, ProfileState>(
       'loadForm() throws a bare exception -> still fails safe to finishing',
       build: () {
-        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.confirmProfile()).thenAnswer((_) async => null);
         when(() => tradeFormRepo.loadForm())
             .thenThrow(Exception('boom'));
         return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
@@ -371,6 +371,100 @@ void main() {
           routeTarget: ProfileRouteTarget.finishing,
         ),
       ],
+    );
+  });
+
+  // ---- #1522 / #1528 — the server's `next` drives the route --------------
+  //
+  // `POST /profile/confirm` now returns the destination it wants. The cubit
+  // must honour it FIRST and only fall back to the `loadForm` probe when the
+  // road is unknown (null / unrecognised), byte-identical to before.
+  group('#1522/#1528 next-driven routing', () {
+    blocTest<ProfileCubit, ProfileState>(
+      "next == 'chat_complete' -> routeTarget resume, straight past both the "
+      'trade form and /finishing (#1528); the form is never probed',
+      build: () {
+        when(
+          () => repo.confirmProfile(),
+        ).thenAnswer((_) async => 'chat_complete');
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.resume,
+        ),
+      ],
+      verify: (_) {
+        verify(() => repo.confirmProfile()).called(1);
+        verifyNever(() => tradeFormRepo.loadForm());
+      },
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      "next == 'trade_form' -> routeTarget tradeForm even when the form probe "
+      'would 404; the probe is skipped entirely',
+      build: () {
+        when(
+          () => repo.confirmProfile(),
+        ).thenAnswer((_) async => 'trade_form');
+        // Even a null (uncovered) probe must not win over the server's next.
+        when(() => tradeFormRepo.loadForm()).thenAnswer((_) async => null);
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.tradeForm,
+        ),
+      ],
+      verify: (_) => verifyNever(() => tradeFormRepo.loadForm()),
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      "an UNKNOWN next value falls back to today's loadForm probe",
+      build: () {
+        when(
+          () => repo.confirmProfile(),
+        ).thenAnswer((_) async => 'future_road');
+        when(() => tradeFormRepo.loadForm())
+            .thenAnswer((_) async => kSomeTradeForm);
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.tradeForm,
+        ),
+      ],
+      verify: (_) => verify(() => tradeFormRepo.loadForm()).called(1),
     );
   });
 

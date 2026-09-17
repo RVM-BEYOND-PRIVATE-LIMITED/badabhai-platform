@@ -17,6 +17,89 @@ import 'resume_card_slots.dart';
 /// Gap between two v3 cards in the resume stack.
 const double kResumeCardGap = 12;
 
+/// The profiling ROAD a structured resume document came from (#1525).
+///
+/// `source` is the road that produced the PROFILE, not the layout: a chat-road
+/// worker whose trade happens to have an authored sheet still gets a
+/// `format: "trade_sheet"` [TradeSheetResumeDocument] on the wire. Rendering
+/// therefore keys on this road (when known), and only falls back to the
+/// layout-by-format switch for [ResumeRoad.unknown] — an old server build or a
+/// pre-migration row, whose `source` is null.
+enum ResumeRoad { form, chat, unknown }
+
+/// Classifies a document by its profile road.
+///
+/// [ResumeDocument.source] is already normalised to `'form' | 'chat' | null`
+/// by [ResumeDocument.sourceFrom], so null is UNKNOWN and is deliberately kept
+/// apart from [ResumeRoad.form]: both render through today's layout-by-format
+/// path, but only knowledge of the road is allowed to move a document OFF that
+/// path, never the absence of it.
+ResumeRoad resumeRoadOf(ResumeDocument? document) => switch (document?.source) {
+  'chat' => ResumeRoad.chat,
+  'form' => ResumeRoad.form,
+  _ => ResumeRoad.unknown,
+};
+
+/// The chat-road resume's heading (#1525).
+///
+/// The road, stated plainly, is the one thing that makes this document its own
+/// type rather than a trade sheet that happened to come from an interview.
+const String kChatResumeHeading = 'Chat se bana resume';
+
+/// The muted line under [kChatResumeHeading]. Deliberately about the ROAD, not
+/// about quality — a chat-road resume is neither better nor worse than a form
+/// one, only built a different way.
+const String kChatResumeSubline = 'Aapse baat-cheet ke jawabon par bana';
+
+/// #1525 — the CHAT-ROAD resume, rendered as its OWN type.
+///
+/// It never draws the trade sheet's zoned cards, even when the wire's `format`
+/// is `trade_sheet`, because those cards are the form road's authored-sheet
+/// presentation. Its [child] is the flat, sectioned resume body the generic /
+/// legacy path already produces — the same real content, under a heading that
+/// names the road it came from.
+///
+/// [child] is handed in rather than built here so the screen keeps the single
+/// [`_legacyResumeBody`] construction (raw-text fallback included) and the
+/// `format: "generic"` / `document == null` paths cannot drift from this one.
+class ChatResumeView extends StatelessWidget {
+  const ChatResumeView({super.key, required this.child});
+
+  /// The flat resume body to draw under the chat heading.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        KitCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const KitCardHeader(
+                icon: Icons.chat_bubble_outline_rounded,
+                title: kChatResumeHeading,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                kChatResumeSubline,
+                style: OnboardingTypography.inter(
+                  size: 12,
+                  height: 1.35,
+                  color: OnboardingColors.ink500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: kResumeCardGap),
+        child,
+      ],
+    );
+  }
+}
+
 /// #1343 / UI kit v3 §4 — renders a `format: "trade_sheet"`
 /// [TradeSheetResumeDocument] as the spec's white cards: machines and
 /// controllers, materials, operations and tooling, then every zone the spec

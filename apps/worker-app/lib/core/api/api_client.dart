@@ -285,7 +285,10 @@ class ApiClient {
   Future<ChatSessionStart> startSession({required String authToken}) async {
     final Map<String, dynamic> json = await _post(
       '/chat/session',
-      <String, dynamic>{},
+      // `confirm_first: true` (ADR-0042 D8, #1523): a new build can render the
+      // résumé-confirm as the session's first turn. The server writes NO confirm
+      // for a client that does not ask, so an old build (no flag) is unchanged.
+      <String, dynamic>{'confirm_first': true},
       authToken: authToken,
     );
     return ChatSessionStart.fromJson(json);
@@ -451,17 +454,24 @@ class ApiClient {
 
   /// Confirms a profile. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
-  Future<void> confirmProfile({
+  ///
+  /// Returns the server's post-confirm destination (`next`): `"trade_form"` for
+  /// a form-sourced profile, `"chat_complete"` for a chat-sourced one — straight
+  /// to résumé building, never the trade form — or null on an older server /
+  /// a pre-migration row, where the caller keeps today's `GET /profiling/form`
+  /// probe. Additive: an absent key parses to null.
+  Future<String?> confirmProfile({
     required String authToken,
     required String profileId,
   }) async {
-    await _post(
+    final Map<String, dynamic> json = await _post(
       '/profile/confirm',
       <String, dynamic>{
         'profile_id': profileId,
       },
       authToken: authToken,
     );
+    return json['next'] is String ? json['next'] as String : null;
   }
 
   /// Records the worker's real name (PATCH /workers/me/name). Worker-scoped —

@@ -161,13 +161,14 @@ void main() {
 
       final String opener = bloc.state.messages.single.text;
       expect(opener, kChatOpeningText);
-      // The engine's FIRST topic is `role` (question_bank.py `_CNC_VMC_TOPICS`),
-      // not machines — the old opener asked "Which machines do you run?" and
-      // pushed the worker to answer the wrong topic first.
-      expect(opener, contains('aap kaunsa kaam karte hain'));
+      // The fallback asks BOTH essentials at once — the trade and the years of
+      // experience — so a worker who volunteers everything in one message has it
+      // captured on turn one (the server's one-shot opener, matched byte-for-byte
+      // by `chat_opening_parity_test.dart`).
+      expect(opener, contains('kaun sa kaam karte hain'));
+      expect(opener, contains('tajurba'));
       expect(opener.toLowerCase(), isNot(contains('which machines')));
-      // Resume-framed opener: no "test" language, no machine list.
-      expect(opener, contains('resume'));
+      // No "test" language, no machine list.
       expect(opener, isNot(contains('CNC, VMC, HMC')));
       // Persona contract: no vocative is rendered client-side — the
       // "{{worker_name}} ji," slot is filled server-side, and the client holds

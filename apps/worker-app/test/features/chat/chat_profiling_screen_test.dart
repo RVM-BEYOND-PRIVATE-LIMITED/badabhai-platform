@@ -17,6 +17,7 @@ import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
@@ -271,7 +272,8 @@ void main() {
         'join karne mein kitne din lagenge\n'
         'padhai ya training kaunsi hai\n'
         'Jitna yaad hai utna hi likhiye. Baaki hum ek-ek karke pooch lenge.';
-    when(() => repo.ensureSession()).thenAnswer((_) async => served);
+    when(() => repo.ensureSession())
+        .thenAnswer((_) async => const ChatSessionOpening(text: served));
 
     await pumpScreen(tester);
     expect(find.textContaining('Jitna yaad hai'), findsOneWidget,
