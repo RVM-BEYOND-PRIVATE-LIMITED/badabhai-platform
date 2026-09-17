@@ -34,11 +34,21 @@ const linkUrlSchema = z
  *
  * `portfolio/{workerId}/{uuid}.{ext}` — the same anti-forgery posture the photo confirm route
  * takes: a client can only register back a key the server chose for it.
+ *
+ * BUILT WITHOUT A DYNAMIC RegExp. Interpolating the worker id into a pattern is a regex-injection
+ * shape (and semgrep refuses it on sight); none of this needs a pattern — a prefix check, one
+ * literal shape check and a closed extension set express the same rule exactly.
  */
+const UUID_SHAPE = /^[0-9a-f-]{36}$/;
+const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "mp4", "mov"]);
+
 export function portfolioKeyBelongsTo(workerId: string, key: string): boolean {
-  return new RegExp(`^portfolio/${workerId}/[0-9a-f-]{36}\\.(jpg|jpeg|png|webp|mp4|mov)$`).test(
-    key,
-  );
+  const prefix = `portfolio/${workerId}/`;
+  if (!key.startsWith(prefix)) return false;
+  const rest = key.slice(prefix.length);
+  const dot = rest.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return UUID_SHAPE.test(rest.slice(0, dot)) && ALLOWED_EXTENSIONS.has(rest.slice(dot + 1));
 }
 
 export const SetMyPortfolioSchema = z

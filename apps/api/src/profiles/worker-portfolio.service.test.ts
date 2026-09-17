@@ -113,7 +113,10 @@ describe("WorkerPortfolioService.createUploadUrl", () => {
       WORKER,
       PortfolioUploadUrlSchema.parse({ kind: "photo", content_type: "image/jpeg" }),
     );
-    expect(res.storage_key).toMatch(new RegExp(`^portfolio/${WORKER}/[0-9a-f-]{36}\\.jpg$`));
+    // No dynamic RegExp in tests either — the same static-analysis shape the DTO avoids.
+    expect(res.storage_key.startsWith(`portfolio/${WORKER}/`)).toBe(true);
+    expect(res.storage_key.endsWith(".jpg")).toBe(true);
+    expect(res.storage_key.length).toBe(`portfolio/${WORKER}/`.length + 36 + ".jpg".length);
     expect(h.storage.createSignedUploadUrl).toHaveBeenCalledWith(
       res.storage_key,
       "worker-portfolio",
