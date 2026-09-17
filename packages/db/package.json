@@ -42,6 +42,7 @@
     "db:normalize:skill-aliases": "tsx src/normalize-skill-aliases.ts",
     "db:eval:occupation": "tsx src/eval-occupation-retrieval.ts",
     "db:eval:resume-prefill": "tsx src/eval-resume-prefill-coverage.ts",
+    "db:eval:chat-fill": "tsx src/eval-chat-fill-coverage.ts",
     "db:seed:packs": "tsx src/seed-question-packs.ts",
     "db:verify:packs": "tsx src/verify-question-packs.ts",
     "db:verify:trainer-pack": "tsx src/verify-trainer-pack.ts",
