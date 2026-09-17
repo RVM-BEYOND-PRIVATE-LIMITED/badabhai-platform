@@ -124,6 +124,10 @@ const LOCKED_TABLES = [
   // client role and a worker's credential history. Deny-by-default, FORCE, no policy.
   "worker_certificate",
   "worker_education",
+  // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
+  // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
+  // FORCE, no policy.
+  "worker_language",
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
   // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
   // Listed late, and that is the finding rather than the fix: 0076 created these three
