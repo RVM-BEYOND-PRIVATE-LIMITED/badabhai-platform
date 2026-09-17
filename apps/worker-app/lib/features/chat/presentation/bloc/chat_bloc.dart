@@ -18,6 +18,7 @@ import '../../../../core/session/known_worker_facts_store.dart';
 import '../../domain/chat_answered_facts.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/chat_repository.dart';
+import '../../domain/chat_session_opening.dart';
 import '../../domain/chat_turn.dart';
 
 // ---------------- Events ----------------
@@ -114,6 +115,7 @@ class ChatState extends Equatable {
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
     this.formOffer,
+    this.resumePending = false,
   });
 
   /// Ordered, append-only transcript.
@@ -215,6 +217,13 @@ class ChatState extends Equatable {
   /// — but the reset keeps the invariant true defensively rather than by luck.
   final FormOffer? formOffer;
 
+  /// True when THIS session opened on the server's résumé-confirm first turn
+  /// (`resume_pending`, ADR-0042 D8, #1523). Set once from [ChatStarted]'s open
+  /// result and STICKY for the life of the bloc. It exists so the UI and tests
+  /// can assert that a résumé-routed session never fell back to the canned
+  /// "aap kaunsa kaam karte hain?" opener.
+  final bool resumePending;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -242,6 +251,7 @@ class ChatState extends Equatable {
     // previous turn's card, which `formOffer ?? this.formOffer` cannot express
     // on its own — every non-null-in-the-wire turn passes this explicitly.
     bool clearFormOffer = false,
+    bool? resumePending,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -265,6 +275,9 @@ class ChatState extends Equatable {
           ? null
           : (predictedQuestionKey ?? this.predictedQuestionKey),
       formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
+      // Sticky: once a résumé-confirm session, always (the opening is applied
+      // exactly once and never un-opens).
+      resumePending: this.resumePending || (resumePending ?? false),
     );
   }
 
@@ -287,61 +300,47 @@ class ChatState extends Equatable {
         lookahead,
         predictedQuestionKey,
         formOffer,
+        resumePending,
       ];
 }
 
 // ---------------- Bloc ----------------
 
-/// The opening bada-bhai prompt — a CLIENT-side line shown before the engine's
-/// first turn exists (#422).
+/// The opening bada-bhai prompt — the CLIENT-side fallback shown when the server
+/// serves no opening turn (#422).
 ///
-/// NOW THE FALLBACK, NOT THE ONLY PATH. `POST /chat/session` can serve the
-/// engine's own one-shot opener (`opening_text`, behind
-/// CHAT_ONE_SHOT_OPENER_ENABLED), and [ChatBloc] swaps it into bubble 0 when it
-/// arrives. This constant is what the worker sees when it does not: flag off, AI
-/// service unreachable, mock client, or an API build that predates the field.
+/// THE FALLBACK, NOT THE ONLY PATH. `POST /chat/session` can serve the opener
+/// itself (`opening_text`, behind CHAT_ONE_SHOT_OPENER_ENABLED, or the
+/// résumé-confirm first turn, #1523), and [ChatBloc] swaps it into bubble 0 when
+/// it arrives. This constant is what the worker sees when it does not: flag off,
+/// AI service unreachable, mock client, or an API build that predates the field.
 /// Keeping it is the point — the chat must never open on a blank bubble.
 ///
-/// THE COPY. Warm "bada bhai" Hinglish, aap-form, framing the chat as building
-/// the worker's resume — no "test" language, no machine list, no worker-name
-/// vocative (the persona's `"{{worker_name}} ji, "` slot is filled server-side
-/// after the event is emitted; the client holds no name and must not render
-/// one). It asks the engine's ACTUAL first topic — `role`
-/// (`aap kaunsa kaam karte hain?`) — verbatim, so the engine's turn 1 (which
-/// serves the first UNANSWERED topic) advances to the next question rather than
-/// repeating itself. Exactly one question per turn (B-5).
+/// SERVER-OWNED COPY. The server is the source of truth for the opening; this is
+/// strictly the offline/no-server-turn fallback. The string is a byte-for-byte
+/// twin of `CHAT_OPENING_TEXT` in `apps/api/src/chat/chat-replies.ts`, and
+/// `test/features/chat/chat_opening_parity_test.dart` reads that TS file at test
+/// time and FAILS if the two drift. If you edit one, edit the other in the same
+/// change.
 ///
-/// Residual gap, NARROWED: this string still duplicates engine copy client-side
-/// and can drift from `question_bank.py`. It is now only what a DEGRADED session
-/// shows, and the server-served opener above is the live path — but the drift is
-/// not gone, so keep this aligned with the `role` topic if that copy changes.
-///
-/// BYTE-IDENTICAL CONTRACT (drift S4). This string and the ai-service's
-/// `ONE_SHOT_OPENER` (`apps/ai-service/app/profiling/question_bank.py`) are the
-/// SAME copy served from two places, so a worker sees the same first line
-/// whether `CHAT_ONE_SHOT_OPENER_ENABLED` is on or off. They must stay byte-for-
-/// byte equal — if you edit one, edit the other in the same change.
-///
-/// PENDING SERVER EDIT: the opener now reads "Namaste." here, not "Namaste!".
-/// An exclamation mark in bot copy violates the persona's Ten Laws (enforced by
-/// `test/persona_neutrality_test.dart`), so the client half is fixed. The Python
-/// constant still says "Namaste!" and needs the identical one-character edit —
-/// until it lands, a flag-ON session differs from this fallback by that one
-/// character. Tracked in the change that introduced this note.
+/// THE COPY. Warm Hinglish, aap-form, one question per turn (B-5), no worker-name
+/// vocative (the persona's `"{{worker_name}} ji, "` slot is filled server-side;
+/// the client holds no name and must not render one). No exclamation mark — the
+/// persona's Ten Laws forbid it (`test/persona_neutrality_test.dart`).
 const String kChatOpeningText =
-    'Namaste. Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
-    'Chaliye shuru karte hain — aap kaunsa kaam karte hain?';
+    'Namaste. Aap kaun sa kaam karte hain, aur kitna tajurba hai?';
 
 /// The DEVANAGARI rendering of [kChatOpeningText] for read-aloud (#896) — the
 /// SAME content in the native script so the on-device hi-IN voice pronounces it
 /// correctly (romanized Hindi is read as gibberish by every TTS voice). Client
-/// constant because the opener itself is: unlike every later reply, the first
-/// question is never served with a `tts_text`, so its sibling has to live here to
-/// read correctly on turn one. Keep it in step with [kChatOpeningText] byte-for-
-/// byte in MEANING if that copy changes. Displayed nowhere — spoken only.
+/// constant because the canned opener is: a server-served opening ships its own
+/// `opening_tts_text` twin (which then rides bubble 0 instead — see
+/// [ChatBloc._withOpener]), and only this fallback has no server twin to carry.
+/// It is the twin the API computes for [kChatOpeningText] via
+/// `ttsTextFor` (`apps/api/src/profiling/question-tts-text.ts`). Displayed
+/// nowhere — spoken only.
 const String kChatOpeningTtsText =
-    'नमस्ते। मैं आपका बड़ा भाई। चलो, अब आपका अच्छा सा रिज़्यूमे बनाते हैं। '
-    'चलिए शुरू करते हैं — आप कौनसा काम करते हैं?';
+    'नमस्ते। आप कौन सा काम करते हैं, और कितना तजुर्बा है?';
 
 /// The opening bada-bhai prompt as a transcript bubble. Carries [kChatOpeningTtsText]
 /// so read-aloud speaks Devanagari from the very first question (#896).
@@ -439,9 +438,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
     bool failed = false;
-    String? opener;
+    ChatSessionOpening? opening;
     try {
-      opener = await _repo.ensureSession();
+      opening = await _repo.ensureSession();
     } on Failure catch (_) {
       // Do NOT swallow this (#343). The spinner still drops so the worker can
       // type, but the failure is now SURFACED: the repository re-opens the
@@ -450,7 +449,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       failed = true;
     }
 
-    // Drop the spinner + apply the served opener NOW — before any hydration
+    // The opening's chips, if any (a résumé confirm's Haan/Nahi, #1523). The
+    // LABELS are what a chip displays and submits; the objects carry the stable
+    // option_key the bloc indexes `lookahead` by — exactly a later turn's
+    // suggestedOptions/followups pair. Null (no server opening) leaves whatever
+    // the state holds, which is the empty default on a fresh mount.
+    final List<String>? openingFollowups = opening == null
+        ? null
+        : <String>[for (final ChatOption o in opening.options) o.labelText];
+
+    // Drop the spinner + apply the served opening NOW — before any hydration
     // await. A concurrent first send (the fast-typist race, #344) must not be
     // reordered behind a slow transcript read: this emit is what the existing
     // ordering contract depends on, so it stays a single await deep, exactly as
@@ -458,7 +466,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(state.copyWith(
       initializing: false,
       sessionFailed: failed,
-      messages: _withOpener(opener),
+      // #1523 — a server opening REPLACES the canned bubbles; without one the
+      // state keeps rendering `kChatOpeningMessage` (canned text + Devanagari
+      // twin), byte-for-byte as before.
+      messages: _withOpener(opening),
+      // A résumé-confirm session is flagged so nothing downstream can mistake it
+      // for the generic canned opener — the worker must never have seen "aap
+      // kaunsa kaam karte hain?" on a resume-routed session.
+      resumePending: opening?.resumePending ?? false,
+      suggestedOptions: opening?.options,
+      followups: openingFollowups,
     ));
 
     if (failed) return;
@@ -498,13 +515,21 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// captured list would silently drop their message. Index 0 is stable under
   /// that race because the transcript is append-only and the constructor seeds
   /// bubble 0 as the opener — nothing can ever insert ahead of it.
-  List<ChatMessage>? _withOpener(String? opener) {
-    if (opener == null || opener.trim().isEmpty) return null;
+  List<ChatMessage>? _withOpener(ChatSessionOpening? opening) {
+    if (opening == null || opening.text.trim().isEmpty) return null;
     final List<ChatMessage> messages = state.messages;
     if (messages.isEmpty || messages.first.fromWorker) return null;
-    if (messages.first.text == opener) return null; // already applied
+    if (messages.first.text == opening.text) return null; // already applied
     return <ChatMessage>[
-      ChatMessage(text: opener, fromWorker: false),
+      // #1526 — the server opener's Devanagari twin (`opening_tts_text`) rides
+      // bubble 0 so turn one reads aloud correctly. Null when the server served
+      // no twin (e.g. a résumé confirm): read-aloud then speaks the romanized
+      // text, never the Canned twin of a DIFFERENT sentence.
+      ChatMessage(
+        text: opening.text,
+        fromWorker: false,
+        ttsText: opening.ttsText,
+      ),
       ...messages.skip(1),
     ];
   }

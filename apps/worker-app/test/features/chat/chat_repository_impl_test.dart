@@ -10,6 +10,7 @@ import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 
 /// A client that fails the test if it is ever hit — the fail-closed guards must
@@ -101,7 +102,7 @@ void main() {
         session,
       );
 
-      final String? opener = await repo.ensureSession();
+      final ChatSessionOpening? opener = await repo.ensureSession();
 
       // Re-attached to the signup session (so loadHistory redraws its Q&A) — a
       // resume serves NO opener, and it must NOT mint a fresh /chat/session.
@@ -172,7 +173,7 @@ void main() {
         },
       );
 
-      final String? opener = await repo.ensureSession();
+      final ChatSessionOpening? opener = await repo.ensureSession();
 
       // Fell through to a NEW session (no opening_text on this stub → null opener).
       expect(opener, isNull);
@@ -221,7 +222,7 @@ void main() {
                 logCount++,
       );
 
-      final String? opener = await repo.ensureSession();
+      final ChatSessionOpening? opener = await repo.ensureSession();
 
       expect(opener, isNull, reason: 'a resume serves no opener');
       expect(session.sessionId, 'prior-1', reason: 'the retry resumed the session');
@@ -260,8 +261,8 @@ void main() {
       );
 
       // Fire two opens in the SAME microtask before either resolves.
-      final List<String?> openers =
-          await Future.wait(<Future<String?>>[
+      final List<ChatSessionOpening?> openers =
+          await Future.wait(<Future<ChatSessionOpening?>>[
         repo.ensureSession(),
         repo.ensureSession(),
       ]);
@@ -302,7 +303,7 @@ void main() {
         session,
       );
 
-      final String? opener = await repo.ensureSession();
+      final ChatSessionOpening? opener = await repo.ensureSession();
       expect(opener, isNull,
           reason: 'no opening_text → null → the canned greeting is kept');
       expect(session.sessionId, 's-existing');

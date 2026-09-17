@@ -173,6 +173,49 @@ void main() {
     expect(s.experienceYears, isNull);
   });
 
+  // #1524 — the road that produced the profile flows through; a DTO without a
+  // source (the old-server / pre-migration shape) stays null, so the screens
+  // keep today's rendering and never guess.
+  test('source flows through from the DTO', () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'confirmed',
+              confirmedAt: '2026-06-01T00:00:00.000Z',
+              tradeDisplayName: 'Welder',
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: null,
+              strength: 4,
+              source: 'chat',
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.source, 'chat');
+    expect(s.isChatSourced, isTrue);
+    expect(s.isFormSourced, isFalse);
+  });
+
+  test('an absent source maps to null — today\'s rendering, no crash',
+      () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'confirmed',
+              confirmedAt: '2026-06-01T00:00:00.000Z',
+              tradeDisplayName: 'Welder',
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: null,
+              strength: 4,
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.source, isNull);
+    expect(s.isChatSourced, isFalse);
+    expect(s.isFormSourced, isFalse);
+  });
+
   test('a 401 surfaces a typed Failure (real reason, not a silent spinner)',
       () async {
     when(() => api.getProfileSummary(authToken: any(named: 'authToken')))

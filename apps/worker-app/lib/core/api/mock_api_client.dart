@@ -129,11 +129,14 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<void> confirmProfile({
+  Future<String?> confirmProfile({
     required String authToken,
     required String profileId,
   }) async {
     await _delay();
+    // No road signal in mock mode: null keeps the caller on today's
+    // GET /profiling/form probe fallback, exactly as an older server would.
+    return null;
   }
 
   @override

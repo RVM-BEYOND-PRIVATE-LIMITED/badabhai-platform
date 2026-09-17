@@ -11,6 +11,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/education_label.dart';
+import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
@@ -19,10 +20,16 @@ import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
+import '../../profile_tab/presentation/widgets/profile_identity_card.dart'
+    show profileExperienceLabel;
 import 'cubit/profile_cubit.dart';
 
 /// Corner radius of one confirm-row card (Master UI Kit: "white r14 cards").
 const double _kConfirmRowRadius = 14;
+
+/// #1524 — the heading of the CHAT-road preview variant, so the form and chat
+/// shapes are unmistakably different (and tests can lock which one rendered).
+const String kChatProfileHeading = 'Chat se bani profile';
 
 class ProfilePreviewScreen extends StatelessWidget {
   const ProfilePreviewScreen({super.key});
@@ -100,22 +107,25 @@ class _ProfileViewState extends State<_ProfileView> {
           prev.confirmFailure != curr.confirmFailure,
       listener: (BuildContext context, ProfileState state) {
         if (state.status == ProfileStatus.confirmed) {
-          // Profile confirmed AND the trade-form pre-check settled (#1344,
-          // SCOPED retirement — full removal of /finishing still waits on
-          // broader server-side trade-form coverage + #1338). Route to the
-          // trade form when the worker's trade has a real one today
-          // (ProfileCubit already resolved this, incl. failing safe to
-          // `finishing` on any check error — never left ambiguous here);
-          // otherwise fall back to /finishing (#1296), EXACTLY the prior,
-          // unconditional destination. Either screen collects the closed-set
-          // work-history + preferences, THEN generates the resume (Building)
-          // and enters the shell. context.go clears the onboarding stack
-          // (point of no return).
-          context.go(
-            state.routeTarget == ProfileRouteTarget.tradeForm
-                ? Routes.tradeForm
-                : Routes.finishing,
-          );
+          // Profile confirmed AND the route resolved (#1344, SCOPED
+          // retirement — full removal of /finishing still waits on broader
+          // server-side trade-form coverage + #1338). Route by the server's
+          // `next` destination / the trade-form pre-check the cubit already
+          // resolved (incl. failing safe to `finishing` on any check error —
+          // never left ambiguous here):
+          //  - tradeForm → the trade form;
+          //  - resume    → résumé building DIRECTLY (chat road, #1528 — never
+          //                the trade form and never /finishing);
+          //  - finishing → /finishing (#1296), EXACTLY the prior, unconditional
+          //                destination. Either form screen collects the
+          //                closed-set work-history + preferences, THEN generates
+          //                the resume (Building) and enters the shell.
+          // context.go clears the onboarding stack (point of no return).
+          context.go(switch (state.routeTarget) {
+            ProfileRouteTarget.tradeForm => Routes.tradeForm,
+            ProfileRouteTarget.resume => Routes.building,
+            ProfileRouteTarget.finishing || null => Routes.finishing,
+          });
           return;
         }
         final Failure? failed = state.confirmFailure;
@@ -189,7 +199,7 @@ class _ProfileViewState extends State<_ProfileView> {
                     onNext: context.read<ProfileCubit>().confirm,
                     leading: _SecondaryButton(
                       label: 'Badlo',
-                      onPressed: () => _backToChat(context),
+                      onPressed: () => _editProfile(context, state.summary),
                     ),
                   ),
                 )
@@ -271,6 +281,19 @@ class _ProfileViewState extends State<_ProfileView> {
     }
   }
 
+  /// #1524 — "Badlo" (and a row's edit glyph) returns the worker to the flow
+  /// that ORIGINATED their profile:
+  ///  - form road (`source == 'form'`) → the trade form;
+  ///  - chat road (`source == 'chat'`) and unknown (`null`) → the chat, exactly
+  ///    today's behaviour (pop back to the live chat when possible).
+  void _editProfile(BuildContext context, ProfileSummary? summary) {
+    if (summary?.isFormSourced ?? false) {
+      context.go(Routes.tradeForm);
+      return;
+    }
+    _backToChat(context);
+  }
+
   /// Renders the REAL extracted profile read back from the summary route, as the
   /// kit 04 CONFIRM content: the "Yeh sahi hai?" question lives in the header,
   /// over one card per label→value fact, each editable card carrying an edit
@@ -278,6 +301,11 @@ class _ProfileViewState extends State<_ProfileView> {
   /// honest "being finalised" note — never a fabricated placeholder (the worker
   /// confirms what they can actually see).
   Widget _buildProfile(BuildContext context, ProfileSummary? summary) {
+    // #1524 — the chat road gets its own visibly distinct variant. The form
+    // road and the unknown (`null`) road keep today's exact rendering.
+    if (summary != null && summary.isChatSourced) {
+      return _buildChatProfile(context, summary);
+    }
     final List<Widget> rows = <Widget>[];
     if (summary == null) {
       // Extraction succeeded but the summary read missed. Be honest — no fake
@@ -309,7 +337,7 @@ class _ProfileViewState extends State<_ProfileView> {
           _ConfirmRow(
             label: s.label,
             value: s.value,
-            onEdit: s.editable ? () => _backToChat(context) : null,
+            onEdit: s.editable ? () => _editProfile(context, summary) : null,
           ),
         );
       }
@@ -333,6 +361,78 @@ class _ProfileViewState extends State<_ProfileView> {
           ],
         ],
       ),
+    );
+  }
+
+  /// #1524 — the CHAT-road confirm variant. Same kit 04 card shape, but its
+  /// facts are the ones a chat interview actually yields — the extracted
+  /// occupation, chat experience / education and the skills the worker named —
+  /// and a chat-road heading sets it apart from the form's Trade/City/Education
+  /// sheet (the two are never silently mixed). Every value is real or an honest
+  /// "being finalised" note; nothing is fabricated.
+  Widget _buildChatProfile(BuildContext context, ProfileSummary summary) {
+    final String occupation = _tradeText(summary) ?? 'Tayyar ho raha hai…';
+    final double? years = summary.experienceYears;
+    final String? experience =
+        years == null ? null : profileExperienceLabel(years);
+    final String? education = _educationLabel(summary);
+    final String? skills =
+        summary.skills.isEmpty ? null : summary.skills.map(replaceTaxonomyIds).join(', ');
+
+    final List<({String label, String value})> specs =
+        <({String label, String value})>[
+          (label: 'Kaam', value: occupation),
+          if (experience != null) (label: 'Anubhav', value: experience),
+          if (education != null) (label: 'Padhai', value: education),
+          if (skills != null) (label: 'Skills', value: skills),
+        ];
+
+    return OnboardingBody(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const _ChatSourceHeading(),
+          const SizedBox(height: 12),
+          for (int i = 0; i < specs.length; i++) ...<Widget>[
+            if (i > 0) const SizedBox(height: 10),
+            _ConfirmRow(
+              label: specs[i].label,
+              value: specs[i].value,
+              onEdit: () => _editProfile(context, summary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// #1524 — the chat-road marker on the confirm variant: a chat glyph plus the
+/// [kChatProfileHeading] line, so a chat profile can never be mistaken for the
+/// form road's trade sheet.
+class _ChatSourceHeading extends StatelessWidget {
+  const _ChatSourceHeading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        const Icon(
+          Icons.chat_bubble_outline,
+          size: 18,
+          color: OnboardingColors.shiftBlue,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            kChatProfileHeading,
+            style: OnboardingTypography.microLabel(
+              color: OnboardingColors.ink600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

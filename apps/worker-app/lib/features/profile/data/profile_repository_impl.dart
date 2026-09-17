@@ -29,12 +29,14 @@ class ProfileRepositoryImpl implements ProfileRepository {
   }
 
   @override
-  Future<void> confirmProfile() async {
+  Future<String?> confirmProfile() async {
     final String? token = _session.sessionToken;
     final String? profileId = _session.profileId;
     if (token == null || profileId == null) throw const UnauthorizedFailure();
     try {
-      await _api.confirmProfile(authToken: token, profileId: profileId);
+      // Forward the server's post-confirm destination (`next`) untouched; the
+      // cubit owns turning it into a route target (#1522/#1528).
+      return await _api.confirmProfile(authToken: token, profileId: profileId);
     } catch (error) {
       throw mapError(error);
     }

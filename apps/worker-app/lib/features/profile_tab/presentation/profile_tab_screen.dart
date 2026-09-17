@@ -28,6 +28,10 @@ import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_identity_card.dart';
 import 'widgets/profile_strength_card.dart';
 
+/// #1524 — the chat-road badge on the Profile tab. A chat-sourced profile is
+/// labelled so it is never mistaken for the form road's trade-sheet profile.
+const String kChatProfileSourceLabel = 'Chat se bani profile';
+
 /// The tabbed Profile (UI kit v3) — distinct from the profiling ProfilePreview.
 ///
 /// Navy tab header (spec §4) + the worker's identity card + the strength nudge
@@ -142,6 +146,19 @@ class _ProfileTabView extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 24),
       children: <Widget>[
         ProfileIdentityCard(summary: s, displayName: state.displayName),
+        // #1524 — a chat-sourced profile carries a visible chat-road badge so
+        // the tab never silently renders chat data as a form profile. Unknown
+        // (`null`) and form sources keep today's exact layout.
+        if (s.isChatSourced) ...<Widget>[
+          const SizedBox(height: 12),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: KitInfoChip(
+              label: kChatProfileSourceLabel,
+              dot: OnboardingColors.shiftBlue,
+            ),
+          ),
+        ],
         if (showNudge) ...<Widget>[
           const SizedBox(height: 12),
           ProfileStrengthCard(

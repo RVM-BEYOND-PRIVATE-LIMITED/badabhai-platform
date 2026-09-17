@@ -7,5 +7,11 @@ abstract interface class ProfileRepository {
   Future<String> extractProfile();
 
   /// Confirms the extracted profile so the resume can be generated.
-  Future<void> confirmProfile();
+  ///
+  /// Returns the server's post-confirm destination (`next`):
+  /// `"trade_form"` for a form-sourced profile, `"chat_complete"` for a
+  /// chat-sourced one (straight to resume building), or `null` on an older
+  /// server / a pre-migration row — the caller then keeps today's
+  /// `GET /profiling/form` probe. Additive: absent `next` → null.
+  Future<String?> confirmProfile();
 }

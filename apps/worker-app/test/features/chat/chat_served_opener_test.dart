@@ -13,6 +13,7 @@ import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 
@@ -121,7 +122,7 @@ void main() {
       session,
     );
 
-    expect(await repo.ensureSession(), _served);
+    expect((await repo.ensureSession())?.text, _served);
     // Second call is the already-open no-op: null, and NO second network hop.
     // Re-greeting a worker who is already mid-conversation would be worse than
     // showing nothing.
@@ -174,7 +175,8 @@ void main() {
     blocTest<ChatBloc, ChatState>(
       'a served opener REPLACES the canned one — it never appends a second',
       build: () {
-        when(() => repo.ensureSession()).thenAnswer((_) async => _served);
+        when(() => repo.ensureSession())
+            .thenAnswer((_) async => const ChatSessionOpening(text: _served));
         return ChatBloc(repo);
       },
       act: (ChatBloc b) => b.add(const ChatStarted()),
@@ -187,6 +189,23 @@ void main() {
       verify: (ChatBloc b) {
         expect(b.state.messages.length, 1, reason: 'replaced, not appended');
         expect(b.state.messages.single.text, isNot(kChatOpeningText));
+      },
+    );
+
+    blocTest<ChatBloc, ChatState>(
+      'the served opening rides its Devanagari twin on bubble 0 (#1526)',
+      build: () {
+        when(() => repo.ensureSession()).thenAnswer((_) async =>
+            const ChatSessionOpening(
+              text: _served,
+              ttsText: 'नमस्ते। एक ही संदेश में बताइये।',
+            ));
+        return ChatBloc(repo);
+      },
+      act: (ChatBloc b) => b.add(const ChatStarted()),
+      verify: (ChatBloc b) {
+        expect(b.state.messages.single.ttsText, 'नमस्ते। एक ही संदेश में बताइये।',
+            reason: 'read-aloud must speak the server opener in Devanagari');
       },
     );
 
@@ -208,7 +227,8 @@ void main() {
     blocTest<ChatBloc, ChatState>(
       'a whitespace-only opener also keeps the fallback',
       build: () {
-        when(() => repo.ensureSession()).thenAnswer((_) async => '   \n ');
+        when(() => repo.ensureSession())
+            .thenAnswer((_) async => const ChatSessionOpening(text: '   \n '));
         return ChatBloc(repo);
       },
       act: (ChatBloc b) => b.add(const ChatStarted()),
@@ -243,13 +263,14 @@ void main() {
         // a slow link can send before `ensureSession` returns. The swap rebuilds
         // from `state.messages` at emit time for exactly this reason — a list
         // captured before the await would silently drop their message.
-        final Completer<String?> gate = Completer<String?>();
+        final Completer<ChatSessionOpening?> gate =
+            Completer<ChatSessionOpening?>();
         when(() => repo.ensureSession()).thenAnswer((_) => gate.future);
         when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
             .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai.'));
         Future<void>.delayed(
           const Duration(milliseconds: 30),
-          () => gate.complete(_served),
+          () => gate.complete(const ChatSessionOpening(text: _served)),
         );
         return ChatBloc(repo);
       },

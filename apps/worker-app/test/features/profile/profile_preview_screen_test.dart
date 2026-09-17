@@ -216,6 +216,7 @@ void main() {
   group('#1344 post-confirm routing', () {
     const String kFinishingMarker = 'FINISHING-SCREEN';
     const String kTradeFormMarker = 'TRADE-FORM-SCREEN';
+    const String kBuildingMarker = 'BUILDING-SCREEN';
 
     const TradeForm kSomeTradeForm = TradeForm(
       kind: 'cnc_turner',
@@ -227,6 +228,7 @@ void main() {
     Future<void> pumpConfirmable(
       WidgetTester tester, {
       required TradeFormRepository tradeFormRepo,
+      String? next,
     }) async {
       GoogleFonts.config.allowRuntimeFetching = false;
       await locator.reset();
@@ -241,7 +243,7 @@ void main() {
           strengthSignals: 4,
         ),
       );
-      when(() => repo.confirmProfile()).thenAnswer((_) async {});
+      when(() => repo.confirmProfile()).thenAnswer((_) async => next);
       locator.registerFactory<ProfileCubit>(
         () => ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo),
       );
@@ -265,6 +267,10 @@ void main() {
           GoRoute(
             path: Routes.tradeForm,
             builder: (_, __) => const Scaffold(body: Text(kTradeFormMarker)),
+          ),
+          GoRoute(
+            path: Routes.building,
+            builder: (_, __) => const Scaffold(body: Text(kBuildingMarker)),
           ),
         ],
       );
@@ -317,6 +323,174 @@ void main() {
 
       expect(find.text(kFinishingMarker), findsOneWidget);
       expect(find.text(kTradeFormMarker), findsNothing);
+    });
+
+    // #1522 — the server's `next` now wins without a probe.
+    testWidgets(
+        "next == 'trade_form' routes straight to Routes.tradeForm and skips "
+        'the form probe', (WidgetTester tester) async {
+      final MockTradeFormRepository tradeFormRepo = MockTradeFormRepository();
+
+      await pumpConfirmable(
+        tester,
+        tradeFormRepo: tradeFormRepo,
+        next: 'trade_form',
+      );
+
+      expect(find.text(kTradeFormMarker), findsOneWidget);
+      expect(find.text(kFinishingMarker), findsNothing);
+      expect(find.text(kBuildingMarker), findsNothing);
+      verifyNever(() => tradeFormRepo.loadForm());
+    });
+
+    // #1528 — the chat road completes STRAIGHT into résumé building, and must
+    // never be rendered through /finishing.
+    testWidgets(
+        "next == 'chat_complete' routes to Routes.building, NOT /finishing or "
+        'the trade form', (WidgetTester tester) async {
+      final MockTradeFormRepository tradeFormRepo = MockTradeFormRepository();
+      when(() => tradeFormRepo.loadForm())
+          .thenAnswer((_) async => kSomeTradeForm);
+
+      await pumpConfirmable(
+        tester,
+        tradeFormRepo: tradeFormRepo,
+        next: 'chat_complete',
+      );
+
+      expect(find.text(kBuildingMarker), findsOneWidget);
+      expect(find.text(kFinishingMarker), findsNothing);
+      expect(find.text(kTradeFormMarker), findsNothing);
+      verifyNever(() => tradeFormRepo.loadForm());
+    });
+  });
+
+  // ---- #1524 — per-source rendering + originating-flow edit --------------
+  group('#1524 per-source rendering and edit destination', () {
+    const String kChatMarker = 'CHAT-SCREEN';
+    const String kTradeFormMarker = 'TRADE-FORM-SCREEN';
+
+    Future<void> pumpForEdit(
+      WidgetTester tester, {
+      required ProfileSummary summary,
+    }) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      await locator.reset();
+      final MockProfileRepository repo = MockProfileRepository();
+      final MockProfileSummaryRepository summaryRepo =
+          MockProfileSummaryRepository();
+      when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
+      when(() => summaryRepo.summary()).thenAnswer((_) async => summary);
+      locator.registerFactory<ProfileCubit>(
+        () => ProfileCubit(repo, summaryRepo),
+      );
+
+      tester.view.physicalSize = const Size(900, 1900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: Routes.profilePreview,
+        routes: <RouteBase>[
+          GoRoute(
+            path: Routes.profilePreview,
+            builder: (_, __) => const ProfilePreviewScreen(),
+          ),
+          GoRoute(
+            path: Routes.chatProfiling,
+            builder: (_, __) => const Scaffold(body: Text(kChatMarker)),
+          ),
+          GoRoute(
+            path: Routes.tradeForm,
+            builder: (_, __) => const Scaffold(body: Text(kTradeFormMarker)),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets(
+        "a CHAT-sourced profile renders the chat variant (heading + chat "
+        'facts) and its Badlo returns to the chat', (WidgetTester tester) async {
+      await pumpForEdit(
+        tester,
+        summary: const ProfileSummary(
+          tradeLabel: 'Welder',
+          strengthSignals: 4,
+          experienceYears: 3,
+          skills: <String>['Arc welding', 'Gas cutting'],
+          source: 'chat',
+        ),
+      );
+
+      // The chat variant is unmistakably different from the form's sheet.
+      expect(find.text(kChatProfileHeading), findsOneWidget);
+      expect(find.text('KAAM'), findsOneWidget);
+      expect(find.text('ANUBHAV'), findsOneWidget);
+      expect(find.text('3 saal'), findsOneWidget);
+      expect(find.text('SKILLS'), findsOneWidget);
+      expect(find.textContaining('Arc welding'), findsOneWidget);
+      // The form road's micro labels are NOT used for a chat profile.
+      expect(find.text('TRADE'), findsNothing);
+      expect(find.text('CITY'), findsNothing);
+
+      await tester.tap(find.text('Badlo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kChatMarker), findsOneWidget);
+      expect(find.text(kTradeFormMarker), findsNothing);
+    });
+
+    testWidgets(
+        'a FORM-sourced profile renders the trade-sheet rows and its Badlo '
+        'goes to the form, never the chat', (WidgetTester tester) async {
+      await pumpForEdit(
+        tester,
+        summary: const ProfileSummary(
+          tradeLabel: 'Welder',
+          city: 'Pune',
+          educationLevel: 'iti',
+          strengthSignals: 4,
+          source: 'form',
+        ),
+      );
+
+      expect(find.text('TRADE'), findsOneWidget);
+      expect(find.text('Welder'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
+      expect(find.text('EDUCATION'), findsOneWidget);
+      // No chat-road marker on the form variant.
+      expect(find.text(kChatProfileHeading), findsNothing);
+
+      await tester.tap(find.text('Badlo'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kTradeFormMarker), findsOneWidget);
+      expect(find.text(kChatMarker), findsNothing);
+    });
+
+    testWidgets(
+        'a null source keeps today\'s single rendering (trade rows, no chat '
+        'heading)', (WidgetTester tester) async {
+      await pumpForEdit(
+        tester,
+        summary: const ProfileSummary(
+          tradeLabel: 'Welder',
+          city: 'Pune',
+          strengthSignals: 4,
+        ),
+      );
+
+      expect(find.text('TRADE'), findsOneWidget);
+      expect(find.text('Welder'), findsOneWidget);
+      expect(find.text('CITY'), findsOneWidget);
+      expect(find.text(kChatProfileHeading), findsNothing);
     });
   });
 }

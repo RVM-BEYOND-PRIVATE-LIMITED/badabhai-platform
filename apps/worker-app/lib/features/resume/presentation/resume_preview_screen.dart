@@ -235,18 +235,36 @@ class _ResumeViewState extends State<_ResumeView> {
       parsed: parsed,
     );
 
-    // #1343 — SWITCH ON FORMAT, NEVER ON `trade`: [ResumeDocument.fromJson]
-    // already dispatched the wire's `format` string into ONE OF TWO Dart
-    // types, so testing the type here (never a `trade` value) is that same
-    // switch. Only `trade_sheet` gets the structured card renderer — it is the
-    // one layout `resume_text` cannot represent at all (zoned rows, not
-    // `Label: value` lines). `document == null` (no structured projection
-    // yet) AND `format: "generic"` both fall through to the SAME text-parsing
-    // render below: a non-CNC worker's tab must read exactly as it did before
-    // this landed (#1343 acceptance).
-    final Widget resumeBody = document is TradeSheetResumeDocument
-        ? ResumeDocumentView(document: document)
-        : _legacyResumeBody(resumeText, parsed, state.nightShiftReady);
+    // #1525 — SWITCH ON THE PROFILE ROAD WHEN THE SERVER KNOWS IT, THEN (only
+    // for a form or unknown road) ON FORMAT, NEVER ON `trade`.
+    //
+    // `source` is the road that produced the profile, not the layout: a
+    // chat-road worker whose trade has an authored sheet is still sent
+    // `format: "trade_sheet"`, so keying on the format alone would render them
+    // as a form-road sheet that they never filled. The chat road gets its own
+    // type and NEVER the trade-sheet cards (see [ChatResumeView]).
+    //
+    // `form` AND null (unknown: old server / pre-migration row) keep EXACTLY
+    // today's layout-by-format behaviour, byte for byte (#1525 acceptance):
+    // [ResumeDocument.fromJson] already dispatched the wire's `format` string
+    // into ONE OF TWO Dart types, so testing the type here is that same switch.
+    // Only `trade_sheet` gets the structured card renderer — it is the one
+    // layout `resume_text` cannot represent at all (zoned rows, not
+    // `Label: value` lines) — while `document == null` (no structured
+    // projection yet) and `format: "generic"` both fall through to the SAME
+    // text-parsing render, so a non-CNC worker's tab reads as it always did.
+    final Widget legacyBody = _legacyResumeBody(
+      resumeText,
+      parsed,
+      state.nightShiftReady,
+    );
+    final Widget resumeBody = switch (resumeRoadOf(document)) {
+      ResumeRoad.chat => ChatResumeView(child: legacyBody),
+      ResumeRoad.form || ResumeRoad.unknown =>
+        document is TradeSheetResumeDocument
+            ? ResumeDocumentView(document: document)
+            : legacyBody,
+    };
 
     final double width = MediaQuery.sizeOf(context).width;
     final EdgeInsets side = KitInsets.list(width);

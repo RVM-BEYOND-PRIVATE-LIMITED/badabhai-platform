@@ -347,22 +347,56 @@ class SkipResult extends Equatable {
 /// than carried through: it would otherwise replace the client's opener with an
 /// empty first bubble — a chat that greets the worker with nothing at all.
 class ChatSessionStart extends Equatable {
-  const ChatSessionStart({required this.sessionId, this.openingText});
+  const ChatSessionStart({
+    required this.sessionId,
+    this.openingText,
+    this.openingTtsText,
+    this.resumePending = false,
+    this.openingOptions = const <ChatOption>[],
+  });
 
   final String sessionId;
   final String? openingText;
 
+  /// The Devanagari read-aloud twin of [openingText] (`opening_tts_text`) — the
+  /// SAME content in native script so the on-device hi-IN voice pronounces it
+  /// correctly. Present iff the server-served opening has a twin; null when the
+  /// opening is the client's canned fallback or an older API build.
+  final String? openingTtsText;
+
+  /// True when this session opened with a résumé-confirm as its FIRST turn
+  /// (`resume_pending`, ADR-0042 D8). The server serves the confirm bubble
+  /// ([openingText]) plus its Haan/Nahi chips ([openingOptions]); absent → null.
+  final bool resumePending;
+
+  /// The tap-to-answer chips for the session's first turn (`opening_options`),
+  /// each `{option_key, label_text, ...}`. Empty on every ordinary opener.
+  final List<ChatOption> openingOptions;
+
   factory ChatSessionStart.fromJson(Map<String, dynamic> json) {
-    final Object? raw = json['opening_text'];
-    final String? text = raw is String && raw.trim().isNotEmpty ? raw : null;
+    String? text(Object? raw) =>
+        raw is String && raw.trim().isNotEmpty ? raw : null;
+    final Object? rawOptions = json['opening_options'];
+    final List<ChatOption> options = rawOptions is List
+        ? rawOptions
+            .map(ChatOption.fromJson)
+            .whereType<ChatOption>()
+            .toList(growable: false)
+        : const <ChatOption>[];
     return ChatSessionStart(
       sessionId: json['session_id'] as String,
-      openingText: text,
+      openingText: text(json['opening_text']),
+      openingTtsText: text(json['opening_tts_text']),
+      // `is bool` not a cast (#371): a garbled value reads as "no confirm".
+      resumePending:
+          json['resume_pending'] is bool ? json['resume_pending'] as bool : false,
+      openingOptions: options,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[sessionId, openingText];
+  List<Object?> get props =>
+      <Object?>[sessionId, openingText, openingTtsText, resumePending, openingOptions];
 }
 
 /// How far through the pinned question pack the worker is (`progress`, OIE
@@ -1648,13 +1682,20 @@ class ResumeSheetHeadlineDto extends Equatable {
 /// with different rows in it. A Dart branch keyed on trade would need a new
 /// case for every future trade; a sealed switch on format never does.
 sealed class ResumeDocument extends Equatable {
-  const ResumeDocument({required this.header, this.footerMeta});
+  const ResumeDocument({required this.header, this.footerMeta, this.source});
 
   final ResumeDocumentHeaderDto header;
 
   /// The masthead-matching footer line the sheet prints ("Generated 27 August
   /// 2026 · Ref RK8M2Q"). Null on a document with nothing to print there.
   final String? footerMeta;
+
+  /// The profiling ROAD that produced this resume (`source`): `"form"` | `"chat"`
+  /// | null. NOT the layout — [format] stays `trade_sheet`/`generic` for old
+  /// consumers, and a chat-road résumé renders as its own type even when the
+  /// trade has an authored sheet. Null = unknown (old server / pre-migration
+  /// row) → the caller keeps today's layout-by-format behaviour, byte for byte.
+  final String? source;
 
   /// Parses either shape by [format]. An unrecognised/missing `format` value
   /// defaults to `generic` — the safe choice: a resume-document row this
@@ -1667,6 +1708,13 @@ sealed class ResumeDocument extends Equatable {
     };
   }
 
+  /// Only the two known roads; anything else (or absent) is null = unknown.
+  static String? sourceFrom(Map<String, dynamic> json) => switch (json['source']) {
+        'form' => 'form',
+        'chat' => 'chat',
+        _ => null,
+      };
+
   static ResumeDocumentHeaderDto _headerFrom(Map<String, dynamic> json) {
     final Map<String, dynamic>? raw = json['header'] as Map<String, dynamic>?;
     return raw == null
@@ -1675,7 +1723,7 @@ sealed class ResumeDocument extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[header, footerMeta];
+  List<Object?> get props => <Object?>[header, footerMeta, source];
 }
 
 /// `format: "generic"` — the flat, twelve-layout résumé every worker with no
@@ -1684,6 +1732,7 @@ class GenericResumeDocument extends ResumeDocument {
   const GenericResumeDocument({
     required super.header,
     super.footerMeta,
+    super.source,
     this.headline,
     this.summary,
     this.location,
@@ -1729,6 +1778,7 @@ class GenericResumeDocument extends ResumeDocument {
     return GenericResumeDocument(
       header: ResumeDocument._headerFrom(json),
       footerMeta: json['footerMeta'] as String?,
+      source: ResumeDocument.sourceFrom(json),
       headline: json['headline'] as String?,
       summary: json['summary'] as String?,
       location: json['location'] as String?,
@@ -1776,6 +1826,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
   const TradeSheetResumeDocument({
     required super.header,
     super.footerMeta,
+    super.source,
     required this.trade,
     this.headline = const ResumeSheetHeadlineDto(),
     this.sections = const <ResumeDocumentSectionDto>[],
@@ -1816,6 +1867,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
     return TradeSheetResumeDocument(
       header: ResumeDocument._headerFrom(json),
       footerMeta: json['footerMeta'] as String?,
+      source: ResumeDocument.sourceFrom(json),
       trade: json['trade'] as String? ?? '',
       headline: rawHeadline == null
           ? const ResumeSheetHeadlineDto()
@@ -2151,10 +2203,16 @@ class ProfileSummaryDto extends Equatable {
     this.experienceYears,
     this.educationLevel,
     this.educationField,
+    this.source,
   });
 
   /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
   final String profileStatus;
+
+  /// The road that produced the profile (`source`): `"form"` | `"chat"` | null.
+  /// Null = unknown (a pre-migration row / no profile) — NEVER guessed from the
+  /// trade or a photo. Additive; older backends omit the key.
+  final String? source;
 
   /// ISO-8601, `null` until the profile is confirmed.
   final String? confirmedAt;
@@ -2239,6 +2297,12 @@ class ProfileSummaryDto extends Equatable {
       experienceYears: (json['experience_years'] as num?)?.toDouble(),
       educationLevel: json['education_level'] as String?,
       educationField: json['education_field'] as String?,
+      // Only the two known roads; anything else (or absent) is null = unknown.
+      source: switch (json['source']) {
+        'form' => 'form',
+        'chat' => 'chat',
+        _ => null,
+      },
     );
   }
 
@@ -2258,6 +2322,7 @@ class ProfileSummaryDto extends Equatable {
         experienceYears,
         educationLevel,
         educationField,
+        source,
       ];
 }
 

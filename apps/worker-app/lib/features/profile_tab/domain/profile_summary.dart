@@ -24,6 +24,7 @@ class ProfileSummary extends Equatable {
     this.educationLevel,
     this.educationField,
     this.profileStatus = 'none',
+    this.source,
   });
 
   /// The worker's name, or `null` when the backend omits it (current reality —
@@ -95,10 +96,24 @@ class ProfileSummary extends Equatable {
   /// never confirmed into an empty resume (the Phase-1 exit contract).
   final String profileStatus;
 
+  /// The profiling ROAD that produced this profile (`source`): `"form"`,
+  /// `"chat"`, or `null` when unknown (a pre-migration row, no profile, or an
+  /// older server). NEVER guessed from the trade or a photo. Additive — a null
+  /// value keeps today's single rendering path, byte for byte.
+  final String? source;
+
   /// True when the extraction produced too little to be a usable profile
   /// (backend `profile_status == 'draft'`). The preview blocks confirm and sends
   /// the worker back to chat to add more detail.
   bool get isDraft => profileStatus == 'draft';
+
+  /// True when the profile came off the chat road (`source == 'chat'`), which
+  /// renders its own variant and edits by returning to the chat.
+  bool get isChatSourced => source == 'chat';
+
+  /// True when the profile came off the form road (`source == 'form'`), which
+  /// renders the trade-sheet shape and edits by returning to the form.
+  bool get isFormSourced => source == 'form';
 
   @override
   List<Object?> get props => <Object?>[
@@ -116,5 +131,6 @@ class ProfileSummary extends Equatable {
         educationLevel,
         educationField,
         profileStatus,
+        source,
       ];
 }
