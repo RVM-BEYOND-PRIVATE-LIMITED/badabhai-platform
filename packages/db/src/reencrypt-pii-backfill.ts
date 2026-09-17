@@ -59,6 +59,7 @@ import {
   payerMembers,
   payerOrgs,
   payers,
+  workerCertificates,
   workerEmployment,
   workerResumeImports,
   workers,
@@ -271,6 +272,17 @@ function buildTargets(db: Database): PiiTarget[] {
       "worker_employment",
       "employer_name_enc",
       "employerNameEnc",
+    ),
+    // ADR-0042 D9 / Layer A (d) — the licence number on a certificate (migration 0112). Added
+    // WITH the column, while it is empty, exactly as the 0094 entry above was: a target costs
+    // nothing on a column with no rows and makes the FIRST token rotatable.
+    target(
+      workerCertificates,
+      workerCertificates.id,
+      workerCertificates.licenceNumberEnc,
+      "worker_certificate",
+      "licence_number_enc",
+      "licenceNumberEnc",
     ),
     // ADR-0041 — the staged suggestions read out of an uploaded résumé. ONE encrypted column
     // rather than an encrypted-leaf jsonb, so rotation is the same single-column job as every

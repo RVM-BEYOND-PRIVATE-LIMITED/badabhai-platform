@@ -13,6 +13,7 @@ import {
   languageFacts,
   languageLine,
   qualificationFactsFrom,
+  trainingLine,
   type WorkerCertificateRecord,
   type WorkerEducationRecord,
 } from "./resume-qualification-rows";
@@ -502,5 +503,85 @@ describe("qualificationFactsFrom — languages are a per-field override", () => 
       certifications: [],
       languages: ["Hindi (speaks)"],
     });
+  });
+});
+
+/**
+ * LAYER A (d) — training lines, and the licence fields that must NEVER print.
+ *
+ * `worker_certificate` now carries an encrypted licence number and an expiry (0112). The
+ * composition in this file is the only path from those rows to a sheet, and it names
+ * `name`/`issuer`/`year` and nothing else — these two tests make that structural rather than a
+ * claim in a comment.
+ */
+describe("trainingLine — the same grammar as a certificate", () => {
+  it("composes name and the conditional parenthetical", () => {
+    expect(trainingLine({ name: "CNC Operator Course", provider: "Govt. ITI", year: 2019 })).toBe(
+      "CNC Operator Course (Govt. ITI, 2019)",
+    );
+    expect(trainingLine({ name: "Safety Training", provider: null, year: null })).toBe(
+      "Safety Training",
+    );
+    expect(trainingLine({ name: "Welding Course", provider: "RVM CAD", year: null })).toBe(
+      "Welding Course (RVM CAD)",
+    );
+  });
+
+  it("an empty name is dropped, never composed into an empty row", () => {
+    expect(trainingLine({ name: "   ", provider: "RVM CAD", year: 2020 })).toBeNull();
+  });
+});
+
+describe("licence fields are outside every printed composition", () => {
+  it("a certificate carrying a number and an expiry composes the IDENTICAL line", () => {
+    const plain: WorkerCertificateRecord = {
+      name: "Wireman Licence",
+      issuer: "State Board",
+      year: 2016,
+    };
+    const secret: WorkerCertificateRecord = {
+      ...plain,
+      licenceNumberEnc: "v1.dGhpcyBpcyBub3QgYSByZWFsIHRva2Vu",
+      licenceExpiry: "2027-04-01",
+    };
+    expect(certificateLine(secret)).toBe(certificateLine(plain));
+    expect(certificateLine(secret)).not.toContain("v1.");
+    expect(certificateLine(secret)).not.toContain("2027");
+  });
+
+  it("qualificationFactsFrom carries no licence value anywhere", () => {
+    const facts = qualificationFactsFrom({
+      certificates: [
+        {
+          name: "Wireman Licence",
+          issuer: null,
+          year: 2016,
+          licenceNumberEnc: "v1.dGhpcyBpcyBub3QgYSByZWFsIHRva2Vu",
+          licenceExpiry: "2027-04-01",
+        },
+      ],
+      educations: [],
+      languages: [],
+      trainings: [],
+    });
+    const serialised = JSON.stringify(facts);
+    expect(serialised).not.toContain("token");
+    expect(serialised).not.toContain("2027");
+    expect(facts?.certifications).toEqual(["Wireman Licence (2016)"]);
+  });
+
+  it("carries training lines when there are rows, and omits the field when there are none", () => {
+    const withRows = qualificationFactsFrom({
+      certificates: [],
+      educations: [],
+      trainings: [{ name: "CNC Operator Course", provider: "Govt. ITI", year: 2019 }],
+    });
+    expect(withRows?.trainings).toEqual(["CNC Operator Course (Govt. ITI, 2019)"]);
+    const withoutRows = qualificationFactsFrom({
+      certificates: [],
+      educations: [],
+      trainings: [],
+    });
+    expect(withoutRows).toBeUndefined();
   });
 });

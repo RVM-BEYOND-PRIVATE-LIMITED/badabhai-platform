@@ -119,6 +119,61 @@ export const CERTIFICATES_MAX = 8;
 export const EDUCATIONS_MAX = 4;
 
 /**
+ * Layer A (d) — how many trainings one submission may carry. Same argument as the two above:
+ * a bound on a malformed client, not a render budget (the degradation ladder owns the sheet).
+ */
+export const TRAININGS_MAX = 8;
+
+/**
+ * A licence number (ADR-0042 D9 / Layer A (d)).
+ *
+ * A RESTRICTED CHARSET, NOT `looksLikePii`. A driving or electrician's licence number is often a
+ * long digit run, so the PII screen the free-text fields use would reject real values. The charset
+ * (letters, digits, slash, hyphen, space) is what keeps prose and email addresses out instead.
+ */
+const licenceNumberSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[A-Za-z0-9/\- ]+$/, "licence_number may contain letters, digits, /, - and spaces only")
+  .nullable()
+  .default(null);
+
+/**
+ * An expiry DATE, `YYYY-MM-DD` — never a parsed Date.
+ *
+ * The worker reads it off the document as a calendar day, and a `Date` in a column round-trips
+ * through UTC and shifts under IST. Bounded to the same era as every other credential year.
+ */
+const licenceExpirySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "licence_expiry must be YYYY-MM-DD")
+  .refine((value) => {
+    const year = Number(value.slice(0, 4));
+    return year >= 1950 && year <= 2100;
+  }, "licence_expiry year must be between 1950 and 2100")
+  .nullable()
+  .default(null);
+
+/**
+ * One course or training programme the worker attended (Layer A (d), migration 0112).
+ *
+ * NOT A CERTIFICATE. A certificate is an award and can carry an issuer and a licence; a training
+ * is attendance — "3-month CNC operator course, Govt. ITI, 2019" often has no document at all.
+ * Name, provider and year only; nothing here is encrypted because nothing here is identity.
+ */
+const TrainingEntrySchema = z
+  .object({
+    name: freeText(120, "training name"),
+    provider: freeText(120, "training provider").nullable().default(null),
+    year: credentialYear,
+  })
+  .strict();
+
+export type TrainingEntryDto = z.infer<typeof TrainingEntrySchema>;
+
+/**
  * One certificate, licence or trade qualification.
  *
  * `name` IS FREE TEXT AND CANNOT BE A CLOSED SET. The reference sheets carry "Mastercam Advanced
@@ -137,6 +192,16 @@ const CertificateEntrySchema = z
     /** A training centre, an OEM, a certification body, an employer. */
     issuer: freeText(120, "issuer").nullable().default(null),
     year: credentialYear,
+    /**
+     * Layer A (d) — the licence number, IF THIS CERTIFICATE IS A LICENCE.
+     *
+     * PII: encrypted before the database touch and decrypted only on the worker's own GET.
+     * NEVER EMPLOYER-VISIBLE — the résumé composition does not read this field, so it cannot
+     * print even if a caller passed it (asserted in `resume-qualification-rows.test.ts`).
+     */
+    licence_number: licenceNumberSchema,
+    /** Layer A (d) — the expiry day, same visibility ruling as the number. */
+    licence_expiry: licenceExpirySchema,
   })
   .strict();
 
@@ -191,6 +256,8 @@ export const SetMyQualificationsSchema = z
   .object({
     certificates: z.array(CertificateEntrySchema).max(CERTIFICATES_MAX).optional(),
     educations: z.array(EducationEntrySchema).max(EDUCATIONS_MAX).optional(),
+    // Layer A (d) — three-state like the other two lists: absent survives, `[]` clears.
+    trainings: z.array(TrainingEntrySchema).max(TRAININGS_MAX).optional(),
   })
   .strict()
   // AN EMPTY BODY IS A CLIENT BUG, NOT A NO-OP, and it is worth 400-ing rather than absorbing.
@@ -198,10 +265,14 @@ export const SetMyQualificationsSchema = z
   // page" and "I have no certificates" — so a body that expresses neither is a client that has
   // lost track of which it meant. Absorbing it silently is how a worker taps Save, sees success,
   // and finds nothing changed.
-  .refine((dto) => dto.certificates !== undefined || dto.educations !== undefined, {
-    message: "send certificates, educations, or both",
-    path: ["certificates"],
-  });
+  .refine(
+    (dto) =>
+      dto.certificates !== undefined || dto.educations !== undefined || dto.trainings !== undefined,
+    {
+      message: "send certificates, educations, trainings, or a combination",
+      path: ["certificates"],
+    },
+  );
 
 export type SetMyQualificationsDto = z.infer<typeof SetMyQualificationsSchema>;
 
@@ -220,6 +291,8 @@ export type EducationEntryDto = NonNullable<SetMyQualificationsDto["educations"]
 export interface MyQualificationsResponse {
   readonly certificates: readonly CertificateEntryDto[];
   readonly educations: readonly EducationEntryDto[];
-  readonly partial: readonly ("certificates" | "educations")[];
+  /** Layer A (d) — the worker's courses, in their own order. */
+  readonly trainings: readonly TrainingEntryDto[];
+  readonly partial: readonly ("certificates" | "educations" | "trainings")[];
   readonly dropped_count: number;
 }
