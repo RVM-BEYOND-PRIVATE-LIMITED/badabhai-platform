@@ -1,4 +1,3 @@
-import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 import type {
   ResumeEmployment,
@@ -36,38 +35,50 @@ export type ResumeFormat = (typeof RESUME_FORMATS)[number];
 /**
  * Which trade's sheet this is, when it is one.
  *
- * DERIVED FROM THE PACK, not stored and not asked. `TRADE_RESUME_MAPS` already answers "does this
- * pack have a sheet", and a second list of trade ids would be free to disagree with it — a pack
- * with a map but no id here would render a sheet the client could not name.
+ * DERIVED FROM THE PACK, not stored and not asked — and since Layer A (i) EVERY pack has a sheet,
+ * so this is a NAME lookup rather than the old "does a map exist" gate. The `?? "trade"` fallback
+ * exists for the ~102 packs with no role descriptor: a pack with a sheet but no reviewed name still
+ * renders, because a labelling gap is not a render fault.
  *
- * AND NOW DERIVED FROM THE ROLE REGISTRY TOO, so the disagreement is not merely discouraged but
- * impossible: `pack → kind` is the same fact as `kind → pack`, which the registry already holds
- * for routing, and this was the second copy of it. `role-registry.ts` asserts pack ids are unique
- * across roles at load, which is what makes the inversion total rather than lossy.
+ * DERIVED FROM THE ROLE REGISTRY: `pack → kind` is the same fact as `kind → pack`, which the
+ * registry already holds for routing. `role-registry.ts` asserts pack ids are unique across roles
+ * at load, which is what makes the inversion total rather than lossy.
  */
 export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = Object.freeze(
   Object.fromEntries(ROLE_FORM_DESCRIPTORS.map((role) => [role.packId, role.kind])),
 );
 
-/** Does this pack print the trade sheet? */
-export function packHasTradeSheet(packId: string | null): boolean {
-  return packId !== null && TRADE_RESUME_MAPS.some((map) => map.pack_id === packId);
+/**
+ * Does this worker render through the universal trade sheet? (Layer A (i) — "no map, no cliff".)
+ *
+ * IT USED TO ASK "does this pack have a bespoke capability map?", and the answer decided whether
+ * the worker got the BadaBhai sheet at all: ~102 of the 111 packs had no map, so their workers
+ * fell back to the flat `classic` layout and lost the verdict line, the terms rows, the
+ * qualification rows, the QR and the footer — none of which depends on a map. The map only ever
+ * drove Zone 2's per-trade rows, and `buildTradeCapabilityRows` already collapses that section
+ * cleanly when no map exists. The cliff was the template gate, not the map.
+ *
+ * Now the gate is the PACK ITSELF: any pack at all gets the universal sheet. A null pack (a
+ * profile with no pack answers, e.g. pre-pack rows) keeps `classic`, which is the only case
+ * where the universal sheet has nothing extra to say.
+ */
+export function packUsesUniversalSheet(packId: string | null): boolean {
+  return packId !== null;
 }
 
 /**
  * The template a worker's résumé renders through.
  *
- * GATED ON THE PACK HAVING A MAP, which is the same condition the capability rows already use.
- * A worker whose trade has no map keeps `classic` and renders byte-identically to yesterday —
- * so this flips workers over one at a time as their trade is authored, with no cutover and no
- * backfill, exactly as the work-history reader was staged.
+ * EVERY PACK GETS `bb_trade` — see `packUsesUniversalSheet` for why the map gate was wrong.
+ * The bespoke-map workers are unchanged (same template as before); the no-map families MOVE
+ * from `classic` to the universal sheet, which is the cliff this closes.
  */
 export function templateIdForPack(packId: string | null): string {
-  return packHasTradeSheet(packId) ? "bb_trade" : "classic";
+  return packUsesUniversalSheet(packId) ? "bb_trade" : "classic";
 }
 
 export function tradeKindForPack(packId: string | null): string | null {
-  if (!packHasTradeSheet(packId) || packId === null) return null;
+  if (!packUsesUniversalSheet(packId) || packId === null) return null;
   // A pack with a sheet but no name still gets a sheet — it is a labelling gap, not a render
   // fault, and refusing to render one would be a worse answer than a generic label.
   return TRADE_KIND_BY_PACK[packId] ?? "trade";

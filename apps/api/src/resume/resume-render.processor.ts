@@ -4,6 +4,7 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { SERVER_CONFIG } from "../config/config.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -11,6 +12,7 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import { qualificationFactsFrom, type WorkerLanguageRecord } from "./resume-qualification-rows";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
@@ -67,6 +69,10 @@ export class ResumeRenderProcessor extends WorkerHost {
     // Migration 0110 - the richer languages rows. A SEPARATE repository on the same section:
     // when it fails, Zone 5 loses its language values and keeps its credentials.
     private readonly languages: WorkerLanguagesRepository,
+    // Migration 0114 / Layer A (i) — the worker's declared secondary occupations, printed as the
+    // Terms zone's "Also works as" row. Same contract as the languages read: its own try/catch,
+    // so a failure costs one row and never the sheet.
+    private readonly occupations: WorkerOccupationsRepository,
     private readonly transcript: WorkerTranscriptRepository,
     // #1350 — the one field on this sheet the model may compose. Off by two independent
     // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
@@ -357,6 +363,19 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // Layer A (f)/(i) — the worker's declared secondary occupations, resolved to taxonomy labels.
+    // OWN try/catch, like the languages read above: a failure costs the "Also works as" row and
+    // nothing else. The row crosses to the payer copy — a declared trade is capability, not
+    // identity. NEVER LOGGED: the catch names the worker id and nothing from the rows.
+    let occupations: string[] = [];
+    try {
+      occupations = (await this.occupations.loadForWorker(workerId)).map(labelForTaxonomyId);
+    } catch {
+      this.logger.warn(
+        `could not load secondary occupations for worker ${workerId}; rendering without them`,
+      );
+    }
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -395,6 +414,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // ruling). A missing row leaves both halves null and the line collapses.
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
+      occupations,
       // ADR-0042 D9 / Layer A (g) — the masthead's right slot, off the worker row already loaded
       // above for the name/phone/photo (so it costs no extra query). `null` for the unverified,
       // self-declared or employer-rated states; the unverified state must read as neutral, never

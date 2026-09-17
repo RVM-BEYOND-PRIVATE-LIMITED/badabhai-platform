@@ -64,6 +64,8 @@ interface SetupOpts {
     certificates: WorkerCertificateRecord[];
     educations: WorkerEducationRecord[];
   };
+  /** Layer A (f)/(i) — the declared secondary occupations, as stored role ids. */
+  occupations?: string[];
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -174,6 +176,11 @@ function setup(opts: SetupOpts = {}) {
   const qualifications = {
     loadForResume: vi.fn(async () => opts.qualifications ?? { certificates: [], educations: [] }),
   };
+  // Layer A (f)/(i) — the declared secondary occupations. Read-only, degrades to absence; empty
+  // by default so the "Also works as" row is absent unless a case opts in.
+  const occupations = {
+    loadForWorker: vi.fn(async () => opts.occupations ?? []),
+  };
 
   const service = new ResumeDisclosureService(
     repo as unknown as ResumeDisclosureRepository,
@@ -185,6 +192,7 @@ function setup(opts: SetupOpts = {}) {
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
     qualifications as unknown as WorkerQualificationsRepository,
+    occupations as never,
     events as unknown as EventsService,
     CONFIG,
   );
