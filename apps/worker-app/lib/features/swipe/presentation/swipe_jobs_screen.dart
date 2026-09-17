@@ -119,6 +119,40 @@ class _FeedViewState extends State<_FeedView> {
   /// [_filters] is seeded.
   JobFeedViewMode _viewMode = JobFeedViewMode.deck;
 
+  /// The FULL posting (`GET /jobs/:jobId`) for each job whose detail we have
+  /// already fetched, keyed by id. `GET /feed` carries only the coarse card
+  /// fields; the richer REAL fields (needed-by, description, requirements,
+  /// benefits) live on the detail route, so a card is enriched the moment its
+  /// detail lands and keeps showing its feed facts until then. Nothing is
+  /// invented — a job with no detail simply shows fewer facts.
+  final Map<String, JobDetail> _details = <String, JobDetail>{};
+
+  /// Ids whose detail fetch is in flight, so a rebuild never fires it twice.
+  final Set<String> _detailInFlight = <String>{};
+
+  /// Fetches one job's full posting ONCE (through [SwipeBloc], so it uses the
+  /// SAME client/session seam the feed does) and caches it, then rebuilds the
+  /// card with the extra fields. Non-blocking: the card already shows its real
+  /// feed facts while the detail is in flight.
+  void _scheduleDetail(SwipeBloc bloc, String jobId) {
+    if (_details.containsKey(jobId) || _detailInFlight.contains(jobId)) return;
+    _detailInFlight.add(jobId);
+    unawaited(() async {
+      try {
+        final JobDetail detail = await bloc.jobDetail(jobId);
+        if (!mounted) return;
+        setState(() {
+          _details[jobId] = detail;
+          _detailInFlight.remove(jobId);
+        });
+      } catch (_) {
+        // A slow/failed detail is not an error the worker must see: the card
+        // already shows the real feed facts. Allow a later retry.
+        _detailInFlight.remove(jobId);
+      }
+    }());
+  }
+
   @override
   void initState() {
     super.initState();
@@ -423,8 +457,11 @@ class _FeedViewState extends State<_FeedView> {
         itemCount: jobs.length,
         itemBuilder: (BuildContext context, int index) {
           final FeedItem item = jobs[index];
+          // A list row is visible as it is built, so fetch its full posting
+          // then — and render it enriched once the detail lands.
+          _scheduleDetail(bloc, item.jobId);
           return BbJobCard(
-            data: _cardData(item),
+            data: _cardData(item, _details[item.jobId]),
             // The title opens the FULL posting (an accessible ≥48px button,
             // #362); the green "APPLY →" applies to THIS job.
             onTitleTap: () => _openDetail(context, bloc, item),
@@ -445,6 +482,13 @@ class _FeedViewState extends State<_FeedView> {
     final SwipeBloc bloc = context.read<SwipeBloc>();
     final List<FeedItem> jobs = state.visibleQueue;
 
+    // Enrich only what the deck can actually show: the front card, the one
+    // peeking behind it, and one spare while a fetch is in flight. Fetching all
+    // queued jobs would be dozens of requests for cards never seen.
+    for (int i = 0; i < jobs.length && i < 3; i++) {
+      _scheduleDetail(bloc, jobs[i].jobId);
+    }
+
     return Padding(
       // Vertical only — [JobDeck] owns its own side gutter, so the card and the
       // CTA row beneath it share one inset source.
@@ -459,7 +503,10 @@ class _FeedViewState extends State<_FeedView> {
         child: JobDeck(
           cards: <JobDeckItem>[
             for (final FeedItem item in jobs)
-              JobDeckItem(id: item.jobId, data: _cardData(item)),
+              JobDeckItem(
+                id: item.jobId,
+                data: _cardData(item, _details[item.jobId]),
+              ),
           ],
           deciding: state.deciding,
           onApply: () => bloc.add(const SwipeApplied()),
@@ -686,31 +733,51 @@ class _ActiveFilterChip extends StatelessWidget {
   }
 }
 
-/// Maps a REAL [FeedItem] to the card. Per the ADR-0024 addendum (2026-07-16)
-/// the feed carries the REAL pay band + shift, and it also carries the
-/// experience window and the trade/skill, so the card now shows all four when
-/// present — a null field simply leaves its row hidden (never invented). Still
-/// NEVER set here: company (employer identity is hidden entirely — nothing
-/// employer-shaped, PII per CLAUDE.md §2), tags, spots-left, and `hot` (no real
-/// "featured" source, so the yellow rail / HOT tag stay unearned). An earlier
-/// build invented all of them client-side from `jobId.hashCode`.
+/// Maps a REAL [FeedItem] — optionally ENRICHED with the job's FULL posting
+/// (`GET /jobs/:jobId`, [detail]) — to the card.
+///
+/// `GET /feed` carries the coarse card facts (title, trade/skill, place, pay,
+/// shift, experience window, match reason); the full posting carries those that
+/// the feed does not: `needed_by`, `description`, `requirements`, `benefits`,
+/// and (on a real posting) the pay/shift/experience values the V1 feed leaves
+/// null. When [detail] is present it WINS for a field it states, with the feed
+/// value as the fallback — both are REAL API data, nothing is invented.
+///
+/// Still NEVER set here: company (employer identity is hidden entirely —
+/// nothing employer-shaped, PII per CLAUDE.md §2) and `hot` (no real "featured"
+/// source, so the yellow rail / HOT tag stay unearned). An earlier build
+/// invented both client-side from `jobId.hashCode`.
 ///
 /// The list card wires an inline "APPLY →", so its right-hand meta slot renders
 /// the action rather than the shift; the shift still surfaces on the deck card
 /// and in full on the job detail screen.
-BbJobCardData _cardData(FeedItem item) {
+BbJobCardData _cardData(FeedItem item, [JobDetail? detail]) {
+  final int? payMin = detail?.payMin ?? item.payMin;
+  final int? payMax = detail?.payMax ?? item.payMax;
+  final String? shift = detail?.shift ?? item.shift;
+  final int? minExp = detail?.minExperienceYears ?? item.minExperienceYears;
+  final int? maxExp = detail?.maxExperienceYears ?? item.maxExperienceYears;
+  final String feedPlace = (item.area == null || item.area!.isEmpty)
+      ? item.city
+      : '${item.area}, ${item.city}';
+  final String title = (detail?.title.isNotEmpty ?? false)
+      ? detail!.title
+      : item.title;
+
   return BbJobCardData(
-    title: item.title,
+    title: title,
     trade: _feedTrade(item),
-    place: (item.area == null || item.area!.isEmpty)
-        ? item.city
-        : '${item.area}, ${item.city}',
-    payBand: formatPayBandCompact(item.payMin, item.payMax),
-    shift: shiftLabel(item.shift),
-    experience: experienceLabel(
-      item.minExperienceYears,
-      item.maxExperienceYears,
-    ),
+    // The full posting's place (area + city) when it has one, else the feed's.
+    place: detail?.place ?? feedPlace,
+    payBand: formatPayBandCompact(payMin, payMax),
+    shift: shiftLabel(shift),
+    experience: experienceLabel(minExp, maxExp),
+    // Real full-postings facts — absent until the detail lands, and then only
+    // the ones the posting actually states.
+    neededBy: neededByLabel(detail?.neededBy),
+    description: detail?.description,
+    tags: detail?.requirements ?? const <String>[],
+    benefits: detail?.benefits ?? const <String>[],
     matchNote: matchNoteFor(item),
   );
 }

@@ -38,6 +38,43 @@ void main() {
       expect(find.text(' /mah'), findsOneWidget);
     });
 
+    // The FULL posting's facts — needed_by, description, requirements and
+    // benefits — are real API data and each renders when present, absent from
+    // the card (never a placeholder) when not.
+    testWidgets('renders the posting description and its fact chips', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          const BbJobCard(
+            data: BbJobCardData(
+              title: 'CNC Operator',
+              place: 'Pimpri',
+              neededBy: 'Turant chahiye',
+              description: 'Fanuc par kaam karna hoga.',
+              tags: <String>['Fanuc control'],
+              benefits: <String>['PF + ESI'],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Turant chahiye'), findsOneWidget);
+      expect(find.text('Fanuc par kaam karna hoga.'), findsOneWidget);
+      expect(find.text('Fanuc control'), findsOneWidget);
+      expect(find.text('PF + ESI'), findsOneWidget);
+
+      await tester.pumpWidget(
+        _host(
+          const BbJobCard(
+            data: BbJobCardData(title: 'Welder', place: 'Pune'),
+          ),
+        ),
+      );
+      expect(find.text('Turant chahiye'), findsNothing);
+      expect(find.text('PF + ESI'), findsNothing);
+    });
+
     testWidgets('a featured card earns the HOT tag; a plain one does not', (
       tester,
     ) async {
@@ -328,6 +365,30 @@ void main() {
 
       expect(find.text('CNC Operator'), findsOneWidget); // trade, own line
       expect(find.text('1–4 yrs experience'), findsOneWidget); // facts chip
+    });
+
+    // The deck card, too, surfaces the full posting's facts — description and
+    // the needed-by / requirements / benefits chips.
+    testWidgets('surfaces the posting description and its fact chips', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        deckHost(
+          const BbJobCardData(
+            title: 'VMC Operator',
+            place: 'Chakan, Pune',
+            neededBy: 'Jaldi chahiye',
+            description: 'Fanuc control par kaam karna hoga.',
+            tags: <String>['Fanuc control'],
+            benefits: <String>['PF + ESI'],
+          ),
+        ),
+      );
+
+      expect(find.text('Jaldi chahiye'), findsOneWidget);
+      expect(find.text('Fanuc control par kaam karna hoga.'), findsOneWidget);
+      expect(find.text('Fanuc control'), findsOneWidget);
+      expect(find.text('PF + ESI'), findsOneWidget);
     });
 
     // The CARD carries no Skip/Apply affordance of its own: the deck's two big

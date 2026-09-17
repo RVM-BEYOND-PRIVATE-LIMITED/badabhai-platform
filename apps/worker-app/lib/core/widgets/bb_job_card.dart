@@ -19,6 +19,9 @@ class BbJobCardData {
     this.shift,
     this.experience,
     this.tags = const <String>[],
+    this.benefits = const <String>[],
+    this.neededBy,
+    this.description,
     this.spotsLeft,
     this.matchNote,
     this.hot = false,
@@ -62,9 +65,21 @@ class BbJobCardData {
   /// Only ever shown for a REAL employer; never a badge on an invented name.
   final bool verified;
 
-  /// Requirement tags — retained on the model; not rendered on the compact list
-  /// card (the job-detail screen renders them).
+  /// Requirement tags (the posting's `requirements`) — rendered as chips on both
+  /// layouts. Empty hides the group; nothing is invented.
   final List<String> tags;
+
+  /// Benefit lines (the posting's `benefits`, e.g. "PF + ESI") — rendered as
+  /// chips beside [tags]. Empty hides the group.
+  final List<String> benefits;
+
+  /// The posting's `needed_by` as a human label ("Turant chahiye"), already
+  /// mapped by the caller. Null hides the chip.
+  final String? neededBy;
+
+  /// The posting's free-text `description`. Null hides it. Rendered as a short,
+  /// clipped paragraph — the job-detail screen owns the full read.
+  final String? description;
 
   /// Remaining spots — retained on the model; surface it via [metaRight] if a
   /// screen wants it on the card.
@@ -228,6 +243,7 @@ class BbJobCard extends StatelessWidget {
                         const SizedBox(height: 10),
                         _SalaryRow(data: data, onApply: onApply),
                       ],
+                      _PostingFacts(data: data),
                     ],
                   ),
           ),
@@ -437,6 +453,65 @@ class _SalaryRow extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: <Widget>[left, right],
       ),
+    );
+  }
+}
+
+/// The posting's free-text [BbJobCardData.description] and its fact chips —
+/// `neededBy`, the requirement [BbJobCardData.tags] and the
+/// [BbJobCardData.benefits]. Every value is REAL API data (the full
+/// `GET /jobs/:jobId` posting); an absent field renders nothing, never a
+/// placeholder. Shared by both layouts so a card shows the same facts wherever
+/// it appears. On a `compact` (short-screen) deck card the chip row is dropped
+/// outright — the description stays, at two lines, because it is the one fact
+/// the chips cannot convey.
+class _PostingFacts extends StatelessWidget {
+  const _PostingFacts({required this.data, this.compact = false});
+
+  final BbJobCardData data;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final String description = data.description?.trim() ?? '';
+    final bool hasDescription = description.isNotEmpty;
+    final List<String> chips = compact
+        ? const <String>[]
+        : <String>[
+            if (data.neededBy != null) data.neededBy!,
+            ...data.tags,
+            ...data.benefits,
+          ];
+    if (!hasDescription && chips.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        if (hasDescription) ...<Widget>[
+          const SizedBox(height: 12),
+          Text(
+            description,
+            maxLines: compact ? 2 : 3,
+            overflow: TextOverflow.ellipsis,
+            style: OnboardingTypography.bodyMuted(),
+          ),
+        ],
+        if (chips.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final String chip in chips)
+                KitInfoChip(
+                  label: chip,
+                  dot: OnboardingColors.ink500,
+                  showCheck: false,
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -790,7 +865,6 @@ class _DeckBody extends StatelessWidget {
       _MatchNote(text: data.matchNote!, maxLines: null);
 
   Widget _narrative() {
-    final List<String> tags = compact ? const <String>[] : data.tags;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -831,21 +905,7 @@ class _DeckBody extends StatelessWidget {
           SizedBox(height: compact ? 8 : 12),
           _MatchNote(text: data.matchNote!, maxLines: compact ? 2 : null),
         ],
-        if (tags.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: <Widget>[
-              for (final String tag in tags)
-                KitInfoChip(
-                  label: tag,
-                  dot: OnboardingColors.ink500,
-                  showCheck: false,
-                ),
-            ],
-          ),
-        ],
+        _PostingFacts(data: data, compact: compact),
       ],
     );
   }
