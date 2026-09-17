@@ -173,6 +173,26 @@ export const workerAttributes = pgTable(
     valueTextPolishedDeclined: boolean("value_text_polished_declined").notNull().default(false),
     /** `multi_select` answers. A JSONB array of strings; empty array is a legitimate answer. */
     valueTextList: jsonb("value_text_list").$type<string[]>(),
+    /**
+     * A STRUCTURED answer — one object, several named fields (ADR-0042 D9 / Layer A (c), 0111).
+     *
+     * WHY A NEW COLUMN RATHER THAN A KEY-PER-FIELD SCHEME. The availability answer is one fact
+     * with three parts (`status`, `available_from`, `notice_period_days`) that a form collects in
+     * one submission. Splitting it across three attribute keys would make each part independently
+     * clobberable by a re-answer and would let a row exist that says a notice period without
+     * saying from when — the "one answer, three rows" defect class the `wa_worker_key_uq` upsert
+     * exists to prevent.
+     *
+     * WHY `jsonb` AND NOT `value_text` HOLDING SERIALIZED JSON: every reader switches on
+     * `value_kind`, and a row claiming `text` while holding an object is exactly the mismatch
+     * `wa_value_present_chk` refuses for the other four kinds. `json` is a first-class kind, the
+     * shape CHECK below demands an object (never an array or a scalar), and the API's zod schema
+     * is what bounds the object's keys.
+     *
+     * NOT READ BY THE MATCHER, NOT AN EVENT PAYLOAD, NOT A PROMPT. It prints only through the
+     * deterministic builders; nothing here crosses the AI boundary.
+     */
+    valueJson: jsonb("value_json").$type<Record<string, unknown>>(),
     source: text("source").$type<ProfileValueSource>().notNull().default("answer_map"),
     /**
      * Provenance of the QUESTION, not of the worker. Nullable because a value can also arrive from
@@ -198,7 +218,7 @@ export const workerAttributes = pgTable(
     ),
     check(
       "wa_value_kind_chk",
-      sql`${t.valueKind} IN ('boolean', 'number', 'text', 'text_list')`,
+      sql`${t.valueKind} IN ('boolean', 'number', 'text', 'text_list', 'json')`,
     ),
     check("wa_source_chk", sql`${t.source} IN ('answer_map', 'llm_parse')`),
     // Exactly one value column populated, and it must be the one `value_kind` names. Without the
@@ -207,15 +227,24 @@ export const workerAttributes = pgTable(
     check(
       "wa_value_present_chk",
       sql`(
-        (${t.valueKind} = 'boolean'   AND ${t.valueBool} IS NOT NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'number'    AND ${t.valueNumber} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'text'      AND ${t.valueText} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'text_list' AND ${t.valueTextList} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL)
+        (${t.valueKind} = 'boolean'   AND ${t.valueBool} IS NOT NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'number'    AND ${t.valueNumber} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'text'      AND ${t.valueText} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'text_list' AND ${t.valueTextList} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'json'      AND ${t.valueJson} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL)
       )`,
     ),
     check(
       "wa_value_text_list_shape_chk",
       sql`${t.valueTextList} IS NULL OR jsonb_typeof(${t.valueTextList}) = 'array'`,
+    ),
+    // A `json` answer is an OBJECT — never an array, a scalar or `null`. The kind is for shapes
+    // that carry named fields, and a list answer already has its own kind and column; letting an
+    // array in here would create two representations of one fact. The keys themselves are bounded
+    // one layer up by the DTO's zod schema.
+    check(
+      "wa_value_json_shape_chk",
+      sql`${t.valueJson} IS NULL OR (${t.valueKind} = 'json' AND jsonb_typeof(${t.valueJson}) = 'object')`,
     ),
     // A rewrite only exists for a TEXT answer, and it is bounded by the same 300 characters the
     // work-history rewrite is — the sheet gives this one line either way. See
@@ -359,7 +388,10 @@ export const profilingVoiceAnswers = pgTable(
     ),
     // A superseding row is a different row. Without this, a self-reference reads as "replaced by
     // itself" and a supersession chain becomes a cycle no reader can walk.
-    check("pva_superseded_by_self_chk", sql`${t.supersededById} IS NULL OR ${t.supersededById} <> ${t.id}`),
+    check(
+      "pva_superseded_by_self_chk",
+      sql`${t.supersededById} IS NULL OR ${t.supersededById} <> ${t.id}`,
+    ),
     // Supersession is a fact with a pointer, or neither. A stamp with no successor is unresolvable.
     check(
       "pva_superseded_pair_chk",

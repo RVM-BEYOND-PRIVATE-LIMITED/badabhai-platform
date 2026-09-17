@@ -117,13 +117,21 @@ function bodySendsKey(body: string, key: string, constants: Map<string, string>)
 }
 
 describe("the finishing form's server contract", () => {
-  it("accepts all twelve fields, and every one of them has a storage kind", () => {
+  it("accepts all seventeen fields, and every one of them has a storage kind", () => {
     // The two halves of the BACKEND contract, asserted against each other. A field on the schema
     // with no `PREFERENCE_KEYS` entry is accepted, validated and then never written; one in
     // `PREFERENCE_KEYS` with no schema field can never be reached. Both are silent.
+    //
+    // SEVENTEEN SINCE LAYER A (c) (ADR-0042 D9): `work_types`, `salary_period`,
+    // `commute_max_km`, `willing_to_travel` and the structured `availability` joined the twelve.
+    // The app does not send them YET — additive fields on a `.strict()` schema are forward-
+    // compatible, and the mobile half of the contract below is deliberately a subset assertion,
+    // not equality, so an app build that predates a field is never a test failure.
     const accepted = acceptedWireKeys();
     expect(accepted).toEqual([
       "accommodation_needed",
+      "availability",
+      "commute_max_km",
       "documents_ready",
       "education_council",
       "education_credential",
@@ -133,8 +141,11 @@ describe("the finishing form's server contract", () => {
       "languages",
       "preferred_cities",
       "salary_expected_max",
+      "salary_period",
       "shift",
       "willing_to_relocate",
+      "willing_to_travel",
+      "work_types",
     ]);
 
     // The three names that differ between the wire and storage, and they differ on purpose:

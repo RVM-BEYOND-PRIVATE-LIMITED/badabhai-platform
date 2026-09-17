@@ -303,6 +303,8 @@ describe("WorkerAttributesRepository.upsertMany — the conflict SET", () => {
       valueNumber: "excluded.value_number",
       valueText: "excluded.value_text",
       valueTextList: "excluded.value_text_list",
+      // Migration 0111 / Layer A (c) — the structured kind, owned by this upsert like the rest.
+      valueJson: "excluded.value_json",
       source: "excluded.source",
       questionKey: "excluded.question_key",
       packId: "excluded.pack_id",
@@ -324,6 +326,7 @@ describe("WorkerAttributesRepository.upsertMany — the conflict SET", () => {
       "source",
       "updatedAt",
       "valueBool",
+      "valueJson",
       "valueKind",
       "valueNumber",
       "valueText",
@@ -453,6 +456,7 @@ describe("WorkerAttributesRepository.loadKeys — the key list is IN the stateme
     expect(Object.keys(selectCall(m.calls)!.projection).sort()).toEqual([
       "attributeKey",
       "valueBool",
+      "valueJson",
       "valueKind",
       "valueNumber",
       "valueText",
@@ -517,6 +521,7 @@ describe("WorkerAttributesRepository.loadTradeSheet — the read behind the rend
       "packId",
       "updatedAt",
       "valueBool",
+      "valueJson",
       "valueKind",
       "valueNumber",
       "valueText",

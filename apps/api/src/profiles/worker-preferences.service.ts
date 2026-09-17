@@ -96,6 +96,13 @@ export class WorkerPreferencesService {
       if (value === null) cleared.push(key);
       else rows.push(this.row(workerId, key, { valueBool: value }));
     };
+    // A `json` answer (Layer A (c), migration 0111): one structured object in `value_json`.
+    // Same three states as every other kind — an object writes, `null` clears.
+    const object = (key: PreferenceKey, value: Record<string, unknown> | null | undefined) => {
+      if (value === undefined) return;
+      if (value === null) cleared.push(key);
+      else rows.push(this.row(workerId, key, { valueJson: value }));
+    };
     // A `numeric` column, so the value is written as a STRING. `worker-attributes.repository.ts`
     // reads it back through `Number()` for the same reason pg returns it as text: a 14,4 numeric
     // must not lose precision on the way out, and every consumer compares it as a JS number.
@@ -137,6 +144,9 @@ export class WorkerPreferencesService {
           break;
         case "number":
           number(key, value as number | null | undefined);
+          break;
+        case "json":
+          object(key, value as Record<string, unknown> | null | undefined);
           break;
       }
     }
@@ -320,7 +330,10 @@ export class WorkerPreferencesService {
     workerId: string,
     key: PreferenceKey,
     value: Partial<
-      Pick<NewWorkerAttribute, "valueText" | "valueTextList" | "valueBool" | "valueNumber">
+      Pick<
+        NewWorkerAttribute,
+        "valueText" | "valueTextList" | "valueBool" | "valueNumber" | "valueJson"
+      >
     >,
   ): NewWorkerAttribute {
     return {
@@ -335,6 +348,7 @@ export class WorkerPreferencesService {
       valueNumber: value.valueNumber ?? null,
       valueText: value.valueText ?? null,
       valueTextList: value.valueTextList ?? null,
+      valueJson: value.valueJson ?? null,
       source: "answer_map",
       questionKey: key,
       // NULL BOTH: this service has no pack and no session behind its write. The pair is NOT a
@@ -413,6 +427,16 @@ function readStoredValue(
       return scalarThrough(schema, row.valueBool);
     case "number":
       return scalarThrough(schema, row.valueNumber === null ? null : Number(row.valueNumber));
+    case "json": {
+      // A stored object through its field schema — the same withhold-never-repair rule the other
+      // kinds follow. `null` here means a row of another kind under this key (there is nothing in
+      // `value_json` for it to read) or a shape today's schema refuses; both are counted.
+      if (row.valueJson === null) return { value: null, dropped: 1 };
+      const parsed = schema.safeParse(row.valueJson);
+      return parsed.success && parsed.data !== null && parsed.data !== undefined
+        ? { value: parsed.data, dropped: 0 }
+        : { value: null, dropped: 1 };
+    }
   }
 }
 

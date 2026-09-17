@@ -369,6 +369,22 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "base's language profile. Both surfaces keep working, so nothing reports it",
   },
   {
+    id: "0111-worker-attributes-value-json-column",
+    migration: "0111_worker_attributes_json",
+    kind: "column",
+    table: "worker_attributes",
+    object: "value_json",
+    requiredBy:
+      "WorkerAttributesRepository.upsertMany names every value column in its INSERT list and its " +
+      "ON CONFLICT SET (`excluded.value_json` included), and loadKeys/loadTradeSheet select it — " +
+      "all unconditional, none behind a flag",
+    failureMode:
+      'every attribute write fails with `column "value_json" does not exist` (42703 or 42P10 on ' +
+      "the conflict target) — the interview soak's flush and the trade form's submission included. " +
+      "The write path wraps most callers in try/catch, so the loud half is the trade form 500ing " +
+      "while the interview SILENTLY keeps 0 rows for the 77% of the corpus that is attribute-kind",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

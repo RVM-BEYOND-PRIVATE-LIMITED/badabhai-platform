@@ -56,6 +56,10 @@ export class WorkerAttributesRepository {
           valueNumber: sqlExcluded("value_number"),
           valueText: sqlExcluded("value_text"),
           valueTextList: sqlExcluded("value_text_list"),
+          // Migration 0111 / Layer A (c) — the structured kind. Named here like every other
+          // value column, which is also why 0111 is APPLY-BEFORE-DEPLOY: this SET clause is
+          // unconditional on every attribute write.
+          valueJson: sqlExcluded("value_json"),
           // CLEARED ON EVERY WRITE, and that is the whole invalidation rule for the rewrite.
           // No writer of this table ever sets `valueTextPolished`, so `excluded` carries NULL —
           // which means a re-answered question drops the rewrite of the sentence it replaced.
@@ -148,6 +152,7 @@ export class WorkerAttributesRepository {
       valueNumber: string | null;
       valueText: string | null;
       valueTextList: string[] | null;
+      valueJson: Record<string, unknown> | null;
     }[]
   > {
     if (keys.length === 0) return [];
@@ -159,6 +164,7 @@ export class WorkerAttributesRepository {
         valueNumber: workerAttributes.valueNumber,
         valueText: workerAttributes.valueText,
         valueTextList: workerAttributes.valueTextList,
+        valueJson: workerAttributes.valueJson,
       })
       .from(workerAttributes)
       .where(
@@ -203,6 +209,7 @@ export class WorkerAttributesRepository {
         valueTextPolished: workerAttributes.valueTextPolished,
         valueTextPolishedDeclined: workerAttributes.valueTextPolishedDeclined,
         valueTextList: workerAttributes.valueTextList,
+        valueJson: workerAttributes.valueJson,
         packId: workerAttributes.packId,
         updatedAt: workerAttributes.updatedAt,
       })
@@ -232,6 +239,11 @@ export class WorkerAttributesRepository {
           break;
         case "boolean":
           attributes[r.attributeKey] = r.valueBool;
+          break;
+        case "json":
+          // Migration 0111 — the object as stored. `value_json` is jsonb, so pg hands back a
+          // parsed object rather than a string; no JSON.parse here and no stringify at the write.
+          attributes[r.attributeKey] = r.valueJson;
           break;
         case "number":
           // `numeric` comes back as a STRING from pg — the driver refuses to lose precision on a
