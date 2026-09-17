@@ -56,6 +56,13 @@ export const WORKER_FACT_IDS = [
   "job_type",
   "relocation",
   "accommodation",
+  // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys. Each is its own fact: a
+  // multi beside job_type, a unit beside the salary figures, and two travel facts that never
+  // derive from one another.
+  "work_types",
+  "salary_period",
+  "commute_max_km",
+  "willing_to_travel",
 ] as const;
 
 export type WorkerFactId = (typeof WORKER_FACT_IDS)[number];
@@ -189,7 +196,14 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
   },
   availability: {
     id: "availability",
-    aliases: [settles("pack_question_key", "availability"), settles("target_field", "availability")],
+    aliases: [
+      settles("pack_question_key", "availability"),
+      settles("target_field", "availability"),
+      // ADR-0042 D9 / Layer A (c) — the worker's own structured answer lands on the SAME key
+      // (migration 0111), so writing it through the finishing form settles the fact exactly as
+      // the interview's answer does. One key, one fact, one settled-state question.
+      settles("attribute_key", "availability"),
+    ],
   },
   certifications: {
     id: "certifications",
@@ -246,6 +260,35 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
       settles("marker_dto_field", "accommodation_needed"),
     ],
   },
+  // ── ADR-0042 D9 / Layer A (c) — the finishing form's extension keys ────────────────────────
+  //
+  // The attribute key IS the fact; the wire key is the same string on each. A worker having
+  // answered one of these on the finishing form must never be asked it again (D4).
+  work_types: {
+    id: "work_types",
+    aliases: [settles("attribute_key", "work_types"), settles("marker_dto_field", "work_types")],
+  },
+  salary_period: {
+    id: "salary_period",
+    aliases: [
+      settles("attribute_key", "salary_period"),
+      settles("marker_dto_field", "salary_period"),
+    ],
+  },
+  commute_max_km: {
+    id: "commute_max_km",
+    aliases: [
+      settles("attribute_key", "commute_max_km"),
+      settles("marker_dto_field", "commute_max_km"),
+    ],
+  },
+  willing_to_travel: {
+    id: "willing_to_travel",
+    aliases: [
+      settles("attribute_key", "willing_to_travel"),
+      settles("marker_dto_field", "willing_to_travel"),
+    ],
+  },
 };
 
 /**
@@ -283,6 +326,11 @@ export const MARKER_OWNED_FACTS: Readonly<Record<MarkerScreenType, readonly Work
     "job_type",
     "relocation",
     "accommodation",
+    // ADR-0042 D9 / Layer A (c) — the same page owns the extension keys.
+    "work_types",
+    "salary_period",
+    "commute_max_km",
+    "willing_to_travel",
   ],
   qualifications: ["education", "certifications"],
   employment: ["work_history"],
