@@ -308,8 +308,16 @@ describe("AI cost — what a finished profile costs", () => {
      * about the response's shape changed.
      *
      * The bounds are pulled APART here so the assertion has something to be wrong about.
+     *
+     * DERIVED FROM NOW, NOT A CALENDAR DATE. A fixed `PROFILING_START` makes this a time bomb:
+     * the breach window is a rolling 30 days, so a constant dated 2026-08-18 stopped being
+     * ">60s away" from the window start on 2026-09-17 and the test went red because the calendar
+     * moved, not because the code did. Tying the fixture to the window keeps the claim — the
+     * count's bound is NOT the breach window's — true on every run date.
      */
-    const PROFILING_START = new Date("2026-08-18T12:00:00.000Z");
+    const breachWindowStart =
+      Date.now() - ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT * 24 * 60 * 60 * 1000;
+    const PROFILING_START = new Date(breachWindowStart + 5 * 24 * 60 * 60 * 1000);
     const asked = blankAsked();
     const out = await makeService({ profilingSince: PROFILING_START }, asked).summary(DTO);
 
@@ -320,8 +328,6 @@ describe("AI cost — what a finished profile costs", () => {
     expect(asked.profileCountSince).not.toEqual(out.ai_cost.accruing_since);
     // Nor the cap-breach window, which is a rolling `windowDays` back from NOW. Compared as a
     // distance rather than "is it old", so the assertion does not depend on when it is run.
-    const breachWindowStart =
-      Date.now() - ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT * 24 * 60 * 60 * 1000;
     expect(Math.abs(asked.profileCountSince!.getTime() - breachWindowStart)).toBeGreaterThan(
       60_000,
     );
