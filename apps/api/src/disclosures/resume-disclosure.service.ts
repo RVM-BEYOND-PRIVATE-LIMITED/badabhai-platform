@@ -15,6 +15,8 @@ import { buildResumeRenderInput, type TradeSheetContext } from "../resume/resume
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
 import { verificationBadgeFor } from "../resume/verification-tier";
@@ -85,6 +87,11 @@ export class ResumeDisclosureService {
     // exactly the reasoning the capability block and the work history already cross on. The three
     // things this surface withholds stay three: the real name, the photo, the expected salary.
     private readonly qualifications: WorkerQualificationsRepository,
+    // Migration 0114 / Layer A (i) — the declared secondary occupations, printed as the Terms
+    // zone's "Also works as" row on BOTH copies. A declared trade is capability, not identity, so
+    // it crosses on the qualifications paragraph's reasoning. Same degrade: its own read fails
+    // to an empty row, never to a failed disclosure.
+    private readonly occupations: WorkerOccupationsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
@@ -305,6 +312,17 @@ export class ResumeDisclosureService {
       tradeSheet = { packId: null, attributes: {}, ...tradeSheet, qualification };
     }
 
+    // Layer A (f)/(i) — the declared secondary occupations, as taxonomy labels. OWN try/catch,
+    // like the two loads above: a failure costs the "Also works as" row and nothing else.
+    let occupations: string[] = [];
+    try {
+      occupations = (await this.occupations.loadForWorker(workerId)).map(labelForTaxonomyId);
+    } catch {
+      this.logger.warn(
+        `could not load secondary occupations for worker ${workerId}; rendering without them`,
+      );
+    }
+
     // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08) — off the worker row already loaded
     // above for the masked name, so it costs no extra query.
     //
@@ -325,6 +343,7 @@ export class ResumeDisclosureService {
       ...tradeSheet,
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
+      occupations,
       // ADR-0042 D9 / Layer A (g) — THE VERIFICATION TIER CROSSES TO THE PAYER, deliberately.
       // It is a trust signal about the worker's record — the entire point of the badge — and it is
       // not one of the three things this surface withholds (real name, photo, expected salary).

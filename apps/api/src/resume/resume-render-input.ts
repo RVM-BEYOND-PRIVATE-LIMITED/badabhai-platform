@@ -139,6 +139,16 @@ export interface TradeSheetContext {
   readonly currentState?: string | null;
 
   /**
+   * Layer A (f)/(i) — the worker's declared SECONDARY occupations, as taxonomy display labels.
+   *
+   * SAME CALLER CONTRACT AS `currentCity`: the rows live in `worker_occupation`, the caller loads
+   * them and resolves the labels, this function stays pure. NOT audience-gated — the declared
+   * trades are what the worker said he can do, and the payer copy is where that matters most.
+   * Empty (the ordinary case) prints no row.
+   */
+  readonly occupations?: readonly string[];
+
+  /**
    * ZONE 4 — the two-level work history, employer names already DECRYPTED by the caller.
    *
    * SAME CONTRACT AS `phone`, and for the same reason: the ciphertext is on the row, the key is
@@ -651,6 +661,8 @@ function buildUndegraded(
       draft.experience.total_years,
       tradeSheet?.workerSaid ?? [],
       fresherRows,
+      // Layer A (f)/(i) — the declared secondary occupations, off the context the caller built.
+      tradeSheet?.occupations ?? [],
     );
   }
 
@@ -788,6 +800,7 @@ function buildUndegraded(
       // opened the finishing form got the fact in his availability line and no Shift row, on
       // the branch most existing profiles take.
       shift: preferences.shiftLine ?? humanizeShift(draft.shift),
+      occupations: tradeSheet?.occupations ?? [],
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),
@@ -804,6 +817,10 @@ function buildUndegraded(
       certifications:
         tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
       languages: tradeSheet?.qualification?.languages ?? preferences.languages,
+      // Layer A (i): 0112 carried trainings through the qualification facts and nothing printed
+      // them; the row now exists. `?? []` here is right rather than the per-field `??` used
+      // above: the draft has no training field at all, so "the surface has none" means no row.
+      trainings: tradeSheet?.qualification?.trainings ?? [],
     }),
     // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
     // container has nothing to put in them: no work history exists outside Phase C, and the
@@ -1072,6 +1089,12 @@ function fromResumeProfile(
    * bag, which this function does not have, and both branches need the identical rows.
    */
   fresherRows: readonly ResumeExperienceLine[],
+  /**
+   * Layer A (f)/(i) — the declared secondary occupations, as taxonomy display labels. PASSED IN
+   * like `headlineTools`: the rows live in `worker_occupation`, the caller resolves the labels,
+   * and this function stays pure. Empty prints no row.
+   */
+  occupations: readonly string[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by the Layer A (h) headline/summary builders — and certifying
@@ -1119,6 +1142,9 @@ function fromResumeProfile(
     education: qualification?.education ?? [...draftQualification.education],
     certifications: qualification?.certifications ?? [...draftQualification.certifications],
     languages: qualification?.languages ?? preferences.languages,
+    // Layer A (i): the 0112 courses, now printed. `?? []` — the draft has no training field, so
+    // "the surface has none" means the row collapses, and an explicitly empty list stays empty.
+    trainings: qualification?.trainings ?? [],
   };
 
   // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
@@ -1203,6 +1229,7 @@ function fromResumeProfile(
       // write and a container-path worker can have one without `rp.shift` being set.
       shift:
         preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)) ?? draftQualification.shift,
+      occupations,
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),

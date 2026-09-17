@@ -376,6 +376,12 @@ export function buildAvailabilityRows(facts: {
   shift: string | null;
   /** §4.4 — many listings advertise food and accommodation, so it is a real matching signal. */
   accommodationNeeded?: boolean;
+  /**
+   * Layer A (f)/(i) — the worker's declared SECONDARY occupations, as taxonomy display labels.
+   * A capability fact, not a preference: it says what else the worker will take work AS. Empty
+   * (every worker who never opened the page) prints no row.
+   */
+  occupations?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Available from", facts.availability);
@@ -396,6 +402,7 @@ export function buildAvailabilityRows(facts: {
   );
   push(rows, "Shift", facts.shift);
   push(rows, "Accommodation", facts.accommodationNeeded ? "Required" : null);
+  push(rows, "Also works as", joinSegments(facts.occupations ?? []));
   return rows;
 }
 
@@ -413,10 +420,16 @@ export function buildQualificationRows(facts: {
   education: readonly string[];
   certifications: readonly string[];
   languages: readonly string[];
+  /**
+   * Layer A (d) — the courses the worker attended. Carried by `qualificationFactsFrom` since
+   * 0112 but printed by nothing; Layer A (i) gives it the row it was captured for.
+   */
+  trainings?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Education", joinSegments([facts.educationHeadline, ...facts.education]));
   push(rows, "Certificates", joinSegments(facts.certifications));
+  push(rows, "Training", joinSegments(facts.trainings ?? []));
   push(rows, "Languages spoken", joinSegments(facts.languages));
   return rows;
 }

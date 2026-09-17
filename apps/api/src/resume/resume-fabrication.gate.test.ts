@@ -81,8 +81,12 @@ const SHEET_LABELS: readonly string[] = [
   "Willing to relocate",
   "Education",
   "Certificates",
+  "Training",
   "Languages spoken",
   "Documents ready",
+  // Layer A (f)/(i) — the declared secondary occupations row. The VALUES are taxonomy display
+  // labels (closed vocabulary from @badabhai/taxonomy), the label is this fixed English string.
+  "Also works as",
   "Duration not stated",
   // §6.2's TENURE STATUS, emitted by `tenurePhrase` when the role's own fresher rung was tapped.
   // A CLOSED-VOCABULARY LABEL, which is §8's first permitted source — not a figure and not a

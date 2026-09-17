@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 import {
-  packHasTradeSheet,
+  packUsesUniversalSheet,
   templateIdForPack,
   toResumeDocument,
   tradeKindForPack,
@@ -49,22 +49,31 @@ const BASE: ResumeRenderInput = {
   expectedSalary: 32000,
 };
 
-describe("the template gate", () => {
+describe("the template gate (Layer A (i) — no map, no cliff)", () => {
   it("selects the trade sheet for a pack that has a resume map", () => {
     for (const map of TRADE_RESUME_MAPS) {
-      expect(packHasTradeSheet(map.pack_id)).toBe(true);
+      expect(packUsesUniversalSheet(map.pack_id)).toBe(true);
       expect(templateIdForPack(map.pack_id)).toBe("bb_trade");
     }
     // Not a vacuous loop.
     expect(TRADE_RESUME_MAPS.length).toBeGreaterThan(0);
   });
 
-  it("keeps classic for a pack with no map, and for no pack at all", () => {
-    // The byte-identical path. A worker whose trade has not been authored must render exactly
-    // what they rendered yesterday, which is what lets this flip workers over one at a time.
-    expect(templateIdForPack("qp_universal")).toBe("classic");
-    expect(templateIdForPack("qp_welding")).toBe("classic");
+  it("selects it for an UNMAPPED pack too — the cliff this closes", () => {
+    // ~102 packs have no bespoke capability map. They used to fall back to `classic` and lose
+    // the verdict line, the terms rows, Zone 5, the QR and the footer — none of which a map
+    // drives. The template gate is now the PACK, and the no-map capability zone collapses
+    // (buildTradeCapabilityRows already handles that) rather than costing the whole sheet.
+    expect(templateIdForPack("qp_universal")).toBe("bb_trade");
+    expect(templateIdForPack("qp_welding")).toBe("bb_trade");
+    expect(packUsesUniversalSheet("qp_universal")).toBe(true);
+  });
+
+  it("keeps classic only when there is no pack at all", () => {
+    // A profile with no pack answers has nothing the universal sheet adds; this is the only
+    // remaining `classic` case.
     expect(templateIdForPack(null)).toBe("classic");
+    expect(packUsesUniversalSheet(null)).toBe(false);
   });
 
   it("names every pack that has a sheet", () => {
@@ -75,15 +84,17 @@ describe("the template gate", () => {
     }
   });
 
-  it("falls back to a generic trade label rather than refusing to render", () => {
+  it("names an unmapped pack's sheet with the generic label rather than refusing", () => {
+    // Layer A (i): EVERY pack renders the universal sheet, so an unmapped pack is a labelling
+    // gap — "trade" — not a reason to withhold the layout. A null pack is still generic.
     expect(tradeKindForPack(null)).toBeNull();
-    expect(tradeKindForPack("qp_universal")).toBeNull();
+    expect(tradeKindForPack("qp_universal")).toBe("trade");
   });
 });
 
 describe("toResumeDocument", () => {
-  it("projects a generic profile with no trade", () => {
-    const doc = toResumeDocument(BASE, "qp_universal");
+  it("projects a generic profile with no pack at all", () => {
+    const doc = toResumeDocument(BASE, null);
     expect(doc.format).toBe("generic");
     expect(doc.trade).toBeNull();
     if (doc.format !== "generic") throw new Error("unreachable");

@@ -176,6 +176,9 @@ import {
     // Migration 0110 — the résumé render worker reads the richer language rows the same way it
     // reads the credential rows. Exported for the same reason and with the same graph shape.
     WorkerLanguagesRepository,
+    // Migration 0114 / Layer A (i) — the render worker reads the declared secondary occupations
+    // for the Terms zone's "Also works as" row. Same graph shape as the two exports above.
+    WorkerOccupationsRepository,
   ],
 })
 export class ProfilesModule {}

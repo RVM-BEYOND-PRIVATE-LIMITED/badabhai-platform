@@ -8,6 +8,7 @@ import { ResumeRenderer } from "../resume/resume-renderer.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 
 /**
  * Resume Disclosure (ADR-0013 Decision C / the resume-disclosure threat-model
@@ -50,6 +51,9 @@ import { WorkerQualificationsRepository } from "../profiles/worker-qualification
     WorkerAttributesRepository,
     WorkerEmploymentRepository,
     WorkerQualificationsRepository,
+    // Migration 0114 / Layer A (i) — feeds the masked sheet's "Also works as" row. Provided here
+    // on the same terms as the three above: its only dependency is the @Global DATABASE.
+    WorkerOccupationsRepository,
   ],
   // Exported so the payer portal can mount a PayerAuthGuard'd disclosure surface
   // (PayerDisclosureController) over the SAME chokepoint, exactly as ReachModule exports
