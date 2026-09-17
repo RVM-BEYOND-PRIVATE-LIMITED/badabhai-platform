@@ -19,6 +19,9 @@ interface StoredRow {
   valueNumber: string | null;
   valueText: string | null;
   valueTextList: string[] | null;
+  // Migration 0111 — the structured kind's column. Optional on the fixture so every row written
+  // before Layer A keeps compiling; the service's read treats absent as null.
+  valueJson?: Record<string, unknown> | null;
 }
 const stored = (attributeKey: string, over: Partial<StoredRow>): StoredRow => ({
   attributeKey,
@@ -520,5 +523,117 @@ describe("the shift answer seeds night-shift readiness (#1426)", () => {
     h.updateResumePrefs.mockRejectedValueOnce(new Error("db down"));
     await expect(submit(h, "night")).resolves.toMatchObject({ worker_id: WORKER });
     expect(h.upsertMany).toHaveBeenCalled();
+  });
+});
+
+/**
+ * ADR-0042 D9 / Layer A (c) — the attribute extensions (work_types, salary_period,
+ * commute_max_km, willing_to_travel, availability) and the FIRST `json` row.
+ *
+ * THE json KIND IS THE ONE THAT CANNOT BE CHECKED BY TYPES: `wa_value_present_chk` rejects a row
+ * whose `value_kind` disagrees with the populated column, and `value_json` is the fifth column.
+ * These assertions are the write-side half of that invariant.
+ */
+describe("Layer A (c) — the extended attributes and the json kind", () => {
+  let h: ReturnType<typeof setup>;
+  beforeEach(() => {
+    h = setup();
+  });
+
+  it("writes every extension with its declared kind, including the json object", async () => {
+    await h.svc.setForWorker(
+      WORKER,
+      parse({
+        work_types: ["contract", "daily_wage"],
+        salary_period: "day",
+        commute_max_km: 0,
+        willing_to_travel: true,
+        availability: {
+          status: "within_week",
+          available_from: "2026-10-01",
+          notice_period_days: 15,
+        },
+      }),
+      CTX,
+    );
+    const rows = h.upsertMany.mock.calls[0]![0];
+    expect(rowFor(rows, "work_types")).toMatchObject({
+      valueKind: "text_list",
+      valueTextList: ["contract", "daily_wage"],
+      valueJson: null,
+    });
+    expect(rowFor(rows, "salary_period")).toMatchObject({
+      valueKind: "text",
+      valueText: "day",
+      valueJson: null,
+    });
+    // ZERO IS AN ANSWER HERE — a stated "I will not travel" must not be coerced away.
+    expect(rowFor(rows, "commute_max_km")).toMatchObject({ valueKind: "number", valueNumber: "0" });
+    expect(rowFor(rows, "willing_to_travel")).toMatchObject({
+      valueKind: "boolean",
+      valueBool: true,
+    });
+    expect(rowFor(rows, "availability")).toMatchObject({
+      valueKind: "json",
+      valueJson: { status: "within_week", available_from: "2026-10-01", notice_period_days: 15 },
+      valueText: null,
+      valueBool: null,
+      valueNumber: null,
+      valueTextList: null,
+    });
+  });
+
+  it("clears the json row on an explicit null — absence is the only representation", async () => {
+    await h.svc.setForWorker(WORKER, parse({ availability: null }), CTX);
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, ["availability"]);
+  });
+
+  it("an absent availability key leaves the stored row alone (the three-state contract)", async () => {
+    await h.svc.setForWorker(WORKER, parse({ salary_period: "month" }), CTX);
+    // `deleteKeys` is always called with the (empty) clear list; the property is that
+    // `availability` is not in it.
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, []);
+    const rows = h.upsertMany.mock.calls[0]![0];
+    expect(rowFor(rows, "availability")).toBeUndefined();
+  });
+
+  it("round-trips the json answer through the GET's withhold-never-repair read", async () => {
+    h = setup(null, [
+      {
+        attributeKey: "availability",
+        valueKind: "json",
+        valueBool: null,
+        valueNumber: null,
+        valueText: null,
+        valueTextList: null,
+        valueJson: { status: "within_week", available_from: "2026-10-01", notice_period_days: 15 },
+      },
+    ]);
+    const res = await h.svc.getForWorker(WORKER);
+    expect(res.values.availability).toEqual({
+      status: "within_week",
+      available_from: "2026-10-01",
+      notice_period_days: 15,
+    });
+    expect(res.partial).not.toContain("availability");
+  });
+
+  it("withholds a stored json object today's schema refuses, and counts it", async () => {
+    h = setup(null, [
+      {
+        attributeKey: "availability",
+        valueKind: "json",
+        valueBool: null,
+        valueNumber: null,
+        valueText: null,
+        valueTextList: null,
+        // A key the schema does not know — `.strict()` refuses it rather than letting it print.
+        valueJson: { status: "within_week", sneaky: "field" },
+      },
+    ]);
+    const res = await h.svc.getForWorker(WORKER);
+    expect(res.values.availability).toBeNull();
+    expect(res.partial).toContain("availability");
+    expect(res.dropped_count).toBe(1);
   });
 });

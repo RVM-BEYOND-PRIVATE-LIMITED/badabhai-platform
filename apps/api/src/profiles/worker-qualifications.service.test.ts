@@ -29,6 +29,7 @@ interface RepoInput {
     year: number | null;
     institute: string | null;
   }[];
+  readonly trainings?: readonly { name: string; provider: string | null; year: number | null }[];
 }
 
 interface EmittedEvent {
@@ -64,6 +65,7 @@ function setup(
   const replaceForWorker = vi.fn(async (_workerId: string, input: RepoInput) => ({
     certificatesWritten: input.certificates?.length ?? 0,
     educationsWritten: input.educations?.length ?? 0,
+    trainingsWritten: input.trainings?.length ?? 0,
     replacedExisting: opts.replacedExisting ?? false,
   }));
   const findById = vi.fn(async (_id: string) =>
@@ -77,6 +79,12 @@ function setup(
   const add = vi.fn(async (_name: string, _data: RenderJob): Promise<void> => {
     if (opts.addThrows === true) throw new Error("redis down");
   });
+  // Layer A (d) — the one crypto dependency. `encrypt` is deterministic and distinctive so a
+  // "the plaintext reached the repository" assertion cannot pass by accident.
+  const pii = {
+    encrypt: vi.fn((plaintext: string) => `v1.encrypted(${plaintext.length})`),
+    decrypt: vi.fn((token: string) => `decrypted:${token}`),
+  };
 
   // Positional, deliberately. A Nest testing module resolves every dependency it does not know
   // about as `undefined` and the suite passes regardless of the constructor's real shape.
@@ -84,9 +92,10 @@ function setup(
     { replaceForWorker } as never,
     { findById, latestResume } as never,
     { emit } as never,
+    pii as never,
     { add } as never,
   );
-  return { svc, replaceForWorker, findById, latestResume, emit, add };
+  return { svc, replaceForWorker, findById, latestResume, emit, add, pii };
 }
 
 /**
@@ -166,23 +175,42 @@ describe("the qualifications writer — the three-state contract survives the se
     expect(input.educations).toEqual([]);
   });
 
-  it("passes every field through to the repository unchanged", async () => {
+  it("passes every field through to the repository unchanged, encrypting only the licence number", async () => {
     // The service composes nothing — no defaults, no derivation, no expansion. §8: every printed
-    // character is the worker's own.
+    // character is the worker's own. The ONE transformation is the Layer A (d) licence number,
+    // which is PII and must be ciphertext before the repository sees it.
     const h = setup();
     await h.svc.replaceForWorker(
       WORKER,
-      parse({ certificates: [certificate()], educations: [education()] }),
+      parse({
+        certificates: [certificate({ licence_number: "DL-0420110149646" })],
+        educations: [education()],
+        trainings: [{ name: "CNC Operator Course", provider: "Govt. ITI", year: 2019 }],
+      }),
       CTX,
     );
     const input = h.replaceForWorker.mock.calls[0]![1];
-    expect(input.certificates![0]).toEqual({ name: CERT_NAME, issuer: ISSUER, year: 2019 });
+    expect(input.certificates![0]).toEqual({
+      name: CERT_NAME,
+      issuer: ISSUER,
+      year: 2019,
+      licenceNumberEnc: h.pii.encrypt.mock.results[0]!.value,
+      licenceExpiry: null,
+    });
+    // THE PLAINTEXT NEVER REACHES THE REPOSITORY.
+    expect(JSON.stringify(input)).not.toContain("DL-0420110149646");
+    expect(h.pii.encrypt).toHaveBeenCalledWith("DL-0420110149646");
     expect(input.educations![0]).toEqual({
       credential: "iti",
       field: FIELD,
       council: "ncvt",
       year: 2018,
       institute: INSTITUTE,
+    });
+    expect(input.trainings![0]).toEqual({
+      name: "CNC Operator Course",
+      provider: "Govt. ITI",
+      year: 2019,
     });
   });
 
@@ -206,7 +234,7 @@ describe("the qualifications writer — the event carries counts and nothing els
     h = setup({ replacedExisting: true });
   });
 
-  it("emits worker.qualifications_recorded with EXACTLY the four count fields", async () => {
+  it("emits worker.qualifications_recorded with EXACTLY the five count fields", async () => {
     await h.svc.replaceForWorker(
       WORKER,
       parse({ certificates: [certificate()], educations: [education()] }),
@@ -220,6 +248,8 @@ describe("the qualifications writer — the event carries counts and nothing els
       worker_id: WORKER,
       certificate_count: 1,
       education_count: 1,
+      // Layer A (d) — present on every new emission; old payloads without it stay valid.
+      training_count: 0,
       replaced_existing: true,
     });
   });
@@ -359,29 +389,74 @@ describe("the qualifications writer — the re-render", () => {
  * ══════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe("reading the worker's credentials back (#1504)", () => {
-  function readSetup(stored: { certificates: unknown[]; educations: unknown[] }) {
-    const loadForResume = vi.fn(async (_id: string) => stored);
+  function readSetup(stored: {
+    certificates: unknown[];
+    educations: unknown[];
+    trainings?: unknown[];
+  }) {
+    const loadForResume = vi.fn(async (_id: string) => ({ trainings: [], ...stored }));
     const emit = vi.fn(async (_event: EmittedEvent) => undefined);
+    const pii = {
+      encrypt: vi.fn((plaintext: string) => `v1.encrypted(${plaintext.length})`),
+      // A REAL-SHAPED value: the licence charset refuses a `:` — a decrypted value must pass the
+      // same PUT schema an untouched save round-trips through.
+      decrypt: vi.fn((token: string) => (token === "v1.stored-token" ? "DL-04201101496" : token)),
+    };
     const svc = new WorkerQualificationsService(
       { loadForResume } as never,
       {} as never,
       { emit } as never,
+      pii as never,
       { add: async () => undefined } as never,
     );
-    return { svc, loadForResume, emit, lines: captureLogger(svc) };
+    return { svc, loadForResume, emit, pii, lines: captureLogger(svc) };
   }
 
   it("returns the PUT's own entry shapes, and they round-trip through the PUT schema", async () => {
     const h = readSetup({ certificates: [certificate()], educations: [education()] });
     const res = await h.svc.getForWorker(WORKER);
     expect(h.loadForResume).toHaveBeenCalledWith(WORKER);
-    expect(res.certificates).toEqual([{ name: CERT_NAME, issuer: ISSUER, year: 2019 }]);
+    expect(res.certificates).toEqual([
+      { name: CERT_NAME, issuer: ISSUER, year: 2019, licence_number: null, licence_expiry: null },
+    ]);
     expect(res.educations).toEqual([education()]);
+    expect(res.trainings).toEqual([]);
     expect(res.partial).toEqual([]);
     expect(res.dropped_count).toBe(0);
-    const reparsed = parse({ certificates: res.certificates, educations: res.educations });
+    const reparsed = parse({
+      certificates: res.certificates,
+      educations: res.educations,
+      trainings: res.trainings,
+    });
     expect(reparsed.certificates).toEqual(res.certificates);
     expect(reparsed.educations).toEqual(res.educations);
+  });
+
+  it("decrypts a stored licence number for the worker's OWN read, and only there", async () => {
+    // Layer A (d): the number is returned to the session that owns it, decrypted at the boundary.
+    // The employer copy never calls this service at all — the disclosure path builds its own
+    // context, and the résumé composition reads name/issuer/year only.
+    const h = readSetup({
+      certificates: [certificate({ licenceNumberEnc: "v1.stored-token" })],
+      educations: [],
+    });
+    const res = await h.svc.getForWorker(WORKER);
+    expect(h.pii.decrypt).toHaveBeenCalledWith("v1.stored-token");
+    expect(res.certificates[0]?.licence_number).toBe("DL-04201101496");
+  });
+
+  it("withholds a certificate whose licence token will not decrypt, and counts it", async () => {
+    const h = readSetup({
+      certificates: [certificate({ licenceNumberEnc: "v1.rotated" })],
+      educations: [],
+    });
+    h.pii.decrypt.mockImplementationOnce(() => {
+      throw new Error("unknown kid");
+    });
+    const res = await h.svc.getForWorker(WORKER);
+    expect(res.certificates).toEqual([]);
+    expect(res.partial).toEqual(["certificates"]);
+    expect(res.dropped_count).toBe(1);
   });
 
   it("withholds a stored row the PUT would refuse, and reports it", async () => {

@@ -37,7 +37,7 @@ import { workerPackAnswers } from "./pack-answer";
 import { workerResumeImports } from "./resume-import";
 import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
-import { workerCertificates, workerEducations } from "./qualification";
+import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { workerLanguages } from "./language";
 import {
   generatedResumes,
@@ -355,6 +355,7 @@ export const schema = {
   workerEmploymentRole,
   workerCertificates,
   workerEducations,
+  workerTrainings,
   workerLanguages,
   profilingVoiceAnswers,
   workerAiCostTotals,

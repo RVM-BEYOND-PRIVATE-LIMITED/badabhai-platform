@@ -369,6 +369,64 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "base's language profile. Both surfaces keep working, so nothing reports it",
   },
   {
+    id: "0111-worker-attributes-value-json-column",
+    migration: "0111_worker_attributes_json",
+    kind: "column",
+    table: "worker_attributes",
+    object: "value_json",
+    requiredBy:
+      "WorkerAttributesRepository.upsertMany names every value column in its INSERT list and its " +
+      "ON CONFLICT SET (`excluded.value_json` included), and loadKeys/loadTradeSheet select it — " +
+      "all unconditional, none behind a flag",
+    failureMode:
+      'every attribute write fails with `column "value_json" does not exist` (42703 or 42P10 on ' +
+      "the conflict target) — the interview soak's flush and the trade form's submission included. " +
+      "The write path wraps most callers in try/catch, so the loud half is the trade form 500ing " +
+      "while the interview SILENTLY keeps 0 rows for the 77% of the corpus that is attribute-kind",
+  },
+  {
+    id: "0112-worker-training-table",
+    migration: "0112_worker_training_licence",
+    kind: "table",
+    table: "worker_training",
+    requiredBy:
+      "WorkerQualificationsRepository.replaceForWorker / .loadForResume on PUT+GET " +
+      "/workers/me/qualifications — both name the table unconditionally, neither is behind a flag",
+    failureMode:
+      "every qualifications save 500s (relation does not exist) and the trainings prefill comes " +
+      "back empty. The read degrades in the service, so the failure is one-sided: the worker " +
+      "cannot see or edit their trainings while the rest of the page still works",
+  },
+  {
+    id: "0112-worker-training-rls",
+    migration: "0112_worker_training_licence",
+    kind: "rls",
+    table: "worker_training",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. A worker's training history is a personal record; without FORCE the owner bypasses " +
+      "every policy and without the REVOKEs every PostgREST role can read it. Both surfaces keep " +
+      "working, so nothing reports it",
+  },
+  {
+    id: "0112-worker-certificate-licence-columns",
+    migration: "0112_worker_training_licence",
+    kind: "column",
+    table: "worker_certificate",
+    object: "licence_number_enc",
+    requiredBy:
+      "WorkerQualificationsRepository.replaceForWorker (INSERT/SET) and .loadForResume (SELECT) " +
+      "name the licence columns on PUT+GET /workers/me/qualifications, unconditionally",
+    failureMode:
+      "the qualifications save 500s and the worker-self GET omits the licence fields, so a worker " +
+      "who already entered a licence number appears never to have one. `licence_expiry` is added " +
+      "by the same migration and fails together",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

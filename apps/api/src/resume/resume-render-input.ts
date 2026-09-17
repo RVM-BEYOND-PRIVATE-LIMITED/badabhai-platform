@@ -264,6 +264,13 @@ export interface ResumeQualificationFacts {
   readonly certifications?: readonly string[];
   readonly languages?: readonly string[];
   /**
+   * Migration 0112 / Layer A (d) — courses the worker attended, composed deterministically.
+   *
+   * CARRIED ON THE FACTS, PRINTED BY THE LAYER A RENDERER. The existing sheet has no training
+   * row, so this is data-ready-not-yet-rendered; nothing on the current templates reads it.
+   */
+  readonly trainings?: readonly string[];
+  /**
    * Documents the worker SAYS they hold. Self-declared, rendered as a tick row.
    *
    * §5.1 ranks this ninth of eleven because it removes the most common walk-in failure before

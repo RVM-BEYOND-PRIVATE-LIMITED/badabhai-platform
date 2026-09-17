@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { asc, eq } from "drizzle-orm";
-import { type Database, workerCertificates, workerEducations } from "@badabhai/db";
+import { type Database, workerCertificates, workerEducations, workerTrainings } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
 import type {
   WorkerCertificateRecord,
   WorkerEducationRecord,
+  WorkerTrainingRecord,
 } from "../resume/resume-qualification-rows";
 
 /**
@@ -69,6 +70,10 @@ export class WorkerQualificationsRepository {
         name: string;
         issuer: string | null;
         year: number | null;
+        /** Layer A (d) — ALREADY-ENCRYPTED token, or null. This repository cannot encrypt. */
+        licenceNumberEnc?: string | null;
+        /** `YYYY-MM-DD`, or null. Plain: an expiry date is not an identifier. */
+        licenceExpiry?: string | null;
       }[];
       readonly educations?: readonly {
         credential: string | null;
@@ -77,18 +82,30 @@ export class WorkerQualificationsRepository {
         year: number | null;
         institute: string | null;
       }[];
+      /** Layer A (d) — the courses list. Three-state like the other two. */
+      readonly trainings?: readonly {
+        name: string;
+        provider: string | null;
+        year: number | null;
+      }[];
     },
   ): Promise<{
     certificatesWritten: number;
     educationsWritten: number;
+    trainingsWritten: number;
     replacedExisting: boolean;
   }> {
-    const { certificates, educations } = input;
+    const { certificates, educations, trainings } = input;
     // NOTHING SUBMITTED IS NOT AN EMPTY SUBMISSION. Opening a transaction to do nothing would
     // still report `replacedExisting: false` correctly, but it would also cost a round trip on
     // every partial save the client makes, and the honest answer here needs no database at all.
-    if (certificates === undefined && educations === undefined) {
-      return { certificatesWritten: 0, educationsWritten: 0, replacedExisting: false };
+    if (certificates === undefined && educations === undefined && trainings === undefined) {
+      return {
+        certificatesWritten: 0,
+        educationsWritten: 0,
+        trainingsWritten: 0,
+        replacedExisting: false,
+      };
     }
 
     return this.db.transaction(async (tx) => {
@@ -109,6 +126,9 @@ export class WorkerQualificationsRepository {
               name: c.name,
               issuer: c.issuer,
               year: c.year,
+              // Layer A (d): the token arrives encrypted; the expiry is a plain date.
+              licenceNumberEnc: c.licenceNumberEnc ?? null,
+              licenceExpiry: c.licenceExpiry ?? null,
               // THE SUBMITTED ORDER IS THE DISPLAY ORDER, never derived from `year`. Two
               // certificates can share a year and an undated one still has the place the worker
               // gave it; sorting by year would reshuffle rows between renders and make every
@@ -142,9 +162,31 @@ export class WorkerQualificationsRepository {
         }
       }
 
+      if (trainings !== undefined) {
+        const existing = await tx
+          .select({ id: workerTrainings.id })
+          .from(workerTrainings)
+          .where(eq(workerTrainings.workerId, workerId));
+        replacedExisting ||= existing.length > 0;
+
+        await tx.delete(workerTrainings).where(eq(workerTrainings.workerId, workerId));
+        if (trainings.length > 0) {
+          await tx.insert(workerTrainings).values(
+            trainings.map((t, index) => ({
+              workerId,
+              name: t.name,
+              provider: t.provider,
+              year: t.year,
+              sortOrder: index,
+            })),
+          );
+        }
+      }
+
       return {
         certificatesWritten: certificates?.length ?? 0,
         educationsWritten: educations?.length ?? 0,
+        trainingsWritten: trainings?.length ?? 0,
         replacedExisting,
       };
     });
@@ -163,13 +205,17 @@ export class WorkerQualificationsRepository {
   async loadForResume(workerId: string): Promise<{
     certificates: WorkerCertificateRecord[];
     educations: WorkerEducationRecord[];
+    trainings: WorkerTrainingRecord[];
   }> {
-    const [certificates, educations] = await Promise.all([
+    const [certificates, educations, trainings] = await Promise.all([
       this.db
         .select({
           name: workerCertificates.name,
           issuer: workerCertificates.issuer,
           year: workerCertificates.year,
+          // Layer A (d) — read for the worker-self GET's decrypt; the composition ignores them.
+          licenceNumberEnc: workerCertificates.licenceNumberEnc,
+          licenceExpiry: workerCertificates.licenceExpiry,
         })
         .from(workerCertificates)
         .where(eq(workerCertificates.workerId, workerId))
@@ -185,8 +231,18 @@ export class WorkerQualificationsRepository {
         .from(workerEducations)
         .where(eq(workerEducations.workerId, workerId))
         .orderBy(asc(workerEducations.sortOrder)),
+      // Layer A (d) — the courses, in the worker's own order.
+      this.db
+        .select({
+          name: workerTrainings.name,
+          provider: workerTrainings.provider,
+          year: workerTrainings.year,
+        })
+        .from(workerTrainings)
+        .where(eq(workerTrainings.workerId, workerId))
+        .orderBy(asc(workerTrainings.sortOrder)),
     ]);
 
-    return { certificates, educations };
+    return { certificates, educations, trainings };
   }
 }

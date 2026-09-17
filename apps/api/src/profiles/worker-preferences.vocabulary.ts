@@ -95,6 +95,50 @@ export const JOB_TYPES: PreferenceVocabulary = {
 };
 
 /**
+ * ADR-0042 D9 / Layer A (c) — the SAME options, which is the point rather than a shortcut.
+ *
+ * `job_type` is a single answer and `work_types` is a multi. A worker who will take contract OR
+ * daily work had to choose one, and the sheet printed a half-truth; the multi says both, and
+ * keeping ONE dictionary is what stops the two keys printing different English for the same slug
+ * the first time an option is added to one list and not the other.
+ *
+ * THE PRECEDENCE IS ENCODED IN `worker-field-precedence.ts` AND NOT RE-DECIDED HERE: a non-empty
+ * `work_types` wins, and `job_type` is read only as the fallback for every worker whose row
+ * predates the multi.
+ */
+export const WORK_TYPES: PreferenceVocabulary = JOB_TYPES;
+
+/**
+ * Layer A (c) — the PERIOD a stated salary figure is quoted in.
+ *
+ * EXISTING MEANING IS PRESERVED, NOT INVENTED: every salary key on this platform has always meant
+ * monthly (`salary_expected`, `salary_expected_max`, the interview's salary gate, the sheet's
+ * "/ month"), so an ABSENT period means MONTH and a worker who never answers this keeps exactly
+ * the figure they always had. The dictionary exists so a daily-wage worker can say so instead of
+ * having ₹800 printed as "₹800 / month" — a real defect the under-representation gate documents.
+ */
+export const SALARY_PERIODS: PreferenceVocabulary = {
+  month: "per month",
+  day: "per day",
+  year: "per year",
+};
+
+/**
+ * Layer A (c) — WHEN the worker can start, as a closed set.
+ *
+ * The interview's `availability` object has always carried a model-written status string. This
+ * dictionary is the WORKER's own closed answer, and it is what the new `json` attribute is
+ * bounded by. A status the list does not know yields no printed segment (the `labelFor` rule),
+ * never a raw slug.
+ */
+export const AVAILABILITY_STATUSES: PreferenceVocabulary = {
+  immediate: "Immediately",
+  within_week: "Within a week",
+  within_month: "Within a month",
+  serving_notice: "Serving notice",
+};
+
+/**
  * Shift. THE FORM'S SET IS A DELIBERATE SUPERSET OF THE PACK'S.
  *
  * `qp_universal`'s `shift_preference` offers `day` / `night` / `any`, and this form writes the
@@ -274,6 +318,24 @@ export const PREFERENCE_KEYS = {
   shift_preference: "text",
   relocation_willingness: "boolean",
   accommodation_needed: "boolean",
+  // ── ADR-0042 D9 / Layer A (c) — the attribute extensions ─────────────────────────────
+  //
+  // ONE MULTI BESIDE THE SINGLE, not a replacement: `job_type` keeps its value and its meaning,
+  // and a non-empty `work_types` wins where the reader needs one answer
+  // (`worker-field-precedence.ts`). Both are written by this endpoint and both survive.
+  work_types: "text_list",
+  // The period every salary figure is quoted in. ABSENT MEANS MONTH — the meaning the keys
+  // already had before this field existed; see {@link SALARY_PERIODS}.
+  salary_period: "text",
+  // How far the worker will travel to work, in kilometres, and whether they will travel at all.
+  // TWO FACTS, NOT ONE: a distance is a number the worker stated and willingness is a decision;
+  // deriving either from the other would put a claim on the sheet nobody made.
+  commute_max_km: "number",
+  willing_to_travel: "boolean",
+  // THE FIRST `json` ATTRIBUTE (migration 0111): one structured answer,
+  // `{status, available_from, notice_period_days}`, every key optional and validated by the DTO.
+  // Stored as one row so the parts cannot be clobbered independently by a re-answer.
+  availability: "json",
   // R9 §3 — the three components of a credential the sheet prints and nothing captured. The
   // TRADE is not here: `education_field` already holds it, it rides the answer-map crosswalk onto
   // the draft, and adding a second key for the same fact is how two sources start disagreeing

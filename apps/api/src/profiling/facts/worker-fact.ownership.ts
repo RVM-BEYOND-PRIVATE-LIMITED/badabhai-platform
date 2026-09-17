@@ -60,6 +60,12 @@ export const CHAT_FACT_OWNER: Readonly<Record<WorkerFactId, ChatFactOwner>> = {
   job_type: "pages",
   relocation: "pages",
   accommodation: "pages",
+  // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys. Same rule: the chat never
+  // solicits them structurally, and the page's write is what settles them.
+  work_types: "pages",
+  salary_period: "pages",
+  commute_max_km: "pages",
+  willing_to_travel: "pages",
 };
 
 /**
@@ -90,7 +96,9 @@ export const PER_JOB_FACTS: ReadonlySet<WorkerFactId> = new Set(["experience"]);
  * naming two facts, and this function does not catch it — a registry defect belongs to
  * `worker-fact.registry.test.ts`, not to a silent drop here.
  */
-export function isChatOwnedItem(item: Pick<QuestionPackItem, "question_key" | "target_field">): boolean {
+export function isChatOwnedItem(
+  item: Pick<QuestionPackItem, "question_key" | "target_field">,
+): boolean {
   const match = factForPackItem(item);
   if (match === null) return true;
   if (match.strength === "prefill_hint") return true;
@@ -98,9 +106,9 @@ export function isChatOwnedItem(item: Pick<QuestionPackItem, "question_key" | "t
 }
 
 /** Every item the chat may serve, settle, or cross-fill — order preserved. */
-export function chatServableItems<T extends Pick<QuestionPackItem, "question_key" | "target_field">>(
-  items: readonly T[],
-): T[] {
+export function chatServableItems<
+  T extends Pick<QuestionPackItem, "question_key" | "target_field">,
+>(items: readonly T[]): T[] {
   return items.filter(isChatOwnedItem);
 }
 

@@ -57,14 +57,22 @@ describe("the qualification tables are registered in the model", () => {
     expect(Object.keys(workerEducations)).toContain("sortOrder");
   });
 
-  it("holds no encrypted column — the in-clear decision is deliberate and reviewable", () => {
+  it("holds exactly ONE encrypted column — the licence number — and it is a named exception", () => {
     // `issuer` and `institute` follow the `education_institute` precedent (in clear on
     // `worker_attributes` since R9 §3), not the `employer_name_enc` one. That is a ruling the
     // migration header argues explicitly, and it has a consequence beyond this table: a `*_enc`
     // column added here MUST also gain a `target(...)` entry in `reencrypt-pii-backfill.ts` or a
     // key rotation silently skips it. This assertion is what makes adding one a deliberate act.
-    for (const table of [workerCertificates, workerEducations]) {
-      expect(Object.keys(table).filter((c) => c.endsWith("Enc"))).toEqual([]);
-    }
+    //
+    // THE ONE EXCEPTION, ADDED DELIBERATELY (ADR-0042 D9 / Layer A (d), migration 0112):
+    // `worker_certificate.licence_number_enc` — a licence number is IDENTITY, not a credential
+    // attribution, and it is never public or employer-visible. Its rotation target exists in
+    // `reencrypt-pii-backfill.ts` (pinned by that file's own coverage test). `worker_education`
+    // still holds none, and any future `*_enc` on either table fails here until it is named in
+    // this list on purpose.
+    expect(Object.keys(workerCertificates).filter((c) => c.endsWith("Enc"))).toEqual([
+      "licenceNumberEnc",
+    ]);
+    expect(Object.keys(workerEducations).filter((c) => c.endsWith("Enc"))).toEqual([]);
   });
 });

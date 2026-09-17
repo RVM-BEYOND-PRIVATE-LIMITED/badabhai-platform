@@ -1,7 +1,24 @@
 import { relations, sql } from "drizzle-orm";
-import { check, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  date,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { workers } from "./worker";
+
+/**
+ * The AES-256-GCM token shape `encryptPii` produces — the `workers.whatsapp_enc` pattern, applied
+ * to a licence number so the column cannot hold prose (a 23514, not a code-review question).
+ */
+const ENC_TOKEN_SQL_PATTERN =
+  "^(v1\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+" +
+  "|v2\\.[A-Za-z0-9_-]{1,32}\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+)$";
 
 /**
  * QUALIFICATIONS (migration 0098) — the credentials a worker holds, and who issued them.
@@ -99,10 +116,28 @@ export const workerCertificates = pgTable(
      * Display order.
      *
      * EXPLICIT, NOT DERIVED FROM `year`. Two certificates can share a year, an undated one still
-     * has a place the worker gave it, and sorting by year would reshuffle rows between renders —
+     * has the place the worker gave it, and sorting by year would reshuffle rows between renders —
      * making every regenerated PDF a false diff.
      */
     sortOrder: integer("sort_order").notNull().default(0),
+    /**
+     * ADR-0042 D9 / Layer A (d) — a licence number, AES-256-GCM CIPHERTEXT (`encryptPii` token).
+     *
+     * NEVER PUBLIC, NEVER EMPLOYER-VISIBLE. It exists for the worker's OWN record (and for any
+     * future verification flow, which would be its own ruled change). Unlike `name`/`issuer`/`year`
+     * — which print on the sheet — this column is read by the worker-self GET only; the résumé
+     * composition in `resume-qualification-rows.ts` never names it, so it cannot print even if a
+     * caller passed it.
+     */
+    licenceNumberEnc: text("licence_number_enc"),
+    /**
+     * When the licence expires, as a DATE (day precision — no timezone arithmetic).
+     *
+     * NEVER PUBLIC, NEVER EMPLOYER-VISIBLE, same ruling as the number. `date` rather than
+     * `timestamp`: an expiry is a calendar day the worker reads off the document, and a timestamp
+     * would round-trip through UTC and shift under IST.
+     */
+    licenceExpiry: date("licence_expiry"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -115,6 +150,15 @@ export const workerCertificates = pgTable(
     check("wc_issuer_len_chk", sql`${t.issuer} IS NULL OR length(${t.issuer}) <= 120`),
     check("wc_year_chk", sql`${t.year} IS NULL OR (${t.year} BETWEEN 1950 AND 2100)`),
     check("wc_sort_order_chk", sql`${t.sortOrder} >= 0`),
+    // Layer A (d): the number is ciphertext at rest, enforced here rather than trusted.
+    check(
+      "wc_licence_number_enc_token_chk",
+      sql`${t.licenceNumberEnc} IS NULL OR ${t.licenceNumberEnc} ~ ${sql.raw(`'${ENC_TOKEN_SQL_PATTERN}'`)}`,
+    ),
+    check(
+      "wc_licence_expiry_chk",
+      sql`${t.licenceExpiry} IS NULL OR ${t.licenceExpiry} >= DATE '1950-01-01'`,
+    ),
     // The only read is "give me one worker's certificates, in display order".
     uniqueIndex("wc_worker_sort_uq").on(t.workerId, t.sortOrder),
   ],
@@ -193,6 +237,54 @@ export const workerEducations = pgTable(
   ],
 ).enableRLS();
 
+/**
+ * A course or training programme the worker attended (ADR-0042 D9 / Layer A (d), migration 0112).
+ *
+ * ═══ WHY THIS IS NOT A `worker_certificate` ROW ═══
+ *
+ * A certificate is an AWARD; a training is an ATTENDANCE. The reference sheets carry both —
+ * "CNC Turning & Fanuc Programming (RVM CAD, 2020)" is a certificate, while "3-month CNC operator
+ * course, Govt. ITI, 2019" is training with a provider and a year but often no document at all.
+ * Folding them together would force a `kind` column and put the real difference ("does this have
+ * an issuer and a licence number?") somewhere no CHECK can see it — the identical argument that
+ * kept `worker_certificate` and `worker_education` apart in 0098.
+ *
+ * ═══ PII-FREE BY CONSTRUCTION ═══
+ *
+ * Name, provider and year only; nothing here is identity, and the whole row prints (through the
+ * deterministic composition in `resume-qualification-rows.ts`) as a training line. No licence
+ * numbers live here — those belong to the certificate that carries them, encrypted.
+ */
+export const workerTrainings = pgTable(
+  "worker_training",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    /** What the course was called, as the worker reads it off the completion slip. */
+    name: text("name").notNull(),
+    /** Who ran it — a training centre, an OEM, a government ITI, an employer. */
+    provider: text("provider"),
+    /** The year it finished. Bounded like `wc_year_chk`, for the same typo argument. */
+    year: integer("year"),
+    /** Display order — the worker's own ordering, never derived (see `wc_sort_order_chk`). */
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    check("wt_name_chk", sql`length(btrim(${t.name})) BETWEEN 1 AND 120`),
+    check("wt_provider_len_chk", sql`${t.provider} IS NULL OR length(${t.provider}) <= 120`),
+    check("wt_year_chk", sql`${t.year} IS NULL OR (${t.year} BETWEEN 1950 AND 2100)`),
+    check("wt_sort_order_chk", sql`${t.sortOrder} >= 0`),
+    uniqueIndex("wt_worker_sort_uq").on(t.workerId, t.sortOrder),
+  ],
+).enableRLS();
+
 export const workerCertificatesRelations = relations(workerCertificates, ({ one }) => ({
   worker: one(workers, {
     fields: [workerCertificates.workerId],
@@ -207,7 +299,16 @@ export const workerEducationsRelations = relations(workerEducations, ({ one }) =
   }),
 }));
 
+export const workerTrainingsRelations = relations(workerTrainings, ({ one }) => ({
+  worker: one(workers, {
+    fields: [workerTrainings.workerId],
+    references: [workers.id],
+  }),
+}));
+
 export type WorkerCertificate = typeof workerCertificates.$inferSelect;
 export type NewWorkerCertificate = typeof workerCertificates.$inferInsert;
 export type WorkerEducation = typeof workerEducations.$inferSelect;
 export type NewWorkerEducation = typeof workerEducations.$inferInsert;
+export type WorkerTraining = typeof workerTrainings.$inferSelect;
+export type NewWorkerTraining = typeof workerTrainings.$inferInsert;

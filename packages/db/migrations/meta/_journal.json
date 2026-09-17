@@ -779,6 +779,20 @@
       "when": 1789622711478,
       "tag": "0110_worker_language",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1789624476746,
+      "tag": "0111_worker_attributes_json",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1789626840583,
+      "tag": "0112_worker_training_licence",
+      "breakpoints": true
     }
   ]
 }

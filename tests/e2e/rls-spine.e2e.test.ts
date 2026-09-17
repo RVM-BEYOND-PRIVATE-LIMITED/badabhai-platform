@@ -124,6 +124,9 @@ const LOCKED_TABLES = [
   // client role and a worker's credential history. Deny-by-default, FORCE, no policy.
   "worker_certificate",
   "worker_education",
+  // 0112: the courses a worker attended (ADR-0042 D9 / Layer A (d)) — name, provider, year,
+  // worker order. Deny-by-default, FORCE, no policy.
+  "worker_training",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.
