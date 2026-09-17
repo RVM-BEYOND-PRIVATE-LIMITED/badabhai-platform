@@ -43,10 +43,10 @@ export const SetMyOccupationsSchema = z
   .strict()
   // A role named twice is two rows the database refuses (`wo_worker_role_uq`) and a duplicated
   // derivation input, so it is refused here first, by name.
-  .refine(
-    (dto) => new Set(dto.occupations.map((o) => o.role_id)).size === dto.occupations.length,
-    { message: "a role may appear only once", path: ["occupations"] },
-  );
+  .refine((dto) => new Set(dto.occupations.map((o) => o.role_id)).size === dto.occupations.length, {
+    message: "a role may appear only once",
+    path: ["occupations"],
+  });
 
 export type SetMyOccupationsDto = z.infer<typeof SetMyOccupationsSchema>;
 export type OccupationEntryDto = SetMyOccupationsDto["occupations"][number];

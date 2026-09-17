@@ -17,9 +17,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  LanguageCode,
-} from "@badabhai/types";
+import type { LanguageCode } from "@badabhai/types";
 import { workers } from "./worker";
 
 // ===========================================================================
@@ -209,15 +207,9 @@ export const jobDomains = pgTable(
     check("job_domain_selectable_leaf_chk", sql`${t.selectable} = false OR ${t.level} >= 4`),
     // Only a MINTED row may lack a published code — otherwise a scrape gap would
     // enter the catalog as a codeless, unverifiable row.
-    check(
-      "job_domain_source_code_chk",
-      sql`${t.source} = 'rvm' OR ${t.sourceCode} IS NOT NULL`,
-    ),
+    check("job_domain_source_code_chk", sql`${t.source} = 'rvm' OR ${t.sourceCode} IS NOT NULL`),
     // Crosswalk discipline, mirroring skill_replaced_by_chk.
-    check(
-      "job_domain_replaced_by_chk",
-      sql`${t.replacedBy} IS NULL OR ${t.status} = 'deprecated'`,
-    ),
+    check("job_domain_replaced_by_chk", sql`${t.replacedBy} IS NULL OR ${t.status} = 'deprecated'`),
     check(
       "job_domain_no_self_parent_chk",
       sql`${t.parentJobDomainId} IS NULL OR ${t.parentJobDomainId} <> ${t.jobDomainId}`,
@@ -417,4 +409,3 @@ export const workerOccupationsRelations = relations(workerOccupations, ({ one })
 
 export type WorkerOccupation = typeof workerOccupations.$inferSelect;
 export type NewWorkerOccupation = typeof workerOccupations.$inferInsert;
-

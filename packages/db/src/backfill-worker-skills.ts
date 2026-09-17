@@ -48,7 +48,14 @@ import { bucketMonths, deriveWorkerSkills, DEFAULT_MATCH_CONFIG } from "@badabha
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER } from "./current-profile";
-import { matchConfig, workerIndustryTenure, workerOccupations, workerProfiles, workerSkills, workers } from "./schema";
+import {
+  matchConfig,
+  workerIndustryTenure,
+  workerOccupations,
+  workerProfiles,
+  workerSkills,
+  workers,
+} from "./schema";
 import { loadMatchTaxonomy, validateMatchTaxonomy } from "./match-taxonomy";
 import {
   asObject,

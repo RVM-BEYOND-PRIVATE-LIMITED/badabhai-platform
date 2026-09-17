@@ -4684,9 +4684,9 @@ describe("worker.occupations_recorded (Layer A (f) / ADR-0042 D9)", () => {
   });
 
   it("requires the count and the replaced flag, and bounds the count at four", () => {
-    expect(
-      validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success,
-    ).toBe(false);
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
     expect(validateEvent(recorded({ ...valid, occupation_count: 5 })).success).toBe(false);
     expect(validateEvent(recorded({ ...valid, occupation_count: -1 })).success).toBe(false);
   });
