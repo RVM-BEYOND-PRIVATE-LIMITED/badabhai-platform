@@ -162,12 +162,10 @@ on conflict (id) do update
 -- — Supabase refuses the PUT itself, before any of our code runs, and (as with feedback) no
 -- confirm step measures the stored object afterwards.
 --
--- ⚠ DSAR PRECONDITION — DO NOT ARM `WORKER_PORTFOLIO_BUCKET` YET. `AccountDeletionService`
--- sweeps the photos, voice-notes and feedback-attachments buckets by `{prefix}/{workerId}/`,
--- and it does NOT yet sweep `portfolio/{workerId}/`. While the env var is unset the mint 503s
--- and no media can exist — but the moment it is armed, an account deletion would leave
--- portfolio media behind. The prefix-sweep leg is tracked as #1548; this insert only
--- provisions the container.
+-- DSAR: `AccountDeletionService` sweeps `portfolio/{workerId}/` against this bucket exactly as it
+-- sweeps photos and feedback attachments (#1548). Arming `WORKER_PORTFOLIO_BUCKET` therefore arms
+-- the upload path AND the prefix sweep in the same act — there is deliberately no window in which
+-- media can exist while erasure is dormant.
 --
 -- NOTE: `supabase/config.toml` does not declare this bucket for the local stack — the same
 -- known gap as the voice/photos/feedback buckets.

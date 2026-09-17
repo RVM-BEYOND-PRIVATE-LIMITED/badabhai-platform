@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { WORKER_PORTFOLIO_PREFIX } from "@badabhai/types";
 import { looksLikePii } from "@badabhai/validators";
 
 /**
@@ -43,7 +44,7 @@ const UUID_SHAPE = /^[0-9a-f-]{36}$/;
 const ALLOWED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "mp4", "mov"]);
 
 export function portfolioKeyBelongsTo(workerId: string, key: string): boolean {
-  const prefix = `portfolio/${workerId}/`;
+  const prefix = `${WORKER_PORTFOLIO_PREFIX}/${workerId}/`;
   if (!key.startsWith(prefix)) return false;
   const rest = key.slice(prefix.length);
   const dot = rest.lastIndexOf(".");

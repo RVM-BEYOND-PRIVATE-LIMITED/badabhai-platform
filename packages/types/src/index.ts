@@ -367,6 +367,22 @@ export const WORKER_FEEDBACK_ATTACHMENT_PREFIX = "feedback-attachments";
 export const WORKER_RESUME_UPLOAD_PREFIX = "resume-uploads";
 
 /**
+ * The object-key PREFIX every portfolio media object lives under in the private portfolio bucket:
+ * `portfolio/<workerId>/<uuid>.<jpg|png|webp|mp4|mov>` (ADR-0042 D9 / Layer A (e), migration 0113).
+ *
+ * ONE CONSTANT BECAUSE THREE PLACES MUST AGREE, and one of the three is an erasure. The mint
+ * (`WorkerPortfolioService.createUploadUrl`) builds the key from it, the register step's ownership
+ * check (`portfolioKeyBelongsTo`) re-derives the same shape from it, and
+ * `AccountDeletionService` sweeps the prefix built from it.
+ *
+ * The first two drifting apart is the IDOR the feedback constant above describes. The THIRD is
+ * the reason this is a constant rather than three literals: a sweep prefix that no longer matches
+ * the mint deletes nothing and reports a successful erasure. Until #1548 landed this sweep did not
+ * exist at all, which is why the bucket was documented as do-not-arm until it did.
+ */
+export const WORKER_PORTFOLIO_PREFIX = "portfolio";
+
+/**
  * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
  *
  * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────
