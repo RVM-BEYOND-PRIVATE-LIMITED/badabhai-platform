@@ -1,0 +1,34 @@
+# Chat-road fill coverage — FIXTURE corpus (authored, not worker data)
+#
+# One JSON object per line: {"road": "form"|"chat"|"unknown"|null, "filled": [field, ...]}.
+# `filled` is sparse: only what is settled is listed. No values, no ids — see
+# packages/db/src/chat-fill-coverage.ts for the strict parser and the privacy rationale.
+#
+# WHAT THIS CORPUS MODELS. The verified baseline (2026-09-17): the chat road deterministically
+# settles ONLY trade / experience / current_city / availability, plus a gated model overlay that
+# occasionally lands preferred_locations / shift / salary_expected; every other field is
+# structurally unaskable there (CHAT_FACT_OWNER = pages). The form road settles its pack and
+# marker-page fields, including the Layer A (b)/(c)/(d)/(e)/(f) surfaces when the worker used
+# them. Rows with `road: null` model pre-0107 profiles (source IS NULL); the aggregate counts
+# them separately and production expects ~0.
+#
+# Phase 1 (elicitation) does NOT change this file: the corpus is the fixture the ruler is
+# demonstrated on. Real fill rates come from a row-per-worker export in the same format.
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city"]}
+{"road": "chat", "filled": ["trade", "experience", "availability"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability", "preferred_locations"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability", "shift"]}
+{"road": "chat", "filled": ["trade", "current_city"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability", "preferred_locations", "salary_expected"]}
+{"road": "chat", "filled": ["trade", "experience", "availability"]}
+{"road": "chat", "filled": ["trade", "experience", "current_city", "availability", "shift"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "education", "certifications", "languages", "documents_ready", "job_type", "shift", "salary_expected", "accommodation", "relocation", "work_types", "salary_period"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "education", "certifications", "languages", "documents_ready", "training"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "job_type", "work_types", "salary_period", "commute_max_km", "willing_to_travel"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "education", "certifications", "languages", "documents_ready", "job_type", "shift", "salary_expected", "relocation", "accommodation", "training", "whatsapp", "portfolio", "secondary_occupations"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "education", "languages", "documents_ready"]}
+{"road": "form", "filled": ["trade", "experience", "current_city", "availability", "education", "certifications", "licence", "documents_ready", "job_type"]}
+{"road": null, "filled": ["trade", "experience", "current_city", "availability", "education"]}
+{"road": null, "filled": ["trade", "experience", "availability"]}
