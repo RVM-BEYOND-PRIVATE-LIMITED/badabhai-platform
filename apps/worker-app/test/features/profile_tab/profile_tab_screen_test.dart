@@ -19,6 +19,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_verified_badge.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/cubit/profile_tab_cubit.dart';
@@ -61,7 +62,7 @@ Future<void> _pump(
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final MockProfileSummaryRepository repo = MockProfileSummaryRepository();
-  when(() => repo.summary()).thenAnswer((_) async => summary);
+  when(() => repo.summary(includeDisplayExtras: true)).thenAnswer((_) async => summary);
   locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
   // The screen refetches on tab focus (T4) and resolves this from the locator.
   locator.registerLazySingleton<TabFocus>(() => TabFocus());
@@ -153,11 +154,13 @@ void main() {
       );
 
       // No nudge is shown at Strong — the card collapses to nothing — while the
-      // rest of the profile still renders below it.
+      // rest of the profile still renders below it. The empty skills section
+      // hides too (#1579); the identity card proves the profile rendered.
       expect(find.text(kProfileStrengthWeakTitle), findsNothing);
       expect(find.text(kProfileStrengthFairTitle), findsNothing);
       expect(find.textContaining('apni photo'), findsNothing);
-      expect(find.text('Skills aur anubhav'), findsOneWidget);
+      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.text('VMC Operator'), findsOneWidget);
     },
   );
 
@@ -196,21 +199,16 @@ void main() {
   });
 
   testWidgets(
-    'Skills section shows an honest empty state when nothing shared yet',
+    'Skills section hides entirely when nothing shared yet (#1579)',
     (WidgetTester tester) async {
       await _pump(
         tester,
         const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
       );
 
-      expect(find.text('Skills aur anubhav'), findsOneWidget);
-      expect(
-        find.text(
-          'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
-        ),
-        findsOneWidget,
-      );
-      // No chips and no count pill when there is nothing to count.
+      // No heading, no claim-like empty sentence, no chips, no count pill.
+      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.textContaining('Abhi kuch nahi'), findsNothing);
       expect(find.byType(KitInfoChip), findsNothing);
       expect(find.byType(BbChip), findsNothing);
       expect(find.text('0'), findsNothing);
@@ -336,8 +334,9 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(find.text('Logout karein?'), findsNothing);
-      // Still on the profile.
-      expect(find.text('Skills aur anubhav'), findsOneWidget);
+      // Still on the profile (identity card proves it; the empty skills
+      // section hides per #1579).
+      expect(find.text('Fitter'), findsOneWidget);
     },
   );
 
@@ -391,4 +390,87 @@ void main() {
       expect(find.text('BHASHAYEIN'), findsNothing);
     });
   });
+
+  /// #1586 — the pill/seal render on SERVER ATTESTATION, never confirmation.
+  group('verification badge follows attestation', () {
+    testWidgets('attested worker shows pill and seal', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 5,
+          verified: true,
+          attested: true,
+        ),
+      );
+
+      expect(find.byType(BbVerifiedBadge), findsOneWidget);
+      expect(find.byType(BbSeal), findsOneWidget);
+    });
+
+    testWidgets('confirmed-but-unattested worker shows neither — and no '
+        '"Unverified" copy', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 5,
+          verified: true,
+        ),
+      );
+
+      expect(find.byType(BbVerifiedBadge), findsNothing);
+      expect(find.byType(BbSeal), findsNothing);
+      expect(find.text('Unverified'), findsNothing);
+      expect(find.text('unverified'), findsNothing);
+    });
+  });
+
+  /// #1587 — the v4 work facts render as rows/chips; absence hides the card.
+  group('work info card', () {
+    testWidgets('renders every present v4 fact', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 5,
+          commuteKm: 20,
+          willingToTravel: true,
+          salaryPeriod: 'Din',
+          availabilityStatus: 'Notice period mein',
+          availableFrom: '2026-10-01',
+          noticeDays: 15,
+          trainings: <String>['CNC Programming · ITI Pune · 2019'],
+          occupations: <SecondaryOccupation>[
+            SecondaryOccupation(roleId: 'role_welder', label: 'Welder'),
+          ],
+        ),
+      );
+
+      expect(find.text('Kaam ki jaankari'), findsOneWidget);
+      expect(find.text('Aane-jaane: 20 km tak'), findsOneWidget);
+      expect(find.text('Travel kar sakte hain'), findsOneWidget);
+      expect(find.text('Salary: Din ke hisaab se'), findsOneWidget);
+      expect(find.text('Uplabdhata: Notice period mein'), findsOneWidget);
+      expect(find.text('Kab se: 2026-10-01'), findsOneWidget);
+      expect(find.text('Notice: 15 din'), findsOneWidget);
+      expect(
+        find.text('Training: CNC Programming · ITI Pune · 2019'),
+        findsOneWidget,
+      );
+      expect(find.text('AUR KAAM'), findsOneWidget);
+      expect(find.text('Welder'), findsOneWidget);
+    });
+
+    testWidgets('hides the card when every v4 fact is absent',
+        (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
+      );
+
+      expect(find.text('Kaam ki jaankari'), findsNothing);
+    });
+  });
+
 }

@@ -78,7 +78,7 @@ void main() {
       session(),
     );
 
-    final ProfileSummary s = await repo.summary();
+    final ProfileSummary s = await repo.summary(includeDisplayExtras: true);
     expect(s.languages, <String>['Hindi', 'English']);
     expect(s.workTypes, <String>['Permanent']);
   });
@@ -98,7 +98,7 @@ void main() {
       session(),
     );
 
-    final ProfileSummary s = await repo.summary();
+    final ProfileSummary s = await repo.summary(includeDisplayExtras: true);
     expect(s.languages, isEmpty);
     expect(s.workTypes, <String>['Contract', 'Daily wage']);
     expect(s.workTypes, isNot(contains('Permanent')),
@@ -115,7 +115,7 @@ void main() {
       session(),
     );
 
-    final ProfileSummary s = await repo.summary();
+    final ProfileSummary s = await repo.summary(includeDisplayExtras: true);
     expect(s.tradeLabel, 'Welder');
     expect(s.languages, isEmpty);
     expect(s.workTypes, isEmpty);
@@ -136,7 +136,7 @@ void main() {
       session(),
     );
 
-    final ProfileSummary s = await repo.summary();
+    final ProfileSummary s = await repo.summary(includeDisplayExtras: true);
     expect(s.languages, <String>['Konkani']);
   });
 }

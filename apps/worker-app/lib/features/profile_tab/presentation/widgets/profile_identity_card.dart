@@ -111,7 +111,10 @@ class ProfileIdentityCard extends StatelessWidget {
           // photo, same endpoints, same shared sheet — no second concept.
           ProfileAvatar(
             initials: summary.initials ?? profileInitials(name),
-            verified: summary.verified,
+            // #1586 — the seal/pill render on SERVER ATTESTATION, never on
+            // profile confirmation. A confirmed-but-unattested worker shows
+            // neither, and there is deliberately no "Unverified" counterpart.
+            verified: summary.attested,
             verifiedBadge: const BbSeal(),
           ),
           const SizedBox(width: 14),
@@ -156,7 +159,7 @@ class ProfileIdentityCard extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (summary.verified) ...<Widget>[
+                if (summary.attested) ...<Widget>[
                   const SizedBox(height: 10),
                   // The badge lays its icon and label out in a Row with NO
                   // flexible child, so at a 2.0 system font it asks for 211dp

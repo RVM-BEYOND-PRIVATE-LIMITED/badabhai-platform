@@ -19,17 +19,72 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
   final SessionRepository _session;
 
   @override
-  Future<ProfileSummary> summary() async {
+  Future<ProfileSummary> summary({bool includeDisplayExtras = false}) async {
     try {
-      final ProfileSummaryDto dto =
-          await _api.getProfileSummary(authToken: _session.sessionToken ?? '');
-      // #1576 — the chat now captures `languages` and `work_types`; show them
-      // wherever the profile shows the worker's own facts. Resolved from the
-      // server's stored values + the same dictionary the form writes, so there
-      // is no second copy of the slug→label mapping. BEST-EFFORT: a miss here
-      // costs a display line, never the profile.
-      final (List<String> languages, List<String> workTypes) =
-          await _loadLanguagesAndWorkTypes();
+      // ONE wave, not two: the extras never read the core DTO, so they start
+      // in the SAME tick. Awaiting the core first and the extras second
+      // doubles the settle latency — in production a slower first paint, in
+      // widget tests a read still in flight at teardown (a pending-timer
+      // failure). Reads started together settle together, before `ready`
+      // emits. Each extra is fail-null on its own (see [_optional]), so one
+      // dead endpoint degrades its own section, never the profile.
+      final String token = _session.sessionToken ?? '';
+      final Future<ProfileSummaryDto> dtoFuture =
+          _api.getProfileSummary(authToken: token);
+      final Future<List<Object?>> extrasFuture = includeDisplayExtras
+          ? Future.wait<Object?>([
+              _optional(() => _api.getWorkPreferences(authToken: token)),
+              _optional(
+                  () => _api.getWorkPreferenceOptions(authToken: token)),
+              _optional(() => _api.getMyQualifications(authToken: token)),
+              _optional(() => _api.getMyOccupations(authToken: token)),
+              _loadAttested(),
+            ])
+          : Future<List<Object?>>.value(const <Object?>[]);
+      final ProfileSummaryDto dto = await dtoFuture;
+      // Display-only sections (languages, work types, v4 facts, trainings,
+      // occupations, attested badge) are fetched ONLY when the caller renders
+      // them — the Profile tab. Every other caller gets the lean core
+      // summary: the extras cost their own round trips, and a background read
+      // (the resume draft-pill, the profiling preview) must never pay for
+      // pixels it never paints.
+      List<String> languages = const <String>[];
+      List<String> workTypes = const <String>[];
+      ({
+        int? commuteKm,
+        bool willingToTravel,
+        String? salaryPeriod,
+        String? availabilityStatus,
+        String? availableFrom,
+        int? noticeDays,
+      }) v4 = (
+        commuteKm: null,
+        willingToTravel: false,
+        salaryPeriod: null,
+        availabilityStatus: null,
+        availableFrom: null,
+        noticeDays: null,
+      );
+      List<String> trainings = const <String>[];
+      List<SecondaryOccupation> occupations = const <SecondaryOccupation>[];
+      bool attested = false;
+      if (includeDisplayExtras) {
+        final List<Object?> reads = await extrasFuture;
+        final WorkPreferencesDto? prefs = reads[0] as WorkPreferencesDto?;
+        final WorkPrefOptionsDto? options = reads[1] as WorkPrefOptionsDto?;
+        final (List<String> fetchedLanguages, List<String> fetchedWorkTypes) =
+            _mapLanguagesAndWorkTypes(prefs, options);
+        languages = fetchedLanguages;
+        workTypes = fetchedWorkTypes;
+        v4 = _mapV4Facts(prefs);
+        final (List<String> fetchedTrainings,
+            List<SecondaryOccupation> fetchedOccupations) =
+            _mapTrainingsAndOccupations(reads[2] as MyQualificationsDto?,
+                reads[3] as MyOccupationsDto?);
+        trainings = fetchedTrainings;
+        occupations = fetchedOccupations;
+        attested = reads[4]! as bool;
+      }
       final bool confirmed =
           dto.confirmedAt != null || dto.profileStatus == 'confirmed';
       return ProfileSummary(
@@ -40,6 +95,10 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         tradeLabel: dto.tradeDisplayName,
         city: dto.city,
         verified: confirmed,
+        // Attestation is one of the extras above: correct on FIRST paint, so
+        // the badge can neither pop in late nor flicker. Fail-open (a miss
+        // reads as unattested), and lean callers never pay for it.
+        attested: attested,
         // WA-4: pass the backend signal COUNT through untouched. It used to be
         // divided by a client-side magic target (10) and rendered as a percent
         // — a fabricated number the backend never computed. The denominator
@@ -61,6 +120,14 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         educationField: dto.educationField,
         languages: languages,
         workTypes: workTypes,
+        commuteKm: v4.commuteKm,
+        willingToTravel: v4.willingToTravel,
+        salaryPeriod: v4.salaryPeriod,
+        availabilityStatus: v4.availabilityStatus,
+        availableFrom: v4.availableFrom,
+        noticeDays: v4.noticeDays,
+        trainings: trainings,
+        occupations: occupations,
         // TD81/#503: carry the raw status so the profiling preview can tell a
         // real extraction ('extracted') from a content-poor one ('draft') and
         // refuse to confirm the latter into an empty resume.
@@ -75,42 +142,141 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
     }
   }
 
+  /// Runs [read] fail-null: a dead endpoint (offline, old server, 401
+  /// mid-session, or an unstubbed test double) resolves to null and the
+  /// section maps to absent — never the profile. The CORE read does not use
+  /// this: its failure is the tab's failure state.
+  Future<T?> _optional<T>(Future<T> Function() read) async {
+    try {
+      return await read();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The worker's languages and work types as PRINTABLE labels (#1576).
   ///
   /// Reads the STORED values and the SAME dictionary the finishing form writes
   /// (`GET work-preferences/options`), so a slug can never print raw and there
-  /// is no second copy of the mapping. BEST-EFFORT by design: any failure —
-  /// offline, an old server, a 401 mid-session — returns two empty lists and
-  /// the profile renders exactly as it did before this section existed.
+  /// is no second copy of the mapping. PURE mapping over already-fetched
+  /// DTOs: a null leg (see [_optional]) reads as two empty lists and the
+  /// profile renders exactly as it did before this section existed.
   ///
   /// WORK TYPES PRECEDENCE is the server's (`worker-field-precedence.ts`): a
   /// non-empty stored `work_types` wins, and the legacy single `job_type` is
   /// the fallback for rows that predate it — never both.
-  Future<(List<String>, List<String>)> _loadLanguagesAndWorkTypes() async {
-    final String token = _session.sessionToken ?? '';
-    try {
-      final WorkPreferencesDto prefs =
-          await _api.getWorkPreferences(authToken: token);
-      final WorkPrefOptionsDto options =
-          await _api.getWorkPreferenceOptions(authToken: token);
-
-      final List<String> languages = <String>[
-        for (final String slug in prefs.languages ?? const <String>[])
-          options.languages[slug] ?? _humanizeSlug(slug),
-      ];
-
-      final List<String> rawWorkTypes = prefs.workTypes ?? const <String>[];
-      final List<String> workTypeSlugs = rawWorkTypes.isNotEmpty
-          ? rawWorkTypes
-          : <String>[if (prefs.jobType != null) prefs.jobType!];
-      final List<String> workTypes = <String>[
-        for (final String slug in workTypeSlugs)
-          options.jobType[slug] ?? _humanizeSlug(slug),
-      ];
-
-      return (languages, workTypes);
-    } catch (_) {
+  (List<String>, List<String>) _mapLanguagesAndWorkTypes(
+    WorkPreferencesDto? prefs,
+    WorkPrefOptionsDto? options,
+  ) {
+    if (prefs == null || options == null) {
       return (const <String>[], const <String>[]);
+    }
+
+    final List<String> languages = <String>[
+      for (final String slug in prefs.languages ?? const <String>[])
+        options.languages[slug] ?? _humanizeSlug(slug),
+    ];
+
+    final List<String> rawWorkTypes = prefs.workTypes ?? const <String>[];
+    final List<String> workTypeSlugs = rawWorkTypes.isNotEmpty
+        ? rawWorkTypes
+        : <String>[if (prefs.jobType != null) prefs.jobType!];
+    final List<String> workTypes = <String>[
+      for (final String slug in workTypeSlugs)
+        options.jobType[slug] ?? _humanizeSlug(slug),
+    ];
+
+    return (languages, workTypes);
+  }
+
+  /// The stored v4 elicited facts as PRINTABLE values (#1587): commute
+  /// distance, travel willingness, salary period, and the availability object.
+  /// Period/status slugs resolve against the tiny closed mirrors in
+  /// `api_models.dart` (`kSalaryPeriodLabels` / `kAvailabilityStatusLabels`);
+  /// unknown slugs humanise, never print raw. PURE mapping like the languages
+  /// above: a null [prefs] (see [_optional]) reads as absent, never the
+  /// profile. Shares the single `getWorkPreferences` fetch — no second round
+  /// trip for the same row.
+  ({
+    int? commuteKm,
+    bool willingToTravel,
+    String? salaryPeriod,
+    String? availabilityStatus,
+    String? availableFrom,
+    int? noticeDays,
+  }) _mapV4Facts(WorkPreferencesDto? prefs) {
+    const empty = (
+      commuteKm: null,
+      willingToTravel: false,
+      salaryPeriod: null,
+      availabilityStatus: null,
+      availableFrom: null,
+      noticeDays: null,
+    );
+    if (prefs == null) return empty;
+    final String? period = prefs.salaryPeriod;
+    final String? status = prefs.availability?.status;
+    final String? from = prefs.availability?.availableFrom?.trim();
+    return (
+      commuteKm: prefs.commuteKm,
+      willingToTravel: prefs.willingToTravel ?? false,
+      salaryPeriod: period == null || period.isEmpty
+          ? null
+          : (kSalaryPeriodLabels[period] ?? _humanizeSlug(period)),
+      availabilityStatus: status == null || status.isEmpty
+          ? null
+          : (kAvailabilityStatusLabels[status] ?? _humanizeSlug(status)),
+      availableFrom: (from == null || from.isEmpty) ? null : from,
+      noticeDays: prefs.availability?.noticeDays,
+    );
+  }
+
+  /// Trainings + secondary occupations as display values (#1587). Training
+  /// rows compose `name · provider · year`, dropping absent parts; occupation
+  /// rows keep the SERVER's label verbatim and drop label-less rows. `[]` when
+  /// nothing is stored. PURE mapping like the sections above: a null leg
+  /// (see [_optional]) reads as absent for its own list, never the profile.
+  (List<String>, List<SecondaryOccupation>) _mapTrainingsAndOccupations(
+    MyQualificationsDto? qualifications,
+    MyOccupationsDto? mine,
+  ) {
+    List<String> trainings = const <String>[];
+    List<SecondaryOccupation> occupations = const <SecondaryOccupation>[];
+    if (qualifications != null) {
+      trainings = <String>[
+        for (final TrainingEntryDto t in qualifications.trainings)
+          if (t.name.trim().isNotEmpty)
+            <String>[
+              t.name.trim(),
+              if (t.provider?.trim().isNotEmpty ?? false) t.provider!.trim(),
+              if (t.year != null) '${t.year}',
+            ].join(' · '),
+      ];
+    }
+    if (mine != null) {
+      occupations = <SecondaryOccupation>[
+        for (final MyOccupationDto o in mine.occupations)
+          if (o.label.trim().isNotEmpty)
+            SecondaryOccupation(roleId: o.roleId, label: o.label.trim()),
+      ];
+    }
+    return (trainings, occupations);
+  }
+
+  /// Whether the SERVER attests this worker (#1586): `GET /resume/document`
+  /// `header.trustBadge` non-empty. Any non-empty server label counts — the
+  /// server owns the vocabulary (`verification-tier.ts`), so the client must
+  /// not pin the literal. BEST-EFFORT: no document (pre-render), an old
+  /// server, or any failure reads as unattested — no badge, never a claim.
+  Future<bool> _loadAttested() async {
+    try {
+      final response =
+          await _api.getResumeDocument(authToken: _session.sessionToken ?? '');
+      final String? badge = response.document?.header.trustBadge;
+      return badge != null && badge.trim().isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 }

@@ -669,6 +669,65 @@ void main() {
         expect(find.text('Availability & terms'), findsNothing);
       },
     );
+
+    testWidgets(
+      'populated terms + qualifications zones draw with server titles and '
+      'rows (#1587)',
+      (WidgetTester tester) async {
+        const TradeSheetResumeDocument document = TradeSheetResumeDocument(
+          header: ResumeDocumentHeaderDto(),
+          trade: 'cnc_turner',
+          sections: <ResumeDocumentSectionDto>[
+            ResumeDocumentSectionDto(
+              id: 'terms',
+              title: 'Availability & terms',
+              factRows: <ResumeFactRowDto>[
+                ResumeFactRowDto(
+                    label: 'Availability', value: 'Available now'),
+                ResumeFactRowDto(label: 'Notice period', value: '15 days'),
+              ],
+            ),
+            ResumeDocumentSectionDto(
+              id: 'qualifications',
+              title: 'Qualification, documents & languages',
+              tickRows: <ResumeListRowDto>[
+                ResumeListRowDto(
+                  label: 'Documents ready',
+                  values: <String>['Aadhaar', 'PAN'],
+                ),
+              ],
+              factRows: <ResumeFactRowDto>[
+                ResumeFactRowDto(
+                    label: 'Education', value: 'ITI · Machinist · 2018'),
+              ],
+            ),
+          ],
+        );
+        await pumpView(tester, document);
+
+        expect(find.text('Availability & terms'), findsOneWidget);
+        expect(
+          find.textContaining('Availability: Available now',
+              findRichText: true),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Notice period: 15 days', findRichText: true),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Qualification, documents & languages'),
+          findsOneWidget,
+        );
+        expect(find.widgetWithText(KitInfoChip, 'Aadhaar'), findsOneWidget);
+        expect(find.widgetWithText(KitInfoChip, 'PAN'), findsOneWidget);
+        expect(
+          find.textContaining('Education: ITI · Machinist · 2018',
+              findRichText: true),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group(
