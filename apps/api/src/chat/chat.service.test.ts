@@ -72,6 +72,8 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     identifyAttempts: 0,
     packId: "qp_tailoring",
     packVersion: 2,
+    universalPackId: null,
+    universalPackVersion: null,
     catalogVersion: "cat_2026_08",
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
@@ -167,6 +169,10 @@ function make(
     insertPackAnswers: vi.fn(async () => {
       if (opts.answersThrow) throw new Error("wpa_answer_shape_chk violated");
     }),
+    // Defect-A fix: `finalizeInterview` freezes the served pack via the existing write-once
+    // `pinPack` after the flush. Default wins (returns true); tests that need the loss or
+    // the throw override per-test. Pre-existing tests never asserted on this collaborator.
+    pinPack: vi.fn(async () => true),
   };
 
   const workers = {
@@ -1660,5 +1666,98 @@ describe("ChatService.startSession — the résumé confirm opens the session (T
       expect.objectContaining({ sessionId: SESSION, workerId: WORKER }),
     );
     expect(res).toMatchObject({ session_id: SESSION, resume_pending: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defect-A fix (owner ruling 2026-09-18, option a): a universal-only close pins the served
+// pack and attributes its answers. ADDITIVE assertions only — every pre-existing test above
+// (including "writes nothing at all when no pack was ever pinned" and the abandonment
+// suite's zero-rows case) passes unchanged.
+// ---------------------------------------------------------------------------
+
+describe("ChatService — universal-only close pins the served pack and attributes its answers", () => {
+  const complete = { complete: true, questionKey: null, completionReason: "fields_complete" };
+  const UNIVERSAL_STAMP = {
+    packId: null,
+    packVersion: null,
+    universalPackId: "qp_universal",
+    universalPackVersion: 4,
+  };
+
+  const closeUniversal = (
+    records: Record<string, unknown>[],
+    env: Partial<ProfilingEnvelope> = {},
+  ) =>
+    run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({ answerMap: records as never, ...UNIVERSAL_STAMP, ...env }),
+      },
+      turn: complete,
+    });
+
+  it("attributes flushed answers to the stamped universal pointer", async () => {
+    const { chat } = await closeUniversal([
+      answer({ question_key: "current_city", value_normalized: "pune" }),
+    ]);
+    expect(chat.insertPackAnswers).toHaveBeenCalledTimes(1);
+    expect(answerRows(chat)[0]).toMatchObject({
+      packId: "qp_universal",
+      packVersion: 4,
+      questionKey: "current_city",
+    });
+  });
+
+  it("freezes the stamped pointer as the durable pin at close", async () => {
+    const { chat } = await closeUniversal([answer()]);
+    expect(chat.pinPack).toHaveBeenCalledTimes(1);
+    expect(chat.pinPack).toHaveBeenCalledWith(SESSION, "qp_universal", 4);
+  });
+
+  it("keeps the occupation pin when one exists — the stamp never outranks it", async () => {
+    // `envelope()` defaults carry the qp_tailoring v2 occupation pin with no stamp.
+    const { chat } = await run({
+      buffer: {},
+      written: { ...COMPLETED, profiling: envelope({ answerMap: [answer()] as never }) },
+      turn: complete,
+    });
+    expect(answerRows(chat)[0]).toMatchObject({ packId: "qp_tailoring", packVersion: 2 });
+    expect(chat.pinPack).toHaveBeenCalledWith(SESSION, "qp_tailoring", 2);
+  });
+
+  it("a pin failure degrades to rows-without-pin — the close still succeeds", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const h = make({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({ answerMap: [answer()] as never, ...UNIVERSAL_STAMP }),
+      },
+      turn: complete,
+    });
+    h.chat.pinPack.mockRejectedValueOnce(new Error("connection reset"));
+    const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res.session_ended).toBe(true);
+    expect(h.chat.insertPackAnswers).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+
+  it("still writes nothing when neither pin nor stamp exists (pre-fix behavior preserved)", async () => {
+    const { chat } = await run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({
+          answerMap: [answer()] as never,
+          packId: null,
+          packVersion: null,
+        }),
+      },
+      turn: complete,
+    });
+    expect(chat.insertPackAnswers).not.toHaveBeenCalled();
+    expect(chat.pinPack).not.toHaveBeenCalled();
   });
 });
