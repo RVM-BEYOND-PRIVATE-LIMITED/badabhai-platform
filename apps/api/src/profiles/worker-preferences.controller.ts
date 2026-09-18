@@ -72,7 +72,7 @@ export class WorkerPreferencesController {
    *
    * `cities` RIDES THIS RESPONSE RATHER THAN A `?q=` SEARCH ROUTE (#1406). It is the same
    * argument, applied to the one field on this page that had no options to serve: the gazetteer
-   * `preferred_cities` validates against is 36 values and 1.8 KB, so the client can hold it and
+   * `preferred_cities` validates against is 80 values and ~6.8 KB, so the client can hold it and
    * filter as the worker types — the pattern `SEARCHABLE_OPTION_THRESHOLD` already ratified for
    * every other long option list in the product. A per-keystroke route would put a network round
    * trip between a worker on 3G and his next character, to save a payload smaller than the
@@ -80,10 +80,10 @@ export class WorkerPreferencesController {
    * request at all.
    *
    * `states` RIDES IT FOR THE SAME REASON (#1429), and it is 36 strings. It is what makes the
-   * city list a state-then-city cascade rather than one flat list — and it is deliberately the
-   * FULL administrative list, not the 13 states the city catalogue happens to cover, because the
-   * employer-location field on the same form asks where a previous employer was, and that can be
-   * anywhere in India.
+   * city list a state-then-city cascade rather than one flat list — and it is the FULL
+   * administrative list, which since #1560 the city catalogue covers completely (every one of
+   * the 36 states/UTs has at least one city), so the employer-location field and the
+   * preferred-cities cascade both filter without dead ends.
    *
    * ADDITIVE, so shipped builds are unaffected: the Flutter decoder reads named keys and ignores
    * the rest.
