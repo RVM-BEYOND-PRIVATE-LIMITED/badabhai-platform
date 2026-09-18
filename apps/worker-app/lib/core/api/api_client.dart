@@ -1347,6 +1347,19 @@ class ApiClient {
   }) =>
       _get('/profiling/session/$sessionId', authToken: authToken);
 
+  /// GET /profiling/session/:id — the settled-vs-missing `fill` block for
+  /// net-new-only surfaces (#1575, fill-gap Phase 3). Same route as
+  /// [profilingSession]; only the `fill` block is parsed. A missing block (an
+  /// older server) parses to an empty view — the caller shows the full list.
+  Future<SessionFillDto> getSessionFill({
+    required String authToken,
+    required String sessionId,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/profiling/session/$sessionId', authToken: authToken);
+    return SessionFillDto.fromJson(json);
+  }
+
   // ---- The trade form (#1341) — sectioned, resumable, worker-scoped (NOT
   // session-scoped: there is no session id on this surface, unlike every
   // route above). Raw JSON returned, same as the profiling routes above: the

@@ -2955,3 +2955,95 @@ typedef PortfolioUploadTicket = SignedUploadTicket;
 
 /// copyWith sentinel for [PortfolioItemDto] so `null` can CLEAR a caption.
 const Object _portfolioSentinel = Object();
+
+// ---- Session fill (fill-gap Phase 3, #1575) ---------------------------------
+//
+// The additive `fill` block on `GET /profiling/session/:id` — what THIS
+// session's packs settled and what gaps remain. `/finishing` reads it to render
+// net-new-only. Snake_case keys exactly as the server ships them
+// (`apps/api/src/profiling/profiling.dto.ts` `ProfilingFillSchema`).
+
+/// One fact in the session fill view.
+class SessionFillEntryDto extends Equatable {
+  const SessionFillEntryDto({
+    required this.fact,
+    required this.questionKey,
+    required this.status,
+    required this.source,
+    required this.droppedByProjector,
+    required this.isCore,
+  });
+
+  /// Worker-fact id (`languages`, `work_types`, `shift`, …).
+  final String fact;
+
+  /// Pack item this fact resolves through in this session.
+  final String questionKey;
+
+  /// `answered` | `declined` | `unanswered` | `missing`.
+  final String status;
+
+  /// `chat` | `other_road`.
+  final String source;
+
+  /// True only when a chat answer exists that the profile cannot carry. The
+  /// surface must phrase it as unusable-and-re-collectable, never as
+  /// "you didn't answer".
+  final bool droppedByProjector;
+
+  /// Whether the unresolved item is a CORE question (gap ranking).
+  final bool isCore;
+
+  factory SessionFillEntryDto.fromJson(Map<String, dynamic> json) =>
+      SessionFillEntryDto(
+        fact: json['fact'] as String? ?? '',
+        questionKey: json['question_key'] as String? ?? '',
+        status: json['status'] as String? ?? 'missing',
+        source: json['source'] as String? ?? 'chat',
+        droppedByProjector: json['dropped_by_projector'] as bool? ?? false,
+        isCore: json['is_core'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[fact, questionKey, status, source, droppedByProjector, isCore];
+}
+
+/// The session's settled-vs-missing view.
+class SessionFillDto extends Equatable {
+  const SessionFillDto({
+    this.entries = const <SessionFillEntryDto>[],
+    this.settled = const <String>[],
+  });
+
+  final List<SessionFillEntryDto> entries;
+
+  /// Facts with a real answer or an explicit decline, from either road — never
+  /// re-ask these. Empty (e.g. no pinned pack) means "we cannot say", not
+  /// "answered": the surface must show the full list.
+  final List<String> settled;
+
+  /// Parses the review response's `fill` block (`{entries, settled}`).
+  /// A missing/non-map `fill` is an empty view (full list downstream), never
+  /// a throw — an older server without the block must keep working.
+  factory SessionFillDto.fromJson(Map<String, dynamic> json) {
+    final Object? fill = json['fill'];
+    final Map<String, dynamic> block =
+        fill is Map<String, dynamic> ? fill : const <String, dynamic>{};
+    return SessionFillDto(
+      entries: (block['entries'] as List<dynamic>?)
+              ?.whereType<Map<String, dynamic>>()
+              .map(SessionFillEntryDto.fromJson)
+              .where((SessionFillEntryDto e) => e.fact.isNotEmpty)
+              .toList() ??
+          const <SessionFillEntryDto>[],
+      settled: (block['settled'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[],
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[entries, settled];
+}
