@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 185 event names (179 prior + the two trade-form offer steps + Layer A)", () => {
-    expect(EVENT_NAMES).toHaveLength(185);
+  it("exposes all 186 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited)", () => {
+    expect(EVENT_NAMES).toHaveLength(186);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3265,6 +3265,9 @@ describe("registry", () => {
     expect(isEventName("resume.downloaded")).toBe(true);
     expect(isEventName("resume.regenerated")).toBe(true);
     expect(isEventName("resume.shared")).toBe(true);
+    // #1311 backend half — the per-field extracted-correction audit event (NOT #1318:
+    // skin_changed / qr_scanned stay absent).
+    expect(isEventName("resume.edited")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
