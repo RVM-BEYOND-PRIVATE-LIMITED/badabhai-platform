@@ -441,7 +441,9 @@ class _ChatViewState extends State<_ChatView> {
   /// server, because the SERVER owns the next menu (six sections, or
   /// upload-vs-chat). `resume_upload`, `resume_chat_create` and every
   /// `section_*` are handled on the client and are NEVER submitted — sending
-  /// them would only produce the server's ack. An ordinary (non-menu) option
+  /// them would only produce the server's ack. Within `section_*`, the
+  /// Technical Skills pilot opens its filtered trade-form walk while the
+  /// other sections open the Resume Edit. An ordinary (non-menu) option
   /// falls through to exactly today's submit.
   void _sendChoice(ChatOption option) {
     switch (resumeMenuActionFor(option.optionKey)) {
@@ -457,11 +459,16 @@ class _ChatViewState extends State<_ChatView> {
         context.read<ChatBloc>().add(const ChatSessionRestarted());
         return;
       case ResumeMenuAction.openSection:
-        // The Resume tab's Edit surface — the same destination the server's ack
-        // copy names ("Resume tab me Edit kholkar wahi hissa badlein"). The
-        // section key rides along so a future per-section deep link needs no
-        // change at the call site, and so a test can assert WHICH section was
-        // chosen without string-matching the display copy.
+        // PILOT: Technical Skills re-asks only its questions on the EXISTING
+        // trade-form pages (section-filtered walk, never submitted here).
+        // Every other section still opens the Resume tab's Edit surface — the
+        // same destination the server's ack copy names — until its own walk
+        // lands. The key rides along either way so a test can assert WHICH
+        // section was chosen without string-matching the display copy.
+        if (option.optionKey == kResumeMenuTechnicalSkillsKey) {
+          context.pushOnce(Routes.tradeForm, extra: option.optionKey);
+          return;
+        }
         context.pushOnce(Routes.resumeEdit, extra: option.optionKey);
         return;
       case ResumeMenuAction.sendToServer:

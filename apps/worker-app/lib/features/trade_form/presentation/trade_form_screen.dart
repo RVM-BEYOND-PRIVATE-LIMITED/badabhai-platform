@@ -113,12 +113,19 @@ bool _chromeCrowdsChrome(BuildContext context) =>
 /// action docked in [QuestionnaireBottomBar] with a listen button when the
 /// device read-aloud is wired.
 class TradeFormScreen extends StatelessWidget {
-  const TradeFormScreen({super.key});
+  /// Opens the whole form (null) or one résumé-section walk — currently the
+  /// Technical Skills pilot (`trade_form_section_walk.dart`). The router feeds
+  /// this from the Bada Bhai menu's `option_key` (`state.extra`); every other
+  /// pusher passes nothing and gets exactly today's full walk.
+  const TradeFormScreen({super.key, this.sectionKey});
+
+  /// The served menu's section key, or null for the full walk.
+  final String? sectionKey;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<TradeFormCubit>(
-      create: (_) => locator<TradeFormCubit>()..load(),
+      create: (_) => locator<TradeFormCubit>()..load(sectionKey: sectionKey),
       child: const _TradeFormView(),
     );
   }

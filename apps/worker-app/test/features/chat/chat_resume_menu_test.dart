@@ -58,6 +58,9 @@ void main() {
       'section_location',
       'section_availability_salary',
     ]);
+    // The piloted per-section walk keys off this const — it must name a real
+    // server key, not a second spelling kept beside it.
+    expect(sectionKeys, contains(kResumeMenuTechnicalSkillsKey));
   });
 
   group('resumeMenuActionFor', () {
