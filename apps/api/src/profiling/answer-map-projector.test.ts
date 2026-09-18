@@ -67,11 +67,13 @@ describe("THE FAIL-CLOSED PATH — a real profile from the answer map alone", ()
     // A city-seed keeps a non-canonical value AS TYPED (see `worker-record-seed.ts`) so the
     // interview correctly treats the question as settled — but that raw string must NEVER reach
     // `location_preference.current_city`, which `reach.mappers.ts`'s `readCity` reads verbatim.
+    // ("Rampur Gaon XYZ": contains no gazetteer city — "Patna Gaon XYZ" served here before #1560
+    // added Patna, and now resolves to "Patna".)
     const { draft } = projectProfile([
       answer({
         question_key: "current_city",
         target_field: "current_city",
-        value_normalized: "Patna Gaon XYZ",
+        value_normalized: "Rampur Gaon XYZ",
       }),
     ]);
     expect(draft.current_city).toBeUndefined();

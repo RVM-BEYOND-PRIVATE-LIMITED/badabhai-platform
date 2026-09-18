@@ -116,7 +116,7 @@ masker for the word-split phone case needs tuning against measured ASR output, w
 not exist yet, and writing one from reasoning alone would repeat that failure. Revisit before
 public-launch scale (same horizon as R32), not merely before the next deploy.
 
-Signed: ******\_\_\_\_****** Date: ****\_\_\_\_****
+Signed: **\*\***\_\_\_\_**\*\*** Date: \***\*\_\_\_\_\*\***
 
 Until then the honest-negative tests stay green, the compose guard test keeps the committed
 default at `false`, and this register says **Open with a live acceptance from 2026-08-01
@@ -152,8 +152,8 @@ natural un-cued forms leak anyway. **But see (2) before assuming the upstream mi
 The Surat/Sanand residual above was a **side effect** of a bug fix: the set was what it was, and
 deferring to it happened to release two names. `#1409` changes the character of that acceptance,
 so it is re-recorded rather than inherited. `kota` and `neemrana` were added to the gazetteer
-because the platform already assumed them — `job_search_screen.dart` ships the hint *"jaise Kota,
-Rajasthan"* while the write path answered `unrecognised city: Kota`, and two **ratified résumé
+because the platform already assumed them — `job_search_screen.dart` ships the hint _"jaise Kota,
+Rajasthan"_ while the write path answered `unrecognised city: Kota`, and two **ratified résumé
 shapes** print `Neemrana` as a preferred location the same path rejects.
 
 **The delta, per city, measured rather than asserted:**
@@ -179,9 +179,28 @@ those is an **open owner ruling**, and it should be made before any bulk additio
 `Salem` are the highest-frequency collisions and additionally corrupt data, since a hit writes a
 wrong `current_city` and fabricates `relocation_willingness`.
 
+#### 2026-09-18 — bulk addition for #1560 (every state gets suggestions)
+
+#1560 is the bulk addition the paragraph above gated: 44 cities added (82 canonical tokens, 80
+distinct values) so all 36 administrative states/UTs have at least one suggestion. The work-history
+picker filtered this gazetteer by state and 23 states had zero cities.
+
+**The open ruling above is honoured, not overridden.** `Daman` and `Tirupati` — two of the nine
+named collisions — are deliberately NOT added: Bihar is covered by Patna/Muzaffarpur, Andhra Pradesh
+by Visakhapatnam/Vijayawada/Guntur, and the Dadra UT by Silvassa/Diu. `Gaya` is likewise omitted for
+a measured corpus reason (Hindi verb, fires on 4 parity rows). No member of the nine enters the set.
+
+**Delta of what did enter.** No new single-word member equals a common Indian given name. The
+closest substrings do not collide because the carve-out is whole-token: `Vijayawada` contains `Vijay`
+and `Jamshedpur` contains `Jamshed`, but `Vijay,` and `Jamshed,` do not match the longer token, and
+the leading heuristic only defers on the full match. `Port Blair` is multi-word and the heuristic
+cannot span a space, so it is a survivor either way. Corpus re-run clean (548 rows, no new firing
+where `canonicalCity` must stay null). The property test over the carve-out union goes more green by
+construction — this entry is the gate, as before.
+
 **No test can catch a bad addition here, and one asserts the opposite.**
 `tests/test_pseudonymize.py`'s property test over the whole carve-out union asserts that no member
-is masked in the leading position — so every city added makes it *more* green. This register entry
+is masked in the leading position — so every city added makes it _more_ green. This register entry
 and the PR body are the only places the argument exists.
 
 ### (2) `redactKnownName` covers extraction ONLY, not the armed chat turn
@@ -219,12 +238,13 @@ the sibling path, and it would make the comment true rather than making it go aw
 
 ## R25 addendum — 2026-09-08: PIN entropy is now entirely worker-chosen (#1462)
 
-Owner ruling: *"The worker chooses their own PIN. No strength policy, client or server. `1234`,
-`1111`, `0000` — all must be accepted."* The server-side weak-PIN denylist (`PinHasher.isWeakPin`
-+ `WEAK_PINS`, the all-same-digit rule and the consecutive-run rule) is removed;
-`PinService.assertPinPolicy` keeps only the exact-length format gate. Recorded here because R25
-clause (a) credits "PIN hashed … device-bound … server-throttled" as the mitigation set, and one
-of the things quietly standing behind it has now been withdrawn.
+Owner ruling: _"The worker chooses their own PIN. No strength policy, client or server. `1234`,
+`1111`, `0000` — all must be accepted."_ The server-side weak-PIN denylist (`PinHasher.isWeakPin`
+
+- `WEAK_PINS`, the all-same-digit rule and the consecutive-run rule) is removed;
+  `PinService.assertPinPolicy` keeps only the exact-length format gate. Recorded here because R25
+  clause (a) credits "PIN hashed … device-bound … server-throttled" as the mitigation set, and one
+  of the things quietly standing behind it has now been withdrawn.
 
 **The number, measured rather than asserted.** Against the only attacker who reaches the PIN
 screen — an unlocked handset that already holds a bound refresh token, with the SIM removed or SMS
@@ -259,8 +279,8 @@ load-bearing for the ruling above:
 6. scrypt + a mandatory production `PIN_PEPPER` (`assertAuthConfig` fail-closed), and
    `PinHasher.verify` failing closed on an unknown pepper version.
 
-**Pre-existing, and separately wrong: R25 clause (c)** says *"OTP on existing account from new
-device still requires account PIN (SIM-swap gate)"*. ADR-0026 §217-225 records that as built there
+**Pre-existing, and separately wrong: R25 clause (c)** says _"OTP on existing account from new
+device still requires account PIN (SIM-swap gate)"_. ADR-0026 §217-225 records that as built there
 is no post-OTP PIN gate — the SIM-swap defence is the trusted-device requirement on
 `/auth/pin/verify`. Found during the #1462 security review, left for whoever next opens R25; it is a
 claim about shipped auth behaviour, not a side effect of this change.
