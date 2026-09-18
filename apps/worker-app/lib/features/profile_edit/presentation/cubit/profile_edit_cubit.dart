@@ -43,6 +43,8 @@ class ProfileEditState extends Equatable {
     this.educations = const <EducationEntryDto>[],
     this.trainings = const <TrainingEntryDto>[],
     this.portfolio = const <PortfolioItemDto>[],
+    this.mediaUploadsDormant = false,
+    this.pendingUploads = const <PendingPortfolioUpload>[],
     this.options,
     this.workTypes = const <String>{},
     this.salaryPeriod,
@@ -79,6 +81,14 @@ class ProfileEditState extends Equatable {
   final List<TrainingEntryDto> trainings;
   final List<PortfolioItemDto> portfolio;
 
+  /// True once a mint answered 503: the media bucket is dormant, so photo/video
+  /// upload is honestly unavailable while links keep working (#1578). Latched
+  /// from the mint response only — never from a timeout or a guess.
+  final bool mediaUploadsDormant;
+
+  /// Uploads the worker started but that have not landed yet (#1578).
+  final List<PendingPortfolioUpload> pendingUploads;
+
   final WorkPrefOptionsDto? options;
 
   // Extended work preferences (Layer A (c)).
@@ -110,6 +120,8 @@ class ProfileEditState extends Equatable {
     List<EducationEntryDto>? educations,
     List<TrainingEntryDto>? trainings,
     List<PortfolioItemDto>? portfolio,
+    bool? mediaUploadsDormant,
+    List<PendingPortfolioUpload>? pendingUploads,
     Object? options = _sentinel,
     Set<String>? workTypes,
     Object? salaryPeriod = _sentinel,
@@ -132,6 +144,8 @@ class ProfileEditState extends Equatable {
       educations: educations ?? this.educations,
       trainings: trainings ?? this.trainings,
       portfolio: portfolio ?? this.portfolio,
+      mediaUploadsDormant: mediaUploadsDormant ?? this.mediaUploadsDormant,
+      pendingUploads: pendingUploads ?? this.pendingUploads,
       options: options == _sentinel ? this.options : options as WorkPrefOptionsDto?,
       workTypes: workTypes ?? this.workTypes,
       salaryPeriod:
@@ -159,6 +173,8 @@ class ProfileEditState extends Equatable {
         educations,
         trainings,
         portfolio,
+        mediaUploadsDormant,
+        pendingUploads,
         options,
         workTypes,
         salaryPeriod,
@@ -225,6 +241,11 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
           options: options,
         ),
       );
+      // The dormancy probe runs AFTER the ready emit on purpose: the page must
+      // paint immediately, and the probe only refines the media-upload section
+      // when it answers. It never fails the load.
+      await _probeMediaUploads();
+      if (isClosed) return;
     } on Failure catch (f) {
       if (isClosed) return;
       emit(ProfileEditState(status: ProfileEditStatus.failed, failure: f));
@@ -317,42 +338,181 @@ class ProfileEditCubit extends Cubit<ProfileEditState> {
     );
   }
 
-  /// Mints a slot, PUTs the bytes, then re-saves the list with the new item.
-  /// A 503 (bucket dormant) surfaces its honest reason; nothing is added to the
-  /// draft on failure, so the UI never shows an upload that did not happen.
+  /// One mint probe per page open: the ONLY dormancy detector (#1578). A 503
+  /// latches [ProfileEditState.mediaUploadsDormant] so the media section shows
+  /// its honest state; anything else (live bucket, network blip, old server)
+  /// leaves uploads enabled and the upload path surfaces its own errors.
+  /// Never throws, never blocks the ready emit — it runs after it.
+  Future<void> _probeMediaUploads() async {
+    try {
+      await _repo.requestPortfolioUploadUrl(
+        kind: 'photo',
+        contentType: 'image/jpeg',
+      );
+      if (isClosed) return;
+    } on Failure catch (f) {
+      if (isClosed) return;
+      if (_isDormant(f)) emit(state.copyWith(mediaUploadsDormant: true));
+    } catch (_) {
+      // Not a mint answer (timeout, socket): not dormancy, say nothing.
+    }
+  }
+
+  /// True only for the dormant-bucket answer: the 503 the mint route fails
+  /// closed with when `WORKER_PORTFOLIO_BUCKET` is unset. Never inferred from
+  /// a timeout or any other status.
+  bool _isDormant(Failure f) =>
+      f is ServerFailure && f.statusCode == 503;
+
+  /// Starts a media upload as a VISIBLE pending row (#1578): mint → PUT bytes
+  /// → re-save the list with the new item. The row is there from the tap, so
+  /// there is no spinner-to-nowhere; on failure it keeps its reason, a retry
+  /// and a remove.
   Future<void> uploadPortfolioMedia(
     PickedPortfolioMedia media, {
     String? caption,
   }) async {
+    if (state.mediaUploadsDormant) {
+      emit(state.copyWith(error: kPortfolioDormantCopy));
+      return;
+    }
     if (state.saving.contains(ProfileEditSection.portfolio)) return;
+    final String id =
+        '${DateTime.now().microsecondsSinceEpoch}-${state.pendingUploads.length}';
+    final PendingPortfolioUpload pending = PendingPortfolioUpload(
+      id: id,
+      media: media,
+      caption:
+          (caption == null || caption.trim().isEmpty) ? null : caption.trim(),
+      status: PendingPortfolioUploadStatus.uploading,
+    );
     _markSaving(ProfileEditSection.portfolio, true, clearFeedback: true);
+    emit(state.copyWith(
+      pendingUploads: <PendingPortfolioUpload>[...state.pendingUploads, pending],
+    ));
+    await _runPendingUpload(pending);
+  }
+
+  /// Re-runs a failed upload with the bytes it already holds — no re-pick.
+  Future<void> retryPortfolioUpload(String id) async {
+    final int index =
+        state.pendingUploads.indexWhere((PendingPortfolioUpload p) => p.id == id);
+    if (index < 0) return;
+    final PendingPortfolioUpload pending = state.pendingUploads[index];
+    if (pending.status != PendingPortfolioUploadStatus.failed) return;
+    if (state.saving.contains(ProfileEditSection.portfolio)) return;
+    if (state.mediaUploadsDormant) {
+      emit(state.copyWith(error: kPortfolioDormantCopy));
+      return;
+    }
+    _markSaving(ProfileEditSection.portfolio, true, clearFeedback: true);
+    emit(state.copyWith(
+      pendingUploads: <PendingPortfolioUpload>[
+        for (int i = 0; i < state.pendingUploads.length; i++)
+          if (i == index)
+            pending.copyWith(
+              status: PendingPortfolioUploadStatus.uploading,
+              error: null,
+            )
+          else
+            state.pendingUploads[i],
+      ],
+    ));
+    await _runPendingUpload(
+      state.pendingUploads[index],
+    );
+  }
+
+  /// Drops a failed upload row. Uploading rows are not removable — the mint →
+  /// PUT → save dance is seconds-long and idempotent on retry, so there is no
+  /// stuck state worth cancelling into.
+  void removePendingUpload(String id) {
+    emit(state.copyWith(
+      pendingUploads: <PendingPortfolioUpload>[
+        for (final PendingPortfolioUpload p in state.pendingUploads)
+          if (p.id != id) p,
+      ],
+      error: null,
+      notice: null,
+    ));
+  }
+
+  Future<void> _runPendingUpload(PendingPortfolioUpload pending) async {
     try {
       final ticket = await _repo.requestPortfolioUploadUrl(
-        kind: media.kind,
-        contentType: media.contentType,
+        kind: pending.media.kind,
+        contentType: pending.media.contentType,
       );
-      await _repo.uploadPortfolioBytes(ticket: ticket, media: media);
+      await _repo.uploadPortfolioBytes(ticket: ticket, media: pending.media);
       if (isClosed) return;
       final List<PortfolioItemDto> next = <PortfolioItemDto>[
         ...state.portfolio,
         PortfolioItemDto(
-          kind: media.kind,
+          kind: pending.media.kind,
           storageKey: ticket.storagePath,
-          caption: (caption == null || caption.trim().isEmpty) ? null : caption.trim(),
+          caption: pending.caption,
         ),
       ];
       await _repo.savePortfolio(next);
       if (isClosed) return;
       emit(state.copyWith(
         portfolio: next,
+        pendingUploads: <PendingPortfolioUpload>[
+          for (final PendingPortfolioUpload p in state.pendingUploads)
+            if (p.id != pending.id) p,
+        ],
         notice: 'Portfolio update ho gaya.',
       ));
     } on Failure catch (f) {
       if (isClosed) return;
-      emit(state.copyWith(error: _reason(f)));
+      if (_isDormant(f)) {
+        // The bucket went dark between the probe and this mint: latch the
+        // honest state AND keep the row, so the worker sees both what happened
+        // and that media upload itself is unavailable.
+        emit(state.copyWith(
+          mediaUploadsDormant: true,
+          pendingUploads: <PendingPortfolioUpload>[
+            for (final PendingPortfolioUpload p in state.pendingUploads)
+              if (p.id == pending.id)
+                p.copyWith(
+                  status: PendingPortfolioUploadStatus.failed,
+                  error: kPortfolioDormantCopy,
+                )
+              else
+                p,
+          ],
+        ));
+        return;
+      }
+      emit(state.copyWith(
+        pendingUploads: <PendingPortfolioUpload>[
+          for (final PendingPortfolioUpload p in state.pendingUploads)
+            if (p.id == pending.id)
+              p.copyWith(
+                status: PendingPortfolioUploadStatus.failed,
+                // At-cap / invalid-type answers name themselves (a 400); the
+                // message is the worker's own input echoed back, same rule as
+                // the city-400 the finishing form surfaces.
+                error: _reason(f),
+              )
+            else
+              p,
+        ],
+      ));
     } catch (_) {
       if (isClosed) return;
-      emit(state.copyWith(error: 'Portfolio upload nahi hua.'));
+      emit(state.copyWith(
+        pendingUploads: <PendingPortfolioUpload>[
+          for (final PendingPortfolioUpload p in state.pendingUploads)
+            if (p.id == pending.id)
+              p.copyWith(
+                status: PendingPortfolioUploadStatus.failed,
+                error: 'Portfolio upload nahi hua.',
+              )
+            else
+              p,
+        ],
+      ));
     } finally {
       _markSaving(ProfileEditSection.portfolio, false);
     }
