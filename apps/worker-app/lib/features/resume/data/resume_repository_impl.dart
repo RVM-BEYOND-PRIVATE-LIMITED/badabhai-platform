@@ -148,6 +148,7 @@ class ResumeRepositoryImpl implements ResumeRepository {
       return ResumeDocumentSnapshot(
         document: response.document,
         renderStatus: response.renderStatus,
+        renderedAt: response.renderedAt,
       );
     } catch (_) {
       // Swallow EVERY error — a 404 ("no resume row yet"), a network blip, or

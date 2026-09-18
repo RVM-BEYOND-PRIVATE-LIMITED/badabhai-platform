@@ -8,7 +8,11 @@ import '../../../core/api/api_models.dart' show ResumeDocument;
 /// just to find out whether the PDF the first call described actually exists
 /// yet.
 class ResumeDocumentSnapshot {
-  const ResumeDocumentSnapshot({this.document, this.renderStatus});
+  const ResumeDocumentSnapshot({
+    this.document,
+    this.renderStatus,
+    this.renderedAt,
+  });
 
   /// The structured projection, or null for the two ORDINARY reasons the
   /// wire documents (no projection yet / still pending its first render) and
@@ -19,9 +23,26 @@ class ResumeDocumentSnapshot {
   /// the UI never prints. See [ResumeDocumentResponse.renderStatus].
   final String? renderStatus;
 
+  /// When that render finished, straight from `GET /resume/document`
+  /// (`rendered_at`). Null while pending, on a failure, or when the server
+  /// omits it. Carried so the document poll can tell a STALE projection from
+  /// a fresh one — see [isStalePendingDocument].
+  final DateTime? renderedAt;
+
   /// True only when the server said `'rendered'`. Fails closed: unknown is
   /// not ready (ruling R6).
   bool get isRendered => renderStatus == 'rendered';
+
+  /// The STALE-under-pending shape (`GET /resume/document` after a manual
+  /// regenerate): a manual `POST /resume/generate` overwrites the row and
+  /// resets `render_status` to `'pending'` with `rendered_at` null, but
+  /// deliberately leaves the previous render's `document` in place — so a
+  /// poll that stops on the first non-null document lands on the OLD skills
+  /// (exactly the section-walk edit bug: back to step 1, change, submit, and
+  /// the resume still prints the old list). `rendered_at: null` is what marks
+  /// it stale; a caller waiting for the fresh render must keep polling.
+  bool get isStalePendingDocument =>
+      document != null && renderStatus == 'pending' && renderedAt == null;
 }
 
 /// Resume boundary. Generates the worker's resume from the confirmed profile,

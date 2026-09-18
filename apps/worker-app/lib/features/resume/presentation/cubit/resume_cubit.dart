@@ -532,12 +532,20 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   /// [_loadDocument], retried on a `null` document — worst case adds ~10s
   /// (5 waits × 2s) before accepting null as final. Stops the instant a
-  /// non-null document arrives. See [documentPollMaxAttempts]'s doc for why
+  /// FRESH document arrives. See [documentPollMaxAttempts]'s doc for why
   /// this exists: without it, a worker who just finished the trade form (or
   /// just changed a description source) can land on the Resume tab before
   /// the async render job has written the document at all, and see a thin
   /// generic-text fallback instead of the real trade-sheet content until
   /// their next tab-focus or app restart happens to land after the job.
+  ///
+  /// FRESH means non-null AND not [ResumeDocumentSnapshot.isStalePendingDocument].
+  /// A manual regenerate resets the row to `pending` with `rendered_at` null
+  /// while leaving the previous render's document in place, so stopping on
+  /// the first non-null document lands on the OLD skills after a section-walk
+  /// edit (back to step 1, change, submit). The stale shape keeps polling;
+  /// everything else behaves exactly as before (a null/absent status is
+  /// never stale, so older servers and all existing stubs are unaffected).
   ///
   /// Returns the LAST snapshot, not an empty one, when the budget runs out:
   /// a worker on the legacy text path has no document by definition, and
@@ -546,7 +554,9 @@ class ResumeCubit extends Cubit<ResumeState> {
     ResumeDocumentSnapshot snapshot = const ResumeDocumentSnapshot();
     for (int attempt = 0; attempt < documentPollMaxAttempts; attempt++) {
       snapshot = await _loadDocument();
-      if (snapshot.document != null) return snapshot;
+      if (snapshot.document != null && !snapshot.isStalePendingDocument) {
+        return snapshot;
+      }
       if (isClosed) return snapshot;
       if (attempt < documentPollMaxAttempts - 1) {
         await Future<void>.delayed(documentPollInterval);
