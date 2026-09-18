@@ -9,7 +9,10 @@ const OTHER_ITEM = { question_key: "primary_trade", target_field: "trade" } as c
 
 describe("seedFromWorkerRecord", () => {
   it("seeds a canonical city, normalized, and marks the key prefilled", () => {
-    const outcome = seedFromWorkerRecord(emptyProfilingEnvelope(), "poona", [CITY_ITEM, OTHER_ITEM]);
+    const outcome = seedFromWorkerRecord(emptyProfilingEnvelope(), "poona", [
+      CITY_ITEM,
+      OTHER_ITEM,
+    ]);
 
     expect(outcome.seeded).toBe(true);
     expect(outcome.cityRecognized).toBe(true);
@@ -28,11 +31,13 @@ describe("seedFromWorkerRecord", () => {
   });
 
   it("seeds a NON-canonical city AS TYPED, so the interview still skips the question", () => {
-    const outcome = seedFromWorkerRecord(emptyProfilingEnvelope(), "Patna Gaon XYZ", [CITY_ITEM]);
+    // ("Rampur Gaon XYZ": contains no gazetteer city — "Patna Gaon XYZ" served here before #1560
+    // added Patna, and now resolves to "Patna".)
+    const outcome = seedFromWorkerRecord(emptyProfilingEnvelope(), "Rampur Gaon XYZ", [CITY_ITEM]);
 
     expect(outcome.seeded).toBe(true);
     expect(outcome.cityRecognized).toBe(false);
-    expect(outcome.envelope.answerMap[0]?.value_normalized).toBe("Patna Gaon XYZ");
+    expect(outcome.envelope.answerMap[0]?.value_normalized).toBe("Rampur Gaon XYZ");
     expect(outcome.envelope.prefilledKeys).toEqual(["current_city"]);
   });
 
