@@ -186,7 +186,10 @@ export type TrainingEntryDto = z.infer<typeof TrainingEntrySchema>;
  * THE LENGTH CAPS MATCH `wc_name_chk` AND `wc_issuer_len_chk`. Rejecting at the boundary is what
  * keeps a CHECK violation — a 500 with a constraint name in it — off a worker's screen.
  */
-const CertificateEntrySchema = z
+// Exported for the extracted-correction contract (#1311), which reuses these entry
+// shapes verbatim so a correction is validated by the exact schema the PUT path enforces
+// (no second validation to drift).
+export const CertificateEntrySchema = z
   .object({
     name: freeText(120, "certificate name"),
     /** A training centre, an OEM, a certification body, an employer. */
@@ -217,7 +220,8 @@ const CertificateEntrySchema = z
  * about; `wed_not_empty_chk` refuses to store one and the refinement below refuses to accept one,
  * so the rejection names the field rather than the constraint.
  */
-const EducationEntrySchema = z
+// Exported for the extracted-correction contract (#1311) — same reuse rule as above.
+export const EducationEntrySchema = z
   .object({
     /** A slug from {@link EDUCATION_QUALIFICATIONS} — never the printed label. */
     credential: z.enum(optionsOf(EDUCATION_QUALIFICATIONS)).nullable().default(null),

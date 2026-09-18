@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ProfilesController } from "./profiles.controller";
 import type { ProfilesService } from "./profiles.service";
+import type { ExtractedCorrectionsService } from "./extracted-corrections.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
@@ -13,7 +14,21 @@ function make() {
     extract: vi.fn(async () => ({ ai_job_id: "j", status: "queued" })),
     confirm: vi.fn(async () => ({ profile_id: "p", profile_status: "confirmed" })),
   };
-  return { controller: new ProfilesController(profiles as unknown as ProfilesService), profiles };
+  const corrections = {
+    correctExtracted: vi.fn(async () => ({
+      profile_id: "p",
+      corrections_applied: 1,
+      correction_count: 1,
+    })),
+  };
+  return {
+    controller: new ProfilesController(
+      profiles as unknown as ProfilesService,
+      corrections as unknown as ExtractedCorrectionsService,
+    ),
+    profiles,
+    corrections,
+  };
 }
 
 describe("ProfilesController (thin) — worker from token, never the body", () => {
@@ -36,5 +51,24 @@ describe("ProfilesController (thin) — worker from token, never the body", () =
     const { controller, profiles } = make();
     await controller.confirm(WORKER, { profile_id: "p1" } as never, CTX);
     expect(profiles.confirm).toHaveBeenCalledWith({ worker_id: WORKER.id, profile_id: "p1" }, CTX);
+  });
+
+  it("correctExtracted builds the service input from the authed worker + body ids", async () => {
+    const { controller, corrections } = make();
+    const dto = {
+      profile_id: "p1",
+      session_id: "s1",
+      corrections: [{ field: "skills", skill_ids: ["skill_turning"] }],
+    } as never;
+    await controller.correctExtracted(WORKER, dto, CTX);
+    expect(corrections.correctExtracted).toHaveBeenCalledWith(
+      {
+        worker_id: WORKER.id,
+        profile_id: "p1",
+        session_id: "s1",
+        corrections: [{ field: "skills", skill_ids: ["skill_turning"] }],
+      },
+      CTX,
+    );
   });
 });
