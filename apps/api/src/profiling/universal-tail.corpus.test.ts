@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 
-import { recordAnswer, toAnswerMap, type AnswerMap } from "./answer-map";
+import { recordAnswer, recordDeclined, toAnswerMap, type AnswerMap } from "./answer-map";
 import { universalPack } from "./corpus-packs.fixture";
 import { emptyProfilingEnvelope, toEngineState, withAnswers } from "./conversation-state";
 import { chatServableItems } from "./facts/worker-fact.ownership";
@@ -36,7 +36,12 @@ import { nextQuestion } from "./next-question";
  */
 
 /** Answer whatever the engine serves, in order, and report what it asked. */
-function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unknown>): string[] {
+function walk(
+  pack: QuestionPack,
+  startTurn: number,
+  settled: Record<string, unknown>,
+  declined: readonly string[] = [],
+): string[] {
   let answers: AnswerMap = toAnswerMap([]);
   const write = (key: string, value: unknown, turn: number): void => {
     const item = pack.items.find((i) => i.question_key === key);
@@ -53,6 +58,8 @@ function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unk
     );
   };
   for (const [key, value] of Object.entries(settled)) write(key, value, 1);
+  // A DECLINE IS A COMPLETE ANSWER — the same record the orchestrator writes on "nahi pata".
+  for (const key of declined) answers = recordDeclined(answers, key, 1);
 
   let envelope = withAnswers(emptyProfilingEnvelope(), answers);
   const asked: string[] = [];
@@ -190,6 +197,81 @@ describe("the fill-gap tail, over the REAL corpus (qp_universal@3)", () => {
       "availability",
       "languages",
       "work_types",
+    ]);
+  });
+});
+
+/**
+ * LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18): eight more asks join the tail.
+ *
+ * `commute_max_km`, `willing_to_travel`, `notice_period_days`, `salary_period`, the training trio
+ * and `secondary_occupations` are appended after `work_types` in RAW authoring order. The two
+ * gated training items fire because this walk answers everything it is served; the decline case
+ * below pins the gate's other half. v2/v3 sessions stay pinned to their own files and nothing
+ * above moves — this describe only ADDS the active version's walk.
+ */
+describe("the Layer A tail, over the REAL corpus (qp_universal@4)", () => {
+  const V4_TAIL = [
+    "current_city",
+    "availability",
+    "languages",
+    "work_types",
+    "commute_max_km",
+    "willing_to_travel",
+    "notice_period_days",
+    "salary_period",
+    "training_name",
+    "training_provider",
+    "training_year",
+    "secondary_occupations",
+  ];
+
+  it("asks TWELVE once Phase A has handed over — the eight new asks run after work_types", () => {
+    expect(walk(chatUniversal(4), 8, AFTER_PHASE_A)).toEqual(V4_TAIL);
+  });
+
+  it("asks the same twelve whether the tail is reached early or late", () => {
+    for (const startTurn of [4, 6, 8, 12]) {
+      expect(walk(chatUniversal(4), startTurn, AFTER_PHASE_A), `entered at turn ${startTurn}`).toEqual(
+        V4_TAIL,
+      );
+    }
+  });
+
+  it("skips the whole training trio when the name was DECLINED — terminal, never re-asked", () => {
+    // `ask_if: answered(training_name)` reads the same answer map the engine records a decline
+    // into, and a decline is terminal: a worker with no course answers "nahi pata" ONCE and the
+    // interview moves on. The declined-terminal rule is untouched — the question is skipped
+    // because it is already settled, not because the gate guessed.
+    const asked = walk(chatUniversal(4), 1, {}, ["training_name"]);
+    for (const training of ["training_name", "training_provider", "training_year"]) {
+      expect(asked, `${training} must not be served after its decline`).not.toContain(training);
+    }
+    // The rest of the tail still runs after it.
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("still drops the four pages-owned settlers — v4 flips the three extension facts and nothing else", () => {
+    const asked = walk(chatUniversal(4), 1, {});
+    for (const pagesOwned of [
+      "salary_expected",
+      "preferred_locations",
+      "education",
+      "shift_preference",
+    ]) {
+      expect(asked, `${pagesOwned} must never serve through the chat`).not.toContain(pagesOwned);
+    }
+  });
+
+  it("serves all eight new asks on the model-less fallback path too", () => {
+    expect(walk(chatUniversal(4), 1, {})).toEqual([
+      "primary_trade",
+      "current_city",
+      "experience_years",
+      "availability",
+      "languages",
+      "work_types",
+      ...V4_TAIL.slice(4),
     ]);
   });
 });

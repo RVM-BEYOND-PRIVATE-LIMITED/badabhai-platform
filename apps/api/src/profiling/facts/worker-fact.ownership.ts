@@ -64,16 +64,27 @@ export const CHAT_FACT_OWNER: Readonly<Record<WorkerFactId, ChatFactOwner>> = {
   job_type: "pages",
   relocation: "pages",
   accommodation: "pages",
-  // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys. Same rule: the chat never
-  // solicits them structurally, and the page's write is what settles them.
+  // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys.
   //
   // ADR-0042 D9 amendment (fill-gap Phase 1, 2026-09-17): `work_types` is CHAT — the multi that
   // supersedes the single `job_type` (which stays pages-owned, and stays the sheet's fallback for
   // every row written before the multi existed).
   work_types: "chat",
-  salary_period: "pages",
-  commute_max_km: "pages",
-  willing_to_travel: "pages",
+  // ADR-0042 §9 amendment (Layer A elicitation, 2026-09-18). The owner policy of 2026-09-18
+  // reversed the headroom-0 posture (`MAX_ENGINE_ASKS` 28 → 48), so the remaining allow-listed
+  // fields are now CHAT asks: the three registered facts here, plus the notice-period part of
+  // `availability` (already chat), plus the two Layer A STORAGES — training and secondary
+  // occupations — which name no registry fact and therefore travel the servable-by-construction
+  // path. Each stores into the SAME key/table the page writes (see answer-capture.ts and the
+  // extraction processor's table write leg), so exactly one store settles each fact.
+  //
+  // WHAT DID NOT MOVE: `preferred_locations`, `shift`, `salary_expected`, `education`,
+  // `certifications`, `documents_ready`, `job_type`, `relocation` and `accommodation` stay
+  // pages-owned. The pages remain their capture surface, and the Phase 3 settled-vs-missing view
+  // is still what surfaces them.
+  salary_period: "chat",
+  commute_max_km: "chat",
+  willing_to_travel: "chat",
 };
 
 /**

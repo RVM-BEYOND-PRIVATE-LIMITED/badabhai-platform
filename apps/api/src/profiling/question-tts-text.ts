@@ -491,6 +491,20 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Spray gun, booth ya oven, kis par kaam kiya hai?": "स्प्रे गन, बूथ या ओवन, किस पर काम किया है?",
   "Trade test pass kiya hai ya abhi nahi diya?": "ट्रेड टेस्ट पास किया है या अभी नहीं दिया?",
   "ITI me banaya hua koi ek kaam bata dijiye.": "ITI में बनाया हुआ कोई एक काम बता दीजिए।",
+  // Layer A elicitation (qp_universal@4) — prompts and retries. The clarify twins are COMPOSED
+  // from these and the why-texts below; do not author them by hand.
+  "Kaam ke liye aap kitne km tak ja sakte hain?": "काम के लिए आप कितने किलोमीटर तक जा सकते हैं?",
+  "Ghar se kitne km door tak kaam kar sakte hain?": "घर से कितने किलोमीटर दूर तक काम कर सकते हैं?",
+  "Kya aap ghar se door kaam ke liye ja sakte hain?": "क्या आप घर से दूर काम के लिए जा सकते हैं?",
+  "Aapko notice period kitne din ka lagta hai?": "आपको नोटिस पीरियड कितने दिन का लगता है?",
+  "Join karne mein kitne din lagenge?": "जॉइन करने में कितने दिन लगेंगे?",
+  "Aapki salary mahine, din ya saal ke hisaab se hai?": "आपकी सैलरी महीने, दिन या साल के हिसाब से है?",
+  "Aapne kaunsi training ya course ki hai?": "आपने कौन सी ट्रेनिंग या कोर्स की है?",
+  "Kis cheez ki training ki thi?": "किस चीज़ की ट्रेनिंग की थी?",
+  "Training aapne kahan se ki thi?": "ट्रेनिंग आपने कहाँ से की थी?",
+  "Training kis institute se ki?": "ट्रेनिंग किस इंस्टिट्यूट से की?",
+  "Training kis saal ki thi?": "ट्रेनिंग किस साल की थी?",
+  "Aap aur kaun sa kaam karte hain?": "आप और कौन सा काम करते हैं?",
 };
 
 /**
@@ -819,6 +833,22 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Gun setting se coating barabar lagti hai aur powder bachta hai.": "गन सेटिंग से कोटिंग बराबर लगती है और पाउडर बचता है।",
   "Oven ka temperature aur time coating ki jaan hai.": "ओवन का टेम्परेचर और टाइम कोटिंग की जान है।",
   "Colour change jaldi karne se line ka time bachta hai.": "कलर चेंज जल्दी करने से लाइन का टाइम बचता है।",
+  // Layer A elicitation (qp_universal@4) — why-texts.
+  "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye.":
+    "आस-पास की नौकरी दिखाने के लिए दूरी पता होनी चाहिए।",
+  "Door ki naukri bhi dikhane ke liye ye pata hona chahiye.":
+    "दूर की नौकरी भी दिखाने के लिए ये पता होना चाहिए।",
+  "Employer ko pata hona chahiye ki aap kab join kar sakte hain.":
+    "एम्प्लॉयर को पता होना चाहिए कि आप कब जॉइन कर सकते हैं।",
+  "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye.":
+    "सही तरीके से वेतन दिखाने के लिए पीरियड पता होना चाहिए।",
+  "Training se aapki skill aur certificate pata chalta hai.":
+    "ट्रेनिंग से आपकी स्किल और सर्टिफिकेट पता चलता है।",
+  "Training centre ka naam resume par aata hai.": "ट्रेनिंग सेंटर का नाम रिज़्यूमे पर आता है।",
+  "Saal se employer ko aapka experience samajh aata hai.":
+    "साल से एम्प्लॉयर को आपका अनुभव समझ आता है।",
+  "Doosra kaam bhi dikhane se naukri ke mauke badhte hain.":
+    "दूसरा काम भी दिखाने से नौकरी के मौके बढ़ते हैं।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

@@ -81,12 +81,13 @@ const tier1 = tiered.filter((i) => i.ask_if?.right?.const === 2).map((i) => i.qu
 const tier2 = tiered.filter((i) => i.ask_if?.right?.const === 5).map((i) => i.question_key);
 
 /**
- * The budget itself, DERIVED — never a literal. `qp_universal@3` serves ten items (four of v2's
- * eight are pages-owned and filtered out; `languages`/`work_types` joined in Phase 1). The
- * policy change of 2026-09-18 raised the cap well above this walk, so what this test still
- * proves is the LADDER's fit (`asked + universal <= budget`), not a zero-margin squeeze.
+ * The active tail's item count, pinned so a tail change shows up here too. `qp_universal@4`
+ * serves eighteen items: v2's eight plus `languages`/`work_types` (Phase 1) plus the Layer A
+ * elicitation's eight. It is deliberately a literal HERE rather than a corpus read — this file
+ * proves the turner LADDER's fit (`asked + universal <= budget`), and the budget guard beside it
+ * is what pins the walk against a real corpus.
  */
-const UNIVERSAL_ASKS = 10;
+const UNIVERSAL_ASKS = 18;
 const ENGINE_ASK_BUDGET = MAX_ENGINE_ASKS;
 
 describe("qp_cnc_turning depth ladder", () => {

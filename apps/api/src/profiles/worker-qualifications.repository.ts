@@ -193,6 +193,41 @@ export class WorkerQualificationsRepository {
   }
 
   /**
+   * APPEND one training captured by the CHAT (Layer A elicitation, qp_universal@4), and only when
+   * the worker has no `worker_training` rows at all.
+   *
+   * WHY INSERT-ONLY-WHEN-EMPTY, and not an upsert: the qualifications page is the richer capture
+   * surface (up to eight rows, worker-ordered) and the chat asks exactly one. If the page has
+   * written, its rows are the worker's considered list and a chat sentence must never edit it.
+   * If nothing has been written, the chat's answer is the only credential the worker gave, and
+   * landing it in the same table is what makes the resume and the page read ONE store.
+   *
+   * IDEMPOTENT BY CONSTRUCTION for the job-retry path: the guard is "no rows", so a redelivery
+   * after a successful insert skips and a redelivery after a failed insert retries cleanly.
+   */
+  async appendTrainingIfEmpty(
+    workerId: string,
+    entry: { readonly name: string; readonly provider: string | null; readonly year: number | null },
+  ): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: workerTrainings.id })
+        .from(workerTrainings)
+        .where(eq(workerTrainings.workerId, workerId))
+        .limit(1);
+      if (existing.length > 0) return false;
+      await tx.insert(workerTrainings).values({
+        workerId,
+        name: entry.name,
+        provider: entry.provider,
+        year: entry.year,
+        sortOrder: 0,
+      });
+      return true;
+    });
+  }
+
+  /**
    * One worker's credentials in DISPLAY ORDER.
    *
    * ORDERED BY `sort_order`, NEVER BY YEAR — the schema's decision, restated here so a future

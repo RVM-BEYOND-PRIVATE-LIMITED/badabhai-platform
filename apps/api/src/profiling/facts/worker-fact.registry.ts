@@ -203,6 +203,14 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
       // (migration 0111), so writing it through the finishing form settles the fact exactly as
       // the interview's answer does. One key, one fact, one settled-state question.
       settles("attribute_key", "availability"),
+      // LAYER A ELICITATION (qp_universal@4, 2026-09-18). The notice-period number is a PART of
+      // the same availability answer — the form stores it inside the 0111 JSON object, the chat
+      // asks it as its own pack item — so it settles the same fact. Without these aliases the
+      // item names no fact, `isChatOwnedItem` passes it unconditionally, and the settled-state
+      // reader would not see a chat notice answer as availability settled.
+      settles("pack_question_key", "notice_period_days"),
+      settles("target_field", "notice_period_days"),
+      settles("attribute_key", "notice_period_days"),
     ],
   },
   certifications: {
@@ -281,6 +289,13 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
     aliases: [
       settles("attribute_key", "salary_period"),
       settles("marker_dto_field", "salary_period"),
+      // LAYER A ELICITATION (qp_universal@4, 2026-09-18). The chat asks these three straight
+      // from the pack, so the pack item's `target_field` names the fact too — the exact
+      // `work_types` precedent above. Without the alias the ownership table's entry for the
+      // fact is DEAD: the item resolves to no fact and `isChatOwnedItem` passes it
+      // unconditionally, so a future flip back to `pages` would not stop the ask.
+      settles("pack_question_key", "salary_period"),
+      settles("target_field", "salary_period"),
     ],
   },
   commute_max_km: {
@@ -288,6 +303,9 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
     aliases: [
       settles("attribute_key", "commute_max_km"),
       settles("marker_dto_field", "commute_max_km"),
+      // Layer A elicitation — see the salary_period note above.
+      settles("pack_question_key", "commute_max_km"),
+      settles("target_field", "commute_max_km"),
     ],
   },
   willing_to_travel: {
@@ -295,6 +313,9 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
     aliases: [
       settles("attribute_key", "willing_to_travel"),
       settles("marker_dto_field", "willing_to_travel"),
+      // Layer A elicitation — see the salary_period note above.
+      settles("pack_question_key", "willing_to_travel"),
+      settles("target_field", "willing_to_travel"),
     ],
   },
 };
