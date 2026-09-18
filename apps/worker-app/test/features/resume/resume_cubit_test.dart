@@ -323,6 +323,83 @@ void main() {
       expect(cubit.state.document, same(tradeSheet));
     });
 
+    test('generate() skips a STALE-under-pending document and waits for the '
+        'fresh render (section-walk edit)', () async {
+      // A manual regenerate resets the row to pending + rendered_at null while
+      // leaving the previous render's document in place: the first polls hold
+      // the OLD skills and only the render landing carries the new ones.
+      ResumeCubit.documentPollMaxAttempts = 3;
+      ResumeCubit.documentPollInterval = Duration.zero;
+      const ResumeDocument oldSheet = TradeSheetResumeDocument(
+        header: ResumeDocumentHeaderDto(name: 'Old Skills'),
+        trade: 'cnc_turner',
+      );
+      const ResumeDocument newSheet = TradeSheetResumeDocument(
+        header: ResumeDocumentHeaderDto(name: 'New Skills'),
+        trade: 'cnc_turner',
+      );
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      int calls = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        calls++;
+        if (calls < 3) {
+          return const ResumeDocumentSnapshot(
+            document: oldSheet,
+            renderStatus: 'pending',
+          );
+        }
+        return ResumeDocumentSnapshot(
+          document: newSheet,
+          renderStatus: 'rendered',
+          renderedAt: DateTime.utc(2026, 9, 18),
+        );
+      });
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.document, same(newSheet));
+      expect(cubit.state.renderStatus, 'rendered');
+      verify(() => repo.loadResumeDocument()).called(3);
+    });
+
+    test('isStalePendingDocument marks only pending + document + null '
+        'renderedAt as stale', () {
+      const ResumeDocumentSnapshot stale = ResumeDocumentSnapshot(
+        document: tradeSheet,
+        renderStatus: 'pending',
+      );
+      expect(stale.isStalePendingDocument, isTrue);
+      expect(
+        ResumeDocumentSnapshot(
+          document: tradeSheet,
+          renderStatus: 'pending',
+          renderedAt: DateTime.utc(2026, 9, 18),
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          document: tradeSheet,
+          renderStatus: 'rendered',
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          document: tradeSheet,
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          renderStatus: 'pending',
+        ).isStalePendingDocument,
+        isFalse,
+      );
+    });
+
     test('a document fetch that THROWS never costs the worker their resume '
         'text (belt-and-suspenders, matching the night-shift pref)', () async {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
