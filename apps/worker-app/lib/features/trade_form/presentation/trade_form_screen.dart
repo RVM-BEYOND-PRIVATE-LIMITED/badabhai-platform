@@ -143,7 +143,9 @@ class _TradeFormView extends StatelessWidget {
           // #1367: the last marker save landed — there is no further step in
           // this walk. Leave via the SAME terminal pipeline every other
           // profiling path already uses (see profile_preview_screen.dart).
-          context.go(Routes.building);
+          // force: true so the server overlay runs against the fresh pack
+          // answers the worker just saved (resume-draft-overlay.ts).
+          context.go(Routes.building, extra: true);
         }
       },
       builder: (BuildContext context, TradeFormState state) {

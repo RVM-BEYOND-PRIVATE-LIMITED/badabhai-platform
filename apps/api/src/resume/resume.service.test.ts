@@ -150,6 +150,9 @@ function setup(
     // the byte-identical path the template gating has to preserve for a worker whose trade has
     // no sheet authored yet.
     { loadTradeSheet: async () => ({ packId: null, attributes: [] }) } as never,
+    // TradeFormRepository — read-only pack answers for the capability overlay. Empty by default;
+    // the overlay is a no-op when no answers postdate the profile.
+    { listAnswers: vi.fn(async () => []) } as never,
     events as unknown as EventsService,
     ai as unknown as AiService,
     aiCost as unknown as AiCostRecorder,

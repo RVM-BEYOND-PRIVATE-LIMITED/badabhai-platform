@@ -517,7 +517,8 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.building,
-        builder: (_, __) => const BuildingScreen(),
+        builder: (_, GoRouterState state) =>
+            BuildingScreen(force: state.extra == true),
       ),
       // Notifications / Alerts — pushed FULL-SCREEN from a header bell
       // ([BbAlertsAction]). It lost its bottom-nav tab in the kit's 4-tab set
