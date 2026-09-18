@@ -1,5 +1,5 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
-    show WorkPrefOptionsDto;
+    show WorkPrefOptionsDto, SessionFillDto, SessionFillEntryDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_models.dart';
@@ -49,6 +49,7 @@ void main() {
     await locator.reset();
     repo = _MockRepo();
     when(() => repo.loadOptions()).thenAnswer((_) async => _options);
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => null);
     when(() => repo.saveWorkPreferences(any())).thenAnswer((_) async {});
     when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
     locator.registerFactory<FinishingCubit>(() => FinishingCubit(repo));
@@ -493,5 +494,76 @@ void main() {
     final WorkPreferences prefs = lastSavedPrefs();
     expect(prefs.salaryExpectedMax, isNull);
     expect(prefs.toUpdateBody().containsKey('salary_expected_max'), isFalse);
+  });
+
+  /// #1575 — net-new-only rendering on the real screen.
+  group('settled-vs-missing fill view', () {
+  SessionFillDto fill({
+    List<SessionFillEntryDto> entries = const <SessionFillEntryDto>[],
+    List<String> settled = const <String>[],
+  }) =>
+      SessionFillDto(entries: entries, settled: settled);
+
+  SessionFillEntryDto entry(
+    String fact, {
+    String status = 'answered',
+    bool dropped = false,
+  }) =>
+      SessionFillEntryDto(
+        fact: fact,
+        questionKey: fact,
+        status: status,
+        source: 'chat',
+        droppedByProjector: dropped,
+        isCore: false,
+      );
+
+  testWidgets('a settled languages page never renders', (
+    WidgetTester tester,
+  ) async {
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          settled: const <String>['languages'],
+        ));
+    await pump(tester);
+
+    // The first page is documents now, not languages.
+    expect(find.text('Hindi'), findsNothing);
+    expect(find.text('Aadhaar'), findsOneWidget);
+    expect(find.text('STEP 1 OF 7 • DOCUMENTS'), findsOneWidget);
+  });
+
+  testWidgets('an unanswered fact shows its phrasing on the page', (
+    WidgetTester tester,
+  ) async {
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          entries: <SessionFillEntryDto>[
+            entry('languages', status: 'unanswered'),
+          ],
+        ));
+    await pump(tester);
+
+    expect(find.text('Hindi'), findsOneWidget);
+    expect(
+      find.text('Ye sawaal pehle chhoot gaya tha — ab jawaab dein.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a projector-dropped answer shows the re-add phrasing', (
+    WidgetTester tester,
+  ) async {
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          entries: <SessionFillEntryDto>[
+            entry('languages', status: 'missing', dropped: true),
+          ],
+        ));
+    await pump(tester);
+
+    expect(find.text('Hindi'), findsOneWidget);
+    expect(
+      find.text('Hum ye jawaab use nahi kar paaye — phir se jodein.'),
+      findsOneWidget,
+    );
+  });
   });
 }

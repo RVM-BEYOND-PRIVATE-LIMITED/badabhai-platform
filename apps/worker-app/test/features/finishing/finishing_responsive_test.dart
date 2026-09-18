@@ -65,6 +65,7 @@ void main() {
     await locator.reset();
     repo = _MockRepo();
     when(() => repo.loadOptions()).thenAnswer((_) async => _options);
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => null);
     when(() => repo.saveWorkPreferences(any())).thenAnswer((_) async {});
     when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
     locator.registerFactory<FinishingCubit>(() => FinishingCubit(repo));
