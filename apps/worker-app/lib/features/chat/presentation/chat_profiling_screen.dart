@@ -34,6 +34,7 @@ import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/chat_message.dart';
+import '../domain/chat_resume_menu.dart';
 import 'bloc/chat_bloc.dart';
 import '../../../core/util/push_once.dart';
 
@@ -433,7 +434,39 @@ class _ChatViewState extends State<_ChatView> {
   /// ('Koi bhi chalegi' is stored as shift `any`), so it is flagged
   /// [ChatMessageSent.servedOption] and its closing fact is recorded. The
   /// server's escape never reaches here.
+  ///
+  /// #1566 — POST-COMPLETION MENU. On an ended session the served options carry
+  /// the résumé menu's stable keys, and [resumeMenuActionFor] decides the route.
+  /// The two menu-NAVIGATION keys (`resume_edit`, `resume_redo`) still go to the
+  /// server, because the SERVER owns the next menu (six sections, or
+  /// upload-vs-chat). `resume_upload`, `resume_chat_create` and every
+  /// `section_*` are handled on the client and are NEVER submitted — sending
+  /// them would only produce the server's ack. An ordinary (non-menu) option
+  /// falls through to exactly today's submit.
   void _sendChoice(ChatOption option) {
+    switch (resumeMenuActionFor(option.optionKey)) {
+      case ResumeMenuAction.openResumeUpload:
+        // NO send, so no `_optionTapPending` latch: `pushOnce` already refuses a
+        // duplicate push, and latching here would block the NEXT tap on the menu
+        // if the worker comes back without sending anything.
+        context.pushOnce(Routes.resumeUpload);
+        return;
+      case ResumeMenuAction.startFreshChat:
+        // The BLOC owns the one-restart-at-a-time guard (a second event during
+        // the mint is ignored), so the screen does not latch either.
+        context.read<ChatBloc>().add(const ChatSessionRestarted());
+        return;
+      case ResumeMenuAction.openSection:
+        // The Resume tab's Edit surface — the same destination the server's ack
+        // copy names ("Resume tab me Edit kholkar wahi hissa badlein"). The
+        // section key rides along so a future per-section deep link needs no
+        // change at the call site, and so a test can assert WHICH section was
+        // chosen without string-matching the display copy.
+        context.pushOnce(Routes.resumeEdit, extra: option.optionKey);
+        return;
+      case ResumeMenuAction.sendToServer:
+        break;
+    }
     if (_optionTapPending) return;
     if (option.labelText.trim().isEmpty) return;
     setState(() => _optionTapPending = true);

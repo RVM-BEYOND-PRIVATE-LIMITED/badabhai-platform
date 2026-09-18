@@ -111,19 +111,49 @@ class ChatRepositoryImpl implements ChatRepository {
       // flag-off / AI-service-down open: without a server bubble there is
       // nothing to swap in, so the bloc renders `kChatOpeningText` untouched.
       _session.setSession(start.sessionId);
-      final String? openingText = start.openingText;
-      if (openingText == null) return null;
-      // A résumé-confirm open (#1523) arrives with the same `opening_text` field
-      // plus `resume_pending` and its Haan/Nahi `opening_options`; the bloc
-      // suppresses the canned opener and renders the confirm as bubble 0 with
-      // those chips. The confirm's content is the SERVER's reply — the client
-      // never parses a résumé locally.
-      return ChatSessionOpening(
-        text: openingText,
-        ttsText: start.openingTtsText,
-        resumePending: start.resumePending,
-        options: start.openingOptions,
-      );
+      return _openingFrom(start);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  /// Map a `POST /chat/session` response to the bloc's opening, or null when the
+  /// server served no bubble (a resume / flag-off / old build). Shared by the
+  /// ordinary open and [startNewSession] so the résumé-confirm handling exists
+  /// once.
+  ///
+  /// A résumé-confirm open (#1523) arrives with the same `opening_text` field
+  /// plus `resume_pending` and its Haan/Nahi `opening_options`; the bloc
+  /// suppresses the canned opener and renders the confirm as bubble 0 with
+  /// those chips. The confirm's content is the SERVER's reply — the client
+  /// never parses a résumé locally.
+  ChatSessionOpening? _openingFrom(ChatSessionStart start) {
+    final String? openingText = start.openingText;
+    if (openingText == null) return null;
+    return ChatSessionOpening(
+      text: openingText,
+      ttsText: start.openingTtsText,
+      resumePending: start.resumePending,
+      options: start.openingOptions,
+    );
+  }
+
+  /// Mint a fresh session for the post-completion "Chat se resume banayein"
+  /// (#1566). Deliberately does NOT call `_resumeLatest`: the whole point is to
+  /// leave the just-ended session behind and start a new interview. The server
+  /// only reattaches a LIVE session, so with the previous one ended this POST
+  /// mints a new row; the old transcript stays readable server-side.
+  @override
+  Future<ChatSessionOpening?> startNewSession() async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    // Drop any cached id first: a stale/ended id must never be reused, and the
+    // client-side resume guard in [ensureSession] is not on this path.
+    _session.clearChatSession();
+    try {
+      final ChatSessionStart start = await _api.startSession(authToken: token);
+      _session.setSession(start.sessionId);
+      return _openingFrom(start);
     } catch (error) {
       throw mapError(error);
     }
