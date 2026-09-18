@@ -13,6 +13,7 @@ import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/core/widgets/kit/kit_info_chip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -470,6 +471,145 @@ void main() {
       );
 
       expect(find.text('Kaam ki jaankari'), findsNothing);
+    });
+  });
+
+  /// #1579 — ONE rule over every section, enforced by a single table: an
+  /// empty section renders nothing (no heading, no gap, no claim-like empty
+  /// sentence), unless it maps to an existing one-tap collection route, in
+  /// which case exactly one compact Add entry renders in its place.
+  group('empty-zone rule', () {
+    testWidgets('all-empty profile: no section headings, two Add entries',
+        (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(strengthSignals: 0),
+      );
+
+      // Headings without content: none may render.
+      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.text('Bhasha aur kaam'), findsNothing);
+      expect(find.text('Kaam ki jaankari'), findsNothing);
+      expect(find.textContaining('Abhi kuch nahi'), findsNothing);
+      expect(find.text('No experience'), findsNothing);
+      // The two collectable sections render exactly one Add entry each.
+      expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
+      expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
+      // The chrome around them is untouched.
+      expect(find.text('Profile edit karein'), findsOneWidget);
+      expect(find.text('Logout'), findsOneWidget);
+    });
+
+    testWidgets(
+        'ONE rule over every section: heading iff content, else the single '
+        'compact Add entry (#1579)', (WidgetTester tester) async {
+      const List<({String name, ProfileSummary filled, String heading, String? add})>
+          sections = <({
+        String name,
+        ProfileSummary filled,
+        String heading,
+        String? add,
+      })>[
+        (
+          name: 'skills',
+          filled: ProfileSummary(
+            strengthSignals: 0,
+            skills: <String>['MIG Welding'],
+          ),
+          heading: 'Skills aur anubhav',
+          add: null, // hides entirely — the kit is the collection path
+        ),
+        (
+          name: 'languages',
+          filled: ProfileSummary(
+            strengthSignals: 0,
+            languages: <String>['Hindi'],
+          ),
+          heading: 'Bhasha aur kaam',
+          add: 'Bhasha aur kaam jodein',
+        ),
+        (
+          name: 'work info',
+          filled: ProfileSummary(strengthSignals: 0, commuteKm: 20),
+          heading: 'Kaam ki jaankari',
+          add: 'Kaam ki jaankari jodein',
+        ),
+      ];
+
+      Future<void> freshPump(ProfileSummary summary) async {
+        // pumpWidget reuses a same-shaped tree (the provider — and its cubit
+        // — would survive), so flush to an empty frame first.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await _pump(tester, summary);
+      }
+
+      for (final section in sections) {
+        // Filled: the heading renders, and no Add entry stands beside it.
+        await freshPump(section.filled);
+        expect(find.text(section.heading), findsOneWidget,
+            reason: '${section.name}: filled section must head itself');
+        if (section.add != null) {
+          expect(find.text(section.add!), findsNothing,
+              reason: '${section.name}: filled section needs no Add entry');
+        }
+
+        // Empty: no heading, no gap-claim — the Add entry or nothing.
+        await freshPump(const ProfileSummary(strengthSignals: 0));
+        expect(find.text(section.heading), findsNothing,
+            reason: '${section.name}: empty section must not head itself');
+        if (section.add != null) {
+          expect(find.text(section.add!), findsOneWidget,
+              reason: '${section.name}: empty section gets one Add entry');
+        }
+      }
+      // And never, in either shape, a sentence describing the worker.
+      expect(find.text('No experience'), findsNothing);
+      expect(find.textContaining('Abhi kuch nahi'), findsNothing);
+    });
+
+    testWidgets('Add entries route to Profile Edit', (WidgetTester tester) async {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      await locator.reset();
+      final MockProfileSummaryRepository repo =
+          MockProfileSummaryRepository();
+      when(() => repo.summary(includeDisplayExtras: true)).thenAnswer(
+        (_) async => const ProfileSummary(strengthSignals: 0),
+      );
+      locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
+      locator.registerLazySingleton<TabFocus>(() => TabFocus());
+      tester.view.physicalSize = const Size(900, 1900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(() async => locator.reset());
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/profile',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/profile',
+            builder: (_, __) => const ProfileTabScreen(),
+          ),
+          GoRoute(
+            path: '/profile/edit',
+            builder: (_, __) =>
+                const Scaffold(body: Text('PROFILE EDIT TARGET')),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp.router(
+          theme: AppTheme.light(),
+          routerConfig: router,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.text('Bhasha aur kaam jodein'));
+      await tester.pumpAndSettle();
+      expect(find.text('PROFILE EDIT TARGET'), findsOneWidget);
     });
   });
 
