@@ -89,3 +89,55 @@ class PickedPortfolioMedia extends Equatable {
   @override
   List<Object?> get props => <Object?>[kind, contentType, sizeBytes];
 }
+
+/// The honest media-upload state copy (#1578). One string, rendered verbatim
+/// wherever media upload is offered but the bucket is dormant.
+const String kPortfolioDormantCopy =
+    'Portfolio upload abhi available nahi hai. Link jod sakte hain.';
+
+/// A media upload the worker started: visible from the tap, through the
+/// mint → PUT → PUT-items dance, to success or an explicit failure (#1578).
+/// Failed uploads stay on screen with their reason, a retry and a remove —
+/// never a spinner-to-nowhere.
+enum PendingPortfolioUploadStatus { uploading, failed }
+
+class PendingPortfolioUpload extends Equatable {
+  const PendingPortfolioUpload({
+    required this.id,
+    required this.media,
+    required this.caption,
+    required this.status,
+    this.error,
+  });
+
+  /// Client-minted id (display only — never sent anywhere).
+  final String id;
+
+  /// The picked bytes, held in memory so a failed upload can RETRY without
+  /// re-picking. Dropped with the pending row on success or remove.
+  final PickedPortfolioMedia media;
+  final String? caption;
+  final PendingPortfolioUploadStatus status;
+
+  /// The failure reason, set only when [status] is failed. Server-named when
+  /// the server named it (at-cap / invalid type), generic otherwise.
+  final String? error;
+
+  PendingPortfolioUpload copyWith({
+    PendingPortfolioUploadStatus? status,
+    Object? error = _sentinel,
+  }) {
+    return PendingPortfolioUpload(
+      id: id,
+      media: media,
+      caption: caption,
+      status: status ?? this.status,
+      error: error == _sentinel ? this.error : error as String?,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[id, media, caption, status, error];
+}
+
+const Object _sentinel = Object();
