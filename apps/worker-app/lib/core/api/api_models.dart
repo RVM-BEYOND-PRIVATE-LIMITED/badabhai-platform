@@ -2882,6 +2882,23 @@ class CertificateEntryDto extends Equatable {
         licenceExpiry: json['licence_expiry'] as String?,
       );
 
+  static String? _trimOrNull(String? v) {
+    final String? t = v?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
+
+  /// Wire shape for one `certificates[]` entry — the same keys the PUT and
+  /// the corrections POST validate (`CertificateEntrySchema`). Licence
+  /// fields round-trip verbatim: a corrections read-modify-write must never
+  /// wipe worker-self PII the form never collects.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'name': name.trim(),
+        'issuer': _trimOrNull(issuer),
+        'year': year,
+        'licence_number': _trimOrNull(licenceNumber),
+        'licence_expiry': _trimOrNull(licenceExpiry),
+      };
+
   @override
   List<Object?> get props =>
       <Object?>[name, issuer, year, licenceNumber, licenceExpiry];
@@ -2912,7 +2929,20 @@ class EducationEntryDto extends Equatable {
         institute: json['institute'] as String?,
       );
 
+  static String? _trimOrNull(String? v) {
+    final String? t = v?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
 
+  /// Wire shape for one `educations[]` entry — the PUT's own keys, which the
+  /// corrections POST reuses verbatim (`EducationEntrySchema`).
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'credential': _trimOrNull(credential),
+        'field': _trimOrNull(field),
+        'council': _trimOrNull(council),
+        'year': year,
+        'institute': _trimOrNull(institute),
+      };
 
   @override
   List<Object?> get props =>
@@ -2964,6 +2994,186 @@ class MyQualificationsDto extends Equatable {
   @override
   List<Object?> get props =>
       <Object?>[certificates, educations, trainings, partial, droppedCount];
+}
+
+/// POST /profile/corrections (#1595 — the client half of #1593): correct the
+/// EXTRACTED profile (skills/machines/experience/education/certificates),
+/// anchored to a pinned interview session.
+///
+/// §1.2 holds client-side by construction: the union carries structured
+/// fields only — canonical id lists, a bounded integer, or full entry lists
+/// in the PUT's own shapes. There is deliberately NO free-text member: a
+/// rendered line can never be overridden, and ids are never invented or
+/// humanized here (the closed vocabularies live server-side in
+/// `@badabhai/taxonomy`).
+///
+/// Bounds mirror `extracted-corrections.contract.ts`: 1–5 corrections per
+/// request (unique fields), skill lists ≤ 50, machine lists ≤ 32,
+/// `total_years` 0–60, lifetime cap 20. The cubit validates before sending.
+///
+/// NOTE (skills/machines UI): the two id-list arms have no affordance yet —
+/// the extracted labels carry no canonical ids and there is no
+/// worker-facing catalogue read to select from (backend #1596 tracks the
+/// additive catalogue endpoint). Until it ships, the review surface shows
+/// those sections read-only rather than invent ids client-side.
+sealed class ExtractedCorrection extends Equatable {
+  const ExtractedCorrection();
+
+  /// The `field` discriminator the DTO switches on.
+  String get field;
+
+  /// The correction body MINUS the discriminator (the caller adds `field`).
+  Map<String, dynamic> toJson();
+}
+
+/// `{field: "skills", skill_ids: [...]}` — canonical `skill_*` ids only.
+class SkillsCorrection extends ExtractedCorrection {
+  const SkillsCorrection(this.skillIds);
+
+  final List<String> skillIds;
+
+  @override
+  String get field => 'skills';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'field': field,
+        'skill_ids': List<String>.unmodifiable(skillIds),
+      };
+
+  @override
+  List<Object?> get props => <Object?>[skillIds];
+}
+
+/// `{field: "machines", machine_ids: [...]}` — canonical `mach_*` ids only.
+class MachinesCorrection extends ExtractedCorrection {
+  const MachinesCorrection(this.machineIds);
+
+  final List<String> machineIds;
+
+  @override
+  String get field => 'machines';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'field': field,
+        'machine_ids': List<String>.unmodifiable(machineIds),
+      };
+
+  @override
+  List<Object?> get props => <Object?>[machineIds];
+}
+
+/// `{field: "experience", total_years: <int 0–60>}` — worker-stated total.
+class ExperienceCorrection extends ExtractedCorrection {
+  const ExperienceCorrection(this.totalYears);
+
+  final int totalYears;
+
+  @override
+  String get field => 'experience';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'field': field,
+        'total_years': totalYears,
+      };
+
+  @override
+  List<Object?> get props => <Object?>[totalYears];
+}
+
+/// `{field: "education", educations: [...]}` — the FULL corrected list
+/// (replace semantics, like the finishing PUT).
+class EducationCorrection extends ExtractedCorrection {
+  const EducationCorrection(this.educations);
+
+  final List<EducationEntryDto> educations;
+
+  @override
+  String get field => 'education';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'field': field,
+        'educations': educations.map((e) => e.toJson()).toList(),
+      };
+
+  @override
+  List<Object?> get props => <Object?>[educations];
+}
+
+/// `{field: "certificates", certificates: [...]}` — same full-list rule.
+class CertificatesCorrection extends ExtractedCorrection {
+  const CertificatesCorrection(this.certificates);
+
+  final List<CertificateEntryDto> certificates;
+
+  @override
+  String get field => 'certificates';
+
+  @override
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'field': field,
+        'certificates': certificates.map((c) => c.toJson()).toList(),
+      };
+
+  @override
+  List<Object?> get props => <Object?>[certificates];
+}
+
+/// POST /profile/corrections response — counts only, never values (like
+/// every sibling PUT response). The client re-reads the existing GETs to
+/// show updated values.
+class CorrectionsApplied extends Equatable {
+  const CorrectionsApplied({
+    required this.profileId,
+    required this.correctionsApplied,
+    required this.correctionCount,
+  });
+
+  final String profileId;
+  final int correctionsApplied;
+
+  /// Lifetime count AFTER this request — the cap meter.
+  final int correctionCount;
+
+  factory CorrectionsApplied.fromJson(Map<String, dynamic> json) =>
+      CorrectionsApplied(
+        profileId: json['profile_id'] as String? ?? '',
+        correctionsApplied:
+            (json['corrections_applied'] as num?)?.toInt() ?? 0,
+        correctionCount: (json['correction_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[profileId, correctionsApplied, correctionCount];
+}
+
+/// Lifetime correction budget, mirroring `MAX_CORRECTIONS_PER_PROFILE`.
+const int kMaxCorrectionsPerProfile = 20;
+
+/// Stable 409 reason codes — the server embeds these verbatim in the
+/// ConflictException message (see `extracted-corrections.service.ts`).
+const String kCorrectionsUnpinnedRoadDeferred = 'unpinned_road_deferred';
+const String kCorrectionsCapReached = 'correction_cap_reached';
+
+/// Which stable reason a POST /profile/corrections 409 carries. Matches on
+/// the embedded codes, never on prose (prose is human, codes are contract).
+enum CorrectionRejected { unpinnedRoadDeferred, capReached, other }
+
+CorrectionRejected correctionRejectedOf(ApiException error) {
+  if (error.statusCode != 409) return CorrectionRejected.other;
+  final Object? wire = error.body?['message'];
+  final String hay = '${error.message} ${wire is String ? wire : ''}';
+  if (hay.contains(kCorrectionsCapReached)) {
+    return CorrectionRejected.capReached;
+  }
+  if (hay.contains(kCorrectionsUnpinnedRoadDeferred)) {
+    return CorrectionRejected.unpinnedRoadDeferred;
+  }
+  return CorrectionRejected.other;
 }
 
 /// One portfolio sample as `GET /workers/me/portfolio` returns it (Layer A
