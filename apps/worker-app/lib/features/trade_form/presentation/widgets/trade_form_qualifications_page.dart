@@ -40,6 +40,21 @@ const int _kYearMin = 1950;
 const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
 const String _kYearInvalidError = 'Sahi saal likhein';
 
+// A row the worker actually USED must be COMPLETE, not merely non-empty in one
+// field. A certificate with a name but no issuer or year printed an unusable
+// credential line, and an education with a year but no institute/board did the
+// same. "Used" is the model's own `isBlank`: a row with nothing entered is
+// dropped before the write and never blocked, so a worker with none is never
+// forced to invent one.
+const String _kCertNameRequiredError = 'Certificate ka naam likhein.';
+const String _kIssuerRequiredError = 'Kisne diya — likhein.';
+const String _kCertYearRequiredError = 'Kis saal mila — saal likhein.';
+const String _kEduCredentialRequiredError = 'ITI ya Diploma — chunein.';
+const String _kEduFieldRequiredError = 'Trade ya subject likhein.';
+const String _kEduCouncilRequiredError = 'Council ya board chunein.';
+const String _kEduYearRequiredError = 'Kis saal poora hua — saal likhein.';
+const String _kEduInstituteRequiredError = 'Institute ka naam likhein.';
+
 /// `EDUCATION_QUALIFICATIONS` slugs (`worker-preferences.vocabulary.ts`) that
 /// carry a real trade/stream — ITI, Diploma and Graduate name a specific
 /// trade or subject, and 12th pass carries a stream (Science/Commerce/Arts).
@@ -254,17 +269,73 @@ class TradeFormQualificationsPageState
   /// Checked by `_WizardScaffoldState` BEFORE calling [goToNextPage]/[save]
   /// — a red year with no way to stop "Aage badhein" was a real, reported
   /// bug (a future year showed the inline error and still let the worker
-  /// through). Page 0 (certificates) can fail on ANY card's year; the last
-  /// page (year+institute) can fail on any education row's year — every
-  /// other page is closed-set cards/free text with no year field.
+  /// through).
+  ///
+  /// EVERY FIELD ON A USED ROW, per page: a row the worker started must be
+  /// complete before the wizard moves past the page that owns those fields (a
+  /// certificate row and its three fields share page 0; education is split over
+  /// pages 1–3, so each page checks the fields it shows). A wholly-blank row is
+  /// skipped — it is dropped before the write, so a worker with no certificates
+  /// or education is never blocked. A year is also range-checked from the MODEL,
+  /// not only from the inline field callback: a value loaded from saved data
+  /// never fires that callback, and an out-of-range year would otherwise slip
+  /// through the gate it used to.
   String? currentPageError() {
-    if (_page == 0) {
-      return _certYearErrorIndices.isNotEmpty ? _kBlockedAdvanceMessage : null;
-    }
+    if (_page == 0) return _certificatesError();
+    if (_page == 1) return _educationError(_EduSection.credentialAndField);
+    if (_page == 2) return _educationError(_EduSection.council);
     if (_page == pageCount - 1) {
-      return _eduYearErrors.any((String? e) => e != null)
-          ? _kBlockedAdvanceMessage
-          : null;
+      return _educationError(_EduSection.yearAndInstitute);
+    }
+    return null;
+  }
+
+  /// Page 0: every used certificate needs a name, an issuer and a valid year.
+  String? _certificatesError() {
+    for (int i = 0; i < _certificates.length; i++) {
+      final TradeFormCertificateEntry c = _certificates[i];
+      if (c.isBlank) continue;
+      if (c.name.trim().isEmpty) return _kCertNameRequiredError;
+      if (c.issuer == null || c.issuer!.trim().isEmpty) {
+        return _kIssuerRequiredError;
+      }
+      if (_certYearErrorIndices.contains(i)) return _kBlockedAdvanceMessage;
+      final int? year = c.year;
+      if (year == null) return _kCertYearRequiredError;
+      if (year < _kYearMin || year > DateTime.now().year) {
+        return _kBlockedAdvanceMessage;
+      }
+    }
+    return null;
+  }
+
+  /// The education page [section] owns: every used row needs the field(s) that
+  /// page shows. The trade/subject is required only when the chosen credential
+  /// actually has one (`_kFieldVisibleCredentials`), matching what the page
+  /// renders.
+  String? _educationError(_EduSection section) {
+    for (int i = 0; i < _educations.length; i++) {
+      final TradeFormEducationEntry e = _educations[i];
+      if (e.isBlank) continue;
+      if (section == _EduSection.credentialAndField) {
+        if (e.credential == null) return _kEduCredentialRequiredError;
+        if (_kFieldVisibleCredentials.contains(e.credential) &&
+            (e.field == null || e.field!.trim().isEmpty)) {
+          return _kEduFieldRequiredError;
+        }
+      } else if (section == _EduSection.council) {
+        if (e.council == null) return _kEduCouncilRequiredError;
+      } else {
+        if (_eduYearErrors[i] != null) return _kBlockedAdvanceMessage;
+        final int? year = e.year;
+        if (year == null) return _kEduYearRequiredError;
+        if (year < _kYearMin || year > DateTime.now().year) {
+          return _kBlockedAdvanceMessage;
+        }
+        if (e.institute == null || e.institute!.trim().isEmpty) {
+          return _kEduInstituteRequiredError;
+        }
+      }
     }
     return null;
   }

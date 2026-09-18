@@ -77,6 +77,16 @@ const String _kDateTooOldError =
 const String _kDateFutureError =
     'Aage ke mahine ki taareekh nahi ho sakti — aaj tak ka chunein.';
 const String _kDateInvalidError = 'Sahi mahina aur saal chunein.';
+// A card the worker actually USED must carry every field the résumé prints,
+// except the employer's city/state (a past employer's exact town is frequently
+// unknown and is not what the sheet is read for). "Used" is [isBlank]: a card
+// with nothing typed is skippable, so a worker with no work history is never
+// forced to invent one. The company name/role pair was already required by the
+// cubit's `isComplete`; the work description joins them here — an empty one
+// printed a blank line under the employer on the sheet.
+const String _kNameRequiredError = 'Company ka naam likhein.';
+const String _kRoleRequiredError = 'Aapka kaam / role likhein.';
+const String _kWorkRequiredError = 'Aap kya kaam karte the — likhein.';
 
 const List<String> _kMonths = <String>[
   'Jan',
@@ -255,11 +265,16 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   /// answer and is never blocked — the worker can skip work history entirely.
   /// When the offending card is not the one on screen, the page jumps to it so
   /// the worker sees the fields the message is about.
+  ///
+  /// THE WHOLE CARD, NOT ONLY ITS DATES: an employer with content but no company
+  /// name, role or work description is just as unusable on the sheet, and the
+  /// city/state pair is the ONLY thing a used card may leave empty. See
+  /// [_entryError].
   String? currentPageError() {
     for (int i = 0; i < _entries.length; i++) {
       final TradeFormEmploymentEntry e = _entries[i];
       if (e.isBlank) continue;
-      final String? error = _dateErrorFor(e);
+      final String? error = _entryError(e);
       if (error != null) {
         if (i != _page) {
           setState(() => _page = i);
@@ -269,6 +284,19 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       }
     }
     return null;
+  }
+
+  /// One card's blocking message, or null when it is complete. Order is the
+  /// field order on the card: company name, role, work description, then the
+  /// date rules (see [_dateErrorFor]). `employerCity`/`employerState` are
+  /// deliberately not checked — a used card may leave both empty.
+  String? _entryError(TradeFormEmploymentEntry e) {
+    if (e.employerName.trim().isEmpty) return _kNameRequiredError;
+    if (e.roleLabel.trim().isEmpty) return _kRoleRequiredError;
+    if (e.workDone == null || e.workDone!.trim().isEmpty) {
+      return _kWorkRequiredError;
+    }
+    return _dateErrorFor(e);
   }
 
   /// The date rules for one card, in priority order: a start is always
