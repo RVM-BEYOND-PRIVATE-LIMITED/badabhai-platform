@@ -165,7 +165,9 @@ export class ResumeRenderProcessor extends WorkerHost {
 
     // THE NUMBER, DECRYPTED SERVER-SIDE, on the same degrade as the name and the photo above: a
     // rotated or tampered token costs the worker the phone line, never the whole PDF. Owner
-    // ruling 2026-08-28 puts it on both copies; the payer only ever receives one post-unlock.
+    // ruling 2026-08-28 put it on both copies but the disclosure never passed it; the owner
+    // ruling of 2026-09-18 reverses the withholding, so the payer copy carries it post-unlock
+    // (see the disclosure's phone block). The payer still only ever receives one post-unlock.
     let phone: string | null = null;
     if (worker?.phoneE164) {
       try {

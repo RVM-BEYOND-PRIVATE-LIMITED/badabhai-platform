@@ -95,9 +95,12 @@ export interface TradeSheetContext {
   /**
    * The worker's number, DECRYPTED BY THE CALLER — exactly the contract `displayName` has, and
    * for exactly the same reason: the ciphertext lives on the worker row, the key lives in the
-   * PII service, and this function is pure. It prints on BOTH audiences by owner ruling
-   * 2026-08-28; a sheet handed over at a factory gate is useless without a number, and the
-   * payer copy is only ever produced after an unlock. Never logged, never echoed into an error.
+   * PII service, and this function is pure. It prints on BOTH audiences: the 2026-08-28
+   * ruling said so but the disclosure never passed it (so the employer copy silently
+   * carried no number), and the owner ruling of 2026-09-18 reverses the withholding —
+   * the disclosure decrypts and passes it post-unlock. A sheet handed over at a factory
+   * gate is useless without a number, and the payer copy is only ever produced after an
+   * unlock. Never logged, never echoed into an error.
    */
   readonly phone?: string | null;
   /**

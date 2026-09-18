@@ -26,7 +26,9 @@ const PAYER = "11111111-1111-1111-1111-111111111111";
 const WORKER = "22222222-2222-2222-2222-222222222222";
 const REAL_NAME = "Ramesh Kumar"; // must NEVER appear in event/response
 const MASKED = "R***** K.";
-const SENTINEL_PHONE = "+919876500000"; // must NEVER appear anywhere client-visible
+const SENTINEL_PHONE = "+919876500000"; // must NEVER appear in events, logs or API
+// JSON (B-D/B-E) — but it DOES appear in the disclosed PDF itself since the 2026-09-18
+// reversal (asserted below): the PDF is the artifact the payer unlocked, not the spine.
 const SIGNED_URL = "https://signed.example/disclosure/abc?token=secret"; // never logged/evented (B-D)
 
 const CONFIG = {
@@ -66,6 +68,12 @@ interface SetupOpts {
   };
   /** Layer A (f)/(i) — the declared secondary occupations, as stored role ids. */
   occupations?: string[];
+  // 2026-09-18 reversal — the worker's number for the payer copy, as the stored
+  // ciphertext (`enc:` prefix: the fake decrypt strips it, like the name). ABSENT by
+  // default, which is what keeps every pre-existing test on the old behavior.
+  phoneE164?: string | null;
+  // Makes the phone decrypt (and only the phone decrypt) throw, for the degrade case.
+  phoneDecryptThrows?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -121,6 +129,7 @@ function setup(opts: SetupOpts = {}) {
         ? {
             id: WORKER,
             fullName: "enc:" + REAL_NAME,
+            phoneE164: opts.phoneE164 ?? null,
             deletionScheduledAt,
             resumeNightShiftReady: opts.nightShiftReady ?? false,
             currentCity: opts.currentCity ?? null,
@@ -131,7 +140,12 @@ function setup(opts: SetupOpts = {}) {
   };
 
   const pii = {
-    decrypt: vi.fn((token: string) => token.replace(/^enc:/, "")), // returns REAL_NAME
+    decrypt: vi.fn((token: string) => {
+      if (opts.phoneDecryptThrows && opts.phoneE164 != null && token === opts.phoneE164) {
+        throw new Error("bad/rotated key");
+      }
+      return token.replace(/^enc:/, "");
+    }),
   };
 
   let renderInput: ResumeRenderInput | undefined;
@@ -378,6 +392,61 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
       CTX,
     );
     expect(t.getRenderInput()?.availability).toBeNull();
+  });
+});
+
+describe("2026-09-18 reversal — the worker's number reaches the payer copy", () => {
+  // THE AUDIENCE CALL, PINNED HERE BECAUSE THE OLD BEHAVIOR WAS SILENCE. The 2026-08-28
+  // ruling said "both copies" but this surface never passed the number, so the employer
+  // sheet silently carried no contact line. The 2026-09-18 ruling reverses the
+  // withholding (post-unlock only — the consent/cap/deletion gates above are untouched).
+  // The worker-copy half is pinned in `resume-render.processor.test.ts` ("decrypts the
+  // phone SERVER-SIDE and puts it on the worker's own sheet"); this file pins the payer
+  // half. Name/photo/salary/WhatsApp/licence gating is identical — the "three withheld
+  // things" assertions above stay green as-is.
+  it("the employer render input carries the number, formatted", async () => {
+    const t = setup({ phoneE164: "enc:" + SENTINEL_PHONE });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.phone).toBe("+91 98765 00000");
+    // The masking around it holds — the number crossing is not a hole in the gate.
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+  });
+
+  it("name and number are each decrypted exactly once (two PII touches, F-5)", async () => {
+    // DELIBERATE UPDATE of the old "EXACTLY once" pin two describes up: that test's
+    // default setup carries no phoneE164, so it still observes exactly one decrypt and
+    // stays green untouched. With a number on file there are two touches — one per
+    // secret — and the count below is what keeps a third from arriving quietly.
+    const t = setup({ phoneE164: "enc:" + SENTINEL_PHONE });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.pii.decrypt).toHaveBeenCalledTimes(2);
+  });
+
+  it("withheld-vs-missing parity: absent and undecryptable both collapse to the same null", async () => {
+    // A caller holding this input cannot tell "no number on file" from "decrypt
+    // failed" — both are the missing line, never a placeholder, an error string, or a
+    // partial digit run. Same collapse the worker copy takes (processor test).
+    const absent = setup();
+    await absent.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(absent.getRenderInput()?.phone).toBeNull();
+
+    const broken = setup({ phoneE164: "enc:" + SENTINEL_PHONE, phoneDecryptThrows: true });
+    await broken.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(broken.getRenderInput()?.phone).toBeNull();
   });
 });
 
