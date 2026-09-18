@@ -27,6 +27,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/profile_edit/presentation/profile_edit_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
 import 'features/trade_form/presentation/trade_form_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
@@ -131,6 +132,9 @@ class Routes {
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
+
+  /// Layer A profile edit (issue #1545) — pushed full-screen from Profile.
+  static const String profileEdit = '/profile/edit'; // (no bar)
 
   /// App-wide feedback page — pushed FULL-SCREEN from the floating Feedback
   /// button that rides every non-auth screen (see [FeedbackFabOverlay]).
@@ -637,6 +641,13 @@ GoRouter _buildRouter() {
                     path: 'applied',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const AppliedJobsScreen(),
+                  ),
+                  // Layer A profile edit (issue #1545) — pushed full-screen from
+                  // the Profile tab's shortcuts card; back → Profile.
+                  GoRoute(
+                    path: 'edit',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const ProfileEditScreen(),
                   ),
                   // Interview kit — NESTED under the Profile branch (WA-3): it
                   // is entered from the Profile tab, so the kit list keeps the

@@ -94,6 +94,9 @@ import '../../features/profile/presentation/cubit/profile_cubit.dart';
 import '../../features/profile_tab/data/profile_summary_repository_impl.dart';
 import '../../features/profile_tab/domain/profile_summary_repository.dart';
 import '../../features/profile_tab/presentation/cubit/profile_tab_cubit.dart';
+import '../../features/profile_edit/data/profile_edit_repository_impl.dart';
+import '../../features/profile_edit/domain/profile_edit_repository.dart';
+import '../../features/profile_edit/presentation/cubit/profile_edit_cubit.dart';
 import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
@@ -335,6 +338,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ProfileSummaryRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // Layer A profile surfaces (ADR-0042 D9, issue #1545).
+  locator.registerLazySingleton<ProfileEditRepository>(
+    () => ProfileEditRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
   // Single instance app-wide so the Alerts screen and the nav badge share the
   // same reactive unread count.
   locator.registerLazySingleton<NotificationsRepository>(
@@ -574,6 +582,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<ProfileTabCubit>(
     () => ProfileTabCubit(locator<ProfileSummaryRepository>()),
+  );
+  locator.registerFactory<ProfileEditCubit>(
+    () => ProfileEditCubit(locator<ProfileEditRepository>()),
   );
   locator.registerFactory<NotificationsCubit>(
     () => NotificationsCubit(locator<NotificationsRepository>()),

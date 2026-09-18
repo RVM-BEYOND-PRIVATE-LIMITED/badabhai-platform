@@ -423,6 +423,13 @@ class _ProfileTabView extends StatelessWidget {
         child: Column(
           children: <Widget>[
             BbListRow.kit(
+              icon: Icons.edit_note_outlined,
+              title: 'Profile edit karein',
+              subtitle: 'WhatsApp, bhasha, training, portfolio',
+              onTap: () => context.pushOnce(Routes.profileEdit),
+            ),
+            _hairline,
+            BbListRow.kit(
               icon: Icons.quiz_outlined,
               title: 'Interview kit',
               subtitle: '15 sawaal + jawaab',

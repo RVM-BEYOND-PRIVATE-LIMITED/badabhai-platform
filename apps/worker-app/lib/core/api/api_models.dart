@@ -2514,3 +2514,392 @@ ResumeImportRoute? _resumeImportRoute(String? raw) => switch (raw) {
       'chat' => ResumeImportRoute.chat,
       _ => null,
     };
+
+// ---- Layer A profile surfaces (ADR-0042 D9, issue #1545) ------------------
+//
+// The flat wire shapes of the additive Layer A endpoints the app gained after
+// the universal-profile programme: WhatsApp, richer languages, secondary
+// occupations, trainings + licence fields, and the portfolio. Each GET mirrors
+// its PUT's own entry shapes so the body round-trips, and each is PII-aware:
+// never logged, never held longer than the screen needs it.
+
+/// `GET /workers/me/whatsapp` — the worker's OWN number, decrypted.
+///
+/// [whatsapp] is null when nothing is on file OR when the stored token cannot
+/// be decrypted; [hasWhatsapp] tells the two apart so a client never offers to
+/// replace a number that merely failed to read. PII — never logged.
+class MyWhatsappDto extends Equatable {
+  const MyWhatsappDto({this.whatsapp, this.hasWhatsapp = false});
+
+  final String? whatsapp;
+  final bool hasWhatsapp;
+
+  factory MyWhatsappDto.fromJson(Map<String, dynamic> json) => MyWhatsappDto(
+        whatsapp: json['whatsapp'] as String?,
+        hasWhatsapp: json['has_whatsapp'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[whatsapp, hasWhatsapp];
+}
+
+/// One language and the three independent abilities (Layer A (b), migration
+/// 0110). `can_speak` is NOT implied by the other two — a worker who reads
+/// English manuals but does not speak it is a real case, so each tick is its
+/// own boolean. [language] is a slug from the server's closed 16-language set.
+class LanguageAbilityDto extends Equatable {
+  const LanguageAbilityDto({
+    required this.language,
+    this.canSpeak = false,
+    this.canRead = false,
+    this.canWrite = false,
+  });
+
+  final String language;
+  final bool canSpeak;
+  final bool canRead;
+  final bool canWrite;
+
+  LanguageAbilityDto copyWith({
+    String? language,
+    bool? canSpeak,
+    bool? canRead,
+    bool? canWrite,
+  }) {
+    return LanguageAbilityDto(
+      language: language ?? this.language,
+      canSpeak: canSpeak ?? this.canSpeak,
+      canRead: canRead ?? this.canRead,
+      canWrite: canWrite ?? this.canWrite,
+    );
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'language': language,
+        'can_speak': canSpeak,
+        'can_read': canRead,
+        'can_write': canWrite,
+      };
+
+  factory LanguageAbilityDto.fromJson(Map<String, dynamic> json) =>
+      LanguageAbilityDto(
+        language: json['language'] as String? ?? '',
+        canSpeak: json['can_speak'] as bool? ?? false,
+        canRead: json['can_read'] as bool? ?? false,
+        canWrite: json['can_write'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[language, canSpeak, canRead, canWrite];
+}
+
+/// `GET /workers/me/languages`.
+///
+/// [partial] is true when a stored row no longer parses and was WITHHELD — the
+/// client must not PUT the list back unedited while this is set, or the PUT's
+/// replace-all semantics would erase the withheld row. [droppedCount] is how
+/// many rows were withheld.
+class MyLanguagesDto extends Equatable {
+  const MyLanguagesDto({
+    this.languages = const <LanguageAbilityDto>[],
+    this.partial = false,
+    this.droppedCount = 0,
+  });
+
+  final List<LanguageAbilityDto> languages;
+  final bool partial;
+  final int droppedCount;
+
+  factory MyLanguagesDto.fromJson(Map<String, dynamic> json) => MyLanguagesDto(
+        languages: (json['languages'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(LanguageAbilityDto.fromJson)
+                .where((LanguageAbilityDto l) => l.language.isNotEmpty)
+                .toList() ??
+            const <LanguageAbilityDto>[],
+        partial: json['partial'] as bool? ?? false,
+        droppedCount: (json['dropped_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[languages, partial, droppedCount];
+}
+
+/// One SECONDARY occupation (Layer A (f), migration 0114). [label] is
+/// READ-ONLY decoration the server resolves from the taxonomy — the PUT schema
+/// is `.strict()` on `role_id` only, so the label must never be echoed back.
+class MyOccupationDto extends Equatable {
+  const MyOccupationDto({required this.roleId, required this.label});
+
+  final String roleId;
+  final String label;
+
+  factory MyOccupationDto.fromJson(Map<String, dynamic> json) => MyOccupationDto(
+        roleId: json['role_id'] as String? ?? '',
+        label: json['label'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[roleId, label];
+}
+
+/// `GET /workers/me/occupations` — [partial]/[droppedCount] mirror the
+/// languages read: a row whose id was retired from the taxonomy is withheld,
+/// and re-sending the list unedited would erase it.
+class MyOccupationsDto extends Equatable {
+  const MyOccupationsDto({
+    this.occupations = const <MyOccupationDto>[],
+    this.partial = false,
+    this.droppedCount = 0,
+  });
+
+  final List<MyOccupationDto> occupations;
+  final bool partial;
+  final int droppedCount;
+
+  factory MyOccupationsDto.fromJson(Map<String, dynamic> json) =>
+      MyOccupationsDto(
+        occupations: (json['occupations'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(MyOccupationDto.fromJson)
+                .where((MyOccupationDto o) => o.roleId.isNotEmpty)
+                .toList() ??
+            const <MyOccupationDto>[],
+        partial: json['partial'] as bool? ?? false,
+        droppedCount: (json['dropped_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[occupations, partial, droppedCount];
+}
+
+/// One course or training programme (Layer A (d), migration 0112). NOT a
+/// certificate: a training is attendance ("3-month CNC operator course, Govt.
+/// ITI, 2019") often with no document at all. Name is required; provider and
+/// year are optional. [name]/[provider] are free text — never logged.
+class TrainingEntryDto extends Equatable {
+  const TrainingEntryDto({required this.name, this.provider, this.year});
+
+  final String name;
+  final String? provider;
+  final int? year;
+
+  static String? _trimOrNull(String? v) {
+    final String? t = v?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'name': name.trim(),
+        'provider': _trimOrNull(provider),
+        'year': year,
+      };
+
+  factory TrainingEntryDto.fromJson(Map<String, dynamic> json) => TrainingEntryDto(
+        name: json['name'] as String? ?? '',
+        provider: json['provider'] as String?,
+        year: (json['year'] as num?)?.toInt(),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[name, provider, year];
+}
+
+/// One certificate row as the qualifications GET returns it (Layer A (d)). The
+/// `licence_number`/`licence_expiry` fields are WORKER-SELF ONLY — never on the
+/// résumé and never employer-visible — so the UI must keep them private in copy.
+class CertificateEntryDto extends Equatable {
+  const CertificateEntryDto({
+    required this.name,
+    this.issuer,
+    this.year,
+    this.licenceNumber,
+    this.licenceExpiry,
+  });
+
+  final String name;
+  final String? issuer;
+  final int? year;
+
+  /// PII (encrypted at rest server-side): letters/digits/`/`/`-`/space, ≤64.
+  final String? licenceNumber;
+
+  /// `YYYY-MM-DD`, worker-self only.
+  final String? licenceExpiry;
+
+  factory CertificateEntryDto.fromJson(Map<String, dynamic> json) =>
+      CertificateEntryDto(
+        name: json['name'] as String? ?? '',
+        issuer: json['issuer'] as String?,
+        year: (json['year'] as num?)?.toInt(),
+        licenceNumber: json['licence_number'] as String?,
+        licenceExpiry: json['licence_expiry'] as String?,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[name, issuer, year, licenceNumber, licenceExpiry];
+}
+
+/// One schooling/trade credential row as the qualifications GET returns it.
+class EducationEntryDto extends Equatable {
+  const EducationEntryDto({
+    this.credential,
+    this.field,
+    this.council,
+    this.year,
+    this.institute,
+  });
+
+  final String? credential;
+  final String? field;
+  final String? council;
+  final int? year;
+  final String? institute;
+
+  factory EducationEntryDto.fromJson(Map<String, dynamic> json) =>
+      EducationEntryDto(
+        credential: json['credential'] as String?,
+        field: json['field'] as String?,
+        council: json['council'] as String?,
+        year: (json['year'] as num?)?.toInt(),
+        institute: json['institute'] as String?,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[credential, field, council, year, institute];
+}
+
+/// `GET /workers/me/qualifications` — the PUT's own entry shapes so the body
+/// round-trips. [partial] names the list(s) that lost a withheld row; a client
+/// must not re-send such a list unedited.
+class MyQualificationsDto extends Equatable {
+  const MyQualificationsDto({
+    this.certificates = const <CertificateEntryDto>[],
+    this.educations = const <EducationEntryDto>[],
+    this.trainings = const <TrainingEntryDto>[],
+    this.partial = const <String>[],
+    this.droppedCount = 0,
+  });
+
+  final List<CertificateEntryDto> certificates;
+  final List<EducationEntryDto> educations;
+  final List<TrainingEntryDto> trainings;
+  final List<String> partial;
+  final int droppedCount;
+
+  factory MyQualificationsDto.fromJson(Map<String, dynamic> json) =>
+      MyQualificationsDto(
+        certificates: (json['certificates'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(CertificateEntryDto.fromJson)
+                .toList() ??
+            const <CertificateEntryDto>[],
+        educations: (json['educations'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(EducationEntryDto.fromJson)
+                .toList() ??
+            const <EducationEntryDto>[],
+        trainings: (json['trainings'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(TrainingEntryDto.fromJson)
+                .toList() ??
+            const <TrainingEntryDto>[],
+        partial: (json['partial'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+        droppedCount: (json['dropped_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[certificates, educations, trainings, partial, droppedCount];
+}
+
+/// One portfolio sample as `GET /workers/me/portfolio` returns it (Layer A
+/// (e), migration 0113). [url] is a SHORT-LIVED SIGNED url for photo/video and
+/// the raw link for `link` — never logged or persisted. [storageKey] is the
+/// server-minted key for media (absent on a GET; the client re-submits the key
+/// it minted), [url] carries the link's own address on a link entry.
+class PortfolioItemDto extends Equatable {
+  const PortfolioItemDto({
+    required this.kind,
+    this.storageKey,
+    this.url,
+    this.caption,
+  });
+
+  /// `photo` | `video` | `link`.
+  final String kind;
+  final String? storageKey;
+  final String? url;
+  final String? caption;
+
+  PortfolioItemDto copyWith({
+    String? kind,
+    Object? storageKey = _portfolioSentinel,
+    Object? url = _portfolioSentinel,
+    Object? caption = _portfolioSentinel,
+  }) {
+    return PortfolioItemDto(
+      kind: kind ?? this.kind,
+      storageKey: storageKey == _portfolioSentinel
+          ? this.storageKey
+          : storageKey as String?,
+      url: url == _portfolioSentinel ? this.url : url as String?,
+      caption: caption == _portfolioSentinel ? this.caption : caption as String?,
+    );
+  }
+
+  /// Wire shape for one `items[]` entry. Media carries [storageKey]; a link
+  /// carries [url] — the server refuses a row with both or neither.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'kind': kind,
+        if (kind == 'link') 'url': url,
+        if (kind != 'link') 'storage_key': storageKey,
+        'caption': (caption == null || caption!.trim().isEmpty)
+            ? null
+            : caption!.trim(),
+      };
+
+  factory PortfolioItemDto.fromJson(Map<String, dynamic> json) =>
+      PortfolioItemDto(
+        kind: json['kind'] as String? ?? '',
+        storageKey: json['storage_key'] as String?,
+        url: json['url'] as String?,
+        caption: json['caption'] as String?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[kind, storageKey, url, caption];
+}
+
+/// `GET /workers/me/portfolio`.
+class MyPortfolioDto extends Equatable {
+  const MyPortfolioDto({this.items = const <PortfolioItemDto>[]});
+
+  final List<PortfolioItemDto> items;
+
+  factory MyPortfolioDto.fromJson(Map<String, dynamic> json) => MyPortfolioDto(
+        items: (json['items'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(PortfolioItemDto.fromJson)
+                .where((PortfolioItemDto i) => i.kind.isNotEmpty)
+                .toList() ??
+            const <PortfolioItemDto>[],
+      );
+
+  @override
+  List<Object?> get props => <Object?>[items];
+}
+
+/// Result of `POST /workers/me/portfolio/upload-url` — an alias of
+/// [SignedUploadTicket] (identical `upload_url` / `storage_key` / `expires_in`
+/// shape). A 503 means the media bucket is dormant server-side (infra blocker);
+/// only the `link` kind works in production until an operator configures it.
+typedef PortfolioUploadTicket = SignedUploadTicket;
+
+/// copyWith sentinel for [PortfolioItemDto] so `null` can CLEAR a caption.
+const Object _portfolioSentinel = Object();

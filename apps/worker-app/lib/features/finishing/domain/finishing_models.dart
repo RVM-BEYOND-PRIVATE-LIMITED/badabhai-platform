@@ -108,6 +108,62 @@ class EmploymentEntry extends Equatable {
       ];
 }
 
+/// The structured `availability` attribute (Layer A (c), migration 0111).
+///
+/// One object, three optional parts — one submission, so a notice period
+/// without the day it runs from says nothing. Every part is nullable so the
+/// worker can clear one without clearing the answer; `available_from` is a
+/// calendar-day STRING (`YYYY-MM-DD`), never a parsed Date — a Date would
+/// round-trip through UTC and shift under IST.
+class AvailabilityDraft extends Equatable {
+  const AvailabilityDraft({
+    this.status,
+    this.availableFrom,
+    this.noticePeriodDays,
+  });
+
+  final String? status;
+  final String? availableFrom;
+  final int? noticePeriodDays;
+
+  bool get isEmpty =>
+      status == null && availableFrom == null && noticePeriodDays == null;
+
+  AvailabilityDraft copyWith({
+    Object? status = _sentinel,
+    Object? availableFrom = _sentinel,
+    Object? noticePeriodDays = _sentinel,
+  }) {
+    return AvailabilityDraft(
+      status: status == _sentinel ? this.status : status as String?,
+      availableFrom: availableFrom == _sentinel
+          ? this.availableFrom
+          : availableFrom as String?,
+      noticePeriodDays: noticePeriodDays == _sentinel
+          ? this.noticePeriodDays
+          : noticePeriodDays as int?,
+    );
+  }
+
+  /// Wire shape — every key present, `null` where unset, so a re-save clears
+  /// the parts the worker removed.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'status': status,
+        'available_from': availableFrom,
+        'notice_period_days': noticePeriodDays,
+      };
+
+  factory AvailabilityDraft.fromJson(Map<String, dynamic> json) =>
+      AvailabilityDraft(
+        status: json['status'] as String?,
+        availableFrom: json['available_from'] as String?,
+        noticePeriodDays: (json['notice_period_days'] as num?)?.toInt(),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[status, availableFrom, noticePeriodDays];
+}
+
 /// The closed-set finishing selections (#1296, `PUT /workers/me/work-preferences`).
 ///
 /// Held as the worker builds them across the chip pages; [toUpdateBody] shapes
@@ -128,6 +184,11 @@ class WorkPreferences extends Equatable {
     this.educationCouncil,
     this.educationYear,
     this.educationInstitute,
+    this.workTypes = const <String>{},
+    this.salaryPeriod,
+    this.commuteMaxKm,
+    this.willingToTravel = false,
+    this.availability,
     this.touched = const <String>{},
   });
 
@@ -164,6 +225,27 @@ class WorkPreferences extends Equatable {
   /// Institute as the worker reads it off the certificate, max 120 (#1298).
   final String? educationInstitute;
 
+  /// Layer A (c) — the MULTI beside [jobType] (`job_type` remains the valid
+  /// fallback; a non-empty [workTypes] wins server-side). Empty list = the
+  /// worker withdrew the multi answer.
+  final Set<String> workTypes;
+
+  /// Layer A (c) — the period every salary figure is quoted in. `null` = leave
+  /// the stored value (the server defaults the meaning to monthly).
+  final String? salaryPeriod;
+
+  /// Layer A (c) — how far the worker will travel, 0–500 km. `null` = leave.
+  final int? commuteMaxKm;
+
+  /// Layer A (c) — willingness to travel. A plain bool with [touched]
+  /// bookkeeping: only `true` prints, so `false` is the worker withdrawing a
+  /// claim and must be sent to clear it.
+  final bool willingToTravel;
+
+  /// Layer A (c) — the structured availability object. `null` here means "leave
+  /// the stored value alone"; a non-null draft is sent whenever touched.
+  final AvailabilityDraft? availability;
+
   WorkPreferences copyWith({
     Set<String>? languages,
     Set<String>? documentsReady,
@@ -177,6 +259,11 @@ class WorkPreferences extends Equatable {
     Object? educationCouncil = _sentinel,
     Object? educationYear = _sentinel,
     Object? educationInstitute = _sentinel,
+    Set<String>? workTypes,
+    Object? salaryPeriod = _sentinel,
+    Object? commuteMaxKm = _sentinel,
+    bool? willingToTravel,
+    Object? availability = _sentinel,
   }) {
     return WorkPreferences(
       languages: languages ?? this.languages,
@@ -201,6 +288,15 @@ class WorkPreferences extends Equatable {
       educationInstitute: educationInstitute == _sentinel
           ? this.educationInstitute
           : educationInstitute as String?,
+      workTypes: workTypes ?? this.workTypes,
+      salaryPeriod:
+          salaryPeriod == _sentinel ? this.salaryPeriod : salaryPeriod as String?,
+      commuteMaxKm:
+          commuteMaxKm == _sentinel ? this.commuteMaxKm : commuteMaxKm as int?,
+      willingToTravel: willingToTravel ?? this.willingToTravel,
+      availability: availability == _sentinel
+          ? this.availability
+          : availability as AvailabilityDraft?,
       touched: <String>{
         ...touched,
         if (languages != null) _kLanguagesKey,
@@ -208,6 +304,9 @@ class WorkPreferences extends Equatable {
         if (preferredCities != null) _kCitiesKey,
         if (willingToRelocate != null) _kRelocateKey,
         if (accommodationNeeded != null) _kAccommodationKey,
+        if (workTypes != null) _kWorkTypesKey,
+        if (willingToTravel != null) _kTravelKey,
+        if (availability != _sentinel) _kAvailabilityKey,
       },
     );
   }
@@ -243,6 +342,21 @@ class WorkPreferences extends Equatable {
     if (educationInstitute != null) {
       body['education_institute'] = educationInstitute;
     }
+    // Layer A (c) — the extension fields. Same three-state discipline: a list
+    // and a toggle only when [touched] ([] / false is a real withdrawal), the
+    // scalars only when given, and the availability object only when touched
+    // (its every key present, nulls included, so a part can be cleared).
+    if (touched.contains(_kWorkTypesKey)) {
+      body[_kWorkTypesKey] = workTypes.toList();
+    }
+    if (salaryPeriod != null) body['salary_period'] = salaryPeriod;
+    if (commuteMaxKm != null) body['commute_max_km'] = commuteMaxKm;
+    if (touched.contains(_kTravelKey)) {
+      body[_kTravelKey] = willingToTravel;
+    }
+    if (touched.contains(_kAvailabilityKey)) {
+      body[_kAvailabilityKey] = availability?.toJson();
+    }
     return body;
   }
 
@@ -260,6 +374,11 @@ class WorkPreferences extends Equatable {
         educationCouncil,
         educationYear,
         educationInstitute,
+        workTypes,
+        salaryPeriod,
+        commuteMaxKm,
+        willingToTravel,
+        availability,
         touched,
       ];
 }
@@ -271,6 +390,11 @@ const String _kDocumentsKey = 'documents_ready';
 const String _kCitiesKey = 'preferred_cities';
 const String _kRelocateKey = 'willing_to_relocate';
 const String _kAccommodationKey = 'accommodation_needed';
+// Layer A (c) — the extension keys the finishing-form contract test watches for
+// (`apps/api/src/profiles/finishing-form-contract.test.ts`).
+const String _kWorkTypesKey = 'work_types';
+const String _kTravelKey = 'willing_to_travel';
+const String _kAvailabilityKey = 'availability';
 
 /// copyWith sentinel so `null` can be passed to CLEAR a nullable field, distinct
 /// from omitting the argument to keep it.
