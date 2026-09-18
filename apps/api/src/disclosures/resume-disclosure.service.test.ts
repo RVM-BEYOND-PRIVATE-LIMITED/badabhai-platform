@@ -324,7 +324,13 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
       { payerId: PAYER, workerId: WORKER, jobPostingId: null },
       CTX,
     );
-    expect(t.getRenderInput()?.headlineLine).not.toMatch(/fresher/i);
+    // FILL-GAP PHASE 4 changed the SHAPE of the guarantee without weakening it: with no role the
+    // whole headline strip is now omitted (`""` here), where it used to print a subject-less
+    // system phrase. Both outcomes are pinned: never the word "Fresher", and when a strip DOES
+    // print it can only be the licensed unknown-tenure phrasing.
+    const line = t.getRenderInput()?.headlineLine ?? "";
+    expect(line).not.toMatch(/fresher/i);
+    if (line.length > 0) expect(line).toMatch(/duration not stated/i);
   });
 
   it("the payer DOES see the trade capability block, and the masking around it holds", async () => {
