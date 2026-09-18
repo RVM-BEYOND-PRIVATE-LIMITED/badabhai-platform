@@ -6,11 +6,12 @@
  * script carries it across.
  *
  * FOR EACH `jobs` ROW WITH status='open':
- *   1. INSERT a `job_postings` row — role_title=title, city, pay_min/pay_max, shift,
- *      needed_by, description copied verbatim; match_skill_ids from
- *      TRADE_TO_MATCH_SKILL[trade_key]; reach_skill_ids = match ∪ skill_related;
- *      industry_id from the match skill; status='open'; published_at = jobs.created_at
- *      (the honest visibility time, not now()); source_job_id = jobs.id.
+ *   1. INSERT a `job_postings` row — role_title=title, city, area, pay_min/pay_max,
+ *      shift, needed_by, description, experience window, benefits, requirements copied
+ *      verbatim; match_skill_ids from TRADE_TO_MATCH_SKILL[trade_key]; reach_skill_ids
+ *      = match ∪ skill_related; industry_id from the match skill; status='open';
+ *      published_at = jobs.created_at (the honest visibility time, not now());
+ *      source_job_id = jobs.id.
  *   2. Set the `jobs` row status='closed'.
  *
  * IDEMPOTENCY — the chosen mechanism, stated plainly: a `job_postings.source_job_id`
@@ -108,11 +109,16 @@ async function main(): Promise<void> {
         tradeKey: jobs.tradeKey,
         title: jobs.title,
         city: jobs.city,
+        area: jobs.area,
         payMin: jobs.payMin,
         payMax: jobs.payMax,
         shift: jobs.shift,
         neededBy: jobs.neededBy,
         description: jobs.description,
+        minExperienceYears: jobs.minExperienceYears,
+        maxExperienceYears: jobs.maxExperienceYears,
+        benefits: jobs.benefits,
+        requirements: jobs.requirements,
         payerId: jobs.payerId,
         createdAt: jobs.createdAt,
       })
@@ -163,11 +169,16 @@ async function main(): Promise<void> {
             orgLabel,
             roleTitle: j.title,
             city: j.city,
+            area: j.area,
             payMin: j.payMin,
             payMax: j.payMax,
             shift: j.shift,
             neededBy: j.neededBy,
             description: j.description,
+            minExperienceYears: j.minExperienceYears,
+            maxExperienceYears: j.maxExperienceYears,
+            benefits: j.benefits,
+            requirements: j.requirements,
             vacancyBand: bandArg,
             status: "open",
             industryId,

@@ -162,6 +162,29 @@ export const jobPostings = pgTable(
     shift: text("shift").$type<JobShift>(),
     // When the job needs someone (mirrors jobs.needed_by). Non-PII.
     neededBy: text("needed_by").$type<JobNeededBy>(),
+    // ── Worker-visible card content (migration 0116, issue #1561) ──
+    // The CEO read of the Jobs deck: the card showed title/place/pay only because the
+    // V1 feed/search projections had nothing else to carry — these columns exist on
+    // the legacy `jobs` table only. Mirrored here so `job_postings` (the served entity
+    // since the 0054 cutover) carries the same worker-visible content and
+    // `db:convert:seed-jobs` can carry it across. ALL NULLABLE with NO backfill:
+    // every existing posting reads NULL and every reader treats NULL as honest
+    // absence (the client hides the row), so no posting changes shape silently.
+    //
+    // PRIVACY: same contract as the columns above — `area` is a COARSE locality
+    // bucket (never an address); experience is year counts; benefits/requirements
+    // are short PII-free strings. No employer identity, ever (ADR-0009 §2).
+    // COARSE locality bucket (e.g. "Chakan"), mirrors `jobs.area`. NEVER an address,
+    // and NEVER derived from `location_label` (poster free text, exempt from the PII
+    // heuristic) — see the repository fallbacks that keep that wall.
+    area: text("area"),
+    // Experience window the job targets (years), mirrors `jobs`.
+    minExperienceYears: integer("min_experience_years"),
+    maxExperienceYears: integer("max_experience_years"),
+    // Short PII-free benefit strings (e.g. "PF + ESI"), mirrors `jobs.benefits`.
+    benefits: jsonb("benefits").$type<string[]>(),
+    // Short requirement tags (e.g. "Fanuc control"), mirrors `jobs.requirements`.
+    requirements: jsonb("requirements").$type<string[]>(),
     // When the posting became worker-visible. The feed orders by this, NOT by
     // created_at, so a draft that sat for a week does not surface as a week-old job.
     // NULL = never published. D3 backfills it to created_at for non-draft rows.
@@ -291,6 +314,17 @@ export const jobPostings = pgTable(
     check(
       "job_postings_needed_by_chk",
       sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
+    ),
+    // ── Migration 0116 (#1561): the experience sanity checks `jobs` already has ──
+    // Mirrored verbatim so the served entity cannot hold a window the retiring entity
+    // would have rejected. Both NULL-tolerant (every column is nullable).
+    check(
+      "job_postings_experience_nonneg_chk",
+      sql`(${t.minExperienceYears} IS NULL OR ${t.minExperienceYears} >= 0) AND (${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= 0)`,
+    ),
+    check(
+      "job_postings_experience_order_chk",
+      sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
