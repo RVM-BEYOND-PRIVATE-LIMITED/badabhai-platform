@@ -613,4 +613,41 @@ void main() {
     });
   });
 
+  /// #1580 — a fallback-pack (universal, role-less, chat-road) worker sees a
+  /// complete profile with no dead sections and no invented trade names.
+  group('universal fallback-pack profile', () {
+    const ProfileSummary universal = ProfileSummary(
+      strengthSignals: 2,
+      source: 'chat',
+      missingFields: <String>['role'],
+    );
+
+    testWidgets('renders the same skeleton: identity, nudge, shortcuts',
+        (WidgetTester tester) async {
+      await _pump(tester, universal);
+
+      // Identity falls back to the neutral card title — never a fabricated
+      // trade, never a raw id.
+      expect(find.text('Aapki profile'), findsOneWidget);
+      // Chat-road badge still marks the road.
+      expect(find.text('Chat se bani profile'), findsOneWidget);
+      // Empty sections obey the empty-zone rule, like trade profiles.
+      expect(find.text('Skills aur anubhav'), findsNothing);
+      expect(find.text('Bhasha aur kaam jodein'), findsOneWidget);
+      expect(find.text('Kaam ki jaankari jodein'), findsOneWidget);
+      // No dead ends: the way forward is on screen.
+      expect(find.text('Profile edit karein'), findsOneWidget);
+      expect(find.text('Logout'), findsOneWidget);
+    });
+
+    testWidgets('names no trade the worker does not have',
+        (WidgetTester tester) async {
+      await _pump(tester, universal);
+
+      expect(find.textContaining('CNC'), findsNothing);
+      expect(find.textContaining('Welder'), findsNothing);
+      expect(find.textContaining('Turner'), findsNothing);
+      expect(find.textContaining('role_'), findsNothing);
+    });
+  });
 }
