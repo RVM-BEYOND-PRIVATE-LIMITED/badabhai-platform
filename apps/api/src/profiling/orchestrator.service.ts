@@ -103,6 +103,7 @@ import {
   REPLY_CACHE_WINDOW_MS,
   ID_REPLAY_MAX_AGE_MS,
   STALE_RESPONSE_WINDOW_MS,
+  stampUniversalPointer,
   TURN_KINDS,
   toEngineState,
   withAnswers,
@@ -785,18 +786,21 @@ export class ProfilingOrchestrator {
         const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
         if (pending && pending.facts.length > 0) {
           const reply = confirmPrompt(pending.facts);
-          const next: ProfilingEnvelope = {
-            ...envelope,
-            packId: packs.packId,
-            packVersion: packs.packVersion,
-            resumeConfirm: { importId: pending.importId, state: "pending" },
-            // IT SPENDS AN ASK, AND MUST — the same rule the turn path serves it under: it is
-            // a question, the worker can decline it, and the budget must keep counting.
-            engineAsks: envelope.engineAsks + 1,
-            // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
-            servedQuestionKey: null,
-            clarifyCount: 0,
-          };
+          const next: ProfilingEnvelope = stampUniversalPointer(
+            {
+              ...envelope,
+              packId: packs.packId,
+              packVersion: packs.packVersion,
+              resumeConfirm: { importId: pending.importId, state: "pending" },
+              // IT SPENDS AN ASK, AND MUST — the same rule the turn path serves it under: it is
+              // a question, the worker can decline it, and the budget must keep counting.
+              engineAsks: envelope.engineAsks + 1,
+              // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
+              servedQuestionKey: null,
+              clarifyCount: 0,
+            },
+            packs.engine.universal,
+          );
           // ONLY THE ASSISTANT LINE, exactly like the ordinary opening write: there is no
           // worker message, and `turnCount` is not bumped for the same reason.
           const at = input.now.toISOString();
@@ -976,22 +980,25 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
 
-      const next: ProfilingEnvelope = {
-        ...envelope,
-        packId: packs.packId,
-        packVersion: packs.packVersion,
-        phase: decision.phase,
-        ...(decision.kind === "ask" && decision.questionKey
-          ? {
-              engineAsks: envelope.engineAsks + 1,
-              askCounts: {
-                ...envelope.askCounts,
-                [decision.questionKey]: (envelope.askCounts[decision.questionKey] ?? 0) + 1,
-              },
-              servedQuestionKey: decision.questionKey,
-            }
-          : { servedQuestionKey: decision.questionKey }),
-      };
+      const next: ProfilingEnvelope = stampUniversalPointer(
+        {
+          ...envelope,
+          packId: packs.packId,
+          packVersion: packs.packVersion,
+          phase: decision.phase,
+          ...(decision.kind === "ask" && decision.questionKey
+            ? {
+                engineAsks: envelope.engineAsks + 1,
+                askCounts: {
+                  ...envelope.askCounts,
+                  [decision.questionKey]: (envelope.askCounts[decision.questionKey] ?? 0) + 1,
+                },
+                servedQuestionKey: decision.questionKey,
+              }
+            : { servedQuestionKey: decision.questionKey }),
+        },
+        packs.engine.universal,
+      );
 
       // ONLY THE ASSISTANT LINE. There is no worker message to record, and inventing an empty one
       // to keep the transcript alternating would put a silence into the record of what the worker
@@ -1218,12 +1225,15 @@ export class ProfilingOrchestrator {
       const answersNow = answersOf(envelope);
       return this.turn(
         buffer,
-        {
-          ...envelope,
-          packId: packs.packId,
-          packVersion: packs.packVersion,
-          servedQuestionKey: null,
-        },
+        stampUniversalPointer(
+          {
+            ...envelope,
+            packId: packs.packId,
+            packVersion: packs.packVersion,
+            servedQuestionKey: null,
+          },
+          packs.engine.universal,
+        ),
         input,
         {
           reply: ESCAPE_TYPE_PROMPT,
@@ -1247,12 +1257,15 @@ export class ProfilingOrchestrator {
 
     const capture = captureAnswer(input.text, askedItem);
     let answers = answersOf(envelope);
-    let next: ProfilingEnvelope = {
-      ...envelope,
-      packId: packs.packId,
-      packVersion: packs.packVersion,
-      catalogVersion: envelope.occupation?.catalog_version ?? envelope.catalogVersion,
-    };
+    let next: ProfilingEnvelope = stampUniversalPointer(
+      {
+        ...envelope,
+        packId: packs.packId,
+        packVersion: packs.packVersion,
+        catalogVersion: envelope.occupation?.catalog_version ?? envelope.catalogVersion,
+      },
+      packs.engine.universal,
+    );
 
     // --- Turn classes that do not advance the interview ---------------------
     if (capture.turnClass === "abusive") {
@@ -1650,7 +1663,10 @@ export class ProfilingOrchestrator {
       const repinned = await this.resolvePacks(next, input.now.getTime());
       if (repinned) {
         engine = repinned.engine;
-        next = { ...next, packId: repinned.packId, packVersion: repinned.packVersion };
+        next = stampUniversalPointer(
+          { ...next, packId: repinned.packId, packVersion: repinned.packVersion },
+          repinned.engine.universal,
+        );
         // AND THE ITEM LIST WITH IT. Measured live: the turn that pins "main welder hoon" serves
         // `welding_process` — a row that exists only in the pack just resolved — while `items`
         // still held the universal pack's eight. So `shapeOf` found nothing and the client was

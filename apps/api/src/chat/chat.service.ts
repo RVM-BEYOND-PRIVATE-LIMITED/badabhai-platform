@@ -9,7 +9,7 @@ import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
-import { toConversationStatePatch } from "../profiling/conversation-state";
+import { resolvePackPointer, toConversationStatePatch } from "../profiling/conversation-state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -962,7 +962,7 @@ export class ChatService {
         // a session whose transcript was never written. The buffer survives and the retry
         // re-inserts the same rows — idempotent, because `wpa_worker_question_uq` turns the
         // second attempt into an upsert rather than a duplicate.
-        const answers = this.toPackAnswerRows(workerId, sessionId, buffer);
+        const answers = this.toPackAnswerRows(workerId, sessionId, buffer, true);
         if (answers.length > 0) {
           await this.chat.insertPackAnswers(tx, answers);
         }
@@ -1120,6 +1120,27 @@ export class ChatService {
         `turns=${buffer.turnCount} reason=${buffer.completionReason ?? "-"}`,
     );
     await this.buffer.drop(sessionId);
+    // Defect-A fix (owner ruling 2026-09-18, option a): freeze the served pack as the
+    // session's durable pin at close. `pinPack` is write-once in SQL (`packId IS NULL`),
+    // so a session `persistPin` already pinned keeps it byte-for-byte and this is a no-op
+    // there; a universal-only session gains the stamped pointer, which is what makes the
+    // review screen, the settled view and the correction path resolve after the flush.
+    // Best-effort OUTSIDE the transaction, like `persistPin`: a pin failure degrades to
+    // the pre-fix state (rows without a pin) and is logged, never thrown into the close.
+    {
+      const pointer = buffer.profiling ? resolvePackPointer(buffer.profiling) : null;
+      if (pointer) {
+        try {
+          await this.chat.pinPack(sessionId, pointer.packId, pointer.packVersion);
+        } catch (err) {
+          this.logger.warn(
+            `pack pin ${pointer.packId}:${pointer.packVersion} did not become durable for ` +
+              `session ${sessionId}; answers are flushed without it: ` +
+              `${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
     // WITHHELD ON A HANDOVER, for the reason spelled out at the emit above: generic extraction
     // on a two-turn transcript produces a container that outranks the answer map and blanks the
     // trade sheet. Gated here as well as on the event, because this call does not read it.
@@ -1199,7 +1220,9 @@ export class ChatService {
     const messageRows = buffer
       ? buffer.messages.map((m) => this.toMessageRow(sessionId, workerId, m))
       : [];
-    const answerRows = buffer ? this.toPackAnswerRows(workerId, sessionId, buffer) : [];
+    // `false`: abandon keeps the pre-fix attribution (no rows without an occupation pin),
+    // pinned by `chat-abandonment.test.ts` — the complete path above is the one the ruling moves.
+    const answerRows = buffer ? this.toPackAnswerRows(workerId, sessionId, buffer, false) : [];
 
     const closed = await this.chat.withTransaction(async (tx) => {
       if (!(await this.chat.abandonSession(tx, sessionId, state, at))) {
@@ -1329,13 +1352,23 @@ export class ChatService {
     workerId: string,
     sessionId: string,
     buffer: TranscriptBuffer,
+    // Defect-A fix (owner ruling 2026-09-18, option a): when true, a missing occupation pin
+    // falls back to the stamped universal pointer (`resolvePackPointer`), so a universal-only
+    // interview attributes its answers instead of writing nothing. False preserves the
+    // pre-fix attribution exactly (abandon path — pinned by `chat-abandonment.test.ts`).
+    allowUniversalPointer: boolean,
   ): NewWorkerPackAnswer[] {
     const envelope = buffer.profiling;
     if (!envelope) return [];
     // A pack pointer is REQUIRED, not defaulted. `pack_id` is how a later reader knows which
     // question `experience_years` was — two packs may legitimately own that key with different
     // wording — so a row without one is unreadable rather than merely incomplete.
-    if (envelope.packId === null || envelope.packVersion === null) return [];
+    const pointer = allowUniversalPointer
+      ? resolvePackPointer(envelope)
+      : envelope.packId !== null && envelope.packVersion !== null
+        ? { packId: envelope.packId, packVersion: envelope.packVersion }
+        : null;
+    if (!pointer) return [];
 
     const rows: NewWorkerPackAnswer[] = [];
     for (const record of envelope.answerMap) {
@@ -1349,8 +1382,8 @@ export class ChatService {
       const row = packAnswerRowFor({
         workerId,
         sessionId,
-        packId: envelope.packId,
-        packVersion: envelope.packVersion,
+        packId: pointer.packId,
+        packVersion: pointer.packVersion,
         record,
         // `chip` vs `chat` is not knowable from the answer map — the record keeps the value, not
         // the affordance that produced it. `chat` is the honest default; a chip tap is still a
