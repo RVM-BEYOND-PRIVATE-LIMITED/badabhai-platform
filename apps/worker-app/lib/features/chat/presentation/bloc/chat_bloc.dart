@@ -94,6 +94,14 @@ class ChatVoiceMerged extends ChatEvent {
   List<Object?> get props => <Object?>[transcript, reply, extractionReady];
 }
 
+/// The worker chose "Chat se resume banayein" on the post-completion résumé
+/// menu (#1566): mint a genuinely NEW session and reset the transcript to a
+/// fresh opener. The ended session — and its stored transcript — is preserved
+/// server-side; only this client's cached id and visible thread are replaced.
+class ChatSessionRestarted extends ChatEvent {
+  const ChatSessionRestarted();
+}
+
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
@@ -375,6 +383,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatMessageSent>(_onMessageSent);
     on<ChatRetryRequested>(_onRetryRequested);
     on<ChatVoiceMerged>(_onVoiceMerged);
+    on<ChatSessionRestarted>(_onSessionRestarted);
   }
 
   final ChatRepository _repo;
@@ -897,6 +906,49 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       submissionId: message.submissionId,
       askIndex: askIndex,
     );
+  }
+
+  /// True while [ChatSessionRestarted] is minting a new session. Guards against
+  /// a double-tap on "Chat se resume banayein" minting TWO sessions: the second
+  /// event is ignored until the first open resolves.
+  bool _restarting = false;
+
+  /// Mints a NEW session and resets to a clean interview (#1566).
+  ///
+  /// The reset is a WHOLE new [ChatState], not a `copyWith` — extractionReady,
+  /// occupationLabel, progress, formOffer and every turn-scoped chip must clear,
+  /// because none of them belongs to the new interview. The bloc's own counters
+  /// (`_askedQuestionId`, `_wrapUpLogged`, `_inFlightSends`) are reset too: the
+  /// wrap-up milestone must be able to fire again for the new session, and a
+  /// value latched from the old one must not suppress it.
+  Future<void> _onSessionRestarted(
+    ChatSessionRestarted event,
+    Emitter<ChatState> emit,
+  ) async {
+    if (_restarting) return;
+    _restarting = true;
+    _askedQuestionId = null;
+    _wrapUpLogged = false;
+    _inFlightSends = 0;
+    emit(const ChatState(messages: <ChatMessage>[kChatOpeningMessage]));
+    try {
+      final ChatSessionOpening? opening = await _repo.startNewSession();
+      emit(state.copyWith(
+        initializing: false,
+        messages: _withOpener(opening),
+        resumePending: opening?.resumePending ?? false,
+        suggestedOptions: opening?.options,
+        followups: opening == null
+            ? null
+            : <String>[for (final ChatOption o in opening.options) o.labelText],
+      ));
+    } on Failure {
+      // The transcript is already reset; surface the failed open with the same
+      // banner an ordinary open failure uses, so the worker can retry by typing.
+      emit(state.copyWith(initializing: false, sessionFailed: true));
+    } finally {
+      _restarting = false;
+    }
   }
 
   /// Appends the already-server-merged voice transcript + reply. Local only —
