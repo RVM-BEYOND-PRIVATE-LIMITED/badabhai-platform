@@ -28,6 +28,7 @@ import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
   MAX_CONSECUTIVE_HARDSHIP,
+  MAX_ENGINE_ASKS,
   MAX_ENGINE_TURNS,
   MAX_SILENT_TURNS,
 } from "./next-question";
@@ -1804,6 +1805,67 @@ describe("a DISAMBIGUATE decision must never become a blank message", () => {
     expect(result.unavailable).toBe(true);
     expect(store.size).toBe(0);
     vi.restoreAllMocks();
+  });
+});
+
+describe("the ask budget's last turn records the question on screen (fill-gap Phase 2)", () => {
+  /**
+   * WHY THIS IS PINNED AT THE ORCHESTRATOR AND NOT THE ENGINE. `next-question.ts` already proves
+   * it CLOSES with `completionReason: "ask_budget"` the moment `engineAsks` reaches
+   * `MAX_ENGINE_ASKS`. What that test cannot see is the DURABLE consequence: the close carries
+   * `questionKey: null`, and the orchestrator's advance check ("ADVANCING PAST A QUESTION IS WHAT
+   * RECORDS `unanswered`") is what turns that into a row for the question the worker was actually
+   * looking at when the ceiling was reached. Phase 3's settled-vs-missing view reads those rows;
+   * without one, a question the worker SAW would be reported as never asked.
+   */
+  it("writes `unanswered` for the on-screen question when the budget closes the interview", async () => {
+    const { orchestrator, store } = makeWorld();
+    seed(store, { engineAsks: MAX_ENGINE_ASKS, askCounts: { q_city: 1 } });
+
+    const result = await orchestrator.takeTurn(say("kuch aur"));
+
+    expect(result.kind).toBe("close");
+    expect(result.completionReason).toBe("ask_budget");
+    const city = store
+      .get(SESSION)
+      ?.profiling?.answerMap.find((record) => record.question_key === "q_city");
+    expect(city?.status).toBe("unanswered");
+    // The record is keyed by the PACK KEY and carries no value — `recordUnanswered` has no item
+    // in hand. That is the shape Phase 3 resolves through the same item list it renders, exactly
+    // as `liveValues` falls back to `question_key` for answered records.
+    expect(city?.value_normalized ?? null).toBeNull();
+  });
+
+  it("settles the on-screen question instead when the worker answers it on that last turn", async () => {
+    // The same ceiling, and the difference matters to the view: an answered question is
+    // SETTLED, and writing `unanswered` over it would report the worker's own answer as a gap.
+    const { orchestrator, store } = makeWorld();
+    seed(store, { engineAsks: MAX_ENGINE_ASKS, askCounts: { q_city: 1 } });
+
+    const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
+
+    expect(result.kind).toBe("close");
+    const city = store
+      .get(SESSION)
+      ?.profiling?.answerMap.find((record) => record.question_key === "q_city");
+    expect(city?.status).toBe("answered");
+  });
+
+  it("writes NOTHING for a question the budget cut before it was ever served", async () => {
+    // The complement, and the reason "missing" is a real status in Phase 3's classifier: a
+    // question that never reached the screen has NO record. Absent means never-asked; only the
+    // transition above creates an `unanswered` row, so the two cases cannot be confused.
+    const { orchestrator, store } = makeWorld();
+    seed(store, {
+      engineAsks: MAX_ENGINE_ASKS,
+      askCounts: {},
+      servedQuestionKey: null,
+    });
+
+    const result = await orchestrator.takeTurn(say("shuru karein"));
+
+    expect(result.kind).toBe("close");
+    expect(store.get(SESSION)?.profiling?.answerMap ?? []).toEqual([]);
   });
 });
 
