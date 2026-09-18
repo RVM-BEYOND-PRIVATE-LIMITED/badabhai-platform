@@ -380,10 +380,36 @@ export const ProfilingReviewRowSchema = z.object({
   display_value: z.string().nullable(),
 });
 
+/**
+ * Fill-gap Phase 3 — one fact this session's packs can settle, and where it stands.
+ *
+ * THE FOUR STATUSES ARE NOT TWO: `unanswered` means the question was SERVED and skipped (the
+ * budget's last turn included), `missing` means nothing was ever asked — or an answer exists that
+ * the profile cannot carry (`dropped_by_projector`, documented in `session-fill-view.ts`). The
+ * surface that filters net-new questions reads `settled`; a surface that explains gaps reads
+ * `entries`.
+ */
+export const ProfilingFillEntrySchema = z.object({
+  fact: z.string(),
+  question_key: z.string(),
+  status: z.enum(["answered", "declined", "unanswered", "missing"]),
+  /** `other_road` = settled by a store outside this session (the finishing form, an earlier road). */
+  source: z.enum(["chat", "other_road"]),
+  dropped_by_projector: z.boolean(),
+  is_core: z.boolean(),
+});
+
+export const ProfilingFillSchema = z.object({
+  entries: z.array(ProfilingFillEntrySchema),
+  /** Facts with a real answer or an explicit decline, from either road — never re-ask these. */
+  settled: z.array(z.string()),
+});
+
 export const ProfilingReviewResponseSchema = z.object({
   session_id: uuidSchema,
   complete: z.boolean(),
   rows: z.array(ProfilingReviewRowSchema),
+  fill: ProfilingFillSchema,
 });
 export type ProfilingReviewResponse = z.infer<typeof ProfilingReviewResponseSchema>;
 
