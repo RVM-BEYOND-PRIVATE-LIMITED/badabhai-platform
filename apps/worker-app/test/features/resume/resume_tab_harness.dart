@@ -39,7 +39,7 @@ class FakeProfileSummaryRepository implements ProfileSummaryRepository {
   final bool failing;
 
   @override
-  Future<ProfileSummary> summary() async {
+  Future<ProfileSummary> summary({bool includeDisplayExtras = false}) async {
     if (failing) throw const NetworkFailure();
     return ProfileSummary(verified: verified ?? false, strengthSignals: 0);
   }

@@ -63,7 +63,11 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     _loading = true;
     emit(const ProfileTabState(status: ProfileTabStatus.loading));
     try {
-      final ProfileSummary summary = await _repo.summary();
+      // The tab renders the display-only sections (languages, work types,
+      // v4 facts, attested badge), so it opts into the enrichment reads —
+      // attestation included, correct on first paint.
+      final ProfileSummary summary =
+          await _repo.summary(includeDisplayExtras: true);
       if (isClosed) return;
       emit(ProfileTabState(status: ProfileTabStatus.ready, summary: summary));
     } on Failure catch (f) {
@@ -83,7 +87,11 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     if (_loading) return;
     _loading = true;
     try {
-      final ProfileSummary summary = await _repo.summary();
+      // The tab renders the display-only sections (languages, work types,
+      // v4 facts, attested badge), so it opts into the enrichment reads —
+      // attestation included, correct on first paint.
+      final ProfileSummary summary =
+          await _repo.summary(includeDisplayExtras: true);
       if (isClosed) return;
       emit(
         ProfileTabState(

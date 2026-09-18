@@ -105,7 +105,7 @@ void main() {
             'header': <String, dynamic>{
               'name': 'Suresh Yadav',
               'phone': '+91 9876543210',
-              'trustBadge': 'RVM-attested',
+              'trustBadge': 'BadaBhai Verified',
             },
             'footerMeta': 'Generated 29 August 2026 · Ref RK8M2Q',
             'headline': <String, dynamic>{
@@ -170,7 +170,7 @@ void main() {
       expect(doc.trade, 'cnc_turner');
       expect(doc.header.name, 'Suresh Yadav');
       expect(doc.header.phone, '+91 9876543210');
-      expect(doc.header.trustBadge, 'RVM-attested');
+      expect(doc.header.trustBadge, 'BadaBhai Verified');
       expect(doc.headline.line1, 'CNC Turner · 8 yrs · Fanuc');
       expect(doc.headline.line2, 'Faridabad · Available now · expects ₹32,000');
 

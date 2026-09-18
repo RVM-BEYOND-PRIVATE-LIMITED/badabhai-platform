@@ -1393,9 +1393,12 @@ class ResumeDocumentHeaderDto extends Equatable {
   final String? name;
   final String? phone;
 
-  /// The masthead's right-hand slot ("RVM-attested"); null when the worker
-  /// has no attestation. NEVER a raw enum token — the server sends the
-  /// already-humanised string or nothing at all.
+  /// The masthead's right-hand slot: the printable badge string
+  /// ("BadaBhai Verified") when the server ATTESTS this worker, null for
+  /// everything else (self-declared, employer-rated, unverified, unknown, or
+  /// no rendered document yet). NEVER a raw tier id — the server sends the
+  /// already-humanised label or nothing at all
+  /// (`apps/api/src/resume/verification-tier.ts`).
   final String? trustBadge;
 
   factory ResumeDocumentHeaderDto.fromJson(Map<String, dynamic> json) =>
@@ -2052,6 +2055,10 @@ class WorkPreferencesDto extends Equatable {
     this.languages,
     this.workTypes,
     this.jobType,
+    this.commuteKm,
+    this.willingToTravel,
+    this.salaryPeriod,
+    this.availability,
     this.partial = const <String>[],
   });
 
@@ -2066,6 +2073,24 @@ class WorkPreferencesDto extends Equatable {
   /// `work_types`. Never shown alongside a non-empty [workTypes].
   final String? jobType;
 
+  /// Stored commute distance in km (#1587, v4 elicitation), or null when no
+  /// row. A number on the wire; the screen adds the unit.
+  final int? commuteKm;
+
+  /// Stored travel willingness (#1587). Only `true` ever prints (same rule as
+  /// the sheet: `false` withdraws a claim); null when no row.
+  final bool? willingToTravel;
+
+  /// Stored salary-period slug (#1587: `month` | `day` | `year`), or null when
+  /// no row. Labels come from [kSalaryPeriodLabels], mirroring the server's
+  /// `SALARY_PERIODS` (the options endpoint does not serve this dictionary).
+  final String? salaryPeriod;
+
+  /// The stored structured availability object (#1587), or null when no row.
+  /// `available_from` is the worker's stated day printed as stated (day
+  /// precision, no timezone arithmetic — same rule as the server).
+  final WorkAvailabilityDto? availability;
+
   /// Wire keys whose stored value was withheld; a client must not re-send.
   final List<String> partial;
 
@@ -2077,10 +2102,17 @@ class WorkPreferencesDto extends Equatable {
   factory WorkPreferencesDto.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic> values =
         (json['values'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    final Object? availabilityRaw = values['availability'];
     return WorkPreferencesDto(
       languages: _slugList(values['languages']),
       workTypes: _slugList(values['work_types']),
       jobType: values['job_type'] as String?,
+      commuteKm: (values['commute_max_km'] as num?)?.toInt(),
+      willingToTravel: values['willing_to_travel'] as bool?,
+      salaryPeriod: values['salary_period'] as String?,
+      availability: availabilityRaw is Map<String, dynamic>
+          ? WorkAvailabilityDto.fromJson(availabilityRaw)
+          : null,
       partial: (json['partial'] as List<dynamic>?)
               ?.whereType<String>()
               .toList() ??
@@ -2089,8 +2121,70 @@ class WorkPreferencesDto extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[languages, workTypes, jobType, partial];
+  List<Object?> get props => <Object?>[
+        languages,
+        workTypes,
+        jobType,
+        commuteKm,
+        willingToTravel,
+        salaryPeriod,
+        availability,
+        partial,
+      ];
 }
+
+/// One stored availability object (`availability` json attribute).
+class WorkAvailabilityDto extends Equatable {
+  const WorkAvailabilityDto({
+    this.status,
+    this.availableFrom,
+    this.noticeDays,
+  });
+
+  /// Closed status slug (`immediate` | `within_week` | `within_month` |
+  /// `serving_notice`), or null when unset. Labels come from
+  /// [kAvailabilityStatusLabels], mirroring the server's
+  /// `AVAILABILITY_STATUSES` (the options endpoint does not serve it).
+  final String? status;
+
+  /// The worker's stated day, `YYYY-MM-DD`, printed as stated.
+  final String? availableFrom;
+
+  /// Notice period in days (0–180 server-side), or null when unset.
+  final int? noticeDays;
+
+  factory WorkAvailabilityDto.fromJson(Map<String, dynamic> json) =>
+      WorkAvailabilityDto(
+        status: json['status'] as String?,
+        availableFrom: json['available_from'] as String?,
+        noticeDays: (json['notice_period_days'] as num?)?.toInt(),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[status, availableFrom, noticeDays];
+}
+
+/// Printable labels for the two tiny closed vocabularies the options endpoint
+/// does NOT serve (#1587).
+///
+/// A deliberate, documented mirror of the server dictionaries
+/// (`SALARY_PERIODS` / `AVAILABILITY_STATUSES` in
+/// `apps/api/src/profiles/worker-preferences.vocabulary.ts`) — the same
+/// precedent as `_kTradeLabels` in `trade_key_label.dart` for small stable
+/// sets. Unknown slugs fall back to [_humanizeSlug]-style title-casing at the
+/// call site, never a raw `snake_case` id.
+const Map<String, String> kSalaryPeriodLabels = <String, String>{
+  'month': 'Mahina',
+  'day': 'Din',
+  'year': 'Saal',
+};
+
+const Map<String, String> kAvailabilityStatusLabels = <String, String>{
+  'immediate': 'Turant uplabdh',
+  'within_week': 'Ek hafte mein',
+  'within_month': 'Ek mahine mein',
+  'serving_notice': 'Notice period mein',
+};
 
 class WorkPrefOptionsDto extends Equatable {
   const WorkPrefOptionsDto({
@@ -2817,6 +2911,8 @@ class EducationEntryDto extends Equatable {
         year: (json['year'] as num?)?.toInt(),
         institute: json['institute'] as String?,
       );
+
+
 
   @override
   List<Object?> get props =>

@@ -15,6 +15,7 @@ class ProfileSummary extends Equatable {
     this.tradeLabel,
     this.city,
     this.verified = false,
+    this.attested = false,
     required this.strengthSignals,
     this.strengthMax,
     this.missingFields = const <String>[],
@@ -25,6 +26,14 @@ class ProfileSummary extends Equatable {
     this.educationField,
     this.languages = const <String>[],
     this.workTypes = const <String>[],
+    this.commuteKm,
+    this.willingToTravel = false,
+    this.salaryPeriod,
+    this.availabilityStatus,
+    this.availableFrom,
+    this.noticeDays,
+    this.trainings = const <String>[],
+    this.occupations = const <SecondaryOccupation>[],
     this.profileStatus = 'none',
     this.source,
   });
@@ -44,7 +53,18 @@ class ProfileSummary extends Equatable {
   final String? city;
 
   /// True when the worker has a CONFIRMED profile.
+  ///
+  /// This is a LIFECYCLE signal, not a trust signal: it must never drive a
+  /// "Verified" badge. Confirmation says the profile finished; only the
+  /// server's attestation says someone checked it (see [attested]).
   final bool verified;
+
+  /// True only when the SERVER attests this worker (`GET /resume/document`
+  /// `header.trustBadge` non-empty). False for self-declared, employer-rated,
+  /// unverified, unknown, and document-null (pre-render) — all of which render
+  /// NO badge and NO "Unverified" copy. The ONLY driver of the Verified
+  /// pill/seal (#1586).
+  final bool attested;
 
   /// Profile strength as the backend reports it: an integer SIGNAL COUNT
   /// (`countFields` recomputed on read — apps/api profile-summary.mapper.ts),
@@ -97,6 +117,39 @@ class ProfileSummary extends Equatable {
   /// section.
   final List<String> workTypes;
 
+  /// Stored commute distance in km (#1587, v4 elicitation). `null` when no row
+  /// — the row is then hidden, never a "0 km" fabrication.
+  final int? commuteKm;
+
+  /// Stored travel willingness (#1587). Only `true` ever prints; `false` is a
+  /// withdrawn claim, so the row is hidden — never a "travel nahi" verdict.
+  final bool willingToTravel;
+
+  /// The salary period as a PRINTABLE label (#1587: Mahina/Din/Saal), resolved
+  /// against the server's `SALARY_PERIODS`. `null` when no row — hidden.
+  final String? salaryPeriod;
+
+  /// The availability status as a PRINTABLE label (#1587), resolved against
+  /// the server's `AVAILABILITY_STATUSES`. `null` when unset — hidden.
+  final String? availabilityStatus;
+
+  /// The worker's stated start day, `YYYY-MM-DD`, printed as stated (#1587).
+  /// `null`/blank when unset — hidden.
+  final String? availableFrom;
+
+  /// Notice period in days (#1587). `null` when unset — hidden.
+  final int? noticeDays;
+
+  /// The worker's courses as `name [· provider] [· year]` display lines
+  /// (#1587, Layer A (d) trainings). `[]` when none — hidden.
+  final List<String> trainings;
+
+  /// Secondary occupations as the SERVER-resolved `{role_id, label}` rows
+  /// (#1587, Layer A (f)). Labels render verbatim — a `role_*` id is never
+  /// humanised client-side, and a row with an empty label is dropped, never
+  /// guessed. `[]` when none — hidden.
+  final List<SecondaryOccupation> occupations;
+
   /// The raw backend `profile_status` (`worker_profiles.profile_status`):
   /// 'none' | 'draft' | 'extracting' | 'extracted' | 'confirmed'. Defaults to
   /// `'none'` for a hand-built / no-profile summary.
@@ -128,6 +181,40 @@ class ProfileSummary extends Equatable {
   /// renders the trade-sheet shape and edits by returning to the form.
   bool get isFormSourced => source == 'form';
 
+  /// Returns a copy with attestation applied — the post-ready hydration step
+  /// (#1586). The ONLY mutation the badge path performs; everything else on
+  /// a loaded summary is final.
+  ProfileSummary copyWith({bool? attested}) {
+    return ProfileSummary(
+      displayName: displayName,
+      initials: initials,
+      tradeLabel: tradeLabel,
+      city: city,
+      verified: verified,
+      attested: attested ?? this.attested,
+      strengthSignals: strengthSignals,
+      strengthMax: strengthMax,
+      missingFields: missingFields,
+      skills: skills,
+      machines: machines,
+      experienceYears: experienceYears,
+      educationLevel: educationLevel,
+      educationField: educationField,
+      languages: languages,
+      workTypes: workTypes,
+      commuteKm: commuteKm,
+      willingToTravel: willingToTravel,
+      salaryPeriod: salaryPeriod,
+      availabilityStatus: availabilityStatus,
+      availableFrom: availableFrom,
+      noticeDays: noticeDays,
+      trainings: trainings,
+      occupations: occupations,
+      profileStatus: profileStatus,
+      source: source,
+    );
+  }
+
   @override
   List<Object?> get props => <Object?>[
         displayName,
@@ -135,6 +222,7 @@ class ProfileSummary extends Equatable {
         tradeLabel,
         city,
         verified,
+        attested,
         strengthSignals,
         strengthMax,
         missingFields,
@@ -145,7 +233,26 @@ class ProfileSummary extends Equatable {
         educationField,
         languages,
         workTypes,
+        commuteKm,
+        willingToTravel,
+        salaryPeriod,
+        availabilityStatus,
+        availableFrom,
+        noticeDays,
+        trainings,
+        occupations,
         profileStatus,
         source,
       ];
+}
+
+/// One secondary occupation exactly as the server labelled it (Layer A (f)).
+class SecondaryOccupation extends Equatable {
+  const SecondaryOccupation({required this.roleId, required this.label});
+
+  final String roleId;
+  final String label;
+
+  @override
+  List<Object?> get props => <Object?>[roleId, label];
 }

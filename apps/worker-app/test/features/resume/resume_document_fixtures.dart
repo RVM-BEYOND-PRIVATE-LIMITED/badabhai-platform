@@ -12,7 +12,7 @@ import 'package:badabhai_worker_app/core/api/api_models.dart';
 const TradeSheetResumeDocument kTurnerSheet = TradeSheetResumeDocument(
   header: ResumeDocumentHeaderDto(
     name: 'Suresh Yadav',
-    trustBadge: 'RVM-attested',
+    trustBadge: 'BadaBhai Verified',
   ),
   trade: 'cnc_turner',
   headline: ResumeSheetHeadlineDto(

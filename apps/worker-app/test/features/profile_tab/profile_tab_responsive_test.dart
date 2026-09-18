@@ -122,7 +122,7 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
     repo = _MockProfileSummaryRepository();
-    when(() => repo.summary()).thenAnswer((_) async {
+    when(() => repo.summary(includeDisplayExtras: true)).thenAnswer((_) async {
       switch (mode) {
         case _Load.failed:
           throw const NetworkFailure();
@@ -174,7 +174,9 @@ void main() {
   kitMatrixTest(
     'an empty profile survives every shape',
     () => build(summary: _bare),
-    primary: () => find.text('Skills aur anubhav'),
+    // #1579 — the empty skills section hides entirely now, so the footer
+    // proves the screen survived instead.
+    primary: () => find.text('Logout'),
   );
 
   kitMatrixTest(

@@ -167,12 +167,20 @@ class _ProfileTabView extends StatelessWidget {
             missingFields: s.missingFields,
           ),
         ],
-        const SizedBox(height: 12),
-        _skillsCard(s),
-        if (s.languages.isNotEmpty || s.workTypes.isNotEmpty) ...<Widget>[
+        // #1579 — the empty-zone rule, enforced by construction: a section
+        // with no content renders NOTHING (no heading, no gap, no claim-like
+        // empty sentence). A section collectable through an existing one-tap
+        // route renders a single compact Add row instead. Sections with no
+        // collection route (skills — chat-extracted, no editor) hide entirely;
+        // the strength nudge above owns guidance there.
+        if (_hasSkillsContent(s)) ...<Widget>[
           const SizedBox(height: 12),
-          _languagesAndWorkTypesCard(s),
+          _skillsCard(s),
         ],
+        const SizedBox(height: 12),
+        _languagesSection(context, s),
+        const SizedBox(height: 12),
+        _workInfoSection(context, s),
         const SizedBox(height: 12),
         _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
@@ -284,23 +292,27 @@ class _ProfileTabView extends StatelessWidget {
     }
   }
 
+  /// Whether the skills card has anything to show (#1579). The card renders
+  /// ONLY in this case — an empty section is hidden entirely, never a heading
+  /// with an empty-state sentence (absence is not a claim, and skills have no
+  /// one-tap collection route for an Add entry to point at).
+  static bool _hasSkillsContent(ProfileSummary s) =>
+      s.skills.isNotEmpty ||
+      s.machines.isNotEmpty ||
+      s.experienceYears != null ||
+      _educationLabel(s) != null;
+
   /// Skills, machines and years of experience as a STRUCTURED section — the data
   /// the LLM extracts after registration, surfaced here instead of only being
   /// baked into the resume text (the user's ask). Every field is PII-free: the
   /// canonical skill/machine labels and a years NUMBER — never the free-text
   /// experience summary (which the backend deliberately keeps off the wire, §2).
-  /// Renders an honest empty state until the worker has shared any.
   ///
   /// The count pill carries the real total and nothing else (ruling R8): the
   /// chips have NO green check, because a tick claims someone verified the value
   /// and no per-item verification exists on the wire (R9, B8).
   Widget _skillsCard(ProfileSummary s) {
     final String? education = _educationLabel(s);
-    final bool hasAny =
-        s.skills.isNotEmpty ||
-        s.machines.isNotEmpty ||
-        s.experienceYears != null ||
-        education != null;
     return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,15 +323,35 @@ class _ProfileTabView extends StatelessWidget {
             count: s.skills.length + s.machines.length,
           ),
           const SizedBox(height: 12),
-          if (!hasAny)
-            Text(
-              'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
-              style: OnboardingTypography.bodyMuted(),
-            )
-          else
-            ..._structuredRows(s, education),
+          ..._structuredRows(s, education),
         ],
       ),
+    );
+  }
+
+  /// #1579 — the languages section: the filled card, or ONE compact Add entry
+  /// to the existing Profile Edit route when empty. Never a heading-only stub.
+  Widget _languagesSection(BuildContext context, ProfileSummary s) {
+    if (s.languages.isNotEmpty || s.workTypes.isNotEmpty) {
+      return _languagesAndWorkTypesCard(s);
+    }
+    return _addEntryCard(
+      icon: Icons.translate_rounded,
+      title: 'Bhasha aur kaam jodein',
+      subtitle: 'Profile edit mein',
+      onTap: () => context.pushOnce(Routes.profileEdit),
+    );
+  }
+
+  /// #1579 — the work-info section: the filled card, or ONE compact Add entry
+  /// to the existing Profile Edit route when empty.
+  Widget _workInfoSection(BuildContext context, ProfileSummary s) {
+    if (_hasWorkInfo(s)) return _workInfoCard(s);
+    return _addEntryCard(
+      icon: Icons.work_outline_rounded,
+      title: 'Kaam ki jaankari jodein',
+      subtitle: 'Profile edit mein',
+      onTap: () => context.pushOnce(Routes.profileEdit),
     );
   }
 
@@ -426,9 +458,115 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
+  /// True when any v4 work fact is present (#1587). The card renders ONLY in
+  /// this case, so absent answers add no heading and no gap.
+  bool _hasWorkInfo(ProfileSummary s) =>
+      s.commuteKm != null ||
+      s.willingToTravel ||
+      (s.salaryPeriod?.isNotEmpty ?? false) ||
+      (s.availabilityStatus?.isNotEmpty ?? false) ||
+      (s.availableFrom?.isNotEmpty ?? false) ||
+      s.noticeDays != null ||
+      s.trainings.isNotEmpty ||
+      s.occupations.isNotEmpty;
+
+  /// #1587 — the v4 elicited facts (commute, travel, salary period,
+  /// availability, trainings, secondary occupations) as factual rows and
+  /// server-labelled chips. Every row is dropped when its source is absent;
+  /// only `true` travel prints, and occupation labels render verbatim (never
+  /// humanised from the id).
+  Widget _workInfoCard(ProfileSummary s) {
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const KitCardHeader(
+            icon: Icons.work_outline_rounded,
+            title: 'Kaam ki jaankari',
+          ),
+          const SizedBox(height: 12),
+          ..._workInfoRows(s),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _workInfoRows(ProfileSummary s) {
+    final List<Widget> groups = <Widget>[
+      if (s.commuteKm != null)
+        _infoRow(
+          Icons.commute_rounded,
+          'Aane-jaane: ${s.commuteKm} km tak',
+        ),
+      if (s.willingToTravel)
+        _infoRow(
+          Icons.flight_takeoff_rounded,
+          'Travel kar sakte hain',
+        ),
+      if (s.salaryPeriod?.isNotEmpty ?? false)
+        _infoRow(
+          Icons.payments_outlined,
+          'Salary: ${s.salaryPeriod} ke hisaab se',
+        ),
+      if (s.availabilityStatus?.isNotEmpty ?? false)
+        _infoRow(
+          Icons.event_available_outlined,
+          'Uplabdhata: ${s.availabilityStatus}',
+        ),
+      if (s.availableFrom?.isNotEmpty ?? false)
+        _infoRow(
+          Icons.calendar_month_outlined,
+          'Kab se: ${s.availableFrom}',
+        ),
+      if (s.noticeDays != null)
+        _infoRow(
+          Icons.hourglass_bottom_outlined,
+          'Notice: ${s.noticeDays} din',
+        ),
+      for (final String training in s.trainings)
+        _infoRow(Icons.school_outlined, 'Training: $training'),
+      if (s.occupations.isNotEmpty)
+        _chipGroup(
+          'Aur kaam',
+          <String>[for (final o in s.occupations) o.label],
+          OnboardingColors.shiftBlue,
+        ),
+    ];
+    return <Widget>[
+      for (int i = 0; i < groups.length; i++) ...<Widget>[
+        if (i > 0) const SizedBox(height: 12),
+        groups[i],
+      ],
+    ];
+  }
+
+  /// A single compact Add entry (#1579): no heading, no claim-like empty
+  /// sentence — one tappable row to the route that collects the section.
+  /// Used ONLY where such a route exists; anything else hides entirely.
+  Widget _addEntryCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    // Method, not class: it closes over nothing and lives beside its callers.
+    return KitCard(
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        child: BbListRow.kit(
+          icon: icon,
+          title: title,
+          subtitle: subtitle,
+          onTap: onTap,
+        ),
+      ),
+    );
+  }
+
   /// "12th • Electronics" / "12th" / "Electronics"; `null` when both are absent
   /// so the row is omitted entirely. PII-free labels, never fabricated.
-  String? _educationLabel(ProfileSummary s) {
+  static String? _educationLabel(ProfileSummary s) {
     final List<String> parts = <String>[
       if (s.educationLevel?.isNotEmpty ?? false)
         humanizeEducationLevel(s.educationLevel!),
