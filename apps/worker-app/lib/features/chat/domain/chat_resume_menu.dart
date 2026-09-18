@@ -23,6 +23,13 @@ const String kResumeMenuChatCreateKey = 'resume_chat_create';
 /// Prefix of the six `section_*` edit keys (`section_general_info`, …).
 const String kResumeMenuSectionPrefix = 'section_';
 
+/// The piloted per-section walk: "Technical Skills" re-asks only the
+/// capability questions on the EXISTING trade-form pages
+/// (`trade_form_section_walk.dart`) instead of opening the generic Resume
+/// Edit. Other sections keep the Edit-surface route until their own walk
+/// lands. Pinned against the server source by the parity test like the rest.
+const String kResumeMenuTechnicalSkillsKey = 'section_technical_skills';
+
 /// What tapping a served menu option should DO.
 enum ResumeMenuAction {
   /// Ordinary answer / a menu-navigation turn the SERVER must resolve (the root

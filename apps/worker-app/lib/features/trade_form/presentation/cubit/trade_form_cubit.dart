@@ -11,6 +11,7 @@ import '../../data/trade_form_marker_store.dart';
 import '../../domain/form_fact_registry.dart';
 import '../../domain/trade_form_models.dart';
 import '../../domain/trade_form_repository.dart';
+import '../trade_form_section_walk.dart';
 
 enum TradeFormStatus {
   /// Fetching `GET /profiling/form`.
@@ -252,6 +253,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   final TradeFormMarkerStore _markerStore;
   final KnownWorkerFactsStore _knownFacts;
 
+  /// The résumé-section walk this cubit is running, if any
+  /// (`trade_form_section_walk.dart` — the Technical Skills pilot). Null is
+  /// the full walk, exactly today's behaviour. Set by [load] and KEPT across
+  /// calls, so a retry (`load()` with no argument) and the `schema_stale`
+  /// resync stay inside the same section rather than silently widening back
+  /// to the whole form.
+  String? _sectionKey;
+
   /// Marker types already saved for this worker.
   Set<TradeFormMarkerType> _doneMarkers = <TradeFormMarkerType>{};
 
@@ -282,7 +291,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     unawaited(_markerStore.markCompleted(marker));
   }
 
-  Future<void> load() async {
+  Future<void> load({String? sectionKey}) async {
+    // A non-null argument (re)arms the section walk; null KEEPS whatever is
+    // armed — the error-state retry calls `load()` bare and must not widen a
+    // section walk back to the full form.
+    if (sectionKey != null) _sectionKey = sectionKey;
     emit(state.copyWith(status: TradeFormStatus.loading, loadError: null));
     try {
       final TradeForm? form = await _repo.loadForm();
@@ -292,7 +305,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       }
       await _syncDoneMarkers();
       final Set<WorkerFact> known = await _knownFacts.knownFacts();
-      final List<TradeFormFlatStep> flat = _flatten(form);
+      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
       final int total = form.questionSteps.length;
       final int answeredCount =
           form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
@@ -325,6 +338,20 @@ class TradeFormCubit extends Cubit<TradeFormState> {
           for (final TradeFormStep step in section.screens)
             TradeFormFlatStep(sectionTitle: section.title, step: step),
       ];
+
+  /// Narrows a flattened walk to the armed résumé section, preserving server
+  /// order. Null (no section) or a filter that would leave nothing to walk
+  /// degrades to the FULL list — see `trade_form_section_walk.dart` for why
+  /// an empty walk is never served.
+  List<TradeFormFlatStep> _applySection(List<TradeFormFlatStep> flat) {
+    final TradeFormStepFilter? filter = tradeFormSectionFilterFor(_sectionKey);
+    if (filter == null) return flat;
+    final List<TradeFormFlatStep> kept = <TradeFormFlatStep>[
+      for (final TradeFormFlatStep f in flat)
+        if (filter(f.step)) f,
+    ];
+    return kept.isEmpty ? flat : kept;
+  }
 
   /// Where a fresh load opens: the first step still to ask or, when nothing
   /// is left, the last step that is NOT a saved marker — normally the last
@@ -558,7 +585,10 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         return;
       }
       await _syncDoneMarkers();
-      final List<TradeFormFlatStep> flat = _flatten(form);
+      // A section walk re-fetches the WHOLE form here by design (the
+      // just-answered question may gate others server-side); the armed
+      // section re-applies so the resync cannot widen the walk mid-stride.
+      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
       final int answeredIdx = flat.indexWhere((TradeFormFlatStep f) =>
           f.step is TradeFormQuestionStep &&
           (f.step as TradeFormQuestionStep).question.id == result.questionKey);

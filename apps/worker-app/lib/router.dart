@@ -511,7 +511,9 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.tradeForm,
-        builder: (_, __) => const TradeFormScreen(),
+        builder: (_, GoRouterState state) => TradeFormScreen(
+          sectionKey: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: Routes.building,

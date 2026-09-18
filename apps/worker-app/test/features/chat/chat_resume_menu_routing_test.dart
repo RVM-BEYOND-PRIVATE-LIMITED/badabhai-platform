@@ -26,7 +26,9 @@ import 'package:badabhai_worker_app/router.dart';
 ///   2. route on `option_key`, never on the label copy:
 ///      - `resume_edit` / `resume_redo` ask the SERVER for the next menu;
 ///      - `resume_upload` opens the résumé-import screen (never submitted);
-///      - `section_*` opens the Resume tab's Edit (never submitted);
+///      - `section_technical_skills` opens its filtered trade-form walk
+///        (never submitted); every OTHER `section_*` opens the Resume tab's
+///        Edit (never submitted) until its own walk lands;
 ///      - `resume_chat_create` mints a NEW session and resets the transcript.
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -162,6 +164,12 @@ void main() {
                 body: Center(child: Text('EDIT TARGET ${s.extra}')),
               ),
             ),
+            GoRoute(
+              path: Routes.tradeForm,
+              builder: (_, GoRouterState s) => Scaffold(
+                body: Center(child: Text('SECTION FORM TARGET ${s.extra}')),
+              ),
+            ),
           ],
         );
 
@@ -251,6 +259,25 @@ void main() {
 
       expect(find.text('EDIT TARGET section_general_info'), findsOneWidget);
       verifyNever(() => repo.sendMessage('General Info',
+          submissionId: any(named: 'submissionId')));
+    });
+
+    testWidgets(
+        'Technical Skills opens its filtered trade-form walk, never submitted',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => _turn(_editReply, _sectionOptions));
+      await pumpChat(tester);
+      await triggerMenu(tester);
+
+      await tester.tap(find.text('Technical Skills'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('SECTION FORM TARGET section_technical_skills'),
+          findsOneWidget);
+      verifyNever(() => repo.sendMessage('Technical Skills',
           submissionId: any(named: 'submissionId')));
     });
 
