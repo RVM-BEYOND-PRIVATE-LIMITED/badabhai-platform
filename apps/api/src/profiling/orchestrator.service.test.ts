@@ -211,7 +211,7 @@ function makeWorld(
     chat as never,
     events as never,
     llm as never,
-  
+
     // ADR-0041 RI-5. NO PENDING OFFER unless a test asks for one — see `resumeOffer`.
     resumeSuggestions as never,
     // #1504 item 5 (city-seed). No worker record to seed from unless a test overrides it.
@@ -384,12 +384,14 @@ describe("#1504 item 5 (city-seed) — a fresh interview seeds current_city from
   });
 
   it("takeTurn: a non-gazetteer city is seeded AS TYPED, and the question is still skipped", async () => {
-    const { orchestrator, store } = makeWorld({ workerCity: "Patna Gaon XYZ" });
+    // ("Rampur Gaon XYZ": contains no gazetteer city — "Patna Gaon XYZ" served here before #1560
+    // added Patna, and now resolves to "Patna".)
+    const { orchestrator, store } = makeWorld({ workerCity: "Rampur Gaon XYZ" });
     const result = await orchestrator.takeTurn(say("shuru karein"));
     expect(result.questionKey).toBe("q_years");
     const saved = store.get(SESSION)?.profiling;
     expect(saved?.answerMap.find((r) => r.question_key === "q_city")?.value_normalized).toBe(
-      "Patna Gaon XYZ",
+      "Rampur Gaon XYZ",
     );
   });
 
@@ -2359,8 +2361,20 @@ describe("chips on screen own the message — custom answers (#1506)", () => {
       questionKey: null,
       at: T0.toISOString(),
       options: [
-        { option_key: "llm_a", label_text: "Haan", value: "Haan", implies_skill_id: null, is_none_of_above: false },
-        { option_key: "llm_b", label_text: "Nahi", value: "Nahi", implies_skill_id: null, is_none_of_above: false },
+        {
+          option_key: "llm_a",
+          label_text: "Haan",
+          value: "Haan",
+          implies_skill_id: null,
+          is_none_of_above: false,
+        },
+        {
+          option_key: "llm_b",
+          label_text: "Nahi",
+          value: "Nahi",
+          implies_skill_id: null,
+          is_none_of_above: false,
+        },
       ],
       progress: { answered: 0, total: 2 },
       whyText: null,
