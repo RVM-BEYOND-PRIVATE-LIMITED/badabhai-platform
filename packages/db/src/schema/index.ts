@@ -38,6 +38,7 @@ import { workerResumeImports } from "./resume-import";
 import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
+import { profileCorrections } from "./profile-correction";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
 import {
@@ -114,6 +115,7 @@ export * from "./qualification";
 export * from "./language";
 export * from "./portfolio";
 export * from "./profile";
+export * from "./profile-correction";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -285,6 +287,9 @@ export const schema = {
   workerConsents,
   payers,
   workerProfiles,
+  // #1311 — per-field extracted-correction audit facts (migration 0117). Present on
+  // every migrated database, so it belongs in this object as well as the `export *` above.
+  profileCorrections,
   chatSessions,
   voiceNotes,
   chatMessages,

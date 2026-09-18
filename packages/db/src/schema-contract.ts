@@ -518,6 +518,34 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0117-profile-correction-table",
+    migration: "0117_profile_correction",
+    kind: "table",
+    table: "profile_correction",
+    requiredBy:
+      "ProfileCorrectionsRepository on POST /profile/corrections (count + insert, " +
+      "unconditional) — names the table on every extracted-profile correction",
+    failureMode:
+      "the corrections route 500s (relation does not exist). Old builds on a migrated " +
+      "database are fine (a superset); new builds on an unmigrated one are not, which " +
+      "is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0117-profile-correction-rls",
+    migration: "0117_profile_correction",
+    kind: "rls",
+    table: "profile_correction",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. A correction row links a worker's profile to the interview it was corrected " +
+      "against, with when and which field — correction linkage across the worker base, to " +
+      "every PostgREST role. Both surfaces keep working, so nothing reports it",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

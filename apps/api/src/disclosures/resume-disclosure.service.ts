@@ -249,6 +249,24 @@ export class ResumeDisclosureService {
       }
     }
 
+    // THE NUMBER CROSSES TO THE PAYER — owner ruling 2026-09-18 REVERSING the
+    // 2026-08-28 withholding. A sheet handed over at a factory gate is useless without a
+    // number, and the payer copy is only ever produced post-unlock (consent + cap +
+    // deletion gates above), so the number reaches exactly the payer who unlocked this
+    // worker and nobody else. Decrypted server-side on the same degrade as the name:
+    // a rotated or tampered token costs the phone line, never the disclosure. Never
+    // logged, evented, or persisted — the B-D/B-E rule is unchanged (the number rides
+    // the RENDER INPUT to the PDF, which is the artifact the payer unlocked, not the
+    // spine). Name, photo, salary, WhatsApp and licence gating are identical.
+    let phone: string | null = null;
+    if (worker?.phoneE164) {
+      try {
+        phone = this.pii.decrypt(worker.phoneE164);
+      } catch {
+        this.logger.warn(`could not decrypt phone for worker ${workerId}; rendering without it`);
+      }
+    }
+
     // THE TRADE CAPABILITY BLOCK CROSSES TO THE PAYER, and that is the intended reading of the
     // audience rule rather than an oversight. What a worker can do on a machine — his machines,
     // controllers, materials, setting operations, the tolerance he holds — is trade information
@@ -344,6 +362,9 @@ export class ResumeDisclosureService {
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
       occupations,
+      // 2026-09-18 reversal: the decrypted number, or null when undecryptable/absent
+      // (degrades to the same missing line as a worker with no number on file).
+      phone,
       // ADR-0042 D9 / Layer A (g) — THE VERIFICATION TIER CROSSES TO THE PAYER, deliberately.
       // It is a trust signal about the worker's record — the entire point of the badge — and it is
       // not one of the three things this surface withholds (real name, photo, expected salary).
