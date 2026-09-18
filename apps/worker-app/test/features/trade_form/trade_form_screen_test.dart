@@ -990,6 +990,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(_optionSelected(tester, 'ITI'), isTrue);
 
+      // ITI names a trade, so the subject is now shown and REQUIRED on this
+      // page (a used row must be complete before the wizard advances).
+      await tester.enterText(find.byType(TextField).first, 'Machinist');
+      await tester.pump();
+
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein')); // -> council
       await tester.pumpAndSettle();
@@ -1013,7 +1018,10 @@ void main() {
       await tester.ensureVisible(find.text('Aur ek certificate jodein'));
       await tester.tap(find.text('Aur ek certificate jodein'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      // A used certificate row must be complete: name, issuer and year.
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
       // #1465 — with NO education added, the marker is TWO internal pages:
       // certificates -> credential+subject. The council and year+institute
@@ -1040,7 +1048,10 @@ void main() {
       await tester.ensureVisible(find.text('Aur ek certificate jodein'));
       await tester.tap(find.text('Aur ek certificate jodein'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      // A used certificate row must be complete: name, issuer and year.
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
       // #1465 — no education, so the marker's LAST internal page is
       // credential+subject, one hop away.
@@ -1094,13 +1105,25 @@ void main() {
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
-      for (int i = 0; i < 2; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // A used education row is complete: credential + subject (ITI names one)
+      // -> council -> year + institute.
+      await tester.ensureVisible(find.text('ITI'));
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Machinist');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> council
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('NCVT'));
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> year+institute
+      await tester.pumpAndSettle();
       // Now on year+institute. Two fields (year, then institute).
       expect(find.text('Institute ka naam'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '2018');
       await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
       await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
@@ -1138,12 +1161,20 @@ void main() {
       await tester.enterText(find.byType(TextField).first, 'electric');
       await tester.pump();
 
-      // Walk the remaining 2 internal pages (council, year+institute) to save.
-      for (int i = 0; i < 2; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // Walk the remaining pages (council, then year+institute), completing the
+      // used row, to save.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> council
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('NCVT'));
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> year+institute
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '2018');
+      await tester.enterText(find.byType(TextField).last, 'Govt ITI');
+      await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1620,6 +1651,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
       await tester.pump();
       // #issue2 — every used card needs a start date before the walk can
       // finish, including the one no longer on screen when "Ho gaya" is hit.
@@ -1635,6 +1667,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Beta Corp');
       await tester.enterText(find.byType(TextField).at(1), 'Welder');
+      await tester.enterText(find.byType(TextField).at(2), 'Gate pe welding karta tha');
       await tester.pump();
       await _pickStartDate(tester, year: '2022', month: 'Feb');
 
@@ -1690,6 +1723,7 @@ void main() {
     Future<void> fillUsedCard(WidgetTester tester) async {
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
       await tester.pump();
     }
 
@@ -1820,6 +1854,7 @@ void main() {
           TradeFormEmploymentEntry(
             employerName: 'Acme',
             roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
             startYm: future,
           ),
         ]),
@@ -1841,6 +1876,7 @@ void main() {
           TradeFormEmploymentEntry(
             employerName: 'Acme',
             roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
             startYm: '1900-01',
           ),
         ]),
@@ -1861,6 +1897,7 @@ void main() {
           TradeFormEmploymentEntry(
             employerName: 'Acme',
             roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
             startYm: '2020-06',
             endYm: '2019-05',
             stillWorking: false,
@@ -1904,6 +1941,91 @@ void main() {
       if (nowMonth < 12) {
         expect(find.text(months[nowMonth]), findsNothing);
       }
+    });
+
+    // A used card must carry every field the sheet prints — the company name,
+    // the role and the work description. Only city/state may be left empty.
+    testWidgets('a used card missing its work description is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aap kya kaam karte the — likhein.',
+      );
+    });
+
+    testWidgets('a used card missing its role is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: '',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aapka kaam / role likhein.',
+      );
+    });
+
+    testWidgets('a used card missing its company name is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: '',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(key.currentState!.currentPageError(), 'Company ka naam likhein.');
+    });
+
+    testWidgets('a used card passes once name/role/work/start are set — '
+        'city and state stay optional', (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+            employerCity: 'Pune',
+            employerState: 'Maharashtra',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(key.currentState!.currentPageError(), isNull);
     });
   });
 
@@ -1986,6 +2108,7 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
       await tester.pump();
       await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
@@ -2021,8 +2144,10 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
-      // The city field is the third: employer, role, then city.
+      // The city field is the third: employer, role, then city. Work-done is
+      // the fourth and is required on a used card.
       await tester.enterText(find.byType(TextField).at(2), 'Muzaffarpur');
+      await tester.enterText(find.byType(TextField).at(3), 'Naye parts banate the');
       await tester.pump();
       await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
@@ -2081,6 +2206,7 @@ void main() {
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
       await tester.enterText(find.byType(TextField).at(2), 'Rajasthan');
       await tester.enterText(find.byType(TextField).at(3), 'Kota');
+      await tester.enterText(find.byType(TextField).at(4), 'Naye parts banate the');
       await tester.pump();
       await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
