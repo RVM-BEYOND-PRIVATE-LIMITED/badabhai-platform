@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { MAX_ASKS_PER_QUESTION, MAX_ENGINE_ASKS } from "./next-question";
+import { MAX_ASKS_PER_QUESTION, MAX_ENGINE_ASKS, MAX_ENGINE_TURNS } from "./next-question";
 import { evaluatePredicate } from "./predicate";
 
 /**
@@ -209,17 +209,26 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     expect(worst).toBe(28);
   });
 
-  it("keeps the headroom small enough to be a decision rather than a default", () => {
-    // An inflated cap is not free: every ask it permits is a drop-off opportunity for a man
-    // answering in Hinglish on a mid-range Android between shifts. The cap should sit just above
-    // what the corpus needs, with room for the specific asks that are actually proposed — today
-    // that is the two Zone 5 credential questions in docs/profiling/sample-parity-gap.md.
+  it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
+    // POLICY CHANGE 2026-09-18 ("budget is NOT a constraint; app feel is paramount"). The old
+    // assertion here held the headroom DOWN (`<= 2`) because every additional ask was a
+    // drop-off opportunity. That posture is reversed: the cap sits generously above the corpus
+    // so a misunderstood question is clarified rather than silently cut, and frugality is no
+    // longer the deciding value.
     //
-    // ZERO HEADROOM AS OF THE FILL-GAP PHASE 1 is the point of this assertion at its limit: the
-    // worst-case worker spends the cap exactly, so the next tail question requires either a
-    // removed item or a new owner ruling on MAX_ENGINE_ASKS — not a quiet authoring edit.
+    // THE COMPARISON, STATED SO THE MOVE IS AUDITABLE:
+    //   before: cap 28, worst-case walk 28 (qp_cnc_turning 15 + qp_universal@3 10 + 3 mandatory
+    //           re-asks), headroom 0 — the cap WAS the corpus.
+    //   after:  cap 48, same worst-case walk 28 (the Layer A elicitation lands in the next PR
+    //           and will move this number), headroom 20.
+    // The `expect(worst).toBe(28)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBeLessThanOrEqual(2);
+    expect(MAX_ENGINE_ASKS - worst).toBe(20);
+
+    // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
+    // channel) must still terminate well inside a session worth of turns; infinity is banned.
+    expect(MAX_ENGINE_TURNS).toBeGreaterThan(MAX_ENGINE_ASKS);
+    expect(MAX_ENGINE_TURNS).toBeLessThan(1_000);
   });
 
   it("every pack fits the budget, not merely the largest one", () => {

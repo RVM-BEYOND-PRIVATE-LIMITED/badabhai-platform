@@ -55,19 +55,25 @@ export { EXPERIENCE_GATE_PROMPT };
 /**
  * How many questions the model may ask before the engine takes over.
  *
- * TWENTY. Phase A covers four topics and a worker with three jobs legitimately needs a dozen
- * turns for the experience stretch alone; below about fifteen the cap fires on ordinary
- * interviews rather than runaway ones, which would make the LLM path feel arbitrarily truncated.
- * It is a RUNAWAY GUARD, not a budget — the model is expected to finish well inside it.
+ * RAISED 20 → 30 (owner policy 2026-09-18: "LLM turn caps — set generously"). Phase A is where
+ * the model names the trade, the role and each job entry, and the owner has prioritized rich,
+ * dense profiles over frugality: a worker describing an unusual trade or a fourth job must not
+ * meet an arbitrary truncation. Thirty keeps the guard's purpose — a RUNAWAY ends here without
+ * costing another call, because the count is checked BEFORE the call — while sitting far above
+ * any ordinary interview (three jobs needs roughly a dozen turns). The engine's own ask budget
+ * and `MAX_ENGINE_TURNS` remain the outer backstops.
  */
-export const MAX_LLM_ASKS = 20;
+export const MAX_LLM_ASKS = 30;
 
 /**
- * How many jobs a worker may describe. FIVE, and the reason is the résumé rather than the cost:
- * past five entries the document stops being scannable by the employer it exists to persuade,
- * and the loop gate gives the worker a natural place to stop long before this fires.
+ * How many jobs a worker may describe.
+ *
+ * RAISED 5 → 8 (owner policy 2026-09-18). The old "five" was a résumé-scannability opinion, and
+ * the resume's Work History section already renders as many dated rows as exist; the owner has
+ * ruled that completeness wins for a worker who genuinely held more jobs. The loop gate still
+ * gives a natural stop, and eight keeps the runaway guard meaningful.
  */
-export const MAX_EXPERIENCE_ENTRIES = 5;
+export const MAX_EXPERIENCE_ENTRIES = 8;
 
 const GATE_YES = "Haan";
 const GATE_NO = "Nahi";
