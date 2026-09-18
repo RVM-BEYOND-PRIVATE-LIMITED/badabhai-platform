@@ -135,25 +135,35 @@ describe("findWorkerVisibleJobById — the PII-free SHOW set (ADR-0024 §Surface
     expect(projectionOf(queries[1]!)).not.toContain("location_label");
   });
 
-  it("the V1 fallback INVENTS nothing — absent posting fields are literal NULL", async () => {
+  it("the V1 fallback INVENTS nothing — a missing trade stays a literal NULL", async () => {
     const { repo, queries } = makeDb([], [{ id: JOB_ID }]);
     await repo.findWorkerVisibleJobById(JOB_ID);
     const sel = queries[1]!.selection!;
 
-    // `job_postings` carries no trade, area, experience window, benefits or requirements.
-    // Null is the honest answer the client hides; back-deriving a trade through a bridge
-    // the spec retired, or widening the experience window to a default, would be
-    // fabricated content on a worker-facing screen.
+    // `job_postings` carries no trade dimension (only `role_title`). Null is the honest
+    // answer the client hides; back-deriving a trade through a bridge the spec retired
+    // would be fabricated content on a worker-facing screen.
+    expect(render(sel["tradeKey"]), "tradeKey must be a literal NULL").toMatch(/^NULL$/i);
+  });
+
+  it("the V1 fallback reads the #1561 card columns off the posting (never invented, never location_label)", async () => {
+    const { repo, queries } = makeDb([], [{ id: JOB_ID }]);
+    await repo.findWorkerVisibleJobById(JOB_ID);
+    const sel = queries[1]!.selection!;
+
+    // Migration 0116: area, the experience window, benefits and requirements live on
+    // `job_postings` itself, so the fallback selects the columns — a pre-migration
+    // posting simply reads NULL, which the service passes through honestly.
     for (const field of [
-      "tradeKey",
       "area",
       "minExperienceYears",
       "maxExperienceYears",
       "benefits",
       "requirements",
     ]) {
-      expect(render(sel[field]), `${field} must be a literal NULL`).toMatch(/^NULL$/i);
+      expect(render(sel[field]), `${field} must be a real column read`).not.toMatch(/^NULL$/i);
     }
+    expect(projectionOf(queries[1]!)).not.toContain("location_label");
   });
 });
 

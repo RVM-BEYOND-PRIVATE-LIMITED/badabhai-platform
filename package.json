@@ -22,6 +22,8 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
     "db:generate": "pnpm --filter @badabhai/db db:generate",
     "db:migrate": "pnpm --filter @badabhai/db db:migrate",
+    "db:seed:jobs": "pnpm --filter @badabhai/db db:seed:jobs",
+    "db:convert:seed-jobs": "pnpm --filter @badabhai/db db:convert:seed-jobs",
     "db:seed:demand": "pnpm --filter @badabhai/db db:seed:demand",
     "db:verify:demand": "pnpm --filter @badabhai/db db:verify:demand",
     "db:seed:skills": "pnpm --filter @badabhai/db db:seed:skills",
