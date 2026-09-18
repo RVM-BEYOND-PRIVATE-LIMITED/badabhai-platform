@@ -48,6 +48,7 @@ import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
+import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
@@ -256,6 +257,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
     // provides it; it needs only DATABASE, which is a global module.
     private readonly workerAttributes: WorkerAttributesRepository,
+    // Layer A elicitation — the chat's training/secondary-occupation answers land in their own
+    // normalized tables (`worker_training`, `worker_occupation`), not in `worker_attributes`,
+    // because those pages already own those stores. Insert-only-when-empty; see the service.
+    private readonly chatTableWrites: ChatTableWritesService,
     // Task 1 — the résumé-import road record. `ProfilesModule` already provides
     // this repository (employment suggestions), so this adds an injection and
     // no module edge.
@@ -529,6 +534,19 @@ export class ProfileExtractionProcessor extends WorkerHost {
       if (attributeRows.length > 0) {
         this.logger.log(
           `worker_attributes upserted job=${aiJobId} rows=${attributesWritten}/${attributeRows.length}`,
+        );
+      }
+
+      // Layer A elicitation — training and secondary occupations have their OWN tables, and the
+      // chat's answers land there for the same reason the pages read them from there: one store
+      // per fact. Insert-only-when-empty, so a form-written list is never edited. Same
+      // "allowed to throw, converges on retry" envelope as `upsertMany` above; the repositories
+      // are idempotent on redelivery.
+      const tableWrites = await this.chatTableWrites.applyFromChatAttributes(workerId, attributes);
+      if (tableWrites.trainingWritten || tableWrites.occupationsWritten > 0) {
+        this.logger.log(
+          `chat table writes job=${aiJobId} training=${tableWrites.trainingWritten} ` +
+            `occupations=${tableWrites.occupationsWritten}`,
         );
       }
 

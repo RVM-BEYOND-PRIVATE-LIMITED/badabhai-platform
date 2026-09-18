@@ -26,6 +26,7 @@ import { WorkerPortfolioRepository } from "./worker-portfolio.repository";
 import { WorkerPortfolioService } from "./worker-portfolio.service";
 import { WorkerPortfolioController } from "./worker-portfolio.controller";
 import { WorkerOccupationsRepository } from "./worker-occupations.repository";
+import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerOccupationsService } from "./worker-occupations.service";
 import { WorkerOccupationsController } from "./worker-occupations.controller";
 import { WorkersModule } from "../workers/workers.module";
@@ -155,6 +156,10 @@ import {
     // so it adds two providers and no module edge.
     WorkerOccupationsRepository,
     WorkerOccupationsService,
+    // Layer A elicitation — composes the two repositories above into the chat's table write leg,
+    // called by `ProfileExtractionProcessor` for training/secondary-occupation answers. No new
+    // dependency and no module edge; a provider only.
+    ChatTableWritesService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

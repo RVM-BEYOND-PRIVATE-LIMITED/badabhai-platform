@@ -29,6 +29,13 @@ already spending 23. Every question a résumé could have answered is a question
 afford to spend on his trade depth — which is the half that actually differentiates him to an
 employer.
 
+> **SUPERSEDED IN PART (owner policy 2026-09-18, PR #1582).** The paragraph above is the budget as
+> it stood when this ADR was written. `MAX_ENGINE_ASKS` was then raised 28 → **48** ("budget is
+> NOT a constraint; app feel is paramount"), `MAX_ASKS_PER_QUESTION` 2 → 4, and the Layer A
+> elicitation (`qp_universal@4`, a further 8 asks) landed on top of it; the worst-case walk is
+> now 36 with headroom 12. The motivation this section states — a résumé saving the engine asks it
+> can spend on trade depth — remains true; the hard ceiling it cites is not.
+
 **What makes this cheap to build.** The form-versus-chat decision this feature needs already
 exists, and it is already deterministic.
 [`routeToTradeForm()`](../../apps/api/src/profiling/trade-form-router.ts) takes two free-text

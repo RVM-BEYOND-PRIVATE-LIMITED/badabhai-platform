@@ -55,6 +55,34 @@ export class WorkerOccupationsRepository {
     });
   }
 
+  /**
+   * APPEND secondary occupations captured by the CHAT (Layer A elicitation, qp_universal@4), and
+   * only when the worker has no `worker_occupation` rows at all.
+   *
+   * The same guard and the same reasoning as `WorkerQualificationsRepository.appendTrainingIfEmpty`:
+   * the occupations page owns the ordered list once it has written; the chat contributes only when
+   * the worker has no page answer. Returns the number of rows written (0 when skipped).
+   */
+  async appendIfEmpty(workerId: string, roleIds: readonly string[]): Promise<number> {
+    if (roleIds.length === 0) return 0;
+    return this.db.transaction(async (tx) => {
+      const existing = await tx
+        .select({ id: workerOccupations.id })
+        .from(workerOccupations)
+        .where(eq(workerOccupations.workerId, workerId))
+        .limit(1);
+      if (existing.length > 0) return 0;
+      await tx.insert(workerOccupations).values(
+        roleIds.map((roleId, index) => ({
+          workerId,
+          roleId,
+          sortOrder: index,
+        })),
+      );
+      return roleIds.length;
+    });
+  }
+
   /** One worker's secondary-occupation role ids, in the worker's own order. */
   async loadForWorker(workerId: string): Promise<string[]> {
     const rows = await this.db

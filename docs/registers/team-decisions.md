@@ -553,3 +553,16 @@ clear those answers. The marker "saved" flag needs no new table.
 
 **Deferred:** the marker `saved` flag on `GET /profiling/form` (it is `apps/api/src/profiling`, which is
 mid-rewrite in another PR). Mobile adoption is Rishi's; the contract is in the PR description.
+
+### 2026-09-18 - salary_period typed-text misses stand; chips are the capture path (option b, no code)
+
+Measured live on `qp_universal@4` (session `f7005018-…`): a typed "mahine ke hisaab
+se" misses the `month` chip (`matchOptions` is substring over label needles; "Mahine
+ka" is not contained), and non-mandatory single-selects are ask-once by engine design
+(`selectItem` branches 2/3 require `askCount === 0`), so the question settles
+unanswered with no retry. Same shape as the frozen `availability` / `work_types`
+misses. **Accepted as-is:** no pack change (`is_mandatory` would re-ask but also
+re-prioritise, re-budget and re-surface the question — a product call, not a fix),
+no matcher change (corpus-wide blast radius). Chip-tapping workers capture exactly;
+typed variants remain a known fill gap for the programme's fill-rate tracking, not a
+defect to patch around.

@@ -200,13 +200,15 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // this one turns red the moment any pack adds or removes a question, which is the authoring
     // signal that did not exist. Update it in the same commit as the pack, on purpose.
     //
-    // 28 = qp_cnc_turning's 15 + qp_universal@3's 10 + one retry each for the three mandatory
-    // questions (turning_experience, primary_trade, current_city). v3 added `languages` and
-    // `work_types` (fill-gap Phase 1) — the headroom is now ZERO, which is the deliberate split:
-    // no further tail question fits, so the remaining allow-listed fields stay pages-owned and are
-    // surfaced by the Phase 3 settled-vs-missing view instead.
+    // 36 = qp_cnc_turning's 15 + qp_universal@4's 18 + one retry each for the three mandatory
+    // questions (turning_experience, primary_trade, current_city).
+    //
+    // THE WALK MOVED 28 → 36 WITH THE LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18).
+    // v3's exact pin was 28 (15 + 10 + 3) with the old cap of 28 — the headroom-zero posture the
+    // owner policy reversed. v4 adds the eight elicitation asks; no new mandatory question was
+    // authored, so the retry term is unchanged and the whole delta is items.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(28);
+    expect(worst).toBe(36);
   });
 
   it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
@@ -219,11 +221,12 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // THE COMPARISON, STATED SO THE MOVE IS AUDITABLE:
     //   before: cap 28, worst-case walk 28 (qp_cnc_turning 15 + qp_universal@3 10 + 3 mandatory
     //           re-asks), headroom 0 — the cap WAS the corpus.
-    //   after:  cap 48, same worst-case walk 28 (the Layer A elicitation lands in the next PR
-    //           and will move this number), headroom 20.
-    // The `expect(worst).toBe(28)` above still pins the walk itself; this pins the posture.
+    //   after:  cap 48, worst-case walk 36 (qp_cnc_turning 15 + qp_universal@4's 18 + 3 mandatory
+    //           re-asks; the Layer A elicitation landed — this number MOVED, as promised),
+    //           headroom 12.
+    // The `expect(worst).toBe(36)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBe(20);
+    expect(MAX_ENGINE_ASKS - worst).toBe(12);
 
     // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
     // channel) must still terminate well inside a session worth of turns; infinity is banned.

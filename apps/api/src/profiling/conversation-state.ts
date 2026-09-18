@@ -516,6 +516,27 @@ export interface ProfilingEnvelope {
    */
   readonly packId: string | null;
   readonly packVersion: number | null;
+  /**
+   * The universal pack SERVED this interview, stamped every turn — owner ruling 2026-09-18
+   * (Defect A, option a: envelope-stamped universal pointer).
+   *
+   * NOT A PIN, and deliberately beside `packId` rather than in it. `packId` is the
+   * occupation-pin slot: `persistPin` fires on its nullness, `resolvePacks` loads the pinned
+   * occupation pack off it, and stamping the universal id there would both suppress the
+   * occupation pin when one resolves later and send `resolvePacks` down the pinned-pack path
+   * for a pack that was never pinned. This pointer records what the tail served; the
+   * occupation slot keeps meaning "pinned with the occupation" exactly as before.
+   *
+   * FLOATS with the served version (re-stamped every turn from the freshly resolved
+   * universal pack) rather than freezing the first: the engine already re-resolves the
+   * universal pack per turn, so freezing here would record a version the later turns did
+   * not serve. The close-time durable pin (`finalizeInterview`, via the existing write-once
+   * `pinPack`) freezes the last-stamped value; a mid-interview pack publish is recorded, not
+   * hidden. `persistPin`, `viewSettled` and the no-guessing rule are untouched — they keep
+   * reading the occupation slot, which this never writes.
+   */
+  readonly universalPackId: string | null;
+  readonly universalPackVersion: number | null;
   /** Catalogue release retrieval ran against; pins alias resolution mid-flight. */
   readonly catalogVersion: string | null;
   readonly lastTurn: LastTurn | null;
@@ -810,6 +831,8 @@ export const PROFILING_ENVELOPE_KEYS = {
   identifyAttempts: true,
   packId: true,
   packVersion: true,
+  universalPackId: true,
+  universalPackVersion: true,
   catalogVersion: true,
   lastTurn: true,
   turnLatency: true,
@@ -849,6 +872,8 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     identifyAttempts: 0,
     packId: null,
     packVersion: null,
+    universalPackId: null,
+    universalPackVersion: null,
     catalogVersion: null,
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
@@ -1124,6 +1149,18 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
       typeof v.packVersion === "number" && Number.isInteger(v.packVersion) && v.packVersion > 0
         ? v.packVersion
         : null,
+    // ABSENT READS AS null — the state of every envelope in flight across the deploy that
+    // adds these fields, and the state of every envelope whose interview never served a
+    // universal question. Null reads as "no universal pointer stamped", which is true of all
+    // of them; the next turn stamps it. Same narrowing as the occupation slot above, because
+    // it feeds the same durable pin (a malformed pointer must not become a pack pin).
+    universalPackId: typeof v.universalPackId === "string" ? v.universalPackId : null,
+    universalPackVersion:
+      typeof v.universalPackVersion === "number" &&
+      Number.isInteger(v.universalPackVersion) &&
+      v.universalPackVersion > 0
+        ? v.universalPackVersion
+        : null,
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
     turnLatency: narrowTurnLatency(v.turnLatency),
@@ -1305,6 +1342,59 @@ export function answersOf(envelope: ProfilingEnvelope): AnswerMap {
 /** Write a keyed answer map back, in the contract's stable array order. */
 export function withAnswers(envelope: ProfilingEnvelope, answers: AnswerMap): ProfilingEnvelope {
   return { ...envelope, answerMap: toAnswerArray(answers) };
+}
+
+/**
+ * Stamp the served universal pack onto the envelope (owner ruling 2026-09-18, Defect A
+ * option a). Called at every envelope-writing turn site with the freshly resolved
+ * universal pack; the occupation-pin slot (`packId`/`packVersion`) is never touched here,
+ * so `persistPin` still fires exactly when an occupation resolves and `resolvePacks` keeps
+ * loading the pinned occupation pack off the slot it has always read.
+ *
+ * IDEMPOTENT across re-serves of the same version (same values rewritten) and
+ * version-floating across a mid-interview pack publish (latest served wins — the record
+ * follows what the worker actually saw). A null pack leaves the envelope identical.
+ */
+export function stampUniversalPointer(
+  envelope: ProfilingEnvelope,
+  universal: { readonly pack_id: string; readonly version: number } | null | undefined,
+): ProfilingEnvelope {
+  if (!universal) return envelope;
+  if (
+    envelope.universalPackId === universal.pack_id &&
+    envelope.universalPackVersion === universal.version
+  ) {
+    return envelope;
+  }
+  return {
+    ...envelope,
+    universalPackId: universal.pack_id,
+    universalPackVersion: universal.version,
+  };
+}
+
+/**
+ * The pack pointer the answer rows (and the close-time durable pin) attribute to: the
+ * occupation pin when one exists, else the stamped universal pointer, else null.
+ *
+ * ORDER IS THE WHOLE RULE. A pinned occupation outranks the tail that ran after it —
+ * the pin names the pack whose questions carry the trade-specific answers — and a
+ * universal-only interview attributes to the pack that actually served it rather than to
+ * nothing. Null (neither) preserves today's "no rows without attribution" exactly.
+ */
+export function resolvePackPointer(
+  envelope: Pick<
+    ProfilingEnvelope,
+    "packId" | "packVersion" | "universalPackId" | "universalPackVersion"
+  >,
+): { packId: string; packVersion: number } | null {
+  if (envelope.packId !== null && envelope.packVersion !== null) {
+    return { packId: envelope.packId, packVersion: envelope.packVersion };
+  }
+  if (envelope.universalPackId !== null && envelope.universalPackVersion !== null) {
+    return { packId: envelope.universalPackId, packVersion: envelope.universalPackVersion };
+  }
+  return null;
 }
 
 /**

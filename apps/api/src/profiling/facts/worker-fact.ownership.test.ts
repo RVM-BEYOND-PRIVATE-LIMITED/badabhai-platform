@@ -22,13 +22,29 @@ describe("CHAT_FACT_OWNER", () => {
     expect(Object.keys(CHAT_FACT_OWNER).sort()).toEqual([...WORKER_FACT_IDS].sort());
   });
 
-  it("owns exactly trade/experience/current_city/availability + languages/work_types (Phase 1)", () => {
-    // The first four since #1505. `languages` and `work_types` joined in the fill-gap Phase 1
-    // (ADR-0042 D9 amendment): the chat asks the language LIST and the work-type multi, and the
-    // ownership table is what makes those pack items servable at all.
+  it("owns exactly the nine chat facts — four from #1505, Phase 1's two, Layer A's three", () => {
+    // The first four since #1505 (`trade`, `experience`, `current_city`, `availability`).
+    // `languages` and `work_types` joined in fill-gap Phase 1 (ADR-0042 D9 amendment).
+    // `salary_period`, `commute_max_km` and `willing_to_travel` joined in the Layer A elicitation
+    // (ADR-0042 §9 amendment, owner policy 2026-09-18), the same way `work_types` did.
+    //
+    // OLD PINNED SET: [availability, current_city, experience, languages, trade, work_types].
+    // NEW PINNED SET: the same six plus the three extension facts. The three additions are the
+    // deliberate content of this change — qp_universal@4 authors them as chat items, and without
+    // the flip `chatServableItems` would drop them before selection, making the new asks dead.
     const chatOwned = WORKER_FACT_IDS.filter((id) => CHAT_FACT_OWNER[id] === "chat");
     expect(chatOwned.sort()).toEqual(
-      ["availability", "current_city", "experience", "languages", "trade", "work_types"].sort(),
+      [
+        "availability",
+        "commute_max_km",
+        "current_city",
+        "experience",
+        "languages",
+        "salary_period",
+        "trade",
+        "willing_to_travel",
+        "work_types",
+      ].sort(),
     );
   });
 
@@ -40,11 +56,10 @@ describe("CHAT_FACT_OWNER", () => {
     // Not named by the design, and still pages — the DEFAULT, not a special case.
     expect(CHAT_FACT_OWNER.certifications).toBe("pages");
     expect(CHAT_FACT_OWNER.relocation).toBe("pages");
-    // Phase 1 did NOT flip the rest of the allow-list — the ask budget (headroom 0 at 28) is why
-    // they stay pages-owned and are surfaced by the Phase 3 settled-vs-missing view instead.
-    expect(CHAT_FACT_OWNER.commute_max_km).toBe("pages");
-    expect(CHAT_FACT_OWNER.willing_to_travel).toBe("pages");
-    expect(CHAT_FACT_OWNER.salary_period).toBe("pages");
+    expect(CHAT_FACT_OWNER.documents_ready).toBe("pages");
+    expect(CHAT_FACT_OWNER.job_type).toBe("pages");
+    expect(CHAT_FACT_OWNER.accommodation).toBe("pages");
+    expect(CHAT_FACT_OWNER.work_history).toBe("pages");
   });
 });
 
@@ -70,6 +85,17 @@ describe("isChatOwnedItem / chatServableItems", () => {
     expect(isChatOwnedItem(item("current_city", "current_city"))).toBe(true);
     expect(isChatOwnedItem(item("availability", "availability"))).toBe(true);
     expect(isChatOwnedItem(item("experience_years", "experience_years"))).toBe(true);
+    // Layer A elicitation — the three flipped settlers, and the notice period that settles the
+    // already-chat availability fact.
+    expect(isChatOwnedItem(item("salary_period", "salary_period"))).toBe(true);
+    expect(isChatOwnedItem(item("commute_max_km", "commute_max_km"))).toBe(true);
+    expect(isChatOwnedItem(item("willing_to_travel", "willing_to_travel"))).toBe(true);
+    expect(isChatOwnedItem(item("notice_period_days", "notice_period_days"))).toBe(true);
+    // Layer A STORAGES name no registry fact, so they are servable by construction — the same
+    // path every capability question takes. Named here so the deletion of their pack items is
+    // the only way this stops being true.
+    expect(isChatOwnedItem(item("training_name", "training_name"))).toBe(true);
+    expect(isChatOwnedItem(item("secondary_occupations", "secondary_occupations"))).toBe(true);
   });
 
   it("a settling alias of a PAGES-owned fact is NOT servable", () => {

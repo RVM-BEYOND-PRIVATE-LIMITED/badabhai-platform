@@ -222,6 +222,11 @@ function make(
   const workerAttributes = {
     upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
   };
+  // Layer A elicitation — the chat→normalized-table write leg. Never-throwing stub; the leg's own
+  // rules are asserted in `chat-table-writes.test.ts`, not through this processor.
+  const chatTableWrites = {
+    applyFromChatAttributes: vi.fn(async () => ({ trainingWritten: false, occupationsWritten: 0 })),
+  };
   // Task 1 — the résumé-import road record. `undefined` = the worker never
   // uploaded (the common chat case); a row reproduces the upload roads.
   const resumeImports = {
@@ -246,6 +251,7 @@ function make(
     matchSkills as never,
     skills as never,
     workerAttributes as never,
+    chatTableWrites as never,
     resumeImports as never,
     // The REAL recorder over the fake events service, not a stub — the emit assertions below
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
@@ -270,6 +276,7 @@ function make(
     matchSkills,
     skills,
     workerAttributes,
+    chatTableWrites,
     resumeImports,
     traces,
   };

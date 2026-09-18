@@ -72,6 +72,10 @@ const FULL: ProfilingEnvelope = {
   identifyAttempts: 1,
   packId: "qp_welding",
   packVersion: 3,
+  // NON-DEFAULT, per this fixture's own rule: null is what a narrowing that dropped the
+  // fields would rebuild, so only real values prove the round trip carries them.
+  universalPackId: "qp_universal",
+  universalPackVersion: 4,
   catalogVersion: "cat_2026_08",
   lastTurn: {
     inboundHash: "a".repeat(64),
