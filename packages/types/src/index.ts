@@ -465,6 +465,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/bada-bhai", // Routes.badaBhai
   "/profile", // Routes.profile
   "/profile/applied", // Routes.appliedJobs
+  // Layer A profile surfaces (ADR-0042 D9, issue #1545) — the Profile-edit
+  // screen pushed from the Profile tab.
+  "/profile/edit", // Routes.profileEdit
   "/profile/kit", // Routes.kit
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings

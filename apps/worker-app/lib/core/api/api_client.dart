@@ -749,6 +749,143 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/me/whatsapp (Layer A (a), ADR-0042 D9) — the worker's OWN
+  /// optional WhatsApp number. Worker-scoped; the value is PII and never
+  /// logged/evented. `whatsapp: null` + `has_whatsapp: true` means stored but
+  /// unreadable (a retired key / tampered row) — the UI must never offer to
+  /// "replace" a number that merely failed to read.
+  Future<MyWhatsappDto> getMyWhatsapp({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/whatsapp', authToken: authToken);
+    return MyWhatsappDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/whatsapp (Layer A (a)) — set, replace or clear the number.
+  /// [whatsapp] is E.164 (`+919876543210`) or null to CLEAR; the server never
+  /// guesses a country code (a guessed prefix stores a wrong number on a
+  /// résumé). The response carries no value back.
+  Future<void> setMyWhatsapp({
+    required String? whatsapp,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/whatsapp',
+      <String, dynamic>{'whatsapp': whatsapp},
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/languages (Layer A (b), migration 0110) — the worker's
+  /// stored rows in the PUT's own shape. `partial` warns the client not to
+  /// re-send the list unedited (a withheld row would be erased).
+  Future<MyLanguagesDto> getMyLanguages({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/languages', authToken: authToken);
+    return MyLanguagesDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/languages (Layer A (b)) — REPLACES the whole list (`[]`
+  /// clears). Each entry names a closed slug and must tick at least one ability.
+  Future<void> setMyLanguages({
+    required List<LanguageAbilityDto> languages,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/languages',
+      <String, dynamic>{
+        'languages':
+            languages.map((LanguageAbilityDto l) => l.toJson()).toList(),
+      },
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/occupations (Layer A (f), migration 0114) — the worker's
+  /// secondary occupations, labelled for display. `label` is read-only and must
+  /// NOT be echoed back.
+  Future<MyOccupationsDto> getMyOccupations({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/occupations', authToken: authToken);
+    return MyOccupationsDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/occupations (Layer A (f)) — REPLACES the whole list
+  /// (`[]` clears; ≤4). Sends `role_id` only — the PUT schema is `.strict()`
+  /// precisely so a client-typed label can never reach the database.
+  Future<void> setMyOccupations({
+    required List<String> roleIds,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/occupations',
+      <String, dynamic>{
+        'occupations': roleIds
+            .map((String id) => <String, dynamic>{'role_id': id})
+            .toList(),
+      },
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/qualifications (#1504) — the worker's stored certificates,
+  /// educations and (Layer A (d)) trainings, in the PUT's own shapes. `partial`
+  /// names the list(s) that lost a withheld row.
+  ///
+  /// PRIVACY: `licence_number`/`licence_expiry` are worker-self only and must
+  /// never be logged.
+  Future<MyQualificationsDto> getMyQualifications({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/qualifications', authToken: authToken);
+    return MyQualificationsDto.fromJson(json);
+  }
+
+  /// POST /workers/me/portfolio/upload-url (Layer A (e), migration 0113) —
+  /// mints a signed slot for ONE portfolio photo/video. The server chooses the
+  /// object key (`portfolio/<workerId>/<uuid>.<ext>`); the bytes are PUT to
+  /// `upload_url` and the returned `storage_key` rides back on
+  /// [setMyPortfolio]. A 503 means the media bucket is not configured
+  /// (infra blocker) — callers keep only the `link` kind working.
+  /// PRIVACY: the returned url is SIGNED — never log it.
+  Future<PortfolioUploadTicket> requestPortfolioUploadUrl({
+    required String kind,
+    required String contentType,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/portfolio/upload-url',
+      <String, dynamic>{'kind': kind, 'content_type': contentType},
+      authToken: authToken,
+    );
+    return PortfolioUploadTicket.fromJson(json);
+  }
+
+  /// GET /workers/me/portfolio (Layer A (e)) — the worker's samples; media
+  /// arrives as short-lived signed URLs. PRIVACY: signed URLs are credentials —
+  /// never log or persist them.
+  Future<MyPortfolioDto> getMyPortfolio({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/portfolio', authToken: authToken);
+    return MyPortfolioDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/portfolio (Layer A (e)) — REPLACES the whole list. A
+  /// `storage_key` not minted for this worker 404s; a `link` carries an http(s)
+  /// url. Captions are free text and server-screened for PII.
+  Future<void> setMyPortfolio({
+    required List<PortfolioItemDto> items,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/portfolio',
+      <String, dynamic>{
+        'items': items.map((PortfolioItemDto i) => i.toJson()).toList(),
+      },
+      authToken: authToken,
+    );
+  }
+
   /// POST /workers/me/photo/upload-url (ADR-0032) — mints a signed slot for the
   /// profile-photo bytes. Worker from [authToken]; the body is empty JSON — the
   /// SERVER chooses the object key. The bytes are then PUT to `upload_url`
