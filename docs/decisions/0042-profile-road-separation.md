@@ -221,3 +221,40 @@ and `CHAT_FACT_OWNER` flips both facts to `chat`. Four consequences are explicit
 4. **No rank input, no new authority.** Both fields are attribute/filter values; the capture path is
    deterministic (`matchOptions` over closed chips), no LLM call is added, no migration and no event
    is introduced. v2 is deprecated but retained — pinned sessions keep resolving.
+
+---
+
+## 10. Amendment — Layer A elicitation: eight fields join the chat (2026-09-18)
+
+This supersedes §9's consequence 1 ("the remaining allow-listed fields stay pages-owned"). The
+owner policy of 2026-09-18 (`MAX_ENGINE_ASKS` 28 → 48, "budget is not a constraint; app feel is
+paramount") removed the constraint that deferred them, and `qp_universal@4` authors the eight as
+chat asks. The rest of §9 stands untouched — the `languages` projector carve-out, the proficiency
+exclusion and the no-rank-input posture are unchanged.
+
+1. **What joins the chat, and where each answer lands.** `commute_max_km` (number) and
+   `willing_to_travel` (boolean) reuse the exact `worker_attributes` keys the preferences page
+   writes; `salary_period` is a closed single_select over the same `month|day|year` slugs.
+   `notice_period_days` (number) is a part of the `availability` fact and settles it, riding the
+   existing field normalizer over `parseAvailability`. `training_name|provider|year` and
+   `secondary_occupations` are Layer A **storages**: their chat answers are assembled by the
+   extraction processor's table write leg into `worker_training` and `worker_occupation`, the same
+   tables their pages own, so exactly one store settles each. The write legs are
+   insert-only-when-empty — a page-written row is never edited.
+2. **`CHAT_FACT_OWNER` flips three facts to `chat`** (`salary_period`, `commute_max_km`,
+   `willing_to_travel`) and adds `notice_period_days` as a settling alias of the already-chat
+   `availability` fact. Everything else stays pages-owned exactly as §9 left it:
+   `preferred_locations`, `shift`, `salary_expected`, `education`, `certifications`,
+   `documents_ready`, `job_type`, `relocation`, `accommodation`.
+3. **`available_from` is deliberately NOT a chat ask.** It is a calendar date; a chip/number
+   question cannot honestly produce one, and the notice-period answer narrows the same availability
+   state. The finishing form remains its capture surface.
+4. **The training trio is gated on its name** (`ask_if: answered(training_name)`), so a worker with
+   no course answers one question instead of declining three in a row; a decline is terminal,
+   exactly as everywhere else. `secondary_occupations` is a closed multi over the 13 taxonomy
+   `role_*` ids — the same id space `worker_occupation` and the role bridge use.
+5. **No rank input, no new authority.** Every field is an attribute/filter or a résumé table row;
+   the capture path is deterministic (`matchOptions` over closed chips, the new `parseCommuteKm` /
+   `parseTrainingYear` parsers, `parseAffirmation` for the boolean); no LLM call is added, no
+   migration and no event is introduced. `v3` is deprecated in place and pinned sessions keep
+   resolving.

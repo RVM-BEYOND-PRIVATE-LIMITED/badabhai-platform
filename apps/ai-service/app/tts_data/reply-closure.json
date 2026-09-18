@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 868,
+  "clip_count": 900,
   "producers": {
-    "retry": 72,
-    "clarify": 327,
-    "prompt": 234,
-    "why": 227,
+    "retry": 76,
+    "clarify": 339,
+    "prompt": 242,
+    "why": 235,
     "constant": 8
   },
   "clips": [
@@ -27,6 +27,11 @@
     {
       "id": "00f7881919be31d4",
       "text": "Tayyari ka kaam coating ki quality tay karta hai. Coating se pehle kaunsi tayyari khud karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "015e3a5c673fc77d",
+      "text": "Doosra kaam bhi dikhane se naukri ke mauke badhte hain. Aap aur kaun sa kaam karte hain?",
       "producer": "clarify"
     },
     {
@@ -63,6 +68,11 @@
       "id": "041841a8f3caed3d",
       "text": "Thickness se coating ki quality aur cost tay hoti hai. Lagbhag kitne micron DFT par kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "041b7e263fdddd92",
+      "text": "Aapne kaunsi training ya course ki hai?",
+      "producer": "prompt"
     },
     {
       "id": "0470023a8052a232",
@@ -385,9 +395,19 @@
       "producer": "retry"
     },
     {
+      "id": "14d9343338724c80",
+      "text": "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye. Aapki salary mahine, din ya saal ke hisaab se hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "15f57879954f882d",
       "text": "Plant me safety zaroori hoti hai.",
       "producer": "why"
+    },
+    {
+      "id": "160ec4bf9337d6e2",
+      "text": "Aapko notice period kitne din ka lagta hai?",
+      "producer": "prompt"
     },
     {
       "id": "1617feacdd7a66ba",
@@ -425,6 +445,11 @@
       "producer": "prompt"
     },
     {
+      "id": "187c347d1e0d8daa",
+      "text": "Training se aapki skill aur certificate pata chalta hai. Aapne kaunsi training ya course ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "191b970c765438c0",
       "text": "Kitne logon ka khana bana lete hain?",
       "producer": "prompt"
@@ -438,6 +463,11 @@
       "id": "19244a39c2c468cf",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Drawing ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "199a247469a7b95f",
+      "text": "Training centre ka naam resume par aata hai.",
+      "producer": "why"
     },
     {
       "id": "19c154be871981a2",
@@ -605,6 +635,11 @@
       "producer": "clarify"
     },
     {
+      "id": "22a3648a94844316",
+      "text": "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye.",
+      "producer": "why"
+    },
+    {
       "id": "22d95bbb8a21847a",
       "text": "Rod aur wire ka sahi chunaav welder ka hunar hai.",
       "producer": "why"
@@ -630,6 +665,11 @@
       "producer": "why"
     },
     {
+      "id": "241811953f3fe950",
+      "text": "Training kis institute se ki?",
+      "producer": "retry"
+    },
+    {
       "id": "24273269651ba0bd",
       "text": "Colour change jaldi karne se line ka time bachta hai. Colour change ke waqt kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -638,6 +678,11 @@
       "id": "2478a5edaef078a5",
       "text": "Aapne kahaan tak padhai ki hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "2497e0e3cd726a6c",
+      "text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain. Aapko notice period kitne din ka lagta hai?",
+      "producer": "clarify"
     },
     {
       "id": "24d91ccea3955b25",
@@ -985,6 +1030,11 @@
       "producer": "clarify"
     },
     {
+      "id": "373e5128c351185d",
+      "text": "Saal se employer ko aapka experience samajh aata hai.",
+      "producer": "why"
+    },
+    {
       "id": "379634fd24c9fff8",
       "text": "Kya aap cash sambhalte hain?",
       "producer": "prompt"
@@ -1043,6 +1093,11 @@
       "id": "3a47886e08aa9d8e",
       "text": "Kheti me kai tarah ke kaam hote hain.",
       "producer": "why"
+    },
+    {
+      "id": "3a532638fbe2b71c",
+      "text": "Training centre ka naam resume par aata hai. Training aapne kahan se ki thi?",
+      "producer": "clarify"
     },
     {
       "id": "3a63d7a4396571ea",
@@ -1528,6 +1583,11 @@
       "id": "5688480046b4bee9",
       "text": "LT aur HT line ka kaam alag hai. Aap kaunsi line par kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "56ac727f272b5d95",
+      "text": "Kya aap ghar se door kaam ke liye ja sakte hain?",
+      "producer": "prompt"
     },
     {
       "id": "56ee651df27de60f",
@@ -2150,6 +2210,11 @@
       "producer": "prompt"
     },
     {
+      "id": "7780453e6497e0a3",
+      "text": "Training se aapki skill aur certificate pata chalta hai.",
+      "producer": "why"
+    },
+    {
       "id": "787a37dfb2a8e266",
       "text": "Aap kya karte hain?",
       "producer": "prompt"
@@ -2475,6 +2540,11 @@
       "producer": "why"
     },
     {
+      "id": "8983f2b38001430a",
+      "text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain. Join karne mein kitne din lagenge?",
+      "producer": "clarify"
+    },
+    {
       "id": "8986f18bd200ee0a",
       "text": "Model theek kar lena programmer ka apna hunar hai.",
       "producer": "why"
@@ -2598,6 +2668,11 @@
       "id": "907490079e3d782e",
       "text": "Coating ke baad kaunsi checking karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "90790829c4426cc4",
+      "text": "Ghar se kitne km door tak kaam kar sakte hain?",
+      "producer": "retry"
     },
     {
       "id": "90a0845edc6e4170",
@@ -2818,6 +2893,11 @@
       "id": "9eac5f9412729b5f",
       "text": "Kitne tonnage ki press par tryout kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "9eadc97814d761fa",
+      "text": "Kis cheez ki training ki thi?",
+      "producer": "retry"
     },
     {
       "id": "9eb2ecc17772d089",
@@ -3090,6 +3170,11 @@
       "producer": "retry"
     },
     {
+      "id": "adef7dc09ea6b88b",
+      "text": "Training kis saal ki thi?",
+      "producer": "prompt"
+    },
+    {
       "id": "adfa0a6cecb85a59",
       "text": "CCTV wale ko control room milta hai. Kya aap CCTV dekh sakte hain?",
       "producer": "clarify"
@@ -3240,6 +3325,11 @@
       "producer": "retry"
     },
     {
+      "id": "b8e0bf8dae16cbc5",
+      "text": "Kaam ke liye aap kitne km tak ja sakte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "b98ee4024446b243",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "producer": "why"
@@ -3278,6 +3368,11 @@
       "id": "bb5ee07257212552",
       "text": "Standard ke hisaab se bani drawing seedha production me chali jaati hai.",
       "producer": "why"
+    },
+    {
+      "id": "bb989352b4a8d1fa",
+      "text": "Training aapne kahan se ki thi?",
+      "producer": "prompt"
     },
     {
       "id": "bbd6b9d220846759",
@@ -3575,6 +3670,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ca487044a1b1e02f",
+      "text": "Join karne mein kitne din lagenge?",
+      "producer": "retry"
+    },
+    {
       "id": "ca5367ae064e0fc1",
       "text": "Bina licence badi site par kaam nahi milta. Kya aapke paas licence hai?",
       "producer": "clarify"
@@ -3605,6 +3705,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cc7fa42986dfa5dd",
+      "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye. Kaam ke liye aap kitne km tak ja sakte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "cc819d40d58b9189",
       "text": "Zyada axis wali machine chalane wale kam milte hain. Machine kitne axis ki hai?",
       "producer": "clarify"
@@ -3630,6 +3735,11 @@
       "producer": "why"
     },
     {
+      "id": "cd6c83dfbbe7db02",
+      "text": "Training centre ka naam resume par aata hai. Training kis institute se ki?",
+      "producer": "clarify"
+    },
+    {
       "id": "cd6cf956103868ca",
       "text": "Aap kahaan khana banate hain?",
       "producer": "prompt"
@@ -3638,6 +3748,11 @@
       "id": "cda56167bc78dd56",
       "text": "Hardness sahi na ho to die jaldi toot jaati hai. Heat treatment ka kaam aap kaise sambhaalte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "cdb9815c3de2ba03",
+      "text": "Doosra kaam bhi dikhane se naukri ke mauke badhte hain.",
+      "producer": "why"
     },
     {
       "id": "cdea9095a6060927",
@@ -3690,6 +3805,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d06927eb8af130d2",
+      "text": "Door ki naukri bhi dikhane ke liye ye pata hona chahiye. Kya aap ghar se door kaam ke liye ja sakte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d0cb3c3c10f69ee4",
       "text": "Har gaadi ka kaam alag hota hai. Aap kaunsi gaadi thik karte hain?",
       "producer": "clarify"
@@ -3732,6 +3852,11 @@
     {
       "id": "d374cada09738c91",
       "text": "PVC aur GI ka kaam alag hota hai. Aap kaunse pipe ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d3c0175d550111bc",
+      "text": "Saal se employer ko aapka experience samajh aata hai. Training kis saal ki thi?",
       "producer": "clarify"
     },
     {
@@ -3793,6 +3918,11 @@
       "id": "d71fb8bb4c4d7377",
       "text": "Trainee, tool maker ya senior, kaunsi post hai?",
       "producer": "retry"
+    },
+    {
+      "id": "d7c389f3f7b0e909",
+      "text": "Aapki salary mahine, din ya saal ke hisaab se hai?",
+      "producer": "prompt"
     },
     {
       "id": "d7e63b9cea379a49",
@@ -3950,6 +4080,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e1cca74f0b40622e",
+      "text": "Aap aur kaun sa kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "e23487511a448209",
       "text": "Masala banane wale ki alag maang hai.",
       "producer": "why"
@@ -4095,6 +4230,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ec7a26d8c1ed5311",
+      "text": "Training se aapki skill aur certificate pata chalta hai. Kis cheez ki training ki thi?",
+      "producer": "clarify"
+    },
+    {
       "id": "ec9b47e2aef836a5",
       "text": "Drawing padhna kai jagah zaroori hota hai. Tooling drawing dekh kar kaam kar lete hain?",
       "producer": "clarify"
@@ -4103,6 +4243,11 @@
       "id": "eca4635d2d5da4ad",
       "text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
       "producer": "why"
+    },
+    {
+      "id": "ed0ab72d39311498",
+      "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye. Ghar se kitne km door tak kaam kar sakte hain?",
+      "producer": "clarify"
     },
     {
       "id": "ed3e3479232e8d91",
@@ -4137,6 +4282,11 @@
     {
       "id": "ee5d2174cf147780",
       "text": "Hathkargha aur power loom alag hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ef8daaea9ee37bfc",
+      "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye.",
       "producer": "why"
     },
     {
@@ -4260,6 +4410,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f865df0646ac79a5",
+      "text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain.",
+      "producer": "why"
+    },
+    {
       "id": "f8a0378d56de564c",
       "text": "Khud kiya hua kaam helper aur tool maker ka farq batata hai. Tool room ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
@@ -4292,6 +4447,11 @@
     {
       "id": "faeb0a6c4c7edade",
       "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fbb9aec1667f0416",
+      "text": "Door ki naukri bhi dikhane ke liye ye pata hona chahiye.",
       "producer": "why"
     },
     {

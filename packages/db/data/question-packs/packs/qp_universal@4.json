@@ -4,14 +4,18 @@
   "_v2": "THREE CHANGES, ALL FOR THE LLM-LED OPENING (Phase B). (1) `preferred_locations` was the one Resume Field Set entry with no question anywhere in the corpus — the interview asked where a worker IS and never where they want to WORK, so `location_preference.preferred_cities` was only ever filled by the extraction model guessing. (2) `relocation` is REMOVED: 'kya doosre sheher jaa sakte hain' and 'kahaan kaam karna chahte hain' are the same question asked twice, and the second carries strictly more information. Owner ruling 2026-08-11: the template tail is SIX questions. (3) The `max_turn` ceilings come off `current_city` and `salary_expected` — see below.",
   "_v2_max_turn": "WHY THE CEILINGS HAD TO GO, and it is a live defect rather than a preference. `isServable` refuses an item once `state.turn > max_turn`, so `current_city` (mandatory, max_turn 5) became UNASKABLE from turn 6 onward — permanently, with no re-ask left, and the interview then closed `complete` without the single strongest matching signal. Measured by walking the real corpus: a tail entered at turn 8 served neither city nor salary. Any interview that spent a few turns on silences, clarifies or hardship acknowledgements already hit this; the LLM-led opening hits it EVERY time, because Phase A is several turns long by construction. `min_turn` is kept — the hoist the v1 note describes is the min side, which is what stops salary leading the interview. A ceiling that turns a mandatory question into one that is never asked protects nothing.",
   "_v3": "THE FILL-GAP PHASE 1 — TWO STRUCTURALLY UNSERVABLE FIELDS JOIN THE CHAT, and nothing else moves. v2 shipped eight items, but `CHAT_FACT_OWNER` reads pages for four of them (salary_expected, preferred_locations, education, shift_preference), so the ownership filter dropped them before selection and the served tail was two questions. This version adds `languages` and `work_types` as ATTRIBUTE questions and the ownership table flips those two facts to chat; every v2 item is byte-identical and its served text is unchanged (the pack-served-text golden pins exactly that).",
-  "_v3_budget": "THE ASK BUDGET IS THE REASON THERE ARE TWO AND NOT EIGHT, and the split is deliberate. `MAX_ENGINE_ASKS` is 28; the worst-case worker (qp_cnc_turning's 15 + one retry on each of three mandatory questions + the tail) sat at 26, leaving headroom of 2. Both new items are ungated, so each costs one ask on EVERY tier: this version lands at exactly 28, headroom 0, and `ask-budget.guard.test.ts` pins that number. The remaining allow-listed fields (languages PROFICIENCY, commute_max_km, willing_to_travel, available_from, salary_period, training, secondary occupations) are NOT asked here — each needs a new parser and/or a write path, and there is no budget left. They stay PAGES-owned and the Phase 3 settled-vs-missing view is what surfaces them as missing; the finishing form remains their capture surface.",
+  "_v3_budget": "THE ASK BUDGET WAS THE REASON THERE WERE TWO AND NOT EIGHT, and the split was deliberate. `MAX_ENGINE_ASKS` was 28; the worst-case worker (qp_cnc_turning's 15 + one retry on each of three mandatory questions + the tail) sat at 26, leaving headroom of 2. Both new items are ungated, so each costs one ask on EVERY tier: that version landed at exactly 28, headroom 0. The remaining allow-listed fields (languages PROFICIENCY, commute_max_km, willing_to_travel, available_from, salary_period, training, secondary occupations) were NOT asked here — each needs a new parser and/or a write path, and there was no budget left. They stayed PAGES-owned and the Phase 3 settled-vs-missing view surfaced them as missing. THE OWNER POLICY OF 2026-09-18 REVERSES THAT POSTURE (see `_v4`): the budget is no longer the constraint, so all eight land here.",
   "_v3_questions": "WHY THESE TWO. `languages` is the strongest matching signal that fits without a new seam: a multi_select whose chips carry the SAME slug vocabulary the preferences page already writes, so a chat answer lands in `worker_attributes.languages` (value_text_list) through the existing projector and prints on the résumé's Languages row unchanged. PROFICIENCY IS DELIBERATELY OUT: speak/read/write is a three-tick matrix over 16 languages, which a chip question cannot express honestly, and the richer `worker_language` page owns it. `work_types` is the same shape over the `WORK_TYPES` vocabulary (JOB_TYPES), the multi that supersedes the single `job_type`. Both are closed sets in the pack (target_kind `attribute`), so `matchOptions` refuses anything the worker did not tap or say, and a non-answer is dropped rather than guessed.",
+  "_v4": "THE LAYER A ELICITATION (fill-gap Phase 5 / ADR-0042 D9 amendment, owner policy 2026-09-18). Eight new asks join the tail — commute_max_km, willing_to_travel, notice_period_days, salary_period, training_name, training_provider, training_year, secondary_occupations — and `CHAT_FACT_OWNER` flips the three registered facts (commute_max_km, willing_to_travel, salary_period) to chat, exactly as Phase 1 flipped languages/work_types. Every v3 item is byte-identical and its served text is unchanged. `available_from` is DELIBERATELY NOT a chat ask: it is a calendar date, a chip/number question cannot honestly produce one, and the notice-period answer narrows the same availability state. The finishing form remains its capture surface.",
+  "_v4_questions": "WHERE EACH ANSWER LANDS, one store per fact. `commute_max_km` (number) and `willing_to_travel` (boolean) reuse the EXACT `worker_attributes` keys the preferences page writes, so chat and form answers are one row, never two. `notice_period_days` (number) rides the existing field normalizer (`parseAvailability(...).noticeDays`), which is why its prompt names the notice period in days — a bare duration only reads as notice next to a takes/lag/baad cue, and the reviewed prompt supplies that context. `salary_period` is a closed single_select over the same `month|day|year` slugs the preferences page writes. `training_name|provider|year` and `secondary_occupations` are Layer A STORAGES rather than registry facts: their chat answers are assembled by the extraction processor's table write leg into `worker_training` and `worker_occupation`, the same tables the qualifications/occupations pages own, so the sheet and the pages read ONE store. The write legs are insert-only-when-empty: a form-written row is never clobbered, and a chat answer never edits an existing row.",
+  "_v4_gate": "TRAINING IS A TRIO GATED ON THE NAME. `training_provider` and `training_year` carry `ask_if: answered(training_name)`, so a worker with no training answers ONE question and moves on instead of declining three in a row — the app-feel rule the 2026-09-18 policy installs. A decline on the name is terminal for the trio (declined-terminal is untouched). `secondary_occupations` is a closed multi over the 13 taxonomy `role_*` ids — the SAME id space `worker_occupation` and the role bridge already use, with worker-facing Hinglish labels carrying the trade word after a slash so a typed 'welding bhi karta hu' matches the Welder chip through `matchOptions`' alternatives rule.",
+  "_v4_budget": "MAX_ENGINE_ASKS is 48 (owner policy 2026-09-18, raised from 28 precisely for this expansion). The worst-case walk is qp_cnc_turning's 15 + this tail's 18 + one retry each for the three mandatory questions (turning_experience, primary_trade, current_city) = 36, headroom 12. All eight new items are ungated except the two gated on the name, and the budget guard counts every item in the pack, so the walk is the ceiling. `MAX_ASKS_PER_QUESTION` is 4 at runtime; authored `max_asks` stays at the default 2 (the corpus validator still caps authored values at 3).",
   "pack_id": "qp_universal",
-  "version": 3,
+  "version": 4,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "deprecated",
-  "review_note": "DEPRECATED IN PLACE — qp_universal@4 is the active tail (Layer A elicitation, 2026-09-18). This file is BYTE-FROZEN: sessions pinned to qp_universal:3 keep resolving through `loadPinned`, and `reply-closure`/`pack-served-text` still carry its clips. v3 added languages and work_types (attribute multis) and flipped both facts to chat ownership. The deprecation is what the corpus validator's one-ACTIVE-per-family+locale rule requires; nothing inside the file moves.",
+  "status": "active",
+  "review_note": "v4 adds the eight Layer A elicitation asks (commute_max_km, willing_to_travel, notice_period_days, salary_period, training_name/provider/year, secondary_occupations) and flips the three registered facts to chat ownership. v3 is deprecated in place — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose; pinned v3 sessions keep resolving through loadPinned.",
   "items": [
     {
       "question_key": "primary_trade",
@@ -173,6 +177,125 @@
         { "option_key": "apprentice", "label_text": "Apprenticeship", "value_text": "apprentice" },
         { "option_key": "daily_wage", "label_text": "Daily wage", "value_text": "daily_wage" }
       ]
+    },
+    {
+      "question_key": "commute_max_km",
+      "prompt_text": "Kaam ke liye aap kitne km tak ja sakte hain?",
+      "why_text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye.",
+      "retry_text": "Ghar se kitne km door tak kaam kar sakte hain?",
+      "target_kind": "attribute",
+      "target_field": "commute_max_km",
+      "answer_type": "number"
+    },
+    {
+      "question_key": "willing_to_travel",
+      "prompt_text": "Kya aap ghar se door kaam ke liye ja sakte hain?",
+      "why_text": "Door ki naukri bhi dikhane ke liye ye pata hona chahiye.",
+      "target_kind": "attribute",
+      "target_field": "willing_to_travel",
+      "answer_type": "boolean"
+    },
+    {
+      "question_key": "notice_period_days",
+      "prompt_text": "Aapko notice period kitne din ka lagta hai?",
+      "why_text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain.",
+      "retry_text": "Join karne mein kitne din lagenge?",
+      "target_kind": "attribute",
+      "target_field": "notice_period_days",
+      "answer_type": "number"
+    },
+    {
+      "question_key": "salary_period",
+      "prompt_text": "Aapki salary mahine, din ya saal ke hisaab se hai?",
+      "why_text": "Sahi tareeke se vetan dikhane ke liye period pata hona chahiye.",
+      "target_kind": "attribute",
+      "target_field": "salary_period",
+      "answer_type": "single_select",
+      "options": [
+        { "option_key": "month", "label_text": "Mahine ka", "value_text": "month" },
+        { "option_key": "day", "label_text": "Din ka", "value_text": "day" },
+        { "option_key": "year", "label_text": "Saal ka", "value_text": "year" }
+      ]
+    },
+    {
+      "question_key": "training_name",
+      "prompt_text": "Aapne kaunsi training ya course ki hai?",
+      "why_text": "Training se aapki skill aur certificate pata chalta hai.",
+      "retry_text": "Kis cheez ki training ki thi?",
+      "target_kind": "attribute",
+      "target_field": "training_name",
+      "answer_type": "text"
+    },
+    {
+      "question_key": "training_provider",
+      "prompt_text": "Training aapne kahan se ki thi?",
+      "why_text": "Training centre ka naam resume par aata hai.",
+      "retry_text": "Training kis institute se ki?",
+      "target_kind": "attribute",
+      "target_field": "training_provider",
+      "answer_type": "text",
+      "ask_if": { "op": "answered", "field": "training_name" }
+    },
+    {
+      "question_key": "training_year",
+      "prompt_text": "Training kis saal ki thi?",
+      "why_text": "Saal se employer ko aapka experience samajh aata hai.",
+      "target_kind": "attribute",
+      "target_field": "training_year",
+      "answer_type": "number",
+      "ask_if": { "op": "answered", "field": "training_name" }
+    },
+    {
+      "question_key": "secondary_occupations",
+      "prompt_text": "Aap aur kaun sa kaam karte hain?",
+      "why_text": "Doosra kaam bhi dikhane se naukri ke mauke badhte hain.",
+      "target_kind": "attribute",
+      "target_field": "secondary_occupations",
+      "answer_type": "multi_select",
+      "options": [
+        {
+          "option_key": "role_cnc_turner_operator",
+          "label_text": "CNC turner / kharad",
+          "value_text": "role_cnc_turner_operator"
+        },
+        {
+          "option_key": "role_vmc_operator",
+          "label_text": "VMC / milling",
+          "value_text": "role_vmc_operator"
+        },
+        { "option_key": "role_hmc_operator", "label_text": "HMC operator", "value_text": "role_hmc_operator" },
+        {
+          "option_key": "role_cnc_setter_operator",
+          "label_text": "CNC setter",
+          "value_text": "role_cnc_setter_operator"
+        },
+        {
+          "option_key": "role_cnc_programmer",
+          "label_text": "CNC programmer",
+          "value_text": "role_cnc_programmer"
+        },
+        {
+          "option_key": "role_cam_programmer",
+          "label_text": "CAM programmer",
+          "value_text": "role_cam_programmer"
+        },
+        {
+          "option_key": "role_cnc_grinding_operator",
+          "label_text": "CNC grinding / pisai",
+          "value_text": "role_cnc_grinding_operator"
+        },
+        { "option_key": "role_welder", "label_text": "Welder / welding", "value_text": "role_welder" },
+        { "option_key": "role_cnc_operator", "label_text": "CNC operator", "value_text": "role_cnc_operator" },
+        { "option_key": "role_plumber", "label_text": "Plumber / plumbing", "value_text": "role_plumber" },
+        { "option_key": "role_carpenter", "label_text": "Carpenter / badhai", "value_text": "role_carpenter" },
+        { "option_key": "role_designer", "label_text": "Designer / design", "value_text": "role_designer" },
+        {
+          "option_key": "role_interior_designer",
+          "label_text": "Interior designer",
+          "value_text": "role_interior_designer"
+        }
+      ]
     }
   ]
 }
+
