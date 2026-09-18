@@ -76,9 +76,26 @@ export function buildVerdictLine(facts: {
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
+  // FILL-GAP PHASE 4 — NO SUBJECT, NO STRIP. Without a role this line degrades to its modifiers
+  // ("8 yrs · Fanuc") or, for a worker with no source at all, to the bare system phrase
+  // "duration not stated" standing alone at the top of the sheet. Neither is a headline: §11 #3
+  // requires an UNKNOWN TENURE to be stated (and it still is, whenever a subject exists —
+  // "Welder · duration not stated"), not a sentence fragment about nobody. Omitting the strip is
+  // the fallback; inventing or printing a lone modifier is not.
+  const role = facts.role?.trim();
+  if (!role) {
+    return {
+      headlineLine: null,
+      subheadLine: joinSegments([
+        facts.city,
+        availabilityPhrase(facts.availability),
+        facts.salary ? `expects ${facts.salary}` : null,
+      ]),
+    };
+  }
   return {
     headlineLine: joinSegments([
-      facts.role,
+      role,
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
