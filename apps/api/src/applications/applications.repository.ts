@@ -34,6 +34,14 @@ export interface FeedJob {
   payMin: number | null;
   payMax: number | null;
   shift: Job["shift"];
+  // Worker-visible card content (#1561): description + benefits/requirements +
+  // needed_by, verbatim off the `jobs` row (the seed carries them; the fail-closed
+  // PII guard in seed-jobs.ts is what keeps them employer-free). NULLABLE, passed
+  // through honestly like every other field on this interface.
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  neededBy: Job["neededBy"];
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -146,6 +154,10 @@ export class ApplicationsRepository {
         payMin: jobs.payMin,
         payMax: jobs.payMax,
         shift: jobs.shift,
+        description: jobs.description,
+        benefits: jobs.benefits,
+        requirements: jobs.requirements,
+        neededBy: jobs.neededBy,
       })
       .from(jobs)
       // TD73: exclude applied jobs server-side.

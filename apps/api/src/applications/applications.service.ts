@@ -41,6 +41,13 @@ export interface FeedItem {
   pay_min: number | null;
   pay_max: number | null;
   shift: FeedJob["shift"];
+  // Worker-visible card content (#1561). ADDITIVE — a client that ignores them renders
+  // exactly what it rendered before. Straight pass-through of the row's own columns,
+  // nulls preserved (see the interface doc above for the honest-nulls doctrine).
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  needed_by: FeedJob["neededBy"];
   rank: number;
 }
 
@@ -109,6 +116,11 @@ export class ApplicationsService {
       pay_min: job.payMin,
       pay_max: job.payMax,
       shift: job.shift,
+      // Card content (#1561): the seed's own description/benefits/requirements, verbatim.
+      description: job.description,
+      benefits: job.benefits,
+      requirements: job.requirements,
+      needed_by: job.neededBy,
       rank: index + 1, // 1-based seed display position
     }));
 

@@ -49,9 +49,16 @@ export interface JobSearchRow {
   title: string;
   city: string | null;
   state: string | null;
+  area: string | null;
   payMin: number | null;
   payMax: number | null;
   shift: JobShift | null;
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  neededBy: JobNeededBy | null;
   publishedAt: Date | null;
 }
 
@@ -141,36 +148,35 @@ export class JobsRepository {
     // V1 (ADR-0036): the feed serves `job_postings`, so a tapped/applied job id is a
     // POSTING id, not a legacy `jobs.id` — the query above misses it and the detail
     // screen was left with only the light title/place it was handed. Fall back to the
-    // OPEN posting and project the SAME worker-visible, PII-free SHOW set. Fields the
-    // posting doesn't carry are NULL (never invented): `trade_key`, `area`, the
-    // experience window, `benefits`, `requirements`, and `city` when the coarse bucket
-    // is unset. `status = 'open'` keeps the SAME neutral-404 no-oracle rule.
+    // OPEN posting and project the SAME worker-visible, PII-free SHOW set. `trade_key`
+    // stays NULL (the posting carries no trade dimension) and `city` stays NULL when
+    // the coarse bucket is unset. `status = 'open'` keeps the SAME neutral-404
+    // no-oracle rule.
     // `org_label` / `payer_id` are NEVER selected (employer identity, HIDE — ADR-0024/§2).
     //
-    // `city` IS NOT BACK-FILLED FROM `location_label`, deliberately. `job_postings.city`
-    // is the COARSE, matchable city bucket ("Pune"); `location_label` is 200 chars of
-    // poster-typed free text that is explicitly EXEMPT from the PII heuristic
-    // (job-postings.dto.ts) and may name the site or the employer ("Near <Employer> gate
-    // 3"). Promoting it into a worker-visible field would put payer free text on the
-    // worker path — the same call match-feed.service.ts already made for `area`
-    // ("inventing one from `location_label` would put payer free text on a worker card").
-    // A NULL city is the honest answer; the client already hides the row.
+    // `city`/`area` ARE NOT BACK-FILLED FROM `location_label`, deliberately.
+    // `job_postings.city`/`area` are the COARSE, matchable buckets ("Pune"/"Chakan");
+    // `location_label` is 200 chars of poster-typed free text that is explicitly EXEMPT
+    // from the PII heuristic (job-postings.dto.ts) and may name the site or the employer
+    // ("Near <Employer> gate 3"). Promoting it into a worker-visible field would put
+    // payer free text on the worker path. A NULL is the honest answer; the client
+    // already hides the row.
     const [posting] = await this.db
       .select({
         id: jobPostings.id,
         tradeKey: sql<Job["tradeKey"] | null>`NULL`,
         title: jobPostings.roleTitle,
         city: jobPostings.city,
-        area: sql<string | null>`NULL`,
+        area: jobPostings.area,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
-        minExperienceYears: sql<number | null>`NULL`,
-        maxExperienceYears: sql<number | null>`NULL`,
+        minExperienceYears: jobPostings.minExperienceYears,
+        maxExperienceYears: jobPostings.maxExperienceYears,
         neededBy: jobPostings.neededBy,
         shift: jobPostings.shift,
         description: jobPostings.description,
-        benefits: sql<string[] | null>`NULL`,
-        requirements: sql<string[] | null>`NULL`,
+        benefits: jobPostings.benefits,
+        requirements: jobPostings.requirements,
       })
       .from(jobPostings)
       .where(and(eq(jobPostings.id, jobId), eq(jobPostings.status, "open")))
@@ -352,9 +358,16 @@ export class JobsRepository {
         title: jobPostings.roleTitle,
         city: jobPostings.city,
         state: jobPostings.state,
+        area: jobPostings.area,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
         shift: jobPostings.shift,
+        minExperienceYears: jobPostings.minExperienceYears,
+        maxExperienceYears: jobPostings.maxExperienceYears,
+        description: jobPostings.description,
+        benefits: jobPostings.benefits,
+        requirements: jobPostings.requirements,
+        neededBy: jobPostings.neededBy,
         publishedAt: jobPostings.publishedAt,
       })
       .from(jobPostings)

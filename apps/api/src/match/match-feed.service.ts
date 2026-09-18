@@ -32,6 +32,15 @@ export interface MatchFeedItem {
   pay_min: number | null;
   pay_max: number | null;
   shift: string | null;
+  /**
+   * Worker-visible card content (#1561, migration 0116). ADDITIVE — a client that ignores
+   * them renders exactly what it rendered before. All nullable; NULL is honest absence
+   * (a posting created before the migration, or a poster who left the field blank).
+   */
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  needed_by: string | null;
   rank: number;
   /** E18 — he was reached through a RELATED skill, not the posted one. */
   via_related: boolean;
@@ -100,17 +109,20 @@ export class MatchFeedService {
       // (the column is nullable), and "" is the honest empty rather than a fabricated
       // city — the client already renders a blank city row for the legacy nulls.
       city: row.city ?? "",
-      // `area` does not exist on `job_postings`. Null is the honest answer; inventing
-      // one from `location_label` would put payer free text on a worker card.
-      area: null,
-      // The experience WINDOW does not exist on `job_postings` either. Null both ends
-      // reads as [0, ∞) to the client — "matches every band" — which is the liberal
-      // pass-through the legacy feed documents, not a silent narrowing.
-      min_experience_years: null,
-      max_experience_years: null,
+      // Card content (#1561): straight pass-through of the posting's own columns, nulls
+      // preserved — a posting with no area/experience/content shows none, it is never
+      // fabricated and never drops the card. `location_label` is still never read here:
+      // deriving `area` from poster free text would put payer free text on a worker card.
+      area: row.area,
+      min_experience_years: row.minExperienceYears,
+      max_experience_years: row.maxExperienceYears,
       pay_min: row.payMin,
       pay_max: row.payMax,
       shift: row.shift,
+      description: row.description,
+      benefits: row.benefits,
+      requirements: row.requirements,
+      needed_by: row.neededBy,
       rank: index + 1,
       via_related: row.matchTier === 2,
       matched_skill_label: matchSkillLabel(row.matchedSkillId) ?? null,

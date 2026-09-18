@@ -501,6 +501,23 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0116-job-postings-card-columns",
+    migration: "0116_job_postings_card_content",
+    kind: "column",
+    table: "job_postings",
+    object: "area",
+    requiredBy:
+      "MatchFeedRepository.listFeed, JobsRepository.searchOpenPostings and " +
+      "JobsRepository.findWorkerVisibleJobById name area/min/max_experience_years/" +
+      "benefits/requirements unconditionally on GET /feed, GET /jobs/search and the " +
+      "worker job-detail read (#1561). `max_experience_years`, `benefits` and " +
+      "`requirements` are added by the same migration and fail together",
+    failureMode:
+      "every job read 500s (column does not exist): feed, search and detail — the whole " +
+      "worker jobs surface. Old builds on a migrated database are fine (a superset); new " +
+      "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",
