@@ -2040,6 +2040,58 @@ class CityOptionDto extends Equatable {
   List<Object?> get props => <Object?>[value, aliases, state];
 }
 
+/// GET /workers/me/work-preferences (#1504) — the caller's STORED answers in
+/// the PUT's own field names. `null` means no stored row; `[]` means a stored
+/// "none of these" — kept apart because a client that coalesced them and saved
+/// would clear every list the worker never answered.
+///
+/// Only the fields the profile/resume surface READS are parsed here; the write
+/// path carries the full tri-state body separately.
+class WorkPreferencesDto extends Equatable {
+  const WorkPreferencesDto({
+    this.languages,
+    this.workTypes,
+    this.jobType,
+    this.partial = const <String>[],
+  });
+
+  /// Stored language slugs (chat-captured or form), or null when no row.
+  final List<String>? languages;
+
+  /// Stored multi work types (#1559), or null when no row. When non-empty it
+  /// WINS over [jobType] server-side (see `worker-field-precedence.ts`).
+  final List<String>? workTypes;
+
+  /// The legacy single job type — the fallback for rows that predate
+  /// `work_types`. Never shown alongside a non-empty [workTypes].
+  final String? jobType;
+
+  /// Wire keys whose stored value was withheld; a client must not re-send.
+  final List<String> partial;
+
+  static List<String>? _slugList(Object? raw) {
+    if (raw is! List) return null;
+    return raw.whereType<String>().toList();
+  }
+
+  factory WorkPreferencesDto.fromJson(Map<String, dynamic> json) {
+    final Map<String, dynamic> values =
+        (json['values'] as Map<String, dynamic>?) ?? <String, dynamic>{};
+    return WorkPreferencesDto(
+      languages: _slugList(values['languages']),
+      workTypes: _slugList(values['work_types']),
+      jobType: values['job_type'] as String?,
+      partial: (json['partial'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[],
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[languages, workTypes, jobType, partial];
+}
+
 class WorkPrefOptionsDto extends Equatable {
   const WorkPrefOptionsDto({
     required this.languages,

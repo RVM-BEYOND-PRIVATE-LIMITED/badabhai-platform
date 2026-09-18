@@ -340,4 +340,55 @@ void main() {
       expect(find.text('Skills aur anubhav'), findsOneWidget);
     },
   );
+
+  // #1576 — the chat-captured languages and work types, as labelled chips.
+  group('captured languages + work types', () {
+    testWidgets('renders both as chips when present', (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 5,
+          languages: <String>['Hindi', 'English'],
+          workTypes: <String>['Permanent', 'Daily wage'],
+        ),
+      );
+
+      expect(find.text('Bhasha aur kaam'), findsOneWidget);
+      expect(find.text('BHASHAYEIN'), findsOneWidget);
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(find.text('English'), findsOneWidget);
+      expect(find.text('KAAM KA PRAKAR'), findsOneWidget);
+      expect(find.text('Permanent'), findsOneWidget);
+      expect(find.text('Daily wage'), findsOneWidget);
+    });
+
+    testWidgets('hides the whole section when both are empty',
+        (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
+      );
+
+      expect(find.text('Bhasha aur kaam'), findsNothing);
+      expect(find.text('BHASHAYEIN'), findsNothing);
+      expect(find.text('KAAM KA PRAKAR'), findsNothing);
+    });
+
+    testWidgets('shows only work types when languages are absent',
+        (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 4,
+          workTypes: <String>['Contract'],
+        ),
+      );
+
+      expect(find.text('Bhasha aur kaam'), findsOneWidget);
+      expect(find.text('KAAM KA PRAKAR'), findsOneWidget);
+      expect(find.text('BHASHAYEIN'), findsNothing);
+    });
+  });
 }

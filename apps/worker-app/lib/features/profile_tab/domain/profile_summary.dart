@@ -23,6 +23,8 @@ class ProfileSummary extends Equatable {
     this.experienceYears,
     this.educationLevel,
     this.educationField,
+    this.languages = const <String>[],
+    this.workTypes = const <String>[],
     this.profileStatus = 'none',
     this.source,
   });
@@ -84,6 +86,17 @@ class ProfileSummary extends Equatable {
   /// mentions) and from certifications.
   final String? educationField;
 
+  /// The worker's languages as PRINTABLE labels, resolved from the chat/form
+  /// captured `languages` slugs against the server's dictionary. `[]` when
+  /// absent — the section is then hidden, never shown as an empty row.
+  final List<String> languages;
+
+  /// The work types as PRINTABLE labels (the #1559 multi). When the stored
+  /// multi is non-empty it WINS; otherwise the legacy single `job_type` is the
+  /// one-entry fallback — the two are never shown together. `[]` hides the
+  /// section.
+  final List<String> workTypes;
+
   /// The raw backend `profile_status` (`worker_profiles.profile_status`):
   /// 'none' | 'draft' | 'extracting' | 'extracted' | 'confirmed'. Defaults to
   /// `'none'` for a hand-built / no-profile summary.
@@ -130,6 +143,8 @@ class ProfileSummary extends Equatable {
         experienceYears,
         educationLevel,
         educationField,
+        languages,
+        workTypes,
         profileStatus,
         source,
       ];
