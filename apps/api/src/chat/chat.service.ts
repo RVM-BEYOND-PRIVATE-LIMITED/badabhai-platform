@@ -17,6 +17,7 @@ import { hasExtractedContent } from "../profiles/profile-content";
 import type { NewWorkerPackAnswer } from "@badabhai/db";
 import type { QuestionPackOption } from "@badabhai/ai-contracts";
 import { CHAT_OPENING_TEXT } from "./chat-replies";
+import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
@@ -407,7 +408,7 @@ export class ChatService {
     );
     switch (outcome.kind) {
       case "session_over":
-        return this.terminalResponse(dto.session_id);
+        return this.terminalResponse(dto.session_id, dto.text);
       case "reflushed":
         return this.checkedResponse(
           {
@@ -1443,23 +1444,33 @@ export class ChatService {
    * completing turn (an old build, a dropped response, a fresh process reusing a
    * persisted id) is told again here, on every subsequent message, rather than being
    * left to post into a dead session forever.
+   *
+   * POST-COMPLETION RESUME MENU (backend-only V1). Instead of the old fixed
+   * closing line with no chips, the dead session now serves a stateless,
+   * deterministic menu (`resume-menu.ts`): edit-vs-redo on any text, then the
+   * redo pair (upload / chat) or the 6 resume sections. No LLM, no writes, no
+   * PII in logs. `session_ended` + `extraction_ready` stay true so the client
+   * contract (drop the cached id, keep the CTA state) is unchanged; only the
+   * reply + chips differ, which old clients render as plain chips.
    */
-  private terminalResponse(sessionId: string): PostMessageResponse {
+  private terminalResponse(sessionId: string, text = ""): PostMessageResponse {
+    const menu = resolveResumeMenu(text);
     return this.checkedResponse(
       {
         session_id: sessionId,
-        reply: CHAT_ALREADY_COMPLETE_REPLY,
-        ...this.ttsField(CHAT_ALREADY_COMPLETE_REPLY, null),
+        reply: menu.reply,
+        ...this.ttsField(menu.reply, null),
         blocked: false,
         is_mock: true,
-        // A dead session serves no question, so it offers nothing to tap.
-        suggested_followups: [],
-        suggested_options: [],
+        suggested_followups: menu.followups,
+        suggested_options: menu.options,
         asked_question_id: null,
         extraction_ready: true,
         unanswered_essentials: [],
         session_ended: true,
-        question_kind: "close",
+        // A menu is a single-select, not a question: `disambiguate` draws the
+        // vertical list on shipped clients; a bare ack with no chips stays `close`.
+        question_kind: menu.followups.length > 0 ? "disambiguate" : "close",
         // A dead session serves no question, so it constrains no answer either.
         input_mode: "text",
         // No question is on screen here, so there is no answer shape to describe.

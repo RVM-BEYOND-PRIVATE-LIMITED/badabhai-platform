@@ -1393,12 +1393,30 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
     expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
   });
 
-  it("a TERMINAL turn into a finished session still reads aloud", async () => {
+  it("a TERMINAL turn into a finished session serves the resume menu", async () => {
     const { res } = await run({ sessionStatus: "ended" });
-    expect(res.reply).toBe(CLOSING);
-    expect((res as Record<string, unknown>).tts_text).toBe(
-      "आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।",
+    // Post-completion menu V1: any text on a dead session gets edit-vs-redo,
+    // not the old fixed closing line. Flags are unchanged (client contract).
+    expect(res.reply).toBe("Aap kya karna chahte hain. Neeche se chunein.");
+    expect(res.suggested_followups).toEqual([
+      "Apna resume edit karein",
+      "Apna resume dobara banayein",
+    ]);
+    expect(res.session_ended).toBe(true);
+    expect(res.extraction_ready).toBe(true);
+    expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
+  });
+
+  it("an edit selection on a finished session opens the 6 resume sections", async () => {
+    const h = make({ sessionStatus: "ended" });
+    const res = await h.svc.postMessage(
+      WORKER,
+      { ...DTO, text: "Apna resume edit karein" } as never,
+      CTX,
     );
+    expect(res.suggested_followups).toHaveLength(6);
+    expect(res.question_kind).toBe("disambiguate");
+    expect(res.session_ended).toBe(true);
   });
 
   it("a REPLAYED turn repeats the twin along with the reply", async () => {
