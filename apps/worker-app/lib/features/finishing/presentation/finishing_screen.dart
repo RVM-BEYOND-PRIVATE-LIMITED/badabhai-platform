@@ -471,6 +471,17 @@ class _WizardScaffold extends StatelessWidget {
                     const SizedBox(height: FormFlowLayout.headlineToWhyGap),
                     Text(_subtitles[i],
                         style: OnboardingTypography.formWhyText()),
+                    // #1575 — why THIS question is being asked again: the chat
+                    // served-and-skipped it (`unanswered`), or an answer exists
+                    // the profile could not carry (`dropped_by_projector`).
+                    // Null for never-asked facts (the question is the ask) and
+                    // for settled ones (their pages are hidden, not annotated).
+                    if (gapNoteForPage(state.page, state.fillEntries)
+                        case final String note) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Text(note,
+                          style: OnboardingTypography.formWhyText()),
+                    ],
                     // The finishing form IS the reward — say so once, on page
                     // one.
                     if (state.isFirstPage)

@@ -65,4 +65,25 @@ class FinishingRepositoryImpl implements FinishingRepository {
       throw mapError(error);
     }
   }
+
+  @override
+  Future<SessionFillDto?> loadSessionFill() async {
+    final String? token = _session.sessionToken;
+    final String? sessionId = _session.sessionId;
+    // No bearer or no chat session (form road, cold start, old flow): there is
+    // nothing to ask about — full list, exactly as before. Never throws: the
+    // fill view is informational, and a throw here would block the form.
+    if (token == null || sessionId == null || sessionId.isEmpty) return null;
+    try {
+      return await _api.getSessionFill(
+        authToken: token,
+        sessionId: sessionId,
+      );
+    } catch (_) {
+      // Fail OPEN to the full list (see the interface doc): a 404 (not the
+      // caller's session), an older server without the block, or a 2G blip
+      // must never strand the worker on an error screen.
+      return null;
+    }
+  }
 }
