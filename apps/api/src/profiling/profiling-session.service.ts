@@ -36,6 +36,12 @@ import { clipId } from "./reply-closure";
 import { ttsField } from "./question-tts-text";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesService } from "../profiles/profiles.service";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import {
+  buildSessionFillView,
+  storedFactsFromAttributeRows,
+  STORED_FACT_ATTRIBUTE_KEYS,
+} from "./facts/session-fill-view";
 import type {
   FinalizeProfilingResponse,
   ProfilingAnswerDto,
@@ -94,6 +100,9 @@ export class ProfilingSessionService {
     // The fourth trigger (#700). ProfilesModule imports ProfilingModule for the projector, so
     // this needs a forwardRef back — the cycle is real and is one interview, two concerns.
     @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
+    // Fill-gap Phase 3. Read-only, and the ONE store the finishing form's pages write for the
+    // attribute-backed facts — the cross-road half of the settled-vs-missing view.
+    private readonly attributes: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -394,6 +403,48 @@ export class ProfilingSessionService {
       session_id: sessionId,
       complete: view?.buffer.completedAt !== undefined || session.status !== "active",
       rows,
+      fill: await this.buildFill(workerId, sessionId),
+    };
+  }
+
+  /**
+   * The settled-vs-missing view for this session's pinned packs (fill-gap Phase 3).
+   *
+   * WHY `viewSettled` AND NOT THE LIVE `view` ABOVE. The review screen exists for the moment
+   * AFTER the last question — and that is exactly when the Redis envelope is gone, so the live
+   * view returns null and a fill built from it would be permanently empty at the moment it is
+   * for. `viewSettled` reads the DURABLE half (`chat_sessions.pack_id` + `conversation_state`),
+   * which is the same source `correct()` already trusts post-flush.
+   *
+   * A SESSION WITH NO PIN HAS NO VIEW (the no-occupation fallback path), and that is reported as
+   * empty rather than guessed: the same limitation `correct()` surfaces as a 409. Additive read;
+   * nothing here writes, and a failure to build it fails the request rather than silently telling
+   * a surface "nothing is settled", which would re-ask a worker everything.
+   */
+  private async buildFill(
+    workerId: string,
+    sessionId: string,
+  ): Promise<ProfilingReviewResponse["fill"]> {
+    const settledView = await this.orchestrator.viewSettled(sessionId, new Date());
+    if (!settledView || settledView.items.length === 0) return { entries: [], settled: [] };
+
+    const stored = storedFactsFromAttributeRows(
+      await this.attributes.loadKeys(workerId, STORED_FACT_ATTRIBUTE_KEYS),
+    );
+
+    // CAMEL CASE → WIRE: the pure module works in the registry's vocabulary; the response is the
+    // snake_case contract the app already consumes for every other profiling field.
+    const view = buildSessionFillView(settledView.items, settledView.answers, stored);
+    return {
+      entries: view.entries.map((entry) => ({
+        fact: entry.fact,
+        question_key: entry.questionKey,
+        status: entry.status,
+        source: entry.source,
+        dropped_by_projector: entry.droppedByProjector,
+        is_core: entry.isCore,
+      })),
+      settled: [...view.settled],
     };
   }
 

@@ -126,6 +126,16 @@ function makeWorld(
     profile?: { id: string } | null;
     /** What `rebuildAfterCorrection` reports. `null` = the rebuild could not be queued. */
     rebuild?: { ai_job_id: string; status: string } | null;
+    /** Fill-gap Phase 3: the worker's stored `worker_attributes` rows, as `loadKeys` returns them. */
+    storedAttributes?: readonly {
+      attributeKey: string;
+      valueKind: string;
+      valueBool?: boolean | null;
+      valueText?: string | null;
+      valueNumber?: number | string | null;
+      valueTextList?: readonly string[] | null;
+      valueJson?: Record<string, unknown> | null;
+    }[];
   } = {},
 ) {
   const session =
@@ -185,6 +195,7 @@ function makeWorld(
     voiceAnswers as never,
     workers as never,
     profiles as never,
+    { loadKeys: vi.fn(async () => opts.storedAttributes ?? []) } as never,
   );
   return {
     service,
@@ -1481,5 +1492,72 @@ describe("correcting a settled answer", () => {
       expect(orchestrator.correctAnswer).toHaveBeenCalled();
       expect(result.row.display_value).toBe("Pune");
     });
+  });
+});
+
+describe("the review's fill view (fill-gap Phase 3)", () => {
+  const fillItems = [
+    // The helper writes `target_field = question_key`, so these names ARE the fact aliases the
+    // registry resolves — the same shape `qp_universal` carries for the tail.
+    item("current_city", "Aap kis sheher mein rehte hain?"),
+    item("languages", "Aap kaun si bhasha bolte hain?"),
+  ];
+  const fillWorld = (over: Record<string, unknown> = {}) => ({
+    packId: "qp_universal",
+    packVersion: 3,
+    items: fillItems,
+    answers: {},
+    state: {},
+    correctionCount: 0,
+    ...over,
+  });
+
+  it("reports a chat answer and a stored-elsewhere fact side by side", async () => {
+    const { service } = makeWorld({
+      settled: fillWorld({
+        answers: {
+          current_city: answer({ question_key: "current_city", value_normalized: "Pune" }),
+        },
+      }),
+      storedAttributes: [
+        { attributeKey: "languages", valueKind: "text_list", valueTextList: ["hindi"] },
+      ],
+    });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill.settled.sort()).toEqual(["current_city", "languages"]);
+    const byFact = Object.fromEntries(fill.entries.map((e) => [e.fact, e]));
+    expect(byFact.current_city).toMatchObject({ status: "answered", source: "chat" });
+    expect(byFact.languages).toMatchObject({ status: "answered", source: "other_road" });
+  });
+
+  it("is EMPTY when the session has no pin — never a guess that everything is settled", async () => {
+    // `viewSettled` returns null for a session with no pinned pack (the no-occupation fallback);
+    // reporting an empty `settled` set is the only honest answer, and it makes the surface ask
+    // rather than hide.
+    const { service } = makeWorld({ settled: undefined });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill).toEqual({ entries: [], settled: [] });
+  });
+
+  it("keeps a non-projecting city missing so the profile gap stays visible", async () => {
+    const { service } = makeWorld({
+      settled: fillWorld({
+        answers: {
+          current_city: answer({ question_key: "current_city", value_normalized: "Gaon XYZ" }),
+        },
+      }),
+    });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill.entries.find((e) => e.fact === "current_city")).toMatchObject({
+      status: "missing",
+      dropped_by_projector: true,
+    });
+    expect(fill.settled).not.toContain("current_city");
   });
 });
