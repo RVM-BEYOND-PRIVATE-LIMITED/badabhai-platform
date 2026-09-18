@@ -625,6 +625,19 @@ class ApiClient {
     return WorkPrefOptionsDto.fromJson(json);
   }
 
+  /// GET /workers/me/work-preferences (#1504) — the caller's STORED answers,
+  /// in the PUT's own field names. Used by the profile/resume display to read
+  /// the chat-captured `languages` / `work_types` (with the legacy `job_type`
+  /// fallback). `null` = no row, `[]` = a stored "none of these". Worker from
+  /// [authToken].
+  Future<WorkPreferencesDto> getWorkPreferences({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/work-preferences', authToken: authToken);
+    return WorkPreferencesDto.fromJson(json);
+  }
+
   /// PUT /workers/me/employment (#1296) — REPLACES the worker's whole work-history
   /// list (sending `[]` clears it). [employments] are the already-wire-shaped
   /// entry maps (the repository builds them from typed models, so this stays

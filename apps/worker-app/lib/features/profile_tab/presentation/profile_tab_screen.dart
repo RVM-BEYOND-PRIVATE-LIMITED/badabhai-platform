@@ -169,6 +169,10 @@ class _ProfileTabView extends StatelessWidget {
         ],
         const SizedBox(height: 12),
         _skillsCard(s),
+        if (s.languages.isNotEmpty || s.workTypes.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          _languagesAndWorkTypesCard(s),
+        ],
         const SizedBox(height: 12),
         _shortcutsCard(context),
         // Comfortable separation from the content above; logout sits last.
@@ -393,6 +397,32 @@ class _ProfileTabView extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  /// #1576 — the chat/forms-captured languages and work types as labelled kit
+  /// chips. Rendered ONLY when at least one list has a value, so an absent
+  /// answer adds no heading and no gap (absence is not a claim). The values
+  /// arrive as PRINTABLE labels from the repository, already resolved against
+  /// the server's own dictionary — this screen never maps a raw slug.
+  Widget _languagesAndWorkTypesCard(ProfileSummary s) {
+    return KitCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const KitCardHeader(
+            icon: Icons.translate_rounded,
+            title: 'Bhasha aur kaam',
+          ),
+          const SizedBox(height: 12),
+          if (s.languages.isNotEmpty)
+            _chipGroup('Bhashayein', s.languages, OnboardingColors.shiftBlue),
+          if (s.languages.isNotEmpty && s.workTypes.isNotEmpty)
+            const SizedBox(height: 12),
+          if (s.workTypes.isNotEmpty)
+            _chipGroup('Kaam ka prakar', s.workTypes, OnboardingColors.successGreen),
+        ],
+      ),
     );
   }
 
