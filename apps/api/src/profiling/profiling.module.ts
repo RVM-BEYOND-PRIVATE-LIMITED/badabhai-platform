@@ -145,6 +145,6 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ResumeSuggestionReader,
     ResumeImportProcessor,
   ],
-  exports: [PackRegistryService, ProfilingOrchestrator],
+  exports: [PackRegistryService, ProfilingOrchestrator, TradeFormRepository],
 })
 export class ProfilingModule {}

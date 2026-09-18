@@ -18,12 +18,17 @@ import 'cubit/resume_cubit.dart';
 /// Resume tab — passing the generated text so the tab shows it without
 /// re-generating. A minimum display window stops the spinner from flashing.
 class BuildingScreen extends StatelessWidget {
-  const BuildingScreen({super.key});
+  const BuildingScreen({super.key, this.force = false});
+
+  /// When true, bypass the cached resume and re-generate from the server.
+  /// Used after a trade-form section walk so the overlay runs against fresh
+  /// pack answers (see resume-draft-overlay.ts).
+  final bool force;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ResumeCubit>(
-      create: (_) => locator<ResumeCubit>()..generate(),
+      create: (_) => locator<ResumeCubit>()..generate(force: force),
       child: const _BuildingView(),
     );
   }
