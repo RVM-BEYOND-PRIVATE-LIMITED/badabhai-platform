@@ -474,6 +474,39 @@ class ApiClient {
     return json['next'] is String ? json['next'] as String : null;
   }
 
+  /// POST /profile/corrections (#1595 — the client half of #1593): correct
+  /// extracted fields on the worker's own profile, anchored to the pinned
+  /// interview session.
+  ///
+  /// [corrections] carries 1–5 entries with unique fields (validated
+  /// server-side; the cubit validates first so a worker never waits on a
+  /// 400 for a client bug). Returns counts only — the caller re-reads the
+  /// existing GETs to show updated values.
+  ///
+  /// Throws [ApiException]: 404 when the worker owns neither the profile
+  /// nor the session (no oracle — same null for both); 409 carrying a
+  /// stable reason code — `unpinned_road_deferred` (session has no durable
+  /// pack pin: in-progress, abandoned, form-road — surface, do not retry)
+  /// or `correction_cap_reached` (lifetime budget spent — disable the
+  /// affordance). See [correctionRejectedOf].
+  Future<CorrectionsApplied> postProfileCorrections({
+    required String authToken,
+    required String profileId,
+    required String sessionId,
+    required List<ExtractedCorrection> corrections,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/profile/corrections',
+      <String, dynamic>{
+        'profile_id': profileId,
+        'session_id': sessionId,
+        'corrections': corrections.map((c) => c.toJson()).toList(),
+      },
+      authToken: authToken,
+    );
+    return CorrectionsApplied.fromJson(json);
+  }
+
   /// Records the worker's real name (PATCH /workers/me/name). Worker-scoped —
   /// requires [authToken] (WorkerAuthGuard + ConsentGuard); the worker is taken
   /// from the token, never from the body. The name is PII: it is sent once over

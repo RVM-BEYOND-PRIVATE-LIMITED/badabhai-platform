@@ -28,6 +28,7 @@ import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/profile_edit/presentation/profile_edit_screen.dart';
+import 'features/extracted_review/presentation/extracted_review_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
 import 'features/trade_form/presentation/trade_form_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
@@ -120,6 +121,10 @@ class Routes {
   static const String jobSearch = '/jobs/search';
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
+
+  /// Extracted-profile review + correction surface (issue #1595, §8.4) —
+  /// pushed full-screen from the Resume preview's actions; back → Resume.
+  static const String extractedReview = '/resume/review'; // (no bar)
 
   /// Interview kit. Lives under the PROFILE branch (WA-3): the kit is entered
   /// from the Profile tab, so popping out of it must land back on Profile. It
@@ -599,6 +604,13 @@ GoRouter _buildRouter() {
                     path: 'edit',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const ResumeEditScreen(),
+                  ),
+                  // Extracted-profile review (#1595) — same no-bar posture
+                  // as the safe-fields editor above; back → Resume preview.
+                  GoRoute(
+                    path: 'review',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const ExtractedReviewScreen(),
                   ),
                 ],
               ),

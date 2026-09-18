@@ -290,6 +290,8 @@ class _ResumeViewState extends State<_ResumeView> {
         resumeBody,
         const SizedBox(height: kResumeCardGap),
         const _ReportCorrectionButton(),
+        const SizedBox(height: 10),
+        const _ReviewExtractedButton(),
         const SizedBox(height: 16),
         Center(
           child: Text(
@@ -432,6 +434,40 @@ class _ReportCorrectionButton extends StatelessWidget {
       // width beside its glyph.
       label: const Text(
         'Report correction',
+        maxLines: 2,
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+/// The extracted-profile review surface (#1595, §8.4): what the interview
+/// heard, with a correction affordance per writable field. Sits beside
+/// 'Report correction' (which is the free-text feedback door); this one is
+/// the structured door — bounded fields, audited writes, re-read values.
+class _ReviewExtractedButton extends StatelessWidget {
+  const _ReviewExtractedButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, OnboardingLayout.tapTarget),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(OnboardingRadii.docked),
+        ),
+        side: const BorderSide(color: OnboardingColors.borderDefault),
+        backgroundColor: OnboardingColors.paperWhite,
+        foregroundColor: OnboardingColors.ink600,
+        textStyle: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w600,
+        ),
+      ),
+      onPressed: () => context.pushOnce(Routes.extractedReview),
+      icon: const Icon(Icons.fact_check_outlined, size: 16),
+      label: const Text(
+        'Profile review karein',
         maxLines: 2,
         textAlign: TextAlign.center,
       ),

@@ -140,6 +140,25 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<CorrectionsApplied> postProfileCorrections({
+    required String authToken,
+    required String profileId,
+    required String sessionId,
+    required List<ExtractedCorrection> corrections,
+  }) async {
+    // #1595 — canned acceptance so the review screen renders in mock mode:
+    // every entry applies, and the count ticks by the batch size. Cap and
+    // deferral states are cubit-level branches, covered by unit tests with a
+    // throwing double — the mock never needs to invent a 409.
+    await _delay();
+    return CorrectionsApplied(
+      profileId: profileId,
+      correctionsApplied: corrections.length,
+      correctionCount: corrections.length,
+    );
+  }
+
+  @override
   Future<void> updateName({
     required String fullName,
     required String authToken,

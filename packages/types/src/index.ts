@@ -461,6 +461,8 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/jobs/detail/:id", // Routes.jobDetail + '/<jobId>'
   "/resume", // Routes.resume
   "/resume/edit", // Routes.resumeEdit
+  // Extracted-profile review + correction surface (worker-app #1595, §8.4).
+  "/resume/review", // Routes.extractedReview
   "/resume-upload", // Routes.resumeUpload
   "/bada-bhai", // Routes.badaBhai
   "/profile", // Routes.profile
