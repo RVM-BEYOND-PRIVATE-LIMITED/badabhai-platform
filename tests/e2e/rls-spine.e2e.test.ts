@@ -134,6 +134,10 @@ const LOCKED_TABLES = [
   // `role_*` ids in the worker's order; the supply path derives extra match skills from them.
   // Deny-by-default, FORCE, no policy.
   "worker_occupation",
+  // 0117: per-field extracted-correction audit facts (#1311 backend half) — opaque
+  // profile/session ids + closed field enum + timestamp, no corrected values (those live
+  // in the authored stores). Deny-by-default, FORCE, no policy.
+  "profile_correction",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.

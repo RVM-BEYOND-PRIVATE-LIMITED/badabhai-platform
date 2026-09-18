@@ -6,6 +6,9 @@ import { SkillsModule } from "../skills/skills.module";
 import { ProfilesController } from "./profiles.controller";
 import { ProfilesService } from "./profiles.service";
 import { ProfilesRepository } from "./profiles.repository";
+import { ExtractedCorrectionsService } from "./extracted-corrections.service";
+import { ProfileCorrectionsRepository } from "./profile-corrections.repository";
+import { ProfileSkillsRepository } from "./profile-skills.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
@@ -107,6 +110,12 @@ import {
   providers: [
     ProfilesService,
     ProfilesRepository,
+    // #1311 backend half — the extracted-profile correction contract. @Global DATABASE
+    // + @Global EventsService/WorkerSkillsService + the qualifications writer already
+    // provided above, so these add three providers and no module edge.
+    ExtractedCorrectionsService,
+    ProfileCorrectionsRepository,
+    ProfileSkillsRepository,
     AiJobsRepository,
     // `worker_attributes` — where `attribute`-kind answers land (77% of the pack corpus).
     WorkerAttributesRepository,

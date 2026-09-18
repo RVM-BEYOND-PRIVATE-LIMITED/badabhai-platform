@@ -891,6 +891,23 @@ export const ResumeSharedPayload = z.object({
   channel: z.enum(["whatsapp", "link", "download", "other"]).default("link"),
 });
 
+/**
+ * A worker corrected an extracted profile field (#1311 backend half, NOT #1318).
+ *
+ * IDS + CLOSED FIELD ENUM ONLY — the corrected values live in the authored stores
+ * (`worker_profile_skill`, `worker_education`, …), never here. `field` names which
+ * extracted fact moved; `correction_id` is the `profile_correction` row; `session_id`
+ * is the pinned interview the correction anchors to. No free text, no values, no PII —
+ * the same discipline as every `resume.*` sibling above.
+ */
+export const ResumeEditedPayload = z.object({
+  worker_id: uuidSchema,
+  profile_id: uuidSchema,
+  correction_id: uuidSchema,
+  session_id: uuidSchema,
+  field: z.enum(["skills", "machines", "experience", "education", "certificates"]),
+});
+
 // ---------------------------------------------------------------------------
 // interview_kit.* (per-trade preparation kit — deterministic, render-once)
 //

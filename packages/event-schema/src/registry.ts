@@ -280,6 +280,7 @@ export const EVENT_REGISTRY = {
   "resume.downloaded": { version: 1, domain: "resume", payload: p.ResumeDownloadedPayload },
   "resume.regenerated": { version: 1, domain: "resume", payload: p.ResumeRegeneratedPayload },
   "resume.shared": { version: 1, domain: "resume", payload: p.ResumeSharedPayload },
+  "resume.edited": { version: 1, domain: "resume", payload: p.ResumeEditedPayload },
 
   "interview_kit.render_completed": {
     version: 1,
