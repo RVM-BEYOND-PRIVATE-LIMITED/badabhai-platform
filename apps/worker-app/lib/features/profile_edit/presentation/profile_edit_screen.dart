@@ -132,8 +132,12 @@ class _ProfileEditView extends StatelessWidget {
         _PortfolioCard(
           initial: state.portfolio,
           saving: state.saving.contains(ProfileEditSection.portfolio),
+          dormant: state.mediaUploadsDormant,
+          pendingUploads: state.pendingUploads,
           onSave: cubit.savePortfolio,
           onUploadMedia: cubit.uploadPortfolioMedia,
+          onRetryUpload: cubit.retryPortfolioUpload,
+          onRemovePending: cubit.removePendingUpload,
         ),
         const SizedBox(height: 12),
         _OccupationsCard(
@@ -1046,15 +1050,26 @@ class _PortfolioCard extends StatefulWidget {
   const _PortfolioCard({
     required this.initial,
     required this.saving,
+    required this.dormant,
+    required this.pendingUploads,
     required this.onSave,
     required this.onUploadMedia,
+    required this.onRetryUpload,
+    required this.onRemovePending,
   });
 
   final List<PortfolioItemDto> initial;
   final bool saving;
+
+  /// True once a mint answered 503: photo/video upload is honestly
+  /// unavailable. Links keep working — dormancy is never a whole-page error.
+  final bool dormant;
+  final List<PendingPortfolioUpload> pendingUploads;
   final Future<void> Function(List<PortfolioItemDto> items) onSave;
   final Future<void> Function(PickedPortfolioMedia media, {String? caption})
       onUploadMedia;
+  final Future<void> Function(String id) onRetryUpload;
+  final void Function(String id) onRemovePending;
 
   @override
   State<_PortfolioCard> createState() => _PortfolioCardState();
@@ -1062,6 +1077,39 @@ class _PortfolioCard extends StatefulWidget {
 
 class _PortfolioCardState extends State<_PortfolioCard> {
   late List<PortfolioItemDto> _items = <PortfolioItemDto>[...widget.initial];
+
+  /// The last `initial` this draft synced with. The cubit's list is the source
+  /// of truth after a save/upload lands; without the merge below, a freshly
+  /// uploaded item would never appear until the screen reloaded.
+  late List<PortfolioItemDto> _lastSynced = <PortfolioItemDto>[...widget.initial];
+
+  @override
+  void didUpdateWidget(_PortfolioCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_sameItems(widget.initial, _lastSynced)) return;
+    final List<PortfolioItemDto> merged = <PortfolioItemDto>[..._items];
+    for (final PortfolioItemDto item in widget.initial) {
+      if (!_lastSynced.contains(item) && !merged.contains(item)) {
+        merged.add(item);
+      }
+    }
+    merged.removeWhere((PortfolioItemDto item) =>
+        _lastSynced.contains(item) && !widget.initial.contains(item));
+    _lastSynced = <PortfolioItemDto>[...widget.initial];
+    setState(() => _items = merged);
+  }
+
+  /// Order-insensitive multiset equality (n ≤ 12): identical links are real
+  /// duplicates the naive `every(contains)` check would miss.
+  bool _sameItems(List<PortfolioItemDto> a, List<PortfolioItemDto> b) {
+    if (a.length != b.length) return false;
+    final List<String> x = a.map((e) => e.toString()).toList()..sort();
+    final List<String> y = b.map((e) => e.toString()).toList()..sort();
+    for (int i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) return false;
+    }
+    return true;
+  }
 
   Future<void> _addLink() async {
     final TextEditingController url = TextEditingController();
@@ -1150,8 +1198,58 @@ class _PortfolioCardState extends State<_PortfolioCard> {
     );
   }
 
+  /// Media CTA that stays honest when the bucket is dormant: no picker, no
+  /// network, just the same copy the dormant state shows.
+  void _addMediaOrDormant() {
+    if (widget.dormant) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text(kPortfolioDormantCopy)));
+      return;
+    }
+    _addMedia();
+  }
+
+  /// One clear CTA for the empty state: a chooser, so the single button covers
+  /// both paths and the dormant path repeats its honest copy.
+  Future<void> _addFirst() async {
+    final String? choice = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Sample jodein'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.link),
+              title: const Text('Link'),
+              onTap: () => Navigator.of(dialogContext).pop('link'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add_photo_alternate_outlined),
+              title: const Text('Photo/Video'),
+              subtitle: widget.dormant
+                  ? const Text(kPortfolioDormantCopy)
+                  : null,
+              onTap: () => Navigator.of(dialogContext).pop('media'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'link') {
+      await _addLink();
+    } else if (choice == 'media') {
+      _addMediaOrDormant();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool isEmpty =
+        _items.isEmpty && widget.pendingUploads.isEmpty;
+    final bool atCap = _items.length >= kMaxPortfolioItems;
     return _SectionCard(
       icon: Icons.photo_library_outlined,
       title: 'Portfolio',
@@ -1162,17 +1260,43 @@ class _PortfolioCardState extends State<_PortfolioCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Apne kaam ki photo, video ya link. (Media upload server pe '
-            'configure hone tak sirf link chalega.)',
+            'Apne kaam ki photo, video ya link.',
             style: OnboardingTypography.bodyMuted(),
           ),
+          // Dormant is a STATIC section state, not an error: it sits where the
+          // media CTA lives, names the situation once, and never spins, toasts
+          // on open, or retries anything by itself. Links are unaffected.
+          if (widget.dormant) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              kPortfolioDormantCopy,
+              style: OnboardingTypography.bodyMuted(),
+            ),
+          ],
           const SizedBox(height: 10),
-          if (_items.isEmpty)
-            Text('Abhi kuch nahi.', style: OnboardingTypography.bodyMuted())
+          for (final PendingPortfolioUpload pending
+              in widget.pendingUploads) ...<Widget>[
+            _PendingUploadRow(
+              pending: pending,
+              onRetry: () => widget.onRetryUpload(pending.id),
+              onRemove: () => widget.onRemovePending(pending.id),
+            ),
+            const SizedBox(height: 8),
+          ],
+          if (isEmpty)
+            BbButton(
+              label: 'Pehla sample jodein',
+              block: true,
+              size: BbButtonSize.md,
+              iconLeft: Icons.add,
+              onPressed: () => _addFirst(),
+            )
           else
             for (int i = 0; i < _items.length; i++) ...<Widget>[
               _PortfolioRow(
                 item: _items[i],
+                previewUnavailable: _items[i].kind != 'link' &&
+                    (_items[i].url == null || _items[i].url!.isEmpty),
                 onRemove: () async {
                   final List<PortfolioItemDto> next = <PortfolioItemDto>[..._items]
                     ..removeAt(i);
@@ -1182,7 +1306,7 @@ class _PortfolioCardState extends State<_PortfolioCard> {
               ),
               const SizedBox(height: 8),
             ],
-          if (_items.length < kMaxPortfolioItems)
+          if (!isEmpty && !atCap)
             Row(
               children: <Widget>[
                 TextButton.icon(
@@ -1191,11 +1315,17 @@ class _PortfolioCardState extends State<_PortfolioCard> {
                   label: const Text('Link'),
                 ),
                 TextButton.icon(
-                  onPressed: _addMedia,
+                  onPressed: _addMediaOrDormant,
                   icon: const Icon(Icons.add_photo_alternate_outlined),
                   label: const Text('Photo/Video'),
                 ),
               ],
+            ),
+          // At-cap names the server bound instead of letting the next PUT 400.
+          if (!isEmpty && atCap)
+            Text(
+              'Zyaada se zyaada $kMaxPortfolioItems items.',
+              style: OnboardingTypography.bodyMuted(),
             ),
         ],
       ),
@@ -1203,11 +1333,97 @@ class _PortfolioCardState extends State<_PortfolioCard> {
   }
 }
 
+/// One in-flight or failed upload (#1578): visible from the tap, with its
+/// reason plus retry/remove once it fails. Uploading rows carry no actions —
+/// the mint → PUT → save dance is seconds-long, so there is no stuck state
+/// worth cancelling into.
+class _PendingUploadRow extends StatelessWidget {
+  const _PendingUploadRow({
+    required this.pending,
+    required this.onRetry,
+    required this.onRemove,
+  });
+
+  final PendingPortfolioUpload pending;
+  final VoidCallback onRetry;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool failed =
+        pending.status == PendingPortfolioUploadStatus.failed;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: OnboardingColors.rowBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.row),
+        border: Border.all(color: OnboardingColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              if (failed)
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 18,
+                  color: OnboardingColors.errorRed,
+                )
+              else
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  pending.media.kind == 'video'
+                      ? 'Video upload ho raha hai…'
+                      : 'Photo upload ho raha hai…',
+                  style: OnboardingTypography.inter(
+                      size: 13, weight: FontWeight.w600),
+                ),
+              ),
+              if (failed) ...<Widget>[
+                TextButton(
+                  onPressed: onRetry,
+                  child: const Text('Retry'),
+                ),
+                IconButton(
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.close, size: 18),
+                ),
+              ],
+            ],
+          ),
+          if (failed && (pending.error ?? '').isNotEmpty) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              pending.error!,
+              style: OnboardingTypography.bodyMuted(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _PortfolioRow extends StatelessWidget {
-  const _PortfolioRow({required this.item, required this.onRemove});
+  const _PortfolioRow({
+    required this.item,
+    required this.onRemove,
+    this.previewUnavailable = false,
+  });
 
   final PortfolioItemDto item;
   final VoidCallback onRemove;
+
+  /// True for stored media whose signed URL is absent (dormant bucket): the
+  /// row stays, honestly marked, instead of a broken thumbnail.
+  final bool previewUnavailable;
 
   @override
   Widget build(BuildContext context) {
@@ -1244,6 +1460,13 @@ class _PortfolioRow extends StatelessWidget {
                 if ((item.caption ?? '').isNotEmpty)
                   Text(
                     item.caption!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: OnboardingTypography.bodyMuted(),
+                  ),
+                if (previewUnavailable)
+                  Text(
+                    'Preview uplabdh nahi hai',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: OnboardingTypography.bodyMuted(),
