@@ -105,6 +105,10 @@ function serviceFor(role: RoleCase) {
     // uniqueness, not the review-or-omit path (`trade-form.service.test.ts` covers that).
     { review: vi.fn(async () => null) } as never,
     { WORK_HISTORY_POLISH_ENABLED: false } as never,
+    // Safety-net resume refresh (no resume row here → never fires) + render queue.
+    // Present so the constructor arity matches; this suite asserts uniqueness, not the refresh.
+    { latestResume: vi.fn(async () => undefined) } as never,
+    { add: vi.fn(async () => ({})) } as never,
   );
   return { service, packs };
 }
