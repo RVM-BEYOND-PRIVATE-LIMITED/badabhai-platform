@@ -102,6 +102,25 @@ void main() {
     expect(cubit.state.employments.length, kMaxEmployers);
   });
 
+  test('languages cap at six — a seventh tick is ignored, untick still works',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    expect(kFinishingMaxLanguages, 6);
+    for (int i = 0; i < 6; i++) {
+      cubit.toggleLanguage('lang$i');
+    }
+    expect(cubit.state.prefs.languages, hasLength(6));
+    cubit.toggleLanguage('lang6');
+    expect(cubit.state.prefs.languages, hasLength(6),
+        reason: 'a seventh language must never reach the PUT as a 400');
+    cubit.toggleLanguage('lang0');
+    expect(cubit.state.prefs.languages, hasLength(5));
+    cubit.toggleLanguage('lang6');
+    expect(cubit.state.prefs.languages, hasLength(6));
+    expect(cubit.state.prefs.languages, contains('lang6'));
+  });
+
   test('submit persists prefs + non-blank employers, then done', () async {
     final FinishingCubit cubit = build();
     await cubit.load();

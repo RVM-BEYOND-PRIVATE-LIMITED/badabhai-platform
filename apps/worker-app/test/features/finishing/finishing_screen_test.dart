@@ -430,7 +430,8 @@ void main() {
       await tester.pump();
       expect(speech.spoken, hasLength(1));
       expect(speech.spoken.single, contains('Aap kaun si bhasha bolte hain?'));
-      expect(speech.spoken.single, contains('Jitni bhasha aati hain, sab chunein.'));
+      expect(speech.spoken.single,
+          contains('Zyada se zyada 6 bhasha chun sakte hain.'));
 
       final int stopsBefore = speech.stops;
       await advance(tester);

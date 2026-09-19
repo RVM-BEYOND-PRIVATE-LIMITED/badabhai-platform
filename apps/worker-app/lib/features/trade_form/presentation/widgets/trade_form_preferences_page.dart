@@ -18,6 +18,7 @@ typedef _OptionIcon = IconData Function(String optionKey, String label);
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart.
 const String _kLangLabel = 'Aap kaun si bhasha bolte hain?';
+const String _kLangSubtitle = 'Zyada se zyada 6 bhasha chun sakte hain.';
 const String _kDocLabel = 'Kaun se document taiyaar hain?';
 const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
@@ -213,19 +214,24 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
 
-  /// No page on this marker can be entered wrong any more — every field is
-  /// closed-set cards/toggles/a resolved-city picker. (The one free-typed
-  /// field that COULD fail, the education year, left with the education
-  /// pages — see `pageCount`'s doc.) Checked by `_WizardScaffoldState` before
-  /// [goToNextPage]/[save] for every marker, so this stays a real method
-  /// rather than being dropped from the shared interface.
-  String? currentPageError() => null;
+  /// The one page on this marker that CAN still be entered wrong: `languages`
+  /// is capped at [kTradeFormMaxLanguages] server-side
+  /// (`worker-preferences.dto.ts`), so a seventh tick would 400 the whole
+  /// save on the LAST internal page (`terms`) — the exact dead end this guards
+  /// against. Checked by `_WizardScaffoldState` before [goToNextPage]/[save].
+  String? currentPageError() {
+    if (_pages[_page] == _PrefsPage.languages &&
+        _prefs.languages.length > kTradeFormMaxLanguages) {
+      return _kLangSubtitle;
+    }
+    return null;
+  }
 
   /// What the wizard's listen button reads on the CURRENT internal page: that
   /// page's visible question heading(s) — app copy only, never a value the
   /// worker picked or typed.
   String currentPageSpeech() => switch (_pages[_page]) {
-        _PrefsPage.languages => '$_kLangLabel\n$_kOptionalNote',
+        _PrefsPage.languages => '$_kLangLabel\n$_kLangSubtitle $_kOptionalNote',
         _PrefsPage.documents => '$_kDocLabel\n$_kOptionalNote',
         _PrefsPage.shift => _kShiftLabel,
         _PrefsPage.jobType => _kJobTypeLabel,
@@ -251,6 +257,61 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     final Set<String> next = Set<String>.of(set);
     if (!next.add(slug)) next.remove(slug);
     return next;
+  }
+
+  /// Toggles a language, enforcing [kTradeFormMaxLanguages] at the input edge
+  /// so a seventh tick can never become a 400 on the `terms` page. Removing an
+  /// already-picked language always works; adding past the cap is ignored with
+  /// an honest banner naming the limit.
+  void _toggleLanguage(String slug) {
+    if (_prefs.languages.contains(slug)) {
+      setState(() => _prefs = _prefs.copyWith(
+          languages: _toggled(_prefs.languages, slug)));
+      return;
+    }
+    if (_prefs.languages.length >= kTradeFormMaxLanguages) {
+      _showCapBanner();
+      return;
+    }
+    setState(() => _prefs =
+        _prefs.copyWith(languages: _toggled(_prefs.languages, slug)));
+  }
+
+  /// A MaterialBanner (top), NOT a SnackBar — the sticky bottom bar owns the
+  /// bottom edge, so a SnackBar would cover "Aage badhein" (same reason as
+  /// [_addResolvedCity]'s toast below).
+  void _showCapBanner() {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: OnboardingColors.shiftBlue,
+        content: Text(
+          _kLangSubtitle,
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w500,
+            color: OnboardingColors.textOnBlue,
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: Text(
+              'Theek hai',
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w700,
+                color: OnboardingColors.textOnBlue,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   @override
@@ -294,14 +355,17 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const TradeFormHeading(title: _kLangLabel, subtitle: _kOptionalNote),
+        const TradeFormHeading(
+          title: _kLangLabel,
+          subtitle: '$_kLangSubtitle $_kOptionalNote',
+        ),
         const SizedBox(height: FormFlowLayout.whyToHintGap),
         const FormHintChip(text: kTradeFormMultiSelectHint),
         const SizedBox(height: FormFlowLayout.hintToOptionsGap),
-        // Screen 18 — a clean multi-select list, no subtext.
+        // Screen 18 — a clean multi-select list, capped at
+        // [kTradeFormMaxLanguages] (see [_toggleLanguage]).
         _multiCards(options.languages, _prefs.languages, _languageIcon,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                languages: _toggled(_prefs.languages, slug)))),
+            _toggleLanguage),
       ],
     );
   }
