@@ -1734,3 +1734,53 @@ class ResumeParseOutput(BaseModel):
     failure_reason: str | None = None
 
     ai_metadata: AICallMetadata | None = None
+
+
+# --- Résumé profile summary (RI-summary, backend-only slice) -----------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts` (`ResumeSummaryInputSchema` /
+# `ResumeSummaryOutputSchema`). A SEPARATE second LLM call after `/resume/parse`:
+# the parse reads citable values, this call reads the same document for one
+# worker-facing Hinglish line: {Job Role} + {total experience} + {short summary}.
+#
+# PRIVACY: the request carries a storage KEY, never the document. The response
+# carries no identity — only a closed-set role id and two short Hinglish strings,
+# both certified by the hard-identifier wall before they leave the pipeline.
+
+
+class ResumeSummaryInput(BaseModel):
+    """One Hinglish summary request for an already-uploaded résumé.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so
+    the résumé's text never passes through apps/api at all — the same posture as
+    `ResumeParseInput`.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    #: The CLOSED role ids the model may return in `role_kind` — the ENABLED form
+    #: kinds (9 today), supplied by apps/api. Rendered into the prompt verbatim,
+    #: so bounded in count; each entry is length-capped at render time.
+    role_kinds: list[str] = Field(default_factory=list, max_length=32)
+    #: BOUNDED like `ResumeParseInput.language`: the one request field that reaches
+    #: a trace attribute without passing through the masker.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class ResumeSummaryOutput(BaseModel):
+    """One Hinglish extraction line, gated. `None` fields mean "no judgment"."""
+
+    #: One id from the request's `role_kinds`, narrowed by the gate (anything else
+    #: becomes None). None on every degraded path and when none fits — "no judgment"
+    #: and "judged none" both read as absent downstream.
+    role_kind: str | None = None
+    #: Hinglish duration, e.g. "5 saal ka tajurba" or "Fresher". Bounded, PII-free.
+    experience_text: str | None = Field(default=None, max_length=120)
+    #: Hinglish 1-2 line worker summary. Bounded, PII-free, no identifiers.
+    summary_text: str | None = Field(default=None, max_length=500)
+    #: Closed vocabulary (`RESUME_IMPORT_FAILURES`), else None. Never model text.
+    failure_reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    ai_metadata: AICallMetadata | None = None

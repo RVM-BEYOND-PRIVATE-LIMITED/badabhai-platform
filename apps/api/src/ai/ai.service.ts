@@ -13,6 +13,8 @@ import {
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
   ResumeParseOutputSchema,
+  ResumeSummaryInputSchema,
+  ResumeSummaryOutputSchema,
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
   WorkHistoryPolishOutputSchema,
@@ -27,6 +29,8 @@ import {
   type ProfileParseOutput,
   type ResumeParseInput,
   type ResumeParseOutput,
+  type ResumeSummaryInput,
+  type ResumeSummaryOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
@@ -147,6 +151,21 @@ const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
  * costs the worker a sentence of Hinglish, never the flow.
  */
 const RESUME_PARSE_TIMEOUT_MS = 100_000;
+
+/**
+ * RI-summary (backend-only slice). The SAME budget as the parse, and for the same
+ * reason: `/resume/summary` downloads the object and runs the same deterministic
+ * extract + OCR BEFORE its own LLM call. A second read of the same photographed
+ * résumé costs the same seconds as the first — sizing this like the chat calls
+ * would abort a healthy summary of the common case.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE, deliberately, for the reason
+ * `RESUME_PARSE_TIMEOUT_MS` states: the informative `parse_deadline_exceeded`
+ * must stay reachable. NOBODY IS BLOCKED: the import runs on a queue, the
+ * summary runs best-effort beside it, and ruling D9 drops the worker into the
+ * ordinary flow when it never completes.
+ */
+const RESUME_SUMMARY_TIMEOUT_MS = 100_000;
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -576,11 +595,41 @@ export class AiService {
     input: ResumeParseInput,
     ctx?: AiRequestContext,
   ): Promise<ResumeParseOutput | null> {
+    return this.post("/resume/parse", input, ResumeParseOutputSchema, RESUME_PARSE_TIMEOUT_MS, ctx);
+  }
+
+  /**
+   * Read an uploaded résumé into one Hinglish line (RI-summary, backend-only).
+   *
+   * SENDS A KEY, NEVER THE DOCUMENT — same posture as `parseResume`: the ai-service
+   * fetches and extracts the object itself. The response carries a closed-set role id
+   * plus two short Hinglish strings, both certified against the hard-identifier wall
+   * on the far side — never arbitrary document text.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT, same as the parse: every semantic failure
+   * comes back as a healthy 200 carrying a `failure_reason` from the closed vocabulary.
+   * The caller (`ResumeSummaryService`) treats null as "the AI service did not answer"
+   * and degrades — best-effort, never blocking the import, never shown in chat yet.
+   */
+  async summarizeResume(
+    input: ResumeSummaryInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeSummaryOutput | null> {
+    // Shape-check the closed role list before it nears the wire: the far side
+    // sanitises again, but a caller bug that widened this list should fail here,
+    // not as a prompt carrying an id nobody reviewed.
+    const checked = ResumeSummaryInputSchema.safeParse(input);
+    if (!checked.success) {
+      this.logger.warn(
+        `resume summary input refused locally paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+      return null;
+    }
     return this.post(
-      "/resume/parse",
-      input,
-      ResumeParseOutputSchema,
-      RESUME_PARSE_TIMEOUT_MS,
+      "/resume/summary",
+      checked.data,
+      ResumeSummaryOutputSchema,
+      RESUME_SUMMARY_TIMEOUT_MS,
       ctx,
     );
   }

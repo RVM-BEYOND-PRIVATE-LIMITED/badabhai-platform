@@ -33,12 +33,16 @@ export {
   ResumeParseInputSchema,
   ResumeEmploymentSchema,
   ResumeParseOutputSchema,
+  ResumeSummaryInputSchema,
+  ResumeSummaryOutputSchema,
 } from "./resume-import";
 export type {
   ResumeLine,
   ResumeParseInput,
   ResumeEmployment,
   ResumeParseOutput,
+  ResumeSummaryInput,
+  ResumeSummaryOutput,
 } from "./resume-import";
 
 export {

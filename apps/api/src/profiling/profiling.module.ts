@@ -1,9 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 
-import { RESUME_RENDER_QUEUE,
-  RESUME_IMPORT_PARSE_QUEUE,
-} from "../queue/queue.constants";
+import { RESUME_RENDER_QUEUE, RESUME_IMPORT_PARSE_QUEUE } from "../queue/queue.constants";
 import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -32,6 +30,7 @@ import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeSummaryService } from "./resume-import/resume-summary.service";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 
 /**
@@ -144,6 +143,7 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ResumeImportService,
     ResumeParseService,
     ResumeRouteService,
+    ResumeSummaryService,
     ResumeSuggestionReader,
     ResumeImportProcessor,
   ],

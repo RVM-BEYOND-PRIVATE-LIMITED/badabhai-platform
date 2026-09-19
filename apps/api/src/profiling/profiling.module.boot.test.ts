@@ -5,6 +5,7 @@ import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeSummaryService } from "./resume-import/resume-summary.service";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
@@ -122,6 +123,7 @@ describe("ProfilingModule wiring", () => {
       // only thing that ever calls the parse at all — without it the queue fills and nothing
       // drains it, which no other test in this repository can see.
       ResumeRouteService,
+      ResumeSummaryService,
       ResumeSuggestionReader,
       ResumeImportProcessor,
     ]);

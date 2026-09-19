@@ -74,6 +74,13 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # cheap tier here buys nothing but rejections. Real calls still need
     # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
     "resume_parse": ("capable", True),
+    # RI-summary (backend-only slice). CAPABLE, and json_mode on, for the same reason
+    # `resume_parse` is: the task is a closed-list classification plus two short bounded
+    # strings under a strict schema, where a weaker model does not answer worse so much
+    # as it stops echoing the closed id — and an off-list id is one the gate drops to
+    # null, so a cheap tier here buys nothing but "no judgment". Real calls still need
+    # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
+    "resume_profile_summary": ("capable", True),
     "resume_generation": ("cheap", False),
     # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
     # retrieval has already narrowed thousands of occupations to ten labelled lines, so
@@ -190,6 +197,24 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # return a different employer or a different year. It also needs its own branch
             # for the reason `profile_parse` documents: without one it falls through to the
             # resume-GENERATION defaults and runs a citation task at 0.4.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "resume_profile_summary":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
+            # object (a closed id plus two short Hinglish strings), so this is slack —
+            # and slack is safer than tight here: a truncated candidate loses the closing
+            # brace, fails the contract, and degrades the whole line to null.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. A classification against a fixed
+            # list must give the same answer for the same document every time; sampling
+            # here would mean a re-import could re-file a worker into a different trade
+            # with no input change — and would make the Hinglish line non-comparable
+            # across prompt versions on Langfuse.
             temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
