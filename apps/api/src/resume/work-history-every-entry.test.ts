@@ -193,8 +193,8 @@ describe("every entry PRINTS its own rewrite", () => {
     );
 
     expect(block.employments[0]!.work).toBe("One.");
-    // Still the worker's own words — the fallback is per entry, never a whole-sheet decision.
-    expect(block.employments[1]!.work).toBe("raw two");
+    // A null rewrite prints empty for that entry — never the worker's own words.
+    expect(block.employments[1]!.work).toBe("");
   });
 
   it("never prints one employer's line half-English and half-Hinglish", () => {
@@ -258,8 +258,8 @@ describe("every entry PRINTS its own rewrite", () => {
     } as WorkerEmploymentRecord;
 
     const block = buildEmploymentBlock([two], ON_OPTS).employments[0]!;
-    expect(block.work).toBe("Turned shafts. · drawing padhta tha");
-    expect(block.work_own_words).toBe("shaft banata tha · drawing padhta tha");
+    expect(block.work).toBe("Turned shafts.");
+    expect(block.work_own_words).toBe("shaft banata tha");
     // Same number of parts, in the same order — one stint per part on both sides.
     expect(block.work.split(" · ")).toHaveLength(block.work_own_words!.split(" · ").length);
   });
