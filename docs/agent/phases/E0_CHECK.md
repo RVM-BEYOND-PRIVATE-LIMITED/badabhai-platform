@@ -1,5 +1,5 @@
 PHASE-ID: E0
-STATUS: THE TWO QUESTIONS THAT HALTED THIS PHASE ARE RULED (owner, 2026-09-05) — §A a ninth
+STATUS: THE TWO QUESTIONS THAT HALTED THIS PHASE ARE RULED AND SIGNED (owner, 2026-09-07) — §A a ninth
 consent purpose for messaging, §B templates for the payer's opening message and free text
 after the worker replies, both in docs/decisions/E0_RELAY_DECISION_2026-09.md. THIS PHASE NO
 LONGER HALTS ON THEM. What replaces them is a GATE: the three blocking conditions C-1/C-2/C-3
@@ -8,10 +8,17 @@ that ships the relay with two of the three is a FAIL, not a partial pass — say
 words, because "2 of 3 conditions met" reads like a score and will be accepted as one.
 ITEM 0 IS ALREADY DONE — raised as issue #1430 on 2026-09-05, before any ruling; item 1 below
 checks that issue, not the work.
-ONE THING STILL HALTS: the ninth purpose STRING is the owner's to mint
-(docs/agent/BUILD_RULES.md:28). If `packages/types/src/index.ts` does not contain it, a build
-session correctly HALTs — and a build that added it ITSELF is a FAIL under the NEVER-DO,
-however correct the string looks.
+THE NINTH PURPOSE IS NO LONGER A HALT, AND A BUILD THAT ADDED IT IS NO LONGER A FAIL.
+CORRECTED 2026-09-07. This item read: "a build that added it ITSELF is a FAIL under the
+NEVER-DO, however correct the string looks." The owner then authorised the addition directly
+and BUILD_RULES.md:89-91 carries an explicit carve-out naming it — so the predicate still
+fires correctly on absence, but the sentence it made a checker write became false. That is
+PARKED.md P-016's shape, in the false-FAIL direction.
+WHAT TO CHECK NOW: `grep -n '"employer_messaging"' packages/types/src/index.ts` — expect one
+hit inside CONSENT_PURPOSES, and expect the array to hold NINE members. Its absence is the
+FAIL; its presence is the expected state. Do NOT fail a build for having added it.
+(The rule itself is at docs/agent/BUILD_RULES.md:89-91. `:28` was never this rule — it is the
+PARKED.md entry of the authority list.)
 
 INVARIANT: no message crosses between a payer and a worker without a live, unexpired,
 consent-valid unlock joining them — re-checked at send time, not merely at grant time.
@@ -34,7 +41,7 @@ HOW TO READ THE LABELS.
   [DELIVERABLE] — must be RED at the phase base.
 
 THE THREE BLOCKING CONDITIONS — CHECK THESE FIRST, AND A MISSING ONE ENDS THE VERDICT.
-The relay itself (items 1-12) is not the deliverable on its own. Owner ruling 2026-09-05 on
+The relay itself (items 1-12) is not the deliverable on its own. Owner ruling 2026-09-07 on
 docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
 
   C-1. [DELIVERABLE · base: RED, exactly two hits, both in notifications.dto.ts]
@@ -78,9 +85,12 @@ docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
 CONVENTION: grep exits 1 on zero matches. Do not run under `set -e`. Paste raw output AND the
 exit code for every item.
 
-1. [DELIVERABLE · base: RED, one hit at :31] ITEM 0 — the false promise is gone.
+1. [DELIVERABLE · base: GREEN as of 2026-09-07 — Frontend SHIPPED it] ITEM 0 — the false promise is gone.
    grep -n "Use it in-app to reach the candidate" apps/payer-web/src/components/unlock/routed-contact-card.tsx
-   Base: one hit at :31. The issue IS RAISED (#1430, 2026-09-05, carrying the exact
+   Base as written was "one hit at :31". MEASURED 2026-09-07: the grep now exits 1 — the
+   sentence is GONE and the replacement copy is live ("The routed channel is not open yet, so
+   there is nothing to dial or message today"). Frontend shipped it. This item now PASSES on
+   the first branch below. The issue was RAISED (#1430, 2026-09-05, carrying the exact
    replacement copy) — payer-web is the frontend owner's layer (CLAUDE.md §6), so a backend
    session owes the issue and not the edit.
    gh issue view 1430 --json state,title
@@ -178,10 +188,12 @@ exit code for every item.
     the other.
 
 RECORD IN THE VERDICT, do not check:
-  - That §A and §B of docs/decisions/E0_RELAY_DECISION_2026-09.md are RULED (owner,
-    2026-09-05) and §C's three conditions are what this phase is now gated on.
-  - Whether the ninth purpose string exists in packages/types/src/index.ts yet. If not, the
-    session HALTs — and that is the correct outcome, not a failure of the build.
+  - That §A and §B of docs/decisions/E0_RELAY_DECISION_2026-09.md are RULED AND SIGNED
+    (owner, 2026-09-07) and §C's three conditions are what this phase is now gated on.
+  - Whether the ninth purpose string exists in packages/types/src/index.ts. It was MINTED on
+    2026-09-07 under the owner's direct authorisation and BUILD_RULES.md:89-91's carve-out, so
+    its PRESENCE is now the expected state and its absence is the FAIL. A build that added it
+    is not a NEVER-DO breach.
   - That the §B ruling constrains the SHAPE of the opening message and settles nothing about
     INTENT. A verdict that describes this channel as preventing disclosure is wrong, whatever
     else it found.
