@@ -221,6 +221,12 @@ class TestServiceAuthEnabled:
         # point in this list: D5 permits the document to reach the model UNMASKED behind
         # RESUME_PARSE_RAW_TEXT_ENABLED, so an ungated route here would accept a document
         # from anyone and parse it under that posture.
+        #
+        # 15 -> 16 with RI-summary (backend-only slice): POST /resume/summary, the SECOND
+        # read of the same document for one Hinglish line. Same sensitivity as the parse
+        # above — same bucket, same D5 posture, same worker text — so gated identically.
+        # Backend-only in this slice means the trace is the verification surface, but the
+        # gate is what keeps that trace from being reachable by anyone.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -234,6 +240,7 @@ class TestServiceAuthEnabled:
             "/pseudonymize",
             "/resume/generate",
             "/resume/parse",
+            "/resume/summary",
             "/skills/canonicalize",
             "/skills/retag-plan",
             "/voice/transcribe",

@@ -166,6 +166,11 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   // comparison would flatter itself — the spend would be real and invisible. RI-7 is the
   // phase that has to answer whether the trade is worth it, and it needs this rupee counted.
   resume_parse: true,
+  // RI-summary's Hinglish line — `true`, same side as `resume_parse`. A second read of the
+  // same uploaded document to BUILD the profile, before the interview has even started. Same
+  // RI-7 argument as the parse above: counted, or the résumé-vs-interview comparison flatters
+  // itself with spend that was real and invisible.
+  resume_profile_summary: true,
   // Rendered FROM a finished profile, not spent to produce one (₹5.629 of the ₹77.4583).
   resume_generation: false,
   // THE SAME SIDE OF THE RATIO AS `resume_generation`, AND FOR THE SAME REASON (#1350). The
