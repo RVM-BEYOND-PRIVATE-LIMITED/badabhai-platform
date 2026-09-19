@@ -289,8 +289,17 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   // --- Chip / toggle edits ----------------------------------------------
 
-  void toggleLanguage(String slug) => _emitPrefs(
-      state.prefs.copyWith(languages: _toggled(state.prefs.languages, slug)));
+  /// Toggles a language, enforcing [kFinishingMaxLanguages] at the input edge
+  /// so a seventh tick can never become a 400 at submit. Removing an
+  /// already-picked language always works; adding past the cap is ignored.
+  void toggleLanguage(String slug) {
+    if (!state.prefs.languages.contains(slug) &&
+        state.prefs.languages.length >= kFinishingMaxLanguages) {
+      return;
+    }
+    _emitPrefs(
+        state.prefs.copyWith(languages: _toggled(state.prefs.languages, slug)));
+  }
 
   void toggleDocument(String slug) => _emitPrefs(state.prefs
       .copyWith(documentsReady: _toggled(state.prefs.documentsReady, slug)));
