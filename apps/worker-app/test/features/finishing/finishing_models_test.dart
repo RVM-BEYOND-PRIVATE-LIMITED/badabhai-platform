@@ -134,6 +134,12 @@ void main() {
     });
   });
 
+  group('client caps mirror the server contract', () {
+    test('languages cap is six — worker-preferences.dto.ts multiSelect 6', () {
+      expect(kFinishingMaxLanguages, 6);
+    });
+  });
+
   group('WorkPrefOptionsDto.fromJson', () {
     test('parses each slug→label map and coerces safely', () {
       final WorkPrefOptionsDto dto = WorkPrefOptionsDto.fromJson(<String, dynamic>{

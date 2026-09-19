@@ -380,6 +380,13 @@ class TradeFormAnswerResult extends Equatable {
 /// `kTradeFormMaxCertificates`/`kTradeFormMaxEducations`.
 const int kTradeFormMaxPreferredCities = 5;
 
+/// Server cap (`languages`'s `.max(6)` in `worker-preferences.dto.ts`) —
+/// an editorial limit on how many print on the sheet, not the dictionary's
+/// size (16). A plain client-side bound so a seventh tick can never become
+/// a 400 on the LAST internal page (`terms`), same convention as
+/// [kTradeFormMaxPreferredCities].
+const int kTradeFormMaxLanguages = 6;
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 ///
 /// Deliberately carries NO education/credential fields any more — this

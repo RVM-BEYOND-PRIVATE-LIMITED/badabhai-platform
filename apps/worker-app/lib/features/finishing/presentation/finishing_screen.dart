@@ -32,7 +32,7 @@ const String _kRewardLine =
     'Bas kuch aakhri baatein — phir aapka resume taiyaar ho jayega.';
 
 const String _kLangTitle = 'Aap kaun si bhasha bolte hain?';
-const String _kLangSubtitle = 'Jitni bhasha aati hain, sab chunein.';
+const String _kLangSubtitle = 'Zyada se zyada 6 bhasha chun sakte hain.';
 
 const String _kDocTitle = 'Kaun se document taiyaar hain?';
 const String _kDocSubtitle = 'Jo aapke paas hain, unhe chunein.';

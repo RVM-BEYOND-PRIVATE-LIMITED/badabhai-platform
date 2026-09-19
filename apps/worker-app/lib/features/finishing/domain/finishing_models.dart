@@ -383,6 +383,12 @@ class WorkPreferences extends Equatable {
       ];
 }
 
+/// Server cap (`languages`'s `.max(6)` in `worker-preferences.dto.ts`) —
+/// an editorial limit on how many print on the sheet, not the dictionary's
+/// size (16). Deliberate duplicate of `kTradeFormMaxLanguages`
+/// (`features/trade_form`, slated for retirement) — see that constant's doc.
+const int kFinishingMaxLanguages = 6;
+
 // `PUT /workers/me/work-preferences` wire keys for the fields
 // [WorkPreferences.touched] tracks.
 const String _kLanguagesKey = 'languages';
