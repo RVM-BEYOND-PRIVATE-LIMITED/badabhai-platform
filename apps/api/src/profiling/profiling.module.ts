@@ -98,10 +98,12 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // module metadata is evaluated at require time, and only `app.module.graph.test.ts` says so
     // in under a minute.
     forwardRef(() => ProfilesModule),
-    // REGISTERED ONLY TO OBTAIN THE REDIS CLIENT — no second connection, and nothing here ever
-    // enqueues. The identical idiom `RateLimitModule` uses, and the reason the module doc above
-    // gives for not opening one: a second client would make the envelope and the transcript two
-    // keys with two TTLs, free to disagree about whether an interview exists.
+    // REGISTERED TO BORROW THE REDIS CLIENT — no second connection, and the identical idiom
+    // `RateLimitModule` uses (a second client would make the envelope and the transcript two
+    // keys with two TTLs, free to disagree about whether an interview exists).
+    // `TradeFormService` DOES enqueue onto it: the safety-net resume re-render after a
+    // capability answer (`refreshResumeAfterCapabilityEdit`). Produce-only — the processor
+    // itself lives in ResumeModule, so there is no cycle.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // ADR-0041 RI-4 — the queue that actually reads an uploaded document. Registered for real
     // here (unlike the line above, which only borrows the Redis client): `ResumeImportService`

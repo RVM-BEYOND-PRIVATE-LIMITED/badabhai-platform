@@ -6,6 +6,8 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
@@ -18,6 +20,8 @@ import { SERVER_CONFIG } from "../../config/config.module";
 import { EventsService } from "../../events/events.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
+import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../../queue/queue.constants";
+import { WorkersRepository } from "../../workers/workers.repository";
 import { projectProfile } from "../answer-map-projector";
 import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
 import { OtherAnswerPolishService } from "../other-answer-polish.service";
@@ -56,6 +60,16 @@ const SECTION_TITLES = {
   work_history: "Work history",
   qualifications: "Qualification, documents & languages",
 } as const;
+
+/**
+ * How long the safety-net resume re-render (`refreshResumeAfterCapabilityEdit`) waits before
+ * running. Long enough to stay off the onboarding hot path (a walk's own answers and the
+ * building screen's generate all land first), short enough that an abandoned walk's Resume
+ * tab heals within minutes rather than forever. The job renders the LIVE attributes at run
+ * time, so every ordering of this job against the walk's answers and the building generate
+ * converges on the freshest state.
+ */
+const RESUME_REFRESH_DELAY_MS = 60_000;
 
 /**
  * What `recordFor` does with number-field text that is not exactly one number.
@@ -110,6 +124,13 @@ export class TradeFormService {
     private readonly otherAnswerPolish: OtherAnswerPolishService,
     @Inject(SERVER_CONFIG)
     private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    // The safety-net resume refresh below reads the latest resume row. WorkersModule is
+    // @Global(), so this adds no module edge (see profiling.module.ts).
+    private readonly workers: WorkersRepository,
+    // Produce-only: this service enqueues re-renders; the processor lives in ResumeModule.
+    // The queue is already registered in THIS module (see profiling.module.ts).
+    @InjectQueue(RESUME_RENDER_QUEUE)
+    private readonly renderQueue: Queue<ResumeRenderJobData>,
   ) {}
 
   /**
@@ -324,6 +345,11 @@ export class TradeFormService {
     // reads its output today.
     this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, requestCtx);
 
+    // THE RESUME REFRESH, BEST-EFFORT. A capability answer changes what the sheet prints, and
+    // the building-screen regenerate is not guaranteed to run (abandoned walk, failed
+    // generate, Resume tab opened straight from the menu). See `refreshResumeAfterCapabilityEdit`.
+    await this.refreshResumeAfterCapabilityEdit(workerId, attributes.length > 0, requestCtx);
+
     // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
     // exactly the number of question screens the next fetch returns — never a count over a
     // different set that the progress rail cannot reach.
@@ -366,6 +392,78 @@ export class TradeFormService {
        */
       schema_stale: gateKeysOf(pack.items).has(item.question_key),
     };
+  }
+
+  /**
+   * Refresh the worker's ALREADY-GENERATED resume after a capability answer — the safety
+   * net that closes the Bada Bhai edit loop server-side.
+   *
+   * THE GAP THIS CLOSES. A section-walk edit (Bada Bhai menu → re-answer → submit) writes
+   * fresh `worker_attributes`, and the happy path regenerates through the building screen
+   * (`POST /resume/generate` + overlay + render). But that path runs ONLY when the worker
+   * finishes inside the app: a walk abandoned mid-way, a generate that 429s, or a Resume
+   * tab opened straight from the menu leaves the new attributes in the database with the
+   * OLD document + READY pill on screen — forever, because nothing else on this path
+   * regenerates or re-renders. The worker's correction is saved and invisible.
+   *
+   * WHAT IT DOES. Best-effort, fail-open, LLM-free: when THIS answer wrote capability
+   * attributes (`wroteAttributes`) and the worker already has a resume, enqueue a FORCED
+   * re-render of that resume. Forced (not a generate) because the content change needs no
+   * model — the render processor rebuilds the sheet from the LIVE attributes at run time —
+   * so this spends no AI budget, mints no version, and never touches the daily generate
+   * cap. In place (same row, same object key), exactly like the photo/prefs re-renders.
+   *
+   * FIRST RUNS ARE EXCLUDED: with no resume row yet there is nothing to refresh, and the
+   * building screen's generate (with its overlay) is what mints version 1.
+   *
+   * DELAYED + DEDUPED, NOT IMMEDIATE. A walk saves ~9 answers; nine immediate renders
+   * would serialize behind every onboarding render on the shared queue. The delay pushes
+   * the safety work off the hot path, and the worker-scoped jobId collapses one walk's
+   * answers into (at most) a slow chain: each job renders the live state at run time, so
+   * the last one to run is always the freshest — every ordering converges.
+   * `removeOnComplete`/`removeOnFail` free the id so the NEXT walk re-arms; without them
+   * the first walk would jam the safety net forever (completed rows are retained by the
+   * queue defaults).
+   *
+   * NEVER THROWS (mirrors `rebuildQuietly`'s contract): the answer above already committed,
+   * and a failed refresh must not fail it. Callers await this freely.
+   */
+  private async refreshResumeAfterCapabilityEdit(
+    workerId: string,
+    wroteAttributes: boolean,
+    requestCtx: RequestContext | undefined,
+  ): Promise<void> {
+    if (!wroteAttributes) return;
+    try {
+      const latest = await this.workers.latestResume(workerId);
+      // No resume yet → first run through the form; the building screen's generate is what
+      // mints version 1 (with the overlay), so there is nothing to refresh.
+      if (!latest) return;
+      await this.renderQueue.add(
+        "render",
+        {
+          resumeId: latest.id,
+          workerId,
+          force: true,
+          correlationId: requestCtx?.correlationId ?? "trade-form-answer",
+          requestId: requestCtx?.requestId ?? "trade-form-answer",
+        },
+        {
+          jobId: `trade-form-rerender:${workerId}`,
+          delay: RESUME_REFRESH_DELAY_MS,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 2000 },
+          removeOnComplete: true,
+          removeOnFail: true,
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `trade-form resume refresh skipped for worker ${workerId} (${
+          error instanceof Error ? error.message : "unknown"
+        }); answers are saved, resume updates on next generate`,
+      );
+    }
   }
 
   // ── internals ───────────────────────────────────────────────────────────────

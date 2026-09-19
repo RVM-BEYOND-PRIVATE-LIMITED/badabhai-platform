@@ -34,6 +34,7 @@ const FAKE_TX = Symbol("fake-tx") as unknown as never;
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
+const RESUME = "33333333-3333-4333-8333-333333333333";
 
 let order = 0;
 function item(partial: Partial<QuestionPackItem> & { question_key: string }): QuestionPackItem {
@@ -113,6 +114,8 @@ function makeService(
     universal?: QuestionPack | null;
     /** ADR-0041 RI-4 — what a résumé staged for this worker, keyed by question key. */
     suggestions?: ReadonlyMap<string, unknown>;
+    /** An already-generated resume row id: set when the test is about a post-completion edit. */
+    resumeId?: string;
   } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
@@ -161,6 +164,13 @@ function makeService(
   const review = vi.fn(async () => "reviewed" as string | null);
   const otherAnswerPolish = { review };
   const config = { WORK_HISTORY_POLISH_ENABLED: true };
+  // The safety-net resume refresh: no resume row by default (first-timer), so the
+  // re-render never fires unless a test opts in via `resumeId`. The queue double
+  // captures `add` calls so the enqueue tests can assert them.
+  const latestResume = vi.fn(async (_workerId: string) =>
+    opts.resumeId === undefined ? undefined : { id: opts.resumeId },
+  );
+  const renderQueueAdd = vi.fn(async (_name: string, _data: unknown, _opts: unknown) => ({}));
   const service = new TradeFormService(
     chat as never,
     packs as never,
@@ -182,6 +192,8 @@ function makeService(
     { findLatestForWorker: async () => undefined } as never,
     otherAnswerPolish as never,
     config as never,
+    { latestResume } as never,
+    { add: renderQueueAdd } as never,
   );
   return {
     service,
@@ -194,6 +206,8 @@ function makeService(
     answers,
     rebuildQuietly,
     review,
+    latestResume,
+    renderQueueAdd,
   };
 }
 
@@ -443,6 +457,83 @@ describe("TradeFormService", () => {
         packId: "qp_cnc_turning",
         sessionId: SESSION,
       });
+    });
+
+    it("refreshes an already-generated resume after a capability answer — the Bada Bhai edit loop", async () => {
+      // THE SAFETY NET THIS EXISTS FOR. A section-walk edit writes fresh attributes, but the
+      // building-screen regenerate only runs when the worker finishes inside the app. An
+      // abandoned walk (or a failed generate) would otherwise leave the new attributes in the
+      // database with the OLD document + READY pill on screen, forever. The forced re-render
+      // rebuilds the sheet from the live attributes at run time: LLM-free, no version bump,
+      // no daily-cap spend.
+      const { service, renderQueueAdd, latestResume } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(latestResume).toHaveBeenCalledWith(WORKER);
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+      expect(renderQueueAdd).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME, workerId: WORKER, force: true }),
+        expect.objectContaining({
+          jobId: `trade-form-rerender:${WORKER}`,
+          delay: 60_000,
+          removeOnComplete: true,
+        }),
+      );
+    });
+
+    it("does NOT refresh when there is no resume yet — the first generate owns version 1", async () => {
+      // First run through the form: nothing to re-render, and the building screen's generate
+      // (with its overlay) is what mints the row. An eager enqueue here would render a row
+      // that does not exist yet — or worse, race the generate.
+      const { service, renderQueueAdd } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("does NOT refresh on the legacy-universal shim — it writes no attributes", async () => {
+      // The shim returns before the capability write, so the hook is never reached even with
+      // a resume on file. Same discipline as the preferences page owning shift (#1503).
+      const { service, renderQueueAdd, upsertMany } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "shift_preference",
+        answer: { kind: "chips", option_keys: ["night"] },
+      });
+      expect(upsertMany).not.toHaveBeenCalled();
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("still saves the answer when the refresh enqueue fails — fail open, always", async () => {
+      // The answer above already committed; a Redis blip must not fail it, and the worker
+      // must never be asked to re-tap a saved answer.
+      const { service, renderQueueAdd, written } = await makeService({ resumeId: RESUME });
+      renderQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it("still saves the answer when the resume lookup fails — fail open, always", async () => {
+      const { service, renderQueueAdd, latestResume, written } = await makeService({
+        resumeId: RESUME,
+      });
+      latestResume.mockRejectedValueOnce(new Error("db down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
     });
 
     it("de-duplicates repeated option keys", async () => {
