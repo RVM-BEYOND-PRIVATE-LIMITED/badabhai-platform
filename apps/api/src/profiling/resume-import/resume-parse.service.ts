@@ -103,9 +103,16 @@ export class ResumeParseService {
     // billed whatever its content turned out to be, and an off-contract reply is exactly the
     // case a spend investigation needs to see. `record` no-ops on a null `meta`, which is what
     // every degraded far-side path sends rather than a fabricated zero.
-    await this.aiCost.record(out.ai_metadata, "resume_parse", null, ctx.correlationId, ctx.requestId, {
-      workerId,
-    });
+    await this.aiCost.record(
+      out.ai_metadata,
+      "resume_parse",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      {
+        workerId,
+      },
+    );
 
     if (out.failure_reason) {
       return this.fail(
@@ -135,9 +142,7 @@ export class ResumeParseService {
     // route the far wall runs under a masking policy the owner can flip, which is precisely
     // when a second opinion is worth having.
     const gated = applyResumeParseGates(out.fields, RESUME_PARSE_TARGET_FIELDS as TargetField[]);
-    const { kept: employments, rejected: employmentsRejected } = filterEmployments(
-      out.employments,
-    );
+    const { kept: employments, rejected: employmentsRejected } = filterEmployments(out.employments);
 
     if (gated.rejections.length > 0 || employmentsRejected > 0) {
       // COUNTS AND GATE IDS, never values — the rejected value is by definition the one thing
@@ -151,9 +156,16 @@ export class ResumeParseService {
 
     // NO WRITE. The row stays `parsing` until the route service settles it in one statement —
     // see the class docblock for the defect a write here caused.
+    //
+    // `storageKey` + `mime` RIDE ON THE DRAFT so the RI-summary second call can re-read the
+    // same document without a second indexed lookup. They are the row's own key and closed-set
+    // mime the parse already validated — never client input — and carrying them here is what
+    // keeps the summary off the request path and off a second read.
     return {
       status: "parsed",
       importId: row.id,
+      storageKey: row.storageKey,
+      mime: row.mime,
       fields: gated.accepted,
       employments,
       // Task 1 B2 — the model's trade classification, narrowed to the closed list
@@ -262,6 +274,13 @@ export type ParsedDraft =
   | {
       status: "parsed";
       importId: string;
+      /**
+       * The row's own storage key + closed-set mime, carried so the RI-summary second
+       * call can re-read the same document without a second lookup. Validated by the
+       * confirm path long before the parse ran — never client input at this point.
+       */
+      storageKey: string;
+      mime: string;
       fields: Record<string, ParsedField>;
       employments: ResumeEmployment[];
       /**

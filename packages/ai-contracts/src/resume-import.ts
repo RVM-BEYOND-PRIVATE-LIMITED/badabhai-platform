@@ -133,6 +133,61 @@ export const TradeAssociationSchema = z.object({
 export type TradeAssociation = z.infer<typeof TradeAssociationSchema>;
 
 /**
+ * Résumé profile summary (RI-summary, backend-only slice).
+ *
+ * A SEPARATE second LLM call after `/resume/parse`, not an extension of it.
+ * The parse reads citable values; this call reads the same document for one
+ * worker-facing Hinglish line: {Job Role} + {total experience} + {short summary}.
+ *
+ * PRIVACY: inputs carry a storage KEY, never the document. Outputs carry no
+ * identity — no name, phone, address, employer, PAN/Aadhaar — only a closed-set
+ * role id and two short Hinglish strings. The far side certifies both strings
+ * with the same hard-identifier wall as the parse (`resume_value_certifier`);
+ * anything carrying an identifier degrades to null, never to a stored row.
+ *
+ * `role_kind` stays an OPEN string here and is narrowed by the second wall
+ * (`ResumeSummaryService`) against the caller-supplied `role_kinds` — the same
+ * posture as `trade_association.kind` and `extraction_method`: the contract
+ * transports, the wall decides. `null` = no judgment (none fits / vague /
+ * mixed trades).
+ */
+export const ResumeSummaryInputSchema = z.object({
+  schema_version: z.literal("resume.v1").default("resume.v1"),
+  /**
+   * Pseudonymous spend attribution + Langfuse user dimension (a UUID, never a
+   * name/phone). Same contract as `ResumeParseInput.worker_ref`.
+   */
+  worker_ref: z.string().min(1),
+  /** The private-bucket object key minted by `POST /profiling/resume-import/upload-url`. */
+  storage_key: z.string().min(1),
+  mime: z.string().min(1),
+  /**
+   * The CLOSED role ids the model may return in `role_kind` — the ENABLED form
+   * kinds (9 today), supplied by apps/api, the single source of truth.
+   * Rendered into the prompt verbatim; the far side shape-checks each entry.
+   */
+  role_kinds: z.array(z.string()).max(32).default([]),
+  language: languageCode.optional(),
+});
+export type ResumeSummaryInput = z.infer<typeof ResumeSummaryInputSchema>;
+
+export const ResumeSummaryOutputSchema = z.object({
+  /** One id from the request's `role_kinds`, or null when none fits. */
+  role_kind: z.string().nullable().default(null),
+  /** Hinglish duration, e.g. "5 saal ka tajurba" or "Fresher". Bounded, PII-free. */
+  experience_text: z.string().max(120).nullable().default(null),
+  /** Hinglish 1-2 line worker summary. Bounded, PII-free, no identifiers. */
+  summary_text: z.string().max(500).nullable().default(null),
+  /** Closed vocabulary (`RESUME_IMPORT_FAILURES`), else null. Never model text. */
+  failure_reason: z.enum(RESUME_IMPORT_FAILURES).nullable().default(null),
+  /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
+  notes: z.array(z.string()).default([]),
+  /** `null` on every degraded path: a fabricated zero-cost record is worse than an absent one. */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type ResumeSummaryOutput = z.infer<typeof ResumeSummaryOutputSchema>;
+
+/**
  * What survived both walls, plus how the text was recovered.
  *
  * The extraction facts ride on the response because `worker_resume_import` stores them and

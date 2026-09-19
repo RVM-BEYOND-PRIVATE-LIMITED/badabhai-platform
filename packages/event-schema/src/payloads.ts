@@ -1055,6 +1055,11 @@ const aiTaskType = z.enum([
   // charged once per uploaded document. Added in the SAME change that routes it, which is
   // the lesson the two entries above were each written to record after the fact.
   "resume_parse",
+  // THE RESUME PROFILE SUMMARY (RI-summary, backend-only slice). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_profile_summary` and charged once per
+  // uploaded document, beside the parse — a second read of the same file for one
+  // Hinglish line. Added in the SAME change that routes it, per the lesson above.
+  "resume_profile_summary",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",

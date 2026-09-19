@@ -285,6 +285,10 @@ describe("AI cost — what a finished profile costs", () => {
       // what keeps the feature's own claim honest — "importing is cheaper than interviewing"
       // is only measurable if the import's rupees are inside cost-per-profile.
       "resume_parse",
+      // RI-summary's Hinglish line — same side as `resume_parse`. A second read of the same
+      // uploaded document to BUILD the profile. Same RI-7 argument: counted, or the comparison
+      // flatters itself with spend that was real and invisible.
+      "resume_profile_summary",
     ]);
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
     // …and the response says which set it used, so the split is auditable from the wire.

@@ -5,8 +5,10 @@ import {
   RESUME_IMPORT_PARSE_QUEUE,
   type ResumeImportParseJobData,
 } from "../../queue/queue.constants";
+import { Logger } from "@nestjs/common";
 import { ResumeParseService } from "./resume-parse.service";
 import { ResumeRouteService } from "./resume-route.service";
+import { ResumeSummaryService } from "./resume-summary.service";
 
 /**
  * The BullMQ ADAPTER for a résumé import — read the document, then route the worker.
@@ -14,6 +16,12 @@ import { ResumeRouteService } from "./resume-route.service";
  * TWO SERVICES, ONE JOB, AND THE ORDER IS THE CONTRACT. RI-3 reads and gates; RI-4 decides,
  * stages and SETTLES. One job means the document is read at most once (`markParsing` is the
  * lock) and the decision follows it.
+ *
+ * RI-SUMMARY RUNS BESIDE THE ROUTE, NEVER IN FRONT OF IT. The second LLM call re-reads the
+ * same document for one Hinglish line ({role} + {tajurba} + {summary}) for Langfuse
+ * verification. Backend-only in this slice: it writes nothing, emits nothing, and shows
+ * nothing in chat. Best-effort by construction — a throw here must never cost the worker
+ * their route — so it is wrapped, logged PII-free, and ignored.
  *
  * ONE JOB WAS NOT ENOUGH ON ITS OWN (amended 2026-09-15). The first cut had the two services
  * write `parsed` and the route in two separate updates inside this one job, and a client polling
@@ -39,9 +47,12 @@ import { ResumeRouteService } from "./resume-route.service";
  */
 @Processor(RESUME_IMPORT_PARSE_QUEUE)
 export class ResumeImportProcessor extends WorkerHost {
+  private readonly logger = new Logger(ResumeImportProcessor.name);
+
   constructor(
     private readonly parse: ResumeParseService,
     private readonly routing: ResumeRouteService,
+    private readonly summary: ResumeSummaryService,
   ) {
     super();
   }
@@ -53,6 +64,19 @@ export class ResumeImportProcessor extends WorkerHost {
     const ctx = { correlationId, requestId };
 
     const draft = await this.parse.parse(workerId, importId, ctx);
+    // RI-summary, best-effort and never blocking: the Langfuse trace is the verification
+    // surface in this slice. A failure here costs nothing — the route below still settles.
+    if (draft.status === "parsed") {
+      try {
+        await this.summary.summarize(workerId, draft.storageKey, draft.mime, ctx);
+      } catch (error) {
+        // PII-FREE: an error message, never document text. The summary is observability,
+        // not the route — failing closed here means continuing to the route, not stopping.
+        this.logger.warn(
+          `résumé summary skipped for import ${importId}: ${(error as Error).message}`,
+        );
+      }
+    }
     const routed = await this.routing.route(workerId, draft, ctx);
 
     // IDS AND A CLOSED-SET ROUTE. This value is BullMQ's job result and is kept in Redis; it

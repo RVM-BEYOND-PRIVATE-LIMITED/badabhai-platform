@@ -312,7 +312,15 @@ function setup(
     crypto as never,
     events,
   );
-  return { processor: new ResumeImportProcessor(parse, routing), table, ai, crypto };
+  // RI-summary is best-effort and backend-only: null means "no summary", never a failure.
+  const summary = { summarize: vi.fn().mockResolvedValue(null) };
+  return {
+    processor: new ResumeImportProcessor(parse, routing, summary as never),
+    table,
+    ai,
+    crypto,
+    summary,
+  };
 }
 
 /** The client's reading: terminal status plus a null route means "chat". Never true of a form worker. */

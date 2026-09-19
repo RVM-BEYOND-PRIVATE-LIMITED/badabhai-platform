@@ -156,6 +156,8 @@ const parsedDraft = (
 ): ParsedDraft => ({
   status: "parsed",
   importId: IMPORT,
+  storageKey: `resume-uploads/${WORKER}/abc.pdf`,
+  mime: "application/pdf",
   fields,
   employments,
   associationKind,
