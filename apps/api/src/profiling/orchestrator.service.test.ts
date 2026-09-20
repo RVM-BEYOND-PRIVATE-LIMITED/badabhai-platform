@@ -125,6 +125,19 @@ function makeWorld(
      * a résumé gets.
      */
     resumeOffer?: { importId: string; suggestions: Map<string, unknown> } | null;
+    /**
+     * RI-identity — the staged Hinglish line for this worker.
+     *
+     * ABSENT IS THE DEFAULT AND THE DEFAULT IS NO IDENTITY TURN, mirroring `resumeOffer`
+     * above: the interview every other test asserts must be byte for byte the one a worker
+     * without a résumé gets.
+     */
+    resumeIdentity?: {
+      importId: string;
+      roleKind: string | null;
+      experienceText: string | null;
+      summaryText: string | null;
+    } | null;
     /** #1504 item 5 (city-seed) — `workers.current_city`, or absent for "nothing on file". */
     workerCity?: string | null;
   } = {},
@@ -200,6 +213,8 @@ function makeWorld(
   const resumeSuggestions = {
     pendingForChat: vi.fn(async () => opts.resumeOffer ?? null),
     forImport: vi.fn(async () => opts.resumeOffer?.suggestions ?? new Map()),
+    // RI-identity. NO STAGED LINE unless a test asks for one — see `resumeIdentity`.
+    identityForChat: vi.fn(async () => opts.resumeIdentity ?? null),
   };
 
   // #1504 item 5 (city-seed).

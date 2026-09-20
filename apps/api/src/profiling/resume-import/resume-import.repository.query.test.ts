@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   markFailedStatement,
   ResumeImportRepository,
+  saveIdentitySummaryStatement,
   settleParsedStatement,
 } from "./resume-import.repository";
 
@@ -103,6 +104,48 @@ describe("settleParsedStatement", () => {
     // …but the judgment is kept on chat rows: "judged none/other" is the signal.
     expect(boundTo(set, /"association_kind" = \$(\d+)/)).toBe("fitter");
     expect(boundTo(chat, WHERE_STATUS)).toBe("parsing");
+  });
+});
+
+describe("saveIdentitySummaryStatement", () => {
+  const compiled = saveIdentitySummaryStatement(db, ID, {
+    roleKind: "welder",
+    experienceText: "2 saal ka tajurba",
+    summaryText: "Welding ka kaam",
+  }).toSQL();
+
+  it("is guarded WHERE id AND status IN (parsing, parsed) — failed/discarded rows stage nothing", () => {
+    // A redelivery that finds the row settled may still backfill a lost line; a row that
+    // failed or was discarded must never grow one. `parsing`/`parsed` is the whole list.
+    // `inArray` parameterizes the list (unlike the `=` guards above), so the membership is
+    // read off the bound params, not the SQL text.
+    expect(compiled.sql).toMatch(
+      / where \("worker_resume_import"\."id" = \$\d+ and "worker_resume_import"\."status" in \(\$\d+, ?\$\d+\)\) returning "id"$/,
+    );
+    expect(boundTo(compiled, WHERE_ID)).toBe(ID);
+    expect(compiled.params).toContain("parsing");
+    expect(compiled.params).toContain("parsed");
+    expect(compiled.params).not.toContain("failed");
+    expect(compiled.params).not.toContain("discarded");
+  });
+
+  it("writes ONLY the identity line — never status, route, or suggestions", () => {
+    // THE SEPARATION THE SETTLE FIX DEMANDS. This write runs beside the settle on the same
+    // job; sharing a column with it would reopen the two-statement defect in a new shape.
+    const setClause = compiled.sql.slice(0, compiled.sql.indexOf(" where "));
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_role_kind" = \$(\d+)/),
+    ).toBe("welder");
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_experience_text" = \$(\d+)/),
+    ).toBe("2 saal ka tajurba");
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_summary_text" = \$(\d+)/),
+    ).toBe("Welding ka kaam");
+    expect(setClause).not.toContain('"status"');
+    expect(setClause).not.toContain('"route"');
+    expect(setClause).not.toContain('"suggestions_enc"');
+    expect(compiled.sql).toMatch(/returning "id"/);
   });
 });
 

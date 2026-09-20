@@ -531,6 +531,22 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "is why this is APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0118-resume-identity-columns",
+    migration: "0118_resume_identity_columns",
+    kind: "column",
+    table: "worker_resume_import",
+    object: "identity_role_kind",
+    requiredBy:
+      "ResumeImportRepository.saveIdentitySummary names identity_role_kind/" +
+      "identity_experience_text/identity_summary_text unconditionally when staging the " +
+      "RI-identity Hinglish line. `identity_experience_text` and `identity_summary_text` " +
+      "are added by the same migration and fail together",
+    failureMode:
+      "the résumé import job 500s on the summary stage (column does not exist). Old builds " +
+      "on a migrated database are fine (a superset); new builds on an unmigrated one are " +
+      "not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
     id: "0117-profile-correction-rls",
     migration: "0117_profile_correction",
     kind: "rls",

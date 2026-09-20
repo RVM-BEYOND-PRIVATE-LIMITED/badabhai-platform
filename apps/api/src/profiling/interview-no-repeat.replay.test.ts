@@ -285,6 +285,7 @@ describe("#1505 F3: the RI-5 confirm bubble only ever lists chat-owned facts", (
       resumeSuggestions: {
         pendingForChat: async () => ({ importId: "import-1", suggestions }),
         forImport: async () => suggestions,
+        identityForChat: async () => null,
       },
     });
 

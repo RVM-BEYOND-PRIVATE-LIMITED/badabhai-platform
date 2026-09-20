@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   type Database,
   workerResumeImports,
@@ -166,6 +166,31 @@ export class ResumeImportRepository {
     const rows = await markFailedStatement(tx, id, reason, extractionMethod);
     return rows.length > 0;
   }
+
+  /**
+   * Stage the RI-identity Hinglish line beside the row, and ONLY the line.
+   *
+   * GUARDED TO `parsing` OR `parsed`, and that disjunction is the whole design: the
+   * processor stages pre-settle (`parsing`), and a redelivery that finds the row already
+   * settled (`parsed`) may still backfill a line whose first write was lost to a throw.
+   * Anything else — `failed`, `discarded`, or a row erased mid-flight — gets zero rows
+   * back and the caller stages nothing. Never touches `status`, `route` or any CHECK-bound
+   * sibling, so this write cannot disturb the settle's atomicity from either side.
+   *
+   * PLAIN STRINGS AT THIS BOUNDARY (like `formKind`): the service narrowed the kind and
+   * the far side certified the Hinglish; the CHECK enforces the rest.
+   */
+  async saveIdentitySummary(id: string, identity: ResumeIdentity): Promise<boolean> {
+    const rows = await saveIdentitySummaryStatement(this.db, id, identity);
+    return rows.length > 0;
+  }
+}
+
+/** The RI-identity Hinglish line, staged for the "is this you?" turn. */
+export interface ResumeIdentity {
+  roleKind: string | null;
+  experienceText: string | null;
+  summaryText: string | null;
 }
 
 /** What only the ai-service can know about a parse: counts and a score, never text. */
@@ -226,6 +251,25 @@ export function settleParsedStatement(
       updatedAt: new Date(),
     })
     .where(and(eq(workerResumeImports.id, id), eq(workerResumeImports.status, "parsing")))
+    .returning({ id: workerResumeImports.id });
+}
+
+/** The identity-stage statement, built but not awaited — exported for the same reason as the settle. */
+export function saveIdentitySummaryStatement(db: Database, id: string, identity: ResumeIdentity) {
+  return db
+    .update(workerResumeImports)
+    .set({
+      identityRoleKind: identity.roleKind,
+      identityExperienceText: identity.experienceText,
+      identitySummaryText: identity.summaryText,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workerResumeImports.id, id),
+        inArray(workerResumeImports.status, ["parsing", "parsed"]),
+      ),
+    )
     .returning({ id: workerResumeImports.id });
 }
 

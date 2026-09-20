@@ -59,6 +59,7 @@ export interface ReplayWorldOptions {
   readonly resumeSuggestions?: {
     pendingForChat: (workerId: string) => Promise<unknown>;
     forImport: (workerId: string, importId: string) => Promise<unknown>;
+    identityForChat: (workerId: string) => Promise<unknown>;
   };
   /** #1504 item 5 (city-seed). Defaults to a stub that never finds a city. */
   readonly workers?: {
@@ -120,6 +121,7 @@ export function buildReplayWorld(opts: ReplayWorldOptions = {}) {
   const resumeSuggestions = opts.resumeSuggestions ?? {
     pendingForChat: async () => null,
     forImport: async () => new Map(),
+    identityForChat: async () => null,
   };
 
   // #1504 item 5 (city-seed, merged after this file was written): the orchestrator now takes a

@@ -64,11 +64,17 @@ export class ResumeImportProcessor extends WorkerHost {
     const ctx = { correlationId, requestId };
 
     const draft = await this.parse.parse(workerId, importId, ctx);
-    // RI-summary, best-effort and never blocking: the Langfuse trace is the verification
-    // surface in this slice. A failure here costs nothing — the route below still settles.
+    // RI-summary, best-effort and never blocking: the Hinglish line is staged on the row
+    // for the chat turn, and a failure here costs nothing — the route below still settles.
     if (draft.status === "parsed") {
       try {
-        await this.summary.summarize(workerId, draft.storageKey, draft.mime, ctx);
+        await this.summary.summarizeAndStage(
+          workerId,
+          draft.importId,
+          draft.storageKey,
+          draft.mime,
+          ctx,
+        );
       } catch (error) {
         // PII-FREE: an error message, never document text. The summary is observability,
         // not the route — failing closed here means continuing to the route, not stopping.

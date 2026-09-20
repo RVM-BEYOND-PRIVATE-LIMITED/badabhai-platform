@@ -3954,6 +3954,31 @@ export const ProfileResumePrefillAppliedPayload = z
 export type ProfileResumePrefillAppliedPayload = z.infer<typeof ProfileResumePrefillAppliedPayload>;
 
 /**
+ * The worker answered the "is this you?" turn over his résumé's Hinglish line.
+ *
+ * THE IDENTITY TWIN OF `profile.resume_prefill_applied`. That event counts what the
+ * worker agreed with fact by fact; this counts whether he recognised the profile as
+ * his at all — and the two are not the same funnel step. A "no" here retires the
+ * import from the chat (the old batch-confirm is suppressed with it), so without
+ * this event "how often does the summary misfire" would be unanswerable, which is
+ * the one number the Hinglish line exists to move.
+ *
+ * Ids and a closed answer only — never the Hinglish line itself, which is
+ * worker-derived free text and has no business on the spine.
+ */
+export const ProfileResumeIdentityAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** His answer. `no` covers an explicit denial AND an unreadable reply (fail-closed). */
+    answer: z.enum(["yes", "no"]),
+  })
+  .strict();
+export type ProfileResumeIdentityAnsweredPayload = z.infer<
+  typeof ProfileResumeIdentityAnsweredPayload
+>;
+
+/**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
  * instead of being taken as a new answer (#931).
  *

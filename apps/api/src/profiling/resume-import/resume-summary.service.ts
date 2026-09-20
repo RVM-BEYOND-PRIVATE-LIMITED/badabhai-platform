@@ -5,6 +5,7 @@ import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import type { RequestContext } from "../../common/request-context";
 import { TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
+import { ResumeImportRepository } from "./resume-import.repository";
 
 /**
  * One Hinglish line off an uploaded résumé (RI-summary, backend-only slice).
@@ -41,7 +42,76 @@ export class ResumeSummaryService {
   constructor(
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    private readonly imports: ResumeImportRepository,
   ) {}
+
+  /**
+   * Summarise the import's document AND stage the line on its row, for the chat turn.
+   *
+   * CHECK-THEN-CALL, and the order is the idempotency: a row that already carries a staged
+   * line returns it WITHOUT a second model call. BullMQ redelivers; the parse side answers
+   * redelivery with `already_settled` and never re-bills, and this side must do the same —
+   * otherwise every retry of the job would buy the same Hinglish line twice, and the retry
+   * is the common case on the connections this feature is built for.
+   *
+   * STILL BEST-EFFORT. A row that cannot be read, a summary that never came back, or a stage
+   * write the guard refused all return null and change nothing. The import proceeds exactly
+   * as if this call never happened.
+   */
+  async summarizeAndStage(
+    workerId: string,
+    importId: string,
+    storageKey: string,
+    mime: string,
+    ctx: RequestContext,
+  ): Promise<ResumeSummary | null> {
+    const row = await this.imports.findForWorker(importId, workerId);
+    if (!row) {
+      // 404 for not-found AND not-owner alike — no existence oracle (same posture as the
+      // import service's own read). Logged without the id, which would be the oracle.
+      this.logger.warn(
+        `résumé summary skipped for worker ${workerId.slice(0, 8)}…: no such import`,
+      );
+      return null;
+    }
+    if (
+      row.identityRoleKind !== null ||
+      row.identityExperienceText !== null ||
+      row.identitySummaryText !== null
+    ) {
+      // STAGED ALREADY — a redelivery, or a first delivery that raced one. No second call.
+      return {
+        roleKind: narrowRoleKind(row.identityRoleKind),
+        experienceText: row.identityExperienceText,
+        summaryText: row.identitySummaryText,
+        failureReason: null,
+      };
+    }
+
+    const summary = await this.summarize(workerId, storageKey, mime, ctx);
+    if (
+      summary === null ||
+      summary.failureReason !== null ||
+      (summary.roleKind === null && summary.experienceText === null && summary.summaryText === null)
+    ) {
+      // Nothing stageable: no summary, a degraded one, or a judgment of nothing. Staging
+      // nulls would be a write that changes no readable fact; skip it.
+      return summary;
+    }
+
+    const staged = await this.imports.saveIdentitySummary(importId, {
+      roleKind: summary.roleKind,
+      experienceText: summary.experienceText,
+      summaryText: summary.summaryText,
+    });
+    if (!staged) {
+      this.logger.warn(
+        `résumé summary computed but not staged for worker ${workerId.slice(0, 8)}…: ` +
+          `row left the stageable states`,
+      );
+    }
+    return summary;
+  }
 
   /**
    * Summarise the import's document, or null when there is nothing to show.

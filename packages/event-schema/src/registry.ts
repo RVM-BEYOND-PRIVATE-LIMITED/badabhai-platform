@@ -1084,6 +1084,13 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileResumePrefillAppliedPayload,
   },
+  // RI-identity: whether the worker recognised the staged Hinglish line as his.
+  // A "no" retires the import from the chat (batch-confirm suppressed with it).
+  "profile.resume_identity_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeIdentityAnsweredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

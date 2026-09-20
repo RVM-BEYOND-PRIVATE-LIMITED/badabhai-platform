@@ -74,6 +74,12 @@ import {
   RESUME_CONFIRM_OPTIONS,
   type ResumeConfirmFact,
 } from "./resume-confirm";
+import {
+  identityPrompt,
+  readIdentityReply,
+  RESUME_IDENTITY_OPTIONS,
+  type IdentitySummary,
+} from "./resume-import/resume-identity";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
 import { parseDurationMonths } from "./duration-months";
@@ -751,6 +757,19 @@ export class ProfilingOrchestrator {
       // question the document already answered. The client asks for this explicitly
       // (`confirm_first` on session start); a build that does not ask sees nothing new.
       //
+      // ── THE RÉSUMÉ IDENTITY RE-SERVE (RI-identity) ─────────────────────────────
+      //
+      // BEFORE the batch-confirm re-serve below, deliberately: while the "is this you?"
+      // bubble is on screen it is the most recent thing, and owner ruling says only the
+      // new turn shows — the old bubble never redraws beneath it.
+      if (envelope.resumeIdentity?.state === "pending") {
+        const line = await this.resolveResumeIdentity(input.workerId);
+        if (line) {
+          // RE-SERVE ONLY — no write, no ask. Same rule as the confirm re-serve below.
+          return this.identityTurnFields(line, items, answers, progressItems, true);
+        }
+      }
+
       // BEFORE THE OUTSTANDING-ASK RE-SERVES BELOW, deliberately: a pending confirm is the
       // most recent thing on screen, so if it and a stale offer are both outstanding, it is
       // the one a reopened app must redraw.
@@ -776,6 +795,65 @@ export class ProfilingOrchestrator {
             checkpointDue: false,
           };
         }
+      }
+
+      // ── THE RÉSUMÉ IDENTITY OPENS THE SCREEN (RI-identity) ─────────────────────
+      //
+      // BEFORE the batch-confirm open below: the worker's first act is recognising his own
+      // résumé, not confirming facts off a document he hasn't claimed. Serve it AND persist
+      // the pending state, for the batch branch's reason — the capture block in `decide`
+      // reads `resumeIdentity.state === "pending"`, and without the write the tap would fall
+      // through to ordinary selection. IT SPENDS AN ASK, AND MUST: it is a question, the
+      // worker can decline it, and the budget must keep counting what he was asked.
+      if (envelope.resumeIdentity === null && buffer.turnCount === 0) {
+        const line = await this.resolveResumeIdentity(input.workerId);
+        if (line) {
+          const reply = identityPrompt(line);
+          const next: ProfilingEnvelope = stampUniversalPointer(
+            {
+              ...envelope,
+              packId: packs.packId,
+              packVersion: packs.packVersion,
+              resumeIdentity: { importId: line.importId, state: "pending" },
+              engineAsks: envelope.engineAsks + 1,
+              // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
+              servedQuestionKey: null,
+              clarifyCount: 0,
+            },
+            packs.engine.universal,
+          );
+          // ONLY THE ASSISTANT LINE, exactly like the ordinary opening write: there is no
+          // worker message, and `turnCount` is not bumped for the same reason.
+          const at = input.now.toISOString();
+          const opened: TranscriptBuffer = {
+            ...buffer,
+            messages: [
+              ...buffer.messages,
+              { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+            ],
+            profiling: next,
+          };
+          if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
+            await this.persistPin(envelope, next, {
+              sessionId: input.sessionId,
+              workerId: input.workerId,
+              text: "",
+              now: input.now,
+              // No submission, no clip — nothing was sent or spoken to open the screen.
+              submissionId: null,
+              voiceNoteId: null,
+              ctx: input.ctx,
+            });
+            return this.identityTurnFields(line, items, answers, progressItems, false);
+          }
+          this.logger.log(
+            `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
+              `attempt=${attempt + 1}; reloading — the winner may already have served the résumé identity`,
+          );
+          continue;
+        }
+        // NOTHING STAGED — fall through to the batch-confirm open below, which serves the
+        // old turn exactly as it always has when there is no identity line.
       }
 
       // NEVER OFFERED, AND THIS IS THE FIRST TURN — serve it AND persist the pending state,
@@ -1092,31 +1170,43 @@ export class ProfilingOrchestrator {
    * that came back is the confirm (the chip key is the discriminator, and the constants live
    * in this module so the check cannot drift from what was served).
    *
-   * THE GATES, and each is deliberate:
-   *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
-   *     from the start path would duplicate the bubble in the client's first frame.
-   *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
-   *     it would re-litigate something settled.
-   *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
-   *     not appear beneath a conversation the worker is already having.
-   *   - no pending import ⇒ null, WITHOUT calling `openTurn` — so a normal session's opening
-   *     question is never pre-served by this path.
-   */
+    * THE GATES, and each is deliberate:
+    *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
+    *     from the start path would duplicate the bubble in the client's first frame. The
+    *     identity turn is gated identically (either field non-null ⇒ null).
+    *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
+    *     it would re-litigate something settled.
+    *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
+    *     not appear beneath a conversation the worker is already having.
+    *   - no pending import AND no staged identity line ⇒ null, WITHOUT calling `openTurn` —
+    *     so a normal session's opening question is never pre-served by this path.
+    */
   async openResumeConfirm(input: OpenTurnInput): Promise<TurnResult | null> {
     const loaded = await this.buffer.load(input.sessionId);
     const envelope = loaded?.profiling ?? null;
     if (envelope?.resumeConfirm != null) return null;
+    if (envelope?.resumeIdentity != null) return null;
     if (loaded !== null && loaded.turnCount > 0) return null;
 
     const pending = await this.resumeSuggestions.pendingForChat(input.workerId);
-    if (!pending) return null;
+    // RI-identity: no batch facts, but a staged identity line still opens the session on
+    // the "is this you?" bubble. Either résumé turn counts as a pending résumé.
+    if (!pending && !(await this.resolveResumeIdentity(input.workerId))) return null;
 
     const opened = await this.openTurn(input);
-    // ONLY THE CONFIRM IS AN ANNOUNCEABLE OPENING. `openTurn` falls through to the ordinary
+    // ONLY A RÉSUMÉ TURN IS AN ANNOUNCEABLE OPENING. `openTurn` falls through to the ordinary
     // first question when every fact is already settled — and the caller must not label that
-    // as the résumé confirm. The chip key is the discriminator.
+    // as the résumé confirm. The chip key is the discriminator, and the identity turn counts
+    // alongside the batch-confirm: both are résumé openings the client renders with chips.
     const confirmKey = RESUME_CONFIRM_OPTIONS[0]!.option_key;
-    if (!opened.options.some((option) => option.option_key === confirmKey)) return null;
+    const identityKey = RESUME_IDENTITY_OPTIONS[0]!.option_key;
+    if (
+      !opened.options.some(
+        (option) => option.option_key === confirmKey || option.option_key === identityKey,
+      )
+    ) {
+      return null;
+    }
     return opened;
   }
 
@@ -1427,6 +1517,38 @@ export class ProfilingOrchestrator {
       // Past the clarify bound: fall through to ordinary selection and move the interview on.
     }
 
+    // --- The résumé identity answer, settled (RI-identity) --------------------
+    //
+    // BEFORE THE BATCH-CONFIRM CAPTURE BELOW, for the precedence the open path serves under:
+    // while the "is this you?" bubble is on screen it owns the worker's next words, and a
+    // "haan" must settle the identity — never fall through to the batch capture and confirm
+    // facts off a résumé the worker just denied.
+    //
+    // BEFORE ANY ANSWER CLASS, for the batch block's reason: the bubble is not a pack question.
+    // AFTER the abusive branch, which outranks everything.
+    if (next.resumeIdentity?.state === "pending") {
+      const identityImportId = next.resumeIdentity.importId;
+      const reply = readIdentityReply(input.text);
+      // SETTLED WHATEVER HE SAID, including "unclear" — same rule as the confirm: the offer
+      // is spent, and re-asking would spend a second ask on a question already given once.
+      next = { ...next, resumeIdentity: { importId: identityImportId, state: "settled" } };
+      // THE OLD CONFIRM IS RETIRED WITH THE IDENTITY, on BOTH answers. Owner ruling: while
+      // an identity line exists the worker sees ONLY the new turn. On "haan" today's flow
+      // continues behind it (the extraction route lands later); on "nahi" or an unreadable
+      // reply the résumé leaves the chat entirely and the ordinary interview continues.
+      // Settling `resumeConfirm` here is what withholds the old bubble on every later turn.
+      next = { ...next, resumeConfirm: { importId: identityImportId, state: "settled" } };
+
+      if (reply === "accept") {
+        await this.recordIdentityAnswered(input, identityImportId, "yes");
+      } else {
+        // `decline` AND `unclear`: an unreadable reply is a NO, never a yes — attaching a
+        // résumé on a sentence nobody understood is the worst failure available to this turn.
+        await this.recordIdentityAnswered(input, identityImportId, "no");
+      }
+      // FALL THROUGH to ordinary selection, so the next question arrives in the SAME bubble.
+    }
+
     // --- The résumé batch-confirm, settled (ADR-0041 RI-5) ------------------
     //
     // BEFORE ANY ANSWER CLASS, because the bubble on screen is not a pack question: there is no
@@ -1435,6 +1557,10 @@ export class ProfilingOrchestrator {
     // read as an answer to something else.
     //
     // AFTER the abusive branch, which outranks everything.
+    //
+    // UNREACHABLE WHILE AN IDENTITY LINE EXISTS: the identity capture above settles
+    // `resumeConfirm` alongside the identity on every answer, so this branch only ever reads
+    // a pending confirm for imports that staged no identity line.
     if (next.resumeConfirm?.state === "pending") {
       // CAPTURED BEFORE `next` IS REASSIGNED. Reading it off `next` afterwards loses the
       // narrowing, and re-narrowing with a `!` would be asserting something the compiler had
@@ -1910,6 +2036,42 @@ export class ProfilingOrchestrator {
     // {@link selectableEnginePacks} for why an interview Phase A led stops selecting from it.
     engine = selectableEnginePacks(next, engine);
 
+    // --- The résumé identity, offered (RI-identity) ---------------------------
+    //
+    // BEFORE THE BATCH-CONFIRM OFFER BELOW, and exactly once. Same ask-budget rule: it is a
+    // question, the worker can decline it, and the budget must count what he was asked.
+    //
+    // AFTER identify and after Phase A's settlement, for the batch branch's reasons: the
+    // pack must be pinned and anything he has already said must be in `answers`.
+    //
+    // NOT WHEN THE TURN IS CAPPED, for the batch branch's reason: past `MAX_ENGINE_TURNS`
+    // the interview is closing, and opening a new question there spends an ask he no longer has.
+    if (next.resumeIdentity === null && !capped) {
+      const line = await this.resolveResumeIdentity(input.workerId);
+
+      if (line) {
+        next = {
+          ...next,
+          resumeIdentity: { importId: line.importId, state: "pending" },
+          // IT SPENDS AN ASK, AND MUST — the same rule every offer on this path serves under.
+          engineAsks: next.engineAsks + 1,
+          // NO `servedQuestionKey`. This question belongs to no pack.
+          servedQuestionKey: null,
+          clarifyCount: 0,
+        };
+        return this.turn(
+          buffer,
+          next,
+          input,
+          this.identityTurnFields(line, items, answers, progressItems, false),
+        );
+      }
+
+      // NOTHING STAGED — left null, like the batch branch below: the next turn
+      // re-resolves cheaply. A settled marker would need an import id it never had, and
+      // an empty one narrows back to null on load anyway.
+    }
+
     // --- The résumé batch-confirm, offered (ADR-0041 RI-5) ------------------
     //
     // BEFORE THE ENGINE PICKS, and exactly once. Six questions a résumé already answered become
@@ -1922,7 +2084,12 @@ export class ProfilingOrchestrator {
     //
     // NOT WHEN THE TURN IS CAPPED. Past `MAX_ENGINE_TURNS` the interview is closing, and opening
     // a new question there would be an ask the worker can no longer spend.
-    if (next.resumeConfirm === null && !capped) {
+    //
+    // NOT WHILE AN IDENTITY OFFER IS LIVE. The identity capture above settles `resumeConfirm`
+    // alongside every answer, so `resumeConfirm === null` already implies no live identity in
+    // every reachable state — the `resumeIdentity === null` conjunct is belt-and-braces for a
+    // future edit that settles one without the other, so the worker can never see both bubbles.
+    if (next.resumeConfirm === null && next.resumeIdentity === null && !capped) {
       const offer = await this.resolveResumeConfirm(input.workerId, items, answers);
 
       if (offer && offer.facts.length > 0) {
@@ -2620,6 +2787,85 @@ export class ProfilingOrchestrator {
     // shrink the batch-confirm bubble.
     const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
     return { importId: offer.importId, facts };
+  }
+
+  /**
+   * THE STAGED IDENTITY LINE, or null (RI-identity).
+   *
+   * ONE RESOLVER FOR ALL THREE SERVE SITES, for the same reason `resolveResumeConfirm`
+   * states: the open path's two branches and the turn path's offer block must never
+   * disagree about whether an identity line exists. Unlike the confirm, there is nothing
+   * to resolve against packs or answers — the line is static — so this takes only the
+   * worker id and returns the row's staged values verbatim.
+   */
+  private async resolveResumeIdentity(workerId: string): Promise<IdentitySummary | null> {
+    return this.resumeSuggestions.identityForChat(workerId);
+  }
+
+  /**
+   * The identity turn's wire fields, from a resolved line.
+   *
+   * ONE BUILDER FOR THREE SERVE SITES — the open path's re-serve, its first-turn offer,
+   * and the turn path's offer block all render byte-identical bubbles, and a second copy
+   * of this literal is how a re-serve would one day disagree with the offer about what
+   * "is this you?" says. `ask`, not a new kind (`TURN_KINDS` is pinned to what shipped
+   * clients render), `single_select` with the two reviewed chips.
+   */
+  private identityTurnFields(
+    line: IdentitySummary,
+    items: readonly QuestionPackItem[],
+    answers: AnswerMap,
+    progressItems: readonly QuestionPackItem[],
+    replayed: boolean,
+  ): TurnResult {
+    return {
+      reply: identityPrompt(line),
+      kind: "ask",
+      questionKey: null,
+      options: [...RESUME_IDENTITY_OPTIONS],
+      whyText: null,
+      answerType: "single_select",
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed,
+      excludeFromParse: false,
+      unavailable: false,
+      checkpointDue: false,
+    };
+  }
+
+  /**
+   * Record the worker's answer to "is this you?" — once per import.
+   *
+   * NEVER FAILS THE TURN, same posture as `recordPrefillApplied`: the answer is already
+   * durable in the envelope; a worker must not lose his interview because an event INSERT
+   * hit a connection blip. Idempotent by import id: a retried turn re-settles settled
+   * state without reaching here, so a second confirmation of the same document cannot
+   * double-count the funnel.
+   */
+  private async recordIdentityAnswered(
+    input: TurnInput,
+    importId: string,
+    answer: "yes" | "no",
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.resume_identity_answered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "worker", subject_id: input.workerId },
+        payload: { worker_id: input.workerId, import_id: importId, answer },
+        idempotencyKey: `profile.resume_identity_answered:${importId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the résumé identity answer for import ${importId} was not recorded; the interview ` +
+          `continues but RI-7 cannot see the answer: ${(error as Error).message}`,
+      );
+    }
   }
 
   private async recordPrefillApplied(

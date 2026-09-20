@@ -24,7 +24,19 @@ const employmentSuggestion: EmploymentSuggestion = {
   },
 };
 
-function setup(row: { suggestionsEnc: string | null } | undefined, decrypt: (t: string) => string) {
+function setup(
+  row:
+    | {
+        id?: string;
+        status?: string;
+        suggestionsEnc: string | null;
+        identityRoleKind?: string | null;
+        identityExperienceText?: string | null;
+        identitySummaryText?: string | null;
+      }
+    | undefined,
+  decrypt: (t: string) => string,
+) {
   const imports = {
     findForWorker: vi.fn(async (_id: string, _w: string) => row),
     findLatestForWorker: vi.fn(async (_w: string) => row),
@@ -102,5 +114,64 @@ describe("ResumeSuggestionReader — the two-shape envelope (chat-jobs prefill)"
     const answers = await reader.forImport(WORKER, IMPORT);
     expect(imports.findForWorker).toHaveBeenCalledWith(IMPORT, WORKER);
     expect(answers.get("primary_trade")).toEqual(answerSuggestion);
+  });
+});
+
+describe("ResumeSuggestionReader.identityForChat — the staged Hinglish line", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: IMPORT,
+    status: "parsed",
+    suggestionsEnc: null,
+    identityRoleKind: "cnc_grinding",
+    identityExperienceText: "2 saal 7 mahine ka tajurba",
+    identitySummaryText: "CNC cylindrical grinder par kaam",
+    ...over,
+  });
+
+  it("returns the staged line with its import id", async () => {
+    const { reader } = setup(row(), () => "{}");
+    await expect(reader.identityForChat(WORKER)).resolves.toEqual({
+      importId: IMPORT,
+      roleKind: "cnc_grinding",
+      experienceText: "2 saal 7 mahine ka tajurba",
+      summaryText: "CNC cylindrical grinder par kaam",
+    });
+  });
+
+  it("serves a partial line — any single staged column is a bubble", async () => {
+    const { reader } = setup(
+      row({ identityRoleKind: null, identityExperienceText: null }),
+      () => "{}",
+    );
+    const line = await reader.identityForChat(WORKER);
+    expect(line?.summaryText).toBe("CNC cylindrical grinder par kaam");
+  });
+
+  it("null when nothing was staged, when the import is not parsed, or when it is gone", async () => {
+    const { reader: empty } = setup(
+      row({
+        identityRoleKind: null,
+        identityExperienceText: null,
+        identitySummaryText: null,
+      }),
+      () => "{}",
+    );
+    await expect(empty.identityForChat(WORKER)).resolves.toBeNull();
+
+    const { reader: parsing } = setup(row({ status: "parsing" }), () => "{}");
+    await expect(parsing.identityForChat(WORKER)).resolves.toBeNull();
+
+    const { reader: gone } = setup(undefined, () => "{}");
+    await expect(gone.identityForChat(WORKER)).resolves.toBeNull();
+  });
+
+  it("is SOFT: an unreadable row degrades to null, never a throw", async () => {
+    const imports = {
+      findLatestForWorker: vi.fn(async () => {
+        throw new Error("connection terminated unexpectedly");
+      }),
+    };
+    const reader = new ResumeSuggestionReader(imports as never, {} as never);
+    await expect(reader.identityForChat(WORKER)).resolves.toBeNull();
   });
 });
