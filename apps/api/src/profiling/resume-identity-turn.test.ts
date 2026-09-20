@@ -11,6 +11,7 @@ import {
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { ProfilingOrchestrator } from "./orchestrator.service";
+import { TRADE_FORM_OFFERS } from "./trade-form-router";
 import { RESUME_IDENTITY_OPTIONS } from "./resume-import/resume-identity";
 
 /**
@@ -89,6 +90,7 @@ const IDENTITY_REPLY =
 function makeWorld(
   opts: {
     identity?: typeof LINE | null;
+    route?: { route: string | null; formKind: string | null } | null;
     seed?: Partial<ProfilingEnvelope>;
   } = {},
 ) {
@@ -144,6 +146,7 @@ function makeWorld(
     pendingForChat: vi.fn(async () => null),
     forImport: vi.fn(async () => new Map()),
     identityForChat: vi.fn(async () => opts.identity ?? null),
+    routeForImport: vi.fn(async () => opts.route ?? null),
   };
 
   const orchestrator = new ProfilingOrchestrator(
@@ -231,8 +234,11 @@ describe("the résumé identity turn (RI-identity)", () => {
     );
   });
 
-  it("Haan settles the identity AND retires the batch-confirm, answers nothing, counts yes", async () => {
-    const { orchestrator, store, events } = makeWorld({ identity: LINE });
+  it("Haan on a chat-routed import settles, answers nothing, counts yes, interviews on", async () => {
+    const { orchestrator, store, events } = makeWorld({
+      identity: LINE,
+      route: { route: "chat", formKind: null },
+    });
     await orchestrator.openResumeConfirm(open());
 
     const result = await orchestrator.takeTurn(say("resume_identity_yes"));
@@ -252,6 +258,43 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(result.kind).toBe("ask");
     expect(result.reply).not.toBe(IDENTITY_REPLY);
     expect(result.questionKey).toBe("primary_trade");
+  });
+
+  it("Haan on a form-routed import hands over to its form with the same CTA card", async () => {
+    const { orchestrator, store, events } = makeWorld({
+      identity: LINE,
+      route: { route: "form", formKind: "cnc_grinding" },
+    });
+    await orchestrator.openResumeConfirm(open());
+
+    const result = await orchestrator.takeTurn(say("resume_identity_yes"));
+
+    // Identity AND old confirm both settled — the worker answered, the résumé is claimed.
+    expect(saved(store)?.resumeIdentity?.state).toBe("settled");
+    expect(saved(store)?.resumeConfirm?.state).toBe("settled");
+    expect(emitted(events, "profile.resume_identity_answered")).toHaveLength(1);
+    // THE HANDOVER, byte for byte the offer-accept path's: close turn, CTA card, handoff
+    // event, durable answers before the worker leaves for the form.
+    expect(result.kind).toBe("close");
+    expect(result.formOffer).toEqual(TRADE_FORM_OFFERS.cnc_grinding);
+    expect(saved(store)?.formKind).toBe("cnc_grinding");
+    expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_grinding", state: "settled" });
+  });
+
+  it("Haan with an unresolvable form kind falls through to the interview, never a bad handover", async () => {
+    const { orchestrator, store } = makeWorld({
+      identity: LINE,
+      route: { route: "form", formKind: "retired_kind" },
+    });
+    await orchestrator.openResumeConfirm(open());
+
+    // A stored kind no form serves is a "no form" — the narrow fails closed and the
+    // interview continues rather than handing over to a surface that does not exist.
+    const result = await orchestrator.takeTurn(say("resume_identity_yes"));
+
+    expect(result.kind).toBe("ask");
+    expect(result.questionKey).toBe("primary_trade");
+    expect(saved(store)?.formKind ?? null).toBeNull();
   });
 
   it("Nahi retires the résumé from the chat entirely and counts no", async () => {

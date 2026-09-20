@@ -16,6 +16,7 @@
  */
 
 import {
+  narrowTradeFormOffer,
   routeToTradeForm,
   TRADE_FORM_OFFERS,
   type TradeFormKind,
@@ -1533,14 +1534,41 @@ export class ProfilingOrchestrator {
       // is spent, and re-asking would spend a second ask on a question already given once.
       next = { ...next, resumeIdentity: { importId: identityImportId, state: "settled" } };
       // THE OLD CONFIRM IS RETIRED WITH THE IDENTITY, on BOTH answers. Owner ruling: while
-      // an identity line exists the worker sees ONLY the new turn. On "haan" today's flow
-      // continues behind it (the extraction route lands later); on "nahi" or an unreadable
-      // reply the résumé leaves the chat entirely and the ordinary interview continues.
+      // an identity line exists the worker sees ONLY the new turn. On "haan" a form-routed
+      // import hands over to its form below and a chat-routed one falls through to ordinary
+      // selection (the extraction route lands later); on "nahi" or an unreadable reply the
+      // résumé leaves the chat entirely and the ordinary interview continues.
       // Settling `resumeConfirm` here is what withholds the old bubble on every later turn.
       next = { ...next, resumeConfirm: { importId: identityImportId, state: "settled" } };
 
       if (reply === "accept") {
         await this.recordIdentityAnswered(input, identityImportId, "yes");
+        // HAND OVER TO THE FORM THE IMPORT WAS ROUTED TO, when there is one (owner ruling
+        // 2026-09-20). The client brings form-routed uploads to the chat first, so the
+        // identity turn owns the first bubble — and a "haan" must not strand the form route
+        // the import already settled. This reuses the handover the offer-accept path serves
+        // byte for byte: same close turn, same CTA card, same handoff event. A chat-routed
+        // import falls through to ordinary selection below, and the deferred extraction
+        // route decides what a "haan" means there.
+        const routed = await this.resumeSuggestions.routeForImport(
+          input.workerId,
+          identityImportId,
+        );
+        const handover =
+          routed?.route === "form" ? narrowTradeFormOffer({ kind: routed.formKind }) : null;
+        if (handover !== null) {
+          return this.completeFormHandover(
+            buffer,
+            next,
+            input,
+            answers,
+            items,
+            progressItems,
+            turn,
+            handover.kind,
+            capture.excludeFromParse,
+          );
+        }
       } else {
         // `decline` AND `unclear`: an unreadable reply is a NO, never a yes — attaching a
         // résumé on a sentence nobody understood is the worst failure available to this turn.
