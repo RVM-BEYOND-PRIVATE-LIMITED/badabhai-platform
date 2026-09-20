@@ -175,3 +175,40 @@ describe("ResumeSuggestionReader.identityForChat — the staged Hinglish line", 
     await expect(reader.identityForChat(WORKER)).resolves.toBeNull();
   });
 });
+
+describe("ResumeSuggestionReader.routeForImport — the handover lookup", () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: IMPORT,
+    route: "form",
+    formKind: "cnc_grinding",
+    ...over,
+  });
+
+  function setupRoute(latest: unknown) {
+    const imports = { findForWorker: vi.fn(async () => latest) };
+    return new ResumeSuggestionReader(imports as never, {} as never);
+  }
+
+  it("returns route and form kind for the worker's own import", async () => {
+    const reader = setupRoute(row());
+    await expect(reader.routeForImport(WORKER, IMPORT)).resolves.toEqual({
+      route: "form",
+      formKind: "cnc_grinding",
+    });
+  });
+
+  it("null for another worker's import id — no existence oracle", async () => {
+    const reader = setupRoute(undefined);
+    await expect(reader.routeForImport(WORKER, IMPORT)).resolves.toBeNull();
+  });
+
+  it("is SOFT: an unreadable row degrades to null, never a throw", async () => {
+    const imports = {
+      findForWorker: vi.fn(async () => {
+        throw new Error("connection terminated unexpectedly");
+      }),
+    };
+    const reader = new ResumeSuggestionReader(imports as never, {} as never);
+    await expect(reader.routeForImport(WORKER, IMPORT)).resolves.toBeNull();
+  });
+});

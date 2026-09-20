@@ -130,6 +130,31 @@ export class ResumeSuggestionReader {
     }
   }
 
+  /**
+   * Where one import routed the worker, by id (RI-identity handover).
+   *
+   * WHAT THIS IS FOR AND ONLY THIS: the identity "haan" must hand a form-routed worker
+   * to the form the import already settled — otherwise the "yes" would strand the route
+   * the router decided. Route and form kind only: no storage key, no mime, no document,
+   * no suggestions — the narrowest read that can answer "which form, if any".
+   */
+  async routeForImport(
+    workerId: string,
+    importId: string,
+  ): Promise<{ route: string | null; formKind: string | null } | null> {
+    try {
+      const row = await this.imports.findForWorker(importId, workerId);
+      // WORKER-SCOPED, like every read on that repository — see `forImport` above.
+      if (!row) return null;
+      return { route: row.route, formKind: row.formKind };
+    } catch (error) {
+      this.logger.warn(
+        `résumé route unreadable for import ${importId}: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   /** The suggestions staged against one specific import, by id. */
   async forImport(
     workerId: string,
