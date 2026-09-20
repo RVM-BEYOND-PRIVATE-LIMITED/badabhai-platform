@@ -317,7 +317,7 @@ void main() {
   });
 
   group('door 1 — the upload', () {
-    testWidgets('a parsed form route lands on the trade form', (
+    testWidgets('a parsed form route lands on the chat first — the identity turn owns the first bubble', (
       WidgetTester tester,
     ) async {
       final GoRouter router = await _pump(
@@ -331,8 +331,9 @@ void main() {
       await tester.tap(find.text(_kDoorUpload));
       await tester.pumpAndSettle();
 
-      expect(_where(router), Routes.tradeForm);
-      expect(find.text(_kTradeFormMarker), findsOneWidget);
+      // RI-identity: form-routed uploads go to the chat, where Haan hands over to
+      // the form from the yes/no turn. Straight to the trade form skips it entirely.
+      expect(_where(router), Routes.chatProfiling);
     });
 
     testWidgets('a chat route lands on the chat with nothing to explain', (

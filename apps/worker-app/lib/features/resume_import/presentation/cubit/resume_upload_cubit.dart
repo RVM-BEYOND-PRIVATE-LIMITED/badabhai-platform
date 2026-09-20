@@ -132,9 +132,14 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
     // stays on this screen with an error, because that would be the dead end
     // ruling D9 forbids.
     emit(switch (outcome) {
+      // RI-identity: EVERY successful upload goes to the chat first, form-routed or
+      // not. The chat opens on the "is this you?" turn (confirm_first); Haan on a
+      // form-routed import hands over to the form from there, Nahi interviews on.
+      // Navigating form-routed uploads straight to the form skipped the identity
+      // turn entirely — the worker never saw the yes/no.
       ResumeImportRoutedToForm() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
-          destination: ResumeUploadDestination.tradeForm,
+          destination: ResumeUploadDestination.chat,
         ),
       ResumeImportRoutedToChat() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
