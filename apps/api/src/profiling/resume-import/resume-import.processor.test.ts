@@ -312,8 +312,8 @@ function setup(
     crypto as never,
     events,
   );
-  // RI-summary is best-effort and backend-only: null means "no summary", never a failure.
-  const summary = { summarize: vi.fn().mockResolvedValue(null) };
+  // RI-summary is best-effort: null means "no summary", never a failure.
+  const summary = { summarizeAndStage: vi.fn().mockResolvedValue(null) };
   return {
     processor: new ResumeImportProcessor(parse, routing, summary as never),
     table,

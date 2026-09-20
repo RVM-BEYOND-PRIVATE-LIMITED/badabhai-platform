@@ -54,6 +54,9 @@ const FULL: ProfilingEnvelope = {
   // survives the round trip, and a null would round-trip through any narrower that dropped
   // the field entirely.
   resumeConfirm: { importId: "11111111-1111-4111-8111-111111111111", state: "pending" },
+  // RI-identity. NON-NULL for the same reason: only a real value proves the round trip
+  // carries this field rather than rebuilding the default.
+  resumeIdentity: { importId: "22222222-2222-4222-8222-222222222222", state: "pending" },
   rev: 12,
   phase: "universal_tail",
   occupation: PIN,

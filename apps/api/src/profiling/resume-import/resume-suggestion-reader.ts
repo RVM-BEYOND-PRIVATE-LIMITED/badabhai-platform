@@ -79,8 +79,62 @@ export class ResumeSuggestionReader {
     }
   }
 
+  /**
+   * The Hinglish line the CHAT should ask "is this you?" over, or `null` (RI-identity).
+   *
+   * TWO CONDITIONS, and deliberately NOT the three `pendingForChat` carries:
+   *
+   *   - `status === "parsed"` — same as there: an import still being read has nothing to
+   *     show, and a FAILED one has nothing to show ever.
+   *   - at least one staged identity column non-null — a judgment of nothing is no bubble.
+   *
+   * NO ROUTE CONDITION, unlike `pendingForChat`'s `route === "chat"`. That gate exists
+   * because staged FACTS settle on the form for form-routed workers; the identity question
+   * is asked on the chat screen every worker passes through, form-bound or not, and "is
+   * this you?" is meaningful before any routing consequence. Narrowing it to one road
+   * would silence the turn for exactly the workers whose résumé named a trade.
+   *
+   * Returns the id ALONGSIDE the line because the caller stores the id, not the line:
+   * the envelope must not carry worker-derived prose in clear through Redis.
+   */
+  async identityForChat(workerId: string): Promise<{
+    importId: string;
+    roleKind: string | null;
+    experienceText: string | null;
+    summaryText: string | null;
+  } | null> {
+    try {
+      const row = await this.imports.findLatestForWorker(workerId);
+      if (!row || row.status !== "parsed") return null;
+      if (
+        row.identityRoleKind === null &&
+        row.identityExperienceText === null &&
+        row.identitySummaryText === null
+      ) {
+        return null;
+      }
+      return {
+        importId: row.id,
+        roleKind: row.identityRoleKind,
+        experienceText: row.identityExperienceText,
+        summaryText: row.identitySummaryText,
+      };
+    } catch (error) {
+      // SOFT, like every other read here. A worker whose import row is unreadable gets the
+      // ordinary interview — which is the interview he would have had with no résumé at all.
+      this.logger.warn(
+        `résumé identity unavailable for worker ${workerId.slice(0, 8)}…: ` +
+          `${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   /** The suggestions staged against one specific import, by id. */
-  async forImport(workerId: string, importId: string): Promise<ReadonlyMap<string, ResumeSuggestion>> {
+  async forImport(
+    workerId: string,
+    importId: string,
+  ): Promise<ReadonlyMap<string, ResumeSuggestion>> {
     try {
       const row = await this.imports.findForWorker(importId, workerId);
       // WORKER-SCOPED, like every read on that repository. An id from an envelope is still an id

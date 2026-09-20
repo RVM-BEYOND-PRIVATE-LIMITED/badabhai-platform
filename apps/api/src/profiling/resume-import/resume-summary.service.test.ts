@@ -20,15 +20,34 @@ function output(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function setup(opts: { out?: Record<string, unknown> | null } = {}) {
+function setup(
+  opts: {
+    out?: Record<string, unknown> | null;
+    row?: Record<string, unknown> | null;
+    staged?: boolean;
+  } = {},
+) {
   const resolved = "out" in opts ? opts.out : output();
   const ai = { summarizeResume: vi.fn().mockResolvedValue(resolved) };
   const aiCost = { record: vi.fn().mockResolvedValue(undefined) };
-  const svc = new ResumeSummaryService(ai as never, aiCost as never);
-  return { svc, ai, aiCost };
+  const imports = {
+    findForWorker: vi.fn().mockResolvedValue(
+      "row" in opts
+        ? opts.row
+        : {
+            id: "import-1",
+            identityRoleKind: null,
+            identityExperienceText: null,
+            identitySummaryText: null,
+          },
+    ),
+    saveIdentitySummary: vi.fn().mockResolvedValue(opts.staged ?? true),
+  };
+  const svc = new ResumeSummaryService(ai as never, aiCost as never, imports as never);
+  return { svc, ai, aiCost, imports };
 }
 
-describe("ResumeSummaryService — backend-only, best-effort, never shown in chat", () => {
+describe("ResumeSummaryService — summarize (best-effort, never shown in chat)", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("sends the storage KEY with the 9 enabled kinds, never the document", async () => {
@@ -76,5 +95,56 @@ describe("ResumeSummaryService — backend-only, best-effort, never shown in cha
       out: output({ role_kind: null, experience_text: null, summary_text: null }),
     });
     await expect(svc.summarize(WORKER, STORAGE_KEY, MIME, CTX)).resolves.toBeNull();
+  });
+});
+
+describe("ResumeSummaryService — summarizeAndStage (check-then-call, staged for chat)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the staged line without a model call when the row already carries one", async () => {
+    const { svc, ai, imports } = setup({
+      row: {
+        id: "import-1",
+        identityRoleKind: "welder",
+        identityExperienceText: "2 saal ka tajurba",
+        identitySummaryText: "Welding ka kaam",
+      },
+    });
+    const result = await svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX);
+
+    expect(ai.summarizeResume).not.toHaveBeenCalled();
+    expect(imports.saveIdentitySummary).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ roleKind: "welder", failureReason: null });
+  });
+
+  it("calls once and stages the line on the row", async () => {
+    const { svc, ai, imports } = setup();
+    const result = await svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX);
+
+    expect(ai.summarizeResume).toHaveBeenCalledOnce();
+    expect(imports.saveIdentitySummary).toHaveBeenCalledWith("import-1", {
+      roleKind: "cnc_turner",
+      experienceText: "5 saal ka tajurba",
+      summaryText: "CNC lathe par kaam, Fanuc control",
+    });
+    expect(result?.roleKind).toBe("cnc_turner");
+  });
+
+  it("stages nothing when the model judged nothing, and never throws", async () => {
+    const { svc, imports } = setup({
+      out: output({ role_kind: null, experience_text: null, summary_text: null }),
+    });
+    await expect(
+      svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX),
+    ).resolves.toBeNull();
+    expect(imports.saveIdentitySummary).not.toHaveBeenCalled();
+  });
+
+  it("returns null for a row that is gone without an existence oracle", async () => {
+    const { svc, ai } = setup({ row: null });
+    await expect(
+      svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX),
+    ).resolves.toBeNull();
+    expect(ai.summarizeResume).not.toHaveBeenCalled();
   });
 });

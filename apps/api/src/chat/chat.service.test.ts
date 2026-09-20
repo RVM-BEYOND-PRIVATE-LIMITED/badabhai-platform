@@ -88,6 +88,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateAsked: false,
     formKind: null,
     formOfferPrompt: null,
+    resumeIdentity: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],

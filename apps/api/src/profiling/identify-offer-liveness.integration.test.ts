@@ -160,6 +160,7 @@ function makeWorld() {
   const llm = { leads: () => false, take: vi.fn(async () => null) };
   const resumeSuggestions = {
     pendingForChat: vi.fn(async () => null),
+    identityForChat: vi.fn(async () => null),
     forImport: vi.fn(async () => new Map()),
   };
 

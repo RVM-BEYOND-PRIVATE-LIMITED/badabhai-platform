@@ -112,6 +112,12 @@ const SUGGESTIONS = new Map<string, ResumeSuggestion>([
 function makeWorld(
   opts: {
     pending?: { importId: string; suggestions: ReadonlyMap<string, ResumeSuggestion> } | null;
+    identity?: {
+      importId: string;
+      roleKind: string | null;
+      experienceText: string | null;
+      summaryText: string | null;
+    } | null;
     seed?: Partial<ProfilingEnvelope>;
   } = {},
 ) {
@@ -166,6 +172,9 @@ function makeWorld(
   const resume = {
     pendingForChat: vi.fn(async () => opts.pending ?? null),
     forImport: vi.fn(async () => SUGGESTIONS),
+    // RI-identity. NO STAGED LINE unless a test asks for one — every existing test in this
+    // file asserts the batch-confirm, which must be byte for byte the turn it always was.
+    identityForChat: vi.fn(async () => opts.identity ?? null),
   };
 
   const orchestrator = new ProfilingOrchestrator(

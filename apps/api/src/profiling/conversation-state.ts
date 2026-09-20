@@ -683,6 +683,22 @@ export interface ProfilingEnvelope {
   readonly resumeConfirm: ResumeConfirmState | null;
 
   /**
+   * The résumé IDENTITY offer (RI-identity, "is this you?") — `null` before it is
+   * considered at all.
+   *
+   * SAME THREE STATES AS `resumeConfirm`, FOR THE SAME REASON: `null` means "not looked
+   * at yet", `pending` means the bubble is on screen, `settled` means asked and answered
+   * and never again. A SEPARATE FIELD rather than a flag on the confirm, because the two
+   * turns settle different state (identity vs staged facts) and a tap replayed against
+   * the wrong turn must not confirm something it never offered.
+   *
+   * IT CARRIES AN ID, NOT THE LINE — same rule as `resumeConfirm`: the Hinglish lives
+   * staged on `worker_resume_import` and is re-read when served or settled, never copied
+   * into the buffer in clear.
+   */
+  readonly resumeIdentity: ResumeIdentityState | null;
+
+  /**
    * The worker tapped "Kuch aur" on a disambiguation offer and is being asked to type their trade
    * in their own words (#1506). The next answer-bearing message is resolved ONCE and never
    * re-offered as chips.
@@ -744,6 +760,12 @@ export interface ProfilingEnvelope {
 
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
 export interface ResumeConfirmState {
+  readonly importId: string;
+  readonly state: "pending" | "settled";
+}
+
+/** See {@link ProfilingEnvelope.resumeIdentity}. */
+export interface ResumeIdentityState {
   readonly importId: string;
   readonly state: "pending" | "settled";
 }
@@ -848,6 +870,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   formKind: true,
   formOfferPrompt: true,
   resumeConfirm: true,
+  resumeIdentity: true,
   identifyTypeRequested: true,
   identifyStalledTurns: true,
   prefilledKeys: true,
@@ -892,6 +915,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     formKind: null,
     formOfferPrompt: null,
     resumeConfirm: null,
+    resumeIdentity: null,
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],
@@ -973,6 +997,22 @@ function narrowOffer(value: unknown): OfferedChip[] {
  * withhold a turn the worker was entitled to, and nothing anywhere would say so.
  */
 function narrowResumeConfirm(value: unknown): ResumeConfirmState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.importId !== "string" || v.importId.length === 0) return null;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  return { importId: v.importId, state: v.state };
+}
+
+/**
+ * The résumé identity offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, same posture as `narrowResumeConfirm`: an unreadable value
+ * narrows to `null` = "not considered yet", costing at most one extra "is this you?"
+ * bubble. Narrowing it to `settled` would silently withhold a turn the worker was
+ * entitled to.
+ */
+function narrowResumeIdentity(value: unknown): ResumeIdentityState | null {
   if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
   if (typeof v.importId !== "string" || v.importId.length === 0) return null;
@@ -1210,6 +1250,10 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // reads as null rather than as `settled`: the failure that costs a worker an offer he never
     // saw is worse than the one that offers it once more than intended.
     resumeConfirm: narrowResumeConfirm(v.resumeConfirm),
+    // ABSENT READS AS null — "never considered" — same deploy-safety as `resumeConfirm`
+    // directly above: in-flight interviews get the identity offer considered once on their
+    // next turn, exactly as a fresh interview does.
+    resumeIdentity: narrowResumeIdentity(v.resumeIdentity),
     // FALSE ON ANYTHING BUT A LITERAL `true`, absent included — the state of every envelope in
     // flight across the deploy that adds this field, none of which ever asked a worker to type
     // their trade. The other default would read the worker's next sentence as a trade answer to a
