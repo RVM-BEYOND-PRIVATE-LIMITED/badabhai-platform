@@ -33,6 +33,12 @@ import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_sc
 class MockChatRepository extends Mock implements ChatRepository {}
 
 const String _confirm = 'Resume se ye mila: CNC Turner · Pune. Sahi hai?';
+
+/// The RI-identity bubble (#1609) — the same mechanism with the "is this you?"
+/// wording, and the flow the double-render was reported on.
+const String _identity =
+    'Resume se ye mila: CNC Turner, 6 saal ka tajurba. Kya ye aap hi hain?';
+
 const List<ChatOption> _confirmOptions = <ChatOption>[
   ChatOption(optionKey: 'resume_confirm_yes', labelText: 'Haan, sahi hai'),
   ChatOption(optionKey: 'resume_confirm_no', labelText: 'Nahi'),
@@ -185,6 +191,75 @@ void main() {
       ],
       verify: (ChatBloc b) {
         expect(b.state.resumePending, isFalse);
+      },
+    );
+  });
+
+  // --- 3b. hydration must not render a STORED opening twice -----------------
+  //
+  // Unlike the flag-gated one-shot opener, the résumé identity/confirm opening
+  // IS written to the server transcript by `openTurn` (it must survive a
+  // re-entry), so `GET /chat/session/:id/messages` returns the same bubble that
+  // `opening_text` already placed at index 0. The redraw used to prepend bubble 0
+  // again — the worker saw "Kya ye aap hi hain?" twice, the second copy with the
+  // chips. These two tests pin the dedupe AND the still-prepend path.
+
+  group('ChatBloc hydration of a STORED résumé opening (#1641)', () {
+    late MockChatRepository repo;
+    setUp(() => repo = MockChatRepository());
+
+    blocTest<ChatBloc, ChatState>(
+      'renders the stored opening ONCE, never opener + transcript',
+      build: () {
+        when(() => repo.ensureSession()).thenAnswer((_) async =>
+            const ChatSessionOpening(
+              text: _identity,
+              resumePending: true,
+              options: _confirmOptions,
+            ));
+        when(() => repo.loadHistory()).thenAnswer(
+            (_) async => const <ChatMessage>[
+                  ChatMessage(text: _identity, fromWorker: false),
+                ]);
+        return ChatBloc(repo);
+      },
+      act: (ChatBloc b) => b.add(const ChatStarted()),
+      verify: (ChatBloc b) {
+        expect(
+          b.state.messages.where((ChatMessage m) => !m.fromWorker),
+          hasLength(1),
+          reason: 'the stored opening must not be re-prepended by hydration',
+        );
+        expect(b.state.messages.single.text, _identity);
+      },
+    );
+
+    blocTest<ChatBloc, ChatState>(
+      'still prepends an opener the transcript does NOT contain',
+      build: () {
+        when(() => repo.ensureSession())
+            .thenAnswer((_) async => const ChatSessionOpening(text: 'Namaste.'));
+        when(() => repo.loadHistory()).thenAnswer(
+            (_) async => const <ChatMessage>[
+                  ChatMessage(text: 'CNC operator hoon', fromWorker: true),
+                  ChatMessage(
+                    text: 'Badhiya! Kaunsa control?',
+                    fromWorker: false,
+                  ),
+                ]);
+        return ChatBloc(repo);
+      },
+      act: (ChatBloc b) => b.add(const ChatStarted()),
+      verify: (ChatBloc b) {
+        expect(
+          b.state.messages.map((ChatMessage m) => m.text).toList(),
+          <String>[
+            'Namaste.',
+            'CNC operator hoon',
+            'Badhiya! Kaunsa control?',
+          ],
+          reason: 'a rendered-only opener keeps its place ahead of the transcript',
+        );
       },
     );
   });
