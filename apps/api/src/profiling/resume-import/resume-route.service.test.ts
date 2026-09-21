@@ -82,6 +82,7 @@ function setup(
     familyThrows?: Error;
     encryptThrows?: boolean;
     emitThrows?: boolean;
+    mappedOptions?: { questionKey: string; optionKeys: string[] }[];
   } = {},
 ) {
   // `inTx` is how a test tells "called inside the transaction" from "called next to it". The
@@ -109,7 +110,14 @@ function setup(
           pinned:
             opts.pinnedFamily === undefined || opts.pinnedFamily === null
               ? null
-              : { familyId: opts.pinnedFamily, label: "CNC Turner", jobDomainId: "d", confidence: 0.9, iscoUnitCode: null, layer: "L0" },
+              : {
+                  familyId: opts.pinnedFamily,
+                  label: "CNC Turner",
+                  jobDomainId: "d",
+                  confidence: 0.9,
+                  iscoUnitCode: null,
+                  layer: "L0",
+                },
         }),
   };
   const packs = {
@@ -139,14 +147,25 @@ function setup(
     }),
   };
 
+  // RI-autofill. NO MAPPINGS unless a test asks for them — every existing test in this
+  // file asserts the route and the staged suggestions, which must be byte for byte what
+  // they always were. TYPED TO TAKE its arguments, so asserting on the asked questions
+  // compiles under `noUncheckedIndexedAccess` (same reason as the events mock below).
+  const optionMap = {
+    map: vi.fn(
+      async (_w: unknown, _s: unknown, _m: unknown, _q: unknown) => opts.mappedOptions ?? [],
+    ),
+  };
+
   const svc = new ResumeRouteService(
     imports as never,
     occupations as never,
     packs as never,
     crypto as never,
     events as never,
+    optionMap as never,
   );
-  return { svc, imports, occupations, packs, crypto, events, seen };
+  return { svc, imports, occupations, packs, crypto, events, optionMap, seen };
 }
 
 const parsedDraft = (
@@ -209,7 +228,11 @@ describe("the deterministic router decides, and the résumé only supplies its i
       parsedDraft({ role_label: field("CNC Turner cum VMC Operator") }),
       CTX,
     );
-    const clean = await setup().svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+    const clean = await setup().svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("CNC Turner") }),
+      CTX,
+    );
 
     expect(vetoed?.route).toBe("chat");
     expect(vetoed?.formKind).toBeNull();
@@ -311,7 +334,12 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
       fieldsExtracted: 1,
       suggestionsOffered: 0,
     });
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, associationKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({
+      route: "chat",
+      formKind: null,
+      associationKind: null,
+      suggestionsEnc: null,
+    });
     expect(crypto.encrypt).not.toHaveBeenCalled();
     const call = emitCall(events);
     expect(call.payload).toMatchObject({ route: "chat", form_kind: null, suggestions_offered: 0 });
@@ -328,7 +356,12 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
     const result = await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
 
     expect(result?.route).toBe("chat");
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, associationKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({
+      route: "chat",
+      formKind: null,
+      associationKind: null,
+      suggestionsEnc: null,
+    });
   });
 
   it("a failed parse settles nothing, emits nothing, and returns null — not a pretend chat route", async () => {
@@ -572,5 +605,79 @@ describe("the event is the funnel's middle number, and carries no document text"
     for (const leaked of ["CNC Turner", "Pune", "Fanuc"]) {
       expect(serialised).not.toContain(leaked);
     }
+  });
+});
+
+describe("RI-autofill staging (owner override B) — the third call, on the form route only", () => {
+  const optionItem = (question_key: string, answer_type: "single_select" | "multi_select") => ({
+    ...packItem(question_key, question_key),
+    answer_type,
+    options: [
+      {
+        option_key: "opt_a",
+        label_text: "Option A",
+        value: null,
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "opt_b",
+        label_text: "Option B",
+        value: null,
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+    ],
+  });
+
+  it("a form-routed import maps the TRADE pack's option questions and stages option_map in the token", async () => {
+    const { svc, packs, crypto, optionMap } = setup();
+    packs.loadForFamily.mockResolvedValue({
+      pack_id: "qp_cnc_turning",
+      items: [optionItem("turning_machine", "multi_select"), packItem("notes", "notes")],
+    });
+    optionMap.map.mockResolvedValue([{ questionKey: "turning_machine", optionKeys: ["opt_a"] }]);
+
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+
+    // Asked against the trade pack's option questions only — never the text question,
+    // never universal. Closed ids travel; option prose and document text do not.
+    expect(optionMap.map).toHaveBeenCalledTimes(1);
+    const asked = optionMap.map.mock.calls[0]!;
+    expect(asked[0]).toBe(WORKER);
+    expect(asked[1]).toBe(`resume-uploads/${WORKER}/abc.pdf`);
+    expect(asked[2]).toBe("application/pdf");
+    expect(asked[3]).toEqual([
+      {
+        question_key: "turning_machine",
+        answer_type: "multi_select",
+        options: [
+          { option_key: "opt_a", label_text: "Option A" },
+          { option_key: "opt_b", label_text: "Option B" },
+        ],
+      },
+    ]);
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    const parsed = JSON.parse(plaintext) as { option_map: unknown };
+    expect(parsed.option_map).toEqual([
+      { question_key: "turning_machine", option_keys: ["opt_a"] },
+    ]);
+  });
+
+  it("a chat-routed import never runs the mapping call", async () => {
+    // "welder" alone does not route without corroboration; force chat via an empty label.
+    const { svc, optionMap } = setup();
+    await svc.route(WORKER, parsedDraft({ role_label: field("bus driver") }), CTX);
+
+    expect(optionMap.map).not.toHaveBeenCalled();
+  });
+
+  it("an empty mapping stages nothing extra — the token is exactly today's shape plus an empty option_map", async () => {
+    const { svc, crypto } = setup();
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    const parsed = JSON.parse(plaintext) as { option_map: unknown };
+    expect(parsed.option_map).toEqual([]);
   });
 });

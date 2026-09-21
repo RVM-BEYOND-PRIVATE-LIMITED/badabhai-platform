@@ -227,6 +227,11 @@ class TestServiceAuthEnabled:
         # above — same bucket, same D5 posture, same worker text — so gated identically.
         # Backend-only in this slice means the trace is the verification surface, but the
         # gate is what keeps that trace from being reachable by anyone.
+        #
+        # 16 -> 17 with RI-autofill (owner override B): POST /resume/map-options, the THIRD
+        # read of the same document, this time against the pack's closed options. Same
+        # sensitivity again — same bucket, same D5 posture — so gated identically. The
+        # override widens what the API may DO with the mappings, never who may ask for one.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -239,6 +244,7 @@ class TestServiceAuthEnabled:
             "/profiling/work-history/polish",
             "/pseudonymize",
             "/resume/generate",
+            "/resume/map-options",
             "/resume/parse",
             "/resume/summary",
             "/skills/canonicalize",

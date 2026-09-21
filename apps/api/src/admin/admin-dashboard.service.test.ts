@@ -289,6 +289,10 @@ describe("AI cost — what a finished profile costs", () => {
       // uploaded document to BUILD the profile. Same RI-7 argument: counted, or the comparison
       // flatters itself with spend that was real and invisible.
       "resume_profile_summary",
+      // RI-autofill's option mapping (owner override B) — same side again. A third read of
+      // the same document to FILL the profile's form answers; uncounted it flatters the
+      // same comparison with the same invisible spend.
+      "resume_option_map",
     ]);
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
     // …and the response says which set it used, so the split is auditable from the wire.

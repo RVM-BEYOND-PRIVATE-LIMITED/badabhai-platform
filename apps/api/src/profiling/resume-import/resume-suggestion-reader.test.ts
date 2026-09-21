@@ -176,6 +176,50 @@ describe("ResumeSuggestionReader.identityForChat — the staged Hinglish line", 
   });
 });
 
+describe("ResumeSuggestionReader.mappedOptionsForImport — the staged option ids", () => {
+  function setupMapped(optionMap: unknown) {
+    const crypto = { decrypt: vi.fn(() => JSON.stringify({ answers: {}, option_map: optionMap })) };
+    const imports = { findForWorker: vi.fn(async () => ({ id: IMPORT })) };
+    return new ResumeSuggestionReader(imports as never, crypto as never);
+  }
+
+  it("returns validated mappings with closed ids only", async () => {
+    const reader = setupMapped([
+      { question_key: "turning_machine", option_keys: ["opt_a", "opt_b"] },
+      { question_key: "", option_keys: ["opt_a"] },
+      { question_key: "other", option_keys: [] },
+      { question_key: "other2", option_keys: [42] },
+      "not-an-object",
+    ]);
+    await expect(reader.mappedOptionsForImport(WORKER, IMPORT)).resolves.toEqual([
+      { questionKey: "turning_machine", optionKeys: ["opt_a", "opt_b"] },
+    ]);
+  });
+
+  it("a row predating the mapping reads as empty — additive, not a migration", async () => {
+    const crypto = { decrypt: vi.fn(() => JSON.stringify({ answers: {} })) };
+    const imports = { findForWorker: vi.fn(async () => ({ id: IMPORT })) };
+    const reader = new ResumeSuggestionReader(imports as never, crypto as never);
+    await expect(reader.mappedOptionsForImport(WORKER, IMPORT)).resolves.toEqual([]);
+  });
+
+  it("empty for another worker's import id — no existence oracle", async () => {
+    const imports = { findForWorker: vi.fn(async () => undefined) };
+    const gone = new ResumeSuggestionReader(imports as never, {} as never);
+    await expect(gone.mappedOptionsForImport(WORKER, IMPORT)).resolves.toEqual([]);
+  });
+
+  it("is SOFT: an unreadable row applies nothing, never a throw", async () => {
+    const imports = {
+      findForWorker: vi.fn(async () => {
+        throw new Error("connection terminated unexpectedly");
+      }),
+    };
+    const reader = new ResumeSuggestionReader(imports as never, {} as never);
+    await expect(reader.mappedOptionsForImport(WORKER, IMPORT)).resolves.toEqual([]);
+  });
+});
+
 describe("ResumeSuggestionReader.routeForImport — the handover lookup", () => {
   const row = (over: Record<string, unknown> = {}) => ({
     id: IMPORT,

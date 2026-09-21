@@ -5,7 +5,9 @@ import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
 import { ResumeSummaryService } from "./resume-import/resume-summary.service";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
@@ -100,6 +102,10 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // RI-AUTOFILL (owner override B). `ProfilingOrchestrator` takes it as a CONSTRUCTOR
+      // dependency (the identity-Haan branch), so omitting this provider does not fail a
+      // metadata test — it fails BOOT, exactly as the entries above.
+      ResumeAutofillService,
       // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` takes it as a
       // CONSTRUCTOR dependency (`answer()`'s fire-and-forget review-or-omit trigger), so omitting
       // this provider does not fail a metadata test — it fails BOOT, exactly as the entries above.
@@ -123,6 +129,9 @@ describe("ProfilingModule wiring", () => {
       // only thing that ever calls the parse at all — without it the queue fills and nothing
       // drains it, which no other test in this repository can see.
       ResumeRouteService,
+      // RI-autofill's mapping call. `ResumeRouteService` takes it as a CONSTRUCTOR
+      // dependency (the form-route mapping leg), so omitting it fails BOOT, not a test.
+      ResumeOptionMapService,
       ResumeSummaryService,
       ResumeSuggestionReader,
       ResumeImportProcessor,

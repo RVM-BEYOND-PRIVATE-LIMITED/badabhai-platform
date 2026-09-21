@@ -531,6 +531,22 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "is why this is APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0119-pack-answer-resume-source",
+    migration: "0119_pack_answer_resume_source",
+    kind: "constraint",
+    table: "worker_pack_answer",
+    object: "wpa_source_chk",
+    requiredBy:
+      "ResumeAutofillService writes applied answers with source 'resume' on the identity " +
+      "Haan (owner override B, 2026-09-20). Without the widened CHECK the first autofill " +
+      "write 500s on the constraint",
+    failureMode:
+      "autofill writes 500 (constraint violation) while the Haan turn reports success — " +
+      "the worker is told his résumé filled the form and nothing was stored. Old builds on " +
+      "a migrated database are fine (a superset); new builds on an unmigrated one are not, " +
+      "which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
     id: "0118-resume-identity-columns",
     migration: "0118_resume_identity_columns",
     kind: "column",

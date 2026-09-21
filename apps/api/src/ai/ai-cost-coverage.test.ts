@@ -168,6 +168,9 @@ describe("every task type that can spend is either emitted or named as unledgere
       "profile_parse",
       "profiling_chat_turn",
       "resume_generation",
+      // RI-autofill's option mapping (owner override B). Emitter wired in
+      // `ResumeOptionMapService.map`, in the SAME change that routed the task.
+      "resume_option_map",
       // ADR-0041 RI-3's résumé import. Emitter wired in `ResumeParseService.parse`, in the
       // SAME change that routed the task — which is the lesson the `work_history_polish`
       // entry below was written to record after the fact, applied in advance this time.

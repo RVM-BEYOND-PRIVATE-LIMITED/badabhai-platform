@@ -82,6 +82,7 @@ import {
   type IdentitySummary,
 } from "./resume-import/resume-identity";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
 import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -496,6 +497,12 @@ export class ProfilingOrchestrator {
     // #1504 item 5 (city-seed). READ-ONLY: `findCurrentCity` is an explicit, PII-minimal
     // projection — see `WorkersRepository.findCurrentCity`.
     private readonly workers: WorkersRepository,
+    // RI-AUTOFILL (owner override B). WRITE, and narrow by construction: the only question
+    // this class can ask it is "apply this import's staged mappings as answers". Called on
+    // the identity "haan" only, before the form handover, so the form the worker lands on
+    // is already filled. Last constructor param so every existing test construction keeps
+    // compiling; tests that reach the Haan pass their own fake.
+    private readonly resumeAutofill?: ResumeAutofillService,
   ) {}
 
   /**
@@ -1171,17 +1178,17 @@ export class ProfilingOrchestrator {
    * that came back is the confirm (the chip key is the discriminator, and the constants live
    * in this module so the check cannot drift from what was served).
    *
-    * THE GATES, and each is deliberate:
-    *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
-    *     from the start path would duplicate the bubble in the client's first frame. The
-    *     identity turn is gated identically (either field non-null ⇒ null).
-    *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
-    *     it would re-litigate something settled.
-    *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
-    *     not appear beneath a conversation the worker is already having.
-    *   - no pending import AND no staged identity line ⇒ null, WITHOUT calling `openTurn` —
-    *     so a normal session's opening question is never pre-served by this path.
-    */
+   * THE GATES, and each is deliberate:
+   *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
+   *     from the start path would duplicate the bubble in the client's first frame. The
+   *     identity turn is gated identically (either field non-null ⇒ null).
+   *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
+   *     it would re-litigate something settled.
+   *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
+   *     not appear beneath a conversation the worker is already having.
+   *   - no pending import AND no staged identity line ⇒ null, WITHOUT calling `openTurn` —
+   *     so a normal session's opening question is never pre-served by this path.
+   */
   async openResumeConfirm(input: OpenTurnInput): Promise<TurnResult | null> {
     const loaded = await this.buffer.load(input.sessionId);
     const envelope = loaded?.profiling ?? null;
@@ -1543,6 +1550,20 @@ export class ProfilingOrchestrator {
 
       if (reply === "accept") {
         await this.recordIdentityAnswered(input, identityImportId, "yes");
+        // RI-AUTOFILL (owner override B): apply the staged mappings as answers BEFORE the
+        // handover, so the form the worker lands on is already filled. Best-effort and
+        // never blocking: a throw here must not cost the handover, so it is caught and
+        // logged without document text or answers. Off by kill switch (the service
+        // returns zeros without reading) — then this is a no-op and the handover below
+        // is today's behaviour byte for byte.
+        try {
+          await this.resumeAutofill?.applyOnHaan(input.workerId, identityImportId, input.ctx);
+        } catch (error) {
+          this.logger.warn(
+            `résumé autofill skipped on Haan for import ${identityImportId}: ` +
+              `${(error as Error).message}`,
+          );
+        }
         // HAND OVER TO THE FORM THE IMPORT WAS ROUTED TO, when there is one (owner ruling
         // 2026-09-20). The client brings form-routed uploads to the chat first, so the
         // identity turn owns the first bubble — and a "haan" must not strand the form route

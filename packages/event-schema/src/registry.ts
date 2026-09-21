@@ -1084,6 +1084,13 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileResumePrefillAppliedPayload,
   },
+  // RI-autofill (owner override B): what the identity "haan" wrote from the staged
+  // option mappings. `applied` minus `mapped` is the mapping-to-form gap.
+  "profile.resume_autofill_applied": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeAutofillAppliedPayload,
+  },
   // RI-identity: whether the worker recognised the staged Hinglish line as his.
   // A "no" retires the import from the chat (batch-confirm suppressed with it).
   "profile.resume_identity_answered": {

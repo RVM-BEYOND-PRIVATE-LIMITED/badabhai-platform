@@ -149,6 +149,12 @@ function makeWorld(
     routeForImport: vi.fn(async () => opts.route ?? null),
   };
 
+  // RI-AUTOFILL. Applies staged mappings on the Haan; every existing test asserts the
+  // handover/interview that follows, which must be byte for byte what it always was.
+  const autofill = {
+    applyOnHaan: vi.fn(async () => ({ mapped: 0, applied: 0, skippedAnswered: 0 })),
+  };
+
   const orchestrator = new ProfilingOrchestrator(
     buffer as never,
     registry as never,
@@ -158,8 +164,9 @@ function makeWorld(
     llm as never,
     resume as never,
     { findCurrentCity: async () => null } as never,
+    autofill as never,
   );
-  return { orchestrator, store, events, buffer, resume };
+  return { orchestrator, store, events, buffer, resume, autofill };
 }
 
 const say = (text: string) => ({
@@ -234,8 +241,8 @@ describe("the résumé identity turn (RI-identity)", () => {
     );
   });
 
-  it("Haan on a chat-routed import settles, answers nothing, counts yes, interviews on", async () => {
-    const { orchestrator, store, events } = makeWorld({
+  it("Haan on a chat-routed import settles, applies staged mappings, counts yes, interviews on", async () => {
+    const { orchestrator, store, events, autofill } = makeWorld({
       identity: LINE,
       route: { route: "chat", formKind: null },
     });
@@ -246,7 +253,11 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(saved(store)?.resumeIdentity?.state).toBe("settled");
     // ONLY THE NEW ONE: the old batch-confirm is retired with the identity answer.
     expect(saved(store)?.resumeConfirm?.state).toBe("settled");
-    // THIS TURN PREFILLS NOTHING — the extraction route that consumes a "yes" lands later.
+    // THE AUTOFILL RUNS ON EVERY HAAN, form-routed or not — the service itself no-ops
+    // on a chat route. The interview's own answer map is untouched by it either way:
+    // autofill writes form rows, never chat answers.
+    expect(autofill.applyOnHaan).toHaveBeenCalledTimes(1);
+    expect(autofill.applyOnHaan).toHaveBeenCalledWith(WORKER, IMPORT, expect.anything());
     expect(saved(store)?.answerMap ?? []).toHaveLength(0);
     const answered = emitted(events, "profile.resume_identity_answered");
     expect(answered).toHaveLength(1);
@@ -260,8 +271,8 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(result.questionKey).toBe("primary_trade");
   });
 
-  it("Haan on a form-routed import hands over to its form with the same CTA card", async () => {
-    const { orchestrator, store, events } = makeWorld({
+  it("Haan on a form-routed import autofills first, then hands over to its form with the same CTA card", async () => {
+    const { orchestrator, store, events, autofill } = makeWorld({
       identity: LINE,
       route: { route: "form", formKind: "cnc_grinding" },
     });
@@ -273,6 +284,8 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(saved(store)?.resumeIdentity?.state).toBe("settled");
     expect(saved(store)?.resumeConfirm?.state).toBe("settled");
     expect(emitted(events, "profile.resume_identity_answered")).toHaveLength(1);
+    // THE AUTOFILL RUNS BEFORE THE HANDOVER, so the form the worker lands on is filled.
+    expect(autofill.applyOnHaan).toHaveBeenCalledTimes(1);
     // THE HANDOVER, byte for byte the offer-accept path's: close turn, CTA card, handoff
     // event, durable answers before the worker leaves for the form.
     expect(result.kind).toBe("close");
@@ -298,7 +311,7 @@ describe("the résumé identity turn (RI-identity)", () => {
   });
 
   it("Nahi retires the résumé from the chat entirely and counts no", async () => {
-    const { orchestrator, store, events } = makeWorld({ identity: LINE });
+    const { orchestrator, store, events, autofill } = makeWorld({ identity: LINE });
     await orchestrator.openResumeConfirm(open());
 
     const result = await orchestrator.takeTurn(say("resume_identity_no"));
@@ -310,9 +323,27 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(answered).toHaveLength(1);
     expect(answered[0]!.payload).toMatchObject({ import_id: IMPORT, answer: "no" });
     expect(emitted(events, "profile.resume_prefill_applied")).toHaveLength(0);
+    // A NAHI NEVER AUTOFILLS — the résumé leaves the chat, and nothing about it is written.
+    expect(autofill.applyOnHaan).not.toHaveBeenCalled();
     // IGNORE + NORMAL CHAT: the trade question comes back as if no résumé existed.
     expect(result.kind).toBe("ask");
     expect(result.questionKey).toBe("primary_trade");
+  });
+
+  it("an autofill throw costs the prefill, never the handover", async () => {
+    const { orchestrator, store, autofill } = makeWorld({
+      identity: LINE,
+      route: { route: "form", formKind: "cnc_grinding" },
+    });
+    autofill.applyOnHaan.mockRejectedValueOnce(new Error("connection terminated unexpectedly"));
+    await orchestrator.openResumeConfirm(open());
+
+    const result = await orchestrator.takeTurn(say("resume_identity_yes"));
+
+    // FAIL-OPEN: the handover the worker was promised still runs, on the unfilled form.
+    expect(result.kind).toBe("close");
+    expect(result.formOffer).toEqual(TRADE_FORM_OFFERS.cnc_grinding);
+    expect(saved(store)?.formKind).toBe("cnc_grinding");
   });
 
   it("an unreadable reply is a NO, never a yes", async () => {

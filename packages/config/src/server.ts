@@ -214,6 +214,21 @@ export const serverEnvSchema = z.object({
   // quickly matters most: a fabrication is discovered at the machine trial, and it is the
   // employer who stops trusting BadaBhai, not the worker.
   WORK_HISTORY_POLISH_ENABLED: booleanFromString,
+  // RI-AUTOFILL (owner override B, 2026-09-20, of ruling D2) — writing the model's
+  // option mapping as the worker's form answers after his identity "haan".
+  //
+  // THIS IS THE KILL SWITCH ON A D2 OVERRIDE, not a feature toggle. D2 says a
+  // suggestion becomes an answer only when the worker confirms it per fact; B lets
+  // the one identity "haan" confirm a whole mapping at once. OFF returns the
+  // pipeline to the rule: matches stage as today, the Haan hands over to the form,
+  // and every answer on it is the worker's own tap.
+  //
+  // DEFAULT OFF, and it is a SECOND lock rather than the only one. The far side is
+  // already fail-closed — `resume_option_map` goes real only when AI_REAL_CALL_TASKS
+  // names it — so turning this on without arming that task applies nothing. Two locks
+  // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
+  // records an employer will read: stopping quickly matters most here.
+  RESUME_AUTOFILL_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a

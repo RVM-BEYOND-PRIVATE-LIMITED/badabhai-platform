@@ -11,6 +11,7 @@ import { OccupationService } from "../../occupation/occupation.service";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, routeToTradeForm, type TradeFormKind } from "../trade-form-router";
 import { ResumeImportRepository } from "./resume-import.repository";
+import { ResumeOptionMapService, type MappedOption } from "./resume-option-map.service";
 import type { ParsedDraft } from "./resume-parse.service";
 import { buildSuggestions, type ResumeSuggestion } from "./resume-suggestions";
 
@@ -68,6 +69,7 @@ export class ResumeRouteService {
     private readonly packs: PackRegistryService,
     private readonly crypto: PiiCryptoService,
     private readonly events: EventsService,
+    private readonly optionMap: ResumeOptionMapService,
   ) {}
 
   /**
@@ -112,7 +114,7 @@ export class ResumeRouteService {
       return null;
     }
 
-    const decision = await this.decide(workerId, draft);
+    const decision = await this.decide(workerId, draft, ctx);
 
     const payload = ProfileResumeParsedPayload.parse({
       worker_id: workerId,
@@ -174,6 +176,7 @@ export class ResumeRouteService {
   private async decide(
     workerId: string,
     draft: Extract<ParsedDraft, { status: "parsed" }>,
+    ctx: RequestContext,
   ): Promise<RoutingDecision> {
     const roleLabel = stringValue(draft.fields.role_label);
     const domainLabel = stringValue(draft.fields.domain_label);
@@ -217,9 +220,9 @@ export class ResumeRouteService {
     //     which is the exact opposite of what an assertion meant to fail loudly is for.
     const familyId = formKind === null ? null : familyForTradeForm(formKind);
 
-    let items: QuestionPackItem[];
+    let packs: { all: QuestionPackItem[]; trade: QuestionPackItem[] };
     try {
-      items = await this.packItems(familyId);
+      packs = await this.packItems(familyId);
     } catch (error) {
       // THE CLASS NAME ONLY. A pack error message can quote a pack path or a question key, and
       // this line sits next to a worker id; the class is enough to find the outage.
@@ -227,8 +230,15 @@ export class ResumeRouteService {
         `question packs unavailable during résumé routing; degrading to chat ` +
           `(${error instanceof Error ? error.constructor.name : typeof error})`,
       );
-      return { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null, suggestionsOffered: 0 };
+      return {
+        route: "chat",
+        formKind: null,
+        associationKind: null,
+        suggestionsEnc: null,
+        suggestionsOffered: 0,
+      };
     }
+    const items = packs.all;
 
     const route: ResumeImportRouteName = formKind === null ? "chat" : "form";
     const suggestions = this.stage(workerId, draft.fields, items);
@@ -241,6 +251,22 @@ export class ResumeRouteService {
     // question's.
     const employmentSuggestions = buildResumeEmploymentSuggestions(draft.employments);
 
+    // RI-AUTOFILL (owner override B): on the form route only, map the document onto
+    // the TRADE pack's closed options — the third LLM call. Best-effort beside the
+    // route: a mapping that never comes back stages nothing and the Haan hands over
+    // to an unfilled form. The trade pack only, never universal: the form serves one
+    // pack, and mappings for questions no form screen renders are spend with no reader.
+    const mappedOptions: MappedOption[] =
+      route === "form"
+        ? await this.optionMap.map(
+            workerId,
+            draft.storageKey,
+            draft.mime,
+            mapQuestions(packs.trade),
+            ctx,
+          )
+        : [];
+
     return {
       route,
       formKind,
@@ -248,20 +274,25 @@ export class ResumeRouteService {
       // class docblock): the route above is still `routeToTradeForm` alone.
       associationKind: draft.associationKind,
       suggestionsEnc:
-        suggestions.size > 0 || employmentSuggestions.length > 0
+        suggestions.size > 0 || employmentSuggestions.length > 0 || mappedOptions.length > 0
           ? // ONE TOKEN OVER THE WHOLE PAYLOAD, never per leaf. The schema docblock records why:
             // a walker that encrypts leaves is the shape that rots, and `parse_masking.py` has a
             // measured bug of exactly that kind where employer names nested in an array crossed
             // a boundary nobody thought they could reach. One column cannot be partially covered.
             //
-            // `{ answers, employments }`, NOT THE OLD FLAT MAP, because a résumé now stages two
-            // different shapes under one column. `ResumeSuggestionReader.decodeEnvelope` reads a
-            // legacy flat row (no `answers` key) exactly as before — this is additive, not a
-            // migration.
+            // `{ answers, employments, option_map }`, NOT THE OLD FLAT MAP, because a résumé
+            // now stages three different shapes under one column.
+            // `ResumeSuggestionReader.decodeEnvelope` reads a legacy row (no `answers` key)
+            // — and any row predating the mapping (no `option_map` key) — exactly as before:
+            // this is additive, not a migration.
             this.crypto.encrypt(
               JSON.stringify({
                 answers: Object.fromEntries(suggestions),
                 employments: employmentSuggestions,
+                option_map: mappedOptions.map((m) => ({
+                  question_key: m.questionKey,
+                  option_keys: [...m.optionKeys],
+                })),
               }),
             )
           : null,
@@ -322,13 +353,20 @@ export class ResumeRouteService {
    * registry and its caller resolves it before the degrade catch opens; see `decide` step (3).
    * Everything left in here is I/O, which is what that catch is allowed to swallow.
    */
-  private async packItems(familyId: string | null): Promise<QuestionPackItem[]> {
+  private async packItems(
+    familyId: string | null,
+  ): Promise<{ all: QuestionPackItem[]; trade: QuestionPackItem[] }> {
     const now = Date.now();
-    const packs = [
-      await this.packs.loadUniversal(now),
-      familyId === null ? null : await this.packs.loadForFamily(familyId, now),
-    ];
-    return packs.flatMap((pack) => (pack === null ? [] : pack.items));
+    const universal = await this.packs.loadUniversal(now);
+    const trade = familyId === null ? null : await this.packs.loadForFamily(familyId, now);
+    return {
+      // Universal first, trade second — the order `flatMap` produced before this split,
+      // preserved so the batch-confirm bubble reads exactly as it always has.
+      all: [...(universal?.items ?? []), ...(trade?.items ?? [])],
+      // The trade pack ALONE, in pack order: the form serves one pack, so the option
+      // mapping is asked against exactly the questions a form screen can render.
+      trade: [...(trade?.items ?? [])],
+    };
   }
 
   private async resolveOccupation(
@@ -368,6 +406,29 @@ interface RoutingDecision {
   associationKind: TradeFormKindName | null;
   suggestionsEnc: string | null;
   suggestionsOffered: number;
+}
+
+/**
+ * Trade-pack items → the option-mapping call's closed questions.
+ *
+ * ONLY single/multi-select questions WITH options are asked: text/number/boolean
+ * answers are the worker's own words or measures, never a closed id the document
+ * could support, and asking the model about them would buy citations for values
+ * the apply step could never tick. Pure, so the Haan-time re-derivation and this
+ * call site can never disagree about what was asked.
+ */
+function mapQuestions(items: readonly QuestionPackItem[]) {
+  return items
+    .filter(
+      (item) =>
+        (item.answer_type === "single_select" || item.answer_type === "multi_select") &&
+        item.options.length > 0,
+    )
+    .map((item) => ({
+      question_key: item.question_key,
+      answer_type: item.answer_type as "single_select" | "multi_select",
+      options: item.options.map((o) => ({ option_key: o.option_key, label_text: o.label_text })),
+    }));
 }
 
 /** A parsed value, but only when it is a usable string. Gate 3 has already typed it. */
