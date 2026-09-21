@@ -45,6 +45,11 @@ a reasonable scope call late in a session.
                the owner to weigh, not a licence.
          (iii) mint a distinct event for the unlock notification, with its own template.
        Collect it with your other questions. Do not settle it by building.
+       **RULED 2026-09-21 — ROUTE (ii-v2), AND ALREADY LANDED.** The owner chose a NEW NAME
+       rather than relaxing v1: `profile.viewed_v2` (registry, `version: 2`, `job_id` OPTIONAL)
+       is emitted from `UnlockService.requestUnlock` on a new grant, post-commit and
+       idempotency-keyed, and the feed allowlist gained it under the amended 2026-09-21 scope
+       ruling. v1 is untouched. A build session does NOT re-decide this; C-1 is satisfied.
        DO NOT NAME THE COUNTERPARTY. `apps/api/src/notifications/notifications.service.test.ts:320-326`
        fails any template copy matching /\bemployer\b|\bcompany\b|\bpayer\b/i and `:121-128`
        asserts the payload never reaches the output. Both guards are correct and stay.

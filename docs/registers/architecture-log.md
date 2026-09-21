@@ -8,6 +8,39 @@ boundary moved).
 
 ---
 
+## 2026-09-21 — E0 C-1 ruled (ii-v2): `profile.viewed_v2` emits on the unlock path; feed scope amended; P-021/P-022 fixed
+- **Owner rulings, recorded.** C-1's versioning question was HALTED on 2026-09-07 because the named
+  precedent (`profile.form_completed`) has no version history and the two real precedents
+  (`feed.shown_v2`, `skill.phrase_unresolved_v2`) mint a NEW NAME. Ruled 2026-09-21: **route
+  (ii-v2)** — mint `profile.viewed_v2`; v1 keeps its definition, unmodified, as history
+  (CLAUDE.md §3 / invariant #8). v2's `job_id` is OPTIONAL, which is what lets the unlock path
+  emit at all (`unlocks.job_id` is nullable).
+- **New contract surface: `profile.viewed_v2`** (`packages/event-schema`). Emitted from
+  `UnlockService.requestUnlock` on a NEW grant only — post-commit, deferred, idempotency-keyed on
+  the unlock. PII-free: `worker_id`, `viewer_payer_id`, optional `job_id`; the counterparty is
+  never named. This is the third hit `E0_CHECK` C-1 demanded: `profile.viewed` was registered and
+  templated but NOTHING emitted it, so the worker's first knowledge that a stranger held his
+  contact was the stranger's message.
+- **Notification feed scope AMENDED (2026-07-17 ruling widened).** A faceless payer-originated
+  signal — "your profile was viewed/unlocked" — may surface, because the allowlist already
+  contained `profile.viewed` (added 2026-07-27) and the copy/identity discipline is unchanged:
+  static server-rendered copy, payload never selected, no employer/job/pay ever. `profile.viewed_v2`
+  joins the allowlist with the same copy; the payload-shape ban (no literal `payer_id` key) still
+  holds. **NOT in scope of this amendment:** an employer-message alert; that stays behind its own
+  ruling.
+- **P-021 fixed (idempotent direction).** The second reveal of an unlock used to violate
+  `unlock_routing_routing_token_uq` and escape as a 500 — a crash AND a status-code oracle beside a
+  surface whose every denial is one neutral body. `findRoutingByUnlock` now reads the existing row
+  under the worker lock; `createRouting` gained `onConflictDoNothing` + read-back; the reveal
+  response is rebuilt from the stored row. One routing row per unlock by contract; a repeat reveal
+  re-serves the same handle and never re-decrypts the phone.
+- **P-022 fixed.** `guard.mjs`'s shell predicate now requires a path-shaped token for bare secret
+  extensions (or a distinctive basename), so ordinary JavaScript (`x.key === 'consent'`) no longer
+  blocks; real paths still do, and the file-tool predicate is unchanged. Selftest covers both
+  directions.
+
+---
+
 ## 2026-07-27 — ADR-0035: AI Job-Posting Chat + Cross-Device Drafts (design accepted, not yet built)
 - **New contract surface drawn, not yet built.** [ADR-0035](../decisions/0035-ai-job-posting-chat-and-cross-device-drafts.md)
   formalizes an owner-approved slice: a payer/agency-facing AI interview chat (payer-web +

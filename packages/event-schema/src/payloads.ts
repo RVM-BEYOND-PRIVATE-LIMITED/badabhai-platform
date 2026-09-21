@@ -2314,6 +2314,30 @@ export const ProfileViewedPayload = z.object({
   job_id: uuidSchema,
 });
 
+/**
+ * Per-worker notification: a payer viewed the worker's profile — VERSION 2 (E0 C-1, owner
+ * ruling 2026-09-21, route ii-v2).
+ *
+ * WHY A NEW NAME AND NOT A RELAXED v1. The unlock path is the only intended emitter, and
+ * `unlocks.job_id` is NULLABLE ("optional job context", packages/db/src/schema/payer.ts)
+ * while v1's `job_id` is REQUIRED — so an unlock found by search with no posting attached
+ * could never satisfy v1. Relaxing v1 in place would mutate a shipped event schema
+ * (CLAUDE.md §3), and the registry permits exactly one version per NAME (validate.ts), so
+ * a bump would invalidate every shipped consumer the moment it deployed. v2 follows the
+ * only real precedent in this package (`feed.shown_v2`, `skill.phrase_unresolved_v2`):
+ * new name, v1 untouched as history.
+ *
+ * `job_id` IS OMITTED, NEVER NULL, when the unlock carries no posting — an absent key and
+ * an explicit null are different facts on the wire. PII-FREE: three opaque ids; no name,
+ * no phone, no employer identity.
+ */
+export const ProfileViewedV2Payload = z.object({
+  worker_id: uuidSchema,
+  viewer_payer_id: uuidSchema,
+  job_id: uuidSchema.optional(),
+});
+export type ProfileViewedV2Payload = z.infer<typeof ProfileViewedV2Payload>;
+
 // ---------------------------------------------------------------------------
 // agency_invite.* — AGENCY supply-attribution funnel (ADR-0022). FACELESS, ids/enums.
 //
