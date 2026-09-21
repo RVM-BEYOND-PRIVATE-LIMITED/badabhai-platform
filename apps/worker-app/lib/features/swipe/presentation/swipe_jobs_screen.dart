@@ -19,29 +19,30 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_success_stamp.dart';
 import '../../../core/widgets/kit/kit_content_column.dart';
 import '../../../core/widgets/kit/kit_header_actions.dart';
-import '../../../core/widgets/kit/kit_tab_header.dart';
 import '../../../router.dart';
 import '../data/job_feed_view_store.dart';
 import '../domain/job_detail.dart';
 import '../domain/job_filter.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
+import 'widgets/design1_job_card.dart';
 import 'widgets/filters_sheet.dart';
 import 'widgets/job_deck.dart';
 import '../../../core/util/push_once.dart';
 
-/// The Jobs tab (UI kit v3 §4 tab header + status strip), switchable between TWO
-/// layouts via a strip toggle: a scrolling [ListView] of [BbJobCard]s (each with
-/// an inline green "APPLY →" and a tappable title that opens the full posting)
-/// and the Tinder-style [JobDeck] (swipe right to apply, left to skip, the
-/// default).
+/// The Jobs tab (DESIGN1 header + card, drawn from
+/// `assets/fonts/image/design1.png`), switchable via the header toggle
+/// between TWO layouts: the swipe deck (default — the Design1 card face on
+/// the untouched swipe engine: drag right to apply, left to skip, skip +
+/// Feedback + Apply dock beneath) and a scrolling [ListView] of [BbJobCard]s
+/// (each with an inline green "APPLY →" and a tappable title that opens the
+/// full posting).
 ///
-/// The navy CHROME — header ("Kaam milega." + search, bell and Feedback) and the
-/// status strip (the real count + the view toggle + "Filter jobs") — renders in
-/// EVERY [SwipeStatus]; only the body below it swaps. It used to vanish in
-/// loading / error / empty / no-match, so a worker whose filter matched nothing
-/// could not see which filter was active, could not open the sheet and had no
-/// bell.
+/// The navy CHROME — header ("Kaam milega." + real count + search bar, bell,
+/// view toggle and "Filter jobs") — renders in EVERY [SwipeStatus]; only the
+/// body below it swaps. It used to vanish in loading / error / empty /
+/// no-match, so a worker whose filter matched nothing could not see which
+/// filter was active, could not open the sheet and had no bell.
 ///
 /// All business logic stays in [SwipeBloc]; this widget renders state and
 /// dispatches events. The real feed contract ([FeedItem] / getFeed) is PII-free
@@ -112,12 +113,14 @@ class _FeedViewState extends State<_FeedView> {
   /// exactly like the sheet does.
   FilterSelection _filters = FilterSelection.initial;
 
-  /// Which body renders — the Tinder-style swipe deck (default) or the
-  /// scrollable list. Starts at [JobFeedViewMode.deck] and stays there
-  /// unless/until a persisted choice loads from [JobFeedViewStore] —
-  /// eventual consistency, no flash-of-wrong-mode requirement, matching how
-  /// [_filters] is seeded.
+  /// Which body renders — the DESIGN1 single job card (default, drawn from
+  /// `assets/fonts/image/design1.png`) or the scrollable list. Starts at
+  /// [JobFeedViewMode.deck] and stays there unless/until a persisted choice
+  /// loads from [JobFeedViewStore] — eventual consistency, no
+  /// flash-of-wrong-mode requirement, matching how [_filters] is seeded.
   JobFeedViewMode _viewMode = JobFeedViewMode.deck;
+
+
 
   /// The FULL posting (`GET /jobs/:jobId`) for each job whose detail we have
   /// already fetched, keyed by id. `GET /feed` carries only the coarse card
@@ -280,8 +283,7 @@ class _FeedViewState extends State<_FeedView> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _header(context),
-            _strip(context, state),
+            _design1Header(context, state),
             _activeFilterRow(context),
             Expanded(child: _content(context, state)),
           ],
@@ -290,81 +292,93 @@ class _FeedViewState extends State<_FeedView> {
     );
   }
 
-  /// The spec §4 navy tab header. The Jobs tab's own actions: job search, the
-  /// alerts bell and Feedback (the yellow chat glyph means FEEDBACK in v3 — the
-  /// Bada Bhai tab is where a worker talks to the bot).
-  Widget _header(BuildContext context) {
-    return KitTabHeader(
-      title: 'Kaam milega.',
-      actions: <Widget>[
-        KitHeaderIconAction(
-          key: const Key('feedSearchBar'),
-          icon: Icons.search_rounded,
-          // ADDITIVE to the filter: the filter narrows the ALREADY-loaded feed,
-          // whereas this searches OPEN jobs by title + location server-side.
-          tooltip: 'Job search kholein',
-          onPressed: () => context.pushOnce(Routes.jobSearch),
-        ),
-        const BbAlertsAction(color: OnboardingColors.textOnBlue),
-        const KitFeedbackAction(),
-      ],
-    );
-  }
-
-  /// The navy status strip under the header: the REAL visible count on the left,
-  /// the view toggle and "Filter jobs" on the right.
+  /// DESIGN1 navy header, drawn from `assets/fonts/image/design1.png`:
+  /// title + bell/toggle/filter actions, the REAL visible count subtitle,
+  /// and the white search bar (taps through to the job-search route).
   ///
-  /// The count is [SwipeState.visibleQueue] — what is actually on screen — not
-  /// the unfiltered queue, which disagreed with the narrowed list beneath it. It
-  /// is HIDDEN while there is nothing loaded (loading, error, consent, drained,
-  /// filtered-out): "0 naye jobs" is not a count, it is a claim about a queue
-  /// nobody has seen yet.
-  ///
-  /// Vertical padding is 4, not the spec banner's 10: this strip carries two
-  /// 48dp controls (the touch floor), and v10 around them would have made a
-  /// 68dp band where the artboard has ~56.
-  Widget _strip(BuildContext context, SwipeState state) {
+  /// The count is [SwipeState.visibleQueue] — what is actually on screen. It
+  /// stays HIDDEN while nothing is loaded: "0 naye jobs" is a claim about a
+  /// queue nobody has seen yet. Feedback lives on the job card's docked
+  /// button (and the app-wide floating pill), not in this header.
+  Widget _design1Header(BuildContext context, SwipeState state) {
     final int count = state.visibleQueue.length;
+    final double top = MediaQuery.paddingOf(context).top;
+    final List<JobFilterOption> active = activeJobFilters(_filters);
+    final String? query = active.isEmpty ? null : active.first.chipLabel;
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
       child: Container(
         width: double.infinity,
-        color: OnboardingColors.shiftBlue,
-        padding: const EdgeInsets.fromLTRB(16, 4, 3, 4),
+        decoration: const BoxDecoration(
+          color: OnboardingColors.shiftBlue,
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+        ),
+        padding: EdgeInsets.only(top: top, left: 16, right: 3, bottom: 12),
         child: KitContentColumn(
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Expanded(
-                child: count == 0
-                    ? const SizedBox.shrink()
-                    : Text(
-                        'Aaj $count naye jobs',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: OnboardingTypography.inter(
-                          size: 13,
-                          weight: FontWeight.w600,
-                          color: OnboardingColors.textOnBlue,
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          'Kaam milega.',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: OnboardingTypography.anek(
+                            size: 20,
+                            weight: FontWeight.w800,
+                            height: 1.25,
+                            color: OnboardingColors.textOnBlue,
+                          ),
                         ),
-                      ),
+                        if (count > 0)
+                          Text(
+                            'Aaj $count naye jobs',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: OnboardingTypography.inter(
+                              size: 13,
+                              weight: FontWeight.w600,
+                              color: OnboardingColors.textOnBlue70,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const BbAlertsAction(
+                    color: OnboardingColors.textOnBlue,
+                  ),
+                  // The icon shows the OTHER mode (a visual hint of what
+                  // tapping switches TO); the tooltip names the CURRENT mode.
+                  KitHeaderIconAction(
+                    key: const Key('jobFeedViewToggle'),
+                    icon: _viewMode == JobFeedViewMode.list
+                        ? Icons.style_outlined
+                        : Icons.view_agenda_outlined,
+                    tooltip: _viewMode == JobFeedViewMode.list
+                        ? 'List view'
+                        : 'Card view',
+                    onPressed: _toggleViewMode,
+                  ),
+                  _FilterAction(
+                    active: !_filters.isEmpty,
+                    onPressed: () => _openFilters(context),
+                  ),
+                ],
               ),
-              // The icon shows the OTHER mode (a visual hint of what tapping
-              // switches TO); the tooltip names the CURRENT mode so a
-              // screen-reader worker isn't told to switch to the mode they are
-              // already in.
-              KitHeaderIconAction(
-                key: const Key('jobFeedViewToggle'),
-                icon: _viewMode == JobFeedViewMode.list
-                    ? Icons.style_outlined
-                    : Icons.view_agenda_outlined,
-                tooltip: _viewMode == JobFeedViewMode.list
-                    ? 'List view'
-                    : 'Card view',
-                onPressed: _toggleViewMode,
-              ),
-              _FilterAction(
-                active: !_filters.isEmpty,
-                onPressed: () => _openFilters(context),
+              const SizedBox(height: 10),
+              _Design1SearchBar(
+                query: query,
+                hasActiveFilters: !_filters.isEmpty,
+                onOpenSearch: () => context.pushOnce(Routes.jobSearch),
+                onClearFilters: () =>
+                    _setFilters(context.read<SwipeBloc>(), FilterSelection.initial),
               ),
             ],
           ),
@@ -472,12 +486,15 @@ class _FeedViewState extends State<_FeedView> {
     );
   }
 
-  /// The Tinder-style swipe deck. [JobDeck.cards] mirrors
-  /// [SwipeState.visibleQueue] in the SAME order, so `cards.first` always
-  /// matches [SwipeState.current] — the card apply/skip decides. [onApply] /
-  /// [onSkip] fire once the front card commits and take no id, so they
-  /// dispatch [SwipeApplied] / [SwipeSkipped] (which act on `state.current`),
-  /// not the per-id [SwipeCardApplied] the list uses.
+  /// The swipe deck, restored exactly as it was — same gestures (finger-track
+  /// + tilt, 30%-width / fling commit, side-band tint, behind-card peek),
+  /// same [SwipeApplied] / [SwipeSkipped] events, same title-tap detail
+  /// route — with the Design1 card as its face and the skip + Feedback +
+  /// Apply dock beneath it.
+  ///
+  /// The face hides its own teaser + dock: the behind card already previews
+  /// the next REAL job and the deck dock owns the actions, so showing them
+  /// on the face would print every control twice.
   Widget _deck(BuildContext context, SwipeState state) {
     final SwipeBloc bloc = context.read<SwipeBloc>();
     final List<FeedItem> jobs = state.visibleQueue;
@@ -487,6 +504,14 @@ class _FeedViewState extends State<_FeedView> {
     // queued jobs would be dozens of requests for cards never seen.
     for (int i = 0; i < jobs.length && i < 3; i++) {
       _scheduleDetail(bloc, jobs[i].jobId);
+    }
+
+    String? payFullFor(FeedItem job) {
+      final JobDetail? detail = _details[job.jobId];
+      return formatPayBandFull(
+        detail?.payMin ?? job.payMin,
+        detail?.payMax ?? job.payMax,
+      );
     }
 
     return Padding(
@@ -506,6 +531,7 @@ class _FeedViewState extends State<_FeedView> {
               JobDeckItem(
                 id: item.jobId,
                 data: _cardData(item, _details[item.jobId]),
+                payFull: payFullFor(item),
               ),
           ],
           deciding: state.deciding,
@@ -517,6 +543,45 @@ class _FeedViewState extends State<_FeedView> {
             );
             _openDetail(context, bloc, item);
           },
+          // The Design1 paper on the untouched swipe engine. Surplus height
+          // clips off the face's bottom (never an overflow report): a
+          // scrollable inside the deck would steal the vertical
+          // follow-and-snap-back drag.
+          faceBuilder: (
+            BuildContext context,
+            JobDeckItem item, {
+            required bool compact,
+            required VoidCallback? onTitleTap,
+          }) =>
+              ConstraintsTransformBox(
+            constraintsTransform:
+                ConstraintsTransformBox.heightUnconstrained,
+            alignment: Alignment.topLeft,
+            clipBehavior: Clip.hardEdge,
+            child: Design1JobCard(
+              data: item.data,
+              payFull: item.payFull,
+              onTitleTap: onTitleTap,
+              showDock: false,
+              showTeaser: false,
+            ),
+          ),
+          dockBuilder: (
+            BuildContext context, {
+            required double width,
+            required bool locked,
+            required VoidCallback onSkip,
+            required VoidCallback onApply,
+          }) =>
+              Design1DeckDock(
+            locked: locked,
+            onSkip: onSkip,
+            onFeedback: () => context.pushOnce(
+              Routes.feedback,
+              extra: GoRouterState.of(context).uri.path,
+            ),
+            onApply: onApply,
+          ),
         ),
       ),
     );
@@ -659,6 +724,96 @@ class _FilterAction extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// DESIGN1 search bar: the white rounded field from the mock. Tapping
+/// anywhere on it opens the server-side job search ([Routes.jobSearch]) —
+///
+/// ADDITIVE to the filter, exactly like the old search glyph was: the filter
+/// narrows the loaded feed, the search queries OPEN jobs by title + location.
+/// The trailing X is shown only while filters are active and clears them
+/// (the one real "clear" the bar owns); otherwise it is layout space so the
+/// row never reflows.
+class _Design1SearchBar extends StatelessWidget {
+  const _Design1SearchBar({
+    required this.query,
+    required this.hasActiveFilters,
+    required this.onOpenSearch,
+    required this.onClearFilters,
+  });
+
+  /// The active filter's label when filtered (real state), else null → hint.
+  final String? query;
+  final bool hasActiveFilters;
+  final VoidCallback onOpenSearch;
+  final VoidCallback onClearFilters;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: OnboardingColors.paperWhite,
+      borderRadius: BorderRadius.circular(OnboardingRadii.chip),
+      child: InkWell(
+        key: const Key('feedSearchBar'),
+        onTap: onOpenSearch,
+        borderRadius: BorderRadius.circular(OnboardingRadii.chip),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: OnboardingLayout.tapTarget,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: OnboardingColors.ink500,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    query ?? 'Search jobs',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: OnboardingTypography.inter(
+                      size: 14,
+                      weight: query == null
+                          ? FontWeight.w400
+                          : FontWeight.w600,
+                      color: query == null
+                          ? OnboardingColors.ink500
+                          : OnboardingColors.ink900,
+                    ),
+                  ),
+                ),
+                if (hasActiveFilters)
+                  IconButton(
+                    tooltip: 'Filter hatayein',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: OnboardingLayout.tapTarget,
+                      height: OnboardingLayout.tapTarget,
+                    ),
+                    onPressed: onClearFilters,
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      size: 20,
+                      color: OnboardingColors.ink500,
+                    ),
+                  )
+                else
+                  const SizedBox(
+                    width: OnboardingLayout.tapTarget,
+                    height: OnboardingLayout.tapTarget,
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

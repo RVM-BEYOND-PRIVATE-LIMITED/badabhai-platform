@@ -15,7 +15,7 @@ import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_alerts_action.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_job_card.dart';
-import 'package:badabhai_worker_app/core/widgets/kit/kit_header_actions.dart';
+import 'package:badabhai_worker_app/features/swipe/presentation/widgets/design1_job_card.dart';
 import 'package:badabhai_worker_app/features/applications/domain/applications_repository.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/applied_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/cubit/applications_cubit.dart';
@@ -354,7 +354,9 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Kaam milega.'), findsOneWidget);
       expect(find.byType(BbAlertsAction), findsOneWidget);
-      expect(find.byType(KitFeedbackAction), findsOneWidget);
+      // DESIGN1: Feedback lives on the job card's docked button (ready
+      // state) + the app-wide floating pill — not in the header, which
+      // carries bell + view toggle + filter + the search bar.
       expect(find.byKey(const Key('feedSearchBar')), findsOneWidget);
       expect(find.byKey(const Key('jobFeedViewToggle')), findsOneWidget);
       expect(find.byTooltip('Filter jobs'), findsOneWidget);
@@ -478,14 +480,14 @@ void main() {
       );
     });
 
-    testWidgets('a deck card caps at 440', (WidgetTester tester) async {
+    testWidgets('a DESIGN1 card caps at 440', (WidgetTester tester) async {
       setKitSurface(tester, const Size(768, 1024));
       await tester.pumpWidget(kitTestApp(_feedScreen(jobs: _jobs(3))));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(
-        widthOf(tester, find.byType(BbJobCard).first),
+        widthOf(tester, find.byType(Design1JobCard).first),
         lessThanOrEqualTo(440),
       );
     });
@@ -505,7 +507,7 @@ void main() {
 
   // ── The deck on a screen with almost no height ────────────────────────────
 
-  testWidgets('the deck compacts instead of overflowing at 320x400', (
+  testWidgets('the swipe deck compacts instead of overflowing at 320x400', (
     WidgetTester tester,
   ) async {
     setKitSurface(tester, const Size(320, 400));
@@ -514,7 +516,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(tester.takeException(), isNull);
+    // The restored swipe dock: skip + Feedback + Apply.
     expect(find.byKey(const Key('swipeApplyButton')), findsOneWidget);
+    expect(find.byKey(const Key('design1FeedbackButton')), findsOneWidget);
     expect(find.byKey(const Key('swipeSkipButton')), findsOneWidget);
   });
 
@@ -617,13 +621,15 @@ void main() {
 
   // ── The Feedback entry point (R2 / D9) ────────────────────────────────────
 
-  testWidgets('the Jobs header owns Feedback, so the floating pill can be '
+  testWidgets('the DESIGN1 card docks Feedback, so the floating pill can be '
       'hidden on /jobs', (WidgetTester tester) async {
     setKitSurface(tester, const Size(390, 844));
     await tester.pumpWidget(kitTestApp(_feedScreen(jobs: _jobs(3))));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.byType(KitFeedbackAction), findsOneWidget);
+    // DESIGN1: the navy Feedback button rides the card's action row (the
+    // header carries bell + toggle + filter + search instead).
+    expect(find.byKey(const Key('design1FeedbackButton')), findsOneWidget);
   });
 }

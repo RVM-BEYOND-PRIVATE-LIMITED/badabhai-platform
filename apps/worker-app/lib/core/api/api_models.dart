@@ -2043,6 +2043,70 @@ class CityOptionDto extends Equatable {
   List<Object?> get props => <Object?>[value, aliases, state];
 }
 
+/// One curated industrial HUB on `GET /workers/me/work-preferences/options`
+/// (`city_hubs`) — BACKEND-PENDING, see issue #1634.
+///
+/// A hub groups one or more industrial areas under a single tappable place
+/// (e.g. display `Pune`, areas `["Chakan", "Bhosari MIDC"]`). It is a PICK
+/// SHORTCUT, not a second write contract: [cityValue] is the canonical city
+/// submitted in `preferred_cities`, exactly like [CityOptionDto.value], so a
+/// hub tap is the same write a city chip makes. [state] is a member of
+/// [WorkPrefOptionsDto.states] (the cascade key), and [areas] is display-only
+/// text the résumé never prints.
+///
+/// ABSENT UNTIL THE BACKEND SHIPS IT: the options response omits `city_hubs`,
+/// [WorkPrefOptionsDto.cityHubs] stays empty, and the picker falls back to the
+/// state→city cascade that exists today. Parsing is tolerant for the same
+/// reason — an unknown/malformed hub is dropped, never thrown.
+class CityHubDto extends Equatable {
+  const CityHubDto({
+    required this.cityValue,
+    required this.display,
+    this.state = '',
+    this.areas = const <String>[],
+    this.hubKey = '',
+    this.popular = false,
+  });
+
+  /// The canonical city this hub submits (must round-trip the server's
+  /// `canonicalCity`; never a raw label).
+  final String cityValue;
+
+  /// What the card shows (e.g. `Pune`, `Mumbai / Thane`).
+  final String display;
+
+  /// The state this hub belongs to — a member of the served `states`.
+  final String state;
+
+  /// Display-only industrial-area sub-label (e.g. `Chakan, Bhosari MIDC`).
+  final List<String> areas;
+
+  /// Stable slug for one-tap idempotency/analytics; may be empty on a
+  /// partial contract.
+  final String hubKey;
+
+  /// Whether this hub belongs to the "POPULAR FACTORY HUBS" row.
+  final bool popular;
+
+  factory CityHubDto.fromJson(Map<String, dynamic> json) => CityHubDto(
+        cityValue: (json['city_value'] as String?)?.trim() ?? '',
+        display: (json['display'] as String?)?.trim() ?? '',
+        state: (json['state'] as String?)?.trim() ?? '',
+        areas: (json['areas'] as List<dynamic>?)
+                ?.whereType<String>()
+                .map((String a) => a.trim())
+                .where((String a) => a.isNotEmpty)
+                .toList() ??
+            const <String>[],
+        hubKey: (json['hub_key'] as String?)?.trim() ?? '',
+        popular: json['popular'] == true,
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[cityValue, display, state, areas, hubKey, popular];
+}
+
 /// GET /workers/me/work-preferences (#1504) — the caller's STORED answers in
 /// the PUT's own field names. `null` means no stored row; `[]` means a stored
 /// "none of these" — kept apart because a client that coalesced them and saved
@@ -2194,6 +2258,7 @@ class WorkPrefOptionsDto extends Equatable {
     required this.shift,
     this.cities = const <CityOptionDto>[],
     this.states = const <String>[],
+    this.cityHubs = const <CityHubDto>[],
   });
 
   final Map<String, String> languages;
@@ -2206,6 +2271,11 @@ class WorkPrefOptionsDto extends Equatable {
   /// [CityOptionDto.state] carries, so filtering a city list to one state is
   /// plain string equality with no lookup table of its own.
   final List<String> states;
+
+  /// The curated industrial hubs (#1634), or empty until the backend serves
+  /// `city_hubs`. ADDITIVE: a client that ignores it renders the state→city
+  /// cascade exactly as before.
+  final List<CityHubDto> cityHubs;
 
   static Map<String, String> _labelMap(dynamic raw) {
     if (raw is! Map) return const <String, String>{};
@@ -2227,6 +2297,17 @@ class WorkPrefOptionsDto extends Equatable {
         .toList();
   }
 
+  static List<CityHubDto> _hubList(dynamic raw) {
+    if (raw is! List) return const <CityHubDto>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(CityHubDto.fromJson)
+        // A hub with no submittable city is unusable — drop it rather than
+        // offer a card that would 400 on save.
+        .where((CityHubDto h) => h.cityValue.isNotEmpty)
+        .toList();
+  }
+
   factory WorkPrefOptionsDto.fromJson(Map<String, dynamic> json) =>
       WorkPrefOptionsDto(
         languages: _labelMap(json['languages']),
@@ -2238,11 +2319,19 @@ class WorkPrefOptionsDto extends Equatable {
                 ?.whereType<String>()
                 .toList() ??
             const <String>[],
+        cityHubs: _hubList(json['city_hubs']),
       );
 
   @override
-  List<Object?> get props =>
-      <Object?>[languages, documentsReady, jobType, shift, cities, states];
+  List<Object?> get props => <Object?>[
+        languages,
+        documentsReady,
+        jobType,
+        shift,
+        cities,
+        states,
+        cityHubs,
+      ];
 }
 
 /// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) — the
@@ -3352,4 +3441,143 @@ class SessionFillDto extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[entries, settled];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E0 in-app relay (FE #1628) — worker-side only. FACELESS BY CONTRACT: no payer
+// identity exists on this wire, so no field here can show one.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One of the worker's relay threads (GET /workers/me/relay-threads).
+///
+/// The ONLY identifier is the opaque [unlockId] — the E0 decision doc defers
+/// "what a payer may be identified as" to its own ruling, so no counterparty
+/// field exists to render.
+class RelayThreadDto extends Equatable {
+  const RelayThreadDto({
+    required this.unlockId,
+    required this.lastMessageAt,
+    required this.unreadCount,
+  });
+
+  final String unlockId;
+  final DateTime lastMessageAt;
+  final int unreadCount;
+
+  factory RelayThreadDto.fromJson(Map<String, dynamic> json) => RelayThreadDto(
+        unlockId: json['unlock_id'] as String? ?? '',
+        lastMessageAt:
+            DateTime.tryParse(json['last_message_at'] as String? ?? '') ??
+                DateTime.fromMillisecondsSinceEpoch(0),
+        unreadCount: (json['unread_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[unlockId, lastMessageAt, unreadCount];
+}
+
+/// One message on a relay thread (wire shape mirrors the server's
+/// `RelayMessageWire`). [text] is RENDERED server-side; the raw body column is
+/// never exposed and no payer identity rides along.
+class RelayMessageDto extends Equatable {
+  const RelayMessageDto({
+    required this.messageId,
+    required this.direction,
+    required this.text,
+    required this.createdAt,
+    this.readAt,
+  });
+
+  final String messageId;
+
+  /// `payer_to_worker` | `worker_to_payer` — an open string on the wire.
+  final String direction;
+  final String text;
+  final DateTime createdAt;
+  final DateTime? readAt;
+
+  /// True when the worker wrote it, false when a payer did.
+  bool get fromWorker => direction == 'worker_to_payer';
+
+  factory RelayMessageDto.fromJson(Map<String, dynamic> json) =>
+      RelayMessageDto(
+        messageId: json['message_id'] as String? ?? '',
+        direction: json['direction'] as String? ?? '',
+        text: json['text'] as String? ?? '',
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+        readAt: DateTime.tryParse(json['read_at'] as String? ?? ''),
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[messageId, direction, text, createdAt, readAt];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E0 C-2 employer-contact consent (#1630). Server truth for the switch.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The caller's LATEST consent row (GET /consent/me, #1637).
+///
+/// Purposes come back verbatim; `[]` when there is no row (a real answer — the
+/// switch renders OFF, never an error). No ip/user-agent evidence is returned.
+class ConsentStateDto extends Equatable {
+  const ConsentStateDto({
+    this.consentId,
+    this.consentVersion,
+    this.acceptedAt,
+    this.revokedAt,
+    this.purposes = const <String>[],
+  });
+
+  final String? consentId;
+  final String? consentVersion;
+  final String? acceptedAt;
+  final String? revokedAt;
+  final List<String> purposes;
+
+  factory ConsentStateDto.fromJson(Map<String, dynamic> json) => ConsentStateDto(
+        consentId: json['consent_id'] as String?,
+        consentVersion: json['consent_version'] as String?,
+        acceptedAt: json['accepted_at'] as String?,
+        revokedAt: json['revoked_at'] as String?,
+        purposes: (json['purposes'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[consentId, consentVersion, acceptedAt, revokedAt, purposes];
+}
+
+/// The outcome of POST /consent/employer-contact/withdraw (E0 C-2).
+///
+/// `consent_id` null + empty `withdrawn` = the latest row already omitted both
+/// employer-contact purposes (an idempotent no-op).
+class EmployerContactWithdrawDto extends Equatable {
+  const EmployerContactWithdrawDto({
+    required this.ok,
+    this.consentId,
+    this.withdrawn = const <String>[],
+  });
+
+  final bool ok;
+  final String? consentId;
+  final List<String> withdrawn;
+
+  factory EmployerContactWithdrawDto.fromJson(Map<String, dynamic> json) =>
+      EmployerContactWithdrawDto(
+        ok: json['ok'] == true,
+        consentId: json['consent_id'] as String?,
+        withdrawn: (json['withdrawn'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
+
+  @override
+  List<Object?> get props => <Object?>[ok, consentId, withdrawn];
 }

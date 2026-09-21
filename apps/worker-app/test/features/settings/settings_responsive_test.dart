@@ -31,6 +31,23 @@ void main() {
     api = _MockApiClient();
     await locator.reset();
     setupLocator(apiClient: api, secureStore: FakeSecureStore());
+    locator<SessionRepository>().setWorker(
+          phone: '+910000000000',
+          workerId: 'w1',
+          sessionToken: 'tok',
+        );
+    // #1630 — the employer-contact row loads server truth on mount.
+    when(() => api.getConsentState(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ConsentStateDto(
+              consentId: 'c1',
+              purposes: <String>[
+                'profiling',
+                'employer_sharing',
+                'employer_messaging',
+              ],
+            ));
+    when(() => api.withdrawEmployerContact(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const EmployerContactWithdrawDto(ok: true));
   });
 
   tearDown(() async => locator.reset());

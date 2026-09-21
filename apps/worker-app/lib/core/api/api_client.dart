@@ -275,6 +275,35 @@ class ApiClient {
     );
   }
 
+  /// The caller's LATEST consent row (GET /consent/me — WorkerAuthGuard, #1637).
+  ///
+  /// Worker-scoped: the worker is the session's, never a param. Purposes come
+  /// back verbatim; `[]` when there is no row. This is the server truth the
+  /// stop-employer-contact switch renders from — never optimistic local state.
+  Future<ConsentStateDto> getConsentState({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/consent/me', authToken: authToken);
+    return ConsentStateDto.fromJson(json);
+  }
+
+  /// The PER-PURPOSE exit from employer contact (POST
+  /// /consent/employer-contact/withdraw — WorkerAuthGuard, E0 C-2).
+  ///
+  /// NOT `withdrawConsent` above: this keeps profiling / resume / voice and does
+  /// NOT revoke sessions. The narrowed purposes are derived SERVER-SIDE; the
+  /// request carries no body. Idempotent: a row already omitting both purposes
+  /// returns `{ok:true, consent_id:null, withdrawn:[]}` and writes nothing.
+  Future<EmployerContactWithdrawDto> withdrawEmployerContact({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/consent/employer-contact/withdraw',
+      const <String, dynamic>{},
+      authToken: authToken,
+    );
+    return EmployerContactWithdrawDto.fromJson(json);
+  }
+
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
   ///
@@ -1263,6 +1292,79 @@ class ApiClient {
   Future<void> markNotificationsRead({required String authToken}) async {
     await _post('/workers/me/notifications/read', <String, dynamic>{},
         authToken: authToken);
+  }
+
+  // ---- E0 in-app relay (FE #1628) ------------------------------------------
+
+  /// The worker's own relay threads (GET /workers/me/relay-threads —
+  /// WorkerAuthGuard + ConsentGuard). Faceless: an opaque `unlock_id` plus a
+  /// time and an unread count, never a payer identity. Newest activity first.
+  Future<List<RelayThreadDto>> getRelayThreads({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/relay-threads', authToken: authToken);
+    final List<dynamic> rows = json['threads'] as List<dynamic>? ?? <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(RelayThreadDto.fromJson)
+        .where((RelayThreadDto t) => t.unlockId.isNotEmpty)
+        .toList();
+  }
+
+  /// One thread's messages, oldest-first (GET /workers/me/relay-threads/:unlockId).
+  ///
+  /// Returns `null` when the server serves its ONE neutral body
+  /// (`{status:"unavailable"}`): expired, foreign, or consent withdrawn are
+  /// deliberately indistinguishable, so the caller states the thread is closed
+  /// without guessing a reason.
+  Future<List<RelayMessageDto>?> getRelayThread({
+    required String authToken,
+    required String unlockId,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/relay-threads/$unlockId',
+      authToken: authToken,
+    );
+    if (json['status'] == 'unavailable') return null;
+    final List<dynamic> rows = json['messages'] as List<dynamic>? ?? <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(RelayMessageDto.fromJson)
+        .where((RelayMessageDto m) => m.messageId.isNotEmpty)
+        .toList();
+  }
+
+  /// The worker replies with free text (POST …/:unlockId/reply — §B: the
+  /// worker's reply opens the thread to free text both ways).
+  ///
+  /// Returns `false` on the neutral body (the thread closed under the caller —
+  /// consent withdrawn), never an exception: a closed thread is an honest
+  /// non-success, not a transport failure.
+  Future<bool> sendRelayReply({
+    required String authToken,
+    required String unlockId,
+    required String text,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/relay-threads/$unlockId/reply',
+      <String, dynamic>{'text': text},
+      authToken: authToken,
+    );
+    return json['status'] != 'unavailable';
+  }
+
+  /// Marks the thread's inbound messages read (POST …/:unlockId/read) — an
+  /// AUDIT-only write; there is no payer-visible receipt. Best-effort callers.
+  Future<void> markRelayThreadRead({
+    required String authToken,
+    required String unlockId,
+  }) async {
+    await _post(
+      '/workers/me/relay-threads/$unlockId/read',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
   }
 
   /// The worker's master Notifications on/off preference (GET

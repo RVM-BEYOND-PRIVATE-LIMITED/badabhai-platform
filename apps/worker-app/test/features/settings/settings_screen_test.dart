@@ -6,6 +6,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/settings/presentation/settings_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
@@ -23,6 +24,25 @@ void main() {
     secureBacking = FakeSecureStore();
     await locator.reset();
     setupLocator(apiClient: api, secureStore: secureBacking);
+    // The employer-contact row (#1630) loads through an authenticated repo; a
+    // missing session would fail closed and pop an alert mid-test.
+    locator<SessionRepository>().setWorker(
+          phone: '+910000000000',
+          workerId: 'w1',
+          sessionToken: 'tok',
+        );
+    // #1630 — the employer-contact row loads server truth on mount.
+    when(() => api.getConsentState(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ConsentStateDto(
+              consentId: 'c1',
+              purposes: <String>[
+                'profiling',
+                'employer_sharing',
+                'employer_messaging',
+              ],
+            ));
+    when(() => api.withdrawEmployerContact(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const EmployerContactWithdrawDto(ok: true));
   });
 
   tearDown(() => locator.reset());

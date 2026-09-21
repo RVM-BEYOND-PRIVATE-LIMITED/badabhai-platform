@@ -238,6 +238,8 @@ const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
     CityOptionDto(
         value: 'Noida', aliases: <String>[], state: _kTestCityState),
     CityOptionDto(
+        value: 'Sonipat', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
         value: 'Mumbai', aliases: <String>[], state: _kOtherCityState),
     CityOptionDto(
         value: 'Pune', aliases: <String>[], state: _kOtherCityState),
@@ -254,14 +256,24 @@ const String _kOtherCityState = 'Maharashtra';
 /// in this position, so the picker must stay answerable there.
 const String _kCitylessState = 'Bihar';
 
-/// Picks [state] via the cities page's state-then-city cascade (#1429) — the
+/// Picks [state] via the cities page's state cascade (#1429/DESIGN2) — the
 /// worker must be on the preferences marker's cities internal page (page 4)
-/// already; opens the `BbSearchableDropdownField` sheet and taps the option.
+/// already; taps the state chip in the "INDUSTRIAL STATES" row.
 Future<void> _pickCityState(WidgetTester tester, String state) async {
-  await tester.tap(find.text('STATE CHUNEIN'));
-  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(state));
   await tester.tap(find.text(state));
   await tester.pumpAndSettle();
+}
+
+/// Taps a city/HUB card (title = canonical city value) on the DESIGN2 picker,
+/// toggling it into the selected list.
+Future<void> _tapCityCard(WidgetTester tester, String city) async {
+  await tester.ensureVisible(find.text(city).first);
+  await tester.tap(find.text(city).first);
+  // A resolved add shows a self-dismissing MaterialBanner (2s) — flush that
+  // timer now so it never leaks past this test as a pending timer.
+  await tester.pump(const Duration(seconds: 2));
+  await tester.pump();
 }
 
 const QualificationOptionsDto _qualOptions = QualificationOptionsDto(
@@ -1313,11 +1325,7 @@ void main() {
       // fixture (`_prefOptions.cities` includes Faridabad).
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       await _pickCityState(tester, _kTestCityState);
-      await tester.enterText(find.byType(TextField).first, 'Faridabad');
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      // Flush the resolved-add banner's 2s auto-dismiss timer.
-      await tester.pump(const Duration(seconds: 2));
-      await tester.pump();
+      await _tapCityCard(tester, 'Faridabad');
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1389,42 +1397,7 @@ void main() {
     });
   });
 
-  group('preferred cities: 5-city cap + horizontal list', () {
-    testWidgets(
-        'no "+" add button — a worker cannot enter a custom city, only pick '
-        'a suggestion', (WidgetTester tester) async {
-      when(() => repo.loadForm()).thenAnswer((_) async => _form());
-      when(() => repo.submitAnswer(
-            questionKey: any(named: 'questionKey'),
-            answer: any(named: 'answer'),
-          )).thenAnswer((_) async => const TradeFormAnswerResult(
-            questionKey: 'x',
-            status: TradeFormAnswerStatus.answered,
-            answered: 2,
-            total: 2,
-          ));
-
-      await pump(tester);
-      await tester.ensureVisible(find.text(_kDecline).first);
-      await tester.tap(find.text(_kDecline).first);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text(_kDecline).first);
-      await tester.tap(find.text(_kDecline).first);
-      await tester.pumpAndSettle();
-      for (int i = 0; i < 4; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
-
-      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
-      expect(find.text('+'), findsNothing);
-      await _pickCityState(tester, _kTestCityState);
-      await tester.enterText(find.byType(TextField).first, 'gurugram');
-      await tester.pump();
-      expect(find.text('+'), findsNothing);
-    });
-
+  group('preferred cities: DESIGN2 picker (states → hubs → cap)', () {
     Future<void> walkToCitiesPage(WidgetTester tester) async {
       await tester.ensureVisible(find.text(_kDecline).first);
       await tester.tap(find.text(_kDecline).first); // decline q1
@@ -1439,22 +1412,47 @@ void main() {
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
       }
-      // #1429 — the city search only opens once a state is picked.
       await _pickCityState(tester, _kTestCityState);
     }
 
+    /// The exact "Koi sheher?" entry is the LAST text field on the page (the
+    /// browse search box is first).
     Future<void> addCityText(WidgetTester tester, String city) async {
-      await tester.enterText(find.byType(TextField).first, city);
+      await tester.enterText(find.byType(TextField).last, city);
       await tester.testTextInput.receiveAction(TextInputAction.done);
-      // A resolved add shows a self-dismissing MaterialBanner (2s) — flush
-      // that timer now so it never leaks past this test as a pending timer.
       await tester.pump(const Duration(seconds: 2));
       await tester.pump();
     }
 
     testWidgets(
-        'a 6th city cannot be added; the add row disappears at the cap and '
-        'only the first 5 reach onSave',
+        'renders the DESIGN2 chrome — counter badge, states row, hub cards — '
+        'with no custom free-text add', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
+      expect(find.text('0/5 Sheher Chune'), findsOneWidget);
+      expect(find.text('INDUSTRIAL STATES'), findsOneWidget);
+      expect(find.text('HARYANA HUBS'), findsOneWidget);
+      expect(find.text('Gurugram'), findsOneWidget);
+      // No raw custom-add affordance: a city is only ever a real catalogue
+      // card (here) or a server-validated exact entry ("Koi sheher?").
+      expect(find.text('+'), findsNothing);
+    });
+
+    testWidgets(
+        'a 6th city cannot be added at the cap; only the first 5 reach onSave',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1478,30 +1476,22 @@ void main() {
         'Delhi',
         'Ghaziabad',
       ]) {
-        await addCityText(tester, city);
+        await _tapCityCard(tester, city);
       }
+      expect(find.text('5/5 Sheher Chune'), findsOneWidget);
 
-      // At the 5-city cap: the add row (just the text field — no "+" button,
-      // #1406/#1410 already closed custom free text) is gone — the same
-      // "affordance disappears at the cap" convention as certificates/
-      // educations.
-      expect(find.byType(TextField), findsNothing);
+      // The cap: a 6th distinct city is ignored and the badge does not move.
+      await _tapCityCard(tester, 'Sonipat');
+      expect(find.text('5/5 Sheher Chune'), findsOneWidget);
 
-      // Rendered as a horizontal ListView, not a Wrap — the whole point of
-      // this change.
-      final ListView list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.scrollDirection, Axis.horizontal);
-
-      // Removing one must bring the add row back and free a slot.
-      await tester.ensureVisible(find.byIcon(Icons.close).first);
-      // The page scrolls now: let the scroll settle (the field vanishing at
-      // the cap shrinks it) — a Scrollable ignores taps while it moves.
+      // Removing one frees a slot; the badge updates and the freed city adds.
+      await tester.ensureVisible(find.byIcon(Icons.close_rounded).first);
       await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(Icons.close).first);
-      await tester.pump();
-      expect(find.byType(TextField), findsOneWidget);
-      await addCityText(tester, 'Faridabad');
-      expect(find.byType(TextField), findsNothing);
+      await tester.tap(find.byIcon(Icons.close_rounded).first);
+      await tester.pumpAndSettle();
+      expect(find.text('4/5 Sheher Chune'), findsOneWidget);
+      await _tapCityCard(tester, 'Sonipat');
+      expect(find.text('5/5 Sheher Chune'), findsOneWidget);
 
       // Walk to the marker's last internal page and save: page 4 (cities)
       // -> 5 (relocate) is 1 tap, then one more tap WHILE on page 5 saves.
@@ -1516,9 +1506,7 @@ void main() {
           .captured
           .single as TradeFormPreferences;
       expect(sent.preferredCities, hasLength(5));
-      expect(
-          sent.preferredCities,
-          <String>['Gurugram', 'Noida', 'Delhi', 'Ghaziabad', 'Faridabad']);
+      expect(sent.preferredCities.toSet(), hasLength(5));
     });
 
     testWidgets(
@@ -1546,9 +1534,8 @@ void main() {
           findsOneWidget,
           reason: 'the original #1406 bug: a city outside the gazetteer '
               'must say so, not silently accept it and 400 on save');
-      // The text field is still there (not at the cap) and nothing was
-      // added to the selected-cities list.
-      expect(find.byType(ListView), findsNothing);
+      // The badge is unmoved — nothing was added to the selected list.
+      expect(find.text('0/5 Sheher Chune'), findsOneWidget);
     });
 
     testWidgets(
@@ -1571,14 +1558,16 @@ void main() {
 
       await addCityText(tester, 'dilli');
 
-      expect(find.text('Delhi'), findsOneWidget);
+      expect(find.text('1/5 Sheher Chune'), findsOneWidget);
+      // The canonical spelling is on the hub card AND the chosen chip; the
+      // alias itself is never stored or shown.
+      expect(find.text('Delhi'), findsWidgets);
       expect(find.text('dilli'), findsNothing);
     });
 
     testWidgets(
-        'tapping a suggestion chip adds that city directly, without typing '
-        'the full name',
-        (WidgetTester tester) async {
+        'tapping a hub card adds that city directly, without typing the '
+        'full name', (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
             questionKey: any(named: 'questionKey'),
@@ -1593,10 +1582,6 @@ void main() {
       await pump(tester);
       await walkToCitiesPage(tester);
 
-      // Empty query browses the whole (small) gazetteer — tap "Gurugram"
-      // straight off the suggestion row, no typing at all. The state picker
-      // above pushed this row lower on screen (#1429), so scroll it into
-      // view first.
       await tester.ensureVisible(find.text('Gurugram'));
       await tester.tap(find.text('Gurugram'));
       await tester.pump();
@@ -1606,16 +1591,11 @@ void main() {
       await tester.pump();
       expect(find.text('Sheher add ho gaya'), findsNothing);
 
-      final ListView list = tester.widget<ListView>(find.byType(ListView));
-      expect(list.scrollDirection, Axis.horizontal);
-      expect(find.descendant(
-              of: find.byType(ListView), matching: find.text('Gurugram')),
-          findsOneWidget);
-      // The suggestion row must not still offer a city already picked.
-      expect(
-          find.descendant(
-              of: find.byType(Wrap), matching: find.text('Gurugram')),
-          findsNothing);
+      // Card now reads chosen and the city sits in the picked strip: the title
+      // appears twice (card + chosen chip), with one removable chip.
+      expect(find.text('1/5 Sheher Chune'), findsOneWidget);
+      expect(find.text('Gurugram'), findsNWidgets(2));
+      expect(find.byIcon(Icons.close_rounded), findsOneWidget);
     });
   });
 

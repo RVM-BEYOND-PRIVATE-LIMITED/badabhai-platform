@@ -36,6 +36,7 @@ import '../../features/consent/data/consent_repository_impl.dart';
 import '../../features/consent/domain/consent_repository.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/consent/presentation/cubit/consent_withdraw_cubit.dart';
+import '../../features/consent/presentation/cubit/employer_contact_cubit.dart';
 import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
@@ -100,6 +101,10 @@ import '../../features/profile_edit/presentation/cubit/profile_edit_cubit.dart';
 import '../../features/extracted_review/data/extracted_review_repository_impl.dart';
 import '../../features/extracted_review/domain/extracted_review_repository.dart';
 import '../../features/extracted_review/presentation/cubit/extracted_review_cubit.dart';
+import '../../features/inbox/data/inbox_repository_impl.dart';
+import '../../features/inbox/domain/inbox_repository.dart';
+import '../../features/inbox/presentation/cubit/inbox_cubit.dart';
+import '../../features/inbox/presentation/cubit/inbox_thread_cubit.dart';
 import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
@@ -370,6 +375,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ApplicationsRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // E0 in-app relay (FE #1628). Session-scoped; no cross-screen reactive state,
+  // so a lazy singleton is enough.
+  locator.registerLazySingleton<InboxRepository>(
+    () => InboxRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
   locator.registerLazySingleton<InviteRepository>(
     () => InviteRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
@@ -530,6 +541,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerFactory<ConsentWithdrawCubit>(
     () => ConsentWithdrawCubit(locator<ConsentRepository>()),
   );
+  // E0 C-2 (#1630) — the per-purpose employer-contact exit (no logout).
+  locator.registerFactory<EmployerContactCubit>(
+    () => EmployerContactCubit(locator<ConsentRepository>()),
+  );
   locator.registerFactory<NameCubit>(
     () => NameCubit(
       locator<NameRepository>(),
@@ -602,6 +617,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<ApplicationsCubit>(
     () => ApplicationsCubit(locator<ApplicationsRepository>()),
+  );
+  locator.registerFactory<InboxCubit>(
+    () => InboxCubit(locator<InboxRepository>()),
+  );
+  locator.registerFactory<InboxThreadCubit>(
+    () => InboxThreadCubit(locator<InboxRepository>()),
   );
   locator.registerFactory<InviteCubit>(
     () => InviteCubit(locator<InviteRepository>()),

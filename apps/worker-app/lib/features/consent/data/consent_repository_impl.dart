@@ -6,6 +6,7 @@ import '../../../core/error/failure_mapper.dart';
 import '../../../core/referral/pending_referral_store.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/consent_repository.dart';
+import '../domain/employer_contact.dart';
 
 class ConsentRepositoryImpl implements ConsentRepository {
   ConsentRepositoryImpl(this._api, this._session, [this._pendingReferral]);
@@ -53,6 +54,32 @@ class ConsentRepositoryImpl implements ConsentRepository {
     // On success the server has revoked EVERY session (consent.service.ts) — the
     // hard-logout is the cubit's job (it flips AuthStatus → the router bounces to
     // phone login), not the repository's.
+  }
+
+  @override
+  Future<EmployerContactInfo> employerContactState() async {
+    final String? token = _session.sessionToken;
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
+    try {
+      return EmployerContactInfo.fromDto(
+        await _api.getConsentState(authToken: token),
+      );
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<void> withdrawEmployerContact() async {
+    // Same rule as accept/withdraw: the bearer is the subject. NOT `withdrawConsent`
+    // — this keeps profiling/resume/voice and does not revoke sessions.
+    final String? token = _session.sessionToken;
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
+    try {
+      await _api.withdrawEmployerContact(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
   }
 
   /// Consumes a pending referral code (captured from a deep link) exactly once

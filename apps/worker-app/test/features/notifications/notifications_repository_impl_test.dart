@@ -199,6 +199,31 @@ void main() {
     expect(items.single.subtitle, 'Aapki application aage pahunch gayi.');
   });
 
+  test('new_message (E0 relay, FE #1628) maps to messageReceived and keeps the '
+      'faceless server copy verbatim', () async {
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'e1',
+            type: 'new_message',
+            title: 'Naya message',
+            body: 'Aapko ek naya message aaya hai.',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        ],
+      });
+    }));
+
+    final List<AppNotification> items = await repo.list();
+
+    expect(items.single.kind, NotificationKind.messageReceived);
+    expect(items.single.kind, isNot(NotificationKind.security));
+    expect(items.single.title, 'Naya message');
+    expect(items.single.subtitle, 'Aapko ek naya message aaya hai.');
+  });
+
   test('an unknown/future type still falls back to security (posture kept)',
       () async {
     final NotificationsRepositoryImpl repo =

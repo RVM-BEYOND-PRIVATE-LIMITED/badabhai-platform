@@ -610,6 +610,13 @@ class _ProfileTabView extends StatelessWidget {
               subtitle: 'Aapki apply ki gayi jobs',
               onTap: () => context.pushOnce(Routes.appliedJobs),
             ),
+            _hairline,
+            BbListRow.kit(
+              icon: Icons.forum_outlined,
+              title: 'Sandesh',
+              subtitle: 'Aapke sandesh aur jawaab',
+              onTap: () => context.pushOnce(Routes.inbox),
+            ),
             if (showInvite) ...<Widget>[
               _hairline,
               BbListRow.kit(

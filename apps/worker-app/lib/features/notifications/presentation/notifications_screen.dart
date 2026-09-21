@@ -224,6 +224,12 @@ class _NotificationsView extends StatelessWidget {
         Icons.send_rounded,
         BbNotiTone.green,
       ),
+      // E0 item 5 — "you have a message", faceless. Brand tone (an inbound
+      // signal), a message glyph.
+      NotificationKind.messageReceived => (
+        Icons.forum_outlined,
+        BbNotiTone.brand,
+      ),
       NotificationKind.security => (Icons.security_rounded, BbNotiTone.saffron),
     };
     final Widget row = stackTime
