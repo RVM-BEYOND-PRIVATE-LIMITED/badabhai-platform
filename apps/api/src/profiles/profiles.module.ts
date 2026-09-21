@@ -22,6 +22,8 @@ import { WorkerPreferencesController } from "./worker-preferences.controller";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
 import { WorkerQualificationsController } from "./worker-qualifications.controller";
+// #1596 — the skills/machines correction catalogues (static reads of @badabhai/taxonomy).
+import { WorkerCatalogueController } from "./worker-catalogue.controller";
 import { WorkerLanguagesRepository } from "./worker-languages.repository";
 import { WorkerLanguagesService } from "./worker-languages.service";
 import { WorkerLanguagesController } from "./worker-languages.controller";
@@ -94,8 +96,11 @@ import {
     // controller from the employment one because its subject is a profiling ANSWER, and the worker
     // it exists for has no employment at all. See its docstring.
     WorkerAnswerSourceController,
-    WorkerPreferencesController,
-    WorkerQualificationsController,
+      WorkerPreferencesController,
+      WorkerQualificationsController,
+      // #1596 — the two correction catalogues. No provider: both routes are pure reads of
+      // `@badabhai/taxonomy`, and the parity test pins them to it.
+      WorkerCatalogueController,
     // Migration 0110 — the finishing form's Languages page. Its own controller for the same
     // reason the qualifications one has one: the page owns repeatable, ordered rows through
     // delete-then-insert, not single attribute keys.
