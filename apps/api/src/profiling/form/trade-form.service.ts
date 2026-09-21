@@ -695,7 +695,9 @@ export class TradeFormService {
    * both `worker_pack_answer.chat_session_id` and `worker_attributes.session_id` are nullable
    * columns that accept null as honest provenance ("from a résumé, not from a conversation").
    */
-  private async contextFor(workerId: string): Promise<{ kind: TradeFormKind; sessionId: string | null }> {
+  private async contextFor(
+    workerId: string,
+  ): Promise<{ kind: TradeFormKind; sessionId: string | null }> {
     // PRIMARY: read from the interview handover (existing path, unchanged).
     const session = await this.chat.findLatestSessionByWorker(workerId);
     const state = (session?.conversationState ?? null) as { form_kind?: unknown } | null;
@@ -1083,7 +1085,7 @@ function optionValue(option: QuestionPackItem["options"][number]): string | numb
  * re-tapping a different rung would silently re-tier the rest of the interview. Values are
  * compared by their string form because that is the only representation the four columns share.
  */
-function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
+export function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
   const stored = new Set<string>([
     ...(saved.answerOptionKeys ?? []),
     ...(typeof saved.answerText === "string" ? [saved.answerText] : []),

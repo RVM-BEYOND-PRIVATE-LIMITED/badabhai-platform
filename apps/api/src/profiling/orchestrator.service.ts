@@ -770,9 +770,15 @@ export class ProfilingOrchestrator {
       // BEFORE the batch-confirm re-serve below, deliberately: while the "is this you?"
       // bubble is on screen it is the most recent thing, and owner ruling says only the
       // new turn shows — the old bubble never redraws beneath it.
+      //
+      // THE RE-SERVE MUST NAME THE IMPORT IT WAS SERVED FOR (fix 2026-09-21). A worker who
+      // re-uploads has a NEWER staged line than the pending marker names, and re-serving the
+      // newer text under the OLD id would have the Haan autofill the previous document. So a
+      // mismatched pending marker falls through to the offer below, which re-writes the
+      // marker with the current import id and spends a fresh ask.
       if (envelope.resumeIdentity?.state === "pending") {
         const line = await this.resolveResumeIdentity(input.workerId);
-        if (line) {
+        if (line && line.importId === envelope.resumeIdentity.importId) {
           // RE-SERVE ONLY — no write, no ask. Same rule as the confirm re-serve below.
           return this.identityTurnFields(line, items, answers, progressItems, true);
         }
@@ -813,9 +819,16 @@ export class ProfilingOrchestrator {
       // reads `resumeIdentity.state === "pending"`, and without the write the tap would fall
       // through to ordinary selection. IT SPENDS AN ASK, AND MUST: it is a question, the
       // worker can decline it, and the budget must keep counting what he was asked.
-      if (envelope.resumeIdentity === null && buffer.turnCount === 0) {
+      //
+      // A NEW IMPORT RE-OPENS IT (fix 2026-09-21). The gate was `resumeIdentity === null`,
+      // which meant ONCE EVER PER SESSION: a worker who re-uploaded a corrected document
+      // never saw its summary, and — worse — the new document's autofill never ran. A
+      // résumé is a claim about ONE document, so a DIFFERENT import id is a fresh claim
+      // that must be asked about again; the same id is never asked twice.
+      if (buffer.turnCount === 0) {
         const line = await this.resolveResumeIdentity(input.workerId);
-        if (line) {
+        const alreadyHandled = line !== null && envelope.resumeIdentity?.importId === line.importId;
+        if (line && !alreadyHandled) {
           const reply = identityPrompt(line);
           const next: ProfilingEnvelope = stampUniversalPointer(
             {
@@ -1180,26 +1193,37 @@ export class ProfilingOrchestrator {
    *
    * THE GATES, and each is deliberate:
    *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
-   *     from the start path would duplicate the bubble in the client's first frame. The
-   *     identity turn is gated identically (either field non-null ⇒ null).
+   *     from the start path would duplicate the bubble in the client's first frame.
+   *   - an IDENTITY already on screen (`pending`) ⇒ null, for the same reason. A SETTLED
+   *     identity blocks only the import it names — a newer staged line is a new document
+   *     and a fresh claim, and re-uploading must re-open the turn (fix 2026-09-21).
    *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
    *     it would re-litigate something settled.
    *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
    *     not appear beneath a conversation the worker is already having.
-   *   - no pending import AND no staged identity line ⇒ null, WITHOUT calling `openTurn` —
-   *     so a normal session's opening question is never pre-served by this path.
+   *   - no pending import AND no unhandled staged identity line ⇒ null, WITHOUT calling
+   *     `openTurn` — so a normal session's opening question is never pre-served by this path.
    */
   async openResumeConfirm(input: OpenTurnInput): Promise<TurnResult | null> {
     const loaded = await this.buffer.load(input.sessionId);
     const envelope = loaded?.profiling ?? null;
     if (envelope?.resumeConfirm != null) return null;
-    if (envelope?.resumeIdentity != null) return null;
     if (loaded !== null && loaded.turnCount > 0) return null;
+
+    // THE IDENTITY GATE NAMES AN IMPORT (fix 2026-09-21). A `pending` marker means the bubble
+    // is already on screen and history redraws it — the start path must never duplicate it.
+    // A `settled` one blocks ONLY the import it names: a worker who re-uploaded has a newer
+    // staged line, and that is a fresh claim the opening turn is entitled to ask about.
+    const stored = envelope?.resumeIdentity ?? null;
+    if (stored?.state === "pending") return null;
+
+    const line = await this.resolveResumeIdentity(input.workerId);
+    const identityHandled = line !== null && stored?.importId === line.importId;
 
     const pending = await this.resumeSuggestions.pendingForChat(input.workerId);
     // RI-identity: no batch facts, but a staged identity line still opens the session on
     // the "is this you?" bubble. Either résumé turn counts as a pending résumé.
-    if (!pending && !(await this.resolveResumeIdentity(input.workerId))) return null;
+    if (!pending && (line === null || identityHandled)) return null;
 
     const opened = await this.openTurn(input);
     // ONLY A RÉSUMÉ TURN IS AN ANNOUNCEABLE OPENING. `openTurn` falls through to the ordinary
@@ -2095,10 +2119,20 @@ export class ProfilingOrchestrator {
     //
     // NOT WHEN THE TURN IS CAPPED, for the batch branch's reason: past `MAX_ENGINE_TURNS`
     // the interview is closing, and opening a new question there spends an ask he no longer has.
-    if (next.resumeIdentity === null && !capped) {
+    //
+    // A DIFFERENT IMPORT RE-OPENS IT (fix 2026-09-21). The gate used to be
+    // `resumeIdentity === null`, i.e. ONCE EVER PER SESSION — so a worker who re-uploaded a
+    // corrected résumé mid-interview was never asked about the new document, and its
+    // autofill never ran. One document is one claim, so a new import id is a new question;
+    // the SAME id is asked once and never again.
+    if (!capped) {
       const line = await this.resolveResumeIdentity(input.workerId);
+      const alreadyHandled =
+        line !== null &&
+        next.resumeIdentity !== null &&
+        next.resumeIdentity.importId === line.importId;
 
-      if (line) {
+      if (line !== null && !alreadyHandled) {
         next = {
           ...next,
           resumeIdentity: { importId: line.importId, state: "pending" },
@@ -2116,9 +2150,9 @@ export class ProfilingOrchestrator {
         );
       }
 
-      // NOTHING STAGED — left null, like the batch branch below: the next turn
-      // re-resolves cheaply. A settled marker would need an import id it never had, and
-      // an empty one narrows back to null on load anyway.
+      // NOTHING STAGED, OR THIS IMPORT ALREADY HANDLED — left untouched, like the batch
+      // branch below: the next turn re-resolves cheaply, and a matching marker must stay
+      // `settled` so the worker is never asked about the same document twice.
     }
 
     // --- The résumé batch-confirm, offered (ADR-0041 RI-5) ------------------
