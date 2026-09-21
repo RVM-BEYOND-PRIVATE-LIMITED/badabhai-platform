@@ -25,6 +25,7 @@ import { ProfilesController } from "../profiles/profiles.controller";
 // this contract has never covered. All four guard sets were read from each controller's current
 // @UseGuards, not assumed.
 import { WorkerAnswerSourceController } from "../profiles/worker-answer-source.controller";
+import { WorkerCatalogueController } from "../profiles/worker-catalogue.controller";
 import { WorkerEmploymentController } from "../profiles/worker-employment.controller";
 import { WorkerPreferencesController } from "../profiles/worker-preferences.controller";
 import { WorkerQualificationsController } from "../profiles/worker-qualifications.controller";
@@ -287,6 +288,14 @@ const CONTRACT: ControllerContract[] = [
     name: "WorkerAnswerSource",
     ctor: WorkerAnswerSourceController,
     routes: { setAnswerTextSource: [C, W] },
+  },
+  // #1596 — the two correction catalogues. Static reads of @badabhai/taxonomy; guarded for the
+  // same reason `WorkerQualifications.options` is: consistency with the write route they feed,
+  // and the reflection test below requires every routed method to be listed.
+  {
+    name: "WorkerCatalogue",
+    ctor: WorkerCatalogueController,
+    routes: { skills: [C, W], machines: [C, W] },
   },
   // ── THREE WORKER-WRITE CONTROLLERS THIS CONTRACT DID NOT COVER ──────────────────────────
   //
