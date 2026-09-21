@@ -547,6 +547,45 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0120-relay-messages-table",
+    migration: "0120_fair_marauders",
+    kind: "table",
+    table: "relay_messages",
+    requiredBy:
+      "RelayRepository on the E0 relay routes (POST /payer/relay/:handle/messages, " +
+      "GET/POST /workers/me/relay-threads*) — every send, read and mark-read names the table",
+    failureMode:
+      "every relay route 500s (relation does not exist). Old builds on a migrated database " +
+      "are fine (a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0120-relay-handle-index",
+    migration: "0120_fair_marauders",
+    kind: "index",
+    table: "unlock_routing",
+    object: "unlock_routing_relay_handle_uq",
+    requiredBy:
+      "UnlocksRepository.findRoutingByHandle on every relay send — the handle is the payer's " +
+      "only identifier. Without the index that read seq-scans `unlock_routing`",
+    failureMode:
+      "the relay still works but degrades as the table grows; the unique half is what keeps " +
+      "one candidate row per handle, which the resolution assumes",
+  },
+  {
+    id: "0120-relay-messages-rls",
+    migration: "0120_fair_marauders",
+    kind: "rls",
+    table: "relay_messages",
+    requiredBy:
+      "no code path — the platform-wide table-DEFAULT lock (TD20): FORCE RLS + REVOKE from " +
+      "PUBLIC/anon/authenticated/service_role, no policy. Only the API's BYPASSRLS connection " +
+      "may reach the rows",
+    failureMode:
+      "SILENT. relay_messages holds two-party message text; an open grant is an open table to " +
+      "the Data-API roles. Only db:audit:rls or this audit will ever say so",
+  },
+  {
     id: "0118-resume-identity-columns",
     migration: "0118_resume_identity_columns",
     kind: "column",
