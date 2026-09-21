@@ -27,12 +27,14 @@ function controller(): WorkerPreferencesController {
 }
 
 describe("GET /workers/me/work-preferences/options", () => {
-  it("serves exactly six option sets", () => {
-    // Pinned as a whole, not key by key: a SEVENTH key added without a client change is a payload
+  it("serves exactly seven option sets", () => {
+    // Pinned as a whole, not key by key: an EIGHTH key added without a client change is a payload
     // every worker downloads and nothing renders, and this list is where that gets noticed.
-    // `states` was the sixth, added consciously by #1429 for the state-then-city cascade.
+    // `states` was the sixth, added consciously by #1429 for the state-then-city cascade;
+    // `city_hubs` is the seventh (#1634), the DESIGN2 picker's curated hub catalogue.
     expect(Object.keys(controller().options()).sort()).toEqual([
       "cities",
+      "city_hubs",
       "documents_ready",
       "job_type",
       "languages",
