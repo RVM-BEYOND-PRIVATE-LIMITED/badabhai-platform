@@ -203,6 +203,26 @@ construction — this entry is the gate, as before.
 is masked in the leading position — so every city added makes it _more_ green. This register entry
 and the PR body are the only places the argument exists.
 
+#### 2026-09-21 — three cities for the DESIGN2 hub picker (#1634)
+
+The DESIGN2 preferred-cities mockup shows hubs the gazetteer did not hold: `Kolhapur`, `Thane` and
+`Sriperumbudur`. **Owner ruling 2026-09-21: widen, with the delta recorded here** (the alternative
+— mapping Thane→Mumbai and Sriperumbudur→Chennai, dropping Kolhapur — was declined).
+
+**The delta, per city, argued rather than asserted.** None of the three equals a common Indian
+given name. `Kolhapur` and `Sriperumbudur` are place-only tokens; `Thane` is a surname, not a given
+name. The nine collisions this register named as open (`Salem`, `Anand`, `Daman`, `Tirupati`,
+`Vidisha`, `Rewa`, `Alwar`, `Ajmer`, `Karur`) are untouched, and `Daman`/`Tirupati` stay excluded
+from the set. One alias is added: `sriperambudur` → `sriperumbudur` (the spelling the frontend
+issue uses). The measured corpus argument the previous additions carried could not be re-run
+against worker speech for these three; the argument is the name-collision one above, which is the
+same shape and the same direction as the #1560 delta, and it is recorded here because no test can
+hold it.
+
+**What this entry does NOT claim.** It does not re-open the nine named collisions, and it does not
+change R32's status (Accepted-not-fixed). It is one deliberate enlargement, of the same kind
+#1409/#1560 recorded, and the carve-out property test goes _more_ green by construction.
+
 ### (2) `redactKnownName` covers extraction ONLY, not the armed chat turn
 
 This one matters more than (1), and it was found because a comment asserted the opposite.

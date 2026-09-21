@@ -16,6 +16,7 @@ import {
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
 import { CITY_CATALOGUE, STATE_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
+import { CITY_HUBS, type CityHub } from "./worker-cities.hubs";
 
 /**
  * The preferences page's whole vocabulary, in one response.
@@ -42,6 +43,14 @@ export interface WorkPreferenceOptionsResponse {
    * no lookup table of its own.
    */
   readonly states: readonly string[];
+  /**
+   * The curated industrial-hub catalogue for the DESIGN2 multi-city picker (#1634). A LIST of
+   * hubs, each with a display label, industrial-area sub-labels and the CANONICAL city value to
+   * submit — the display spelling and the submitted value differ where the gazetteer's canonical
+   * name does (Sambhaji Nagar → Aurangabad). Additive: a client that does not know the key hides
+   * the hubs sections and keeps today's state→city cascade.
+   */
+  readonly city_hubs: readonly CityHub[];
 }
 
 /**
@@ -98,6 +107,7 @@ export class WorkerPreferencesController {
       shift: SHIFTS,
       cities: CITY_CATALOGUE,
       states: STATE_CATALOGUE,
+      city_hubs: CITY_HUBS,
     };
   }
 
