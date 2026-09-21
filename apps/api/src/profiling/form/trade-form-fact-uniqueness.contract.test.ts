@@ -93,6 +93,9 @@ function serviceFor(role: RoleCase) {
     packs as never,
     {
       listAnswers: vi.fn(async () => []),
+      // #1459 — the cross-pack tier read. No chat row in this contract fixture, so nothing is
+      // derived and the served set is exactly what the #1503 assertions describe.
+      findLatestAnswerByQuestionKey: vi.fn(async () => undefined),
       withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(undefined)),
       upsertAnswer: vi.fn(async () => undefined),
     } as never,

@@ -182,6 +182,12 @@ function harnessFor(role: RoleUnderTest): Harness {
   };
   const answers = {
     listAnswers: vi.fn(async () => [...rows.values()]),
+    // #1459 — the cross-pack tier read, emulated against the same store: a row is found by
+    // question key regardless of pack, exactly as the repository's query does. A walk that never
+    // settles `experience_years` (none of these packs asks it) derives nothing.
+    findLatestAnswerByQuestionKey: vi.fn(async (_workerId: string, questionKey: string) =>
+      [...rows.values()].find((row) => row.questionKey === questionKey),
+    ),
     // The service writes the answer row and its attribute row in ONE transaction; the double
     // just runs the callback. See the note on the same field in `trade-form.service.test.ts`.
     withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
