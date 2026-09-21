@@ -251,6 +251,14 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       const markSrc = /class="foot-mark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
       expect(markSrc, `${name}: the footer mark data URI is missing`).toBeTruthy();
       marks.push(markSrc!);
+      // BRAND-KIT COLOURS. The mark is the two-figure lockup from badabhai-mark.svg, adapted
+      // for white paper: the small figure the kit draws white renders in print navy (white is
+      // invisible on the sheet), the large figure in safety-yellow, the knockout halo white.
+      // All-ink would read as a black blob beside the wordmark.
+      const decodedMark = decodeURIComponent(markSrc!);
+      expect(decodedMark, `${name}: the large figure is not safety-yellow`).toContain("#FFB32C");
+      expect(decodedMark, `${name}: the small figure is not print navy`).toContain("#0f3d6e");
+      expect(decodedMark, `${name}: the mark regressed to all-ink`).not.toContain("#14181d");
       expect(file, `${name}: the wordmark is not mixed case`).toContain(
         'alt="" />BadaBhai</div>',
       );

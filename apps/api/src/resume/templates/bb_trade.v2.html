@@ -286,8 +286,10 @@
          content's preferred width, and the disclaimer pushes the right logo out of the row. */
       .foot-txt { font-size: 8.6pt; color: var(--muted); line-height: 1.43;
                   flex: 1 1 auto; min-width: 0; }
-      /* The brand lockup — the two-figure mark in ink, then the MIXED-CASE wordmark. No
-         `text-transform` here: the app's lockup is "BadaBhai", not "BADABHAI" (#1547). */
+      /* The brand lockup — the two-figure mark in brand-kit colours (small figure print
+         navy, large figure safety-yellow, white knockout halo between them), then the
+         MIXED-CASE wordmark. No `text-transform` here: the app's lockup is "BadaBhai",
+         not "BADABHAI" (#1547). */
       .foot-mark { display: flex; align-items: center; gap: 1.6mm;
                    font-weight: 700; color: var(--ink); }
       .foot-mark img { width: 5.2mm; height: 4.55mm; flex: 0 0 auto; }
@@ -347,6 +349,6 @@
     <!-- QUALIFICATION, DOCUMENTS & LANGUAGES -->
     <div class="sec sec-qual">{{#qual_fact_rows}}<div class="row"><span class="lab">{{label}}</span>{{value}}</div>{{/qual_fact_rows}}{{#qual_tick_rows}}<div class="row"><span class="lab">{{label}}</span><ul class="ticks">{{#values}}<li>{{.}}</li>{{/values}}</ul></div>{{/qual_tick_rows}}</div>
 
-    <div class="foot">{{#qr}}<img class="qr" src="{{.}}" alt="" />{{/qr}}<div class="foot-txt"><div class="foot-mark"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20160%20140%22%3E%3Ccircle%20cx%3D%22114%22%20cy%3D%2226%22%20r%3D%2227%22%20fill%3D%22%2314181d%22%2F%3E%3Cpath%20d%3D%22M54%20140V113A53%2053%200%200%201%20107%2060A53%2053%200%200%201%20160%20113V140Z%22%20fill%3D%22%2314181d%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%2220%22%2F%3E%3Cpath%20d%3D%22M8%20140V92A40%2040%200%200%201%2048%2052H50A40%2040%200%200%201%2090%2092V140Z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%2220%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%2314181d%22%2F%3E%3Cpath%20d%3D%22M8%20140V92A40%2040%200%200%201%2048%2052H50A40%2040%200%200%201%2090%2092V140Z%22%20fill%3D%22%2314181d%22%2F%3E%3C%2Fsvg%3E" alt="" />BadaBhai</div><div class="foot-lead">{{qr_caption}}</div><div>{{short_link}}</div><div>{{footer_meta}}</div><div>Details as stated by the worker. BadaBhai does not guarantee hiring.</div></div><div class="foot-logo">BADABHAI <span class="hi">बड़ाभाई</span></div></div>
+    <div class="foot">{{#qr}}<img class="qr" src="{{.}}" alt="" />{{/qr}}<div class="foot-txt"><div class="foot-mark"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20160%20140%22%3E%3Ccircle%20cx%3D%22114%22%20cy%3D%2226%22%20r%3D%2227%22%20fill%3D%22%23FFB32C%22%2F%3E%3Cpath%20d%3D%22M54%20140V113A53%2053%200%200%201%20107%2060A53%2053%200%200%201%20160%20113V140Z%22%20fill%3D%22%23FFB32C%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%2220%22%2F%3E%3Cpath%20d%3D%22M8%20140V92A40%2040%200%200%201%2048%2052H50A40%2040%200%200%201%2090%2092V140Z%22%20fill%3D%22%23ffffff%22%20stroke%3D%22%23ffffff%22%20stroke-width%3D%2220%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%230f3d6e%22%2F%3E%3Cpath%20d%3D%22M8%20140V92A40%2040%200%200%201%2048%2052H50A40%2040%200%200%201%2090%2092V140Z%22%20fill%3D%22%230f3d6e%22%2F%3E%3C%2Fsvg%3E" alt="" />BadaBhai</div><div class="foot-lead">{{qr_caption}}</div><div>{{short_link}}</div><div>{{footer_meta}}</div><div>Details as stated by the worker. BadaBhai does not guarantee hiring.</div></div><div class="foot-logo">BADABHAI <span class="hi">बड़ाभाई</span></div></div>
   </body>
 </html>
