@@ -116,6 +116,11 @@ function makeService(
     suggestions?: ReadonlyMap<string, unknown>;
     /** An already-generated resume row id: set when the test is about a post-completion edit. */
     resumeId?: string;
+    /**
+     * #1459 — what the chat's `experience_years` row says: a number (answered), `"declined"`
+     * (settled, no value), or absent (never asked).
+     */
+    chatExperienceYears?: number | "declined";
   } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
@@ -134,6 +139,15 @@ function makeService(
   };
   const answers = {
     listAnswers: vi.fn(async () => opts.saved ?? []),
+    // #1459 — the cross-pack tier read. The double mirrors the repository's contract: the row
+    // exists only when the chat actually asked the question, and a declined row carries no value.
+    findLatestAnswerByQuestionKey: vi.fn(async () => {
+      if (opts.chatExperienceYears === undefined) return undefined;
+      return {
+        status: opts.chatExperienceYears === "declined" ? "declined" : "answered",
+        answerNumber: typeof opts.chatExperienceYears === "number" ? opts.chatExperienceYears : null,
+      } as unknown as WorkerPackAnswer;
+    }),
     // ONE ANSWER IS TWO ROWS, so the service wraps both writes in one transaction. The double
     // runs `cb` directly with a marker executor: there is no database here, so "atomic" is not a
     // property this fake can hold — what it CAN hold is that both writes are attempted inside
@@ -1536,5 +1550,101 @@ describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the que
     expect(screen?.suggestion).not.toBeNull();
     expect(screen?.suggestion).not.toHaveProperty("status");
     expect(Object.keys(screen!.suggestion!).sort()).toEqual(["confidence", "source", "values"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #1459 — THE PER-TRADE TIER IS PRE-SETTLED FROM THE CHAT'S experience_years
+//
+// The defect: the form's FIRST question is the pack's `*_experience` tier gate and the chat
+// already asked `experience_years`. Deleting it re-opens #1378; re-pointing the gates cannot
+// work (pack-scoped answer map). The owner ruling of 2026-09-21: derive the tier, do not ask.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The tenure question's options carry value_number ONLY — the shape every gate expects. */
+const TENURE_OPTIONS = [
+  { option_key: "k0", label_text: "Fresher", value: 0, implies_skill_id: null, is_none_of_above: false },
+  { option_key: "k2", label_text: "1-3 years", value: 2, implies_skill_id: null, is_none_of_above: false },
+  { option_key: "k5", label_text: "3-7 years", value: 5, implies_skill_id: null, is_none_of_above: false },
+  { option_key: "k10", label_text: "7+ years", value: 10, implies_skill_id: null, is_none_of_above: false },
+];
+
+/** The real tenure key for `cnc_turner` (`cnc-turner.role.ts`), plus one gate per direction. */
+const TENURE_PACK: QuestionPack = {
+  pack_id: "qp_cnc_turning",
+  version: 1,
+  family_id: "fam_cnc_turning",
+  locale: "hi-IN",
+  status: "active",
+  content_hash: "hash",
+  items: [
+    item({ question_key: "turning_experience", answer_type: "single_select", options: TENURE_OPTIONS }),
+    item({
+      question_key: "turning_test_advanced",
+      answer_type: "boolean",
+      ask_if: { op: "gte", left: { field: "turning_experience" }, right: { const: 5 } },
+    }),
+    item({
+      question_key: "iti_project_work",
+      answer_type: "text",
+      ask_if: { op: "lte", left: { field: "turning_experience" }, right: { const: 0 } },
+    }),
+  ],
+};
+
+/** Every question key the served schema puts on a screen. */
+function servedKeys(schema: TradeFormSchemaResponse): string[] {
+  return schema.sections.flatMap((section) =>
+    section.screens.flatMap((screen) =>
+      screen.type === "question" ? [screen.question.question_key] : [],
+    ),
+  );
+}
+
+describe("#1459 — the per-trade tier is pre-settled from the chat's experience_years", () => {
+  it("still asks the tier when the chat never asked experience_years — nothing is derived", async () => {
+    const { service } = await makeService({ pack: TENURE_PACK });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    // An UNRESOLVED gate shows its question (form-eligibility's documented fail direction).
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).toContain("iti_project_work");
+  });
+
+  it("stops asking it once the chat knows: 7 years resolves the senior gate and hides the fresher one", async () => {
+    const { service } = await makeService({ pack: TENURE_PACK, chatExperienceYears: 7 });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).not.toContain("turning_experience");
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).not.toContain("iti_project_work");
+  });
+
+  it("0 years resolves the fresher gate and hides the senior one", async () => {
+    const { service } = await makeService({ pack: TENURE_PACK, chatExperienceYears: 0 });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).not.toContain("turning_experience");
+    expect(keys).toContain("iti_project_work");
+    expect(keys).not.toContain("turning_test_advanced");
+  });
+
+  it("FIRST-WRITE-WINS: a stored tenure answer keeps the question visible, derived or not", async () => {
+    const { service } = await makeService({
+      pack: TENURE_PACK,
+      chatExperienceYears: 7,
+      saved: [answered({ questionKey: "turning_experience", answerNumber: 2 })],
+    });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    // The worker's OWN tap gates the form, not the derived 7 — the senior question stays hidden
+    // because 2 is below 5, which is the value his stored answer carries.
+    expect(keys).not.toContain("turning_test_advanced");
+  });
+
+  it("a DECLINED experience_years derives nothing — the question stays and its gates stay unresolved", async () => {
+    const { service } = await makeService({ pack: TENURE_PACK, chatExperienceYears: "declined" });
+    const keys = servedKeys(await service.schema(WORKER));
+    expect(keys).toContain("turning_experience");
+    expect(keys).toContain("turning_test_advanced");
+    expect(keys).toContain("iti_project_work");
   });
 });

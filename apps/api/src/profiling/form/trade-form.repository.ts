@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   type Database,
   workerPackAnswers,
@@ -34,6 +34,39 @@ export class TradeFormRepository {
       .from(workerPackAnswers)
       .where(and(eq(workerPackAnswers.workerId, workerId), eq(workerPackAnswers.packId, packId)))
       .orderBy(workerPackAnswers.questionKey);
+  }
+
+  /**
+   * The worker's most recent answer to ONE question, from ANY pack (#1459).
+   *
+   * WHY THIS IS NOT `listAnswers`. That read is pack-scoped, and the two keys the tier
+   * pre-settle bridges live in DIFFERENT packs: `experience_years` is `qp_universal`'s
+   * (written under whichever pack the chat had pinned, which is why the filter is by question
+   * key and not by pack), while the per-trade tier gate (`turning_experience`, …) belongs to
+   * the occupation pack. A pack-scoped read cannot see across that line, which is exactly why
+   * the duplicate ask survived.
+   *
+   * NEWEST FIRST, with `id` as the tiebreak: `wpa_worker_question_uq` is keyed
+   * (worker, pack, question_key), so a cross-pack duplicate for one question is already
+   * impossible in practice — the ordering is here so a future writer that changes that
+   * cannot make this read ambiguous.
+   */
+  async findLatestAnswerByQuestionKey(
+    workerId: string,
+    questionKey: string,
+  ): Promise<WorkerPackAnswer | undefined> {
+    const rows = await this.db
+      .select()
+      .from(workerPackAnswers)
+      .where(
+        and(
+          eq(workerPackAnswers.workerId, workerId),
+          eq(workerPackAnswers.questionKey, questionKey),
+        ),
+      )
+      .orderBy(desc(workerPackAnswers.answeredAt), desc(workerPackAnswers.id))
+      .limit(1);
+    return rows[0];
   }
 
   /**

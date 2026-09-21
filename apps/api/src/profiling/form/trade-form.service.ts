@@ -30,6 +30,7 @@ import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { descriptorForKind } from "../roles/role-registry";
 import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
+import type { AnswerMap } from "../answer-map";
 import {
   ResumeSuggestionReader,
   type ResumeSuggestion,
@@ -484,6 +485,8 @@ export class TradeFormService {
    * with.
    *
    * THIS PACK'S ROWS ONLY. Reading facts settled under other packs is #1504's change, not this one.
+   * (THE ONE EXCEPTION is the #1459 tier pre-settle below: it reads `experience_years`, which the
+   * CHAT asked and stored under its own pack, so the form can stop asking the duplicate question.)
    */
   private async formView(
     workerId: string,
@@ -492,13 +495,98 @@ export class TradeFormService {
   ): Promise<FormView> {
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const answers = answerMapFromRows(saved);
+
+    // #1459 — PRE-SETTLE THE PER-TRADE TIER FROM WHAT THE CHAT ALREADY KNOWS (owner ruling
+    // 2026-09-21). The pack's `*_experience` gate is the form's first question and the chat has
+    // already asked `experience_years`; the derived value resolves every tier gate for THIS fetch
+    // and the question itself is not served. See {@link derivedTenureAnswer} for the full rule and
+    // for why this is read-time only.
+    const derived = await this.derivedTenureAnswer(workerId, kind, pack, answers);
+    const eligibility: AnswerMap =
+      derived === null ? answers : { ...answers, [derived.questionKey]: derived.record };
     const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
-      items.filter((item) => isFormQuestionVisible(item, answers));
+      items.filter((item) => {
+        // A DERIVED TIER IS NEVER ASKED. `isFormQuestionVisible` shows anything settled so the
+        // worker can change it, but this value was never his tap on THIS question — there is
+        // nothing here for him to change, and the answer it derives from stays editable in the
+        // chat. A stored row for the key is a different case and `derivedTenureAnswer` returns
+        // null for it, so the question keeps its normal visibility.
+        if (derived !== null && item.question_key === derived.questionKey) return false;
+        return isFormQuestionVisible(item, eligibility);
+      });
 
     const sheet = this.orderBySheet(pack, kind);
     const ordered = visible(sheet.ordered);
     const leftover = visible(sheet.leftover);
     return { saved, ordered, leftover, visibleItems: [...ordered, ...leftover] };
+  }
+
+  /**
+   * #1459 — THE PER-TRADE TIER, PRE-SETTLED FROM THE CHAT'S `experience_years`.
+   *
+   * THE DEFECT. The form's FIRST question is the pack's `*_experience` tier gate
+   * (`turning_experience`, `coating_experience`, …), and the worker has ALREADY answered
+   * `experience_years` in the chat. It is asked twice.
+   *
+   * WHY IT CANNOT SIMPLY BE DELETED, OR RE-POINTED. It is the gate for 10 of the pack's 18
+   * questions; deleting it leaves every gate unresolved forever and the form shows all 18 to
+   * everyone, including the three FRESHER items a veteran must never see — verbatim #1378.
+   * Re-pointing the gates at `experience_years` cannot work either: the form's answer map is
+   * PACK-SCOPED (`listAnswers(workerId, pack.pack_id)`), so a universal key is permanently
+   * unresolved there. Hence the owner ruling of 2026-09-21: DERIVE the tier from what the chat
+   * knows, and stop asking the question.
+   *
+   * FIRST-WRITE-WINS. A settled row for the tenure key — answered or declined — means the
+   * worker's own tap stands, the question keeps its normal visibility so he can change it, and
+   * this returns null. The derivation only fires when the pack has no settled tenure answer.
+   *
+   * READ-TIME ONLY, NEVER STORED. The derived value gates the form for this fetch and is never
+   * written to `worker_pack_answer`: a value the worker did not give is not recorded as his
+   * answer. The source is his own chat answer, and `experience_years` remains the record.
+   *
+   * DECLINES AND NON-NUMBERS DERIVE NOTHING. "Pata nahi" settles the question and tells us
+   * nothing about the tier, so the tenure question stays visible and its gates stay unresolved —
+   * the form's own fail direction.
+   */
+  private async derivedTenureAnswer(
+    workerId: string,
+    kind: TradeFormKind,
+    pack: QuestionPack,
+    answers: AnswerMap,
+  ): Promise<{ questionKey: string; record: AnswerRecord } | null> {
+    const tenureKey = descriptorForKind(kind)?.tenureQuestionKey;
+    if (tenureKey === undefined || tenureKey.length === 0) return null;
+    if (!pack.items.some((item) => item.question_key === tenureKey)) return null;
+
+    const stored = answers[tenureKey];
+    if (stored !== undefined && stored.status !== "unanswered") return null;
+
+    const source = await this.answers.findLatestAnswerByQuestionKey(workerId, "experience_years");
+    if (
+      source === undefined ||
+      source.status !== "answered" ||
+      typeof source.answerNumber !== "number" ||
+      !Number.isFinite(source.answerNumber)
+    ) {
+      return null;
+    }
+
+    return {
+      questionKey: tenureKey,
+      record: {
+        question_key: tenureKey,
+        target_field: tenureKey,
+        status: "answered",
+        value_raw: null,
+        value_normalized: source.answerNumber,
+        // NO EVIDENCE SPAN: the value is derived from another answer, not quoted from the
+        // transcript, and inventing a span the provenance gate would verify is worse than
+        // admitting there is nothing to cite. Same posture `settleFromLlmDraft` takes.
+        evidence: null,
+        turn: 0,
+        history: [],
+      },
+    };
   }
 
   /**
