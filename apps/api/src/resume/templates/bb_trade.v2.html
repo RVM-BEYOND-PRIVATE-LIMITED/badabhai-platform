@@ -134,14 +134,16 @@
       /* ---- masthead ----------------------------------------------------- */
       .bar {
         background: var(--bar-bg); color: var(--bar-ink); padding: 1.4mm 2.4mm;
-        display: flex; align-items: baseline; justify-content: space-between;
+        display: flex; align-items: center; justify-content: space-between;
         font-size: 8.6pt; font-weight: 700;
       }
-      /* Uppercasing belongs to the WORDMARK, not to the bar. Put it on the bar and the
-         trust tier is shouted back as "RVM-ATTESTED" / "DOCUMENT-VERIFIED", which reads as
-         a stamp rather than a statement of fact and mangles any tier whose casing is
-         meaningful. The tier string renders exactly as the mapper wrote it. */
-      .wordmark { letter-spacing: 0.09em; text-transform: uppercase; }
+      /* The masthead brand lockup — the two-figure mark in brand-kit colours (white small
+         figure, safety-yellow large figure, directly visible on the navy band) beside the
+         MIXED-CASE wordmark. Always one word: BadaBhai, never uppercased. No
+         text-transform anywhere in the bar, so the trust tier on the right also renders
+         exactly as the mapper wrote it and no tier casing is ever mangled. */
+      .wordmark { display: inline-flex; align-items: center; gap: 1.6mm; letter-spacing: 0.09em; }
+      .wordmark img { width: 4.6mm; height: 4mm; flex: 0 0 auto; }
       /* The trust badge is a plain string slot so the tier vocabulary lives in the mapper,
          never here. An absent badge collapses rather than printing a placeholder — the
          unverified state must read as neutral, never as a warning. */
@@ -302,7 +304,7 @@
     </style>
   </head>
   <body>
-    <div class="bar"><span class="wordmark">BadaBhai</span><span class="badge">{{trust_badge}}</span></div>
+    <div class="bar"><span class="wordmark"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20160%20140%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2234%22%20r%3D%2222%22%20fill%3D%22%23FFFFFF%22%2F%3E%3Cpath%20d%3D%22M8%20140V92A40%2040%200%200%201%2048%2052H50A40%2040%200%200%201%2090%2092V140Z%22%20fill%3D%22%23FFFFFF%22%2F%3E%3Ccircle%20cx%3D%22114%22%20cy%3D%2226%22%20r%3D%2227%22%20fill%3D%22%23FFB32C%22%2F%3E%3Cpath%20d%3D%22M54%20140V113A53%2053%200%200%201%20107%2060A53%2053%200%200%201%20160%20113V140Z%22%20fill%3D%22%23FFB32C%22%2F%3E%3C%2Fsvg%3E" alt="" />BadaBhai</span><span class="badge">{{trust_badge}}</span></div>
 
     <div class="idrow">
       <h1 class="{{name_class}}">{{full_name}}</h1>
