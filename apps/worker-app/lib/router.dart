@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'core/di/locator.dart';
 import 'core/nav/tab_focus.dart';
 import 'core/referral/pending_referral_store.dart';
+import 'core/theme/onboarding_theme.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/notifications/domain/notifications_repository.dart';
@@ -26,6 +27,8 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/profile_edit/presentation/profile_edit_screen.dart';
+import 'features/extracted_review/presentation/extracted_review_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
 import 'features/trade_form/presentation/trade_form_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
@@ -66,11 +69,12 @@ class Routes {
   static const String devices = '/profile/settings/devices';
 
   static const String consent = '/consent';
-  static const String name = '/name'; // "Your name" step (after consent, before chat)
+  static const String name =
+      '/name'; // "Your name" step (after consent, before chat)
 
-  /// The three-door résumé-upload step (#1499, ADR-0041 RI-6) — sits BETWEEN
+  /// The two-door résumé-upload step (#1499, ADR-0041 RI-6) — sits BETWEEN
   /// [name] and [chatProfiling], which is where [name] used to hand over
-  /// directly. Two of its three doors are that same handover, unchanged.
+  /// directly. One of its two doors is that same handover, unchanged.
   static const String resumeUpload = '/resume-upload';
 
   /// Referral invite (A3) — pushed full-screen from Profile / Settings.
@@ -96,7 +100,8 @@ class Routes {
 
   // --- Shell branch roots (persistent bottom nav) ---
   static const String jobs = '/jobs'; // Feed (Jobs tab)
-  static const String resume = '/resume'; // Resume ready (Resume tab root + onboarding endpoint)
+  static const String resume =
+      '/resume'; // Resume ready (Resume tab root + onboarding endpoint)
 
   /// Bada Bhai chat tab — reuses [ChatProfilingScreen] as the persistent
   /// assistant. A DISTINCT path from the onboarding chat route [chatProfiling]
@@ -117,16 +122,24 @@ class Routes {
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
 
+  /// Extracted-profile review + correction surface (issue #1595, §8.4) —
+  /// pushed full-screen from the Resume preview's actions; back → Resume.
+  static const String extractedReview = '/resume/review'; // (no bar)
+
   /// Interview kit. Lives under the PROFILE branch (WA-3): the kit is entered
   /// from the Profile tab, so popping out of it must land back on Profile. It
   /// previously sat under /resume — entering from Profile silently switched the
   /// shell to the Resume branch, and backing out of the kit detail stranded the
   /// worker on the Resume tab.
   static const String kit = '/profile/kit'; // (keeps bar)
-  static const String kitDetail = '/profile/kit/detail'; // + '/<tradeKey>' (no bar)
+  static const String kitDetail =
+      '/profile/kit/detail'; // + '/<tradeKey>' (no bar)
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
+
+  /// Layer A profile edit (issue #1545) — pushed full-screen from Profile.
+  static const String profileEdit = '/profile/edit'; // (no bar)
 
   /// App-wide feedback page — pushed FULL-SCREEN from the floating Feedback
   /// button that rides every non-auth screen (see [FeedbackFabOverlay]).
@@ -135,8 +148,9 @@ class Routes {
 
 /// Root navigator — onboarding routes and every "no bar" full-screen route render
 /// here (a `parentNavigatorKey: _rootNavKey` route covers the shell).
-final GlobalKey<NavigatorState> _rootNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'root');
+final GlobalKey<NavigatorState> _rootNavKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
 
 /// The root navigator key, exposed so the app root ([BadaBhaiApp]) can present a
 /// GLOBAL, route-independent overlay — the account-deleted hard-logout dialog —
@@ -145,14 +159,18 @@ final GlobalKey<NavigatorState> _rootNavKey =
 /// MaterialApp.router `builder` context does not — hence going through the router
 /// key rather than a widget-tree context. Null before the first frame is drawn.
 GlobalKey<NavigatorState> get rootNavigatorKey => _rootNavKey;
-final GlobalKey<NavigatorState> _jobsNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'jobs');
-final GlobalKey<NavigatorState> _resumeNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'resume');
-final GlobalKey<NavigatorState> _chatNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'chat');
-final GlobalKey<NavigatorState> _profileNavKey =
-    GlobalKey<NavigatorState>(debugLabel: 'profile');
+final GlobalKey<NavigatorState> _jobsNavKey = GlobalKey<NavigatorState>(
+  debugLabel: 'jobs',
+);
+final GlobalKey<NavigatorState> _resumeNavKey = GlobalKey<NavigatorState>(
+  debugLabel: 'resume',
+);
+final GlobalKey<NavigatorState> _chatNavKey = GlobalKey<NavigatorState>(
+  debugLabel: 'chat',
+);
+final GlobalKey<NavigatorState> _profileNavKey = GlobalKey<NavigatorState>(
+  debugLabel: 'profile',
+);
 
 /// Builds a router bound to the CURRENTLY-registered [AuthSessionManager] (its
 /// `refreshListenable`). Built once per [BadaBhaiApp] instance in `initState`
@@ -195,16 +213,17 @@ const Set<String> _authRoutes = <String>{
 /// real app + the e2e/auth tests). Returns null under the legacy widget tests
 /// that pump [BadaBhaiApp] without `initAuthLocator` — in which case the
 /// redirect is INERT and app-open routing behaves exactly as before.
-AuthSessionManager? _maybeAuth() =>
-    locator.isRegistered<AuthSessionManager>() ? locator<AuthSessionManager>() : null;
+AuthSessionManager? _maybeAuth() => locator.isRegistered<AuthSessionManager>()
+    ? locator<AuthSessionManager>()
+    : null;
 
 /// The referral store if deep-link persistence is wired (real app + e2e; it
 /// registers in `initAuthLocator`). Null under the plugin-free widget tests, so
 /// the deep-link capture is simply INERT there — routing is otherwise unchanged.
 PendingReferralStore? _maybeReferralStore() =>
     locator.isRegistered<PendingReferralStore>()
-        ? locator<PendingReferralStore>()
-        : null;
+    ? locator<PendingReferralStore>()
+    : null;
 
 /// Extracts the referral code from an incoming `/i/<code>` deep link, tolerating
 /// BOTH URI shapes the platform can deliver:
@@ -216,8 +235,9 @@ PendingReferralStore? _maybeReferralStore() =>
 /// ignores anything that does not match, so a junk `/i/<x>` is captured-then-
 /// dropped rather than mistaken for a real screen.
 String? referralCodeFromUri(Uri uri) {
-  final List<String> segs =
-      uri.pathSegments.where((String s) => s.isNotEmpty).toList();
+  final List<String> segs = uri.pathSegments
+      .where((String s) => s.isNotEmpty)
+      .toList();
   // Custom scheme: the host carries the `i`, leaving the code as the sole segment.
   if (uri.host == 'i' && segs.length == 1) return segs.first;
   // Path form (App Link / an in-app go('/i/<code>')): `i` is the first segment.
@@ -366,11 +386,18 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
 }
 
 /// #380 — the guard for `/jobs/detail/:jobId`. The screen renders the tapped
-/// row's REAL [JobDetail], which travels as in-memory `extra`; `extra` survives
-/// neither a deep link nor go_router state restoration, and there is no
-/// worker-facing job-detail endpoint to re-fetch `:jobId` from. So a navigation
-/// that arrives without one has nothing truthful to show — send it to the feed
-/// instead of building a screen around a null (or, worse, a fabricated job).
+/// row's REAL [JobDetail], which travels as in-memory `extra`, and `extra`
+/// survives neither a deep link nor go_router state restoration.
+///
+/// A worker-facing `GET /jobs/:jobId` DOES exist now (`JobsRepository.jobDetail`,
+/// the ADR-0024 addendum) and [JobDetailScreen]'s cubit calls it on open — but it
+/// refetches over a light [JobDetail] the screen was already given, and the wire
+/// body carries no `applicationAction`, which is the WA-2 applied-CTA gate. So a
+/// path-only arrival has neither the instant header nor the worker's own
+/// decision: it would show a spinner over an empty screen and then an Apply
+/// button to a job it cannot tell has been applied to. Bounce it to the feed,
+/// which owns the rows, instead of building a screen around a null (or, worse, a
+/// fabricated job).
 String? _jobDetailRedirect(BuildContext context, GoRouterState state) =>
     state.extra is JobDetail ? null : Routes.jobs;
 
@@ -384,10 +411,7 @@ GoRouter _buildRouter() {
     redirect: _rootRedirect,
     routes: <RouteBase>[
       // ---------------- Onboarding (no bottom nav) ----------------
-      GoRoute(
-        path: Routes.splash,
-        builder: (_, __) => const SplashScreen(),
-      ),
+      GoRoute(path: Routes.splash, builder: (_, __) => const SplashScreen()),
       // Referral deep-link target (`/i/<code>`, ADR-0020/0022). Declarative
       // anchor for the App-Link / path form; the custom-scheme host form
       // (badabhai://i/<code>) is caught by [_rootRedirect], which runs first and
@@ -399,10 +423,12 @@ GoRouter _buildRouter() {
         redirect: (BuildContext context, GoRouterState state) {
           final PendingReferralStore? store = _maybeReferralStore();
           if (store != null) {
-            unawaited(store.capture(
-              state.pathParameters['code'],
-              source: referralSourceFromUri(state.uri),
-            ));
+            unawaited(
+              store.capture(
+                state.pathParameters['code'],
+                source: referralSourceFromUri(state.uri),
+              ),
+            );
           }
           return Routes.splash;
         },
@@ -422,21 +448,20 @@ GoRouter _buildRouter() {
         builder: (_, GoRouterState s) {
           final Object? extra = s.extra;
           if (extra is OtpVerifyArgs) {
-            return OtpVerifyScreen(phone: extra.phone, resendIn: extra.resendIn);
+            return OtpVerifyScreen(
+              phone: extra.phone,
+              resendIn: extra.resendIn,
+            );
           }
           return OtpVerifyScreen(phone: extra as String?);
         },
       ),
       // ---------------- Persistent auth (PASS 2) ----------------
-      GoRoute(
-        path: Routes.pin,
-        builder: (_, __) => const EnterPinScreen(),
-      ),
+      GoRoute(path: Routes.pin, builder: (_, __) => const EnterPinScreen()),
       GoRoute(
         path: Routes.setPin,
         // `extra == true` → reset mode (forgot-PIN), else new-user onboarding.
-        builder: (_, GoRouterState s) =>
-            SetPinScreen(isReset: s.extra == true),
+        builder: (_, GoRouterState s) => SetPinScreen(isReset: s.extra == true),
       ),
       GoRoute(
         path: Routes.forgotPin,
@@ -452,10 +477,7 @@ GoRouter _buildRouter() {
         builder: (_, GoRouterState state) =>
             ConsentScreen.fromExtra(state.extra),
       ),
-      GoRoute(
-        path: Routes.name,
-        builder: (_, __) => const NameScreen(),
-      ),
+      GoRoute(path: Routes.name, builder: (_, __) => const NameScreen()),
       GoRoute(
         path: Routes.resumeUpload,
         builder: (_, __) => const ResumeUploadScreen(),
@@ -468,13 +490,11 @@ GoRouter _buildRouter() {
         path: Routes.voiceNote,
         builder: (_, __) => const VoiceNoteScreen(),
       ),
-      GoRoute(
-        path: Routes.invite,
-        builder: (_, __) => const InviteScreen(),
-      ),
+      GoRoute(path: Routes.invite, builder: (_, __) => const InviteScreen()),
       // App-wide feedback page (CEO request) — pushed full-screen from the
-      // floating Feedback button on every non-auth screen. Root navigator so the
-      // push from any tab covers the shell; FeedbackScreen's BbAppBar has back.
+      // floating Feedback button on every non-auth screen, and from the yellow
+      // Feedback glyph in a tab header. Root navigator so the push from any tab
+      // covers the shell; FeedbackScreen carries its own back affordance.
       GoRoute(
         path: Routes.feedback,
         // `extra` carries the route the worker was ON when they tapped the
@@ -482,8 +502,9 @@ GoRouter _buildRouter() {
         // raha" cannot otherwise recover. In-memory only (it survives neither a
         // deep link nor state restoration), which is exactly right for OPTIONAL
         // telemetry: absent, the feedback still sends.
-        builder: (BuildContext context, GoRouterState state) =>
-            FeedbackScreen(fromRoute: state.extra is String ? state.extra as String : null),
+        builder: (BuildContext context, GoRouterState state) => FeedbackScreen(
+          fromRoute: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: Routes.profilePreview,
@@ -495,17 +516,20 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.tradeForm,
-        builder: (_, __) => const TradeFormScreen(),
+        builder: (_, GoRouterState state) => TradeFormScreen(
+          sectionKey: state.extra is String ? state.extra as String : null,
+        ),
       ),
       GoRoute(
         path: Routes.building,
-        builder: (_, __) => const BuildingScreen(),
+        builder: (_, GoRouterState state) =>
+            BuildingScreen(force: state.extra == true),
       ),
       // Notifications / Alerts — pushed FULL-SCREEN from a header bell
       // ([BbAlertsAction]). It lost its bottom-nav tab in the kit's 4-tab set
       // (Jobs · Resume · Bada Bhai · Profile). Declared on the ROOT navigator so
       // `context.push(Routes.alerts)` from any tab covers the shell (no bottom
-      // bar); NotificationsScreen's BbAppBar supplies the back affordance.
+      // bar); NotificationsScreen supplies its own back affordance.
       GoRoute(
         path: Routes.alerts,
         builder: (_, __) => const NotificationsScreen(),
@@ -537,20 +561,22 @@ GoRouter _buildRouter() {
                     path: 'detail/:jobId',
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
                     // The REAL job rides as typed `extra` from the row that was
-                    // tapped (feed / applied). There is no worker-facing
-                    // job-detail route, so the row's data IS the source of
-                    // truth — the screen never synthesises anything.
+                    // tapped (feed / applied). The screen refetches the full
+                    // posting from `GET /jobs/:jobId` over it, but the row's
+                    // data is what renders instantly and what carries the
+                    // worker's own applicationAction — the screen never
+                    // synthesises anything.
                     //
                     // #380 — but this route is PATH-addressable and `extra` is
                     // in-memory only: it is not serialized, so a deep link, a
                     // notification tap, or go_router state restoration reaches
                     // `/jobs/detail/<id>` with `extra == null`. The old
                     // `s.extra! as JobDetail` red-screened there with "Null
-                    // check operator used on a null value". We cannot fetch the
-                    // job by `:jobId` (no worker-facing detail endpoint) and we
-                    // must not synthesise one from the id, so degrade the only
-                    // truthful way there is: bounce to the feed, where the row
-                    // that owns the data lives.
+                    // check operator used on a null value". An id alone cannot
+                    // seed the screen (no header to render, and no
+                    // applicationAction on the wire — see _jobDetailRedirect),
+                    // so degrade the only truthful way there is: bounce to the
+                    // feed, where the row that owns the data lives.
                     redirect: _jobDetailRedirect,
                     builder: (_, GoRouterState s) {
                       final JobDetail? detail = s.extra as JobDetail?;
@@ -578,6 +604,13 @@ GoRouter _buildRouter() {
                     path: 'edit',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const ResumeEditScreen(),
+                  ),
+                  // Extracted-profile review (#1595) — same no-bar posture
+                  // as the safe-fields editor above; back → Resume preview.
+                  GoRoute(
+                    path: 'review',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const ExtractedReviewScreen(),
                   ),
                 ],
               ),
@@ -624,6 +657,13 @@ GoRouter _buildRouter() {
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const AppliedJobsScreen(),
                   ),
+                  // Layer A profile edit (issue #1545) — pushed full-screen from
+                  // the Profile tab's shortcuts card; back → Profile.
+                  GoRoute(
+                    path: 'edit',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const ProfileEditScreen(),
+                  ),
                   // Interview kit — NESTED under the Profile branch (WA-3): it
                   // is entered from the Profile tab, so the kit list keeps the
                   // bar with Profile active and popping the detail lands back
@@ -638,7 +678,8 @@ GoRouter _buildRouter() {
                         path: 'detail/:tradeKey',
                         parentNavigatorKey: _rootNavKey, // no bar
                         builder: (_, GoRouterState s) => KitDetailScreen(
-                            tradeKey: s.pathParameters['tradeKey']!),
+                          tradeKey: s.pathParameters['tradeKey']!,
+                        ),
                       ),
                     ],
                   ),
@@ -762,6 +803,10 @@ class _ShellScaffoldState extends State<_ShellScaffold>
   Widget build(BuildContext context) {
     _syncActiveTabAfterBuild();
     return Scaffold(
+      // The v3 canvas, stated here rather than inherited: every tab body paints
+      // its own surface, and the one place the shell's own ground shows is the
+      // frame between a branch swap.
+      backgroundColor: OnboardingColors.canvasBg,
       body: widget.shell,
       // The kit nav carries no badge (Alerts moved to the header bell), so the
       // bar renders directly — no ValueListenableBuilder around it.
@@ -772,5 +817,3 @@ class _ShellScaffoldState extends State<_ShellScaffold>
     );
   }
 }
-
-

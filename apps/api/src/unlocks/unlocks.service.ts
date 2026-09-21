@@ -2,7 +2,12 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { getRazorpayCredentials, type ServerConfig } from "@badabhai/config";
-import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
+import {
+  UNLOCK_WINDOW_DAYS,
+  type UnlockDenyReason,
+  type UnlockRouting,
+  type RoutingChannel,
+} from "@badabhai/db";
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -37,10 +42,26 @@ import {
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
+/**
+ * The ninth consent purpose, minted for messaging (E0 §A ruling, 2026-09-07). The relay's
+ * use-time ladder requires BOTH this and `EMPLOYER_SHARING` on the latest consent row —
+ * disclosing a routed contact does not authorise messaging over it.
+ */
+const EMPLOYER_MESSAGING = "employer_messaging";
 
 /** Either the one distinguishable success, or the byte-identical neutral body (F-3). */
 type UnlockOutcome = UnlockGrantedResponse | NeutralUnavailableResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
+
+/**
+ * What a successful relay resolution yields: the unlock the handle names and the worker
+ * on the other side. NEVER put this on the wire — the payer receives the neutral body or
+ * nothing; the ids stay server-side (E0 item 1: "do NOT return a worker_id").
+ */
+export interface RelayResolution {
+  readonly unlockId: string;
+  readonly workerId: string;
+}
 
 /**
  * A deferred event emission: a zero-arg thunk that closes over already-computed,
@@ -273,6 +294,13 @@ export class UnlockService {
         events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
         events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
         events.push(() => this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx));
+        // E0 C-1 (owner ruling 2026-09-21, route ii-v2) — THE WORKER IS TOLD HE WAS UNLOCKED.
+        // Deferred like its siblings so an emit failure costs a notification, never the grant:
+        // the grant is committed, the event is the audit trail (F-4). Idempotency-keyed on the
+        // unlock, so an at-least-once flush records it once. Only on a NEW grant — the early
+        // idempotent-replay branch above returns before this, so a payer re-requesting a live
+        // unlock cannot re-notify the worker.
+        events.push(() => this.emitProfileViewedV2(granted.id, payerId, workerId, jobId, ctx));
         // §X.6 — a granted unlock is LEG 2 of the ₹20 activation-bonus rule (the leg a
         // fraudster cannot fake, because it costs a paying party money). Deferred like the
         // emits above, so it runs POST-COMMIT and inherits flushEvents' log-and-continue:
@@ -408,33 +436,51 @@ export class UnlockService {
         // It is read transiently to wire the in-app relay, then DISCARDED. It is NEVER
         // returned, evented, logged, stored, or placed in an exception (F-5). ALL
         // failures map to the neutral path (fail closed).
+        //
+        // P-021 (owner ruling 2026-09-21, idempotent direction) — ONE ROUTING ROW PER
+        // UNLOCK, AND THE SAME HANDLE ON EVERY REVEAL. `routing_token` is minted once per
+        // GRANT and carries a unique index, so the old blind insert made reveal 2 of the
+        // cap-permitted 3 violate the constraint and escape as a 500 — a crash AND a
+        // distinct observable beside a surface whose every denial is one neutral body.
+        // Reading first (under the worker lock taken above, so two concurrent reveals
+        // cannot both miss) means a repeat reveal never re-inserts, never re-decrypts the
+        // phone, and answers with the handle the payer already holds.
         const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
-        let relayHandle: string;
-        try {
-          relayHandle = await this.wireInAppRelay(freshWorkerId, fresh.id);
-        } catch {
-          // Do NOT surface the error (it could embed the phone). Log id + class only.
-          this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
-          return { response: neutralUnavailable(), events };
+        let routing: UnlockRouting | undefined = await this.repo.findRoutingByUnlock(tx, fresh.id);
+        if (!routing) {
+          let relayHandle: string;
+          try {
+            relayHandle = await this.wireInAppRelay(freshWorkerId, fresh.id);
+          } catch {
+            // Do NOT surface the error (it could embed the phone). Log id + class only.
+            this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
+            return { response: neutralUnavailable(), events };
+          }
+
+          routing = await this.repo.createRouting(tx, {
+            unlockId: fresh.id,
+            routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
+            channel,
+            relayHandle,
+            // Handle expires with the unlock window.
+            expiresAt: fresh.expiresAt!,
+          });
         }
-
-        const revealExpiry = fresh.expiresAt!; // handle expires with the unlock window
-        await this.repo.createRouting(tx, {
-          unlockId: fresh.id,
-          routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
-          channel,
-          relayHandle,
-          expiresAt: revealExpiry,
-        });
         const revealCount = await this.repo.incrementReveal(tx, fresh.id);
+        // Bound to a const so the deferred closure below carries a definitely-assigned
+        // row (TypeScript will not narrow a mutable `let` through a closure).
+        const routingRow: UnlockRouting = routing;
 
-        events.push(() => this.emitRevealed(fresh.id, fresh.payerId, freshWorkerId, channel, revealCount, ctx));
+        // The routing TOKEN never leaves this row (F-4); only the KIND is evented.
+        events.push(() =>
+          this.emitRevealed(fresh.id, fresh.payerId, freshWorkerId, routingRow.channel, revealCount, ctx),
+        );
 
         return {
           response: {
-            relay_handle: relayHandle, // opaque, non-reversible, expiring — NOT a phone
-            channel,
-            expires_at: revealExpiry.toISOString(),
+            relay_handle: routingRow.relayHandle, // opaque, non-reversible, expiring — NOT a phone
+            channel: routingRow.channel,
+            expires_at: routingRow.expiresAt.toISOString(),
           },
           events,
         };
@@ -803,14 +849,101 @@ export class UnlockService {
    * false (fail closed).
    */
   private async isConsentedForSharing(workerId: string): Promise<boolean> {
+    const purposes = await this.latestConsentPurposes(workerId);
+    return purposes !== null && purposes.includes(EMPLOYER_SHARING);
+  }
+
+  /**
+   * The LATEST unrevoked consent row's purposes, or null (no row / revoked / read error).
+   *
+   * ONE read, TWO callers — and that is the C-3 property made structural. `employer_sharing`
+   * (disclosure) and `employer_messaging` (the ninth purpose, §A ruling) are separate grants,
+   * so the relay's use-time check needs BOTH from the SAME row; a second reader would be free
+   * to resolve a different row and let a worker who used the E0-C2 exit keep receiving
+   * messages from payers who unlocked him before he left.
+   */
+  private async latestConsentPurposes(workerId: string): Promise<string[] | null> {
     try {
       const latest = await this.consents.findLatestByWorker(workerId);
-      if (!latest || latest.revokedAt !== null) return false;
-      const purposes = (latest.purposes ?? []) as string[];
-      return purposes.includes(EMPLOYER_SHARING);
+      if (!latest || latest.revokedAt !== null) return null;
+      return (latest.purposes ?? []) as string[];
     } catch {
-      return false; // fail closed
+      return null; // fail closed
     }
+  }
+
+  /** Both employer-contact purposes, unrevoked, on the LATEST row — the relay invariant. */
+  private async isConsentedForEmployerContact(workerId: string): Promise<boolean> {
+    const purposes = await this.latestConsentPurposes(workerId);
+    if (purposes === null) return false;
+    return purposes.includes(EMPLOYER_SHARING) && purposes.includes(EMPLOYER_MESSAGING);
+  }
+
+  /**
+   * E0 item 1 — RESOLUTION, SERVER-SIDE AND FAIL-CLOSED (`docs/agent/phases/E0_BUILD.md`).
+   *
+   * `relay_handle -> unlock_routing -> unlocks -> worker`, re-checked AT USE TIME rather
+   * than trusted from grant time: the caller owns the unlock, the unlock is live
+   * (`granted`/`revealed`, unexpired, and the routing row unexpired), the worker exists
+   * (DSAR SET-NULL guard), is not pending deletion, and still holds BOTH employer-contact
+   * purposes on the latest consent row. `null` means every one of those failed — and the
+   * caller must serve the ONE neutral body, never a reason (`neutralUnavailable()`); a
+   * distinguishing answer would be a worker-state oracle.
+   *
+   * NO PHONE IS READ, EVER, ON THIS PATH. The handle is the only input; no worker_id is
+   * accepted or returned to the caller's wire.
+   *
+   * The try/catch is the fail-closed wall: a read error resolves to null, never to an
+   * allow. This is a non-tx read path — it writes nothing on `unlocks`/`unlock_routing`
+   * (single-writer stays structural) and needs no advisory lock.
+   */
+  async resolveRelayForPayer(handle: string, payerId: string): Promise<RelayResolution | null> {
+    try {
+      const routing = await this.repo.findRoutingByHandle(handle);
+      if (!routing) return null;
+      const unlock = await this.repo.getProjection(routing.unlockId);
+      if (!unlock) return null;
+      // Ownership (XB-A): a payer resolves only their OWN unlock, and not-owned is
+      // indistinguishable from unknown.
+      if (unlock.payer_id !== payerId) return null;
+      if (unlock.worker_id === null) return null; // DSAR SET NULL — a gone worker is not relayable
+      if (!this.isLiveGrant(unlock)) return null;
+      if (routing.expiresAt.getTime() <= Date.now()) return null; // handle expires with the window
+      if (await this.isPendingDeletion(unlock.worker_id)) return null;
+      if (!(await this.isConsentedForEmployerContact(unlock.worker_id))) return null;
+      return { unlockId: unlock.unlock_id, workerId: unlock.worker_id };
+    } catch {
+      return null; // fail closed
+    }
+  }
+
+  /**
+   * The WORKER half of the same ladder: the caller owns the unlock (worker_id), the grant
+   * is live, the worker is not pending deletion, and both employer-contact purposes are
+   * still held. Used by the worker's read/reply routes (E0 item 3) so a withdrawn
+   * `employer_messaging` closes the worker's own reply path too — one ladder, both sides.
+   */
+  async resolveRelayForWorker(unlockId: string, workerId: string): Promise<RelayResolution | null> {
+    try {
+      const unlock = await this.repo.getProjection(unlockId);
+      if (!unlock) return null;
+      if (unlock.worker_id !== workerId) return null;
+      if (!this.isLiveGrant(unlock)) return null;
+      if (await this.isPendingDeletion(workerId)) return null;
+      if (!(await this.isConsentedForEmployerContact(workerId))) return null;
+      return { unlockId: unlock.unlock_id, workerId };
+    } catch {
+      return null; // fail closed
+    }
+  }
+
+  /** `granted`/`revealed` + unexpired, the one spelling of "live" for relay resolution. */
+  private isLiveGrant(unlock: UnlockProjection): boolean {
+    return (
+      (unlock.status === "granted" || unlock.status === "revealed") &&
+      unlock.expires_at !== null &&
+      unlock.expires_at.getTime() > Date.now()
+    );
   }
 
   private async workerExists(workerId: string): Promise<boolean> {
@@ -952,6 +1085,49 @@ export class UnlockService {
       subject: { subject_type: "unlock", subject_id: unlockId },
       payload,
       idempotencyKey: `unlock.granted:${unlockId}`, // once-only
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  /**
+   * C-1 (E0, owner ruling 2026-09-21, route ii-v2) — TELL THE WORKER HE WAS UNLOCKED.
+   *
+   * THE THIRD HIT `E0_CHECK` DEMANDED. `profile.viewed` was registered with a faceless
+   * notification template from the start, but NOTHING EVER EMITTED IT, so a worker's first
+   * knowledge that a stranger holds his contact was the stranger's message. This emits the
+   * v2 generation from the grant path; v1 keeps its definition, unmodified, as history
+   * (CLAUDE.md §3 / invariant #8) — see `ProfileViewedV2Payload` for why the optional
+   * `job_id` needed a new NAME rather than a relaxed v1.
+   *
+   * PII-FREE BY CONSTRUCTION: three opaque ids. The counterparty is `viewer_payer_id`,
+   * never a key literally named `payer_id` — the worker Alerts feed's payload-shape ban
+   * rejects the latter on purpose (notifications.service.test.ts), and naming this field
+   * the v1 way is what keeps this event allowlistable at all.
+   *
+   * `job_id` IS OMITTED, never null: an unlock found by search carries no posting, and the
+   * payload's optional field means the key simply does not appear.
+   */
+  private async emitProfileViewedV2(
+    unlockId: string,
+    payerId: string,
+    workerId: string,
+    jobId: string | null,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"profile.viewed_v2"> = {
+      worker_id: workerId,
+      viewer_payer_id: payerId,
+      ...(jobId === null ? {} : { job_id: jobId }),
+    };
+    await this.events.emit({
+      event_name: "profile.viewed_v2",
+      actor: { actor_type: "payer", actor_id: payerId },
+      // The WORKER is the subject: the feed scopes on subject/actor/payload, and this
+      // reads as a fact about the worker ("he was unlocked"), not about the unlock row.
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload,
+      idempotencyKey: `profile.viewed_v2:${unlockId}`, // once per grant, replay-safe
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

@@ -51,6 +51,11 @@ export type ErasureLeg =
   // BadaBhai GENERATES, in a different bucket — would let a DSAR record report a sweep
   // that the inbound bucket never received, for the densest personal document we hold.
   | "resume_upload_prefix"
+  // ADR-0042 D9 / Layer A (e) (#1548) — the media a worker uploaded as work samples. Its own
+  // leg for the feedback leg's reason: a DIFFERENT bucket, armed by its own env var, holding
+  // photos and videos that are personal data (their face, their shop floor) — a fused record
+  // could report a sweep that only one of the buckets actually received.
+  | "portfolio_prefix"
   | "conversation_prefix"
   | "transcript_buffer";
 

@@ -15,6 +15,16 @@ export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 export const PROFILE_STATUSES = ["draft", "extracting", "extracted", "confirmed"] as const;
 export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 
+// ---- Profile source (Task 1 flow separation) ----
+// Which road produced the profile: the trade-form road (`form`, one of the
+// form-enabled trades, entered via chat handover or résumé-route=form) or the
+// LLM-chat road (`chat`, everything else). Written by deterministic code at
+// extraction time from the channel record (session form_kind / import route) —
+// never by the model — and read by navigation, profile screens and the resume
+// renderer so the two roads stop sharing one flow.
+export const PROFILE_SOURCES = ["form", "chat"] as const;
+export type ProfileSource = (typeof PROFILE_SOURCES)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",
@@ -72,6 +82,29 @@ export const CONSENT_PURPOSES = [
   // notice copy ships and workers actually opt in — the same dormant posture `employer_sharing`,
   // `whatsapp_messaging` and `agent_activity_visibility` already hold.
   "voice_processing",
+  // E0 — the IN-APP RELAY (ADR/owner ruling docs/decisions/E0_RELAY_DECISION_2026-09.md §A,
+  // signed 2026-09-07). `employer_sharing` authorises DISCLOSING a worker's routed contact
+  // to a paying party; it does NOT authorise MESSAGING him over the resulting channel. Those
+  // are two things a person would expect to be asked about separately, so they are asked
+  // separately.
+  //
+  // WHY IT IS MINTED NOW, BEFORE THE NOTICE COPY OR ANY CLIENT WANTS IT — this is the part a
+  // later session will want to re-litigate. The enum's commonest rule for splitting a purpose
+  // is EGRESS TO A THIRD PARTY (`whatsapp_messaging` because the phone reaches Meta,
+  // `voice_processing` because the clip reaches a processor). The in-app relay has NO egress,
+  // so on that rule alone it would not have earned a split — but `agent_activity_visibility`
+  // already splits on a non-egress rationale, and the DEADLINE is what decided it: no worker
+  // holds `employer_sharing` today and E4 already owes a full re-consent, so this purpose
+  // costs one sentence in copy that does not yet exist if it lands now, and a SECOND
+  // re-consent over an already-opted-in base if it lands later. That is the `model_training`
+  // decision taken deliberately a second time.
+  //
+  // Dormant on arrival, and that is the house pattern rather than an exception: a purpose no
+  // client requests fails closed for every worker, so the relay routes stay shut until E4's
+  // notice copy ships and workers opt in. `employer_sharing`, `whatsapp_messaging`,
+  // `agent_activity_visibility` and `voice_processing` all held exactly this posture.
+  // Requesting it from a client is E4's work and must not happen before the copy.
+  "employer_messaging",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
@@ -186,7 +219,7 @@ export type ProfileValueSource = (typeof PROFILE_VALUE_SOURCES)[number];
  * and a `city` are both one string to Postgres, and only `multi_select` genuinely needs a list.
  * Keeping the two vocabularies separate is what stops a new answer type from forcing a migration.
  */
-export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list"] as const;
+export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list", "json"] as const;
 export type AttributeValueKind = (typeof ATTRIBUTE_VALUE_KINDS)[number];
 
 // ---- AI jobs ----
@@ -357,6 +390,22 @@ export const WORKER_FEEDBACK_ATTACHMENT_PREFIX = "feedback-attachments";
 export const WORKER_RESUME_UPLOAD_PREFIX = "resume-uploads";
 
 /**
+ * The object-key PREFIX every portfolio media object lives under in the private portfolio bucket:
+ * `portfolio/<workerId>/<uuid>.<jpg|png|webp|mp4|mov>` (ADR-0042 D9 / Layer A (e), migration 0113).
+ *
+ * ONE CONSTANT BECAUSE THREE PLACES MUST AGREE, and one of the three is an erasure. The mint
+ * (`WorkerPortfolioService.createUploadUrl`) builds the key from it, the register step's ownership
+ * check (`portfolioKeyBelongsTo`) re-derives the same shape from it, and
+ * `AccountDeletionService` sweeps the prefix built from it.
+ *
+ * The first two drifting apart is the IDOR the feedback constant above describes. The THIRD is
+ * the reason this is a constant rather than three literals: a sweep prefix that no longer matches
+ * the mint deletes nothing and reports a successful erasure. Until #1548 landed this sweep did not
+ * exist at all, which is why the bucket was documented as do-not-arm until it did.
+ */
+export const WORKER_PORTFOLIO_PREFIX = "portfolio";
+
+/**
  * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
  *
  * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────
@@ -435,10 +484,15 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/jobs/detail/:id", // Routes.jobDetail + '/<jobId>'
   "/resume", // Routes.resume
   "/resume/edit", // Routes.resumeEdit
+  // Extracted-profile review + correction surface (worker-app #1595, §8.4).
+  "/resume/review", // Routes.extractedReview
   "/resume-upload", // Routes.resumeUpload
   "/bada-bhai", // Routes.badaBhai
   "/profile", // Routes.profile
   "/profile/applied", // Routes.appliedJobs
+  // Layer A profile surfaces (ADR-0042 D9, issue #1545) — the Profile-edit
+  // screen pushed from the Profile tab.
+  "/profile/edit", // Routes.profileEdit
   "/profile/kit", // Routes.kit
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings

@@ -16,9 +16,15 @@ import type { StorageService } from "../storage/storage.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import type { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import type { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
 import type { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
-import type { WorkerCertificateRecord, WorkerEducationRecord } from "./resume-qualification-rows";
+import type {
+  WorkerCertificateRecord,
+  WorkerEducationRecord,
+  WorkerLanguageRecord,
+  WorkerTrainingRecord,
+} from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const RESUME_ID = "res-1";
@@ -205,6 +211,9 @@ function setup(
     // nullable, exactly as the columns are.
     currentCity?: string | null;
     currentState?: string | null;
+    // Layer A (g) — the stored verification tier, as `workers.verification_state` holds it.
+    // `null` (the default) is the unverified worker: no badge anywhere.
+    verificationState?: string | null;
     // The worker's settled pack answers, and the failure mode of reading them.
     tradeSheet?: {
       packId: string | null;
@@ -233,8 +242,17 @@ function setup(
     qualifications?: {
       certificates: WorkerCertificateRecord[];
       educations: WorkerEducationRecord[];
+      /** Layer A (d) — the courses, printed by Layer A (i). */
+      trainings?: WorkerTrainingRecord[];
     };
     qualThrows?: boolean;
+    // Zone 5 (0110) — the richer language rows, and the failure mode of reading them.
+    languages?: WorkerLanguageRecord[];
+    langThrows?: boolean;
+    // Layer A (f)/(i) — the declared secondary occupations (taxonomy role ids), and the failure
+    // mode of reading them. Empty means no "Also works as" row, which is the ordinary case.
+    occupations?: string[];
+    occThrows?: boolean;
     // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
     workerSaid?: string[];
     transcriptThrows?: boolean;
@@ -255,6 +273,7 @@ function setup(
       resumeNightShiftReady: opts.nightShiftReady ?? false,
       currentCity: opts.currentCity ?? null,
       currentState: opts.currentState ?? null,
+      verificationState: opts.verificationState ?? null,
     })),
   };
   const pii = {
@@ -295,6 +314,21 @@ function setup(
     loadForResume: vi.fn(async () => {
       if (opts.qualThrows) throw new Error("qualification boom");
       return opts.qualifications ?? { certificates: [], educations: [] };
+    }),
+  };
+  // Zone 5's language rows (migration 0110). An independent read on the same section: when it
+  // throws, the Languages row falls back to the `languages` attribute and nothing else moves.
+  const languages = {
+    loadForResume: vi.fn(async () => {
+      if (opts.langThrows) throw new Error("language boom");
+      return opts.languages ?? [];
+    }),
+  };
+  // Migration 0114 — the declared secondary occupations. Same independent-degrade contract.
+  const occupations = {
+    loadForWorker: vi.fn(async () => {
+      if (opts.occThrows) throw new Error("occupation boom");
+      return opts.occupations ?? [];
     }),
   };
   // R8 §2/§4. Same degrade contract as the two reads above: a failed transcript load must cost
@@ -341,6 +375,8 @@ function setup(
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
     qualifications as unknown as WorkerQualificationsRepository,
+    languages as unknown as WorkerLanguagesRepository,
+    occupations as never,
     transcript as unknown as WorkerTranscriptRepository,
     polish as never,
     config,
@@ -480,9 +516,70 @@ describe("ResumeRenderProcessor — the bb_trade footer and identity slots", () 
     const meta = renderer.renderPdf.mock.calls[0]![0].footerMeta!;
     expect(meta).toMatch(/^Generated \d{1,2} \w+ \d{4}/);
     expect(meta).toMatch(/Ref [ACDEFGHJKLMNPQRTUVWXY34679]{6}$/);
-    // No verification tier exists yet, so the badge collapses rather than printing a warning.
+    // The unverified worker: the badge collapses rather than printing a warning, and the footer
+    // never grows a dangling separator for it (ASSUMPTIONS A1 / Part 10.2).
     expect(renderer.renderPdf.mock.calls[0]![0].trustBadge).toBeNull();
     expect(meta).not.toMatch(/·\s*·/);
+  });
+
+  it("fills BOTH verification slots from the stored tier (Layer A (g))", async () => {
+    // The two-slots contract: the masthead's right slot and the footer segment carry the SAME
+    // string, both derived from `workers.verification_state` by `verificationBadgeFor`.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      verificationState: "RVM-attested",
+    });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.trustBadge).toBe("BadaBhai Verified");
+    expect(input.footerMeta).toContain("BadaBhai Verified");
+  });
+
+  it("prints NOTHING for a self-declared tier — a self-claim is not a platform verification", async () => {
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      verificationState: "self-declared",
+    });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.trustBadge).toBeNull();
+    expect(input.footerMeta).not.toContain("BadaBhai Verified");
+  });
+});
+
+describe("ResumeRenderProcessor — Layer A (i): occupations and training reach the universal sheet", () => {
+  it("prints the declared secondary occupations as the Terms row's taxonomy labels", async () => {
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      occupations: ["role_welder", "role_plumber"],
+    });
+    await proc.process(makeJob());
+    const rows = renderer.renderPdf.mock.calls[0]![0].availFactRows ?? [];
+    expect(rows).toContainEqual({ label: "Also works as", value: "Welder · Plumber" });
+  });
+
+  it("a failed occupations read costs the row, never the PDF", async () => {
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN, occThrows: true });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ rendered: true });
+    const rows = renderer.renderPdf.mock.calls[0]![0].availFactRows ?? [];
+    expect(rows.some((r) => r.label === "Also works as")).toBe(false);
+  });
+
+  it("prints the worker's trainings in Zone 5 — the row 0112 was captured for", async () => {
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      qualifications: {
+        certificates: [],
+        educations: [],
+        trainings: [{ name: "CNC Operator Course", provider: "Govt. ITI", year: 2019 }],
+      },
+    });
+    await proc.process(makeJob());
+    const rows = renderer.renderPdf.mock.calls[0]![0].qualFactRows ?? [];
+    expect(
+      rows.some((r) => r.label === "Training" && r.value.includes("CNC Operator Course")),
+    ).toBe(true);
   });
 });
 
@@ -508,9 +605,9 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently eleven:
+    // NON-EVENT deps, currently thirteen:
     //   resumes · workers · pii · renderer · storage · attributes · employments · qualifications
-    //   · transcript · polish · config
+    //   · languages · occupations · transcript · polish · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
     // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
     // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
@@ -528,9 +625,17 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // has no event surface either. Checked before the number below was bumped, exactly as the
     // three above were.
     //
+    // `languages` (WorkerLanguagesRepository) joined for migration 0110 — Zone 5's richer
+    // Languages row. The same shape as `qualifications`: @Global-only, no ciphertext, no service,
+    // no event surface. Checked before the number below was bumped again.
+    //
+    // `occupations` (WorkerOccupationsRepository) joined for migration 0114 — the Terms zone's
+    // "Also works as" row. Identical shape once more: closed ids, @Global DATABASE, no service,
+    // no event surface. Checked before this bump.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(11);
+    expect(ResumeRenderProcessor.length).toBe(13);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

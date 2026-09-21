@@ -3,7 +3,7 @@ import 'resume_document.dart';
 /// Why a pick did not produce a document.
 enum ResumePickRejection {
   /// The worker backed out of the picker. NOT an error — no message, no state
-  /// change, the three doors simply stay on screen.
+  /// change, the two doors simply stay on screen.
   cancelled,
 
   /// The chosen file is not one of the four types ruling D3 accepts.
@@ -33,7 +33,7 @@ class ResumePickResult {
 ///
 /// Behind an interface for the same two reasons every other device seam in this
 /// app is (`VoiceStorageUploader`, `PhotoUploader`, `LocationLookup`): mock mode
-/// must never touch a platform channel, and the three-door screen must be
+/// must never touch a platform channel, and the two-door screen must be
 /// testable without one.
 abstract interface class ResumeDocumentPicker {
   /// Opens the platform document picker, filtered to

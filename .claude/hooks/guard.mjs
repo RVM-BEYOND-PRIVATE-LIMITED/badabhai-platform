@@ -61,9 +61,47 @@ function readStdin() {
   });
 }
 
-// Non-.env secret files (keys, certs, cloud creds), matched anywhere in a path or command.
+// Non-.env secret files (keys, certs, cloud creds). This is the FILE-TOOL and
+// .env-load predicate: a path handed to Read/Write/Edit IS a file, so the extension
+// or basename alone is enough.
 const NON_ENV_SECRET =
   /(\.pem\b|\.key\b|\.p12\b|\.pfx\b|\.keystore\b|\.jks\b|\bid_rsa\b|service-account[\w.-]*\.json|credentials[\w-]*\.json)/i;
+
+/**
+ * The SHELL predicate for non-.env secrets — P-022 (owner ruling 2026-09-21).
+ *
+ * WHY IT IS NOT THE PREDICATE ABOVE. `touchesSecretFile` runs against the WHOLE command
+ * string, and in ordinary JavaScript a property access is textually identical to a
+ * file reference: `rows.find(x => x.key === 'consent')` contains `x.key`, the pattern
+ * above matches, and the command is blocked with a message about secret files. That is
+ * the same lesson the ENV_TOKEN block below records, one regex up: a bare extension
+ * match cannot tell `obj.key` from `cert.key`.
+ *
+ * THE RULE HERE. A bare extension counts only inside a PATH-LIKE token (one containing
+ * `/` or `\`) — a real key/cert/credential reference carries a path, a property access
+ * never does. The DISTINCTIVE basenames (`id_rsa`, `service-account*.json`,
+ * `credentials*.json`) are matched anywhere, because no property is spelled that way.
+ * Tokens that START with a backslash are skipped: `\.pem` in a grep/regex pattern is
+ * an escape, not a path, and blocking it was the second false positive this fixes.
+ *
+ * WHAT THIS DELIBERATELY GIVES UP: a BARE `cat cert.key` with no path prefix is no
+ * longer caught by the SHELL layer. The hard guarantee is unchanged and elsewhere —
+ * `permissions.deny` plus `isSecretFilePath` above still block that file by path — and
+ * this hook's stated posture is fail-open on anything narrower than that guarantee.
+ */
+const NON_ENV_SECRET_BASENAME = /\b(id_rsa\b|service-account[\w.-]*\.json|credentials[\w-]*\.json)/i;
+const NON_ENV_SECRET_EXT = /\.(pem|key|p12|pfx|keystore|jks)(?!\w)/i;
+const SHELL_PATH_TOKEN = /[^\s'"`|;&<>()]*[/\\][^\s'"`|;&<>()]*/g;
+
+/** A command references a non-.env secret file (path-shaped, or a distinctive basename). */
+function touchesNonEnvSecret(cmd) {
+  if (NON_ENV_SECRET_BASENAME.test(cmd)) return true;
+  for (const token of cmd.match(SHELL_PATH_TOKEN) || []) {
+    if (token.startsWith("\\")) continue; // `\.pem` — an escape in a pattern, not a path
+    if (NON_ENV_SECRET_EXT.test(token)) return true;
+  }
+  return false;
+}
 
 /**
  * A dotenv-ish NAME that is a secret-free TEMPLATE, so it stays readable.
@@ -109,7 +147,7 @@ function isSecretFilePath(p) {
 function touchesSecretFile(cmd) {
   const envTokens = cmd.match(ENV_TOKEN) || [];
   if (envTokens.some((t) => !ENV_TEMPLATE_SUFFIX.test(t))) return true;
-  return NON_ENV_SECRET.test(cmd);
+  return touchesNonEnvSecret(cmd);
 }
 
 /**
@@ -118,7 +156,7 @@ function touchesSecretFile(cmd) {
  * display / copy / move / redirect / network / interpreter verb.
  */
 function isSafeEnvLoad(cmd) {
-  if (NON_ENV_SECRET.test(cmd)) return false; // keys/certs/creds are never a "safe load"
+  if (touchesNonEnvSecret(cmd)) return false; // keys/certs/creds are never a "safe load"
   const load =
     /(\$\w+\s*=\s*\(?\s*(get-content|gc|cat)\b|(get-content|gc|cat)\b[^\n|]*\|\s*(where-object|select-string|convertfrom-stringdata|out-string|measure-object)\b|-replace)/i;
   if (!load.test(cmd)) return false;

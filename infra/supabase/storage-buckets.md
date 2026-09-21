@@ -14,6 +14,7 @@ provisioned **out-of-band**, directly against the Supabase project, via the idem
 | `worker-profile-photos` | Worker profile photos ([ADR-0032](../../docs/decisions/0032-worker-profile-photo.md)). A face photo is high-sensitivity PII. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key), signed read URL for the worker's OWN photo. Never payer-readable (faceless invariant). |
 | `worker-voice-notes` | Raw recorded voice notes ([ADR-0029](../../docs/decisions/0029-voice-audio-at-rest-and-upload-seam.md), TD29 G2). **Audio is PII** — the worker is speaking, so a clip can carry their own name, employer names, and a spoken phone number. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key `voice-notes/{workerId}/{uuid}.m4a`); read is service_role-only, by the ai-service, to transcribe. Never worker- or payer-readable. **R25** (#280) / **TD58** (#281). |
 | `worker-feedback-attachments` | Images a worker attaches to a **feedback** submission (#1191). Personal data in the same class as the message: workers photograph payslips, gate passes, supervisors, themselves. | **PRIVATE** | Signed **upload** URL in (server-chosen opaque key `feedback-attachments/{workerId}/{uuid}.jpg`, re-validated against the session worker at submit); read is a short-TTL signed GET minted per admin page view, with `Content-Disposition: attachment`. Never payer-readable. **`allowed_mime_types = {image/jpeg}` is a security control** — it is what stops worker-supplied markup being rendered on the storage origin when an admin clicks a thumbnail. |
+| `worker-portfolio` | The worker's work samples — photos/videos of their own work ([ADR-0042 D9](../../docs/decisions/0042-profile-road-separation.md) / migration `0113`). Server-chosen opaque keys `portfolio/{workerId}/{uuid}.{ext}`; `link` items live as URLs on the row, not in Storage. | **PRIVATE** | Signed **upload** URL in (re-validated against the session worker at register); short-TTL signed read URL for the worker's OWN media. No payer path — **never employer-visible**. `AccountDeletionService` sweeps `portfolio/{workerId}/` ([#1548](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/issues/1548)), so arming the env var arms uploads and erasure together. |
 | ~~`worker-conversations`~~ | ~~Raw conversation JSON~~ — **RETIRED, do not provision.** [ADR-0003 is Withdrawn](../../docs/decisions/0003-worker-conversation-storage-boundary.md#withdrawal-2026-08-14); the bucket was never provisioned and nothing ever wrote `conversation_storage_path`. `chat_messages` is the durable transcript, so this bucket would be a second copy of raw PII — which was risk **R10**, now **Closed by the retirement**. | — | Not provisioned. `CONVERSATIONS_BUCKET` config remains only so the DSAR erasure sweep (`conversationWorkerPrefix`) keeps running as defence in depth. |
 
 ## Source of truth (CLI / config, not dashboard clicks)
@@ -267,6 +268,67 @@ column; see `0092`'s own header.
 **Known gap, same as the voice bucket:** `supabase/config.toml` declares only `worker-resumes` /
 `interview-kits`, so `worker-feedback-attachments` exists in the **remote** apply and not in the
 local `supabase start` stack.
+
+## Enable portfolio media (ADR-0042 D9 / Layer A (e), migration 0113) — ordered runbook
+
+`POST /workers/me/portfolio/upload-url`, `PUT`/`GET /workers/me/portfolio` are built and shipped
+(`apps/api/src/profiles/worker-portfolio.*`, event `worker.portfolio_recorded`). The feature is
+**DORMANT** purely because `WORKER_PORTFOLIO_BUCKET` defaults to `""`
+([`packages/config/src/server.ts`](../../packages/config/src/server.ts)) and
+`worker-portfolio.service.ts` **503s fail-closed** while it is unset. The `link` kind needs no
+bucket at all and keeps working. Notation: the bucket **media** objects are PRIVATE and
+worker-self-readable only — never payer-readable.
+
+**DSAR IS PAID, SO ARMING IS UNBLOCKED (#1548).** `AccountDeletionService` sweeps
+`portfolio/{workerId}/` against this bucket exactly as it sweeps `photos/`, `voice-notes/` and
+`feedback-attachments/` — same prefix built from the shared `WORKER_PORTFOLIO_PREFIX`, same
+`deleted`/`failed`/`skipped` audit leg (`portfolio_prefix`), gated on this same env var. Setting
+the var arms the upload path AND the sweep in one act; there is no window in which media can exist
+while erasure is dormant.
+
+1. **Provision + verify the private bucket:** run `storage-buckets.sql` (above), then the two
+   checks under "Verify it is PRIVATE" against `worker-portfolio` — `public = f`, and the public
+   object route returns 400/403. Do not create it through the dashboard: the bucket carries the
+   `file_size_limit` (25 MiB) and the `allowed_mime_types` mirror of the service's closed
+   content-type map — both are security controls here (the signed upload URL cannot constrain the
+   PUT, and the register step performs no per-object `getObjectInfo`).
+2. **Set the env var — and note WHERE, because it is not where the other secrets live:**
+   ```
+   WORKER_PORTFOLIO_BUCKET=worker-portfolio
+   ```
+   `docker-compose.staging.yml` declares the `${VAR:-}` pass-through (asserted by
+   `worker-portfolio-compose.guard.test.ts`), but this name — like `WORKER_PHOTOS_BUCKET`,
+   `VOICE_NOTES_BUCKET` and the `SUPABASE_*` pair — is **NOT in the `deploy-lightsail` secrets
+   bridge** in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The ssh action
+   forwards only the names its `envs:` list enumerates, so **adding a GitHub Actions secret puts
+   the value nowhere the container can read it.** It must live in the environment file in the
+   deploy directory (`~/deployments/badabhai-platform`), which is where the deploy script `cd`s
+   before invoking compose and which the per-deploy `git pull` leaves alone.
+3. **Check credentials before arming:** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` must already
+   be set in that same environment file (they are, if photos/feedback/resume rendering are armed).
+   `/health`'s `storage_config.armed_without_credentials` does **not** currently count this bucket
+   (its `buckets` block lists resumes/photos/voice/interview-kit/feedback only), so arming it
+   without credentials is not caught by the health gate — confirm the pair by reading the file.
+4. **Recreate the container** (editing the file changes nothing already running):
+   ```bash
+   cd ~/deployments/badabhai-platform
+   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api \
+     up -d --no-deps --force-recreate api
+   ```
+   `--no-deps` and the directory are load-bearing, exactly as in the feedback runbook above.
+5. **Verify armed (the 1-minute live check):** mint one photo upload URL — it must return a
+   signed URL (`upload_url`, `storage_key`, `expires_in`), not 503. There is no `/health` flag
+   for this bucket today, so the mint is the signal.
+6. **Verify the read path:** `GET /workers/me/portfolio` returns the media as a short-lived signed
+   URL.
+
+**Operator step (verbatim):** set `WORKER_PORTFOLIO_BUCKET=<bucket-name>` in each environment
+(local `.env`, staging, prod) and restart the API.
+
+**Rollback:** unset `WORKER_PORTFOLIO_BUCKET` and recreate the container (the mint 503s again;
+`link` items still render). Already-stored objects stay put and stay private. The deletion sweep
+leg then records `skipped` rather than a sweep — media that exists while the var is unset is not
+erased, which is why re-arming the SAME bucket name is the only path to a clean re-run.
 
 ## Drift / re-assert
 

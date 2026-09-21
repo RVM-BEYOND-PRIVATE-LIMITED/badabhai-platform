@@ -2,38 +2,77 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
     show CityOptionDto, QualificationOptionsDto, WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
+import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/form_flow_parts.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/onboarding_body.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/selection_cards.dart';
+import 'package:badabhai_worker_app/core/widgets/onboarding/shift_blue_header.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/trade_form_screen.dart';
-import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_progress_bar.dart';
+import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_employment_page.dart';
+import 'package:badabhai_worker_app/features/voice/domain/speech_reader.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/kit_matrix.dart';
+
 class _MockRepo extends Mock implements TradeFormRepository {}
 
-/// [BbChip.selected] for the chip carrying [label] — used by the #1382
-/// saved-answer-prefill and none-of-above tests below to assert selection
-/// state directly rather than inferring it from colour/decoration.
-bool _chipSelected(WidgetTester tester, String label) {
-  return tester
-      .widget<BbChip>(find.byWidgetPredicate(
-        (Widget w) => w is BbChip && w.label == label,
-      ))
-      .selected;
+/// The question screen's explicit decline link (the form-flow mockups'
+/// "ⓘ Pata nahi / Baad mein batayein").
+const String _kDecline = 'Pata nahi / Baad mein batayein';
+
+/// The multi-select hint pill under a question.
+const String _kMultiHint = 'Multiple options select kar sakte hain';
+
+/// A hand fake for the on-device read-aloud: records what was spoken and how
+/// often playback was stopped. [speak] completes at once — nothing here waits
+/// on playback.
+class _FakeSpeechReader implements SpeechReader {
+  final List<String> spoken = <String>[];
+  int stopCalls = 0;
+
+  @override
+  Future<void> speak(String text) async => spoken.add(text);
+
+  @override
+  Future<void> stop() async => stopCalls++;
 }
 
-/// The mounted [TradeFormProgressBar]'s own `answered`/`total` — used by the
+/// `isSelected` for the kit option card titled [label] — a
+/// [MultiSelectQuestionCard] or a [SingleSelectQuestionCard] — used by the
+/// #1382 saved-answer-prefill and none-of-above tests below to assert
+/// selection state directly rather than inferring it from colour/decoration.
+bool _optionSelected(WidgetTester tester, String label) {
+  final Finder multi = find.byWidgetPredicate(
+    (Widget w) => w is MultiSelectQuestionCard && w.title == label,
+  );
+  if (multi.evaluate().isNotEmpty) {
+    return tester.widget<MultiSelectQuestionCard>(multi).isSelected;
+  }
+  return tester
+      .widget<SingleSelectQuestionCard>(find.byWidgetPredicate(
+        (Widget w) => w is SingleSelectQuestionCard && w.title == label,
+      ))
+      .isSelected;
+}
+
+/// The docked [QuestionnaireBottomBar] currently on screen.
+QuestionnaireBottomBar _bottomBar(WidgetTester tester) =>
+    tester.widget<QuestionnaireBottomBar>(find.byType(QuestionnaireBottomBar));
+
+/// The mounted [FormProgressStrip]'s own `position`/`total` — used by the
 /// #1384 "tracks the whole walk" tests to assert the rendered fraction
 /// directly rather than inferring it from `FractionallySizedBox.widthFactor`
 /// internals.
-TradeFormProgressBar _progressBar(WidgetTester tester) =>
-    tester.widget<TradeFormProgressBar>(find.byType(TradeFormProgressBar));
+FormProgressStrip _progressStrip(WidgetTester tester) =>
+    tester.widget<FormProgressStrip>(find.byType(FormProgressStrip));
 
 /// The preferences marker is SIX internal pages (languages / documents /
 /// shift / jobType / cities / relocate+accommodation+salary —
@@ -54,6 +93,25 @@ Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
     await tester.tap(find.text('Aage badhein'));
     await tester.pumpAndSettle();
   }
+}
+
+/// Picks a start date on the employment card through the month/year sheet:
+/// the field reads "Nahi bataya" until set, then a year chip, then a month
+/// chip. Issue #issue2 makes the start date required on any used card.
+Future<void> _pickStartDate(
+  WidgetTester tester, {
+  String year = '2021',
+  String month = 'Jan',
+}) async {
+  await tester.ensureVisible(find.text('Nahi bataya').first);
+  await tester.tap(find.text('Nahi bataya').first);
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(year));
+  await tester.tap(find.text(year));
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.text(month));
+  await tester.tap(find.text(month));
+  await tester.pumpAndSettle();
 }
 
 const VoiceQuestion _plainQuestion = VoiceQuestion(
@@ -278,8 +336,9 @@ void main() {
     expect(find.text('Aage badhein'), findsNothing);
   });
 
-  testWidgets('a non-searchable question renders VoiceChoiceChips, tapping '
-      'a chip submits and advances', (WidgetTester tester) async {
+  testWidgets('a non-searchable question renders kit option cards; ticking '
+      'one and pressing the docked bar submits and advances',
+      (WidgetTester tester) async {
     when(() => repo.loadForm()).thenAnswer((_) async => _form());
     when(() => repo.submitAnswer(
           questionKey: any(named: 'questionKey'),
@@ -294,8 +353,8 @@ void main() {
     await pump(tester);
 
     expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
-    // turning_machine is multi-select: a chip tap only SELECTS it — an
-    // explicit "Aage badhein" (VoiceChoiceChips' own submit button) sends it.
+    // turning_machine is multi-select: a card tap only SELECTS it — an
+    // explicit "Aage badhein" (the docked QuestionnaireBottomBar) sends it.
     await tester.tap(find.text('CNC lathe'));
     await tester.pump();
     await tester.tap(find.text('Aage badhein'));
@@ -329,8 +388,8 @@ void main() {
 
     await pump(tester);
 
-    expect(find.text('Type karke dhoondein'), findsOneWidget); // BbSearchField hint
-    expect(find.text('Pata nahi'), findsOneWidget); // decline affordance
+    expect(find.text('Type karke dhoondein'), findsOneWidget); // search box hint
+    expect(find.text(_kDecline), findsOneWidget); // decline affordance
   });
 
   testWidgets('declining a question submits {kind: declined} and advances',
@@ -347,7 +406,10 @@ void main() {
         ));
 
     await pump(tester);
-    await tester.tap(find.text('Pata nahi'));
+    // The form-flow chrome is tall enough that the link can start under the
+    // docked bar on the test surface — scroll it into view first.
+    await tester.ensureVisible(find.text(_kDecline));
+    await tester.tap(find.text(_kDecline));
     await tester.pumpAndSettle();
 
     final TradeFormAnswer sent = verify(() => repo.submitAnswer(
@@ -372,11 +434,11 @@ void main() {
         ));
 
     await pump(tester);
-    await tester.ensureVisible(find.text('Pata nahi').first);
-    await tester.tap(find.text('Pata nahi').first); // decline q1
+    await tester.ensureVisible(find.text(_kDecline).first);
+    await tester.tap(find.text(_kDecline).first); // decline q1
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Pata nahi').first);
-    await tester.tap(find.text('Pata nahi').first); // decline q2 (searchable)
+    await tester.ensureVisible(find.text(_kDecline).first);
+    await tester.tap(find.text(_kDecline).first); // decline q2 (searchable)
     await tester.pumpAndSettle();
 
     // Now on the preferences marker screen — its first internal page
@@ -421,11 +483,11 @@ void main() {
     await tester.pumpAndSettle();
 
     // Walk to the employment marker exactly like the previous test.
-    await tester.ensureVisible(find.text('Pata nahi').first);
-    await tester.tap(find.text('Pata nahi').first); // decline q1
+    await tester.ensureVisible(find.text(_kDecline).first);
+    await tester.tap(find.text(_kDecline).first); // decline q1
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Pata nahi').first);
-    await tester.tap(find.text('Pata nahi').first); // decline q2
+    await tester.ensureVisible(find.text(_kDecline).first);
+    await tester.tap(find.text(_kDecline).first); // decline q2
     await tester.pumpAndSettle();
     await _walkThroughPreferencesPages(tester); // walk + save preferences
     expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
@@ -436,7 +498,9 @@ void main() {
     await tester.tap(find.text('Ho gaya'));
     await tester.pumpAndSettle();
 
-    verify(() => repo.saveEmployment(any())).called(1);
+    // No employer was added, edited or removed and nothing was banked, so the
+    // whole-history replace is skipped rather than sending [] over it.
+    verifyNever(() => repo.saveEmployment(any()));
     expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     expect(find.text('BUILDING'), findsOneWidget);
   });
@@ -478,16 +542,20 @@ void main() {
 
       await pump(tester);
       await tester.tap(find.text('CNC lathe'));
+      await tester.ensureVisible(find.text('Conventional lathe'));
       await tester.tap(find.text('Conventional lathe'));
       await tester.pump();
-      expect(_chipSelected(tester, 'CNC lathe'), isTrue);
+      expect(_optionSelected(tester, 'CNC lathe'), isTrue);
 
+      // The form-flow strip + multi-select hint push the third card toward
+      // the docked bar — scroll it into view so the tap lands on the card.
+      await tester.ensureVisible(find.text('In me se koi nahi'));
       await tester.tap(find.text('In me se koi nahi'));
       await tester.pump();
 
-      expect(_chipSelected(tester, 'CNC lathe'), isFalse);
-      expect(_chipSelected(tester, 'Conventional lathe'), isFalse);
-      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue);
+      expect(_optionSelected(tester, 'CNC lathe'), isFalse);
+      expect(_optionSelected(tester, 'Conventional lathe'), isFalse);
+      expect(_optionSelected(tester, 'In me se koi nahi'), isTrue);
 
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -543,7 +611,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
-      expect(_chipSelected(tester, 'CNC lathe'), isTrue,
+      expect(_optionSelected(tester, 'CNC lathe'), isTrue,
           reason: 'the saved answer must render pre-selected, not blank');
     });
 
@@ -581,7 +649,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
-      expect(_chipSelected(tester, 'Brass'), isTrue,
+      expect(_optionSelected(tester, 'Brass'), isTrue,
           reason: 'the saved answer must render pre-selected, not blank');
     });
 
@@ -638,7 +706,8 @@ void main() {
                   const TradeFormQuestionStep(
                     question: _questionWithNoneOfAbove,
                     searchable: false,
-                    // A declined save is how BOTH the "Pata nahi" button and
+                    // A declined save is how BOTH the "Pata nahi / Baad mein
+                    // batayein" link and
                     // the none-of-above chip land on the wire (see
                     // TradeFormAnswerStatus.declined's own doc) — optionKeys
                     // deliberately left empty here, matching what a real GET
@@ -661,10 +730,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
-      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue,
+      expect(_optionSelected(tester, 'In me se koi nahi'), isTrue,
           reason: 'a declined saved answer must render the none-of-above '
               'chip selected, not blank/untouched');
-      expect(_chipSelected(tester, 'CNC lathe'), isFalse);
+      expect(_optionSelected(tester, 'CNC lathe'), isFalse);
     });
 
     testWidgets(
@@ -700,10 +769,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
-      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue,
+      expect(_optionSelected(tester, 'In me se koi nahi'), isTrue,
           reason: 'a declined saved answer must render the none-of-above '
               'chip selected, not blank/untouched');
-      expect(_chipSelected(tester, 'Brass'), isFalse);
+      expect(_optionSelected(tester, 'Brass'), isFalse);
     });
 
     testWidgets(
@@ -739,7 +808,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
-      expect(_chipSelected(tester, 'CNC lathe'), isFalse,
+      expect(_optionSelected(tester, 'CNC lathe'), isFalse,
           reason: 'nothing to guess at when the question has no '
               'none-of-above option — no crash, no false selection');
     });
@@ -766,17 +835,17 @@ void main() {
       // _form() flattens to 4 steps: 2 questions + preferences + employment.
       // On the very first step (currentIndex 0) the bar reads a sliver, not
       // empty.
-      expect(_progressBar(tester).answered, 1);
-      expect(_progressBar(tester).total, 4);
+      expect(_progressStrip(tester).position, 1);
+      expect(_progressStrip(tester).total, 4);
 
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      expect(_progressBar(tester).answered, 2);
-      expect(_progressBar(tester).total, 4);
+      expect(_progressStrip(tester).position, 2);
+      expect(_progressStrip(tester).total, 4);
 
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
 
       // Now on the preferences marker screen. `state.answered`/`state.total`
@@ -784,8 +853,8 @@ void main() {
       // #1375) — frozen from here on — but the bar still reads 3/4, the
       // worker's actual position in the walk.
       expect(find.text('Hindi'), findsOneWidget);
-      expect(_progressBar(tester).answered, 3);
-      expect(_progressBar(tester).total, 4);
+      expect(_progressStrip(tester).position, 3);
+      expect(_progressStrip(tester).total, 4);
 
       // Walking the preferences marker's OWN internal pages must not move
       // this OUTER bar either — it stays at 3/4 until the marker actually
@@ -793,8 +862,8 @@ void main() {
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein')); // internal page 0 -> 1
       await tester.pumpAndSettle();
-      expect(_progressBar(tester).answered, 3);
-      expect(_progressBar(tester).total, 4);
+      expect(_progressStrip(tester).position, 3);
+      expect(_progressStrip(tester).total, 4);
 
       for (int i = 0; i < 5; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
@@ -807,8 +876,8 @@ void main() {
       // answered) still moved the bar — onto the employment marker, reading
       // fully complete rather than frozen at 3/4.
       expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
-      expect(_progressBar(tester).answered, 4);
-      expect(_progressBar(tester).total, 4);
+      expect(_progressStrip(tester).position, 4);
+      expect(_progressStrip(tester).total, 4);
     });
   });
 
@@ -846,6 +915,9 @@ void main() {
       expect(find.text('Fanuc Oi-TF Programming'), findsOneWidget);
       expect(find.text('Mastercam Advanced Multiaxis'), findsOneWidget);
 
+      // The full-width progress strip sits above the body now, so the chip
+      // row can start behind the docked bar — scroll it into view first.
+      await tester.ensureVisible(find.text('Fanuc Oi-TF Programming'));
       await tester.tap(find.text('Fanuc Oi-TF Programming'));
       await tester.pumpAndSettle();
 
@@ -912,20 +984,26 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('ITI'), findsOneWidget);
-      expect(_chipSelected(tester, 'ITI'), isFalse);
+      expect(_optionSelected(tester, 'ITI'), isFalse);
+      await tester.ensureVisible(find.text('ITI'));
       await tester.tap(find.text('ITI'));
       await tester.pumpAndSettle();
-      expect(_chipSelected(tester, 'ITI'), isTrue);
+      expect(_optionSelected(tester, 'ITI'), isTrue);
+
+      // ITI names a trade, so the subject is now shown and REQUIRED on this
+      // page (a used row must be complete before the wizard advances).
+      await tester.enterText(find.byType(TextField).first, 'Machinist');
+      await tester.pump();
 
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein')); // -> council
       await tester.pumpAndSettle();
 
       expect(find.text('NCVT'), findsOneWidget);
-      expect(_chipSelected(tester, 'NCVT'), isFalse);
+      expect(_optionSelected(tester, 'NCVT'), isFalse);
       await tester.tap(find.text('NCVT'));
       await tester.pumpAndSettle();
-      expect(_chipSelected(tester, 'NCVT'), isTrue);
+      expect(_optionSelected(tester, 'NCVT'), isTrue);
     });
 
     testWidgets(
@@ -940,7 +1018,10 @@ void main() {
       await tester.ensureVisible(find.text('Aur ek certificate jodein'));
       await tester.tap(find.text('Aur ek certificate jodein'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      // A used certificate row must be complete: name, issuer and year.
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
       // #1465 — with NO education added, the marker is TWO internal pages:
       // certificates -> credential+subject. The council and year+institute
@@ -967,7 +1048,10 @@ void main() {
       await tester.ensureVisible(find.text('Aur ek certificate jodein'));
       await tester.tap(find.text('Aur ek certificate jodein'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      // A used certificate row must be complete: name, issuer and year.
+      await tester.enterText(find.byType(TextField).at(0), 'ITI Certificate');
+      await tester.enterText(find.byType(TextField).at(1), 'Govt ITI');
+      await tester.enterText(find.byType(TextField).at(2), '2019');
       await tester.pumpAndSettle();
       // #1465 — no education, so the marker's LAST internal page is
       // credential+subject, one hop away.
@@ -1021,13 +1105,25 @@ void main() {
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
-      for (int i = 0; i < 2; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // A used education row is complete: credential + subject (ITI names one)
+      // -> council -> year + institute.
+      await tester.ensureVisible(find.text('ITI'));
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Machinist');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> council
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('NCVT'));
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> year+institute
+      await tester.pumpAndSettle();
       // Now on year+institute. Two fields (year, then institute).
       expect(find.text('Institute ka naam'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, '2018');
       await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
       await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
@@ -1058,18 +1154,27 @@ void main() {
       // "Trade ya subject" only shows once a subject-bearing credential
       // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then.
       expect(find.text('Trade ya subject'), findsNothing);
+      await tester.ensureVisible(find.text('ITI'));
       await tester.tap(find.text('ITI'));
       await tester.pumpAndSettle();
       expect(find.text('Trade ya subject'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'electric');
       await tester.pump();
 
-      // Walk the remaining 2 internal pages (council, year+institute) to save.
-      for (int i = 0; i < 2; i++) {
-        await tester.ensureVisible(find.text('Aage badhein'));
-        await tester.tap(find.text('Aage badhein'));
-        await tester.pumpAndSettle();
-      }
+      // Walk the remaining pages (council, then year+institute), completing the
+      // used row, to save.
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> council
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('NCVT'));
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> year+institute
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '2018');
+      await tester.enterText(find.byType(TextField).last, 'Govt ITI');
+      await tester.pump();
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1101,11 +1206,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
 
       // On the preferences marker — pick a language chip, but do NOT save
@@ -1113,10 +1218,10 @@ void main() {
       // banked state (only written on a SUCCESSFUL save), not off whatever
       // the unmounted widget happened to hold in memory.
       expect(find.text('Hindi'), findsOneWidget);
-      expect(_chipSelected(tester, 'Hindi'), isFalse);
+      expect(_optionSelected(tester, 'Hindi'), isFalse);
       await tester.tap(find.text('Hindi'));
       await tester.pump();
-      expect(_chipSelected(tester, 'Hindi'), isTrue);
+      expect(_optionSelected(tester, 'Hindi'), isTrue);
 
       // Walk the marker's own internal pages (#1384 item 2) — only the
       // LAST tap (the last internal page) actually saves.
@@ -1142,7 +1247,7 @@ void main() {
       // The freshly (re)mounted preferences widget starts its OWN internal
       // page back at 0 (languages + documents) — exactly where 'Hindi' lives.
       expect(find.text('Hindi'), findsOneWidget);
-      expect(_chipSelected(tester, 'Hindi'), isTrue,
+      expect(_optionSelected(tester, 'Hindi'), isTrue,
           reason: 'a chip already saved once must still show selected after '
               'goBack, not reset to the marker\'s blank default');
     });
@@ -1165,11 +1270,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
 
       // Page 0 (languages) — the EARLIEST page.
@@ -1254,11 +1359,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
 
       // Page 0 — tick a language chip.
@@ -1278,7 +1383,7 @@ void main() {
       expect(find.text('Hindi'), findsOneWidget,
           reason: 'internal back must land on page 0, not a previous '
               'question or a popped screen');
-      expect(_chipSelected(tester, 'Hindi'), isTrue,
+      expect(_optionSelected(tester, 'Hindi'), isTrue,
           reason: 'the field entered before walking forward must still be '
               'there after walking back');
     });
@@ -1300,11 +1405,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
       await tester.pumpAndSettle();
       for (int i = 0; i < 4; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
@@ -1321,11 +1426,11 @@ void main() {
     });
 
     Future<void> walkToCitiesPage(WidgetTester tester) async {
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
       // Page 0 (languages) -> 1 (documents) -> 2 (shift) -> 3 (jobType) ->
       // 4 (cities).
@@ -1389,6 +1494,9 @@ void main() {
 
       // Removing one must bring the add row back and free a slot.
       await tester.ensureVisible(find.byIcon(Icons.close).first);
+      // The page scrolls now: let the scroll settle (the field vanishing at
+      // the cap shrinks it) — a Scrollable ignores taps while it moves.
+      await tester.pumpAndSettle();
       await tester.tap(find.byIcon(Icons.close).first);
       await tester.pump();
       expect(find.byType(TextField), findsOneWidget);
@@ -1527,11 +1635,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
       await _walkThroughPreferencesPages(tester);
 
@@ -1543,7 +1651,11 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
       await tester.pump();
+      // #issue2 — every used card needs a start date before the walk can
+      // finish, including the one no longer on screen when "Ho gaya" is hit.
+      await _pickStartDate(tester, year: '2021', month: 'Jan');
 
       await tester.ensureVisible(find.text('Aur ek jagah jodein'));
       await tester.tap(find.text('Aur ek jagah jodein')); // employer #2
@@ -1555,7 +1667,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Beta Corp');
       await tester.enterText(find.byType(TextField).at(1), 'Welder');
+      await tester.enterText(find.byType(TextField).at(2), 'Gate pe welding karta tha');
       await tester.pump();
+      await _pickStartDate(tester, year: '2022', month: 'Feb');
 
       // This IS the marker's last internal page AND the outer walk's last
       // step — "Ho gaya", not "Aage badhein".
@@ -1576,6 +1690,345 @@ void main() {
     });
   });
 
+  // #issue2 — a saved work history with no start (and no end) is what printed
+  // "Duration not stated" on the résumé. Every card the worker actually USED
+  // must carry a start, and an end unless it is his current job; a blank card
+  // is not an answer and must never block finishing.
+  group('employment dates are required on a used card (#issue2)', () {
+    Future<void> walkToEmploymentPage(WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
+      await tester.pumpAndSettle();
+      await _walkThroughPreferencesPages(tester);
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> fillUsedCard(WidgetTester tester) async {
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
+      await tester.pump();
+    }
+
+    testWidgets(
+        'a used card with no start date blocks the finish and saves nothing',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+      await fillUsedCard(tester);
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Kab shuru kiya — saal aur mahina chunein.'), findsOneWidget);
+      verifyNever(() => repo.saveEmployment(any()));
+
+      // Dismiss the banner, pick the start date, and the same finish works.
+      await tester.tap(find.text('Theek hai'));
+      await tester.pumpAndSettle();
+      await _pickStartDate(tester);
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+      verify(() => repo.saveEmployment(any())).called(1);
+    });
+
+    testWidgets('turning "Abhi yahin" OFF requires an end date',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+      await fillUsedCard(tester);
+      await _pickStartDate(tester);
+
+      await tester.ensureVisible(find.text('Abhi yahin kaam kar rahe hain'));
+      await tester.tap(find.text('Abhi yahin kaam kar rahe hain'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+            'Kab tak kaam kiya — saal aur mahina chunein, ya "Abhi yahin" ON rakhein.'),
+        findsOneWidget,
+      );
+      verifyNever(() => repo.saveEmployment(any()));
+
+      // The end field is the only one still reading "Nahi bataya".
+      await tester.tap(find.text('Theek hai'));
+      await tester.pumpAndSettle();
+      await _pickStartDate(tester, year: '2023', month: 'Mar');
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+      verify(() => repo.saveEmployment(any())).called(1);
+    });
+
+    testWidgets('a blank added card can be finished with no dates at all',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      // A card with nothing on it is not an answer, so it is never blocked —
+      // skipping work history entirely still works.
+      expect(
+          find.text('Kab shuru kiya — saal aur mahina chunein.'), findsNothing);
+    });
+  });
+
+  // #issue2 follow-up — "required" alone still lets an unusable date through:
+  // a future month, a 1900 typo, or an end before its start are all refused,
+  // and the picker itself never OFFERS a future year or month so the worker
+  // cannot even reach one. The two hard bounds are asserted directly against
+  // the page's own blocker, because a picker cannot produce them anyway.
+  group('valid-date bounds on a used card (#issue2)', () {
+    const List<String> months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    Widget host(
+      GlobalKey<TradeFormEmploymentPageState> key,
+      List<TradeFormEmploymentEntry> entries,
+    ) {
+      return kitTestApp(
+        Scaffold(
+          // The wizard hosts this page inside its scroll body; the page itself
+          // is an unbounded Column, so the test stand-in must scroll it too.
+          body: SingleChildScrollView(
+            child: TradeFormEmploymentPage(
+              key: key,
+              enabled: true,
+              onSave: (_) {},
+              loadOptions: () async => const WorkPrefOptionsDto(
+                languages: <String, String>{},
+                documentsReady: <String, String>{},
+                jobType: <String, String>{},
+                shift: <String, String>{},
+              ),
+              initialEntries: entries,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a start in the future is refused before it can print',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      final String future = '${DateTime.now().year + 1}-01';
+      await tester.pumpWidget(
+        host(key, <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: future,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aage ke mahine ki taareekh nahi ho sakti — aaj tak ka chunein.',
+      );
+    });
+
+    testWidgets('a start before 1950 is refused as a typo',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '1900-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Itna purana saal sahi nahi lagta — sahi saal chunein.',
+      );
+    });
+
+    testWidgets('an end before its start is refused', (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-06',
+            endYm: '2019-05',
+            stillWorking: false,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Khatam hone ki date shuru hone ke baad honi chahiye.',
+      );
+    });
+
+    testWidgets('the picker offers no future year and no future month',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(employerName: '', roleLabel: ''),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      final int nowYear = DateTime.now().year;
+      final int nowMonth = DateTime.now().month;
+
+      await tester.ensureVisible(find.text('Nahi bataya').first);
+      await tester.tap(find.text('Nahi bataya').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('$nowYear'), findsOneWidget);
+      expect(find.text('${nowYear + 1}'), findsNothing);
+
+      await tester.ensureVisible(find.text('$nowYear'));
+      await tester.tap(find.text('$nowYear'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(months[nowMonth - 1]), findsOneWidget);
+      if (nowMonth < 12) {
+        expect(find.text(months[nowMonth]), findsNothing);
+      }
+    });
+
+    // A used card must carry every field the sheet prints — the company name,
+    // the role and the work description. Only city/state may be left empty.
+    testWidgets('a used card missing its work description is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aap kya kaam karte the — likhein.',
+      );
+    });
+
+    testWidgets('a used card missing its role is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: '',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        key.currentState!.currentPageError(),
+        'Aapka kaam / role likhein.',
+      );
+    });
+
+    testWidgets('a used card missing its company name is blocked',
+        (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: '',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(key.currentState!.currentPageError(), 'Company ka naam likhein.');
+    });
+
+    testWidgets('a used card passes once name/role/work/start are set — '
+        'city and state stay optional', (WidgetTester tester) async {
+      final GlobalKey<TradeFormEmploymentPageState> key =
+          GlobalKey<TradeFormEmploymentPageState>();
+      await tester.pumpWidget(
+        host(key, const <TradeFormEmploymentEntry>[
+          TradeFormEmploymentEntry(
+            employerName: 'Acme',
+            roleLabel: 'Fitter',
+            workDone: 'Naye parts banate the',
+            startYm: '2020-01',
+            employerCity: 'Pune',
+            employerState: 'Maharashtra',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(key.currentState!.currentPageError(), isNull);
+    });
+  });
+
   group('employer location: state-then-city picker, real gazetteer (#1429)', () {
     Future<void> walkToEmploymentPage(WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
@@ -1590,11 +2043,11 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first);
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first);
       await tester.pumpAndSettle();
       await _walkThroughPreferencesPages(tester);
       await tester.ensureVisible(find.text('Aur ek jagah jodein'));
@@ -1655,7 +2108,9 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Naye parts banate the');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1689,9 +2144,12 @@ void main() {
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
-      // The city field is the third: employer, role, then city.
+      // The city field is the third: employer, role, then city. Work-done is
+      // the fourth and is required on a used card.
       await tester.enterText(find.byType(TextField).at(2), 'Muzaffarpur');
+      await tester.enterText(find.byType(TextField).at(3), 'Naye parts banate the');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1740,14 +2198,17 @@ void main() {
 
       expect(find.text('Sheher'), findsWidgets); // label + hint text, both "Sheher"
       expect(find.text('State'), findsWidgets); // label + hint text, both "State"
-      // name, role, city, state, work-done.
+      // name, role, state, city, work-done — State (Rajya) ALWAYS precedes
+      // Sheher (City) in the kit layout.
       expect(find.byType(TextField), findsNWidgets(5));
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
-      await tester.enterText(find.byType(TextField).at(2), 'Kota');
-      await tester.enterText(find.byType(TextField).at(3), 'Rajasthan');
+      await tester.enterText(find.byType(TextField).at(2), 'Rajasthan');
+      await tester.enterText(find.byType(TextField).at(3), 'Kota');
+      await tester.enterText(find.byType(TextField).at(4), 'Naye parts banate the');
       await tester.pump();
+      await _pickStartDate(tester);
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -1761,9 +2222,13 @@ void main() {
     });
   });
 
-  group('the true final-submit button is green + distinct (#1384 item 3)', () {
+  // #1384 item 3 — the ONE true final submit of the walk must be told apart
+  // from every ordinary "next". The Master UI Kit's docked bar has a single
+  // button colour, so the distinction is now its own label AND a dropped
+  // forward arrow (a button that finishes the walk does not point onward).
+  group('the true final-submit button is distinct (#1384 item 3)', () {
     testWidgets(
-        'a marker-is-last-step case renders BbButtonVariant.success',
+        'a marker-is-last-step case renders "Ho gaya" with no forward arrow',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1777,26 +2242,34 @@ void main() {
           ));
 
       await pump(tester);
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q1
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Pata nahi').first);
-      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.ensureVisible(find.text(_kDecline).first);
+      await tester.tap(find.text(_kDecline).first); // decline q2
       await tester.pumpAndSettle();
       await _walkThroughPreferencesPages(tester);
 
       // Employment (no employers yet) is the walk's LAST step, on its own
       // (only) internal page — the TRUE final button.
       expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
-      final BbButton finalButton = tester.widget<BbButton>(
-        find.widgetWithText(BbButton, 'Ho gaya'),
+      final QuestionnaireBottomBar bar = _bottomBar(tester);
+      expect(bar.nextLabel, 'Ho gaya');
+      expect(bar.showArrow, isFalse);
+      expect(bar.onNext, isNotNull);
+      expect(find.text('Aage badhein'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(QuestionnaireBottomBar),
+          matching: find.byIcon(Icons.arrow_forward_rounded),
+        ),
+        findsNothing,
       );
-      expect(finalButton.variant, BbButtonVariant.success);
     });
 
     testWidgets(
-        'a question-is-last-step case renders green "Submit karein", not '
-        'haldi "Aage badhein"', (WidgetTester tester) async {
+        'a question-is-last-step case renders "Submit karein" with no forward '
+        'arrow, not "Aage badhein"', (WidgetTester tester) async {
       final TradeForm questionOnlyForm = TradeForm(
         kind: 'cnc_turner',
         packId: 'qp_cnc_turning',
@@ -1815,36 +2288,502 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => questionOnlyForm);
 
       await pump(tester);
-      // _plainQuestion is multi-select — a chip tap only selects; the
-      // submit button appears alongside it.
+      // _plainQuestion is multi-select — a card tap only selects; the docked
+      // bar submits.
       await tester.tap(find.text('CNC lathe'));
       await tester.pump();
 
       expect(find.text('Submit karein'), findsOneWidget);
       expect(find.text('Aage badhein'), findsNothing);
-      final BbButton finalButton = tester.widget<BbButton>(
-        find.widgetWithText(BbButton, 'Submit karein'),
-      );
-      expect(finalButton.variant, BbButtonVariant.success);
+      final QuestionnaireBottomBar bar = _bottomBar(tester);
+      expect(bar.nextLabel, 'Submit karein');
+      expect(bar.showArrow, isFalse);
+      expect(bar.onNext, isNotNull);
     });
 
     testWidgets(
-        'a non-last question step is navy (not haldi) with "Aage badhein"',
+        'a non-last question step reads "Aage badhein" with the forward arrow',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
 
       await pump(tester);
       // _form()'s first question (turning_machine, multi-select) is NOT the
-      // walk's last step — two more questions and two markers follow.
+      // walk's last step — one more question and two markers follow.
       await tester.tap(find.text('CNC lathe'));
       await tester.pump();
 
-      final BbButton nextButton = tester.widget<BbButton>(
-        find.widgetWithText(BbButton, 'Aage badhein'),
+      final QuestionnaireBottomBar bar = _bottomBar(tester);
+      expect(bar.nextLabel, 'Aage badhein');
+      expect(bar.showArrow, isTrue);
+      expect(bar.onNext, isNotNull);
+      // The ordinary next never borrows the final submit's copy.
+      expect(find.text('Submit karein'), findsNothing);
+    });
+  });
+
+  // KIT REDESIGN CHANGE — the Master UI Kit pins a Next bar under a radio
+  // list, so a single-select / boolean tap now only SELECTS, and the docked
+  // "Aage badhein" submits. It used to submit on the tap itself. The payload
+  // on the wire is unchanged: `[key]` for single-select, `true|false` for
+  // boolean.
+  group('single-select + boolean: a tap SELECTS, the docked bar submits', () {
+    const VoiceQuestion singleQuestion = VoiceQuestion(
+      id: 'turning_experience',
+      prompt: 'Turning ka kitna experience hai?',
+      kind: VoiceQuestionKind.singleSelect,
+      options: <VoiceChoice>[
+        VoiceChoice(key: 'opt_a', label: 'Option A'),
+        VoiceChoice(key: 'opt_b', label: 'Option B'),
+      ],
+    );
+    const VoiceQuestion booleanQuestion = VoiceQuestion(
+      id: 'drawing_reading',
+      prompt: 'Kya aap drawing padh sakte hain?',
+      kind: VoiceQuestionKind.boolean,
+    );
+
+    TradeForm selectForm({TradeFormSavedAnswer? singleAnswer}) => TradeForm(
+          kind: 'cnc_turner',
+          packId: 'qp_cnc_turning',
+          packVersion: 1,
+          sections: <TradeFormSection>[
+            TradeFormSection(
+              id: 'capability',
+              title: 'Machines, controllers & capability',
+              screens: <TradeFormStep>[
+                TradeFormQuestionStep(
+                  question: singleQuestion,
+                  searchable: false,
+                  answer: singleAnswer,
+                ),
+                const TradeFormQuestionStep(
+                    question: booleanQuestion, searchable: false),
+                // A trailing marker so answering the boolean never hits
+                // `done` — this group is about the tap/submit split, not
+                // #1367's last-step navigation.
+                const TradeFormPreferencesStep(),
+              ],
+            ),
+          ],
+        );
+
+    testWidgets(
+        'a single-select tap selects without submitting; the bar sends exactly '
+        'the one picked key', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => selectForm());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+      expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
+      // Nothing picked yet — nothing to send.
+      expect(_bottomBar(tester).onNext, isNull);
+
+      await tester.tap(find.text('Option A'));
+      await tester.pump();
+      verifyNever(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          ));
+      expect(_optionSelected(tester, 'Option A'), isTrue);
+
+      // A radio: a second tap MOVES the pick.
+      await tester.tap(find.text('Option B'));
+      await tester.pump();
+      expect(_optionSelected(tester, 'Option A'), isFalse);
+      expect(_optionSelected(tester, 'Option B'), isTrue);
+
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      final TradeFormAnswer sent = verify(() => repo.submitAnswer(
+            questionKey: 'turning_experience',
+            answer: captureAny(named: 'answer'),
+          )).captured.single as TradeFormAnswer;
+      expect(sent.kind, TradeFormAnswerKind.chips);
+      expect(sent.optionKeys, <String>['opt_b']);
+      // Advanced to the boolean question.
+      expect(find.text('Kya aap drawing padh sakte hain?'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a boolean tap selects Haan/Nahi without submitting; the bar sends it',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => selectForm(
+            singleAnswer: const TradeFormSavedAnswer(
+              status: TradeFormAnswerStatus.answered,
+              optionKeys: <String>['opt_a'],
+            ),
+          ));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      // Resumability skips the answered single-select — lands on the boolean.
+      expect(find.text('Kya aap drawing padh sakte hain?'), findsOneWidget);
+      expect(_bottomBar(tester).onNext, isNull);
+
+      await tester.tap(find.text('Haan'));
+      await tester.pump();
+      verifyNever(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          ));
+      expect(_optionSelected(tester, 'Haan'), isTrue);
+      expect(_optionSelected(tester, 'Nahi'), isFalse);
+
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      final TradeFormAnswer sent = verify(() => repo.submitAnswer(
+            questionKey: 'drawing_reading',
+            answer: captureAny(named: 'answer'),
+          )).captured.single as TradeFormAnswer;
+      expect(sent.kind, TradeFormAnswerKind.boolean);
+      expect(sent.boolValue, isTrue);
+    });
+
+    testWidgets(
+        'a saved single-select answer comes back PRE-SELECTED after goBack, '
+        'ready to resubmit', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => selectForm(
+            singleAnswer: const TradeFormSavedAnswer(
+              status: TradeFormAnswerStatus.answered,
+              optionKeys: <String>['opt_b'],
+            ),
+          ));
+
+      await pump(tester);
+      expect(find.text('Kya aap drawing padh sakte hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
+      expect(_optionSelected(tester, 'Option B'), isTrue,
+          reason: 'the saved pick must render selected, not blank');
+      expect(_optionSelected(tester, 'Option A'), isFalse);
+      expect(_bottomBar(tester).onNext, isNotNull);
+    });
+  });
+
+  // The form-flow mockups ("15. Workholding Selection", "16. Measuring
+  // Instruments", "14. Turning Operations"): a yellow section title under a
+  // step + CATEGORY line, the white strip with the topic and the percent, an
+  // icon tile on every option card, the multi-select hint, and a listen button
+  // that exists only when the device read-aloud is wired. Visual only — every
+  // behaviour above is unchanged.
+  group('form-flow design (Workholding / Measuring / Operations mockups)', () {
+    const VoiceQuestion singleQuestion = VoiceQuestion(
+      id: 'turning_experience',
+      prompt: 'Turning ka kitna experience hai?',
+      whyText: 'Isse sahi level ka kaam dikhaya jaata hai.',
+      kind: VoiceQuestionKind.singleSelect,
+      options: <VoiceChoice>[
+        VoiceChoice(key: 'below_1', label: '1 saal se kam'),
+        VoiceChoice(key: 'one_to_three', label: '1 se 3 saal'),
+      ],
+    );
+    const VoiceQuestion booleanQuestion = VoiceQuestion(
+      id: 'drawing_reading',
+      prompt: 'Kya aap drawing padh sakte hain?',
+      kind: VoiceQuestionKind.boolean,
+    );
+
+    /// multi-select -> single-select -> boolean -> preferences marker: one of
+    /// every card kind, then a marker with both a multi and a single list.
+    TradeForm designForm() => const TradeForm(
+          kind: 'cnc_turner',
+          packId: 'qp_cnc_turning',
+          packVersion: 1,
+          sections: <TradeFormSection>[
+            TradeFormSection(
+              id: 'capability',
+              title: 'Machines, controllers & capability',
+              screens: <TradeFormStep>[
+                TradeFormQuestionStep(
+                    question: _plainQuestion, searchable: false),
+                TradeFormQuestionStep(
+                    question: singleQuestion, searchable: false),
+                TradeFormQuestionStep(
+                    question: booleanQuestion, searchable: false),
+              ],
+            ),
+            TradeFormSection(
+              id: 'terms',
+              title: 'Availability & terms',
+              screens: <TradeFormStep>[TradeFormPreferencesStep()],
+            ),
+          ],
+        );
+
+    void stubAnswers() {
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.declined,
+            answered: 1,
+            total: 3,
+          ));
+    }
+
+    Future<void> decline(WidgetTester tester) async {
+      await tester.ensureVisible(find.text(_kDecline));
+      await tester.tap(find.text(_kDecline));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> next(WidgetTester tester) async {
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+    }
+
+    void expectEveryCardHasAnIcon(WidgetTester tester) {
+      final List<IconData?> icons = <IconData?>[
+        for (final MultiSelectQuestionCard c in tester
+            .widgetList<MultiSelectQuestionCard>(
+                find.byType(MultiSelectQuestionCard)))
+          c.leadingIcon,
+        for (final SingleSelectQuestionCard c in tester
+            .widgetList<SingleSelectQuestionCard>(
+                find.byType(SingleSelectQuestionCard)))
+          c.leadingIcon,
+      ];
+      expect(icons, isNotEmpty);
+      expect(icons, everyElement(isNotNull));
+    }
+
+    testWidgets(
+        'the header carries a yellow section title and a step line with the '
+        'category; the strip sits under it with the topic and the percent',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      stubAnswers();
+
+      await pump(tester);
+
+      final ShiftBlueHeader header =
+          tester.widget<ShiftBlueHeader>(find.byType(ShiftBlueHeader));
+      expect(header.title, 'Machines, controllers & capability');
+      expect(header.titleColor, OnboardingColors.safetyYellow);
+      // turning_machine -> ('Machines', 'Machines & equipment'); _form() is
+      // four steps, so step 1 of 4 is 25%.
+      expect(find.text('STEP 1 OF 4 • MACHINES'), findsOneWidget);
+      expect(find.text('MACHINES & EQUIPMENT'), findsOneWidget);
+      expect(find.text('25% COMPLETED'), findsOneWidget);
+      // Full width under the header — never inside the padded body.
+      expect(
+        find.ancestor(
+          of: find.byType(FormProgressStrip),
+          matching: find.byType(OnboardingBody),
+        ),
+        findsNothing,
       );
-      // navy, not primary/haldi — haldi is identical to a selected BbChip's
-      // fill, which made the nav button read as just another option.
-      expect(nextButton.variant, BbButtonVariant.navy);
+
+      await decline(tester);
+      await decline(tester);
+
+      // A marker page: the same header + strip, from its fixed topic pair.
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(find.text('STEP 3 OF 4 • AVAILABILITY & TERMS'), findsOneWidget);
+      expect(find.text('AVAILABILITY & PREFERENCES'), findsOneWidget);
+      expect(find.text('75% COMPLETED'), findsOneWidget);
+
+      await _walkThroughPreferencesPages(tester);
+
+      // The last step: the green "100% complete" pill.
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      expect(find.text('STEP 4 OF 4 • WORK HISTORY'), findsOneWidget);
+      expect(find.text('100% complete'), findsOneWidget);
+      expect(find.text('100% COMPLETED'), findsNothing);
+    });
+
+    testWidgets(
+        'every option card renders a leading icon — multi, single, boolean '
+        'and the marker lists', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => designForm());
+      stubAnswers();
+
+      await pump(tester);
+      expect(find.byType(MultiSelectQuestionCard), findsOneWidget);
+      expectEveryCardHasAnIcon(tester);
+      await decline(tester);
+
+      expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
+      expect(find.byType(SingleSelectQuestionCard), findsNWidgets(2));
+      expectEveryCardHasAnIcon(tester);
+      await decline(tester);
+
+      expect(find.text('Kya aap drawing padh sakte hain?'), findsOneWidget);
+      expect(find.byType(SingleSelectQuestionCard), findsNWidgets(2)); // Haan/Nahi
+      expectEveryCardHasAnIcon(tester);
+      await decline(tester);
+
+      // Preferences page 0 (languages, multi) ... page 2 (shift, single).
+      expect(find.text('Hindi'), findsOneWidget);
+      expectEveryCardHasAnIcon(tester);
+      await next(tester);
+      await next(tester);
+      expect(find.text('Day'), findsOneWidget);
+      expectEveryCardHasAnIcon(tester);
+    });
+
+    testWidgets('the multi-select hint appears on multi-select lists only',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => designForm());
+      stubAnswers();
+
+      await pump(tester);
+      expect(find.text(_kMultiHint), findsOneWidget); // multi-select question
+      await decline(tester);
+      expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
+      expect(find.text(_kMultiHint), findsNothing); // single-select
+      await decline(tester);
+      expect(find.text('Kya aap drawing padh sakte hain?'), findsOneWidget);
+      expect(find.text(_kMultiHint), findsNothing); // boolean
+      await decline(tester);
+
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(find.text(_kMultiHint), findsOneWidget); // languages (multi)
+      await next(tester);
+      await next(tester);
+      expect(find.text('Day'), findsOneWidget);
+      expect(find.text(_kMultiHint), findsNothing); // shift (single)
+    });
+
+    testWidgets(
+        'the searchable multi-select question shows the hint too, and its '
+        'decline link reads "Pata nahi / Baad mein batayein"',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => const TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Type karke dhoondein'), findsOneWidget);
+      expect(find.text(_kMultiHint), findsOneWidget);
+      expect(find.byType(FormDeclineLink), findsOneWidget);
+      expect(find.text(_kDecline), findsOneWidget);
+    });
+
+    testWidgets(
+        'no SpeechReader registered: no listen button on a question or a '
+        'marker — never a dead button', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => designForm());
+      stubAnswers();
+
+      await pump(tester);
+      expect(_bottomBar(tester).onListen, isNull);
+      expect(find.byIcon(Icons.volume_up_outlined), findsNothing);
+
+      await decline(tester);
+      await decline(tester);
+      await decline(tester);
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(_bottomBar(tester).onListen, isNull);
+      expect(find.byIcon(Icons.volume_up_outlined), findsNothing);
+    });
+
+    testWidgets(
+        'SpeechReader registered: listen speaks the prompt (and why text), '
+        'playback stops on submit, and a marker reads its page heading',
+        (WidgetTester tester) async {
+      final _FakeSpeechReader reader = _FakeSpeechReader();
+      locator.registerSingleton<SpeechReader>(reader);
+      when(() => repo.loadForm()).thenAnswer((_) async => designForm());
+      stubAnswers();
+
+      await pump(tester);
+      expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.volume_up_outlined));
+      await tester.pump();
+      expect(reader.spoken, hasLength(1));
+      expect(reader.spoken.single,
+          contains('Aap kaunsi turning machine chalate hain?'));
+      // The worker's own picks are never read aloud — only the question.
+      expect(reader.spoken.single, isNot(contains('CNC lathe')));
+
+      // Submitting stops any reading in flight.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+      final int stopsBeforeSubmit = reader.stopCalls;
+      await next(tester);
+      expect(reader.stopCalls, greaterThan(stopsBeforeSubmit));
+
+      // The why text is read after the prompt.
+      expect(find.text('Turning ka kitna experience hai?'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.volume_up_outlined));
+      await tester.pump();
+      expect(reader.spoken.last, contains('Turning ka kitna experience hai?'));
+      expect(reader.spoken.last,
+          contains('Isse sahi level ka kaam dikhaya jaata hai.'));
+
+      await decline(tester);
+      await decline(tester);
+
+      // A marker page reads its own visible heading.
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(find.byIcon(Icons.volume_up_outlined), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.volume_up_outlined));
+      await tester.pump();
+      expect(reader.spoken.last, contains('Aap kaun si bhasha bolte hain?'));
+    });
+
+    testWidgets(
+        'no overflow at 320x568 and 2.0 text scale — every question kind and '
+        'a marker page', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      // No SpeechReader registered: this checks the screen's own layout.
+      when(() => repo.loadForm()).thenAnswer((_) async => designForm());
+      stubAnswers();
+
+      await pump(tester);
+      expect(tester.takeException(), isNull);
+      expect(find.text(_kMultiHint), findsOneWidget);
+      await decline(tester);
+      expect(tester.takeException(), isNull);
+      await decline(tester);
+      expect(tester.takeException(), isNull);
+      await decline(tester);
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await next(tester);
+      await next(tester);
+      expect(find.text('Day'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 }

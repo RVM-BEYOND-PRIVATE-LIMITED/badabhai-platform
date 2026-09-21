@@ -1,21 +1,30 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { ServerConfig } from "@badabhai/config";
 import type { WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../../chat/chat.repository";
+import type { AiRequestContext } from "../../ai/ai.service";
 import type { RequestContext } from "../../common/request-context";
+import { SERVER_CONFIG } from "../../config/config.module";
 import { EventsService } from "../../events/events.service";
 import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
+import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../../queue/queue.constants";
+import { WorkersRepository } from "../../workers/workers.repository";
 import { projectProfile } from "../answer-map-projector";
-import { packAnswerRowFor } from "../pack-answer-row";
+import { packAnswerRowFor, otherAnswerValue } from "../pack-answer-row";
+import { OtherAnswerPolishService } from "../other-answer-polish.service";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
@@ -51,6 +60,16 @@ const SECTION_TITLES = {
   work_history: "Work history",
   qualifications: "Qualification, documents & languages",
 } as const;
+
+/**
+ * How long the safety-net resume re-render (`refreshResumeAfterCapabilityEdit`) waits before
+ * running. Long enough to stay off the onboarding hot path (a walk's own answers and the
+ * building screen's generate all land first), short enough that an abandoned walk's Resume
+ * tab heals within minutes rather than forever. The job renders the LIVE attributes at run
+ * time, so every ordering of this job against the walk's answers and the building generate
+ * converges on the freshest state.
+ */
+const RESUME_REFRESH_DELAY_MS = 60_000;
 
 /**
  * What `recordFor` does with number-field text that is not exactly one number.
@@ -98,6 +117,20 @@ export class TradeFormService {
     // this is the only service that needs to read it — giving it the repository would also
     // hand it the storage key, the mime and the write path, which the form must never have.
     private readonly resumeImports: ResumeImportRepository,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling) — reviews a worker's typed "other" text
+    // the same way `WorkHistoryPolishService` reviews a stint description. FIRED, NEVER AWAITED
+    // INLINE — see `triggerOtherAnswerPolish` below for why and for what that does and does not
+    // buy the worker today.
+    private readonly otherAnswerPolish: OtherAnswerPolishService,
+    @Inject(SERVER_CONFIG)
+    private readonly config: Pick<ServerConfig, "WORK_HISTORY_POLISH_ENABLED">,
+    // The safety-net resume refresh below reads the latest resume row. WorkersModule is
+    // @Global(), so this adds no module edge (see profiling.module.ts).
+    private readonly workers: WorkersRepository,
+    // Produce-only: this service enqueues re-renders; the processor lives in ResumeModule.
+    // The queue is already registered in THIS module (see profiling.module.ts).
+    @InjectQueue(RESUME_RENDER_QUEUE)
+    private readonly renderQueue: Queue<ResumeRenderJobData>,
   ) {}
 
   /**
@@ -307,6 +340,16 @@ export class TradeFormService {
       }
     });
 
+    // THE REVIEW-OR-OMIT PATH FIRES HERE, ONCE THE ANSWER IS DURABLE. See
+    // `triggerOtherAnswerPolish` for the fail-open contract and the honest scope note about who
+    // reads its output today.
+    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, requestCtx);
+
+    // THE RESUME REFRESH, BEST-EFFORT. A capability answer changes what the sheet prints, and
+    // the building-screen regenerate is not guaranteed to run (abandoned walk, failed
+    // generate, Resume tab opened straight from the menu). See `refreshResumeAfterCapabilityEdit`.
+    await this.refreshResumeAfterCapabilityEdit(workerId, attributes.length > 0, requestCtx);
+
     // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
     // exactly the number of question screens the next fetch returns — never a count over a
     // different set that the progress rail cannot reach.
@@ -349,6 +392,78 @@ export class TradeFormService {
        */
       schema_stale: gateKeysOf(pack.items).has(item.question_key),
     };
+  }
+
+  /**
+   * Refresh the worker's ALREADY-GENERATED resume after a capability answer — the safety
+   * net that closes the Bada Bhai edit loop server-side.
+   *
+   * THE GAP THIS CLOSES. A section-walk edit (Bada Bhai menu → re-answer → submit) writes
+   * fresh `worker_attributes`, and the happy path regenerates through the building screen
+   * (`POST /resume/generate` + overlay + render). But that path runs ONLY when the worker
+   * finishes inside the app: a walk abandoned mid-way, a generate that 429s, or a Resume
+   * tab opened straight from the menu leaves the new attributes in the database with the
+   * OLD document + READY pill on screen — forever, because nothing else on this path
+   * regenerates or re-renders. The worker's correction is saved and invisible.
+   *
+   * WHAT IT DOES. Best-effort, fail-open, LLM-free: when THIS answer wrote capability
+   * attributes (`wroteAttributes`) and the worker already has a resume, enqueue a FORCED
+   * re-render of that resume. Forced (not a generate) because the content change needs no
+   * model — the render processor rebuilds the sheet from the LIVE attributes at run time —
+   * so this spends no AI budget, mints no version, and never touches the daily generate
+   * cap. In place (same row, same object key), exactly like the photo/prefs re-renders.
+   *
+   * FIRST RUNS ARE EXCLUDED: with no resume row yet there is nothing to refresh, and the
+   * building screen's generate (with its overlay) is what mints version 1.
+   *
+   * DELAYED + DEDUPED, NOT IMMEDIATE. A walk saves ~9 answers; nine immediate renders
+   * would serialize behind every onboarding render on the shared queue. The delay pushes
+   * the safety work off the hot path, and the worker-scoped jobId collapses one walk's
+   * answers into (at most) a slow chain: each job renders the live state at run time, so
+   * the last one to run is always the freshest — every ordering converges.
+   * `removeOnComplete`/`removeOnFail` free the id so the NEXT walk re-arms; without them
+   * the first walk would jam the safety net forever (completed rows are retained by the
+   * queue defaults).
+   *
+   * NEVER THROWS (mirrors `rebuildQuietly`'s contract): the answer above already committed,
+   * and a failed refresh must not fail it. Callers await this freely.
+   */
+  private async refreshResumeAfterCapabilityEdit(
+    workerId: string,
+    wroteAttributes: boolean,
+    requestCtx: RequestContext | undefined,
+  ): Promise<void> {
+    if (!wroteAttributes) return;
+    try {
+      const latest = await this.workers.latestResume(workerId);
+      // No resume yet → first run through the form; the building screen's generate is what
+      // mints version 1 (with the overlay), so there is nothing to refresh.
+      if (!latest) return;
+      await this.renderQueue.add(
+        "render",
+        {
+          resumeId: latest.id,
+          workerId,
+          force: true,
+          correlationId: requestCtx?.correlationId ?? "trade-form-answer",
+          requestId: requestCtx?.requestId ?? "trade-form-answer",
+        },
+        {
+          jobId: `trade-form-rerender:${workerId}`,
+          delay: RESUME_REFRESH_DELAY_MS,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 2000 },
+          removeOnComplete: true,
+          removeOnFail: true,
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `trade-form resume refresh skipped for worker ${workerId} (${
+          error instanceof Error ? error.message : "unknown"
+        }); answers are saved, resume updates on next generate`,
+      );
+    }
   }
 
   // ── internals ───────────────────────────────────────────────────────────────
@@ -470,6 +585,9 @@ export class TradeFormService {
       throw new BadRequestException(`${item.question_key} produced no storable answer`);
     }
     await this.answers.upsertAnswer(row);
+    // Same review-or-omit trigger as the current path — a legacy client can still type an "other"
+    // answer against a single/multi-select universal question.
+    this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, undefined);
 
     const view = await this.formView(workerId, ctx.kind, pack);
     const answered = this.answeredIn(view);
@@ -577,7 +695,9 @@ export class TradeFormService {
    * both `worker_pack_answer.chat_session_id` and `worker_attributes.session_id` are nullable
    * columns that accept null as honest provenance ("from a résumé, not from a conversation").
    */
-  private async contextFor(workerId: string): Promise<{ kind: TradeFormKind; sessionId: string | null }> {
+  private async contextFor(
+    workerId: string,
+  ): Promise<{ kind: TradeFormKind; sessionId: string | null }> {
     // PRIMARY: read from the interview handover (existing path, unchanged).
     const session = await this.chat.findLatestSessionByWorker(workerId);
     const state = (session?.conversationState ?? null) as { form_kind?: unknown } | null;
@@ -732,6 +852,10 @@ export class TradeFormService {
               text: saved.answerText,
               number: saved.answerNumber,
               bool: saved.answerBool,
+              // `?? null`, not a bare read: this column is new (migration 0106) and a row read
+              // before that migration's deploy — or a test fixture built before this change —
+              // carries `undefined` for it, which the wire contract must never see.
+              other_text: saved.answerOtherText ?? null,
             }
           : null,
       // RULING D7 IN ONE LINE: a stored answer always wins, and this does not touch it. The
@@ -820,10 +944,89 @@ export class TradeFormService {
       }
       return { ...base, value_normalized: parsed, status: "answered" };
     }
+    if (item.answer_type === "single_select" || item.answer_type === "multi_select") {
+      // "TYPED CUSTOM ANSWER, EVERYWHERE" (owner ruling, round 4). A worker who does not see
+      // his own answer among the chips is not asking to be turned away — the 400 this branch
+      // used to throw was exactly the silent-drop this ruling forbids in spirit: the worker
+      // typed a real answer and the form told him it did not take one.
+      //
+      // NEVER WRITTEN TO A TYPED COLUMN. `otherAnswerValue` marks this as unreviewed free text
+      // against a closed vocabulary; `packAnswerRowFor` routes a marked value to
+      // `answer_other_text` and nowhere else, so it can never decide a tier gate, never become a
+      // `worker_attributes` row, and never print unreviewed on any sheet — see
+      // `OtherAnswerValue`'s docblock. This method's caller (`answer()`) hands the saved text to
+      // `OtherAnswerPolishService` (`triggerOtherAnswerPolish`), which computes and stores the
+      // reviewed rewrite; it is NEVER printed raw the moment a reader exists. HONEST STATE
+      // TODAY: no reader exists yet — `questionScreen` below and `ProfilingSessionService
+      // .displayValueOf` both deliberately echo the worker's raw typed words, by design, on the
+      // edit/review screens they serve. See `triggerOtherAnswerPolish`'s docblock.
+      const other = otherAnswerValue(dto.answer.text);
+      if (other === null) return declined;
+      return { ...base, value_normalized: other, status: "answered" };
+    }
     if (item.answer_type !== "text") {
       throw new BadRequestException(`${item.question_key} does not take free text`);
     }
     return { ...base, value_normalized: dto.answer.text, status: "answered" };
+  }
+
+  /**
+   * Hand a just-saved "other" answer to {@link OtherAnswerPolishService}, if `recordFor` marked
+   * one — never inline in the response.
+   *
+   * WHY OFF THE RESPONSE, on the exact reasoning `WorkHistoryPolishService`'s own docblock states
+   * for a stint description: this is the worker's live request path, often on 2G, and a model
+   * round trip in the middle of it makes him wait on a rewrite that today has no reader at all
+   * (see below). Unlike the work-history precedent there is no render job to hang the call off —
+   * `answer()` has no off-request queue of its own — so this fires the call FROM the request,
+   * NEVER AWAITED, and lets the response return the instant the DB write is durable.
+   * `OtherAnswerPolishService.review` is contractually never-throwing (its own try/catch around
+   * both the model call and the write-back), which is what makes a bare `void` safe here — the
+   * same contract `PackRegistryService.onModuleInit` relies on for the identical idiom.
+   *
+   * ═══ HONEST SCOPE — WHAT THIS DOES AND DOES NOT DELIVER TODAY ═══
+   *
+   * This closes the "dead code" finding: `OtherAnswerPolishService.review` now has a real,
+   * reachable caller, and `answer_other_text_polished` is actually computed and persisted for
+   * every typed "other" answer once `WORK_HISTORY_POLISH_ENABLED` is on. It does NOT put the
+   * rewrite in front of a worker — nothing in this codebase reads
+   * `answer_other_text_polished` for display. `questionScreen`'s `other_text` and
+   * `ProfilingSessionService.displayValueOf` both deliberately serve the RAW typed text on the
+   * two screens that exist today (the resumed-form edit surface and the interview review
+   * screen), by their own documented design — showing the rewrite there instead would be a
+   * reversal of an already-shipped, already-tested decision this task did not ask for and is not
+   * this engineer's call to make alone. The column is written for the first worker-facing "here
+   * is what we understood" surface that is actually built to read it; until one exists, a
+   * worker's typed "other" answer is computed-and-stored but not yet SHOWN reviewed anywhere,
+   * which is a materially different claim from "wired end to end" and is recorded here rather
+   * than left implicit.
+   */
+  private triggerOtherAnswerPolish(
+    workerId: string,
+    packId: string,
+    item: QuestionPackItem,
+    ownText: string | null | undefined,
+    requestCtx: RequestContext | undefined,
+  ): void {
+    if (!ownText) return;
+    const ctx: AiRequestContext = {
+      correlationId: requestCtx?.correlationId,
+      requestId: requestCtx?.requestId,
+    };
+    void this.otherAnswerPolish.review(
+      workerId,
+      packId,
+      item.question_key,
+      ownText,
+      item.prompt_text,
+      ctx,
+      this.config,
+      // A FRESH TRIGGER, ALWAYS. `TradeFormRepository.upsertAnswer` NULLs
+      // `answer_other_text_polished` / clears the decline flag on EVERY write to this row
+      // (including a correction), so "no prior polish, not declined" is the correct state to
+      // hand in on every call this method ever makes — there is no earlier read to race.
+      { polished: null, declined: false },
+    );
   }
 }
 
@@ -882,7 +1085,7 @@ function optionValue(option: QuestionPackItem["options"][number]): string | numb
  * re-tapping a different rung would silently re-tier the rest of the interview. Values are
  * compared by their string form because that is the only representation the four columns share.
  */
-function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
+export function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
   const stored = new Set<string>([
     ...(saved.answerOptionKeys ?? []),
     ...(typeof saved.answerText === "string" ? [saved.answerText] : []),

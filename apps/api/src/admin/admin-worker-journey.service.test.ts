@@ -116,6 +116,11 @@ function fakeRepo(over: Partial<Record<keyof Repo | JourneySpineRead, unknown>> 
         .filter((s) => s.status === "answered" || s.status === "declined")
         .reduce((sum, s) => sum + s.n, 0);
     }),
+    // #1504 item 5 (city-seed). No fixture in this file seeds a city, so the default is "this
+    // worker has never had a fact seeded" — a test exercising the credit overrides it.
+    workerPrefilledKeys: vi.fn(async (): Promise<string[]> => []),
+    packsOwnQuestionKey: vi.fn(async () => false),
+    hasSettledKeyInPacks: vi.fn(async () => false),
     countSessions: vi.fn(async () => 0),
     resumeStats: vi.fn(async () => ({ n: 0, rendered: 0, firstAt: null, lastAt: null })),
     currentProfile: vi.fn(async () => ({
@@ -408,6 +413,55 @@ describe("step 2: profiling — the REAL stamping shape (universal answers under
     // The count is NOT silently absorbed into the numerator either — `completed` still reports
     // what settled.
     expect(step(summary, "profiling").completed).toBe(12);
+  });
+
+  // #1504 item 5 (city-seed) — the completion credit.
+  describe("a persisted prefilled `current_city` key", () => {
+    it("credits `completed` by exactly one when a contributing pack owns it and it is not already settled", async () => {
+      const { service } = realShape({
+        workerPrefilledKeys: vi.fn(async () => ["current_city"]),
+        packsOwnQuestionKey: vi.fn(async () => true),
+        hasSettledKeyInPacks: vi.fn(async () => false),
+      });
+      const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+      // realShape's base fixture settles 12; the seeded, unasked `current_city` adds one more.
+      expect(step(summary, "profiling").completed).toBe(13);
+      // A credited-but-unasked key has no row behind it — comparing `settledRowTotal` against
+      // the CREDITED total would trip this caveat for every worker city-seed ever credits.
+      // It must not.
+      expect(summary.caveats).not.toContain("pack_version_retired");
+    });
+
+    it("does NOT credit when no contributing pack owns the key (retired out from under it)", async () => {
+      const { service } = realShape({
+        workerPrefilledKeys: vi.fn(async () => ["current_city"]),
+        packsOwnQuestionKey: vi.fn(async () => false),
+        hasSettledKeyInPacks: vi.fn(async () => false),
+      });
+      const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+      expect(step(summary, "profiling").completed).toBe(12);
+    });
+
+    it("does NOT double-count when the seeded city was later corrected into a real settled row", async () => {
+      // `correctAnswer` inserts a real `worker_pack_answer` row AND removes the key from
+      // `prefilled_keys` — but a worker whose `prefilled_keys` read is stale (or whose
+      // correction landed between the two reads) must still be counted exactly once.
+      const { service } = realShape({
+        workerPrefilledKeys: vi.fn(async () => ["current_city"]),
+        packsOwnQuestionKey: vi.fn(async () => true),
+        hasSettledKeyInPacks: vi.fn(async () => true),
+      });
+      const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+      expect(step(summary, "profiling").completed).toBe(12);
+    });
+
+    it("credits nothing when no key was ever seeded", async () => {
+      const { service } = realShape({
+        workerPrefilledKeys: vi.fn(async () => []),
+      });
+      const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+      expect(step(summary, "profiling").completed).toBe(12);
+    });
   });
 
   /**

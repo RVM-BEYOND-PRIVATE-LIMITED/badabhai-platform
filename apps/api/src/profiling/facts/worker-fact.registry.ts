@@ -56,6 +56,13 @@ export const WORKER_FACT_IDS = [
   "job_type",
   "relocation",
   "accommodation",
+  // ADR-0042 D9 / Layer A (c) — the finishing form's extension keys. Each is its own fact: a
+  // multi beside job_type, a unit beside the salary figures, and two travel facts that never
+  // derive from one another.
+  "work_types",
+  "salary_period",
+  "commute_max_km",
+  "willing_to_travel",
 ] as const;
 
 export type WorkerFactId = (typeof WORKER_FACT_IDS)[number];
@@ -189,7 +196,22 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
   },
   availability: {
     id: "availability",
-    aliases: [settles("pack_question_key", "availability"), settles("target_field", "availability")],
+    aliases: [
+      settles("pack_question_key", "availability"),
+      settles("target_field", "availability"),
+      // ADR-0042 D9 / Layer A (c) — the worker's own structured answer lands on the SAME key
+      // (migration 0111), so writing it through the finishing form settles the fact exactly as
+      // the interview's answer does. One key, one fact, one settled-state question.
+      settles("attribute_key", "availability"),
+      // LAYER A ELICITATION (qp_universal@4, 2026-09-18). The notice-period number is a PART of
+      // the same availability answer — the form stores it inside the 0111 JSON object, the chat
+      // asks it as its own pack item — so it settles the same fact. Without these aliases the
+      // item names no fact, `isChatOwnedItem` passes it unconditionally, and the settled-state
+      // reader would not see a chat notice answer as availability settled.
+      settles("pack_question_key", "notice_period_days"),
+      settles("target_field", "notice_period_days"),
+      settles("attribute_key", "notice_period_days"),
+    ],
   },
   certifications: {
     id: "certifications",
@@ -246,6 +268,56 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
       settles("marker_dto_field", "accommodation_needed"),
     ],
   },
+  // ── ADR-0042 D9 / Layer A (c) — the finishing form's extension keys ────────────────────────
+  //
+  // The attribute key IS the fact; the wire key is the same string on each. A worker having
+  // answered one of these on the finishing form must never be asked it again (D4).
+  work_types: {
+    id: "work_types",
+    aliases: [
+      settles("attribute_key", "work_types"),
+      settles("marker_dto_field", "work_types"),
+      // Fill-gap Phase 1: `qp_universal@3` asks this straight from the chat, so the pack item's
+      // `target_field` names the fact too. Without this alias the ownership table's entry for
+      // `work_types` is DEAD — the item resolves to no fact, and `isChatOwnedItem` passes it
+      // unconditionally, so a future flip back to "pages" would not stop the ask.
+      settles("target_field", "work_types"),
+    ],
+  },
+  salary_period: {
+    id: "salary_period",
+    aliases: [
+      settles("attribute_key", "salary_period"),
+      settles("marker_dto_field", "salary_period"),
+      // LAYER A ELICITATION (qp_universal@4, 2026-09-18). The chat asks these three straight
+      // from the pack, so the pack item's `target_field` names the fact too — the exact
+      // `work_types` precedent above. Without the alias the ownership table's entry for the
+      // fact is DEAD: the item resolves to no fact and `isChatOwnedItem` passes it
+      // unconditionally, so a future flip back to `pages` would not stop the ask.
+      settles("pack_question_key", "salary_period"),
+      settles("target_field", "salary_period"),
+    ],
+  },
+  commute_max_km: {
+    id: "commute_max_km",
+    aliases: [
+      settles("attribute_key", "commute_max_km"),
+      settles("marker_dto_field", "commute_max_km"),
+      // Layer A elicitation — see the salary_period note above.
+      settles("pack_question_key", "commute_max_km"),
+      settles("target_field", "commute_max_km"),
+    ],
+  },
+  willing_to_travel: {
+    id: "willing_to_travel",
+    aliases: [
+      settles("attribute_key", "willing_to_travel"),
+      settles("marker_dto_field", "willing_to_travel"),
+      // Layer A elicitation — see the salary_period note above.
+      settles("pack_question_key", "willing_to_travel"),
+      settles("target_field", "willing_to_travel"),
+    ],
+  },
 };
 
 /**
@@ -283,6 +355,11 @@ export const MARKER_OWNED_FACTS: Readonly<Record<MarkerScreenType, readonly Work
     "job_type",
     "relocation",
     "accommodation",
+    // ADR-0042 D9 / Layer A (c) — the same page owns the extension keys.
+    "work_types",
+    "salary_period",
+    "commute_max_km",
+    "willing_to_travel",
   ],
   qualifications: ["education", "certifications"],
   employment: ["work_history"],

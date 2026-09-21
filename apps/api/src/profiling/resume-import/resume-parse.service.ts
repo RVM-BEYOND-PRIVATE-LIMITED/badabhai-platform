@@ -3,8 +3,10 @@ import type { ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 import type { ParsedField } from "@badabhai/ai-contracts";
 import {
   RESUME_EXTRACTION_METHODS,
+  TRADE_FORM_KINDS_ALL,
   type ResumeExtractionMethodName,
   type ResumeImportFailureName,
+  type TradeFormKindName,
 } from "@badabhai/types";
 
 import { AiService } from "../../ai/ai.service";
@@ -81,6 +83,11 @@ export class ResumeParseService {
         storage_key: row.storageKey,
         mime: row.mime,
         target_fields: RESUME_PARSE_TARGET_FIELDS as unknown as TargetField[],
+        // Task 1 B2 — the CLOSED option list for the model's trade classification.
+        // Spread off the frozen source of truth so the wire can never carry a live
+        // reference a consumer could widen at runtime (same freeze discipline as
+        // the registry the kinds come from).
+        trade_kinds: [...TRADE_FORM_KINDS_ALL],
       },
       ctx,
     );
@@ -96,9 +103,16 @@ export class ResumeParseService {
     // billed whatever its content turned out to be, and an off-contract reply is exactly the
     // case a spend investigation needs to see. `record` no-ops on a null `meta`, which is what
     // every degraded far-side path sends rather than a fabricated zero.
-    await this.aiCost.record(out.ai_metadata, "resume_parse", null, ctx.correlationId, ctx.requestId, {
-      workerId,
-    });
+    await this.aiCost.record(
+      out.ai_metadata,
+      "resume_parse",
+      null,
+      ctx.correlationId,
+      ctx.requestId,
+      {
+        workerId,
+      },
+    );
 
     if (out.failure_reason) {
       return this.fail(
@@ -128,9 +142,7 @@ export class ResumeParseService {
     // route the far wall runs under a masking policy the owner can flip, which is precisely
     // when a second opinion is worth having.
     const gated = applyResumeParseGates(out.fields, RESUME_PARSE_TARGET_FIELDS as TargetField[]);
-    const { kept: employments, rejected: employmentsRejected } = filterEmployments(
-      out.employments,
-    );
+    const { kept: employments, rejected: employmentsRejected } = filterEmployments(out.employments);
 
     if (gated.rejections.length > 0 || employmentsRejected > 0) {
       // COUNTS AND GATE IDS, never values — the rejected value is by definition the one thing
@@ -144,11 +156,22 @@ export class ResumeParseService {
 
     // NO WRITE. The row stays `parsing` until the route service settles it in one statement —
     // see the class docblock for the defect a write here caused.
+    //
+    // `storageKey` + `mime` RIDE ON THE DRAFT so the RI-summary second call can re-read the
+    // same document without a second indexed lookup. They are the row's own key and closed-set
+    // mime the parse already validated — never client input — and carrying them here is what
+    // keeps the summary off the request path and off a second read.
     return {
       status: "parsed",
       importId: row.id,
+      storageKey: row.storageKey,
+      mime: row.mime,
       fields: gated.accepted,
       employments,
+      // Task 1 B2 — the model's trade classification, narrowed to the closed list
+      // (or null). Recorded, NOT acted on: `routeToTradeForm` stays the decider
+      // until the handover-policy ruling lands the recall path.
+      associationKind: narrowTradeKind(out.trade_association?.kind),
       extractionMethod,
       pageCount: out.page_count,
       ocrConfidence: out.ocr_confidence,
@@ -219,6 +242,23 @@ function narrowExtractionMethod(
 }
 
 /**
+ * Task 1 B2 — the model's trade classification, narrowed to the closed
+ * 21-kind list, or null.
+ *
+ * A MEMBERSHIP TEST, NOT A CAST — the same posture as `narrowExtractionMethod`
+ * above, for the same reason: whatever is not in the set becomes null so the
+ * caller has to decide what an unknown kind means rather than inheriting a
+ * value the column CHECK would refuse. The far side already narrowed once;
+ * this is the second wall, and it runs even when the far side predates the
+ * classification entirely (`trade_association` absent ⇒ null).
+ */
+function narrowTradeKind(kind: string | null | undefined): TradeFormKindName | null {
+  return (TRADE_FORM_KINDS_ALL as readonly string[]).includes(kind ?? "")
+    ? (kind as TradeFormKindName)
+    : null;
+}
+
+/**
  * What RI-4 will be handed. Deliberately NOT persisted here: nothing about a parse is a claim
  * the worker has made, and ruling D2 says a suggestion becomes an answer only when he confirms
  * it. An import abandoned between this phase and the next must leave zero claims behind.
@@ -234,8 +274,22 @@ export type ParsedDraft =
   | {
       status: "parsed";
       importId: string;
+      /**
+       * The row's own storage key + closed-set mime, carried so the RI-summary second
+       * call can re-read the same document without a second lookup. Validated by the
+       * confirm path long before the parse ran — never client input at this point.
+       */
+      storageKey: string;
+      mime: string;
       fields: Record<string, ParsedField>;
       employments: ResumeEmployment[];
+      /**
+       * Task 1 B2 — which of the 21 declared trades the model judged this
+       * résumé, or null (no judgment / none fits / far side predates it).
+       * RECORDED, NOT ACTED ON: routing still comes from `routeToTradeForm`
+       * alone until the recall path is ruled in.
+       */
+      associationKind: TradeFormKindName | null;
       extractionMethod: ResumeExtractionMethodName;
       pageCount: number | null;
       ocrConfidence: number | null;

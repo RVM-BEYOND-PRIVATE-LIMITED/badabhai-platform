@@ -315,9 +315,11 @@ describe("the normalizer map is keyed on REAL vocabulary ids", () => {
     // field falls through to the verbatim path and stores a whole sentence where a boolean
     // belongs — silently, because "no normalizer" is a legal state for free-text questions.
     //
-    // `notice_period_days` is the deliberate exception and is named here rather than pattern-
-    // matched away: it is reachable only as an `attribute` target, never an `rfs` one.
-    const ATTRIBUTE_ONLY = new Set(["notice_period_days"]);
+    // The `attribute`-target exceptions, named here rather than pattern-matched away: each is
+    // reachable only as an `attribute` target, never an `rfs` one. `notice_period_days` is
+    // Layer A (c); `commute_max_km` and `training_year` joined in the Layer A elicitation
+    // (qp_universal@4) and store into the same `worker_attributes` keys the pages write.
+    const ATTRIBUTE_ONLY = new Set(["notice_period_days", "commute_max_km", "training_year"]);
     const offenders = NORMALIZED_FIELDS.filter(
       (field) => !ATTRIBUTE_ONLY.has(field) && !RFS_FIELD_IDS.has(field),
     );

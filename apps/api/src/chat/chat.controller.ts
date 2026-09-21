@@ -33,10 +33,10 @@ export class ChatController {
   @HttpCode(201)
   startSession(
     @CurrentWorker() worker: AuthenticatedWorker,
-    @Body(new ZodValidationPipe(StartSessionSchema)) _dto: StartSessionDto,
+    @Body(new ZodValidationPipe(StartSessionSchema)) dto: StartSessionDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.chat.startSession(worker.id, ctx);
+    return this.chat.startSession(worker.id, ctx, { confirmFirst: dto.confirm_first === true });
   }
 
   @Post("message")

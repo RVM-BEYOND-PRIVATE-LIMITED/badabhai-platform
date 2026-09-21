@@ -384,7 +384,8 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       false,
       "worker",
     );
-    expect(input.summary).toBe("Tandoor Cook with 3 years of experience in catering.");
+    // Layer A (h): the LLM-led path's deterministic strip — role · tenure · tools · city.
+    expect(input.summary).toBe("Tandoor Cook · 3 yrs");
   });
 
   it("says each thing once when the domain repeats the role", () => {
@@ -396,7 +397,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       false,
       "worker",
     );
-    expect(input.summary).toBe("Cooking.");
+    expect(input.summary).toBe("Cooking · duration not stated");
   });
 
   it("fabricates no summary when the model captured no labels", () => {
@@ -812,8 +813,12 @@ describe("buildResumeRenderInput — the résumé container", () => {
     );
   });
 
-  it("builds a summary from the labels", () => {
-    expect(build().summary).toBe("VMC Operator with 3.5 years of experience in CNC Machining.");
+  it("builds the Layer A (h) summary strip from the confirmed fields", () => {
+    // role · tenure · tools · city — the same four facts the verdict line carries, from the same
+    // helpers, so the sentence and the strip can never disagree about the tenure (the test below).
+    expect(build().summary).toBe(
+      "VMC Operator · 3 yrs 6 mo · VMC operation, Part manufacturing, G-code reading · Delhi",
+    );
   });
 
   it("leaves the answer-map sections empty — the accepted, temporary loss", () => {
@@ -1237,6 +1242,7 @@ describe("R8 §1 — total years prefers the mandatory ask over the sum beneath 
   it("keeps the headline and the summary telling the SAME story", () => {
     // Two call sites once computed the tenure independently. A sheet reading "8 yrs" at the top
     // and "with 5 years of experience" three lines down is worse than either number alone.
+    // Layer A (h) makes them literally the same segment, rendered by the same helper.
     const input = buildResumeRenderInput(
       { experience: { total_years: 8 }, resume_profile: containerWith([36, 16, 12]) },
       "Ramesh Yadav",
@@ -1245,7 +1251,8 @@ describe("R8 §1 — total years prefers the mandatory ask over the sum beneath 
       false,
       "worker",
     );
-    expect(input.summary).toContain("8 years");
+    expect(input.summary).toContain("8 yrs");
+    expect(input.profileHeadline).toContain("8 yrs");
   });
 });
 
@@ -1346,5 +1353,37 @@ describe("the masthead location line reaches the sheet", () => {
     });
     expect(input.degradationOverflows).toBe(true);
     expect(input.locationLine).toBe("Faridabad, Haryana");
+  });
+});
+
+/**
+ * Layer A (a) / ADR-0042 D9 — the WhatsApp line is a WORKER-COPY-ONLY slot.
+ *
+ * THE GATE IS THE TEST: the employer copy receives null even when the context carries a
+ * number, because the audience switch lives in the mapper rather than at the call site.
+ */
+describe("the WhatsApp line is a worker-copy slot (Layer A (a))", () => {
+  const build = (audience: "worker" | "employer", whatsapp: string | null) =>
+    buildResumeRenderInput(
+      { role_label: "CNC Turner" },
+      "Rohit Kumar",
+      "bb_trade",
+      null,
+      false,
+      audience,
+      { packId: null, attributes: {}, whatsapp },
+    );
+
+  it("prints on the worker's own copy, formatted with the phone helper", () => {
+    expect(build("worker", "+919876543210").whatsappLine).toBe("WhatsApp: +91 98765 43210");
+  });
+
+  it("never reaches the employer copy, even when the context carries one", () => {
+    expect(build("employer", "+919876543210").whatsappLine).toBeNull();
+  });
+
+  it("collapses when no number is on file, on both audiences", () => {
+    expect(build("worker", null).whatsappLine).toBeNull();
+    expect(build("employer", null).whatsappLine).toBeNull();
   });
 });

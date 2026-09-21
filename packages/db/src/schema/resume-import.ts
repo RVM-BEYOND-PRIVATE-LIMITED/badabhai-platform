@@ -89,6 +89,43 @@ export const workerResumeImports = pgTable(
     route: text("route").$type<ResumeImportRouteName>(),
     /** A `TradeFormKind`. Set only when {@link route} is `form` — see `wri_form_kind_chk`. */
     formKind: text("form_kind"),
+    // ── Task 1 B2: the model's closed-list judgment ──────────────────────────
+    //
+    // Which of the 21 declared trades (`TRADE_FORM_KINDS_ALL`) the parse judged
+    // this résumé — or NULL (no judgment, none fits, or parsed before the
+    // classification existed). RECORDED, NOT ACTED ON: the route still comes
+    // from the deterministic router alone; this column is the observability the
+    // recall path will read.
+    //
+    // Any of the 21, on EITHER route — including chat, where "judged none" is
+    // the common case. Hence a plain membership CHECK, not a biconditional
+    // with `route` like `form_kind` carries: constraining it to one road would
+    // make the chat-road judgments it exists to count unwritable.
+    //
+    // NULLABLE with no backfill: NULL honestly means "parsed before the
+    // classification existed", exactly like the sibling nullable columns.
+    associationKind: text("association_kind"),
+
+    // ── RI-identity: the Hinglish line staged for the "is this you?" turn ──
+    //
+    // Which of the 9 ENABLED form kinds the summary judged this résumé — or NULL
+    // (no judgment, none fits, or summarized before the call existed) — plus the
+    // two short Hinglish strings the chat bubble renders. RECORDED, NOT ACTED ON:
+    // the worker's tap answers whether the line is his; nothing here routes,
+    // stages an answer, or reaches the sheet.
+    //
+    // PLAIN TEXT, NOT ENCRYPTED, and that is deliberate rather than an oversight:
+    // `suggestions_enc` is sealed because it carries employer names and role
+    // titles lifted from the document. These three columns carry a closed-set
+    // kind id and two PII-certified Hinglish strings — the far-side gate refused
+    // anything carrying an identifier before they were written, and the API-side
+    // second wall narrowed the kind. There is nothing here PiiCrypto must cover.
+    //
+    // NULLABLE with no backfill: NULL honestly means "summarized before the
+    // call existed", exactly like the sibling nullable columns.
+    identityRoleKind: text("identity_role_kind"),
+    identityExperienceText: text("identity_experience_text"),
+    identitySummaryText: text("identity_summary_text"),
 
     /** AES-256-GCM token over the staged suggestion payload. NEVER read without PiiCrypto. */
     suggestionsEnc: text("suggestions_enc"),
@@ -115,6 +152,22 @@ export const workerResumeImports = pgTable(
       sql`${t.extractionMethod} IS NULL OR ${t.extractionMethod} IN ('pdf_text', 'docx', 'ocr')`,
     ),
     check("wri_route_chk", sql`${t.route} IS NULL OR ${t.route} IN ('form', 'chat')`),
+    // Task 1 B2 — the closed 21-kind vocabulary (`TRADE_FORM_KINDS_ALL`), spelled
+    // out like every other CHECK here rather than referenced: a migration is a
+    // frozen record, and a future 22nd kind widens the registry AND this list in
+    // the same change (the settle test pins the SQL it compiles).
+    check(
+      "wri_association_kind_chk",
+      sql`${t.associationKind} IS NULL OR ${t.associationKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician')`,
+    ),
+    // RI-identity — the closed 9-kind ENABLED vocabulary, spelled out like every
+    // other CHECK here rather than referenced: a migration is a frozen record, and
+    // enabling a 10th form widens the registry AND this list in the same change
+    // (the settle test pins the SQL it compiles).
+    check(
+      "wri_identity_role_kind_chk",
+      sql`${t.identityRoleKind} IS NULL OR ${t.identityRoleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'conventional_machinist', 'tool_die_maker', 'cam_programmer', 'cad_draughtsman', 'welder', 'painter_coating')`,
+    ),
     check("wri_byte_size_chk", sql`${t.byteSize} > 0`),
     check("wri_storage_key_present_chk", sql`length(btrim(${t.storageKey})) > 0`),
     check("wri_page_count_chk", sql`${t.pageCount} IS NULL OR ${t.pageCount} > 0`),

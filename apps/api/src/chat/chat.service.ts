@@ -9,7 +9,7 @@ import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
-import { toConversationStatePatch } from "../profiling/conversation-state";
+import { resolvePackPointer, toConversationStatePatch } from "../profiling/conversation-state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -17,6 +17,7 @@ import { hasExtractedContent } from "../profiles/profile-content";
 import type { NewWorkerPackAnswer } from "@badabhai/db";
 import type { QuestionPackOption } from "@badabhai/ai-contracts";
 import { CHAT_OPENING_TEXT } from "./chat-replies";
+import { resolveResumeMenu } from "./resume-menu";
 import { ChatRepository } from "./chat.repository";
 import {
   ChatTranscriptBuffer,
@@ -172,7 +173,7 @@ export class ChatService {
     private readonly orchestrator: ProfilingOrchestrator,
   ) {}
 
-  async startSession(workerId: string, ctx: RequestContext) {
+  async startSession(workerId: string, ctx: RequestContext, opts: { confirmFirst?: boolean } = {}) {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
@@ -196,11 +197,22 @@ export class ChatService {
     const live = await this.chat.findActiveSessionByWorker(workerId);
     if (live) {
       this.logger.log(`reattached to live session worker=${workerId} session=${live.id}`);
-      return {
+      const base = {
         session_id: live.id,
         status: live.status,
         started_at: live.startedAt,
       };
+      // Task 1 B3 — a live session that never served its résumé confirm still can, and a
+      // worker's re-entry is exactly when that matters. `openResumeConfirm` is a no-op
+      // (null, nothing written) for every other session: already served, already settled,
+      // mid-conversation, or no pending import.
+      const opened = await this.tryOpenResumeConfirm(
+        opts.confirmFirst === true,
+        live.id,
+        workerId,
+        ctx,
+      );
+      return opened === null ? base : { ...base, ...opened };
     }
 
     const session = await this.chat.createSession(workerId);
@@ -218,6 +230,19 @@ export class ChatService {
       status: session.status,
       started_at: session.startedAt,
     };
+
+    // Task 1 B3 (ADR-0042 D8) — THE RÉSUMÉ CONFIRM OPENS THE SESSION, when the client can
+    // render a server-served opening and one is pending. BEFORE the one-shot opener below,
+    // deliberately: a confirm is strictly more specific than the generic greeting, and a
+    // résumé session that opens with "aap kaunsa kaam karte hain?" would be asking a question
+    // the document already answered.
+    const opened = await this.tryOpenResumeConfirm(
+      opts.confirmFirst === true,
+      session.id,
+      workerId,
+      ctx,
+    );
+    if (opened !== null) return { ...base, ...opened };
 
     // One-shot composite opener (CHAT_ONE_SHOT_OPENER_ENABLED, default OFF).
     //
@@ -267,6 +292,59 @@ export class ChatService {
       );
     }
     return response;
+  }
+
+  /**
+   * Task 1 B3 (ADR-0042 D8) — open the session on the résumé confirm, or `null`.
+   *
+   * THE WIRE SHAPE OF A SERVER-SERVED OPENING. `opening_text` was already the field for
+   * "here is the first bubble" (the flag-gated one-shot opener), so the confirm reuses it and
+   * adds `resume_pending` + `opening_options` beside it. The worker answers by sending the
+   * chip's `option_key` back as the session's first message — the turn path captures it
+   * against the pending confirm exactly as if it had been tapped on a later turn.
+   *
+   * `confirmFirst` is the CLIENT'S capability signal and the whole reason this is safe: a
+   * build that does not ask never triggers the write, so its session opens byte-for-byte as
+   * it always has (synthetic greeting, first inbound gets the confirm as a REPLY instead).
+   */
+  private async tryOpenResumeConfirm(
+    confirmFirst: boolean,
+    sessionId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<{
+    resume_pending: true;
+    opening_text: string;
+    opening_options: { option_key: string; label_text: string }[];
+  } | null> {
+    if (!confirmFirst) return null;
+    let opened;
+    try {
+      opened = await this.orchestrator.openResumeConfirm({
+        sessionId,
+        workerId,
+        now: new Date(),
+        ctx,
+      });
+    } catch (error) {
+      // DEGRADES, NEVER FAILS — the identical posture `autoTriggerExtraction` takes on the
+      // turn path: a mount-time extra must never cost the worker the session. The worst case
+      // is today's flow, exactly: greeting first, confirm as the reply to their first message.
+      this.logger.warn(
+        `résumé-confirm open failed session=${sessionId} (non-fatal, the confirm is served as ` +
+          `the reply to the first message instead): ${(error as Error).message}`,
+      );
+      return null;
+    }
+    if (opened === null) return null;
+    return {
+      resume_pending: true,
+      opening_text: opened.reply,
+      opening_options: opened.options.map((option) => ({
+        option_key: option.option_key,
+        label_text: option.label_text,
+      })),
+    };
   }
 
   /**
@@ -330,7 +408,7 @@ export class ChatService {
     );
     switch (outcome.kind) {
       case "session_over":
-        return this.terminalResponse(dto.session_id);
+        return this.terminalResponse(dto.session_id, dto.text);
       case "reflushed":
         return this.checkedResponse(
           {
@@ -625,7 +703,17 @@ export class ChatService {
       try {
         await this.chat.saveConversationState(
           dto.session_id,
-          toConversationStatePatch(buffered.profiling),
+          {
+            ...toConversationStatePatch(buffered.profiling),
+            // #1504 item 5 (city-seed). `toConversationStatePatch` never carries this — it is
+            // engine bookkeeping outside the frozen `ConversationState` contract, exactly like
+            // `form_kind` below in `finalizeInterview`/`abandonInterview` — but the mid-interview
+            // checkpoint REPLACES the whole `conversation_state` column with only that patch, so
+            // without this line a checkpoint written between the seed and the flush would durably
+            // drop `prefilled_keys` and the admin journey / parse exclusion would lose track of
+            // what was seeded rather than asked.
+            prefilled_keys: buffered.profiling.prefilledKeys,
+          },
           now,
         );
       } catch (err) {
@@ -815,6 +903,11 @@ export class ChatService {
       // the flush commits, so without this row the form API would have no way to learn which
       // form a returning worker was sent to.
       form_kind: buffer.profiling?.formKind ?? null,
+      // #1504 item 5 (city-seed). SAME REASONING AS `form_kind` ABOVE — engine bookkeeping
+      // outside the frozen `ConversationState` contract, durable because the envelope is gone
+      // the moment this transaction commits. `[]` for a v1 (model-driven) session, which never
+      // seeds anything.
+      prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -869,7 +962,7 @@ export class ChatService {
         // a session whose transcript was never written. The buffer survives and the retry
         // re-inserts the same rows — idempotent, because `wpa_worker_question_uq` turns the
         // second attempt into an upsert rather than a duplicate.
-        const answers = this.toPackAnswerRows(workerId, sessionId, buffer);
+        const answers = this.toPackAnswerRows(workerId, sessionId, buffer, true);
         if (answers.length > 0) {
           await this.chat.insertPackAnswers(tx, answers);
         }
@@ -954,7 +1047,12 @@ export class ChatService {
         // that it did. A rolled-back flush leaves no telemetry claiming a completion.
         if (buffer.profiling) {
           const env = buffer.profiling;
-          const byStatus = countAnswerStatuses(env.answerMap);
+          // #1504 item 5 (city-seed). EXCLUDES `prefilledKeys` — `answered_count` means "settled
+          // BY THIS INTERVIEW", not "settled including what `/name` already gave us", the same
+          // distinction `toPackAnswerRows` draws for the same set of keys above.
+          const byStatus = countAnswerStatuses(
+            env.answerMap.filter((record) => !env.prefilledKeys.includes(record.question_key)),
+          );
           await this.events.emit({
             event_name: "profile.interview_completed",
             actor: { actor_type: "worker", actor_id: workerId },
@@ -1022,6 +1120,27 @@ export class ChatService {
         `turns=${buffer.turnCount} reason=${buffer.completionReason ?? "-"}`,
     );
     await this.buffer.drop(sessionId);
+    // Defect-A fix (owner ruling 2026-09-18, option a): freeze the served pack as the
+    // session's durable pin at close. `pinPack` is write-once in SQL (`packId IS NULL`),
+    // so a session `persistPin` already pinned keeps it byte-for-byte and this is a no-op
+    // there; a universal-only session gains the stamped pointer, which is what makes the
+    // review screen, the settled view and the correction path resolve after the flush.
+    // Best-effort OUTSIDE the transaction, like `persistPin`: a pin failure degrades to
+    // the pre-fix state (rows without a pin) and is logged, never thrown into the close.
+    {
+      const pointer = buffer.profiling ? resolvePackPointer(buffer.profiling) : null;
+      if (pointer) {
+        try {
+          await this.chat.pinPack(sessionId, pointer.packId, pointer.packVersion);
+        } catch (err) {
+          this.logger.warn(
+            `pack pin ${pointer.packId}:${pointer.packVersion} did not become durable for ` +
+              `session ${sessionId}; answers are flushed without it: ` +
+              `${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
+    }
     // WITHHELD ON A HANDOVER, for the reason spelled out at the emit above: generic extraction
     // on a two-turn transcript produces a container that outranks the answer map and blanks the
     // trade sheet. Gated here as well as on the event, because this call does not read it.
@@ -1090,6 +1209,8 @@ export class ChatService {
           answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
           // ⚠ FALSE, and load-bearing — see the header. No extraction ran, and none will.
           extraction_ready_emitted: false,
+          // #1504 item 5 (city-seed) — same reasoning as `finalizeInterview`'s `prefilled_keys`.
+          prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding
@@ -1099,7 +1220,9 @@ export class ChatService {
     const messageRows = buffer
       ? buffer.messages.map((m) => this.toMessageRow(sessionId, workerId, m))
       : [];
-    const answerRows = buffer ? this.toPackAnswerRows(workerId, sessionId, buffer) : [];
+    // `false`: abandon keeps the pre-fix attribution (no rows without an occupation pin),
+    // pinned by `chat-abandonment.test.ts` — the complete path above is the one the ruling moves.
+    const answerRows = buffer ? this.toPackAnswerRows(workerId, sessionId, buffer, false) : [];
 
     const closed = await this.chat.withTransaction(async (tx) => {
       if (!(await this.chat.abandonSession(tx, sessionId, state, at))) {
@@ -1229,21 +1352,38 @@ export class ChatService {
     workerId: string,
     sessionId: string,
     buffer: TranscriptBuffer,
+    // Defect-A fix (owner ruling 2026-09-18, option a): when true, a missing occupation pin
+    // falls back to the stamped universal pointer (`resolvePackPointer`), so a universal-only
+    // interview attributes its answers instead of writing nothing. False preserves the
+    // pre-fix attribution exactly (abandon path — pinned by `chat-abandonment.test.ts`).
+    allowUniversalPointer: boolean,
   ): NewWorkerPackAnswer[] {
     const envelope = buffer.profiling;
     if (!envelope) return [];
     // A pack pointer is REQUIRED, not defaulted. `pack_id` is how a later reader knows which
     // question `experience_years` was — two packs may legitimately own that key with different
     // wording — so a row without one is unreadable rather than merely incomplete.
-    if (envelope.packId === null || envelope.packVersion === null) return [];
+    const pointer = allowUniversalPointer
+      ? resolvePackPointer(envelope)
+      : envelope.packId !== null && envelope.packVersion !== null
+        ? { packId: envelope.packId, packVersion: envelope.packVersion }
+        : null;
+    if (!pointer) return [];
 
     const rows: NewWorkerPackAnswer[] = [];
     for (const record of envelope.answerMap) {
+      // #1504 item 5 (city-seed). NO ROW FOR A SEEDED-AND-UNCONFIRMED KEY (F1, deliberate). A
+      // seeded value has no transcript span and no worker turn behind it — writing it here would
+      // claim the worker was asked and answered `current_city`, which is false, and would give
+      // the review screen and any later reader no way to tell a seed from a real answer. The
+      // review screen's `prefilled_keys` merge (`profiling-session.service.ts`) and the
+      // admin-journey completion rule both read the envelope/`conversation_state` copy instead.
+      if (envelope.prefilledKeys.includes(record.question_key)) continue;
       const row = packAnswerRowFor({
         workerId,
         sessionId,
-        packId: envelope.packId,
-        packVersion: envelope.packVersion,
+        packId: pointer.packId,
+        packVersion: pointer.packVersion,
         record,
         // `chip` vs `chat` is not knowable from the answer map — the record keeps the value, not
         // the affordance that produced it. `chat` is the honest default; a chip tap is still a
@@ -1337,23 +1477,33 @@ export class ChatService {
    * completing turn (an old build, a dropped response, a fresh process reusing a
    * persisted id) is told again here, on every subsequent message, rather than being
    * left to post into a dead session forever.
+   *
+   * POST-COMPLETION RESUME MENU (backend-only V1). Instead of the old fixed
+   * closing line with no chips, the dead session now serves a stateless,
+   * deterministic menu (`resume-menu.ts`): edit-vs-redo on any text, then the
+   * redo pair (upload / chat) or the 6 resume sections. No LLM, no writes, no
+   * PII in logs. `session_ended` + `extraction_ready` stay true so the client
+   * contract (drop the cached id, keep the CTA state) is unchanged; only the
+   * reply + chips differ, which old clients render as plain chips.
    */
-  private terminalResponse(sessionId: string): PostMessageResponse {
+  private terminalResponse(sessionId: string, text = ""): PostMessageResponse {
+    const menu = resolveResumeMenu(text);
     return this.checkedResponse(
       {
         session_id: sessionId,
-        reply: CHAT_ALREADY_COMPLETE_REPLY,
-        ...this.ttsField(CHAT_ALREADY_COMPLETE_REPLY, null),
+        reply: menu.reply,
+        ...this.ttsField(menu.reply, null),
         blocked: false,
         is_mock: true,
-        // A dead session serves no question, so it offers nothing to tap.
-        suggested_followups: [],
-        suggested_options: [],
+        suggested_followups: menu.followups,
+        suggested_options: menu.options,
         asked_question_id: null,
         extraction_ready: true,
         unanswered_essentials: [],
         session_ended: true,
-        question_kind: "close",
+        // A menu is a single-select, not a question: `disambiguate` draws the
+        // vertical list on shipped clients; a bare ack with no chips stays `close`.
+        question_kind: menu.followups.length > 0 ? "disambiguate" : "close",
         // A dead session serves no question, so it constrains no answer either.
         input_mode: "text",
         // No question is on screen here, so there is no answer shape to describe.

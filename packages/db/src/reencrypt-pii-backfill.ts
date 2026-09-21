@@ -59,6 +59,7 @@ import {
   payerMembers,
   payerOrgs,
   payers,
+  workerCertificates,
   workerEmployment,
   workerResumeImports,
   workers,
@@ -96,7 +97,10 @@ function emptyStats(): Stats {
 interface PiiTarget {
   tableName: string;
   columnName: string;
-  fetchBatch: (afterId: string | null, limit: number) => Promise<{ id: string; value: string | null }[]>;
+  fetchBatch: (
+    afterId: string | null,
+    limit: number,
+  ) => Promise<{ id: string; value: string | null }[]>;
   /** Optimistic-concurrency update; returns true iff this call wrote the row. */
   applyOne: (id: string, before: string, after: string) => Promise<boolean>;
 }
@@ -118,9 +122,7 @@ function buildTargets(db: Database): PiiTarget[] {
       db
         .select({ id: idCol, value: dataCol })
         .from(table)
-        .where(
-          afterId ? and(isNotNull(dataCol), gt(idCol, afterId)) : isNotNull(dataCol),
-        )
+        .where(afterId ? and(isNotNull(dataCol), gt(idCol, afterId)) : isNotNull(dataCol))
         .orderBy(asc(idCol))
         .limit(limit) as Promise<{ id: string; value: string | null }[]>,
     applyOne: async (id, before, after) => {
@@ -136,13 +138,33 @@ function buildTargets(db: Database): PiiTarget[] {
   return [
     target(workers, workers.id, workers.phoneE164, "workers", "phone_e164", "phoneE164"),
     target(workers, workers.id, workers.fullName, "workers", "full_name", "fullName"),
+    // ADR-0042 D9 / Layer A (a) — the optional WhatsApp number (migration 0109). Added WITH
+    // the column, while it is empty, which is the lesson the 0094 comment below records: a
+    // target costs nothing on a column with no rows and makes the FIRST token written
+    // rotatable. The alternative is finding the gap during a key retirement, when the answer
+    // is "this kid can never be retired" and nobody can say why.
+    target(workers, workers.id, workers.whatsappEnc, "workers", "whatsapp_enc", "whatsappEnc"),
     target(payers, payers.id, payers.emailEnc, "payers", "email_enc", "emailEnc"),
     target(payers, payers.id, payers.phoneEnc, "payers", "phone_enc", "phoneEnc"),
     target(payers, payers.id, payers.orgNameEnc, "payers", "org_name_enc", "orgNameEnc"),
     target(payerOrgs, payerOrgs.id, payerOrgs.nameEnc, "payer_orgs", "name_enc", "nameEnc"),
-    target(payerMembers, payerMembers.id, payerMembers.emailEnc, "payer_members", "email_enc", "emailEnc"),
+    target(
+      payerMembers,
+      payerMembers.id,
+      payerMembers.emailEnc,
+      "payer_members",
+      "email_enc",
+      "emailEnc",
+    ),
     target(agencyKyc, agencyKyc.id, agencyKyc.panEnc, "agency_kyc", "pan_enc", "panEnc"),
-    target(agencyKyc, agencyKyc.id, agencyKyc.bankAccountEnc, "agency_kyc", "bank_account_enc", "bankAccountEnc"),
+    target(
+      agencyKyc,
+      agencyKyc.id,
+      agencyKyc.bankAccountEnc,
+      "agency_kyc",
+      "bank_account_enc",
+      "bankAccountEnc",
+    ),
     target(agencyKyc, agencyKyc.id, agencyKyc.ifscEnc, "agency_kyc", "ifsc_enc", "ifscEnc"),
     target(
       agencyKyc,
@@ -188,7 +210,14 @@ function buildTargets(db: Database): PiiTarget[] {
     // (a table, a column, a row id, a count — never a value, never a token) is doing more work
     // on these two rows than on any other, and `processTarget` drops the reference immediately
     // after re-encrypting. Do not add a value to a log line in this file.
-    target(aiCallTraces, aiCallTraces.id, aiCallTraces.promptEnc, "ai_call_traces", "prompt_enc", "promptEnc"),
+    target(
+      aiCallTraces,
+      aiCallTraces.id,
+      aiCallTraces.promptEnc,
+      "ai_call_traces",
+      "prompt_enc",
+      "promptEnc",
+    ),
     target(
       aiCallTraces,
       aiCallTraces.id,
@@ -243,6 +272,17 @@ function buildTargets(db: Database): PiiTarget[] {
       "worker_employment",
       "employer_name_enc",
       "employerNameEnc",
+    ),
+    // ADR-0042 D9 / Layer A (d) — the licence number on a certificate (migration 0112). Added
+    // WITH the column, while it is empty, exactly as the 0094 entry above was: a target costs
+    // nothing on a column with no rows and makes the FIRST token rotatable.
+    target(
+      workerCertificates,
+      workerCertificates.id,
+      workerCertificates.licenceNumberEnc,
+      "worker_certificate",
+      "licence_number_enc",
+      "licenceNumberEnc",
     ),
     // ADR-0041 — the staged suggestions read out of an uploaded résumé. ONE encrypted column
     // rather than an encrypted-leaf jsonb, so rotation is the same single-column job as every
@@ -324,7 +364,9 @@ function parseKeyring(): PiiKeyring {
       throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains an invalid key id");
     }
     if (typeof key !== "string" || Buffer.from(key, "base64").length !== 32) {
-      throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains a key that is not base64 of exactly 32 bytes");
+      throw new Error(
+        "[reencrypt] PII_ENCRYPTION_KEYS contains a key that is not base64 of exactly 32 bytes",
+      );
     }
     if (Buffer.from(key, "base64").every((b) => b === 0)) {
       throw new Error("[reencrypt] PII_ENCRYPTION_KEYS contains an all-zero key");
@@ -332,7 +374,9 @@ function parseKeyring(): PiiKeyring {
     keys[kid] = key;
   }
   if (!PII_KID_PATTERN.test(rawKid) || !Object.prototype.hasOwnProperty.call(keys, rawKid)) {
-    throw new Error("[reencrypt] PII_ENCRYPTION_ACTIVE_KID is not a valid key id present in PII_ENCRYPTION_KEYS");
+    throw new Error(
+      "[reencrypt] PII_ENCRYPTION_ACTIVE_KID is not a valid key id present in PII_ENCRYPTION_KEYS",
+    );
   }
   return { activeKid: rawKid, keys };
 }
@@ -411,11 +455,15 @@ function printSummary(rows: { target: PiiTarget; stats: Stats }[], apply: boolea
         String(s.alreadyCurrent).padStart(10) +
         String(s.needsRotation).padStart(9) +
         (apply
-          ? String(s.rotated).padStart(9) + String(s.concurrentSkipped).padStart(9) + String(s.decryptFailed).padStart(8)
+          ? String(s.rotated).padStart(9) +
+            String(s.concurrentSkipped).padStart(9) +
+            String(s.decryptFailed).padStart(8)
           : ""),
     );
     if (s.malformed > 0) {
-      console.log(`  ⚠ ${s.malformed} malformed value(s) in ${t.tableName}.${t.columnName} — see warnings above`);
+      console.log(
+        `  ⚠ ${s.malformed} malformed value(s) in ${t.tableName}.${t.columnName} — see warnings above`,
+      );
     }
   }
   console.log("");
@@ -426,13 +474,17 @@ function printSummary(rows: { target: PiiTarget; stats: Stats }[], apply: boolea
         : `[reencrypt] DRY RUN — ${totalNeedsRotation} row(s) would be rotated. Re-run with --apply (see docs/pii-key-rotation-runbook.md) to perform them.`,
     );
   } else {
-    console.log(`[reencrypt] APPLY complete — ${totalRotated}/${totalNeedsRotation} row(s) rotated.`);
+    console.log(
+      `[reencrypt] APPLY complete — ${totalRotated}/${totalNeedsRotation} row(s) rotated.`,
+    );
   }
 }
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === "production") {
-    throw new Error("[reencrypt] refusing to run in production (run is §7-gated ops — see the runbook).");
+    throw new Error(
+      "[reencrypt] refusing to run in production (run is §7-gated ops — see the runbook).",
+    );
   }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[reencrypt] DATABASE_URL is not set");
@@ -469,7 +521,9 @@ async function main(): Promise<void> {
     if (tableFilter) {
       targets = targets.filter((t) => tableFilter.has(t.tableName));
       if (targets.length === 0) {
-        throw new Error(`[reencrypt] --table filter matched no known target (checked: ${tableFilter.size} name(s))`);
+        throw new Error(
+          `[reencrypt] --table filter matched no known target (checked: ${tableFilter.size} name(s))`,
+        );
       }
     }
     const results: { target: PiiTarget; stats: Stats }[] = [];

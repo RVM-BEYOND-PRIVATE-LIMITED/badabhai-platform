@@ -1,0 +1,40 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- 0115 — workers.verification_state / verified_at: the verification tier (Layer A (g))
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+--
+-- ADR-0042 D9 / Layer A (g); ASSUMPTIONS A1 (Resume Engine Part 10.2: "reserve the schema now").
+-- Five values in the schema, two in the UI: the résumé shows no badge or `BadaBhai Verified`, and
+-- the value→label mapping lives in `apps/api/src/resume/verification-tier.ts` — deliberately NOT
+-- in this file, so a future three-tier UI change is a TypeScript edit rather than a migration.
+--
+--   verification_state  NULL = never verified. The CHECK closes Part 10's five-value vocabulary.
+--   verified_at         when the verification act happened. No render reads it.
+--
+-- SELF-DECLARED PRINTS NOTHING. The mapping refuses the platform badge for a worker's own claim;
+-- `self-declared` is stored so the claim is representable, but it is not verification.
+--
+-- NO APPLICATION WRITE PATH IN THIS CHANGE, so NO EVENT: the tier is set by the verification
+-- process itself — an ops act — when one exists. Any future writer must emit its own validated
+-- event on this spine (and this header should be updated then).
+--
+-- ADDITIVE / BACKWARD-COMPATIBLE. Two nullable columns, no default, no backfill, no rewrite;
+-- old builds never name them (they read bare, and a database WITH the columns is a superset).
+-- Reversible:
+--
+--   ALTER TABLE "workers" DROP CONSTRAINT "workers_verification_state_chk";
+--   ALTER TABLE "workers" DROP COLUMN "verified_at";
+--   ALTER TABLE "workers" DROP COLUMN "verification_state";
+--
+-- APPLY-BEFORE-DEPLOY, and it is the strict kind: `findById` is `select()` = every model column
+-- on `workers`, which is read on the render path AND the auth path, so a build carrying these
+-- columns against a database without them fails every worker read. Registered as
+-- `0115-worker-verification-columns` in `schema-contract.ts`; run
+-- `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- Lock: `ADD COLUMN` catalog-only + `ADD CONSTRAINT` with an all-NULL column validates nothing,
+-- so under `SET lock_timeout = '3s';` and retry on 55P03 the ACCESS EXCLUSIVE window is
+-- sub-second (0109 precedent).
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE "workers" ADD COLUMN "verification_state" text;--> statement-breakpoint
+ALTER TABLE "workers" ADD COLUMN "verified_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "workers" ADD CONSTRAINT "workers_verification_state_chk" CHECK ("workers"."verification_state" IS NULL OR "workers"."verification_state" IN ('self-declared', 'RVM-attested', 'document-verified', 'EPFO-verified', 'employer-rated'));

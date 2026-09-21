@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
-/// A single chat message bubble for the "bada bhai" profiling chat.
-///
-/// Worker messages sit right on the soft blue outgoing tint (the worker's own
-/// voice, JUL31 "Josh" system); bada bhai sits left on crisp white with a
-/// hairline. One corner is squared toward the speaker so the thread reads
-/// naturally. Green stays reserved for money/success, so it is off the bubbles.
 /// Hinglish copy on an undelivered worker bubble (#343). States the honest
 /// cause and the action — never a vague "kuch gadbad".
 const String kChatSendFailedLabel = 'Nahi bheja gaya — dobara bhejein';
 
+/// A single chat message bubble for the "bada bhai" profiling chat.
+///
+/// Worker messages sit right on a filled [OnboardingColors.shiftBlue] with
+/// white text (the worker's own voice); bada bhai sits left on white behind a
+/// hairline. One corner is squared toward the speaker so the thread reads
+/// naturally. Green stays reserved for money/success, so it is off the bubbles.
 class BbChatBubble extends StatelessWidget {
   const BbChatBubble({
     super.key,
@@ -40,32 +39,35 @@ class BbChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Bubble radius 12 with ONE flattened 3px "tail" corner toward the speaker
-    // (kit `rBubble` / `rBubbleTail`): bottom-right tail on the worker's own
-    // messages, bottom-left tail on bada bhai's.
+    // Bubble radius 12 with ONE flattened 3px "tail" corner toward the speaker:
+    // bottom-right tail on the worker's own messages, bottom-left on bada
+    // bhai's.
     const Radius soft = Radius.circular(AppRadii.md);
     const Radius tail = Radius.circular(AppRadii.bubbleTail);
 
-    // Owner request: the WORKER's own (outgoing) bubbles are a FADED theme blue
-    // with WHITE text; bada bhai's replies stay exactly as they were (white card,
-    // dark text). A failed send stays the crimson warning tint.
     final bool workerFilled = fromWorker && !failed;
     final Color background = failed
-        ? AppColors.red50
-        : (fromWorker ? AppColors.blueChatOut : AppColors.surfaceCard);
-    // Outgoing bubble is borderless (border matches the fill); incoming keeps the
-    // hairline; a failed send stays crimson-outlined.
+        ? OnboardingColors.errorBg
+        : (fromWorker
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.paperWhite);
+    // The outgoing bubble is borderless (its border matches the fill); incoming
+    // keeps the hairline; a failed send stays error-outlined.
     final Color borderColor = failed
-        ? AppColors.red600
-        : (fromWorker ? AppColors.blueChatOut : AppColors.borderSubtle);
-    // White on the filled blue bubble; dark ink everywhere else (incoming, and a
-    // failed worker bubble sits on the light crimson tint so it keeps dark text).
-    final Color textColor =
-        workerFilled ? AppColors.onBlue : AppColors.textPrimary;
+        ? OnboardingColors.errorRed
+        : (fromWorker
+              ? OnboardingColors.shiftBlue
+              : OnboardingColors.borderDefault);
+    // White on the filled navy bubble; dark ink everywhere else (incoming, and
+    // a failed worker bubble sits on the light error tint so it keeps dark
+    // text).
+    final Color textColor = workerFilled
+        ? OnboardingColors.textOnBlue
+        : OnboardingColors.ink900;
 
     final Widget bubble = Container(
       // Bubbles never span the full column — cap at ~78% so the speaker side is
-      // always legible (kit ChatBubble).
+      // always legible.
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.78,
       ),
@@ -92,14 +94,10 @@ class BbChatBubble extends StatelessWidget {
         children: <Widget>[
           Text(
             text,
-            // sizeSm (14) — a compact chat body (owner request 2026-07-23): the
-            // profiling chat runs long and, with the keyboard open, larger text
-            // left too little of the transcript + question visible. Still an
-            // easily-legible size; the composer/CTA below keep their tap targets.
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: textColor,
-            ),
+            // A compact chat body (owner request 2026-07-23): the profiling
+            // chat runs long and, with the keyboard open, larger text left too
+            // little of the transcript + question visible.
+            style: OnboardingTypography.body(color: textColor),
           ),
           if (failed) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
@@ -109,17 +107,17 @@ class BbChatBubble extends StatelessWidget {
                 const Icon(
                   Icons.error_outline,
                   size: 16,
-                  color: AppColors.red600,
+                  color: OnboardingColors.errorRed,
                 ),
                 const SizedBox(width: AppSpacing.s1),
                 Flexible(
                   child: Text(
                     kChatSendFailedLabel,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
+                    style: OnboardingTypography.inter(
+                      size: 13,
                       weight: FontWeight.w700,
-                      color: AppColors.red600,
+                      color: OnboardingColors.errorRed,
                     ),
                   ),
                 ),
@@ -138,7 +136,7 @@ class BbChatBubble extends StatelessWidget {
             label: '$text — $kChatSendFailedLabel',
             child: InkWell(
               onTap: onRetry,
-              borderRadius: BorderRadius.circular(AppRadii.lg),
+              borderRadius: BorderRadius.circular(AppRadii.md),
               child: bubble,
             ),
           )
@@ -150,7 +148,6 @@ class BbChatBubble extends StatelessWidget {
           ? content
           : Row(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
                 Flexible(child: content),
                 trailing!,

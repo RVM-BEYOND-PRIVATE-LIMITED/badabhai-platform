@@ -53,6 +53,10 @@ import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
 import { AdminAiTracesController } from "../admin/admin-ai-traces.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
 import { NotificationPrefsController } from "../notifications/notification-prefs.controller";
+// E0 — the in-app relay. Payer send is PayerAuthGuard-only (the PayerUnlocks pair); the
+// worker's read/reply surface is worker-self + consent-gated (the Alerts pair).
+import { PayerRelayController } from "../relay/payer-relay.controller";
+import { WorkerRelayController } from "../relay/worker-relay.controller";
 import { SkillsController } from "../skills/skills.controller";
 import { ReferralAttributionController } from "../referrals/referral-attribution.controller";
 import { ReferralBonusController } from "../referrals/referral-bonus.controller";
@@ -199,7 +203,15 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W] } },
+  // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
+  // worker reads/replies/reads-marks their own threads (worker-self + consent).
+  { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P] } },
+  {
+    name: "WorkerRelay",
+    ctor: WorkerRelayController,
+    routes: { list: [C, W], read: [C, W], reply: [C, W], markRead: [C, W] },
+  },
   { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
   // The download is PUBLIC and stays public — the kit is per-trade, PII-free content a worker

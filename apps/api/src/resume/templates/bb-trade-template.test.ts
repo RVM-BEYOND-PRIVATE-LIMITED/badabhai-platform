@@ -16,6 +16,7 @@
  * `classic.v3.html`, i.e. `pnpm format` would have rewritten the whole directory. The directory is
  * now in `.prettierignore`; this file is the guard that survives someone removing that entry.
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,7 +24,10 @@ import { describe, expect, it } from "vitest";
 import { getResumeTemplate, RESUME_TEMPLATES } from "./registry";
 
 const TEMPLATE_ID = "bb_trade";
-const html = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+// THE LIVE VERSION, resolved through the registry rather than pinned to a filename: the
+// structural invariants below must hold for whatever version the registry serves, and v1 is
+// frozen on disk (asserted separately below) precisely so it no longer needs to be re-tested.
+const html = readFileSync(join(__dirname, getResumeTemplate(TEMPLATE_ID).file), "utf8");
 
 /**
  * The file with its comments removed — BOTH syntaxes.
@@ -37,11 +41,57 @@ const html = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
  */
 const body = html.replace(/<!--[^]*?-->/g, "").replace(/\/\*[^]*?\*\//g, "");
 
-describe("bb_trade.v1 — the locked trade sheet", () => {
+/**
+ * The two embedded lockup marks, pinned by SHA-256.
+ *
+ * THE ARTWORK IS THE APP'S SHIPPED MARK, not the design-system SVG. `badabhai_main.png` is what
+ * every worker actually sees in the Shift Blue header; the SVG in the docs kit is a SLIMMER
+ * variant whose two figures overlap, and at the ~4mm this sheet prints them at they blob into
+ * one unrecognisable shape — which is exactly what the owner rejected on a rendered sheet. No
+ * vector of the shipped artwork exists, so both lockups embed it as a raster data URI: offline,
+ * and the same shape of reference the worker photo and the QR already use.
+ *
+ * A HASH RATHER THAN A COLOUR SCAN, because a PNG's pixels are deflate-compressed and there is
+ * nothing in the file for a `toContain("#FFB32C")` to find. One hash catches a colour
+ * regression, a shape regression and a swapped pair at once. Regenerating the marks is a
+ * deliberate act, so updating these two constants is too.
+ */
+const MASTHEAD_MARK_SHA256 = "374a7a738449fed699da548b765faa1dc71599414d5c8d41baa056e749102440";
+const FOOTER_MARK_SHA256 = "254384514f76fc0ef0a7a4c043a3d37a04001251e921fb21009eaa2562cc7001";
+
+/**
+ * Decode a `data:image/png;base64,…` mark: signature, IHDR dimensions, content hash.
+ *
+ * THE SIGNATURE AND THE DIMENSIONS ARE NOT PADDING. A data URI that fails to decode renders as
+ * nothing at all in WeasyPrint — a silent hole beside the wordmark on a sheet that otherwise
+ * looks correct — and the dimensions are what let the CSS aspect be pinned to the artwork's own.
+ */
+function decodePngMark(src: string): { width: number; height: number; sha256: string } {
+  expect(src.startsWith("data:image/png;base64,"), "the mark is not a PNG data URI").toBe(true);
+  const bytes = Buffer.from(src.slice("data:image/png;base64,".length), "base64");
+  expect(bytes.subarray(0, 8).toString("hex"), "the mark is not a PNG").toBe("89504e470d0a1a0a");
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+/** The width/height ratio an `img` rule reserves, so a stretched raster cannot pass. */
+function markAspectRatio(css: string): number {
+  const w = Number(/width:\s*([\d.]+)mm/.exec(css)?.[1]);
+  const h = Number(/height:\s*([\d.]+)mm/.exec(css)?.[1]);
+  expect(w, "the mark has no mm width").toBeGreaterThan(0);
+  expect(h, "the mark has no mm height").toBeGreaterThan(0);
+  return w / h;
+}
+
+describe("bb_trade — the locked trade sheet (current version)", () => {
   it("is registered, and is NOT the fallback", () => {
     const t = getResumeTemplate(TEMPLATE_ID);
     expect(t.id).toBe(TEMPLATE_ID);
-    expect(t.version).toBe(1);
+    // v2 = v1 + the worker-copy-only WhatsApp line (ADR-0042 D9 / Layer A (a)).
+    expect(t.version).toBe(2);
     expect(t.fallback ?? false).toBe(false);
     // Exactly one fallback across the whole registry — `getResumeTemplate` returns `find(fallback)!`
     // and a second one would make which layout an unknown id resolves to depend on array order.
@@ -218,5 +268,154 @@ describe("bb_trade.v1 — the locked trade sheet", () => {
     // squeeze rather than the mapper deciding what to drop. Caps belong in resume-render-input.ts.
     expect(html).not.toMatch(/transform:\s*scale/);
     expect(html).not.toMatch(/font-size:\s*[\d.]+v[wh]/);
+  });
+
+  it("v2 adds exactly the WhatsApp line, and it collapses when absent (Layer A (a))", () => {
+    // THE SLOT IS `.wa` WITH `.wa:empty` — the mapper composes "WhatsApp: …" as one string, so
+    // an absent number leaves the element empty and the rule removes it. A label written into
+    // the template would survive an absent number (`.wa:empty` can never match), which is why
+    // this test pins BOTH halves rather than just the token.
+    expect(body).toContain('<div class="wa">{{whatsapp_line}}</div>');
+    expect(body).toMatch(/\.wa:empty\s*\{\s*display:\s*none/);
+    // The WhatsApp slot is the ONE addition; the phone slot it sits beside is untouched.
+    expect(body).toContain('<div class="phone">{{phone}}</div>');
+  });
+
+  it("carries the #1547 footer brand — mark + mixed-case wordmark left, wordmark lockup right", () => {
+    // THE TWINS STAY IN STEP. `v1` is frozen only about the v2-only `whatsapp_line`; the footer
+    // brand is an owner-required visual correction applied to BOTH files, so every assertion here
+    // runs over both.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    const marks: string[] = [];
+    for (const [name, file] of [
+      ["v1", v1],
+      ["v2", html],
+    ] as const) {
+      // LEFT: the shipped mark as an embedded PNG data URI (offline — no network asset), then
+      // the MIXED-CASE wordmark. `text-transform: uppercase` is what made the old footer read
+      // BADABHAI, and it must not come back on this line.
+      const markSrc = /class="foot-mark"><img src="(data:image\/png;base64,[^"]+)"/.exec(file)?.[1];
+      expect(markSrc, `${name}: the footer mark data URI is missing`).toBeTruthy();
+      marks.push(markSrc!);
+      // THE SHIPPED ARTWORK, WITH THE SMALL FIGURE RECOLOURED TO PRINT NAVY. The app draws that
+      // figure near-white; on white paper it would be invisible, so this lockup cannot use the
+      // masthead's bytes and pins its own. All-ink would read as a black blob beside the
+      // wordmark, which is what the earlier SVG mark did on this sheet.
+      const mark = decodePngMark(markSrc!);
+      expect(mark.sha256, `${name}: the footer mark artwork changed`).toBe(FOOTER_MARK_SHA256);
+      expect(file, `${name}: the wordmark is not mixed case`).toContain(
+        'alt="" />BadaBhai</div>',
+      );
+      const style = /<style>([^]*?)<\/style>/.exec(file)?.[1] ?? "";
+      const markCss = /\.foot-mark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markCss, `${name}: .foot-mark uppercases the wordmark`).not.toContain(
+        "text-transform",
+      );
+      // THE RASTER IS NEVER STRETCHED: the CSS reserves the artwork's own aspect ratio.
+      const markImgCss = /\.foot-mark img\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markAspectRatio(markImgCss), `${name}: the footer mark is distorted`).toBeCloseTo(
+        mark.width / mark.height,
+        1,
+      );
+
+      // RIGHT: the wordmark lockup, ink, as its own non-shrinking slot.
+      expect(file, `${name}: the right logo lockup is missing`).toContain(
+        '<div class="foot-logo">BADABHAI <span class="hi">बड़ाभाई</span></div>',
+      );
+      const logoCss = /\.foot-logo\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(logoCss, `${name}: the right logo may shrink`).toMatch(/flex:\s*0 0 auto/);
+      expect(logoCss, `${name}: the right logo may wrap`).toMatch(/white-space:\s*nowrap/);
+
+      // NO OVERLAP IS STRUCTURAL, not a width guess: the text column absorbs the leftover width
+      // and wraps internally (`flex: 1 1 auto` + `min-width: 0`, since a flex item otherwise
+      // refuses to shrink below its content's preferred width), while the QR, mark and logo keep
+      // their intrinsic size. The two-page spill case is the same rules on a flowing `.foot`.
+      const txtCss = /\.foot-txt\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(txtCss, `${name}: the text column cannot shrink`).toMatch(/flex:\s*1 1 auto/);
+      expect(txtCss, `${name}: the text column has no min-width: 0`).toMatch(/min-width:\s*0/);
+
+      // QR / caption / short link / footer meta / disclaimer unchanged.
+      for (const slot of ["{{#qr}}", "{{qr_caption}}", "{{short_link}}", "{{footer_meta}}"]) {
+        expect(file, `${name}: ${slot} went missing`).toContain(slot);
+      }
+      expect(file, `${name}: the disclaimer changed`).toContain(
+        "Details as stated by the worker. BadaBhai does not guarantee hiring.",
+      );
+    }
+    // ONE MARK, TWO FILES: the same encoded bytes, so the twins cannot drift apart.
+    expect(marks[0]).toBe(marks[1]);
+  });
+
+  it("carries the masthead brand — mark + mixed-case wordmark on the navy band", () => {
+    // THE TWINS STAY IN STEP, same as the footer: the stripe is the app's own lockup (the
+    // Shift Blue header's white-and-yellow mark beside "BadaBhai"), so every assertion here
+    // runs over both.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    const marks: string[] = [];
+    for (const [name, file] of [
+      ["v1", v1],
+      ["v2", html],
+    ] as const) {
+      // LEFT: the shipped mark in the app's own colours — a near-white small figure and a
+      // larger safety-yellow one, embedded as exact bytes — then the MIXED-CASE wordmark.
+      // `text-transform: uppercase` is what made the stripe read BADABHAI, and it must not
+      // come back on this line either.
+      const markSrc = /class="wordmark"><img src="(data:image\/png;base64,[^"]+)"/.exec(file)?.[1];
+      expect(markSrc, `${name}: the masthead mark data URI is missing`).toBeTruthy();
+      marks.push(markSrc!);
+      const mark = decodePngMark(markSrc!);
+      expect(mark.sha256, `${name}: the masthead mark artwork changed`).toBe(
+        MASTHEAD_MARK_SHA256,
+      );
+      expect(file, `${name}: the masthead wordmark is not mixed case`).toContain(
+        "/>BadaBhai</span>",
+      );
+      const style = /<style>([^]*?)<\/style>/.exec(file)?.[1] ?? "";
+      const wordmarkCss = /\.wordmark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(wordmarkCss, `${name}: .wordmark uppercases the brand`).not.toContain(
+        "text-transform",
+      );
+      // THE RASTER IS NEVER STRETCHED: the CSS reserves the artwork's own aspect ratio.
+      const markImgCss = /\.wordmark img\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markAspectRatio(markImgCss), `${name}: the masthead mark is distorted`).toBeCloseTo(
+        mark.width / mark.height,
+        1,
+      );
+
+      // THE LOCKUP SITS AT THE RIGHT END OF THE BAND (owner correction), with the trust tier —
+      // when a sheet ever carries one — at the left.
+      //
+      // `margin-left: auto` ON THE LOCKUP, NOT `justify-content` ON THE BAR, and the difference
+      // is not style: the badge collapses to `display: none` on every sheet issued today, and
+      // with space-between a lone flex item falls back to the LEFT edge — so the lockup would be
+      // right-aligned only on the sheets that carry a badge, i.e. on none of them. The two
+      // assertions below pin the mechanism, not just the outcome, because the outcome is
+      // invisible until a badge exists.
+      expect(file, `${name}: the badge no longer precedes the lockup`).toContain(
+        '<span class="badge">{{trust_badge}}</span><span class="wordmark">',
+      );
+      expect(wordmarkCss, `${name}: the lockup can fall back to the left edge`).toMatch(
+        /margin-left:\s*auto/,
+      );
+      const barCss = /\.bar\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(barCss, `${name}: .bar distributes the items, which breaks the empty-badge case`).
+        not.toMatch(/justify-content/);
+    }
+    // ONE MARK, TWO FILES: the same encoded bytes, so the twins cannot drift apart.
+    expect(marks[0]).toBe(marks[1]);
+  });
+
+  it("keeps v1 frozen on disk — a shipped version is immutable", () => {
+    // v1 still renders for every PDF already issued under it (the registry's own contract), so
+    // it must remain byte-identical at the path old rows resolve to. If this fails, someone
+    // edited history rather than adding v2.
+    //
+    // #1547 AND THE MASTHEAD BRAND ARE THE SANCTIONED IN-PLACE AMENDMENTS TO BOTH FILES:
+    // the footer and stripe lockups are visual corrections the owner required on the twins
+    // together. What this test protects is the VERSION BOUNDARY — the v2-only `whatsapp_line`
+    // must never appear in v1.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    expect(v1).toContain('id: "bb_trade", version: 1');
+    expect(v1).not.toContain("whatsapp_line");
   });
 });

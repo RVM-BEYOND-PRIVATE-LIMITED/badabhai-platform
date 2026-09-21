@@ -4,20 +4,20 @@ import 'package:badabhai_worker_app/core/util/pay_format.dart';
 
 void main() {
   group('formatPayBandFull', () {
-    test('both bounds → grouped band with /mo', () {
-      expect(formatPayBandFull(16000, 26000), '₹16,000–26,000/mo');
+    test('both bounds → grouped band with /mah', () {
+      expect(formatPayBandFull(16000, 26000), '₹16,000–26,000/mah');
     });
 
     test('equal bounds → single amount', () {
-      expect(formatPayBandFull(20000, 20000), '₹20,000/mo');
+      expect(formatPayBandFull(20000, 20000), '₹20,000/mah');
     });
 
     test('min only → open-ended plus', () {
-      expect(formatPayBandFull(16000, null), '₹16,000+/mo');
+      expect(formatPayBandFull(16000, null), '₹16,000+/mah');
     });
 
     test('max only → honest "Up to"', () {
-      expect(formatPayBandFull(null, 26000), 'Up to ₹26,000/mo');
+      expect(formatPayBandFull(null, 26000), 'Up to ₹26,000/mah');
     });
 
     test('neither → null so the caller HIDES the row', () {
@@ -25,12 +25,12 @@ void main() {
     });
 
     test('groups Indian-style above a lakh', () {
-      expect(formatPayBandFull(125000, null), '₹1,25,000+/mo');
+      expect(formatPayBandFull(125000, null), '₹1,25,000+/mah');
     });
 
     test('a negative bound is contract-invalid and treated as absent', () {
       expect(formatPayBandFull(-1, null), isNull);
-      expect(formatPayBandFull(-1, 26000), 'Up to ₹26,000/mo');
+      expect(formatPayBandFull(-1, 26000), 'Up to ₹26,000/mah');
     });
   });
 

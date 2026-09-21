@@ -85,6 +85,16 @@ export const ResumeParseInputSchema = z.object({
   storage_key: z.string().min(1),
   mime: z.string().min(1),
   target_fields: z.array(TargetFieldSchema).default([]),
+  /**
+   * Task 1 B2 — the CLOSED trade-kind ids the model may return in
+   * `trade_association.kind` (the 21 `TRADE_FORM_KINDS_ALL`, supplied by
+   * apps/api, the single source of truth). Rendered into the prompt verbatim;
+   * the far side shape-checks each entry before it nears the prompt.
+   *
+   * `max(32)` mirrors `contracts.py`'s `max_length=32` — a bound on the list,
+   * not on each id (the far side caps entry length at render time).
+   */
+  trade_kinds: z.array(z.string()).max(32).default([]),
   language: languageCode.optional(),
 });
 export type ResumeParseInput = z.infer<typeof ResumeParseInputSchema>;
@@ -107,6 +117,140 @@ export const ResumeEmploymentSchema = z.object({
 export type ResumeEmployment = z.infer<typeof ResumeEmploymentSchema>;
 
 /**
+ * Task 1 B2 — the model's closed-vocabulary answer to "which trade is this
+ * résumé" (mirrors `TradeAssociation` in `apps/ai-service/app/contracts.py`;
+ * `test_contract_parity.py` covers the surrounding contract).
+ *
+ * `kind` stays an OPEN string here, narrowed by the second wall
+ * (`ResumeParseService`) against `TRADE_FORM_KINDS_ALL` — the same posture as
+ * `extraction_method`, for the same reason: the contract transports, the wall
+ * decides. `null` = no judgment (model said none, said it unparseably, or was
+ * never given kinds).
+ */
+export const TradeAssociationSchema = z.object({
+  kind: z.string().nullable().default(null),
+});
+export type TradeAssociation = z.infer<typeof TradeAssociationSchema>;
+
+/**
+ * Résumé profile summary (RI-summary, backend-only slice).
+ *
+ * A SEPARATE second LLM call after `/resume/parse`, not an extension of it.
+ * The parse reads citable values; this call reads the same document for one
+ * worker-facing Hinglish line: {Job Role} + {total experience} + {short summary}.
+ *
+ * PRIVACY: inputs carry a storage KEY, never the document. Outputs carry no
+ * identity — no name, phone, address, employer, PAN/Aadhaar — only a closed-set
+ * role id and two short Hinglish strings. The far side certifies both strings
+ * with the same hard-identifier wall as the parse (`resume_value_certifier`);
+ * anything carrying an identifier degrades to null, never to a stored row.
+ *
+ * `role_kind` stays an OPEN string here and is narrowed by the second wall
+ * (`ResumeSummaryService`) against the caller-supplied `role_kinds` — the same
+ * posture as `trade_association.kind` and `extraction_method`: the contract
+ * transports, the wall decides. `null` = no judgment (none fits / vague /
+ * mixed trades).
+ */
+export const ResumeSummaryInputSchema = z.object({
+  schema_version: z.literal("resume.v1").default("resume.v1"),
+  /**
+   * Pseudonymous spend attribution + Langfuse user dimension (a UUID, never a
+   * name/phone). Same contract as `ResumeParseInput.worker_ref`.
+   */
+  worker_ref: z.string().min(1),
+  /** The private-bucket object key minted by `POST /profiling/resume-import/upload-url`. */
+  storage_key: z.string().min(1),
+  mime: z.string().min(1),
+  /**
+   * The CLOSED role ids the model may return in `role_kind` — the ENABLED form
+   * kinds (9 today), supplied by apps/api, the single source of truth.
+   * Rendered into the prompt verbatim; the far side shape-checks each entry.
+   */
+  role_kinds: z.array(z.string()).max(32).default([]),
+  language: languageCode.optional(),
+});
+export type ResumeSummaryInput = z.infer<typeof ResumeSummaryInputSchema>;
+
+/**
+ * One pack question the option-mapping call may answer, with its closed options.
+ *
+ * Caller-controlled reviewed copy (pack question + option keys/labels), never worker
+ * input — so it is rendered into the prompt verbatim, bounded in count. The model
+ * selects among these ids; the gates drop anything else.
+ */
+export const ResumeMapQuestionSchema = z.object({
+  question_key: z.string().min(1).max(40),
+  answer_type: z.enum(["single_select", "multi_select"]),
+  options: z
+    .array(
+      z.object({
+        option_key: z.string().min(1).max(40),
+        label_text: z.string().min(1).max(200),
+      }),
+    )
+    .max(32),
+});
+export type ResumeMapQuestion = z.infer<typeof ResumeMapQuestionSchema>;
+
+/**
+ * Map an uploaded résumé onto pack option keys (RI-autofill, owner override B).
+ *
+ * A SEPARATE call after `/resume/parse`, run at import time for form-routed workers.
+ * The parse reads citable VALUES; this call answers one question per pack item: which
+ * of THESE option ids does the document support. Same fetch-extract-mask-call-gate
+ * pipeline, same document, different contract.
+ *
+ * PRIVACY: inputs carry a storage KEY plus caller-owned pack copy, never the document.
+ * Outputs carry closed option ids plus certified spans — never identity.
+ */
+export const ResumeOptionMapInputSchema = z.object({
+  schema_version: z.literal("resume.v1").default("resume.v1"),
+  worker_ref: z.string().min(1),
+  /** The private-bucket object key minted by `POST /profiling/resume-import/upload-url`. */
+  storage_key: z.string().min(1),
+  mime: z.string().min(1),
+  /** The pack's option questions — at most one mapping each comes back. */
+  questions: z.array(ResumeMapQuestionSchema).max(40).default([]),
+  language: languageCode.optional(),
+});
+export type ResumeOptionMapInput = z.infer<typeof ResumeOptionMapInputSchema>;
+
+export const ResumeOptionMappingSchema = z.object({
+  question_key: z.string().min(1).max(40),
+  option_keys: z.array(z.string().min(1).max(40)).max(32).default([]),
+  evidence: EvidenceSpanSchema,
+});
+export type ResumeOptionMapping = z.infer<typeof ResumeOptionMappingSchema>;
+
+export const ResumeOptionMapOutputSchema = z.object({
+  /** One entry per question the model could cite — never more than asked. */
+  mappings: z.array(ResumeOptionMappingSchema).default([]),
+  /** Closed vocabulary (`RESUME_IMPORT_FAILURES`), else null. Never model text. */
+  failure_reason: z.enum(RESUME_IMPORT_FAILURES).nullable().default(null),
+  /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
+  notes: z.array(z.string()).default([]),
+  /** `null` on every degraded path: a fabricated zero-cost record is worse than an absent one. */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type ResumeOptionMapOutput = z.infer<typeof ResumeOptionMapOutputSchema>;
+
+export const ResumeSummaryOutputSchema = z.object({
+  /** One id from the request's `role_kinds`, or null when none fits. */
+  role_kind: z.string().nullable().default(null),
+  /** Hinglish duration, e.g. "5 saal ka tajurba" or "Fresher". Bounded, PII-free. */
+  experience_text: z.string().max(120).nullable().default(null),
+  /** Hinglish 1-2 line worker summary. Bounded, PII-free, no identifiers. */
+  summary_text: z.string().max(500).nullable().default(null),
+  /** Closed vocabulary (`RESUME_IMPORT_FAILURES`), else null. Never model text. */
+  failure_reason: z.enum(RESUME_IMPORT_FAILURES).nullable().default(null),
+  /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
+  notes: z.array(z.string()).default([]),
+  /** `null` on every degraded path: a fabricated zero-cost record is worse than an absent one. */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type ResumeSummaryOutput = z.infer<typeof ResumeSummaryOutputSchema>;
+
+/**
  * What survived both walls, plus how the text was recovered.
  *
  * The extraction facts ride on the response because `worker_resume_import` stores them and
@@ -117,6 +261,7 @@ export const ResumeParseOutputSchema = z.object({
   /** `null` = the model looked and found nothing citable for that field. */
   fields: z.record(z.string(), ParsedFieldSchema.nullable()).default({}),
   employments: z.array(ResumeEmploymentSchema).default([]),
+  trade_association: TradeAssociationSchema.nullable().default(null),
   unparsed_field_ids: z.array(z.string()).default([]),
   /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
   notes: z.array(z.string()).default([]),

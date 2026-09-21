@@ -88,8 +88,9 @@ HOW TO SPEAK — these are rules, not suggestions:
 - NEVER use these words or phrases: {banned}
 - Never promise a job, an interview, or any outcome. If asked, say exactly:
   "{p["guaranteeLine"]}"
-- Never ask for a name, phone number, address, Aadhaar, PAN, or the name of any company or
-  employer. If the worker volunteers one, do not repeat it back and do not record it.
+- Never ask for a name, phone number, address, Aadhaar, PAN, a licence or certificate number, or
+  the name of any company or employer. If the worker volunteers one, do not repeat it back and do
+  not record it.
 - Never praise the person; if you appreciate anything, appreciate the work, and rarely.
 
 WHAT YOU DO NOT DECIDE. You do not decide when the interview ends — you report `phase_a_done` and
@@ -117,6 +118,13 @@ FIELD RULES:
 - `reply_text` is REQUIRED and must never be empty. It is the only thing the worker sees. An
   empty one costs them the conversation.
 - `suggested_answers` may be []. Use it only when the answer really is a choice.
+- `input_mode` is always "text". The worker must always be able to type an answer that is not in
+  your chips. Only the system turns typing off, for its own yes/no buttons.
+- Chips are examples, never the full list. The system adds its own "Kuch aur" chip to every
+  choice; never write a "Kuch aur", "Koi aur" or "Other" chip yourself.
+- If the worker only asks for work without naming a trade ("mujhe job chahiye", "I need job",
+  "kaam chahiye"), ask what work they do. Leave `domain_label` and `role_label` null for that
+  message; a request for a job is not a trade.
 - `domain_label` / `role_label` / `skills`: report what you have learned SO FAR, including from
   earlier turns. Null and [] mean "still unknown", not "forget it".
 - `experience_entry` is how a job gets recorded, and the ONLY way. Fill it on the turn a worker
@@ -235,6 +243,14 @@ def work_history_polish_prompt() -> str:
     have all three carried into 200 — the model must drop one, and dropping one is the second
     half of the same owner report ("ALL details of the work history"). The enforced wall is
     unchanged; only the guidance now agrees with it.
+
+    AND WHY TEACHING IS NAMED (trainer report, 2026-09-19). A CNC trainer's line — students
+    of various trades, CNC operating and programming, three months, under a "CNC Turner"
+    role label, with a garbled opening — came back null, and the resume printed the raw
+    Hinglish. The prompt framed the job as work done or training received, so teaching others
+    read as outside the task. It is not: instructing is a work activity like any other, the
+    role label is context rather than a constraint, and garble is rewritten around while any
+    work content survives.
     """
     return (
         "You rewrite what an Indian blue-collar worker wrote about the work they have done. It "
@@ -289,6 +305,16 @@ def work_history_polish_prompt() -> str:
         "not a number. 'kuch nhi banaya, bas knowledge he mujhe' is 'Gained working knowledge "
         "without independent production.' Weak claims stay weak; do not strengthen them and do "
         "not throw them away. This is the ordinary register of the people this resume is for.\n"
+        "\n"
+        "TEACHING OTHERS IS WORK, AND THE ROLE LABEL IS ONLY CONTEXT. An input that describes "
+        "teaching, instructing or training students, trainees or helpers names real work "
+        "activities -- rephrase them like any other job content, never return null because the "
+        "worker taught rather than operated. The <role> label is background, not a constraint: "
+        "a trainer's line may arrive under an operator trade, and a garbled fragment is "
+        "rewritten around when the activity itself is intelligible -- garble is not gibberish "
+        "unless no work content survives it. '... students of various trades into CNC operating "
+        "and programming ... in 3 months' is a three-month CNC instruction course: 'Trained "
+        "students of various trades in CNC operating and programming on a three-month course.'\n"
         "\n"
         "RETURN NULL ONLY IF there is no work content at all to rewrite -- the input is empty, is "
         "gibberish, or says nothing whatever about work or training. Returning null is then "

@@ -25,13 +25,21 @@ import type { NewWorkerPackAnswer, PackAnswerSource } from "@badabhai/db";
  * THE SHAPE IS THE TYPE BY THIS POINT, which is only true because normalization happened at
  * capture. A `true` that arrived as the string "true" would land in `answer_text` and be lost to
  * every boolean reader — see `typed-option-value.test.ts` for the two interviews that cost.
+ *
+ * `OtherAnswerValue` is checked FIRST and routes to `answer_other_text` instead of `answer_text`,
+ * deliberately never falling through: a marked "other" answer is unreviewed free text against a
+ * closed-option question, and landing it in `answer_text` would make it indistinguishable from a
+ * settled text answer to every deterministic reader of this table (tier gates, predicate sources,
+ * the `worker_attributes` projection) — exactly the "other" answer is not allowed to be.
  */
 export function typedAnswerColumns(
   value: unknown,
 ): Pick<
   NewWorkerPackAnswer,
-  "answerText" | "answerNumber" | "answerBool" | "answerOptionKeys"
+  "answerText" | "answerNumber" | "answerBool" | "answerOptionKeys" | "answerOtherText"
 > | null {
+  const other = otherAnswerTextOf(value);
+  if (other !== null) return { answerOtherText: other };
   if (typeof value === "string" && value.length > 0) return { answerText: value };
   if (typeof value === "number" && Number.isFinite(value)) return { answerNumber: value };
   if (typeof value === "boolean") return { answerBool: value };
@@ -41,6 +49,43 @@ export function typedAnswerColumns(
     // one — `text[]` of length zero is non-null and would satisfy the CHECK while meaning
     // nothing. Rejected so the caller records a declination instead.
     return keys.length > 0 ? { answerOptionKeys: keys } : null;
+  }
+  return null;
+}
+
+/**
+ * A marker `value_normalized` shape: "this is a worker's own typed words against a CLOSED-OPTION
+ * question, and they have not been reviewed against that question's vocabulary."
+ *
+ * AN OPAQUE OBJECT, ON PURPOSE. `answer-map-projector.ts`'s `assign`/`classifyAttributeValue`
+ * only ever recognise `boolean | number | string | string[]` — anything else is dropped rather
+ * than stringified (its own documented rule: "coercing an object into '[object Object]' would put
+ * a row no reader can interpret"). That single fact is what keeps an "other" answer out of
+ * `worker_attributes` — and therefore out of every trade-sheet / payer-disclosure read of it — by
+ * CONSTRUCTION, with no second exclusion rule to keep in sync. Do not widen this shape to
+ * something `classifyAttributeValue` would recognise.
+ */
+export interface OtherAnswerValue {
+  readonly kind: "other_answer";
+  readonly text: string;
+}
+
+/** Build the marker `value_normalized` for a typed "other" answer. Empty text is not an answer. */
+export function otherAnswerValue(text: string): OtherAnswerValue | null {
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? { kind: "other_answer", text: trimmed } : null;
+}
+
+/** The typed text out of a marker value, or null when `value` is not one. */
+export function otherAnswerTextOf(value: unknown): string | null {
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { kind?: unknown }).kind === "other_answer" &&
+    typeof (value as { text?: unknown }).text === "string" &&
+    (value as { text: string }).text.trim().length > 0
+  ) {
+    return (value as { text: string }).text.trim();
   }
   return null;
 }

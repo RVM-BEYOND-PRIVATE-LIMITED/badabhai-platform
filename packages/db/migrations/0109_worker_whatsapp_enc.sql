@@ -1,0 +1,34 @@
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+-- 0109 — workers.whatsapp_enc: the worker's own WhatsApp number, optional and encrypted
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+--
+-- ADR-0042 D9 / Layer A (a). A worker may give a WhatsApp number that is NOT the number
+-- they signed in with. It is worker-controlled PII at the same level as `phone_e164`, so:
+--
+--   * it is AES-256-GCM CIPHERTEXT (`encryptPii` token) at rest — the key lives in backend
+--     config, never in the database;
+--   * the column is NULLABLE; NULL is the ordinary state (no number on file);
+--   * the CHECK is a SHAPE check (`v1.… / v2.…` token), not a length or charset bound — the
+--     `ai_call_traces` precedent. A plaintext number is refused with 23514.
+--
+-- It renders ONLY on the worker's own résumé copy (`ResumeAudience` gates it structurally)
+-- and is returned only by the worker's own self-read. Never in an event, never in a log.
+--
+-- ADDITIVE / BACKWARD-COMPATIBLE. One nullable column, no default, no backfill, no rewrite
+-- (catalog-only on PG11+). Old builds never name it. Reversible:
+--
+--   ALTER TABLE "workers" DROP CONSTRAINT "workers_whatsapp_enc_token_chk";
+--   ALTER TABLE "workers" DROP COLUMN "whatsapp_enc";
+--
+-- APPLY-BEFORE-DEPLOY. `workers` is read bare (`select()` = every model column) on the
+-- worker-authentication path, so a build carrying the column against a database without it
+-- fails every worker read. Registered as `0109-worker-whatsapp-enc-column` in
+-- `schema-contract.ts`; run `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- Forward-only in cost terms: `ALTER TABLE … ADD COLUMN` and `ADD CONSTRAINT` take a brief
+-- ACCESS EXCLUSIVE on `workers`, the hottest worker-side table. Under the usual
+-- `SET lock_timeout = '3s';` and retry on 55P03 (0073/0077/0080 precedent) the window is
+-- sub-second; validation scans nothing (the column is all-NULL on arrival).
+-- ═══════════════════════════════════════════════════════════════════════════════════════════════
+ALTER TABLE "workers" ADD COLUMN "whatsapp_enc" text;--> statement-breakpoint
+ALTER TABLE "workers" ADD CONSTRAINT "workers_whatsapp_enc_token_chk" CHECK ("workers"."whatsapp_enc" IS NULL OR "workers"."whatsapp_enc" ~ '^(v1\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+|v2\.[A-Za-z0-9_-]{1,32}\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+)$');

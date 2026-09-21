@@ -7,9 +7,12 @@ import { JobsRepository } from "./jobs.repository";
 import type { JobSearchQueryDto } from "./jobs.dto";
 
 /**
- * One row of `GET /jobs/search` (#822). A superset of the feed item — plus `state` and
- * `published_at` — and a strict subset of what a posting holds: no employer identity, no
- * `location_label`, no status, no applicant counts.
+ * One row of `GET /jobs/search` (#822). A superset of the feed item — plus `state`,
+ * the card content and `published_at` — and a strict subset of what a posting holds:
+ * no employer identity, no `location_label`, no status, no applicant counts.
+ *
+ * The content keys are ADDITIVE (#1561): a client that ignores them renders what it
+ * always rendered. All nullable; NULL is honest absence the client hides.
  */
 export interface JobSearchItem {
   job_id: string;
@@ -22,6 +25,10 @@ export interface JobSearchItem {
   shift: JobShift | null;
   min_experience_years: number | null;
   max_experience_years: number | null;
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  needed_by: JobNeededBy | null;
   matched_skill_label: string | null;
   published_at: string | null;
 }
@@ -229,15 +236,19 @@ export class JobsService {
         title: row.title,
         city: row.city,
         state: row.state,
-        // NOT CARRIED BY `job_postings`, and honestly null rather than invented. `area` and the
-        // experience window live on the legacy `jobs` table only; the same nulls the detail
-        // read already returns for a V1 posting.
-        area: null,
+        // Card content (#1561, migration 0116): straight pass-through of the posting's
+        // own columns, nulls preserved — a posting with no content shows none, never
+        // fabricated. `location_label` is still never read here (poster free text).
+        area: row.area,
         pay_min: row.payMin,
         pay_max: row.payMax,
         shift: row.shift,
-        min_experience_years: null,
-        max_experience_years: null,
+        min_experience_years: row.minExperienceYears,
+        max_experience_years: row.maxExperienceYears,
+        description: row.description,
+        benefits: row.benefits,
+        requirements: row.requirements,
+        needed_by: row.neededBy,
         // Reserved by the contract for the skill label that matched. Null until the search
         // reports WHICH phrase hit — surfacing the worker's own query back as a "matched
         // skill" would be a fabrication, not a match.

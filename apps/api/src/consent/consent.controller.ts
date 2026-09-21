@@ -44,4 +44,25 @@ export class ConsentController {
   async withdraw(@CurrentWorker() worker: AuthenticatedWorker, @Ctx() ctx: RequestContext) {
     return this.consent.withdraw(worker.id, ctx);
   }
+
+  /**
+   * E0 C-2 — the per-purpose exit from employer contact. NOT `withdraw` above: this keeps
+   * the worker's profile, resume and voice purposes, and does not revoke his sessions. The
+   * narrowed purposes are DERIVED SERVER-SIDE from his latest consent row; the request
+   * carries no body at all, so there is nothing for a client to get wrong.
+   *
+   * Guarded by `WorkerAuthGuard` alone, exactly like its siblings: the worker is acting on
+   * his OWN consent record, which is the record the ConsentGuard itself reads.
+   */
+  @Post("employer-contact/withdraw")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async withdrawEmployerContact(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ip() ip: string,
+    @Headers("user-agent") userAgent: string | undefined,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.consent.withdrawEmployerContact(worker.id, ip, userAgent, ctx);
+  }
 }

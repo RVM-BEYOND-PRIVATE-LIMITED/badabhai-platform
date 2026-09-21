@@ -243,6 +243,23 @@ def test_the_prompt_admits_training_not_only_employment(monkeypatch) -> None:
     assert "training" in system.lower()
 
 
+def test_the_prompt_treats_teaching_as_work_content(monkeypatch) -> None:
+    # A CNC trainer's line describes instructing students of various trades in CNC operating
+    # and programming over three months — real work activities — but the prompt framed the
+    # job as work DONE or training RECEIVED, so the model nulled a rephrasable input and the
+    # resume printed raw Hinglish. Teaching counts as work, the role label is context rather
+    # than a constraint, and a garbled fragment is rewritten around while any work content
+    # survives. This pins the narrowing so a trainer's line cannot quietly become null again.
+    seen = _capture(monkeypatch, json.dumps({"work_done": None}))
+    assert _post(
+        "battery in students of various trades into CNC operating and programming "
+        "and I will nake them learn all the things in 3 months"
+    ).status_code == 200
+
+    system = seen["messages"][0]["content"]
+    assert "TEACHING OTHERS IS WORK" in system
+
+
 def test_the_prompt_forbids_declining_on_vagueness(monkeypatch) -> None:
     # "Return null if the input is too vague" fired on exactly the register real workers write
     # in, and every decline prints as Hinglish. Null is now reserved for input with NO work

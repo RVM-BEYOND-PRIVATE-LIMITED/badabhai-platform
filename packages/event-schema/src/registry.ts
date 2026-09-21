@@ -32,6 +32,34 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLocationRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (a) — the optional WhatsApp number was set, replaced or cleared.
+  // Payload is the resulting state only; the number itself never leaves the workers row.
+  "worker.whatsapp_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerWhatsappRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (b) — the worker's language rows were replaced. Counts only: the
+  // languages themselves never reach the spine.
+  "worker.languages_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerLanguagesRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (e) — the worker's portfolio was replaced. Counts only: no captions,
+  // no storage keys, no URLs.
+  "worker.portfolio_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPortfolioRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (f) - the worker's declared secondary occupations were replaced.
+  // Counts only: no role ids.
+  "worker.occupations_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerOccupationsRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",
@@ -252,6 +280,7 @@ export const EVENT_REGISTRY = {
   "resume.downloaded": { version: 1, domain: "resume", payload: p.ResumeDownloadedPayload },
   "resume.regenerated": { version: 1, domain: "resume", payload: p.ResumeRegeneratedPayload },
   "resume.shared": { version: 1, domain: "resume", payload: p.ResumeSharedPayload },
+  "resume.edited": { version: 1, domain: "resume", payload: p.ResumeEditedPayload },
 
   "interview_kit.render_completed": {
     version: 1,
@@ -532,6 +561,14 @@ export const EVENT_REGISTRY = {
   "job.available": { version: 1, domain: "job", payload: p.NewJobAvailablePayload },
 
   "profile.viewed": { version: 1, domain: "profile", payload: p.ProfileViewedPayload },
+  // E0 C-1 (owner ruling 2026-09-21, route ii-v2) — `profile.viewed` VERSION 2. The v1
+  // entry above KEEPS its definition, unmodified, as history (invariant #8), exactly as
+  // `feed.shown_v2` and `skill.phrase_unresolved_v2` do: `validateEvent` allows exactly
+  // one version per NAME, so relaxing v1's REQUIRED `job_id` in place would invalidate
+  // every shipped consumer that reads the field without a null check. v2's `job_id` is
+  // OPTIONAL, which is what lets the unlock path — whose `unlocks.job_id` is nullable —
+  // emit at all. Emitted from `UnlockService.requestUnlock` on a NEW grant only.
+  "profile.viewed_v2": { version: 2, domain: "profile", payload: p.ProfileViewedV2Payload },
   // AGENCY supply-attribution funnel (ADR-0022) — the payer-axis sibling of `invite.*`.
   // PII-FREE: opaque ids + channel enum + optional non-PII campaign tag only.
   // `agency_invite.accepted` carries the invited worker id and is emitted ONLY after
@@ -903,6 +940,27 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileFormModeEnteredPayload,
   },
 
+  // THE OFFER, NOT THE GATE (Task 1 recall path; owner ruling 2026-09-16). The router
+  // recognised a form-enabled trade and the worker was ASKED whether to take the form —
+  // eligibility is code's, the choice is the worker's. `form_mode_entered` above still
+  // counts accepts; offered minus entered minus declined is the abandonment the offer
+  // ruling created the ability to measure. Two ids, one closed-set kind, two counts. v1.
+  "profile.form_offered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferedPayload,
+  },
+
+  // The worker declined the offer — explicitly (`declined`) or with a reply the binary
+  // reader could not read (`unclear`; treated exactly like a decline at the interview
+  // level, counted apart so the reader's miss rate stays visible rather than hiding in
+  // the decline count). Ids and closed enums only. v1.
+  "profile.form_offer_declined": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferDeclinedPayload,
+  },
+
   // One physical submission arrived twice and the second copy was served from the reply cache
   // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
   // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior
@@ -1033,6 +1091,51 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfileResumePrefillAppliedPayload,
+  },
+  // RI-autofill (owner override B): what the identity "haan" wrote from the staged
+  // option mappings. `applied` minus `mapped` is the mapping-to-form gap.
+  "profile.resume_autofill_applied": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeAutofillAppliedPayload,
+  },
+  // RI-identity: whether the worker recognised the staged Hinglish line as his.
+  // A "no" retires the import from the chat (batch-confirm suppressed with it).
+  "profile.resume_identity_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeIdentityAnsweredPayload,
+  },
+
+  // ── E0 — the in-app relay (docs/agent/phases/E0_BUILD.md) ────────────────────
+  // APPENDED AT THE END, per the registry's append-only protocol. A message crossing
+  // between a payer and a worker is a business action; each leg gets its event. All
+  // three are PII-FREE: opaque ids + closed enums + counts, never the body.
+  //
+  // `relay.message_received` is a SEPARATE name from `relay.message_sent` on purpose:
+  // the Alerts feed allowlists event NAMES, and a single name carrying both directions
+  // would surface "someone messaged you" for the worker's own reply.
+  "relay.message_sent": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageSentPayload,
+  },
+  "relay.message_received": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageReceivedPayload,
+  },
+  "relay.message_read": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageReadPayload,
+  },
+  // E0 C-2 — the per-purpose exit wrote a new consent row minus the two employer-contact
+  // purposes. Distinct from `consent.revoked` (all-or-nothing, sessions revoked).
+  "consent.purposes_withdrawn": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentPurposesWithdrawnPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

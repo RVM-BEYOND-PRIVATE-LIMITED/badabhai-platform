@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Native launch-window colour. Brand blue = AppColors.blue (#123D8C), the
-         same field the Flutter SplashScreen paints, so the cold-start native
-         window matches the first Flutter frame and there is no white/black flash
-         before the splash. Keep in sync with AppColors.blue. -->
-    <color name="bb_launch_bg">#FF123D8C</color>
+    <!-- Native launch-window colour: the app theme's dark blue, shiftBlue
+         (#05194C, OnboardingColors.shiftBlue). It paints the pre-splash screen
+         that shows the app icon in the centre (the launch window and the
+         Android 12+ system splash), so the cold start opens on the same navy
+         the app's headers use. Keep in sync with OnboardingColors.shiftBlue. -->
+    <color name="bb_launch_bg">#FF05194C</color>
 </resources>

@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
 /// The BadaBhai app mark — a deep-blue squircle holding a white chat bubble with
 /// a green "lift" chevron. A Flutter port of `assets/logo/app-icon.svg` (drawn,
 /// not rasterised, so it stays crisp at any size and ships zero extra assets).
 ///
-/// Set [withWordmark] to pair it with the **BadaBhai** wordmark in Baloo 2.
+/// Set [withWordmark] to pair it with the **BadaBhai** wordmark in Anek Latin.
 class BbLogo extends StatelessWidget {
   const BbLogo({
     super.key,
     this.size = 88,
     this.withWordmark = false,
-    this.wordmarkColor = AppColors.textPrimary,
+    this.wordmarkColor = OnboardingColors.ink900,
   });
 
   final double size;
@@ -37,7 +36,7 @@ class BbLogo extends StatelessWidget {
         Text(
           // Brand name is always one word, two capitals.
           'BadaBhai',
-          style: AppTypography.display(
+          style: OnboardingTypography.anek(
             size: size * 0.42,
             weight: FontWeight.w800,
             color: wordmarkColor,
@@ -55,13 +54,13 @@ class _BbLogoPainter extends CustomPainter {
     final double k = size.width / 512.0;
     double sx(double v) => v * k;
 
-    // Deep-blue squircle — structure/trust base; white bubble reads crisply on
-    // it (JUL31: content on haldi is deep blue, so the mark leads with blue).
+    // Shift-blue squircle — the structure/trust base; the white bubble reads
+    // crisply on it, so the mark leads with blue rather than yellow.
     final RRect squircle = RRect.fromRectAndRadius(
       Rect.fromLTWH(0, 0, sx(512), sx(512)),
       Radius.circular(sx(128)),
     );
-    canvas.drawRRect(squircle, Paint()..color = AppColors.blue);
+    canvas.drawRRect(squircle, Paint()..color = OnboardingColors.shiftBlue);
 
     // White chat bubble + drip tail.
     final Paint white = Paint()..color = Colors.white;
@@ -79,7 +78,7 @@ class _BbLogoPainter extends CustomPainter {
 
     // Green "lift" chevron.
     final Paint chevron = Paint()
-      ..color = AppColors.success
+      ..color = OnboardingColors.successGreen
       ..style = PaintingStyle.stroke
       ..strokeWidth = sx(32)
       ..strokeCap = StrokeCap.round

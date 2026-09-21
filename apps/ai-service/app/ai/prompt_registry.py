@@ -62,6 +62,15 @@ WORK_HISTORY_POLISH = "worker-work-history-polish"
 # us, under a masking policy the owner can flip. "Which prompt version, under which
 # posture, produced this import?" has to be answerable from one generation record.
 RESUME_PARSE = "resume-parse"
+# RI-summary (backend-only slice). The SECOND call after the parse: one Hinglish line
+# ({role} + {tajurba} + {summary}) for Langfuse verification, never shown in chat yet.
+# Versioned like the rest so "did v2 summarise better than v1?" is answerable from one
+# generation record — same reason as the parse above.
+RESUME_SUMMARY = "resume-profile-summary"
+# RI-autofill (owner override B, 2026-09-20, of ruling D2). The THIRD call after the
+# parse: document lines onto pack option ids. Versioned like the rest so "did v2 map
+# better than v1?" is answerable from one generation record — same reason as above.
+RESUME_OPTION_MAP = "resume-option-map"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -207,10 +216,14 @@ def install_default_prompts() -> None:
         work_history_polish_prompt,
     )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from ..resume_import.option_map_prompt import RESUME_OPTION_MAP_SYSTEM_PROMPT
     from ..resume_import.parse_prompt import RESUME_PARSE_SYSTEM_PROMPT
+    from ..resume_import.summary_prompt import RESUME_SUMMARY_SYSTEM_PROMPT
 
     register(INTERVIEW_TURN, interview_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)
     register(RESUME_PARSE, lambda: RESUME_PARSE_SYSTEM_PROMPT)
+    register(RESUME_SUMMARY, lambda: RESUME_SUMMARY_SYSTEM_PROMPT)
+    register(RESUME_OPTION_MAP, lambda: RESUME_OPTION_MAP_SYSTEM_PROMPT)

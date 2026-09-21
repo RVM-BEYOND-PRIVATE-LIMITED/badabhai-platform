@@ -25,12 +25,14 @@ void main() {
     // Fails on purpose: a SUCCESSFUL request pushes /otp, which needs a
     // GoRouter these tests deliberately do not build — they are about what goes
     // ON THE WIRE, not navigation. The call is still captured either way.
-    when(() => manager.requestOtp(any()))
-        .thenThrow(const AuthFailure(AuthErrorCode.network));
+    when(
+      () => manager.requestOtp(any()),
+    ).thenThrow(const AuthFailure(AuthErrorCode.network));
     when(() => manager.requestPinReset(any())).thenAnswer((_) async {});
     locator.registerSingleton<AuthSessionManager>(manager);
     locator.registerFactory<PhoneLoginCubit>(
-        () => PhoneLoginCubit(manager, locale: 'en'));
+      () => PhoneLoginCubit(manager, locale: 'en'),
+    );
   });
 
   tearDown(() async => locator.reset());
@@ -65,13 +67,23 @@ void main() {
     ) async {
       await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
 
-      // Rendered by the field, not held in the controller.
-      expect(find.text('+91 '), findsOneWidget);
+      // Rendered as a separate Text beside the single field, not held in the
+      // controller and not part of the field's own subtree.
+      final Finder prefix = find.text('+91');
+      expect(prefix, findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        find.descendant(of: find.byType(TextField), matching: prefix),
+        findsNothing,
+      );
+      final TextField field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isEmpty);
 
       // A worker mashing backspace on an empty field cannot remove it.
       await tester.enterText(find.byType(TextField), '');
       await tester.pump();
-      expect(find.text('+91 '), findsOneWidget);
+      expect(prefix, findsOneWidget);
+      expect(field.controller!.text, isNot(contains('+91')));
     });
 
     testWidgets('accepts digits only, capped at 10', (
@@ -84,8 +96,11 @@ void main() {
       await tester.pump();
 
       final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.controller!.text, '9198765432',
-          reason: 'digitsOnly then capped at 10 — no code, spaces or letters');
+      expect(
+        field.controller!.text,
+        '9198765432',
+        reason: 'digitsOnly then capped at 10 — no code, spaces or letters',
+      );
       expect(field.controller!.text.length, kNationalNumberDigits);
     });
 
@@ -116,9 +131,9 @@ void main() {
       await tester.tap(find.text('Send OTP'));
       await tester.pump();
 
-      final List<String> sent = verify(() => manager.requestOtp(captureAny()))
-          .captured
-          .cast<String>();
+      final List<String> sent = verify(
+        () => manager.requestOtp(captureAny()),
+      ).captured.cast<String>();
       expect(sent.single, '+919876543210');
     });
   });
@@ -129,7 +144,10 @@ void main() {
     ) async {
       await tester.pumpWidget(const MaterialApp(home: ForgotPinScreen()));
 
-      expect(find.text('+91 '), findsOneWidget);
+      // The dial code is its own chrome Text beside the field (the kit
+      // `PhoneNumberField`, same as the login screen above), not a `prefixText`
+      // with a trailing space inside the input — so it reads exactly '+91'.
+      expect(find.text('+91'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField).first, '98765');
       await tester.pump();
@@ -148,10 +166,9 @@ void main() {
       await tester.tap(find.text('Send OTP'));
       await tester.pump();
 
-      final List<String> sent =
-          verify(() => manager.requestPinReset(captureAny()))
-              .captured
-              .cast<String>();
+      final List<String> sent = verify(
+        () => manager.requestPinReset(captureAny()),
+      ).captured.cast<String>();
       expect(sent.single, '+919876543210');
     });
   });

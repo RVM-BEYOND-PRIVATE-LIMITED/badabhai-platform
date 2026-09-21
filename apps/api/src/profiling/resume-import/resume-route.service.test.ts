@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
-import type { ParsedField } from "@badabhai/ai-contracts";
+import type { ParsedField, ResumeEmployment } from "@badabhai/ai-contracts";
+import type { TradeFormKindName } from "@badabhai/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResumeRouteService } from "./resume-route.service";
@@ -81,6 +82,7 @@ function setup(
     familyThrows?: Error;
     encryptThrows?: boolean;
     emitThrows?: boolean;
+    mappedOptions?: { questionKey: string; optionKeys: string[] }[];
   } = {},
 ) {
   // `inTx` is how a test tells "called inside the transaction" from "called next to it". The
@@ -108,7 +110,14 @@ function setup(
           pinned:
             opts.pinnedFamily === undefined || opts.pinnedFamily === null
               ? null
-              : { familyId: opts.pinnedFamily, label: "CNC Turner", jobDomainId: "d", confidence: 0.9, iscoUnitCode: null, layer: "L0" },
+              : {
+                  familyId: opts.pinnedFamily,
+                  label: "CNC Turner",
+                  jobDomainId: "d",
+                  confidence: 0.9,
+                  iscoUnitCode: null,
+                  layer: "L0",
+                },
         }),
   };
   const packs = {
@@ -138,21 +147,39 @@ function setup(
     }),
   };
 
+  // RI-autofill. NO MAPPINGS unless a test asks for them — every existing test in this
+  // file asserts the route and the staged suggestions, which must be byte for byte what
+  // they always were. TYPED TO TAKE its arguments, so asserting on the asked questions
+  // compiles under `noUncheckedIndexedAccess` (same reason as the events mock below).
+  const optionMap = {
+    map: vi.fn(
+      async (_w: unknown, _s: unknown, _m: unknown, _q: unknown) => opts.mappedOptions ?? [],
+    ),
+  };
+
   const svc = new ResumeRouteService(
     imports as never,
     occupations as never,
     packs as never,
     crypto as never,
     events as never,
+    optionMap as never,
   );
-  return { svc, imports, occupations, packs, crypto, events, seen };
+  return { svc, imports, occupations, packs, crypto, events, optionMap, seen };
 }
 
-const parsedDraft = (fields: Record<string, ParsedField>): ParsedDraft => ({
+const parsedDraft = (
+  fields: Record<string, ParsedField>,
+  employments: ResumeEmployment[] = [],
+  associationKind: TradeFormKindName | null = null,
+): ParsedDraft => ({
   status: "parsed",
   importId: IMPORT,
+  storageKey: `resume-uploads/${WORKER}/abc.pdf`,
+  mime: "application/pdf",
   fields,
-  employments: [],
+  employments,
+  associationKind,
   extractionMethod: "pdf_text",
   pageCount: 1,
   ocrConfidence: null,
@@ -165,6 +192,7 @@ const routingWritten = (imports: { settleParsed: { mock: { calls: unknown[][] } 
   imports.settleParsed.mock.calls[0]![2] as {
     route: string;
     formKind: string | null;
+    associationKind: string | null;
     suggestionsEnc: string | null;
   };
 
@@ -200,7 +228,11 @@ describe("the deterministic router decides, and the résumé only supplies its i
       parsedDraft({ role_label: field("CNC Turner cum VMC Operator") }),
       CTX,
     );
-    const clean = await setup().svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+    const clean = await setup().svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("CNC Turner") }),
+      CTX,
+    );
 
     expect(vetoed?.route).toBe("chat");
     expect(vetoed?.formKind).toBeNull();
@@ -222,6 +254,53 @@ describe("the deterministic router decides, and the résumé only supplies its i
     await svc.route(WORKER, parsedDraft({ role_label: field("Security Guard") }), CTX);
     expect(routingWritten(imports)).toEqual(
       expect.objectContaining({ route: "chat", formKind: null }),
+    );
+  });
+
+  it("Task 1 B2 — the model's judgment is settled beside the route, and the route does not listen", async () => {
+    // RECORDED, NOT ACTED ON. "Security Guard" matches no term rule, so the
+    // route is chat with or without the judgment; what changes is only the
+    // settled column. "fitter" is a real 21-kind the model may judge while the
+    // router cannot route it (declared, no enabled form). Wiring judgments in
+    // as a recall path waits on the handover ruling.
+    const { svc, imports } = setup();
+    const judged = await svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("Security Guard") }, [], "fitter"),
+      CTX,
+    );
+    const unjudged = await setup().svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("Security Guard") }),
+      CTX,
+    );
+
+    expect(judged?.route).toBe("chat");
+    expect(unjudged?.route).toBe("chat");
+    expect(routingWritten(imports)).toEqual(
+      expect.objectContaining({ route: "chat", formKind: null, associationKind: "fitter" }),
+    );
+  });
+
+  it("Task 1 B2 — a form route settles the judgment alongside the kind", async () => {
+    const { svc, imports } = setup();
+    const result = await svc.route(
+      WORKER,
+      parsedDraft(
+        { role_label: field("CNC Turner"), domain_label: field("CNC Machining") },
+        [],
+        "cnc_turner",
+      ),
+      CTX,
+    );
+
+    expect(result?.route).toBe("form");
+    expect(routingWritten(imports)).toEqual(
+      expect.objectContaining({
+        route: "form",
+        formKind: "cnc_turner",
+        associationKind: "cnc_turner",
+      }),
     );
   });
 });
@@ -255,7 +334,12 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
       fieldsExtracted: 1,
       suggestionsOffered: 0,
     });
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({
+      route: "chat",
+      formKind: null,
+      associationKind: null,
+      suggestionsEnc: null,
+    });
     expect(crypto.encrypt).not.toHaveBeenCalled();
     const call = emitCall(events);
     expect(call.payload).toMatchObject({ route: "chat", form_kind: null, suggestions_offered: 0 });
@@ -272,7 +356,12 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
     const result = await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
 
     expect(result?.route).toBe("chat");
-    expect(routingWritten(imports)).toEqual({ route: "chat", formKind: null, suggestionsEnc: null });
+    expect(routingWritten(imports)).toEqual({
+      route: "chat",
+      formKind: null,
+      associationKind: null,
+      suggestionsEnc: null,
+    });
   });
 
   it("a failed parse settles nothing, emits nothing, and returns null — not a pretend chat route", async () => {
@@ -420,6 +509,55 @@ describe("what is written, and what is never written", () => {
     expect(routingWritten(imports).suggestionsEnc).toBeNull();
   });
 
+  it("a parsed résumé's employments ride the SAME staged blob, under `employments`, alongside `answers`", async () => {
+    const { svc, crypto } = setup();
+    const employment: ResumeEmployment = {
+      employer_name: "Sandhar Technologies",
+      role_title: "CNC Operator",
+      start_year: 2019,
+      end_year: 2021,
+      evidence: { message_index: 0, quote: "Sandhar Technologies, CNC Operator, 2019-2021" },
+    };
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }, [employment]), CTX);
+
+    expect(crypto.encrypt).toHaveBeenCalledTimes(1);
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    expect(plaintext).toContain("Sandhar Technologies");
+    const parsed = JSON.parse(plaintext) as { answers: unknown; employments: unknown[] };
+    expect(parsed.employments).toEqual([
+      {
+        source: "resume",
+        values: {
+          employer_name: "Sandhar Technologies",
+          employer_city: null,
+          role_label: "CNC Operator",
+          start_ym: null,
+          end_ym: null,
+          work_done: null,
+        },
+      },
+    ]);
+    // The pack-question suggestion still lands exactly where it always has, under `answers`.
+    expect(Object.keys(parsed.answers as Record<string, unknown>)).toContain("primary_trade");
+  });
+
+  it("a résumé with employments but NO pack-answer suggestions still stages the employments (not folded into the null-payload path)", async () => {
+    const { svc, imports, crypto } = setup();
+    const employment: ResumeEmployment = {
+      employer_name: "TVS Motor",
+      role_title: null,
+      start_year: null,
+      end_year: null,
+      evidence: { message_index: 0, quote: "TVS Motor" },
+    };
+    // `machines` maps to no destination question (see `resume-suggestions.ts`), so the pack
+    // side alone would store null — the employment must still be the reason this stages.
+    await svc.route(WORKER, parsedDraft({ machines: field(["Fanuc Oi-MF"]) }, [employment]), CTX);
+
+    expect(crypto.encrypt).toHaveBeenCalledTimes(1);
+    expect(routingWritten(imports).suggestionsEnc).toMatch(/^enc\(/);
+  });
+
   it("`settleParsed` is the ONLY write — no answer, no attribute (ruling D2)", async () => {
     // Structural, not incidental. The repository this service holds exposes exactly one write it
     // can reach (plus the transaction it runs in); if a later change injects an answer
@@ -467,5 +605,79 @@ describe("the event is the funnel's middle number, and carries no document text"
     for (const leaked of ["CNC Turner", "Pune", "Fanuc"]) {
       expect(serialised).not.toContain(leaked);
     }
+  });
+});
+
+describe("RI-autofill staging (owner override B) — the third call, on the form route only", () => {
+  const optionItem = (question_key: string, answer_type: "single_select" | "multi_select") => ({
+    ...packItem(question_key, question_key),
+    answer_type,
+    options: [
+      {
+        option_key: "opt_a",
+        label_text: "Option A",
+        value: null,
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "opt_b",
+        label_text: "Option B",
+        value: null,
+        implies_skill_id: null,
+        is_none_of_above: false,
+      },
+    ],
+  });
+
+  it("a form-routed import maps the TRADE pack's option questions and stages option_map in the token", async () => {
+    const { svc, packs, crypto, optionMap } = setup();
+    packs.loadForFamily.mockResolvedValue({
+      pack_id: "qp_cnc_turning",
+      items: [optionItem("turning_machine", "multi_select"), packItem("notes", "notes")],
+    });
+    optionMap.map.mockResolvedValue([{ questionKey: "turning_machine", optionKeys: ["opt_a"] }]);
+
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+
+    // Asked against the trade pack's option questions only — never the text question,
+    // never universal. Closed ids travel; option prose and document text do not.
+    expect(optionMap.map).toHaveBeenCalledTimes(1);
+    const asked = optionMap.map.mock.calls[0]!;
+    expect(asked[0]).toBe(WORKER);
+    expect(asked[1]).toBe(`resume-uploads/${WORKER}/abc.pdf`);
+    expect(asked[2]).toBe("application/pdf");
+    expect(asked[3]).toEqual([
+      {
+        question_key: "turning_machine",
+        answer_type: "multi_select",
+        options: [
+          { option_key: "opt_a", label_text: "Option A" },
+          { option_key: "opt_b", label_text: "Option B" },
+        ],
+      },
+    ]);
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    const parsed = JSON.parse(plaintext) as { option_map: unknown };
+    expect(parsed.option_map).toEqual([
+      { question_key: "turning_machine", option_keys: ["opt_a"] },
+    ]);
+  });
+
+  it("a chat-routed import never runs the mapping call", async () => {
+    // "welder" alone does not route without corroboration; force chat via an empty label.
+    const { svc, optionMap } = setup();
+    await svc.route(WORKER, parsedDraft({ role_label: field("bus driver") }), CTX);
+
+    expect(optionMap.map).not.toHaveBeenCalled();
+  });
+
+  it("an empty mapping stages nothing extra — the token is exactly today's shape plus an empty option_map", async () => {
+    const { svc, crypto } = setup();
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+
+    const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
+    const parsed = JSON.parse(plaintext) as { option_map: unknown };
+    expect(parsed.option_map).toEqual([]);
   });
 });

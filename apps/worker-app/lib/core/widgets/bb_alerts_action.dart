@@ -3,12 +3,11 @@ import 'package:flutter/material.dart';
 import '../../features/notifications/domain/notifications_repository.dart';
 import '../../router.dart';
 import '../di/locator.dart';
-import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 import '../../core/util/push_once.dart';
 
-/// App-bar action that opens the Alerts / notifications screen.
+/// Header action that opens the Alerts / notifications screen — UI kit v3 §4's
+/// `notifications_outlined` bell.
 ///
 /// Notifications lost their bottom-nav tab in the kit's 4-tab set
 /// (Jobs · Resume · Bada Bhai · Profile). This bell is the relocated entry
@@ -17,17 +16,24 @@ import '../../core/util/push_once.dart';
 /// count from [NotificationsRepository.unreadCount] — the SAME source the old
 /// nav badge read, so the shell's on-open `refresh()` still lights it.
 ///
-/// Mirrors [BbChatAction]: a themed header [IconButton]. When the notifications
-/// repository is not wired (partial-locator widget tests) it degrades to a
-/// plain, badge-less bell — the entry point still works, it just cannot show a
-/// count.
+/// The glyph is painted at [glyphSize] (the spec's 22) inside a
+/// [OnboardingLayout.tapTarget] hit box, like every other header action
+/// ([KitHeaderIconAction]) — the ink lands where the artboard puts it and the
+/// tap area still clears the worker touch floor.
+///
+/// When the notifications repository is not wired (partial-locator widget
+/// tests) it degrades to a plain, badge-less bell — the entry point still
+/// works, it just cannot show a count.
 class BbAlertsAction extends StatelessWidget {
-  const BbAlertsAction({super.key, this.color = AppColors.brand});
+  const BbAlertsAction({super.key, this.color = OnboardingColors.textOnBlue});
 
-  /// Bell icon colour. Defaults to haldi [AppColors.brand]; pass
-  /// [AppColors.onBlue] on the blue swipe header where haldi collides with the
-  /// haldi headline.
+  /// Bell icon colour. Defaults to white, because every header that carries the
+  /// bell is the navy band (spec §4). A caller on another surface passes its own
+  /// ink.
   final Color color;
+
+  /// The painted glyph size (spec §4: 22 in the navy tab header).
+  static const double glyphSize = 22;
 
   @override
   Widget build(BuildContext context) {
@@ -44,17 +50,18 @@ class BbAlertsAction extends StatelessWidget {
   Widget _bell(BuildContext context, int unread) {
     return IconButton(
       tooltip: 'Alerts',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(
+        width: OnboardingLayout.tapTarget,
+        height: OnboardingLayout.tapTarget,
+      ),
       onPressed: () => context.pushOnce(Routes.alerts),
       icon: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          Icon(Icons.notifications_outlined, color: color),
+          Icon(Icons.notifications_outlined, size: glyphSize, color: color),
           if (unread > 0)
-            Positioned(
-              top: -4,
-              right: -6,
-              child: _Badge(count: unread),
-            ),
+            Positioned(top: -4, right: -6, child: _Badge(count: unread)),
         ],
       ),
     );
@@ -71,20 +78,21 @@ class _Badge extends StatelessWidget {
     return Container(
       constraints: const BoxConstraints(minWidth: 16),
       height: 16,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s1),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       alignment: Alignment.center,
       decoration: const BoxDecoration(
-        color: AppColors.danger,
-        borderRadius: BorderRadius.all(Radius.circular(AppRadii.pill)),
+        color: OnboardingColors.errorRed,
+        borderRadius: BorderRadius.all(Radius.circular(999)),
       ),
       child: Text(
         '$count',
         textAlign: TextAlign.center,
-        style: AppTypography.body(
-          size: AppTypography.size2xs,
+        style: OnboardingTypography.inter(
+          size: 10,
           weight: FontWeight.w700,
-          // White on the crimson badge — deep-blue textOnBrand read as dark.
-          color: AppColors.onBlue,
+          // White on the red disc — the navy ink the rest of the kit uses for
+          // "on brand" surfaces read as dark here.
+          color: OnboardingColors.paperWhite,
         ),
       ),
     );

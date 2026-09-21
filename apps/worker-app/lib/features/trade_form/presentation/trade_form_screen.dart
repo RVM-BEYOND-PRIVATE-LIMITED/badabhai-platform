@@ -1,22 +1,26 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_button.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/onboarding/form_flow_parts.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
+import '../../voice/domain/speech_reader.dart';
 import '../domain/trade_form_models.dart';
 import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
 import 'widgets/trade_form_preferences_page.dart';
-import 'widgets/trade_form_progress_bar.dart';
-import '../domain/spoken_work_description.dart';
 import 'widgets/trade_form_qualifications_page.dart';
 import 'widgets/trade_form_question_body.dart';
+import 'widgets/trade_form_topics.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
 // persona_neutrality_test.dart. ----
@@ -29,16 +33,99 @@ const String _kNoFormBody =
     'Aapke liye koi form taiyaar nahi kiya gaya hai. Baad mein dobara dekhein.';
 const String _kNoFormHeader = 'Form';
 
+/// The header's STEP line — the worker's position in the WHOLE walk, built
+/// from exactly the numbers the progress strip already renders (see the
+/// `FormProgressStrip` call site's #1384 doc), then the step's category
+/// ("Step 5 of 6 • Tooling & fixtures"). Not a new counter.
+String _stepBadge(int position, int total, String category) =>
+    category.isEmpty
+        ? 'Step $position of $total'
+        : 'Step $position of $total • $category';
+
+/// Whether the keyboard has left too little room for this screen's full
+/// chrome — the navy header, the STEP line AND the progress strip — above the
+/// docked bar.
+///
+/// MEASURED, not guessed: on a 320x568 handset at a 200% system font with the
+/// keyboard up, the form-flow header (223dp), the progress strip (67dp) and
+/// the docked bar (81dp) come to 371dp of chrome in the 308dp the keyboard
+/// leaves. The scrollable question then gets 0dp and the docked bar overflows
+/// the column — a red error band under the worker's thumb. So while the
+/// keyboard crowds the screen the chrome sheds the two parts that are pure
+/// context (the STEP line and the strip, which say the same thing twice) and
+/// keeps the parts the worker is using: the question, the field and the
+/// action. Both come straight back when the keyboard closes.
+///
+/// CALL THIS ABOVE THE SCAFFOLD — from the widget that BUILDS it, as both
+/// callers do. A [Scaffold] with the default `resizeToAvoidBottomInset`
+/// consumes `viewInsets.bottom` and hands its body a shorter box with the
+/// inset zeroed, so the same question asked inside the body always answers 0.
+///
+/// [MediaQuery] rather than `View.of`, deliberately: reading the window gives
+/// the right number but subscribes to nothing, so the build that read it never
+/// re-runs when the keyboard opens — the chrome would only collapse if some
+/// other rebuild happened to follow. `viewInsetsOf`/`sizeOf` register the two
+/// dependencies, so the keyboard appearing IS the rebuild.
+///
+/// Duplicated verbatim in `features/finishing/presentation/finishing_screen.dart`,
+/// whose wizard has the identical header + strip + docked-bar column; keep
+/// both in sync if this ever changes.
+bool _keyboardCrowdsChrome(BuildContext context) {
+  final double keyboard = MediaQuery.viewInsetsOf(context).bottom;
+  if (keyboard <= 0) return false;
+  return MediaQuery.sizeOf(context).height - keyboard < 480;
+}
+
+/// Whether the HEADER should fall back to the kit's collapsed drawing.
+///
+/// A superset of [_keyboardCrowdsChrome]: the keyboard is one way to run out of
+/// vertical space, a 320x568 handset at a 2.0 system font is another. There the
+/// approved form-flow header measured 266dp and the strip another 65 — 58% of
+/// the screen — so the page opened with NO answer control on it and the worker
+/// had to scroll blind past a question to find the options.
+///
+/// R14 keeps the DRAWING, not the height: the progress strip, the traced option
+/// glyphs, the hint chip and the decline link all stay (they are gated on
+/// [_keyboardCrowdsChrome], not on this), and on any screen with room the
+/// approved header is what ships.
+bool _chromeCrowdsChrome(BuildContext context) =>
+    _keyboardCrowdsChrome(context) || chromeCrowdsViewport(context);
+
+/// (category, topic) for the header's step line and the progress strip —
+/// from the question's own key, or the marker page's fixed pair. Labels only:
+/// nothing here changes which step is shown or what is saved.
+(String, String) _topicFor(TradeFormStep? step) => switch (step) {
+      final TradeFormQuestionStep s => formTopicFor(s.question.id),
+      TradeFormPreferencesStep() => kPreferencesTopic,
+      TradeFormEmploymentStep() => kEmploymentTopic,
+      TradeFormQualificationsStep() => kQualificationsTopic,
+      _ => ('', ''),
+    };
+
 /// The trade form (#1341) — sectioned, resumable, driven entirely by
 /// `GET /profiling/form`. Reached via `context.pushOnce(Routes.tradeForm)`; no
 /// navigation is wired INTO this screen yet (that is #1340's handover card).
+///
+/// Painted with the Master Flutter UI Kit and the form-flow mockups
+/// (Workholding / Measuring / Operations): the Shift Blue header on every
+/// state (on a walk step: a yellow section title under the step + category
+/// line), the white [FormProgressStrip] directly under it, and every step's
+/// action docked in [QuestionnaireBottomBar] with a listen button when the
+/// device read-aloud is wired.
 class TradeFormScreen extends StatelessWidget {
-  const TradeFormScreen({super.key});
+  /// Opens the whole form (null) or one résumé-section walk — currently the
+  /// Technical Skills pilot (`trade_form_section_walk.dart`). The router feeds
+  /// this from the Bada Bhai menu's `option_key` (`state.extra`); every other
+  /// pusher passes nothing and gets exactly today's full walk.
+  const TradeFormScreen({super.key, this.sectionKey});
+
+  /// The served menu's section key, or null for the full walk.
+  final String? sectionKey;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<TradeFormCubit>(
-      create: (_) => locator<TradeFormCubit>()..load(),
+      create: (_) => locator<TradeFormCubit>()..load(sectionKey: sectionKey),
       child: const _TradeFormView(),
     );
   }
@@ -56,7 +143,9 @@ class _TradeFormView extends StatelessWidget {
           // #1367: the last marker save landed — there is no further step in
           // this walk. Leave via the SAME terminal pipeline every other
           // profiling path already uses (see profile_preview_screen.dart).
-          context.go(Routes.building);
+          // force: true so the server overlay runs against the fresh pack
+          // answers the worker just saved (resume-draft-overlay.ts).
+          context.go(Routes.building, extra: true);
         }
       },
       builder: (BuildContext context, TradeFormState state) {
@@ -95,7 +184,7 @@ class _TradeFormView extends StatelessWidget {
   }
 }
 
-/// A bare blue-header scaffold for the pre-form loading / error / empty
+/// A bare Shift Blue header scaffold for the pre-form loading / error / empty
 /// states — [onBack] pops the whole screen since there is nothing to walk yet.
 class _StatusScaffold extends StatelessWidget {
   const _StatusScaffold({required this.title, required this.child});
@@ -104,11 +193,23 @@ class _StatusScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool crowded = _keyboardCrowdsChrome(context);
     return Scaffold(
-      backgroundColor: AppColors.canvas,
+      backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          BbBlueHeader(title: title, onBack: () => context.pop()),
+          ShiftBlueHeader(
+            title: title,
+            onBack: () => context.pop(),
+            // The approved form-flow drawing, except on a keyboard-crowded
+            // short screen where it alone is taller than the viewport — see
+            // [_keyboardCrowdsChrome].
+            variant: crowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: crowded,
+            autoCompact: false,
+          ),
           Expanded(child: SafeArea(top: false, child: child)),
         ],
       ),
@@ -116,23 +217,13 @@ class _StatusScaffold extends StatelessWidget {
   }
 }
 
+/// The kit's captioned loader ([BbStatusView.loading]) — the app's one loading
+/// drawing (decision D12), not a fourth local spinner.
 class _LoadingBody extends StatelessWidget {
   const _LoadingBody();
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const CircularProgressIndicator(color: AppColors.blue),
-          const SizedBox(height: AppSpacing.s4),
-          Text(_kLoading,
-              style: AppTypography.body(
-                  size: AppTypography.sizeBase, color: AppColors.textMuted)),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const BbStatusView.loading(caption: _kLoading);
 }
 
 /// The honest "nothing to fill here" state for a 404 — DISTINCT from a blank
@@ -142,23 +233,19 @@ class _NoFormBody extends StatelessWidget {
   const _NoFormBody();
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(_kNoFormTitle,
-                textAlign: TextAlign.center,
-                style: AppTypography.display(size: AppTypography.sizeLg)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(_kNoFormBody,
-                textAlign: TextAlign.center,
-                style: AppTypography.body(
-                    size: AppTypography.sizeBase, color: AppColors.textMuted)),
-          ],
-        ),
-      ),
+    // The kit's status view (decision D12): the 54dp informational disc, the
+    // Anek title and the muted line, centred while there is room and SCROLLED
+    // when there is not. The copy is unchanged.
+    //
+    // It replaces a local `OnboardingBody(fillViewport: true)` column, which
+    // sized itself through `IntrinsicHeight`: a Text reports its intrinsic
+    // height for ONE unwrapped line, so on a landscape phone at a 2.0 system
+    // font the box came out 36dp shorter than the wrapped copy and the state
+    // overflowed instead of scrolling.
+    return const BbStatusView(
+      icon: Icons.inbox_outlined,
+      title: _kNoFormTitle,
+      subtitle: _kNoFormBody,
     );
   }
 }
@@ -170,34 +257,27 @@ class _ErrorBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(message,
-                textAlign: TextAlign.center,
-                style: AppTypography.body(size: AppTypography.sizeMd)),
-            const SizedBox(height: AppSpacing.s4),
-            BbButton(
-              label: _kRetry,
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.md,
-              onPressed: onRetry,
-            ),
-          ],
-        ),
+    // The kit's status view (decision D12), scroll-safe at every text scale.
+    // The TITLE is the server's real reason — never a generic "kuch galat ho
+    // gaya" over the top of it — and the retry stays the kit's hero CTA.
+    return BbStatusView(
+      icon: Icons.cloud_off_rounded,
+      iconColor: OnboardingColors.errorRed,
+      title: message,
+      action: PrimaryActionButton(
+        label: _kRetry,
+        showArrow: false,
+        onPressed: onRetry,
       ),
     );
   }
 }
 
-/// The main walk chrome: a per-step header (section title, back-to-previous),
-/// a progress bar, and the swapped step body. A marker screen's sticky
-/// save/advance button ([_MarkerBottomBar]) lives HERE, a sibling of the
-/// scrollable body; a question screen's own pinned submit button lives
-/// INSIDE [TradeFormQuestionBody] instead (it needs the live draft text/
+/// The main walk chrome: a per-step Shift Blue header (section title, STEP
+/// badge, back-to-previous), a progress bar, and the swapped step body. A
+/// marker screen's docked save/advance bar ([_MarkerBottomBar]) lives HERE, a
+/// sibling of the scrollable body; a question screen's own docked submit bar
+/// lives INSIDE [TradeFormQuestionBody] instead (it needs the live draft text/
 /// selection, which only that widget holds) — either way every "Aage
 /// badhein" on this walk is fixed at the bottom, never scrolls away. Each
 /// question answer is still its own `POST /profiling/form/answer` rather
@@ -239,17 +319,65 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
   // Defaults deliberately assume "more than one page, not yet on the last
   // one" — `_markerPage(0) < _markerPageCount(2) - 1` — so the ONE transient
   // frame before a freshly-mounted marker's real page count arrives never
-  // shows the true-final (green/"Ho gaya") treatment prematurely; the worse
+  // shows the true-final ("Ho gaya") treatment prematurely; the worse
   // case is a harmless one-frame "Aage badhein" on a marker that turns out
   // to be single-page (`TradeFormEmploymentPageState.pageCount` with no
   // entries yet), self-corrected the instant the post-frame callback fires.
   int _markerPage = 0;
   int _markerPageCount = 2;
 
+  /// The device read-aloud behind the docked bars' listen button. Null when
+  /// the voice graph is not registered (most widget tests) — then NO listen
+  /// button renders, never a dead one.
+  SpeechReader? _speech;
+
+  @override
+  void initState() {
+    super.initState();
+    _speech =
+        locator.isRegistered<SpeechReader>() ? locator<SpeechReader>() : null;
+  }
+
+  @override
+  void dispose() {
+    _stopSpeech(); // never leave TTS reading a screen that is gone
+    super.dispose();
+  }
+
+  void _stopSpeech() {
+    final SpeechReader? reader = _speech;
+    if (reader != null) unawaited(reader.stop());
+  }
+
+  /// The mounted marker's current internal page heading(s), read at TAP time
+  /// so it always matches the page on screen. Server/app copy only — never a
+  /// value the worker entered.
+  String? _markerSpeech(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      return _prefsKey.currentState?.currentPageSpeech();
+    } else if (step is TradeFormEmploymentStep) {
+      return _empKey.currentState?.currentPageSpeech();
+    } else if (step is TradeFormQualificationsStep) {
+      return _qualsKey.currentState?.currentPageSpeech();
+    }
+    return null;
+  }
+
+  void _listenToMarker(TradeFormStep? step) {
+    final SpeechReader? reader = _speech;
+    final String? text = _markerSpeech(step);
+    if (reader == null || text == null || text.trim().isEmpty) return;
+    unawaited(() async {
+      await reader.stop(); // a second tap restarts rather than overlaps
+      await reader.speak(text);
+    }());
+  }
+
   @override
   void didUpdateWidget(covariant _WizardScaffold oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state.currentIndex != widget.state.currentIndex) {
+      _stopSpeech(); // the step changed — stop reading the previous one
       // A freshly (re)mounted marker widget always starts its own internal
       // `_page` at 0 (a brand-new State object — see `_prefsKey`'s doc on
       // why a GlobalKey cannot survive the unmount) — mirror that here so
@@ -267,6 +395,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
 
   void _onMarkerPageChanged(int page, int pageCount) {
     if (!mounted) return;
+    // An internal page change is a step change for the worker's ears too.
+    if (page != _markerPage) _stopSpeech();
     setState(() {
       _markerPage = page;
       _markerPageCount = pageCount;
@@ -297,15 +427,26 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: AppColors.danger,
-        content: Text(message,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: Colors.white)),
+        backgroundColor: OnboardingColors.errorRed,
+        content: Text(
+          message,
+          style: OnboardingTypography.inter(
+            size: 13,
+            weight: FontWeight.w500,
+            color: OnboardingColors.textOnBlue,
+          ),
+        ),
         actions: <Widget>[
           TextButton(
             onPressed: messenger.hideCurrentMaterialBanner,
-            child: const Text('Theek hai',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            child: Text(
+              'Theek hai',
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w700,
+                color: OnboardingColors.textOnBlue,
+              ),
+            ),
           ),
         ],
       ),
@@ -349,12 +490,47 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     final bool isMarkerStep = _isMarkerStep(step);
     final bool markerOnLastInternalPage = _markerPage >= _markerPageCount - 1;
 
+    // #1384 — deliberately NOT `state.answered`/`state.total` (those are
+    // QUESTION-only counters, server-authoritative per #1375, and stay
+    // untouched here). The progress strip (and the header's STEP line, which
+    // reads the same two numbers) instead renders progress through the WHOLE
+    // walk —
+    // questions AND marker screens — using the worker's own position against
+    // the steps the walk will actually SHOW (a marker page already saved is
+    // skipped, so it is not counted — see `TradeFormState.visibleStepCount`),
+    // so it also moves while filling a preferences/employment marker screen
+    // instead of sitting frozen, and never promises steps that will not come.
+    final int total = state.visibleStepCount;
+    final int position = state.visiblePosition;
+
+    final (String category, String topic) = _topicFor(step);
+    // The keyboard is up on a short screen: the chrome sheds its two
+    // context-only parts so the question, the field and the docked action
+    // still fit. See [_keyboardCrowdsChrome] for the measurement.
+    final bool crowded = _keyboardCrowdsChrome(context);
+    // The header collapses on a short screen too, not only under a keyboard.
+    final bool headerCrowded = _chromeCrowdsChrome(context);
+
     return Scaffold(
-      backgroundColor: AppColors.canvas,
+      backgroundColor: FormFlowColors.canvas,
       body: Column(
         children: <Widget>[
-          BbBlueHeader(
+          ShiftBlueHeader(
             title: state.currentSectionTitle ?? '',
+            titleColor: OnboardingColors.safetyYellow,
+            // The form-flow drawing is the one the user approved, so it is
+            // what ships — EXCEPT while the keyboard crowds a short screen,
+            // where it does not fit at all (see [_keyboardCrowdsChrome]).
+            // There the header falls back to the kit's collapsed drawing
+            // (back arrow + one-line title on a single row), which is the
+            // same collapse every other screen in the app already does.
+            variant: headerCrowded
+                ? OnboardingVariant.standard
+                : OnboardingVariant.formFlow,
+            compact: headerCrowded,
+            stepBadge: (total == 0 || crowded)
+                ? null
+                : _stepBadge(position, total, category),
             // #1384 item 2 — a marker mid-way through its own internal pages
             // walks BACKWARD through those first; only once it is back on
             // its own first internal page does the SAME back arrow fall
@@ -364,53 +540,49 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                 ? () => _goToPreviousMarkerPage(step)
                 : (state.isFirstStep ? () => context.pop() : cubit.goBack),
           ),
+          // Full width, directly under the header — outside the body padding.
+          // Hidden only while the keyboard crowds the screen (see
+          // [_keyboardCrowdsChrome]); it is the same progress the STEP line
+          // states, and a worker mid-typing is reading their own words.
+          if (!crowded)
+            FormProgressStrip(topic: topic, position: position, total: total),
           Expanded(
+            // Bottom inset is handed to the docked bar itself
+            // (`QuestionnaireBottomBar` pads for it), so its white ground
+            // runs to the screen edge instead of stopping above the gesture
+            // area.
             child: SafeArea(
               top: false,
+              bottom: false,
               child: Column(
                 children: <Widget>[
-                  const SizedBox(height: AppSpacing.s4),
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    // #1384 — deliberately NOT `state.answered`/`state.total`
-                    // (those are QUESTION-only counters, server-authoritative
-                    // per #1375, and stay untouched here). The bar instead
-                    // renders progress through the WHOLE walk — questions AND
-                    // marker screens — using the worker's own position
-                    // (`currentIndex`) against the true step count
-                    // (`flatSteps.length`), so it also moves while filling a
-                    // preferences/employment marker screen instead of sitting
-                    // frozen. `+ 1` so the very first step still shows a
-                    // sliver rather than reading empty, and the LAST step
-                    // reads fully complete rather than stuck one short;
-                    // clamped and `flatSteps`-empty-guarded defensively even
-                    // though neither should happen per this state's own
-                    // invariants.
-                    child: TradeFormProgressBar(
-                      answered: state.flatSteps.isEmpty
-                          ? 0
-                          : (state.currentIndex + 1)
-                              .clamp(0, state.flatSteps.length)
-                              .toInt(),
-                      total: state.flatSteps.length,
-                    ),
-                  ),
-                  if (state.submitError != null) ...<Widget>[
-                    const SizedBox(height: AppSpacing.s3),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.gutter),
-                      child: Text(
-                        state.submitError!,
-                        style: AppTypography.body(
-                            size: AppTypography.sizeSm, color: AppColors.danger),
+                  if (state.submitError != null)
+                    _CappedWidth(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Icon(
+                            Icons.error_outline_rounded,
+                            size: 18,
+                            color: OnboardingColors.errorRed,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              state.submitError!,
+                              style: OnboardingTypography.inter(
+                                size: 13,
+                                color: OnboardingColors.errorRed,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
                   Expanded(
                     // A question step (`TradeFormQuestionBody`) manages its
-                    // OWN internal scroll region + pinned submit footer (the
+                    // OWN internal scroll region + docked submit bar (the
                     // "Aage badhein"/"Submit karein" button must stay fixed
                     // at the bottom, not scroll away on a long question) — so
                     // it is handed the raw space directly, unwrapped. Every
@@ -418,12 +590,13 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     // treatment.
                     child: step is TradeFormQuestionStep
                         ? _stepBody(step, cubit, enabled, state)
-                        : SingleChildScrollView(
+                        : OnboardingBody(
                             padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.gutter,
-                                AppSpacing.s4,
-                                AppSpacing.gutter,
-                                AppSpacing.s4),
+                              FormFlowLayout.gutter,
+                              FormFlowLayout.bodyPaddingTop,
+                              FormFlowLayout.gutter,
+                              24,
+                            ),
                             child: _stepBody(step, cubit, enabled, state),
                           ),
                   ),
@@ -436,10 +609,14 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                       // Every internal-pagination "next" tap — including on
                       // a marker whose outer step happens to be last — stays
                       // the ordinary advance button; only the one tap that
-                      // ACTUALLY calls `.save()` gets the last-step styling.
+                      // ACTUALLY calls `.save()` gets the last-step treatment.
                       isLast: state.isLastStep && markerOnLastInternalPage,
                       isSubmitting: state.isSubmitting,
+                      onListen: _speech == null
+                          ? null
+                          : () => _listenToMarker(step),
                       onPressed: () {
+                        _stopSpeech();
                         if (!markerOnLastInternalPage) {
                           _goToNextMarkerPage(step);
                           return;
@@ -485,6 +662,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         onSubmitText: (String text) =>
             cubit.answerQuestion(step, TradeFormAnswer.text(text)),
         onDecline: () => cubit.declineQuestion(step),
+        speechReader: _speech,
         // #1384 item 3 — reliable per #1376's fix to `answerQuestion`: a
         // question on the walk's true last step emits `done` directly on
         // submit rather than silently advancing.
@@ -498,6 +676,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.savePreferencesAndAdvance,
         initialPreferences: state.savedPreferences,
+        knownFacts: state.knownFacts,
         onPageChanged: _onMarkerPageChanged,
       );
     }
@@ -505,18 +684,18 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       return TradeFormEmploymentPage(
         key: _empKey,
         enabled: enabled,
-        // #1472 — the spoken work description. Resolved HERE, not inside the
-        // card: the page's own tests wire a bare locator, and a widget that
-        // reached into get_it would break them. Null when the voice graph is
-        // not registered, which the mic renders as "no mic".
-        micRecorder: locator.isRegistered<SpokenWorkDescriptionRecorder>()
-            ? locator<SpokenWorkDescriptionRecorder>()
-            : null,
-        sessionId: state.sessionId,
+        // NOTHING VOICE-RELATED IS THREADED IN ANY MORE. The spoken work
+        // description is now the DEVICE recogniser, resolved by
+        // `DictationController` itself and tolerant of its own absence — so the
+        // page needs neither a recorder nor the form's `session_id`. Both were
+        // here only for the record-and-upload mic this replaced.
         // #1429 — the SAME options fetch the preferences marker uses; it
         // carries the state catalogue + the state-tagged city gazetteer.
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.saveEmploymentAndAdvance,
+        // An untouched page with nothing banked never replaces the stored
+        // history with its blank default.
+        onSkip: cubit.skipEmploymentAndAdvance,
         initialEntries: state.savedEmployment,
         onPageChanged: _onMarkerPageChanged,
       );
@@ -536,39 +715,61 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
   }
 }
 
+/// Centres [child] and caps it at the kit's content width, so the error line
+/// lines up with the body column on a tablet.
+class _CappedWidth extends StatelessWidget {
+  const _CappedWidth({required this.padding, required this.child});
+
+  final EdgeInsetsGeometry padding;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: padding,
+      child: Center(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            maxWidth: OnboardingLayout.maxContentWidth,
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 class _MarkerBottomBar extends StatelessWidget {
   const _MarkerBottomBar({
     required this.isLast,
     required this.isSubmitting,
     required this.onPressed,
+    required this.onListen,
   });
 
   final bool isLast;
   final bool isSubmitting;
   final VoidCallback onPressed;
 
+  /// Reads the marker's current page heading(s) aloud; null (no device
+  /// read-aloud wired) renders no listen button at all.
+  final VoidCallback? onListen;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s4),
-      decoration: const BoxDecoration(
-        color: AppColors.canvas,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
-      ),
-      child: BbButton(
-        label: isLast ? _kFinish : _kNext,
-        // #1384 item 3 — [isLast] here already means "the true final save"
-        // (see the `_MarkerBottomBar(...)` call site's own comment) —
-        // green, reserved for exactly this ("Money / WhatsApp / done ONLY",
-        // `bb_button.dart`'s own doc on `BbButtonVariant.success`).
-        // navy (not primary/haldi) — haldi is IDENTICAL to a selected
-        // BbChip's fill, so this nav button read as just another option.
-        variant: isLast ? BbButtonVariant.success : BbButtonVariant.navy,
-        block: true,
-        loading: isSubmitting,
-        onPressed: isSubmitting ? null : onPressed,
-      ),
+    // #1384 item 3 — [isLast] here already means "the true final save" (see
+    // the `_MarkerBottomBar(...)` call site's own comment). The kit's docked
+    // bar has ONE button colour, so the true final save is told apart by its
+    // own label ("Ho gaya") and by dropping the forward arrow — a button that
+    // finishes the walk does not point onward.
+    return QuestionnaireBottomBar(
+      nextLabel: isLast ? _kFinish : _kNext,
+      showArrow: !isLast,
+      isLoading: isSubmitting,
+      onNext: isSubmitting ? null : onPressed,
+      onListen: onListen,
+      variant: OnboardingVariant.formFlow,
     );
   }
 }

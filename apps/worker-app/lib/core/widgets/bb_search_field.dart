@@ -1,16 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
-import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 
-/// The app's one token-driven search input — lifted verbatim from
-/// `JobSearchScreen._field` (#1342) so every screen that needs a "type to
-/// filter" box shares the same look instead of re-declaring its own
-/// [InputDecoration]: white [AppColors.surfaceCard] fill, [AppRadii.md]
-/// corners, a hairline border that turns blue (1.5px) on focus, a leading
-/// search icon, and [AppSpacing.controlLg] height — the worker app's large
-/// control token, sized well above the 48px touch-target floor.
+/// The app's one token-driven search input: a white fill, 10dp corners, a
+/// hairline that rings NAVY at 1.8 on focus (spec §3.3), a leading search
+/// glyph, and a 48dp height — the worker-app touch floor.
 ///
 /// Purely a text input: it has no notion of what it filters. Pair it with
 /// [BbSearchableMultiSelect] (or a screen's own list) via [onChanged].
@@ -29,9 +23,9 @@ class BbSearchField extends StatelessWidget {
   final TextEditingController? controller;
 
   /// The persistent accessible name — announced by TalkBack even once the
-  /// [hint] has disappeared behind typed text (mirrors the job-search field's
-  /// own reasoning: the hint alone leaves low-literacy / screen-reader users
-  /// without a name for the field mid-input).
+  /// [hint] has disappeared behind typed text (the hint alone leaves
+  /// low-literacy / screen-reader users without a name for the field
+  /// mid-input).
   final String label;
 
   /// Placeholder shown before any input.
@@ -43,46 +37,49 @@ class BbSearchField extends StatelessWidget {
 
   final bool autofocus;
 
+  static OutlineInputBorder _border(Color color, double width) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(OnboardingRadii.nameField),
+        borderSide: BorderSide(color: color, width: width),
+      );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label: label,
       textField: true,
       child: SizedBox(
-        height: AppSpacing.controlLg,
+        height: OnboardingLayout.tapTarget,
         child: TextField(
           key: fieldKey,
           controller: controller,
           onChanged: onChanged,
           autofocus: autofocus,
           textInputAction: TextInputAction.search,
-          style: AppTypography.body(size: AppTypography.sizeMd),
+          style: OnboardingTypography.inter(size: 14, weight: FontWeight.w500),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textFaint,
+            hintStyle: OnboardingTypography.inter(
+              size: 14,
+              color: OnboardingColors.ink500,
             ),
+            // Icons.search, not the rounded variant: bb_search_field_test
+            // asserts this exact glyph.
             prefixIcon: const Icon(
               Icons.search,
               size: 20,
-              color: AppColors.textMuted,
+              color: OnboardingColors.ink500,
             ),
             isDense: true,
             filled: true,
-            fillColor: AppColors.surfaceCard,
+            fillColor: OnboardingColors.paperWhite,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3,
-              vertical: AppSpacing.s2,
+              horizontal: 12,
+              vertical: 8,
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              borderSide: const BorderSide(color: AppColors.borderSubtle),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
-            ),
+            enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
+            border: _border(OnboardingColors.borderDefault, 1.2),
+            focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
           ),
         ),
       ),

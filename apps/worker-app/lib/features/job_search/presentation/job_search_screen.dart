@@ -4,30 +4,30 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/job_display.dart';
 import '../../../core/util/pay_format.dart';
-import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_spinner.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
 import '../../swipe/domain/job_detail.dart';
 import '../domain/job_search_item.dart';
 import 'cubit/job_search_cubit.dart';
 import 'cubit/job_search_state.dart';
 import '../../../core/util/push_once.dart';
+import '../../../core/widgets/feedback_fab.dart';
 
 /// The Indeed-style job SEARCH screen: a worker types a title/skill ("CNC
 /// operator") and a location ("Kota, Rajasthan") and sees matching OPEN jobs.
 ///
-/// The search + location inputs live in a [SliverAppBar] (`floating` + `snap`),
-/// so the whole "What / Where" bar HIDES when the worker scrolls the results
-/// down and REAPPEARS on scroll up — the required Indeed interaction, done
-/// natively by the sliver rather than a bespoke scroll listener. The app title
-/// and back button stay pinned above it.
+/// The search + location inputs live in a navy [SliverAppBar] (`floating` +
+/// `snap`), so the whole "What / Where" bar HIDES when the worker scrolls the
+/// results down and REAPPEARS on scroll up — the required Indeed interaction,
+/// done natively by the sliver rather than a bespoke scroll listener. The app
+/// title and back button stay pinned above it.
 ///
 /// All business logic (matching, ranking, paging boundaries) is the backend's;
 /// this screen renders [JobSearchState] and dispatches to [JobSearchCubit].
@@ -67,24 +67,40 @@ class _JobSearchViewState extends State<_JobSearchView> {
   final TextEditingController _locationController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  /// Fixed height of a single input (keeps the flexible-space geometry exact so
-  /// the collapsing header never overflows) — the shared control-height token.
-  static const double _fieldHeight = AppSpacing.controlLg;
+  /// The spec §3.2 input height at 100% font. The collapsing header has a FIXED
+  /// expanded height, so the form's geometry has to be computable rather than
+  /// intrinsic — see [_formHeight].
+  static const double _baseFieldHeight = 54;
 
-  /// The search form's own height (below the pinned toolbar): top pad + two
-  /// fields + gaps + the Search button + bottom pad. A tad of slack is left so a
-  /// sub-pixel rounding inside the collapsing header can never overflow.
-  static const double _formHeight = AppSpacing.s2 +
-      _fieldHeight +
-      AppSpacing.s2 +
-      _fieldHeight +
-      AppSpacing.s3 +
-      AppSpacing.controlLg +
-      AppSpacing.s3 +
-      AppSpacing.s1;
+  /// Everything in the form that does NOT scale with the font: the top pad (8),
+  /// the gap between the fields (8), the gap above the button (12), the bottom
+  /// pad (12) and 4 of slack, so a sub-pixel rounding inside the collapsing
+  /// header can never overflow.
+  static const double _formChrome = 44;
 
   /// Distance from the bottom at which the next page is prefetched.
   static const double _loadMoreThreshold = 480;
+
+  /// The font scale the form is drawn at: the worker's own, clamped like every
+  /// other piece of chrome. The fields are inside a fixed-height sliver, so an
+  /// unclamped 2.0 would clip the very text it was meant to enlarge; the results
+  /// below are NOT clamped and scale the whole way.
+  double _scale(BuildContext context) =>
+      MediaQuery.textScalerOf(context)
+          .scale(_baseFieldHeight)
+          .clamp(
+            _baseFieldHeight,
+            _baseFieldHeight * OnboardingLayout.chromeMaxTextScale,
+          ) /
+      _baseFieldHeight;
+
+  double _fieldHeight(double scale) => _baseFieldHeight * scale;
+
+  /// The search form's own height (below the pinned toolbar), grown by the
+  /// clamped font scale so a large system font enlarges the fields instead of
+  /// clipping inside them.
+  double _formHeight(double scale) =>
+      _formChrome + 2 * _fieldHeight(scale) + OnboardingLayout.buttonHeight;
 
   @override
   void initState() {
@@ -147,14 +163,14 @@ class _JobSearchViewState extends State<_JobSearchView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.canvas,
+      backgroundColor: OnboardingColors.canvasBg,
       body: BlocBuilder<JobSearchCubit, JobSearchState>(
         builder: (BuildContext context, JobSearchState state) {
-          final double topInset = MediaQuery.of(context).padding.top;
+          final double topInset = MediaQuery.paddingOf(context).top;
           return CustomScrollView(
             controller: _scrollController,
             slivers: <Widget>[
-              _searchAppBar(state, topInset),
+              _searchAppBar(context, state, topInset),
               _content(context, state),
             ],
           );
@@ -163,95 +179,115 @@ class _JobSearchViewState extends State<_JobSearchView> {
     );
   }
 
-  /// The deep-blue [SliverAppBar]: a pinned toolbar (title + back) with the
+  /// The navy [SliverAppBar]: a pinned toolbar (title + back) with the
   /// "What / Where" form as its flexible content. `floating` + `snap` give the
   /// Indeed hide-on-scroll-down / reveal-on-scroll-up behaviour for free.
-  Widget _searchAppBar(JobSearchState state, double topInset) {
+  Widget _searchAppBar(
+    BuildContext context,
+    JobSearchState state,
+    double topInset,
+  ) {
+    final double scale = _scale(context);
     return SliverAppBar(
       pinned: true,
       floating: true,
       snap: true,
       elevation: 0,
       scrolledUnderElevation: 0,
-      backgroundColor: AppColors.blue,
-      foregroundColor: AppColors.onBlue,
-      iconTheme: const IconThemeData(color: AppColors.onBlue),
+      backgroundColor: OnboardingColors.shiftBlue,
+      foregroundColor: OnboardingColors.textOnBlue,
       systemOverlayStyle: SystemUiOverlayStyle.light,
       toolbarHeight: kToolbarHeight,
       collapsedHeight: kToolbarHeight,
-      expandedHeight: kToolbarHeight + topInset + _formHeight,
-      titleTextStyle: AppTypography.display(
-        size: AppTypography.sizeLg,
-        weight: FontWeight.w600,
-        color: AppColors.onBlue,
+      // Put the back arrow and the title on the SAME geometry the app's other
+      // one-row navy header uses (a 48dp arrow box on the 16dp gutter, then the
+      // title): Material's defaults (56 + 16) indented this title 8dp further
+      // than every other pushed screen.
+      leadingWidth: OnboardingLayout.tapTarget,
+      expandedHeight: kToolbarHeight + topInset + _formHeight(scale),
+      leading: IconButton(
+        tooltip: 'Wapas',
+        onPressed: () => Navigator.of(context).maybePop(),
+        icon: const Icon(
+          Icons.arrow_back_rounded,
+          size: 22,
+          color: OnboardingColors.textOnBlue,
+        ),
+      ),
+      titleTextStyle: OnboardingTypography.anek(
+        size: 20,
+        weight: FontWeight.w800,
+        color: OnboardingColors.textOnBlue,
       ),
       title: const Text('Jobs dhoondein'),
       flexibleSpace: FlexibleSpaceBar(
-        background: _searchForm(state, topInset),
+        background: _searchForm(state, topInset, scale),
       ),
     );
   }
 
   /// The two stacked inputs + Search button, sitting BELOW the pinned toolbar
   /// inside the flexible space. Sized to [_formHeight] exactly.
-  Widget _searchForm(JobSearchState state, double topInset) {
-    return Container(
-      color: AppColors.blue,
-      child: Column(
-        children: <Widget>[
-          // Clear the pinned toolbar (title + back) drawn on top of us.
-          SizedBox(height: kToolbarHeight + topInset),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
-              AppSpacing.s2,
-              AppSpacing.gutter,
-              AppSpacing.s3,
+  Widget _searchForm(JobSearchState state, double topInset, double scale) {
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: Container(
+        color: OnboardingColors.shiftBlue,
+        child: Column(
+          children: <Widget>[
+            // Clear the pinned toolbar (title + back) drawn on top of us.
+            SizedBox(height: kToolbarHeight + topInset),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: KitContentColumn(
+                maxWidth: OnboardingLayout.maxContentWidth,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _field(
+                      fieldKey: const Key('jobSearchTitleField'),
+                      controller: _titleController,
+                      label: 'Job title ya skill',
+                      hint: 'Job title ya skill — jaise CNC operator',
+                      icon: Icons.work_outline_rounded,
+                      action: TextInputAction.next,
+                      height: _fieldHeight(scale),
+                    ),
+                    const SizedBox(height: 8),
+                    _field(
+                      fieldKey: const Key('jobSearchLocationField'),
+                      controller: _locationController,
+                      label: 'City, State',
+                      hint: 'City, State — jaise Kota, Rajasthan',
+                      icon: Icons.location_on_outlined,
+                      action: TextInputAction.search,
+                      height: _fieldHeight(scale),
+                      onSubmitted: (_) => _submit(),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryActionButton(
+                      label: 'Search',
+                      showArrow: false,
+                      buttonKey: const Key('jobSearchSubmitButton'),
+                      // No in-button spinner — a fresh search shows the
+                      // full-screen loader in the content area; the button just
+                      // disables while any page fetch is in flight.
+                      onPressed: state.isBusy ? null : _submit,
+                    ),
+                  ],
+                ),
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                _field(
-                  fieldKey: const Key('jobSearchTitleField'),
-                  controller: _titleController,
-                  label: 'Job title ya skill',
-                  hint: 'Job title ya skill — jaise CNC operator',
-                  icon: Icons.work_outline,
-                  action: TextInputAction.next,
-                ),
-                const SizedBox(height: AppSpacing.s2),
-                _field(
-                  fieldKey: const Key('jobSearchLocationField'),
-                  controller: _locationController,
-                  label: 'City, State',
-                  hint: 'City, State — jaise Kota, Rajasthan',
-                  icon: Icons.location_on_outlined,
-                  action: TextInputAction.search,
-                  onSubmitted: (_) => _submit(),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-                BbButton(
-                  label: 'Search',
-                  block: true,
-                  buttonKey: const Key('jobSearchSubmitButton'),
-                  iconLeft: Icons.search,
-                  // No in-button spinner — a fresh search shows the full-screen
-                  // loader in the content area; the button just disables while
-                  // any page fetch is in flight.
-                  onPressed: state.isBusy ? null : _submit,
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  /// One search input. Reuses the app's token-driven field decoration (the same
-  /// shape the name step ships) — filled white paper, [AppRadii.md] corners, a
-  /// blue focus ring — with a prefix icon so a low-literacy worker can tell the
-  /// "what" field from the "where" field at a glance.
+  /// One search input (spec §3.2's field): white paper, 12 corners, a 1.2
+  /// hairline that rings NAVY at 1.8 on focus, and a prefix icon so a
+  /// low-literacy worker can tell the "what" field from the "where" field at a
+  /// glance.
   Widget _field({
     required Key fieldKey,
     required TextEditingController controller,
@@ -259,6 +295,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
     required String hint,
     required IconData icon,
     required TextInputAction action,
+    required double height,
     ValueChanged<String>? onSubmitted,
   }) {
     // A persistent accessible name — the [hint] disappears on input, so TalkBack
@@ -268,40 +305,41 @@ class _JobSearchViewState extends State<_JobSearchView> {
       label: label,
       textField: true,
       child: SizedBox(
-        height: _fieldHeight,
+        height: height,
         child: TextField(
           key: fieldKey,
           controller: controller,
           textInputAction: action,
           onSubmitted: onSubmitted,
-          style: AppTypography.body(size: AppTypography.sizeMd),
+          style: OnboardingTypography.inter(size: 16),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textFaint,
+            hintStyle: OnboardingTypography.inter(
+              size: 14,
+              color: OnboardingColors.ink500,
             ),
-            prefixIcon: Icon(icon, size: 20, color: AppColors.textMuted),
+            prefixIcon: Icon(icon, size: 20, color: OnboardingColors.ink500),
             isDense: true,
             filled: true,
-            fillColor: AppColors.surfaceCard,
+            fillColor: OnboardingColors.paperWhite,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3,
-              vertical: AppSpacing.s2,
+              horizontal: 12,
+              vertical: 8,
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              borderSide: const BorderSide(color: AppColors.borderSubtle),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
-            ),
+            enabledBorder: _border(OnboardingColors.borderDefault, 1.2),
+            border: _border(OnboardingColors.borderDefault, 1.2),
+            focusedBorder: _border(OnboardingColors.shiftBlue, 1.8),
           ),
         ),
       ),
     );
   }
+
+  static OutlineInputBorder _border(Color color, double width) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(OnboardingRadii.docked),
+        borderSide: BorderSide(color: color, width: width),
+      );
 
   Widget _content(BuildContext context, JobSearchState state) {
     switch (state.status) {
@@ -310,8 +348,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
           const BbStatusView(
             icon: Icons.search_rounded,
             title: 'Jobs dhoondein',
-            subtitle:
-                'Job title aur city daalein — jaise CNC operator, Kota.',
+            subtitle: 'Job title aur city daalein — jaise CNC operator, Kota.',
           ),
         );
       case JobSearchStatus.loading:
@@ -337,29 +374,37 @@ class _JobSearchViewState extends State<_JobSearchView> {
   Widget _resultsSliver(BuildContext context, JobSearchState state) {
     final bool showTrailing = state.status == JobSearchStatus.loadingMore;
     final int count = state.items.length + (showTrailing ? 1 : 0);
+    final double width = MediaQuery.sizeOf(context).width;
     return SliverPadding(
-      // Clear the bottom gesture-nav inset so the last result isn't hidden.
-      padding: EdgeInsets.only(
-          top: AppSpacing.s2,
-          bottom: AppSpacing.s4 + MediaQuery.of(context).padding.bottom),
+      // The card carries no side margin: this is the ONE horizontal inset, and
+      // it centres the column on a tablet. The bottom clears the gesture-nav
+      // inset so the last result isn't hidden.
+      padding: KitInsets.list(
+        width,
+        gutter: 14,
+      ).copyWith(
+        top: 14,
+        bottom:
+            14 +
+            MediaQuery.paddingOf(context).bottom +
+            // The floating Feedback pill's band. See [FeedbackFabInset].
+            FeedbackFabInset.of(context),
+      ),
       sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (BuildContext context, int index) {
-            if (index >= state.items.length) {
-              // The bottom "loading more" row.
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: AppSpacing.s4),
-                child: Center(child: BbSpinner(size: 28)),
-              );
-            }
-            final JobSearchItem item = state.items[index];
-            return BbJobCard(
-              data: _cardData(item),
-              onTitleTap: () => _openDetail(item),
+        delegate: SliverChildBuilderDelegate((BuildContext context, int index) {
+          if (index >= state.items.length) {
+            // The bottom "loading more" row.
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: BbSpinner(size: 28)),
             );
-          },
-          childCount: count,
-        ),
+          }
+          final JobSearchItem item = state.items[index];
+          return BbJobCard(
+            data: _cardData(item),
+            onTitleTap: () => _openDetail(item),
+          );
+        }, childCount: count),
       ),
     );
   }
@@ -371,17 +416,18 @@ class _JobSearchViewState extends State<_JobSearchView> {
       subtitle: failureReason(state.failure).reason,
       action: FilledButton(
         onPressed: () => context.read<JobSearchCubit>().search(
-              title: state.title,
-              location: state.location,
-            ),
+          title: state.title,
+          location: state.location,
+        ),
         child: const Text('Try again'),
       ),
     );
   }
 
   Widget _emptyView(JobSearchState state) {
-    final String forWhat =
-        state.title.isNotEmpty ? state.title : state.location;
+    final String forWhat = state.title.isNotEmpty
+        ? state.title
+        : state.location;
     return BbStatusView(
       icon: Icons.search_off_rounded,
       title: 'Koi job nahi mili.',
@@ -403,6 +449,13 @@ BbJobCardData _cardData(JobSearchItem item) {
     place: item.place,
     payBand: formatPayBandCompact(item.payMin, item.payMax),
     shift: shiftLabel(item.shift),
+    // The matched-skill label already rides [matchNote] here, and the place line
+    // already carries the state, so experience is the one payload field left to
+    // surface; a null window hides the row rather than inventing one.
+    experience: experienceLabel(
+      item.minExperienceYears,
+      item.maxExperienceYears,
+    ),
     matchNote: _searchMatchNote(item),
   );
 }

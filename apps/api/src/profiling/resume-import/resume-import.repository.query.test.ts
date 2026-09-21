@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   markFailedStatement,
   ResumeImportRepository,
+  saveIdentitySummaryStatement,
   settleParsedStatement,
 } from "./resume-import.repository";
 
@@ -54,7 +55,7 @@ describe("settleParsedStatement", () => {
     db,
     ID,
     { extractionMethod: "ocr", pageCount: 2, ocrConfidence: 0.8 },
-    { route: "form", formKind: "cnc_turner", suggestionsEnc: "v1:token" },
+    { route: "form", formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" },
   ).toSQL();
 
   it("is guarded WHERE id AND status = 'parsing' — a settled row is never written twice", () => {
@@ -70,6 +71,11 @@ describe("settleParsedStatement", () => {
     expect(boundTo({ sql: setClause, params: compiled.params }, /"status" = \$(\d+)/)).toBe("parsed");
     expect(boundTo({ sql: setClause, params: compiled.params }, /"route" = \$(\d+)/)).toBe("form");
     expect(boundTo({ sql: setClause, params: compiled.params }, /"form_kind" = \$(\d+)/)).toBe(
+      "cnc_turner",
+    );
+    // Task 1 B2 — the judgment rides the same single statement (a reader can
+    // never see `parsed` beside a missing judgment).
+    expect(boundTo({ sql: setClause, params: compiled.params }, /"association_kind" = \$(\d+)/)).toBe(
       "cnc_turner",
     );
     expect(boundTo({ sql: setClause, params: compiled.params }, /"suggestions_enc" = \$(\d+)/)).toBe(
@@ -90,12 +96,56 @@ describe("settleParsedStatement", () => {
       db,
       ID,
       { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.8 },
-      { route: "chat", formKind: "cnc_turner", suggestionsEnc: null },
+      { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
     ).toSQL();
     const set = { sql: chat.sql.slice(0, chat.sql.indexOf(" where ")), params: chat.params };
     expect(boundTo(set, /"form_kind" = \$(\d+)/)).toBeNull();
     expect(boundTo(set, /"ocr_confidence" = \$(\d+)/)).toBeNull();
+    // …but the judgment is kept on chat rows: "judged none/other" is the signal.
+    expect(boundTo(set, /"association_kind" = \$(\d+)/)).toBe("fitter");
     expect(boundTo(chat, WHERE_STATUS)).toBe("parsing");
+  });
+});
+
+describe("saveIdentitySummaryStatement", () => {
+  const compiled = saveIdentitySummaryStatement(db, ID, {
+    roleKind: "welder",
+    experienceText: "2 saal ka tajurba",
+    summaryText: "Welding ka kaam",
+  }).toSQL();
+
+  it("is guarded WHERE id AND status IN (parsing, parsed) — failed/discarded rows stage nothing", () => {
+    // A redelivery that finds the row settled may still backfill a lost line; a row that
+    // failed or was discarded must never grow one. `parsing`/`parsed` is the whole list.
+    // `inArray` parameterizes the list (unlike the `=` guards above), so the membership is
+    // read off the bound params, not the SQL text.
+    expect(compiled.sql).toMatch(
+      / where \("worker_resume_import"\."id" = \$\d+ and "worker_resume_import"\."status" in \(\$\d+, ?\$\d+\)\) returning "id"$/,
+    );
+    expect(boundTo(compiled, WHERE_ID)).toBe(ID);
+    expect(compiled.params).toContain("parsing");
+    expect(compiled.params).toContain("parsed");
+    expect(compiled.params).not.toContain("failed");
+    expect(compiled.params).not.toContain("discarded");
+  });
+
+  it("writes ONLY the identity line — never status, route, or suggestions", () => {
+    // THE SEPARATION THE SETTLE FIX DEMANDS. This write runs beside the settle on the same
+    // job; sharing a column with it would reopen the two-statement defect in a new shape.
+    const setClause = compiled.sql.slice(0, compiled.sql.indexOf(" where "));
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_role_kind" = \$(\d+)/),
+    ).toBe("welder");
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_experience_text" = \$(\d+)/),
+    ).toBe("2 saal ka tajurba");
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"identity_summary_text" = \$(\d+)/),
+    ).toBe("Welding ka kaam");
+    expect(setClause).not.toContain('"status"');
+    expect(setClause).not.toContain('"route"');
+    expect(setClause).not.toContain('"suggestions_enc"');
+    expect(compiled.sql).toMatch(/returning "id"/);
   });
 });
 
@@ -148,7 +198,7 @@ describe("rows -> boolean: zero rows means this call settled nothing", () => {
   // that reached for `this.db` instead would throw here rather than quietly run off-transaction.
   const repo = new ResumeImportRepository(null as unknown as Database);
   const FACTS = { extractionMethod: "pdf_text" as const, pageCount: 1, ocrConfidence: null };
-  const ROUTING = { route: "form" as const, formKind: "cnc_turner", suggestionsEnc: "v1:token" };
+  const ROUTING = { route: "form" as const, formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" };
 
   it("settleParsed: [] -> false (a redelivery emits nothing), [{id}] -> true", async () => {
     const executor = queuedExecutor([[], [{ id: ID }]]);

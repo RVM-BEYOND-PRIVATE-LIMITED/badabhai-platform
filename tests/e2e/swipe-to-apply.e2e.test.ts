@@ -145,7 +145,8 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
     expect(items.length).toBeLessThanOrEqual(5);
 
     // Coarse shape only: job_id/trade_key/title/city/area/rank + the job's
-    // experience window, pay band and shift — and rank is 1-based. BL-18: this
+    // experience window, pay band, shift and card content (description/benefits/
+    // requirements/needed_by, #1561) — and rank is 1-based. BL-18: this
     // list was stale (pay_min/pay_max/shift are current match-feed.service.ts
     // fields, MatchFeedItem, added after this test was last updated and never
     // caught because the test never ran). Still PII-FREE: pay_min/pay_max are
@@ -156,13 +157,17 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
       expect(Object.keys(item).sort()).toEqual(
         [
           "area",
+          "benefits",
           "city",
+          "description",
           "job_id",
           "max_experience_years",
           "min_experience_years",
+          "needed_by",
           "pay_max",
           "pay_min",
           "rank",
+          "requirements",
           "shift",
           "title",
           "trade_key",

@@ -31,6 +31,7 @@ import type { WorkerPackAnswer } from "@badabhai/db";
 
 import { isQuestionEligible, type EvaluationContext } from "../predicate";
 import type { AnswerMap } from "../answer-map";
+import { otherAnswerValue } from "../pack-answer-row";
 
 /**
  * Every `question_key` a predicate reads.
@@ -69,6 +70,13 @@ export function predicateFields(predicate: Predicate | null | undefined): string
  * A DECLINED ANSWER IS NOT A VALUE. "Pata nahi" settles the question but tells us nothing about
  * the tier, so it is carried with its status and a null value rather than being dropped — a
  * dropped row would read as unresolved and re-show questions the worker has already dealt with.
+ *
+ * AN "OTHER" ANSWER IS SETTLED BUT NOT A VOCABULARY VALUE. `answer_other_text` reconstructs as
+ * the SAME opaque `OtherAnswerValue` marker the write path uses — never the bare string — so it
+ * can never equal an authored option `const` and an ordering comparison against it always fails
+ * the same-type check in `orderingIsResolvable` below. That is the exclusion this module's
+ * predicate parity test pins: the question reads as answered (no re-ask) while remaining
+ * structurally unusable as a gate input, with one rule enforcing both.
  */
 export function answerMapFromRows(rows: readonly WorkerPackAnswer[]): AnswerMap {
   const map: Record<string, unknown> = {};
@@ -77,7 +85,11 @@ export function answerMapFromRows(rows: readonly WorkerPackAnswer[]): AnswerMap 
     const value =
       row.status === "declined"
         ? null
-        : (row.answerNumber ?? row.answerText ?? row.answerBool ?? row.answerOptionKeys ?? null);
+        : (row.answerNumber ??
+          row.answerText ??
+          row.answerBool ??
+          row.answerOptionKeys ??
+          (row.answerOtherText !== null ? otherAnswerValue(row.answerOtherText) : null));
     map[row.questionKey] = {
       question_key: row.questionKey,
       target_field: row.questionKey,

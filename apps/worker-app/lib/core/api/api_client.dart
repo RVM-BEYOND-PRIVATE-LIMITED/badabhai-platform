@@ -285,7 +285,10 @@ class ApiClient {
   Future<ChatSessionStart> startSession({required String authToken}) async {
     final Map<String, dynamic> json = await _post(
       '/chat/session',
-      <String, dynamic>{},
+      // `confirm_first: true` (ADR-0042 D8, #1523): a new build can render the
+      // résumé-confirm as the session's first turn. The server writes NO confirm
+      // for a client that does not ask, so an old build (no flag) is unchanged.
+      <String, dynamic>{'confirm_first': true},
       authToken: authToken,
     );
     return ChatSessionStart.fromJson(json);
@@ -451,17 +454,57 @@ class ApiClient {
 
   /// Confirms a profile. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
-  Future<void> confirmProfile({
+  ///
+  /// Returns the server's post-confirm destination (`next`): `"trade_form"` for
+  /// a form-sourced profile, `"chat_complete"` for a chat-sourced one — straight
+  /// to résumé building, never the trade form — or null on an older server /
+  /// a pre-migration row, where the caller keeps today's `GET /profiling/form`
+  /// probe. Additive: an absent key parses to null.
+  Future<String?> confirmProfile({
     required String authToken,
     required String profileId,
   }) async {
-    await _post(
+    final Map<String, dynamic> json = await _post(
       '/profile/confirm',
       <String, dynamic>{
         'profile_id': profileId,
       },
       authToken: authToken,
     );
+    return json['next'] is String ? json['next'] as String : null;
+  }
+
+  /// POST /profile/corrections (#1595 — the client half of #1593): correct
+  /// extracted fields on the worker's own profile, anchored to the pinned
+  /// interview session.
+  ///
+  /// [corrections] carries 1–5 entries with unique fields (validated
+  /// server-side; the cubit validates first so a worker never waits on a
+  /// 400 for a client bug). Returns counts only — the caller re-reads the
+  /// existing GETs to show updated values.
+  ///
+  /// Throws [ApiException]: 404 when the worker owns neither the profile
+  /// nor the session (no oracle — same null for both); 409 carrying a
+  /// stable reason code — `unpinned_road_deferred` (session has no durable
+  /// pack pin: in-progress, abandoned, form-road — surface, do not retry)
+  /// or `correction_cap_reached` (lifetime budget spent — disable the
+  /// affordance). See [correctionRejectedOf].
+  Future<CorrectionsApplied> postProfileCorrections({
+    required String authToken,
+    required String profileId,
+    required String sessionId,
+    required List<ExtractedCorrection> corrections,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/profile/corrections',
+      <String, dynamic>{
+        'profile_id': profileId,
+        'session_id': sessionId,
+        'corrections': corrections.map((c) => c.toJson()).toList(),
+      },
+      authToken: authToken,
+    );
+    return CorrectionsApplied.fromJson(json);
   }
 
   /// Records the worker's real name (PATCH /workers/me/name). Worker-scoped —
@@ -615,6 +658,19 @@ class ApiClient {
     return WorkPrefOptionsDto.fromJson(json);
   }
 
+  /// GET /workers/me/work-preferences (#1504) — the caller's STORED answers,
+  /// in the PUT's own field names. Used by the profile/resume display to read
+  /// the chat-captured `languages` / `work_types` (with the legacy `job_type`
+  /// fallback). `null` = no row, `[]` = a stored "none of these". Worker from
+  /// [authToken].
+  Future<WorkPreferencesDto> getWorkPreferences({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/work-preferences', authToken: authToken);
+    return WorkPreferencesDto.fromJson(json);
+  }
+
   /// PUT /workers/me/employment (#1296) — REPLACES the worker's whole work-history
   /// list (sending `[]` clears it). [employments] are the already-wire-shaped
   /// entry maps (the repository builds them from typed models, so this stays
@@ -735,6 +791,143 @@ class ApiClient {
     await _put(
       '/workers/me/qualifications',
       fields,
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/whatsapp (Layer A (a), ADR-0042 D9) — the worker's OWN
+  /// optional WhatsApp number. Worker-scoped; the value is PII and never
+  /// logged/evented. `whatsapp: null` + `has_whatsapp: true` means stored but
+  /// unreadable (a retired key / tampered row) — the UI must never offer to
+  /// "replace" a number that merely failed to read.
+  Future<MyWhatsappDto> getMyWhatsapp({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/whatsapp', authToken: authToken);
+    return MyWhatsappDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/whatsapp (Layer A (a)) — set, replace or clear the number.
+  /// [whatsapp] is E.164 (`+919876543210`) or null to CLEAR; the server never
+  /// guesses a country code (a guessed prefix stores a wrong number on a
+  /// résumé). The response carries no value back.
+  Future<void> setMyWhatsapp({
+    required String? whatsapp,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/whatsapp',
+      <String, dynamic>{'whatsapp': whatsapp},
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/languages (Layer A (b), migration 0110) — the worker's
+  /// stored rows in the PUT's own shape. `partial` warns the client not to
+  /// re-send the list unedited (a withheld row would be erased).
+  Future<MyLanguagesDto> getMyLanguages({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/languages', authToken: authToken);
+    return MyLanguagesDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/languages (Layer A (b)) — REPLACES the whole list (`[]`
+  /// clears). Each entry names a closed slug and must tick at least one ability.
+  Future<void> setMyLanguages({
+    required List<LanguageAbilityDto> languages,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/languages',
+      <String, dynamic>{
+        'languages':
+            languages.map((LanguageAbilityDto l) => l.toJson()).toList(),
+      },
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/occupations (Layer A (f), migration 0114) — the worker's
+  /// secondary occupations, labelled for display. `label` is read-only and must
+  /// NOT be echoed back.
+  Future<MyOccupationsDto> getMyOccupations({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/occupations', authToken: authToken);
+    return MyOccupationsDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/occupations (Layer A (f)) — REPLACES the whole list
+  /// (`[]` clears; ≤4). Sends `role_id` only — the PUT schema is `.strict()`
+  /// precisely so a client-typed label can never reach the database.
+  Future<void> setMyOccupations({
+    required List<String> roleIds,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/occupations',
+      <String, dynamic>{
+        'occupations': roleIds
+            .map((String id) => <String, dynamic>{'role_id': id})
+            .toList(),
+      },
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/qualifications (#1504) — the worker's stored certificates,
+  /// educations and (Layer A (d)) trainings, in the PUT's own shapes. `partial`
+  /// names the list(s) that lost a withheld row.
+  ///
+  /// PRIVACY: `licence_number`/`licence_expiry` are worker-self only and must
+  /// never be logged.
+  Future<MyQualificationsDto> getMyQualifications({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/qualifications', authToken: authToken);
+    return MyQualificationsDto.fromJson(json);
+  }
+
+  /// POST /workers/me/portfolio/upload-url (Layer A (e), migration 0113) —
+  /// mints a signed slot for ONE portfolio photo/video. The server chooses the
+  /// object key (`portfolio/<workerId>/<uuid>.<ext>`); the bytes are PUT to
+  /// `upload_url` and the returned `storage_key` rides back on
+  /// [setMyPortfolio]. A 503 means the media bucket is not configured
+  /// (infra blocker) — callers keep only the `link` kind working.
+  /// PRIVACY: the returned url is SIGNED — never log it.
+  Future<PortfolioUploadTicket> requestPortfolioUploadUrl({
+    required String kind,
+    required String contentType,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/portfolio/upload-url',
+      <String, dynamic>{'kind': kind, 'content_type': contentType},
+      authToken: authToken,
+    );
+    return PortfolioUploadTicket.fromJson(json);
+  }
+
+  /// GET /workers/me/portfolio (Layer A (e)) — the worker's samples; media
+  /// arrives as short-lived signed URLs. PRIVACY: signed URLs are credentials —
+  /// never log or persist them.
+  Future<MyPortfolioDto> getMyPortfolio({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/portfolio', authToken: authToken);
+    return MyPortfolioDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/portfolio (Layer A (e)) — REPLACES the whole list. A
+  /// `storage_key` not minted for this worker 404s; a `link` carries an http(s)
+  /// url. Captions are free text and server-screened for PII.
+  Future<void> setMyPortfolio({
+    required List<PortfolioItemDto> items,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/portfolio',
+      <String, dynamic>{
+        'items': items.map((PortfolioItemDto i) => i.toJson()).toList(),
+      },
       authToken: authToken,
     );
   }
@@ -1186,6 +1379,19 @@ class ApiClient {
     required String sessionId,
   }) =>
       _get('/profiling/session/$sessionId', authToken: authToken);
+
+  /// GET /profiling/session/:id — the settled-vs-missing `fill` block for
+  /// net-new-only surfaces (#1575, fill-gap Phase 3). Same route as
+  /// [profilingSession]; only the `fill` block is parsed. A missing block (an
+  /// older server) parses to an empty view — the caller shows the full list.
+  Future<SessionFillDto> getSessionFill({
+    required String authToken,
+    required String sessionId,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/profiling/session/$sessionId', authToken: authToken);
+    return SessionFillDto.fromJson(json);
+  }
 
   // ---- The trade form (#1341) — sectioned, resumable, worker-scoped (NOT
   // session-scoped: there is no session id on this surface, unlike every

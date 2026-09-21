@@ -1,22 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
-import '../../../../core/widgets/bb_spinner.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 
-/// One of the three doors (#1499) — a big, obvious, two-line tap target.
+/// One of the two doors (#1499) — a big, obvious, two-line tap target.
 ///
 /// A BUTTON WOULD HAVE BEEN TOO SMALL. Each door needs a title the worker
 /// recognises AND a line explaining what happens next, because the choice is
-/// between three unfamiliar things and the second line is what makes it a
-/// choice rather than a guess. [BbButton] truncates to one line by design, so
-/// this is a tile: hairline border, no shadow, `AppRadii.md`, ink title over a
-/// muted subtitle — the JUL31 `.aw-kitrow` shape, sized up to the full width.
+/// between two unfamiliar things and the second line is what makes it a
+/// choice rather than a guess. A CTA button truncates to one line by design, so
+/// this is a card: the Master UI Kit's action-card shape (screen 7) — r14, a
+/// 1.2px hairline, no shadow, a 38px icon tile like the selection cards, an
+/// Inter 15 w700 title over an Inter 12 subtitle.
 ///
-/// [emphasis] paints the haldi hero fill. EXACTLY ONE door may set it (the
-/// design system allows one haldi surface per screen).
+/// [emphasis] paints the safety-yellow hero fill with shift-blue ink. EXACTLY
+/// ONE door may set it (one yellow hero surface per screen).
 class ResumeDoorTile extends StatelessWidget {
   const ResumeDoorTile({
     super.key,
@@ -42,16 +40,26 @@ class ResumeDoorTile extends StatelessWidget {
   /// Key on the tappable surface, for widget tests.
   final Key? tileKey;
 
+  static const double _radius = 14;
+  static const double _iconTile = 38;
+
   @override
   Widget build(BuildContext context) {
     final bool enabled = onTap != null && !loading;
-    final Color fill = emphasis ? AppColors.haldi : AppColors.paper;
-    final Color border =
-        emphasis ? AppColors.haldi : AppColors.borderDefault;
+    final Color fill =
+        emphasis ? OnboardingColors.safetyYellow : OnboardingColors.paperWhite;
+    // The yellow card's hairline matches its own fill: a grey rule around the
+    // hero surface would read as a second, competing edge.
+    final Color border = emphasis
+        ? OnboardingColors.safetyYellow
+        : OnboardingColors.borderDefault;
     final Color titleColor =
-        emphasis ? AppColors.onHaldi : AppColors.ink900;
+        emphasis ? OnboardingColors.shiftBlue : OnboardingColors.ink900;
     final Color subtitleColor =
-        emphasis ? AppColors.blue : AppColors.ink550;
+        emphasis ? OnboardingColors.shiftBlue : OnboardingColors.ink600;
+    final Color iconTileFill = emphasis
+        ? OnboardingColors.shiftBlue.withValues(alpha: 0.10)
+        : OnboardingColors.cardIconBg;
 
     return Opacity(
       // Dimmed rather than hidden: the doors he did not take must stay legible
@@ -62,7 +70,7 @@ class ResumeDoorTile extends StatelessWidget {
         color: fill,
         // Elevation is ALWAYS 0 — separation is fill + hairline, never shadow.
         elevation: 0,
-        borderRadius: BorderRadius.circular(AppRadii.md),
+        borderRadius: BorderRadius.circular(_radius),
         child: InkWell(
           onTap: enabled
               ? () {
@@ -70,29 +78,42 @@ class ResumeDoorTile extends StatelessWidget {
                   onTap!();
                 }
               : null,
-          borderRadius: BorderRadius.circular(AppRadii.md),
+          borderRadius: BorderRadius.circular(_radius),
           child: Container(
             // Comfortably past the 48px worker tap floor, because a two-line
-            // tile that a calloused thumb misses is worse than a button.
+            // card that a calloused thumb misses is worse than a button.
             constraints: const BoxConstraints(minHeight: 72),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s4,
-              vertical: AppSpacing.s4,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(color: border, width: 1.5),
+              borderRadius: BorderRadius.circular(_radius),
+              border: Border.all(color: border, width: 1.2),
             ),
             child: Row(
               children: <Widget>[
-                SizedBox(
-                  width: AppSpacing.s8,
-                  height: AppSpacing.s8,
+                Container(
+                  width: _iconTile,
+                  height: _iconTile,
+                  decoration: BoxDecoration(
+                    color: iconTileFill,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  alignment: Alignment.center,
                   child: loading
-                      ? const Center(child: BbSpinner(size: 20))
-                      : Icon(icon, size: 26, color: titleColor),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: OnboardingColors.shiftBlue,
+                          ),
+                        )
+                      : Icon(
+                          icon,
+                          size: 20,
+                          color: OnboardingColors.shiftBlue,
+                        ),
                 ),
-                const SizedBox(width: AppSpacing.s4),
+                const SizedBox(width: 14),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -100,16 +121,18 @@ class ResumeDoorTile extends StatelessWidget {
                     children: <Widget>[
                       Text(
                         title,
-                        style: AppTypography.display(
-                          size: AppTypography.sizeMd,
+                        style: OnboardingTypography.inter(
+                          size: 15,
+                          weight: FontWeight.w700,
                           color: titleColor,
                         ),
                       ),
-                      const SizedBox(height: AppSpacing.s1),
+                      const SizedBox(height: 3),
                       Text(
                         subtitle,
-                        style: AppTypography.body(
-                          size: 14,
+                        style: OnboardingTypography.inter(
+                          size: 12,
+                          height: 1.35,
                           color: subtitleColor,
                         ),
                       ),

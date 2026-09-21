@@ -25,13 +25,18 @@ class FakeSetPinCubit extends SetPinCubit {
 
   void failWith(String message) =>
       emit(SetPinState(status: SetPinStatus.failure, message: message));
+
+  /// Drives the in-flight state [submit] no longer reaches in this fake.
+  void startSubmitting() =>
+      emit(const SetPinState(status: SetPinStatus.submitting));
 }
 
 /// The create/reset-PIN screen is now ONE page: the enter row and the confirm
 /// row are both on screen together (no next-screen transition), driven by the
-/// OS numeric keyboard (no custom keypad). Every error is a centred, blocking
-/// dialog: a guessable PIN is blocked on the client, a mismatch and a server
-/// rejection each clear both rows and explain in a dialog.
+/// OS numeric keyboard (no custom keypad). A matching pair does NOT submit by
+/// itself — it enables "Save PIN & Continue", and the tap submits. Every error
+/// is a centred, blocking dialog: a mismatch and a server rejection each clear
+/// both rows and explain in a dialog.
 void main() {
   // #1463 — the active PIN slot carries a BLINKING caret, and a perpetual
   // blink keeps a frame scheduled forever, so every `pumpAndSettle` below
@@ -70,6 +75,15 @@ void main() {
     await tester.pump();
   }
 
+  /// The kit's "Save PIN & Continue" — the ONLY thing that submits a PIN.
+  final Finder saveButton = find.byKey(const Key('setPinSaveButton'));
+
+  Future<void> tapSave(WidgetTester tester) async {
+    await tester.ensureVisible(saveButton);
+    await tester.tap(saveButton);
+    await tester.pump();
+  }
+
   Future<void> tapOk(WidgetTester tester) async {
     await tester.tap(find.text('Theek hai'));
     await tester.pumpAndSettle();
@@ -101,7 +115,7 @@ void main() {
         isTrue);
 
     await enterConfirm(tester, '1234');
-    await tester.pump();
+    await tapSave(tester);
 
     expect(cubit.submitted, <String>['1234']);
   });
@@ -114,7 +128,7 @@ void main() {
       await pumpScreen(tester);
       await enterFirst(tester, pin);
       await enterConfirm(tester, pin);
-      await tester.pump();
+      await tapSave(tester);
 
       expect(find.text('Yeh PIN aasan hai'), findsNothing);
       expect(cubit.submitted, <String>[pin]);
@@ -131,13 +145,23 @@ void main() {
     expect(find.text('PIN alag hai'), findsOneWidget);
     await tapOk(tester);
     expect(cubit.submitted, isEmpty);
+    // A mismatched pair never enables the save button.
+    expect(tester.widget<ElevatedButton>(saveButton).onPressed, isNull);
   });
 
-  testWidgets('a matching confirm submits the PIN exactly once',
+  testWidgets('a matching confirm submits the PIN exactly once — on the tap',
       (WidgetTester tester) async {
     await pumpScreen(tester);
+    expect(tester.widget<ElevatedButton>(saveButton).onPressed, isNull);
+
     await enterFirst(tester, '3927');
     await enterConfirm(tester, '3927'); // matches
+
+    // Nothing is sent until the button: the match only ENABLES it.
+    expect(cubit.submitted, isEmpty);
+    expect(tester.widget<ElevatedButton>(saveButton).onPressed, isNotNull);
+
+    await tapSave(tester);
 
     expect(cubit.submitted, <String>['3927']);
   });
@@ -155,15 +179,29 @@ void main() {
   testWidgets('while submitting, the spinner shows and no custom keypad exists',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    // isSubmitting only ever comes from the real cubit state, not this fake —
-    // this test just pins that the busy affordance is the real spinner, and
-    // that the screen never renders a custom on-screen keypad at all.
+    // This pins that the busy affordance is the save button's own spinner (the
+    // kit dropped the BbSpinner under the rows), that the button cannot be
+    // tapped twice mid-flight, and that the screen never renders a custom
+    // on-screen keypad at all.
     await enterFirst(tester, '3927');
     await enterConfirm(tester, '3927');
     await tester.pump();
 
     expect(find.text('7'), findsNothing); // no digit keys anywhere
-    expect(find.byType(BbSpinner), findsNothing); // fake cubit never submits
+    expect(find.text('Save PIN & Continue'), findsOneWidget);
+
+    cubit.startSubmitting();
+    await tester.pump();
+
+    expect(
+      find.descendant(
+          of: saveButton, matching: find.byType(CircularProgressIndicator)),
+      findsOneWidget,
+    );
+    expect(find.text('Save PIN & Continue'), findsNothing);
+    expect(tester.widget<ElevatedButton>(saveButton).onPressed, isNull);
+    expect(find.byType(BbSpinner), findsNothing); // no spinner under the rows
+    expect(find.text('7'), findsNothing);
   });
 
   // #1463 — the worker reported "PIN and confirm PIN not showing the cursor".

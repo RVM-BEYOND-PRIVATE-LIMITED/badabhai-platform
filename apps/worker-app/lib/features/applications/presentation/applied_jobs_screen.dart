@@ -5,17 +5,20 @@ import 'package:go_router/go_router.dart';
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bb_job_card.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_micro_label.dart';
+import '../../../core/widgets/kit/kit_status_banner.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../swipe/domain/job_detail.dart';
 import 'cubit/applications_cubit.dart';
 import '../../../core/util/push_once.dart';
+import '../../../core/widgets/feedback_fab.dart';
 
 /// "Applied jobs" (Profile → Applied jobs). Live-backed by GET /workers/me/applications
 /// (worker-scoped, PII-free); lists the worker's APPLY decisions newest-first — from
@@ -23,10 +26,11 @@ import '../../../core/util/push_once.dart';
 /// `job_postings` server-side). Deliberately no filters, no status timeline, no real
 /// job-detail — the backend doesn't back them.
 ///
-/// The READY state carries the kit's **09 Applied-success** feel: a GREEN header
-/// with a check stamp + count, then a "what happens next" (AB KYA HOGA) card, then
-/// the applications themselves as aligned [BbJobCard]s (each opens the full
-/// posting, which shows its already-applied status per WA-2).
+/// The READY state opens with the spec §4 navy status banner (the confirmation +
+/// the real count), then a "what happens next" (AB KYA HOGA) card, then the
+/// applications themselves as [BbJobCard]s (each opens the full posting, which
+/// shows its already-applied status per WA-2). The banner is list item 0, so it
+/// scrolls away instead of permanently costing a 568dp screen 52dp of height.
 class AppliedJobsScreen extends StatelessWidget {
   const AppliedJobsScreen({super.key});
 
@@ -44,92 +48,43 @@ class _AppliedJobsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BbScaffold(
-      padded: false,
-      appBar: const BbAppBar(title: 'Applied jobs'),
-      body: BlocBuilder<ApplicationsCubit, ApplicationsState>(
-        builder: (BuildContext context, ApplicationsState state) {
-          return switch (state.status) {
-            ApplicationsStatus.loading => const BbStatusView.loading(),
-            ApplicationsStatus.error => BbStatusView(
-                icon: failureReason(state.failure).icon,
-                title: 'Applied jobs load nahi hui.',
-                subtitle: failureReason(state.failure).reason,
-                action: FilledButton(
-                  onPressed: () => context.read<ApplicationsCubit>().load(),
-                  child: const Text('Try again'),
-                ),
-              ),
-            ApplicationsStatus.empty => BbStatusView(
-                icon: Icons.work_history_outlined,
-                title: 'Abhi tak koi job apply nahi ki',
-                action: FilledButton(
-                  onPressed: () => context.go(Routes.jobs),
-                  child: const Text('Jobs dekhein'),
-                ),
-              ),
-            ApplicationsStatus.ready => _list(context, state.jobs),
-          };
-        },
-      ),
-    );
-  }
-
-  Widget _list(BuildContext context, List<AppliedJob> jobs) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _successHeader(jobs.length),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: AppSpacing.s4),
-            // +1 leading row for the "what happens next" card.
-            itemCount: jobs.length + 1,
-            itemBuilder: (BuildContext context, int index) {
-              if (index == 0) return _whatNextCard();
-              return _appliedCard(context, jobs[index - 1]);
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// The kit-09 GREEN success header: a white check stamp + confirmation line +
-  /// count. Every row below is an application the worker already sent, so the
-  /// whole screen wears the just-applied confirmation.
-  Widget _successHeader(int count) {
-    return Container(
-      width: double.infinity,
-      color: AppColors.success,
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, AppSpacing.s5),
-      child: Row(
+    return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(
-                color: Colors.white, shape: BoxShape.circle),
-            child: const Icon(Icons.check, color: AppColors.success, size: 26),
+          ShiftBlueHeader(
+            title: 'Applied jobs',
+            onBack: () => context.pop(),
+            // The rows and the navy banner below cap at 600; the header row
+            // has to share that edge.
+            maxWidth: OnboardingLayout.maxTabContentWidth,
           ),
-          const SizedBox(width: AppSpacing.s3),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('Aapki applications',
-                    style: AppTypography.display(
-                        size: AppTypography.sizeLg,
-                        weight: FontWeight.w800,
-                        color: Colors.white)),
-                const SizedBox(height: 2),
-                Text(
-                    count == 1 ? '1 job bheji gayi' : '$count jobs bheji gayi',
-                    style: AppTypography.body(
-                        size: AppTypography.sizeXs,
-                        color: AppColors.green100)),
-              ],
+            child: BlocBuilder<ApplicationsCubit, ApplicationsState>(
+              builder: (BuildContext context, ApplicationsState state) {
+                return switch (state.status) {
+                  ApplicationsStatus.loading => const BbStatusView.loading(),
+                  ApplicationsStatus.error => BbStatusView(
+                    icon: failureReason(state.failure).icon,
+                    title: 'Applied jobs load nahi hui.',
+                    subtitle: failureReason(state.failure).reason,
+                    action: FilledButton(
+                      onPressed: () => context.read<ApplicationsCubit>().load(),
+                      child: const Text('Try again'),
+                    ),
+                  ),
+                  ApplicationsStatus.empty => BbStatusView(
+                    icon: Icons.work_history_outlined,
+                    title: 'Abhi tak koi job apply nahi ki',
+                    action: FilledButton(
+                      onPressed: () => context.go(Routes.jobs),
+                      child: const Text('Jobs dekhein'),
+                    ),
+                  ),
+                  ApplicationsStatus.ready => _list(context, state.jobs),
+                };
+              },
             ),
           ),
         ],
@@ -137,67 +92,108 @@ class _AppliedJobsView extends StatelessWidget {
     );
   }
 
-  /// Kit-09 "AB KYA HOGA" — the what-happens-next list, on a hairline paper card.
-  /// One shared card above the applications, not a per-row repeat.
-  Widget _whatNextCard() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, AppSpacing.s2),
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-        border: Border.all(color: AppColors.borderSubtle),
+  Widget _list(BuildContext context, List<AppliedJob> jobs) {
+    final double width = MediaQuery.sizeOf(context).width;
+    // The cards carry no side margin of their own, so this is the ONE
+    // horizontal inset — and it grows on a tablet so the column stops at 600.
+    final EdgeInsets side = KitInsets.list(width, gutter: 14);
+    return ListView.builder(
+      // No horizontal padding on the scroll view itself: item 0 is the navy
+      // banner, which is full-bleed by design.
+      padding: EdgeInsets.only(
+        bottom:
+            14 +
+            MediaQuery.paddingOf(context).bottom +
+            // The floating Feedback pill's band — empty canvas, not the last
+            // card's location line. See [FeedbackFabInset].
+            FeedbackFabInset.of(context),
       ),
+      // +2 leading rows: the status banner and the "what happens next" card.
+      itemCount: jobs.length + 2,
+      itemBuilder: (BuildContext context, int index) {
+        if (index == 0) return _banner(jobs.length);
+        if (index == 1) {
+          return Padding(
+            padding: side.copyWith(top: 14, bottom: 4),
+            child: _whatNextCard(),
+          );
+        }
+        return Padding(
+          padding: side,
+          child: _appliedCard(context, jobs[index - 2]),
+        );
+      },
+    );
+  }
+
+  /// The spec §4 status banner: the confirmation line, the REAL count as a
+  /// plain integer pill (R8 — never the word "Verified"), the subline and the
+  /// green tick.
+  Widget _banner(int count) {
+    return KitStatusBanner(
+      title: 'Aapki applications',
+      pillLabel: '$count',
+      subline: count == 1 ? '1 job bheji gayi' : '$count jobs bheji gayi',
+      trailing: const KitStatusCheck(),
+    );
+  }
+
+  /// "AB KYA HOGA" — the what-happens-next list, on one shared card above the
+  /// applications rather than a per-row repeat.
+  Widget _whatNextCard() {
+    return KitCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('AB KYA HOGA',
-              style: AppTypography.eyebrow(color: AppColors.textMuted)),
-          const SizedBox(height: AppSpacing.s3),
+          const KitMicroLabel('AB KYA HOGA'),
+          const SizedBox(height: 10),
           Text(
             '1. Company aapka resume dekhegi\n'
             '2. Pasand aaya toh call ya WhatsApp aayega\n'
             '3. Interview ki date fix hogi',
-            style: AppTypography.body(
-                color: AppColors.textSecondary, height: 1.7),
+            style: OnboardingTypography.inter(
+              size: 14,
+              height: 1.6,
+              color: OnboardingColors.ink600,
+            ),
           ),
         ],
       ),
     );
   }
 
-  /// One application as an aligned [BbJobCard]. The row already holds the REAL
-  /// job facts, so it hands them over as `extra` on tap (there is no worker-facing
+  /// One application as a [BbJobCard]. The row already holds the REAL job facts,
+  /// so it hands them over as `extra` on tap (there is no worker-facing
   /// job-detail fetch beyond the id, and nothing is synthesised). The row's REAL
-  /// `action` rides along so the detail screen shows the applied status instead of
-  /// an apply CTA (WA-2). The right-hand meta shows the "Applied · …" label.
+  /// `action` rides along so the detail screen shows the applied status instead
+  /// of an apply CTA (WA-2). The right-hand meta shows the "Applied · …" label.
   Widget _appliedCard(BuildContext context, AppliedJob job) {
     final String place = (job.area != null && job.area!.isNotEmpty)
         ? '${job.area}, ${job.city}'
         : job.city;
     // "skill · place" as the subtitle line (company is PII, always null). Prefer
-    // the human matched-skill LABEL ("MIG Welder") when the feed carries one; else
-    // fall back to the legacy `trade_key` — but ONLY when it is a real trade slug,
-    // NEVER a raw `mskill_*` id (the #1027 guarantee; under MATCH_V1 trade_key is
-    // that id and would read "mskill_mig_welder · Pune"). Else place alone.
+    // the human matched-skill LABEL ("MIG Welder") when the feed carries one;
+    // else HUMANISE the legacy `trade_key` ("cnc_operator" → "CNC Operator") —
+    // never the slug itself, and never a raw `mskill_*` id (the #1027
+    // guarantee; under MATCH_V1 trade_key IS that id, and [tradeKeyLabel]
+    // returns '' for it so the line drops to the place alone).
     //
-    // #1051: the applications API sends `trade_key` but NOT `matched_skill_label`,
-    // so a label-only read dropped the trade line for every legacy application
-    // (all 17 in production). This restores it without ever surfacing an id.
+    // #1051: the applications API sends `trade_key` but NOT
+    // `matched_skill_label`, so a label-only read dropped the trade line for
+    // every legacy application (all 17 in production). This keeps it without
+    // ever surfacing an id.
     final String? label = job.matchedSkillLabel;
-    final String? legacyTrade =
-        (job.tradeKey.isNotEmpty && !job.tradeKey.startsWith('mskill_'))
-            ? job.tradeKey
-            : null;
-    final String? skill =
-        (label != null && label.isNotEmpty) ? label : legacyTrade;
-    final String subtitle =
-        (skill == null || skill.isEmpty) ? place : '$skill · $place';
+    final String legacyTrade = tradeKeyLabel(job.tradeKey);
+    final String? skill = (label != null && label.isNotEmpty)
+        ? label
+        : (legacyTrade.isEmpty ? null : legacyTrade);
     return BbJobCard(
       data: BbJobCardData(
         title: job.title,
-        place: subtitle,
+        // The trade rides its OWN line; the location row keeps its pin for a
+        // location only (see [BbJobCardData.trade]).
+        trade: (skill == null || skill.isEmpty) ? null : skill,
+        place: place,
         metaRight: appliedRelativeLabel(job.createdAt),
       ),
       onTitleTap: () => context.pushOnce(

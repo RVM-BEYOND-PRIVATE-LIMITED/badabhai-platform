@@ -1,129 +1,64 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_button.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../router.dart';
 
-/// Splash + welcome — kit **01 Splash**: a deep-blue field with the centred
-/// brand lockup (haldi 'BB' tile + 'BadaBhai' wordmark + tagline), the "no test,
-/// just talk" promise, and one haldi CTA. Blue is the app's dark surface (design
-/// law §2), so the mark leads with a haldi tile and a white wordmark rather than
-/// [BbLogo]'s blue squircle, which would vanish here. No bare spinner-void — the
-/// brand carries the moment.
+/// The splash artwork. It already carries the logo, the `BADABHAI` wordmark,
+/// the `SAB HOJAYEGA` tagline and the handshake — only the button is Flutter.
+const String kSplashImageAsset = 'assets/fonts/image/screen.png';
+
+/// Stable finder for the splash artwork in tests.
+const Key kSplashImageKey = Key('splash_image');
+
+/// Splash + welcome — onboarding kit **Screen 1**: the full-screen splash
+/// artwork with the yellow "Get started" CTA docked at the bottom.
+///
+/// The image is painted edge to edge (behind the status bar) with
+/// [BoxFit.fill], over the kit's shift-blue — the artwork's own background
+/// colour — so any area the image does not cover blends in. The button sits
+/// inside the safe area, 20px from the edges, capped at the kit's content width
+/// on tablets.
 ///
 /// Deliberately DI-free and bloc-free (no API): it is the initial route, so
 /// pumping the app in a widget test must not require the service locator.
-///
-/// The "bhasha first" language picker is HIDDEN FOR NOW (with the Settings
-/// 'Bhasha' row). It wrote `X-Locale` but no translated strings existed behind
-/// it, so picking मराठी changed nothing a worker could see — it offered a choice
-/// the app could not honour. Every worker now keeps the [LocaleStore] default
-/// (`hi`), so the `X-Locale` header is unchanged and the store stays wired.
-/// Restore this together with real localization (i18n package + a translated
-/// string registry) — see docs/registers/future-improvements.md.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.blue,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            // Fit EVERY screen (X and Y): width already fits (stretch + one
-            // gutter); for height, the flexible spacers centre the lockup when
-            // there is room, and the whole thing scrolls (never overflows) when
-            // the screen is too short — minHeight pins it to the viewport so tall
-            // screens still centre. The CTA sits at the bottom with the safe
-            // inset as its only margin — no accent strip below it.
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.gutter,
-                      0,
-                      AppSpacing.gutter,
-                      AppSpacing.s6,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        const Spacer(flex: 3),
-                        // Brand lockup — haldi tile with a deep-blue 'BB'.
-                        Center(
-                          child: Container(
-                            width: 72,
-                            height: 72,
-                            decoration: BoxDecoration(
-                              color: AppColors.haldi,
-                              borderRadius: BorderRadius.circular(AppRadii.md),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              'BB',
-                              style: AppTypography.display(
-                                size: AppTypography.size2xl,
-                                weight: FontWeight.w800,
-                                color: AppColors.blue,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.s4),
-                        Text(
-                          'BadaBhai',
-                          textAlign: TextAlign.center,
-                          style: AppTypography.display(
-                            size: AppTypography.size2xl,
-                            weight: FontWeight.w800,
-                            color: AppColors.onBlue,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.s2),
-                        // PERSONA: was 'Your placement bhai for factory jobs'.
-                        // The brand name "Bada Bhai" is exempt from the vocative
-                        // ban, but a bare `bhai` is not — and this line is the
-                        // first copy a worker ever reads, so it sets the register.
-                        // "team" keeps the meaning at the same length.
-                        Text(
-                          'Your placement team for factory jobs',
-                          textAlign: TextAlign.center,
-                          style: AppTypography.body(
-                            size: AppTypography.sizeSm,
-                            color: AppColors.onBlueMuted,
-                          ),
-                        ),
-                        const Spacer(flex: 2),
-                        // The brand promise — no exam, just a chat. Haldi = josh.
-                        Text(
-                          'No test. Just talk.',
-                          textAlign: TextAlign.center,
-                          style: AppTypography.display(
-                            size: AppTypography.sizeLg,
-                            color: AppColors.haldi,
-                          ),
-                        ),
-                        const Spacer(flex: 3),
-                        BbButton(
-                          label: 'Get started',
-                          block: true,
-                          iconRight: Icons.arrow_forward_rounded,
-                          onPressed: () => context.go(Routes.phoneLogin),
-                        ),
-                      ],
-                    ),
+      backgroundColor: OnboardingColors.shiftBlue,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Image.asset(
+            kSplashImageAsset,
+            key: kSplashImageKey,
+            fit: BoxFit.fill,
+            // The brand words live inside the image, so say them to TalkBack.
+            semanticLabel: 'BadaBhai. Sab hojayega.',
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: OnboardingLayout.maxContentWidth,
+                  ),
+                  child: PrimaryActionButton(
+                    label: 'Get started',
+                    onPressed: () => context.go(Routes.phoneLogin),
                   ),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

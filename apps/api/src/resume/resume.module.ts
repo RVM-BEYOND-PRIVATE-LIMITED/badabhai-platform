@@ -1,8 +1,9 @@
 import { WorkHistoryPolishService } from "./work-history-polish.service";
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
+import { ProfilingModule } from "../profiling/profiling.module";
 import { StorageModule } from "../storage/storage.module";
 import { RESUME_GENERATE_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { ResumeController } from "./resume.controller";
@@ -18,14 +19,16 @@ import { ResumeRenderProcessor } from "./resume-render.processor";
  *
  * EventsService (EventsModule), AiService (AiModule), WorkersRepository
  * (WorkersModule) and PiiCryptoService (CryptoModule) are all @Global, so only
- * ProfilesModule (ProfilesRepository) and StorageModule are imported here. Both
- * the generate and render queues are registered so the producers (this service /
- * ProfilesService) and the in-process processors agree on the names.
+ * ProfilesModule (ProfilesRepository), ProfilingModule (TradeFormRepository)
+ * and StorageModule are imported here. Both the generate and render queues are
+ * registered so the producers (this service / ProfilesService) and the
+ * in-process processors agree on the names.
  */
 @Module({
   imports: [
     AuthModule, // for WorkerAuthGuard (worker-authenticated PDF download)
     ProfilesModule, // for ProfilesRepository
+    forwardRef(() => ProfilingModule), // for TradeFormRepository (read-only pack answers)
     StorageModule, // for StorageService (signed URLs + PDF upload)
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),

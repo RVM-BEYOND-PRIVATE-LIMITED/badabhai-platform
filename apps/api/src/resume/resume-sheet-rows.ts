@@ -1,4 +1,5 @@
 import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import { formatWorkerPhone } from "./resume-phone";
 import { titleCaseName } from "./resume-text-case";
 
 /**
@@ -11,7 +12,10 @@ import { titleCaseName } from "./resume-text-case";
  */
 
 /** Joins segments the way the design does, dropping empties WITH their separator. */
-function joinSegments(parts: readonly (string | null | undefined)[], sep = " · "): string | null {
+export function joinSegments(
+  parts: readonly (string | null | undefined)[],
+  sep = " · ",
+): string | null {
   const kept = parts.map((p) => p?.trim()).filter((p): p is string => Boolean(p));
   return kept.length > 0 ? kept.join(sep) : null;
 }
@@ -72,9 +76,26 @@ export function buildVerdictLine(facts: {
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
+  // FILL-GAP PHASE 4 — NO SUBJECT, NO STRIP. Without a role this line degrades to its modifiers
+  // ("8 yrs · Fanuc") or, for a worker with no source at all, to the bare system phrase
+  // "duration not stated" standing alone at the top of the sheet. Neither is a headline: §11 #3
+  // requires an UNKNOWN TENURE to be stated (and it still is, whenever a subject exists —
+  // "Welder · duration not stated"), not a sentence fragment about nobody. Omitting the strip is
+  // the fallback; inventing or printing a lone modifier is not.
+  const role = facts.role?.trim();
+  if (!role) {
+    return {
+      headlineLine: null,
+      subheadLine: joinSegments([
+        facts.city,
+        availabilityPhrase(facts.availability),
+        facts.salary ? `expects ${facts.salary}` : null,
+      ]),
+    };
+  }
   return {
     headlineLine: joinSegments([
-      facts.role,
+      role,
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
@@ -130,7 +151,7 @@ function knownYearsPhrase(years: number | null): string | null {
  * status label get its turn, and only where there is neither does §11 #3's text print, unchanged
  * and for exactly the case it was written for.
  */
-function tenurePhrase(years: number | null, tenureLabel: string | null): string {
+export function tenurePhrase(years: number | null, tenureLabel: string | null): string {
   const figure = knownYearsPhrase(years);
   if (figure !== null) return figure;
   // An EMPTY label is treated as no label, not as an empty segment: `joinSegments` drops empties
@@ -166,7 +187,7 @@ function axesPhrase(axes: readonly string[]): string | null {
 }
 
 /** Up to three, guideline §4.3 (controllers max 3). More than three stops being scannable. */
-function toolsPhrase(tools: string[]): string | null {
+export function toolsPhrase(tools: readonly string[]): string | null {
   const kept = tools
     .map((t) => t.trim())
     .filter(Boolean)
@@ -230,6 +251,23 @@ export function buildLocationLine(location: {
   // LEADING lowercase letter is raised, so a state abbreviation the worker typed in capitals
   // survives — see `resume-text-case.ts`.
   return joinSegments([titleCaseName(location.city), titleCaseName(location.state)], ", ");
+}
+
+/**
+ * The worker-copy WhatsApp line, e.g. "WhatsApp: +91 98765 43210" — or null.
+ *
+ * ADR-0042 D9 / Layer A (a). ONE STRING, LABEL INCLUDED, and that is load-bearing: the
+ * template collapses the line with `.wa:empty`, which can only match if the element's whole
+ * content is the slot. A label written in the template would survive an absent number and
+ * print "WhatsApp" alone under the masthead.
+ *
+ * The number arrives already DECRYPTED (caller contract, see `TradeSheetContext.whatsapp`)
+ * and is formatted by the same helper the phone line uses, so both numbers on the sheet share
+ * one formatting and one degrade-to-unformatted rule. Never logged, never echoed.
+ */
+export function composeWhatsappLine(whatsapp: string | null | undefined): string | null {
+  const formatted = formatWorkerPhone(whatsapp);
+  return formatted === null ? null : `WhatsApp: ${formatted}`;
 }
 
 /**
@@ -355,6 +393,12 @@ export function buildAvailabilityRows(facts: {
   shift: string | null;
   /** §4.4 — many listings advertise food and accommodation, so it is a real matching signal. */
   accommodationNeeded?: boolean;
+  /**
+   * Layer A (f)/(i) — the worker's declared SECONDARY occupations, as taxonomy display labels.
+   * A capability fact, not a preference: it says what else the worker will take work AS. Empty
+   * (every worker who never opened the page) prints no row.
+   */
+  occupations?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Available from", facts.availability);
@@ -375,6 +419,7 @@ export function buildAvailabilityRows(facts: {
   );
   push(rows, "Shift", facts.shift);
   push(rows, "Accommodation", facts.accommodationNeeded ? "Required" : null);
+  push(rows, "Also works as", joinSegments(facts.occupations ?? []));
   return rows;
 }
 
@@ -392,10 +437,16 @@ export function buildQualificationRows(facts: {
   education: readonly string[];
   certifications: readonly string[];
   languages: readonly string[];
+  /**
+   * Layer A (d) — the courses the worker attended. Carried by `qualificationFactsFrom` since
+   * 0112 but printed by nothing; Layer A (i) gives it the row it was captured for.
+   */
+  trainings?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Education", joinSegments([facts.educationHeadline, ...facts.education]));
   push(rows, "Certificates", joinSegments(facts.certifications));
+  push(rows, "Training", joinSegments(facts.trainings ?? []));
   push(rows, "Languages spoken", joinSegments(facts.languages));
   return rows;
 }

@@ -762,7 +762,39 @@ describe("ProfilesService.confirm — ownership (IDOR) + event", () => {
     expect(res.profile_status).toBe("confirmed");
     expect(profiles.confirm).toHaveBeenCalledOnce();
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.confirmed");
+    // Task 1 — a pre-0107 row carries no road: the event says unknown (null), never a guess.
+    expect(events.emit.mock.calls[0]![0].payload.profile_source).toBeNull();
     expect(resumeGenerateQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("profile.confirmed carries the road read off the stored row", async () => {
+    const { svc, profiles, events } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER, source: "form" });
+    await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(events.emit.mock.calls[0]![0].payload.profile_source).toBe("form");
+  });
+
+  // ---- Task 1 B4 (ADR-0042 D8): the post-confirm destination is the ROAD's to decide ----
+
+  it("a CHAT-road profile confirms with next: chat_complete — never the form", async () => {
+    const { svc, profiles } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER, source: "chat" });
+    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(res.next).toBe("chat_complete");
+  });
+
+  it("a FORM-road profile confirms with next: trade_form", async () => {
+    const { svc, profiles } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER, source: "form" });
+    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(res.next).toBe("trade_form");
+  });
+
+  it("an UNKNOWN road (pre-0107 row) confirms with next: null — the client keeps its probe", async () => {
+    const { svc, profiles } = setup();
+    profiles.findById.mockResolvedValueOnce({ id: PROFILE, workerId: WORKER });
+    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
+    expect(res.next).toBeNull();
   });
 
   it("a resume-enqueue failure does NOT fail confirmation (degrades)", async () => {

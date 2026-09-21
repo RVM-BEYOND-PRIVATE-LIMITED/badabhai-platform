@@ -3,29 +3,36 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_scroll_safe_body.dart';
+import '../../../core/widgets/kit/secure_note.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/set_pin_cubit.dart';
+import 'widgets/bb_pin_view.dart';
 import 'widgets/bb_set_pin_form.dart';
 
-/// Set / reset PIN — ONE page: the enter row and the confirm row are both on
-/// screen together (no next-screen transition between them), driven by the OS
-/// numeric keyboard via [BbSetPinForm] — not a custom on-screen keypad.
+/// Set / reset PIN — onboarding kit **Screen 4**: the Shift Blue header, the
+/// `PIN DAALEIN` and `PIN DOBARA DAALEIN` rows of four boxes, the yellow
+/// "Save PIN & Continue", and the security note.
+///
+/// ONE page: both rows are on screen together, driven by the OS numeric
+/// keyboard via [BbSetPinForm] — not a custom keypad. Every PIN row still shows
+/// where the worker is typing (the ring and the blinking caret, #1463).
+///
+/// NOTHING IS SENT UNTIL THE BUTTON. The kit adds "Save PIN & Continue", so the
+/// form runs in button mode: a mismatch is still explained the instant the
+/// confirm row fills, a match enables the button, and the tap submits.
 ///
 /// THE WORKER PICKS THEIR OWN PIN (#1464). There is NO strength gate on this
-/// client — 1234, 1111 and 0000 are all accepted and submitted. The screen
-/// used to hard-block a guessable first entry behind a dialog before the
-/// confirm row was ever reachable; that is gone.
+/// client — 1234, 1111 and 0000 are all accepted and submitted.
 ///
 /// Every error the worker can still hit is a CENTRED, blocking [showBbAlert]:
 ///  - a confirm mismatch clears both rows and explains in a dialog
 ///    ([BbSetPinForm] owns this).
 ///  - a server rejection surfaces its full reason here and resets both rows.
-///    The API still runs its own weak-PIN denylist, so a guessable PIN comes
-///    back through THIS path until that policy is lifted (issue #1462).
 ///
 /// On success the manager authenticates; a new user continues onboarding
 /// (consent), a reset returns to the shell.
@@ -61,6 +68,9 @@ class _SetPinViewState extends State<_SetPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
+  /// Both rows hold the same complete PIN — the button's enable signal.
+  bool _ready = false;
+
   /// The server rejected the PIN — surface its full reason, then reset both rows.
   Future<void> _showFailureAlert(String? message) async {
     if (_dialogOpen) return;
@@ -82,9 +92,8 @@ class _SetPinViewState extends State<_SetPinView> {
       listener: (BuildContext context, SetPinState state) {
         if (state.status == SetPinStatus.done) {
           // Reset → confirm it landed with a toast, then back to the shell. New
-          // user → continue onboarding at consent (no toast; onboarding speaks
-          // for itself). The messenger is the app-level one (above the router's
-          // Navigator), so the SnackBar survives the `go` and shows on the shell.
+          // user → continue onboarding at consent. The messenger is the
+          // app-level one, so the SnackBar survives the `go`.
           if (widget.isReset) {
             ScaffoldMessenger.of(context)
               ..clearSnackBars()
@@ -98,38 +107,60 @@ class _SetPinViewState extends State<_SetPinView> {
         }
       },
       builder: (BuildContext context, SetPinState state) {
-        // Kit auth chrome: the blue header carries the screen title/subtitle;
-        // the light body holds both PIN rows at once. Reached via `go` (new-user
-        // onboarding or reset), so no back affordance.
+        final bool canPop = Navigator.of(context).canPop();
         return Scaffold(
+          backgroundColor: OnboardingColors.canvasBg,
           body: Column(
             children: <Widget>[
-              BbBlueHeader(
+              ShiftBlueHeader(
                 title: widget.isReset ? 'Naya PIN' : 'PIN banayein',
-                subtitle: 'Pehle naya PIN daalein, fir confirm karne ke liye '
+                subtitle:
+                    'Pehle naya PIN daalein, fir confirm karne ke liye '
                     'wahi PIN dobara daalein.',
+                // Reached with `go` (after OTP, or on a cold-start resume), so
+                // there is normally nothing behind it. A back arrow that led to
+                // the spent OTP screen would be worse than none.
+                onBack: canPop ? () => Navigator.of(context).pop() : null,
               ),
               Expanded(
                 child: SafeArea(
                   top: false,
-                  // Scroll-safe centring: the body sits centred when there is
-                  // room and scrolls (never overflows) on a short screen.
-                  child: BbScrollSafeBody(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.gutter),
+                  child: OnboardingBody(
+                    padding: const EdgeInsets.all(24),
                     child: Column(
                       children: <Widget>[
-                        const Spacer(flex: 1),
+                        const SizedBox(height: 10),
                         BbSetPinForm(
                           key: _formKey,
                           enterLabel: 'PIN DAALEIN',
                           confirmLabel: 'PIN DOBARA DAALEIN',
                           busy: state.isSubmitting,
                           busyCaption: 'PIN set kar rahe hain…',
+                          pinStyle: BbPinSlotStyle.shiftBlue,
+                          labelStyle: OnboardingTypography.fieldMicroLabel(),
+                          rowGap: 28,
+                          submitOnComplete: false,
+                          showBusySpinner: false,
+                          onReadyChanged: (bool ready) =>
+                              setState(() => _ready = ready),
                           onConfirmed: (String pin) =>
                               context.read<SetPinCubit>().submit(pin),
                         ),
-                        const Spacer(flex: 2),
+                        const SizedBox(height: 40),
+                        PrimaryActionButton(
+                          buttonKey: const Key('setPinSaveButton'),
+                          label: 'Save PIN & Continue',
+                          showArrow: false,
+                          isLoading: state.isSubmitting,
+                          onPressed: _ready && !state.isSubmitting
+                              ? () => _formKey.currentState?.submit()
+                              : null,
+                        ),
+                        const SizedBox(height: 18),
+                        // Spec §3.4's reassurance line, same words, drawn by
+                        // the shared kit widget (a real shield glyph, never an
+                        // emoji — see [SecureNote]).
+                        const SecureNote(),
                       ],
                     ),
                   ),

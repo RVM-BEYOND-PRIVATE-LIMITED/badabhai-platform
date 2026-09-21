@@ -89,6 +89,64 @@ export const WorkerLocationRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (a) — the worker recorded, replaced or cleared an optional WhatsApp
+// number (PATCH /workers/me/whatsapp).
+//
+// PII-FREE BY CONSTRUCTION. The number is AES-256-GCM ciphertext in
+// `workers.whatsapp_enc`; it never appears on the spine, in a log line, or in an analytics
+// read. This event carries the RESULTING STATE, not the value — the same "counts, never the
+// answers" rule `WorkerLocationRecordedPayload` follows, and for the same reason: a number
+// plus a worker id is identity.
+export const WorkerWhatsappRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** TRUE when a number is now on file; FALSE when the worker cleared it. */
+    has_whatsapp: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (b) — the worker recorded how they know each language they listed
+// (PUT /workers/me/languages, migration 0110).
+//
+// COUNTS, NEVER THE LANGUAGES. A single language slug is not an identifier, but a regional
+// language plus a worker id plus a timestamp narrows a person considerably — the same ruling
+// `worker.qualifications_recorded` carries, and the spine needs to know the page was answered
+// rather than what it said.
+export const WorkerLanguagesRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    language_count: z.number().int().nonnegative(),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (e) — the worker replaced their portfolio (PUT /workers/me/portfolio,
+// migration 0113).
+//
+// COUNTS ONLY. A caption is worker-typed free text and a storage key is a pointer to personal
+// media; neither may ride the spine. `item_count` is the resulting list length.
+export const WorkerPortfolioRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    item_count: z.number().int().min(0).max(12),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (f) — the worker replaced their list of SECONDARY occupations
+// (PUT /workers/me/occupations, migration 0114).
+//
+// COUNTS ONLY. The role ids are a closed public vocabulary, but a per-worker list of trades he
+// can also do is a supply profile the spine has no reader for — the same rule
+// `worker.match_skills_rebuilt` already applies to skill ids.
+export const WorkerOccupationsRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    occupation_count: z.number().int().min(0).max(4),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
@@ -190,6 +248,14 @@ export const WorkerQualificationsRecordedPayload = z
     certificate_count: z.number().int().min(0).max(8),
     /** How many education rows this submission stored. */
     education_count: z.number().int().min(0).max(4),
+    /**
+     * ADR-0042 D9 / Layer A (d) — how many TRAINING rows this submission stored.
+     *
+     * OPTIONAL, AND THAT IS THE SCHEMA-CONTRACT POSTURE: rows emitted before migration 0112
+     * carry no such field and must stay valid (invariant #8), so this is `.optional()` rather
+     * than defaulted. New rows always carry it.
+     */
+    training_count: z.number().int().min(0).max(8).optional(),
     /** True when this replaced rows the worker already had, rather than creating the first ones. */
     replaced_existing: z.boolean(),
   })
@@ -537,6 +603,19 @@ export const ConsentRevokedPayload = z.object({
   sessions_revoked: z.number().int().min(0),
 });
 
+/**
+ * E0 C-2 — the per-purpose exit: a NEW consent row was written omitting the two
+ * employer-contact purposes, while everything else was carried over. PII-free: the
+ * opaque ids and the closed purpose strings that were REMOVED. Distinct from
+ * `consent.revoked` (all-or-nothing + session revocation) because the audit trail must
+ * say which act happened; a later reader cannot reconstruct that from a new row alone.
+ */
+export const ConsentPurposesWithdrawnPayload = z.object({
+  worker_id: uuidSchema,
+  consent_id: uuidSchema,
+  withdrawn_purposes: z.array(z.string().min(1).max(64)).min(1).max(20),
+});
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------
@@ -652,6 +731,11 @@ export const VoiceNoteTranscriptionFailedPayload = z.object({
 // profile.*
 // ---------------------------------------------------------------------------
 const profileStatus = z.enum(["draft", "extracting", "extracted", "confirmed"]);
+// Task 1 — the road that produced the profile (`worker_profiles.source`).
+// Closed vocabulary, shared by the profile/resume payloads below. Nullable
+// with a null default: rows written before migration 0107 carry no road, and
+// an additive field must never break an old emitter or reader.
+const profileSource = z.enum(["form", "chat"]);
 
 export const ProfileExtractionRequestedPayload = z.object({
   worker_id: uuidSchema,
@@ -671,6 +755,7 @@ export const ProfileConfirmedPayload = z.object({
   worker_id: uuidSchema,
   profile_id: uuidSchema,
   confirmed_at: isoDateTimeSchema,
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** Terminal failure of an async (BullMQ) extraction job — keeps failures in the stream. */
@@ -790,6 +875,7 @@ export const ResumeGeneratedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   format: z.enum(["text", "json"]).default("text"),
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
@@ -816,6 +902,23 @@ export const ResumeSharedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   channel: z.enum(["whatsapp", "link", "download", "other"]).default("link"),
+});
+
+/**
+ * A worker corrected an extracted profile field (#1311 backend half, NOT #1318).
+ *
+ * IDS + CLOSED FIELD ENUM ONLY — the corrected values live in the authored stores
+ * (`worker_profile_skill`, `worker_education`, …), never here. `field` names which
+ * extracted fact moved; `correction_id` is the `profile_correction` row; `session_id`
+ * is the pinned interview the correction anchors to. No free text, no values, no PII —
+ * the same discipline as every `resume.*` sibling above.
+ */
+export const ResumeEditedPayload = z.object({
+  worker_id: uuidSchema,
+  profile_id: uuidSchema,
+  correction_id: uuidSchema,
+  session_id: uuidSchema,
+  field: z.enum(["skills", "machines", "experience", "education", "certificates"]),
 });
 
 // ---------------------------------------------------------------------------
@@ -965,6 +1068,16 @@ const aiTaskType = z.enum([
   // charged once per uploaded document. Added in the SAME change that routes it, which is
   // the lesson the two entries above were each written to record after the fact.
   "resume_parse",
+  // THE RESUME PROFILE SUMMARY (RI-summary, backend-only slice). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_profile_summary` and charged once per
+  // uploaded document, beside the parse — a second read of the same file for one
+  // Hinglish line. Added in the SAME change that routes it, per the lesson above.
+  "resume_profile_summary",
+  // THE RESUME OPTION MAPPING (RI-autofill, owner override B). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_option_map` and charged once per
+  // form-routed document — a third read of the same file, this time against the
+  // pack's closed options. Added in the SAME change that routes it.
+  "resume_option_map",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -2212,6 +2325,64 @@ export const ProfileViewedPayload = z.object({
   worker_id: uuidSchema,
   viewer_payer_id: uuidSchema,
   job_id: uuidSchema,
+});
+
+/**
+ * Per-worker notification: a payer viewed the worker's profile — VERSION 2 (E0 C-1, owner
+ * ruling 2026-09-21, route ii-v2).
+ *
+ * WHY A NEW NAME AND NOT A RELAXED v1. The unlock path is the only intended emitter, and
+ * `unlocks.job_id` is NULLABLE ("optional job context", packages/db/src/schema/payer.ts)
+ * while v1's `job_id` is REQUIRED — so an unlock found by search with no posting attached
+ * could never satisfy v1. Relaxing v1 in place would mutate a shipped event schema
+ * (CLAUDE.md §3), and the registry permits exactly one version per NAME (validate.ts), so
+ * a bump would invalidate every shipped consumer the moment it deployed. v2 follows the
+ * only real precedent in this package (`feed.shown_v2`, `skill.phrase_unresolved_v2`):
+ * new name, v1 untouched as history.
+ *
+ * `job_id` IS OMITTED, NEVER NULL, when the unlock carries no posting — an absent key and
+ * an explicit null are different facts on the wire. PII-FREE: three opaque ids; no name,
+ * no phone, no employer identity.
+ */
+export const ProfileViewedV2Payload = z.object({
+  worker_id: uuidSchema,
+  viewer_payer_id: uuidSchema,
+  job_id: uuidSchema.optional(),
+});
+export type ProfileViewedV2Payload = z.infer<typeof ProfileViewedV2Payload>;
+
+// ---------------------------------------------------------------------------
+// relay.* — the payer↔worker in-app relay (E0, docs/agent/phases/E0_BUILD.md).
+//
+// FACELESS BY CONSTRUCTION: opaque unlock/message ids, a closed direction/reader
+// vocabulary and counts ONLY. The message BODY never rides the spine — the words live in
+// `relay_messages` and are read by the two parties alone. No phone, no name, no employer
+// identity, in any payload here, ever.
+// ---------------------------------------------------------------------------
+
+/** A relay message was accepted, in either direction (E0 item 4). */
+export const RelayMessageSentPayload = z.object({
+  unlock_id: uuidSchema,
+  message_id: uuidSchema,
+  direction: z.enum(["payer_to_worker", "worker_to_payer"]),
+});
+
+/**
+ * An INBOUND relay message (payer→worker) — the worker-facing signal the Alerts feed
+ * allowlists (E0 item 5). Emitted ONLY for the payer→worker leg: emitting it for the
+ * worker's own reply would tell the worker "someone messaged you" about themselves.
+ */
+export const RelayMessageReceivedPayload = z.object({
+  worker_id: uuidSchema,
+  unlock_id: uuidSchema,
+  message_id: uuidSchema,
+});
+
+/** The worker marked a thread read. AUDIT ONLY — read receipts are out of scope in E0. */
+export const RelayMessageReadPayload = z.object({
+  unlock_id: uuidSchema,
+  reader: z.literal("worker"),
+  count: z.number().int().nonnegative(),
 });
 
 // ---------------------------------------------------------------------------
@@ -3658,6 +3829,54 @@ export const ProfileFormModeEnteredPayload = z
 export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
 
 /**
+ * THE TRADE-FORM OFFER WENT ON SCREEN — the eligibility half of the handover funnel
+ * (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * WHY THIS IS NOT `form_mode_entered`. That event says a worker was SENT to a form, and
+ * it still says exactly that — the offer ruling did not change it. This one says the
+ * router RECOGNISED a form-enabled trade and the worker was ASKED whether to take it.
+ * Without it the decline rate the ruling exists to produce is uncomputable: offered minus
+ * entered (accepted) minus declined = workers who abandoned mid-offer.
+ *
+ * PII-FREE: two ids, one closed-set form kind, two counts. NO LABELS. `.strict()`.
+ */
+export const ProfileFormOfferedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model asked before the offer. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormOfferedPayload = z.infer<typeof ProfileFormOfferedPayload>;
+
+/**
+ * THE WORKER DECLINED THE TRADE-FORM OFFER (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * `reply` IS TWO-VALUED ON PURPOSE AND THE SPLIT IS THE MEASUREMENT. `declined` is an
+ * explicit no. `unclear` is a reply the binary reader could not read — treated exactly
+ * like a decline at the interview level (settled, never re-served) but counted apart, so
+ * a growing `unclear` share reads as the parser needing teaching rather than as workers
+ * changing their minds.
+ *
+ * PII-FREE: two ids, one closed-set form kind, one closed-set reply. `.strict()`.
+ */
+export const ProfileFormOfferDeclinedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    reply: z.enum(["declined", "unclear"]),
+  })
+  .strict();
+export type ProfileFormOfferDeclinedPayload = z.infer<typeof ProfileFormOfferDeclinedPayload>;
+
+/**
  * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
  *
  * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══
@@ -3808,8 +4027,61 @@ export const ProfileResumePrefillAppliedPayload = z
     accepted: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileResumePrefillAppliedPayload = z.infer<
-  typeof ProfileResumePrefillAppliedPayload
+export type ProfileResumePrefillAppliedPayload = z.infer<typeof ProfileResumePrefillAppliedPayload>;
+
+/**
+ * The worker answered the "is this you?" turn over his résumé's Hinglish line.
+ *
+ * THE IDENTITY TWIN OF `profile.resume_prefill_applied`. That event counts what the
+ * worker agreed with fact by fact; this counts whether he recognised the profile as
+ * his at all — and the two are not the same funnel step. A "no" here retires the
+ * import from the chat (the old batch-confirm is suppressed with it), so without
+ * this event "how often does the summary misfire" would be unanswerable, which is
+ * the one number the Hinglish line exists to move.
+ *
+ * Ids and a closed answer only — never the Hinglish line itself, which is
+ * worker-derived free text and has no business on the spine.
+ */
+export const ProfileResumeIdentityAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** His answer. `no` covers an explicit denial AND an unreadable reply (fail-closed). */
+    answer: z.enum(["yes", "no"]),
+  })
+  .strict();
+export type ProfileResumeIdentityAnsweredPayload = z.infer<
+  typeof ProfileResumeIdentityAnsweredPayload
+>;
+
+/**
+ * The identity "haan" applied the staged option mappings as form answers.
+ *
+ * THE ONE EVENT THAT MEASURES OWNER OVERRIDE B. Everything above counts what the
+ * machine staged; this counts what the override wrote — and `applied` minus
+ * `mapped` is the gap between "the document supported" and "the form accepted",
+ * as judged by packs, gates and already-stored answers. A rising gap is the
+ * earliest signal the mapping prompt has drifted or a pack has moved its options.
+ *
+ * COUNTS AND SLUGS ONLY. Never an answer, never a label: the answers are what a
+ * model matched about a specific worker, and they have no business on the spine.
+ */
+export const ProfileResumeAutofillAppliedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** The form whose questions were filled. Closed enabled kinds only. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** How many mappings the import staged. */
+    mapped: z.number().int().nonnegative(),
+    /** How many became stored answers. Never assumed equal to `mapped`. */
+    applied: z.number().int().nonnegative(),
+    /** How many were skipped because the worker had already answered. D7, counted. */
+    skipped_answered: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumeAutofillAppliedPayload = z.infer<
+  typeof ProfileResumeAutofillAppliedPayload
 >;
 
 /**

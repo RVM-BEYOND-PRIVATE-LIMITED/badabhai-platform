@@ -6,6 +6,9 @@ import { SkillsModule } from "../skills/skills.module";
 import { ProfilesController } from "./profiles.controller";
 import { ProfilesService } from "./profiles.service";
 import { ProfilesRepository } from "./profiles.repository";
+import { ExtractedCorrectionsService } from "./extracted-corrections.service";
+import { ProfileCorrectionsRepository } from "./profile-corrections.repository";
+import { ProfileSkillsRepository } from "./profile-skills.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
@@ -19,12 +22,27 @@ import { WorkerPreferencesController } from "./worker-preferences.controller";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
 import { WorkerQualificationsController } from "./worker-qualifications.controller";
+import { WorkerLanguagesRepository } from "./worker-languages.repository";
+import { WorkerLanguagesService } from "./worker-languages.service";
+import { WorkerLanguagesController } from "./worker-languages.controller";
+import { WorkerPortfolioRepository } from "./worker-portfolio.repository";
+import { WorkerPortfolioService } from "./worker-portfolio.service";
+import { WorkerPortfolioController } from "./worker-portfolio.controller";
+import { WorkerOccupationsRepository } from "./worker-occupations.repository";
+import { ChatTableWritesService } from "./chat-table-writes";
+import { WorkerOccupationsService } from "./worker-occupations.service";
+import { WorkerOccupationsController } from "./worker-occupations.controller";
 import { WorkersModule } from "../workers/workers.module";
+// Layer A (e) — the portfolio mint/read seam. NOT @Global (WorkersModule imports it explicitly
+// for the photo seam), so ProfilesModule imports it too rather than assuming it.
+import { StorageModule } from "../storage/storage.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
 import { WorkerAiJobsController } from "./worker-ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import { AiJobsRetentionSweepProcessor } from "./ai-jobs-retention-sweep.processor";
+import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
+import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
 import {
   AI_JOBS_RETENTION_QUEUE,
   PROFILE_EXTRACTION_QUEUE,
@@ -42,6 +60,9 @@ import {
     // worker's latest résumé id). ACYCLIC: WorkersModule imports Auth/Storage/RateLimit and
     // never `profiles`, so this edge only goes one way.
     WorkersModule,
+    // `WorkerPortfolioService` mints signed uploads/reads through StorageService. Same module
+    // WorkersModule already imports; ACYCLIC.
+    StorageModule,
     // SkillsRepository — the extraction processor re-validates the RAG-matched
     // job_domain_id against the catalog before persisting it (see resolveJobDomain).
     SkillsModule,
@@ -75,10 +96,26 @@ import {
     WorkerAnswerSourceController,
     WorkerPreferencesController,
     WorkerQualificationsController,
+    // Migration 0110 — the finishing form's Languages page. Its own controller for the same
+    // reason the qualifications one has one: the page owns repeatable, ordered rows through
+    // delete-then-insert, not single attribute keys.
+    WorkerLanguagesController,
+    // Migration 0113 — the portfolio page (work samples).
+    WorkerPortfolioController,
+    // Migration 0114 — the secondary-occupations page (Layer A (f)). Its write re-derives the
+    // worker's match supply through the @Global MatchModule's WorkerSkillsService, so this adds
+    // no module edge.
+    WorkerOccupationsController,
   ],
   providers: [
     ProfilesService,
     ProfilesRepository,
+    // #1311 backend half — the extracted-profile correction contract. @Global DATABASE
+    // + @Global EventsService/WorkerSkillsService + the qualifications writer already
+    // provided above, so these add three providers and no module edge.
+    ExtractedCorrectionsService,
+    ProfileCorrectionsRepository,
+    ProfileSkillsRepository,
     AiJobsRepository,
     // `worker_attributes` — where `attribute`-kind answers land (77% of the pack corpus).
     WorkerAttributesRepository,
@@ -93,6 +130,14 @@ import {
     // over-claim veto. `DATABASE` is the same @Global handle every repository here uses, so
     // this adds a provider and no module edge.
     WorkerTranscriptRepository,
+    // The employment edit page's résumé-sourced suggestions (#1504 + the chat-jobs prefill
+    // ruling). Both depend only on @Global tokens (DATABASE / PiiCryptoService — the same
+    // reasoning `WorkerEmploymentRepository`'s own comment above gives), so providing them here
+    // is a second, independent instance of each — already how `ProfilingModule` provides them —
+    // and adds no module edge. `ProfilesModule` cannot import `ProfilingModule` directly: that
+    // module already imports THIS one, and the two are not part of an existing `forwardRef` pair.
+    ResumeImportRepository,
+    ResumeSuggestionReader,
     WorkerEmploymentService,
     // Writes `worker_attributes.value_text_polished_declined` through the repository already
     // provided above, and re-renders through `RESUME_RENDER_QUEUE` already registered above — so
@@ -109,6 +154,21 @@ import {
     // uses, so this adds two providers and no module edge.
     WorkerQualificationsRepository,
     WorkerQualificationsService,
+    // Migration 0110 — `worker_language`, the richer languages source. Same @Global-only
+    // dependency shape as the qualifications pair above, so it adds two providers and no edge.
+    WorkerLanguagesRepository,
+    WorkerLanguagesService,
+    // Migration 0113 — `worker_portfolio`. @Global DATABASE + StorageService only.
+    WorkerPortfolioRepository,
+    WorkerPortfolioService,
+    // Migration 0114 — `worker_occupation`. @Global DATABASE + the @Global WorkerSkillsService,
+    // so it adds two providers and no module edge.
+    WorkerOccupationsRepository,
+    WorkerOccupationsService,
+    // Layer A elicitation — composes the two repositories above into the chat's table write leg,
+    // called by `ProfileExtractionProcessor` for training/secondary-occupation answers. No new
+    // dependency and no module edge; a provider only.
+    ChatTableWritesService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],
@@ -127,6 +187,12 @@ import {
     // this repository itself, exactly as it provides the attribute and employment ones, so that
     // its boot never depends on the profiles subtree.
     WorkerQualificationsRepository,
+    // Migration 0110 — the résumé render worker reads the richer language rows the same way it
+    // reads the credential rows. Exported for the same reason and with the same graph shape.
+    WorkerLanguagesRepository,
+    // Migration 0114 / Layer A (i) — the render worker reads the declared secondary occupations
+    // for the Terms zone's "Also works as" row. Same graph shape as the two exports above.
+    WorkerOccupationsRepository,
   ],
 })
 export class ProfilesModule {}

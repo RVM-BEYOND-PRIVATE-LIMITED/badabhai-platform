@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/missing_field_label.dart';
+import '../../../../core/widgets/kit/kit_callout.dart';
 
 /// The three qualitative bands the Profile-strength consumer maps the server's
 /// signal count onto (issue #1322, §9.1). NEVER shown to the worker as a grade
@@ -39,6 +38,20 @@ ProfileStrengthBand profileStrengthBand({required int signals, int? max}) {
   return ProfileStrengthBand.strong;
 }
 
+/// True when [ProfileStrengthCard] would render something for this input.
+///
+/// Exported so a host list can skip the widget AND its gap instead of laying
+/// out a zero-height child with padding around it.
+bool profileStrengthNudgeVisible({
+  required int signals,
+  int? max,
+  required List<String> missingFields,
+}) {
+  if (missingFields.isEmpty) return false;
+  return profileStrengthBand(signals: signals, max: max) !=
+      ProfileStrengthBand.strong;
+}
+
 // Worker-facing nudge copy, exported so tests assert the exact honest lines and
 // the persona net scans them. Calm, aap-form, no exclamation, no tum-form verbs.
 const String kProfileStrengthWeakTitle = 'Profile ko mazboot banayein';
@@ -57,6 +70,11 @@ const String kProfileStrengthFairTitle = 'Profile lagbhag poori hai';
 /// that could gate anything (the résumé download lives elsewhere and is never
 /// conditioned on strength), and never shows a raw slug — every field name goes
 /// through [humanizeMissingField] at the edge.
+///
+/// v3 paints it as the kit's informational [KitCallout] (spec §4): a pale blue
+/// panel with a navy glyph tile. Its own [Text]s are kept rather than handed to
+/// the callout's `title`, because that slot UPPERCASES its label and this copy
+/// is a sentence a worker reads, not a micro label.
 class ProfileStrengthCard extends StatelessWidget {
   const ProfileStrengthCard({
     super.key,
@@ -76,8 +94,10 @@ class ProfileStrengthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ProfileStrengthBand band =
-        profileStrengthBand(signals: signals, max: max);
+    final ProfileStrengthBand band = profileStrengthBand(
+      signals: signals,
+      max: max,
+    );
 
     // Strong → silence; nothing missing → nothing to nudge. Either way, collapse.
     if (band == ProfileStrengthBand.strong || missingFields.isEmpty) {
@@ -93,35 +113,28 @@ class ProfileStrengthCard extends StatelessWidget {
         ? 'Sabse zaroori: $label jodein.'
         : 'Ek aur cheez: $label jodein.';
 
-    return Container(
-      decoration: BoxDecoration(
-        // Soft haldi wash — an inviting nudge, not an alarm. Tokens only.
-        color: AppColors.haldiTint,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Row(
+    return KitCallout(
+      tileIcon: Icons.trending_up_rounded,
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.tips_and_updates_outlined,
-              size: 22, color: AppColors.blue),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(title,
-                    style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        weight: FontWeight.w700,
-                        color: AppColors.textPrimary)),
-                const SizedBox(height: AppSpacing.hairline),
-                Text(body,
-                    style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        color: AppColors.textSecondary)),
-              ],
+          Text(
+            title,
+            style: OnboardingTypography.inter(
+              size: 13,
+              weight: FontWeight.w700,
+              color: OnboardingColors.infoTitle,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            body,
+            style: OnboardingTypography.inter(
+              size: 12,
+              weight: FontWeight.w600,
+              height: 1.4,
+              color: OnboardingColors.infoText,
             ),
           ),
         ],

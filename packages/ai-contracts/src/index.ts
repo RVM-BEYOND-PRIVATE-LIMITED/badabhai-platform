@@ -33,12 +33,25 @@ export {
   ResumeParseInputSchema,
   ResumeEmploymentSchema,
   ResumeParseOutputSchema,
+  ResumeSummaryInputSchema,
+  ResumeSummaryOutputSchema,
+  ResumeMapQuestionSchema,
+  ResumeOptionMappingSchema,
+  ResumeOptionMapInputSchema,
+  ResumeOptionMapOutputSchema,
 } from "./resume-import";
 export type {
   ResumeLine,
   ResumeParseInput,
   ResumeEmployment,
   ResumeParseOutput,
+  TradeAssociation,
+  ResumeSummaryInput,
+  ResumeSummaryOutput,
+  ResumeMapQuestion,
+  ResumeOptionMapping,
+  ResumeOptionMapInput,
+  ResumeOptionMapOutput,
 } from "./resume-import";
 
 export {

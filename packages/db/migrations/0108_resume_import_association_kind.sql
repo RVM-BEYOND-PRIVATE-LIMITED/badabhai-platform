@@ -1,0 +1,33 @@
+-- ===========================================================================
+-- 0108 — worker_resume_import gains `association_kind`: the model's trade judgment
+--
+-- Task 1 B2. Which of the 21 declared trades (`TRADE_FORM_KINDS_ALL`) the parse
+-- judged this résumé — or NULL (no judgment, none fits, or parsed before the
+-- classification existed).
+--
+-- RECORDED, NOT ACTED ON. The route still comes from the deterministic router
+-- alone; this column is the observability the recall path will read
+-- (RI-7 coverage measurement) plus the value the read route exposes. Any of
+-- the 21 may sit beside EITHER route — including chat, where "judged none" is
+-- the common case — so the CHECK is plain membership, not a biconditional with
+-- `route` like `form_kind` carries.
+--
+-- NO BACKFILL. NULL honestly means "parsed before the classification existed",
+-- exactly like the sibling nullable columns. A backfill would have to re-read
+-- documents — the one thing the parse pipeline never does twice.
+--
+-- ADDITIVE, BACKWARD-COMPATIBLE. No column removed, no existing row touched.
+-- Old code ignores the column; new code treats NULL as unknown.
+--
+-- APPLY-BEFORE-DEPLOY. Once the settle writer ships, this migration must
+-- already be applied — the guarded UPDATE naming a missing column fails closed
+-- (500), never partially.
+--
+-- ROLLBACK: additive-only, straight reversal while the writer is undeployed:
+--   ALTER TABLE "worker_resume_import" DROP CONSTRAINT "wri_association_kind_chk";
+--   ALTER TABLE "worker_resume_import" DROP COLUMN "association_kind";
+-- Once settled rows carry judgments, rollback is code-only (stop writing the
+-- column), never a schema rollback.
+-- ===========================================================================
+ALTER TABLE "worker_resume_import" ADD COLUMN "association_kind" text;--> statement-breakpoint
+ALTER TABLE "worker_resume_import" ADD CONSTRAINT "wri_association_kind_chk" CHECK ("worker_resume_import"."association_kind" IS NULL OR "worker_resume_import"."association_kind" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician'));

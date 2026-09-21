@@ -43,6 +43,7 @@ from ..contracts import (
     ResumeParseInput,
     ResumeParseOutput,
     TargetField,
+    TradeAssociation,
     TranscriptLine,
 )
 from ..logging_config import get_logger
@@ -89,6 +90,7 @@ def _response(
     fields: dict[str, ParsedField] | None = None,
     employments: list[ResumeEmployment] | None = None,
     failure_reason: str | None = None,
+    trade_kind: str | None = None,
 ) -> ResumeParseOutput:
     """Assemble the response.
 
@@ -104,6 +106,7 @@ def _response(
         employments=employments or [],
         unparsed_field_ids=[t.field_id for t in target_fields if t.field_id not in accepted],
         notes=[note for note in dict.fromkeys(stage.notes) if note in RESUME_PARSE_NOTES],
+        trade_association=TradeAssociation(kind=trade_kind) if trade_kind is not None else None,
         extraction_method=extraction.method if extraction else None,
         page_count=extraction.page_count if extraction else None,
         ocr_confidence=extraction.ocr_confidence if extraction else None,
@@ -184,7 +187,11 @@ async def parse_resume(
             router.run(
                 RESUME_PARSE_TASK_TYPE,
                 messages=build_resume_parse_messages(
-                    masked, body.target_fields, body.language, system_prompt=system_prompt
+                    masked,
+                    body.target_fields,
+                    body.language,
+                    system_prompt=system_prompt,
+                    trade_kinds=body.trade_kinds,
                 ),
                 mock_response=fallback,
                 # A LITERAL, WHERE OTHER PRIVACY-SENSITIVE ROUTES DERIVE IT — and deliberately.
@@ -220,7 +227,7 @@ async def parse_resume(
         stage.notes.append("llm_unavailable")
 
     # ---- 5. CONTRACT --------------------------------------------------------
-    draft = _read_resume_output(content)
+    draft = _read_resume_output(content, body.trade_kinds)
     if draft is None:
         return _response(stage, body.target_fields, failure_reason="parse_output_invalid")
 
@@ -293,19 +300,46 @@ async def parse_resume(
         )
 
     return _response(
-        stage, body.target_fields, fields=certified, employments=employments
+        stage,
+        body.target_fields,
+        fields=certified,
+        employments=employments,
+        trade_kind=draft.trade_association.kind if draft.trade_association else None,
     )
 
 
-def _read_resume_output(content: str) -> ResumeParseOutput | None:
+def _narrow_trade_kind(raw: object, allowed: list[str]) -> str | None:
+    """The model's association, kept only when it names a supplied kind.
+
+    LENIENT SHAPE, STRICT MEMBERSHIP. The key is additive: a model that mangles
+    its shape (a bare string, a null, garbage) costs the classification, never
+    the fields — `_read_resume_output` pops this key BEFORE strict validation
+    for exactly that reason. But membership is exact (whitespace stripped, and
+    nothing else repaired): a model that cannot echo one id from a list it was
+    given is not classifying, and "helping" it would turn the closed list into
+    a suggestion.
+    """
+    if isinstance(raw, dict):
+        raw = raw.get("kind")
+    if not isinstance(raw, str):
+        return None
+    cleaned = raw.strip()
+    return cleaned if cleaned in allowed else None
+
+
+def _read_resume_output(content: str, trade_kinds: list[str]) -> ResumeParseOutput | None:
     """The model's response as a contract object, or None if it is not one.
 
     Never raises and never repairs. A body this service cannot validate is a body it has
     no way to gate, and the fail-closed reading of an ungateable overlay is "there was no
     overlay".
+
+    `trade_association` is popped and narrowed BEFORE strict validation, so a mangled
+    additive key degrades to "no judgment" instead of failing the whole parse (which
+    would discard the cited fields with it). The fields keep their existing strictness.
     """
     try:
-        return ResumeParseOutput.model_validate(json.loads(coerce_json_text(content)))
+        raw = json.loads(coerce_json_text(content))
     except Exception as exc:  # noqa: BLE001 — a malformed overlay never costs the import
         # Type name only: the exception body can echo the model's response, which can echo
         # the résumé.
@@ -313,6 +347,20 @@ def _read_resume_output(content: str) -> ResumeParseOutput | None:
             "resume_import.output_unreadable", extra={"extra": {"error": type(exc).__name__}}
         )
         return None
+    kind: str | None = None
+    if isinstance(raw, dict):
+        kind = _narrow_trade_kind(raw.pop("trade_association", None), trade_kinds)
+    try:
+        parsed = ResumeParseOutput.model_validate(raw)
+    except Exception as exc:  # noqa: BLE001 — a malformed overlay never costs the import
+        # Type name only: the exception body can echo the model's response, which can echo
+        # the résumé.
+        logger.warning(
+            "resume_import.output_unreadable", extra={"extra": {"error": type(exc).__name__}}
+        )
+        return None
+    parsed.trade_association = TradeAssociation(kind=kind)
+    return parsed
 
 
 def gate_employments(

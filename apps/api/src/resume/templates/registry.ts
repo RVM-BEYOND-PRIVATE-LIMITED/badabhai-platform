@@ -42,7 +42,10 @@ export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
   // it carries slots (phone, employer names, nested role stints, QR) that no earlier layout has
   // or is allowed to have, and a resume row records the id it was rendered with. Bumping classic
   // would silently re-point every future `classic` render at a sheet its callers never asked for.
-  { id: "bb_trade", version: 1, label: "BadaBhai trade sheet (A4, one page)", file: "bb_trade.v1.html" },
+  // v2 adds ONE line to v1: the worker-copy-only WhatsApp line (ADR-0042 D9 / Layer A (a)).
+  // v1 IS UNTOUCHED ON DISK — a shipped version is immutable, and every PDF already issued
+  // recorded the version it rendered with. Only NEW renders pick up v2.
+  { id: "bb_trade", version: 2, label: "BadaBhai trade sheet (A4, one page)", file: "bb_trade.v2.html" },
   { id: "classic", version: 3, label: "Classic (single column)", file: "classic.v3.html" },
   { id: "modern", version: 3, label: "Modern (two column)", file: "modern.v3.html" },
   { id: "minimal", version: 3, label: "Minimal (compact)", file: "minimal.v3.html" },

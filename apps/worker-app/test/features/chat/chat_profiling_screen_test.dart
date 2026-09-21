@@ -6,11 +6,18 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart'
-    show ChatInputMode, ChatOption, ChatProgress, PredictedQuestion;
+    show
+        ChatInputMode,
+        ChatOption,
+        ChatProgress,
+        ChatQuestionKind,
+        PredictedQuestion;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
@@ -265,7 +272,8 @@ void main() {
         'join karne mein kitne din lagenge\n'
         'padhai ya training kaunsi hai\n'
         'Jitna yaad hai utna hi likhiye. Baaki hum ek-ek karke pooch lenge.';
-    when(() => repo.ensureSession()).thenAnswer((_) async => served);
+    when(() => repo.ensureSession())
+        .thenAnswer((_) async => const ChatSessionOpening(text: served));
 
     await pumpScreen(tester);
     expect(find.textContaining('Jitna yaad hai'), findsOneWidget,
@@ -435,9 +443,13 @@ void main() {
     });
   });
 
-  group('options_only turns suppress the composer (#770)', () {
+  // #770, narrowed: the ONLY options_only turn that locks the keyboard is the
+  // engine's experience gate (Haan / Nahi). A model-chosen options_only turn
+  // keeps the composer — the server accepts typed text and the worker's
+  // profile may not be one of the chips.
+  group('options_only locks the composer only for the yes/no gate (#770)', () {
     testWidgets(
-      'an options_only turn hides the composer, the chips are the only answer '
+      'the Haan/Nahi gate hides the composer, the chips are the only answer '
       'path, and the composer returns once answered',
       (WidgetTester tester) async {
         when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
@@ -460,6 +472,8 @@ void main() {
           reason: 'no typing on an options_only turn',
         );
         expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+        expect(find.text(kChatCustomAnswerLabel), findsNothing,
+            reason: 'the yes/no pair is the full answer — no escape chip');
 
         // The chips are present and actually submit.
         expect(find.text('Haan'), findsOneWidget);
@@ -507,6 +521,85 @@ void main() {
     );
 
     testWidgets(
+      'the gate served as LLM suggested_options (llm_ keys) still locks and '
+      'gains no Kuch aur chip', (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Aur koi experience jodna hai?',
+            followups: <String>['Haan', 'Nahi'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'llm_a', labelText: 'Haan'),
+              ChatOption(optionKey: 'llm_b', labelText: 'Nahi'),
+            ],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'CNC operator');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsNothing);
+        expect(find.text(kChatOptionsOnlyHint), findsOneWidget);
+        expect(find.text('Haan'), findsOneWidget);
+        expect(find.text('Nahi'), findsOneWidget);
+        expect(find.text(kChatCustomAnswerLabel), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a model-chosen options_only turn (LLM role chips) KEEPS the composer and '
+      'offers the Kuch aur chip', (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Aap kaunsa kaam karte hain?',
+            followups: <String>['CNC operator', 'Helper'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
+              ChatOption(optionKey: 'llm_b', labelText: 'Helper'),
+            ],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsOneWidget,
+            reason: 'the worker profile may not be a chip — typing stays open');
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.text(kChatCustomAnswerLabel), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a deterministic options_only turn whose chips are not a yes/no pair '
+      'keeps the composer', (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Kaunsi machine?',
+            followups: <String>['Lathe', 'CNC'],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'hi');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsOneWidget);
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.text('Lathe'), findsOneWidget);
+        expect(find.text(kChatCustomAnswerLabel), findsNothing,
+            reason: 'no Kuch aur chip on a deterministic (non-llm) row');
+      },
+    );
+
+    testWidgets(
       'options_only with NO chips still shows the composer — never trap the '
       'worker with no way to answer',
       (WidgetTester tester) async {
@@ -531,6 +624,78 @@ void main() {
         expect(find.text(kChatOptionsOnlyHint), findsNothing);
       },
     );
+
+    testWidgets(
+      "a model's own Haan/Nahi options_only question is not the gate: the "
+      'composer stays so a qualified answer can be typed',
+      (WidgetTester tester) async {
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+          (_) async => const ChatTurn(
+            reply: 'Kya aap raat ki shift mein kaam karenge?',
+            followups: <String>['Haan', 'Nahi'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'llm_a', labelText: 'Haan'),
+              ChatOption(optionKey: 'llm_b', labelText: 'Nahi'),
+            ],
+            inputMode: ChatInputMode.optionsOnly,
+          ),
+        );
+
+        await pumpScreen(tester);
+        await tester.enterText(find.byType(TextField), 'CNC operator');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(TextField), findsOneWidget,
+            reason: 'only the experience gate prompt locks the keyboard');
+        expect(find.text(kChatOptionsOnlyHint), findsNothing);
+        expect(find.text('Haan'), findsOneWidget);
+      },
+    );
+  });
+
+  // Review round 2: a tapped none-of-above chip is still an answer the server
+  // keeps (shift `any`), so the shift is recorded and the form does not ask it.
+  testWidgets(
+      "tapping the shift question's 'Koi bhi chalegi' chip records the shift",
+      (WidgetTester tester) async {
+    final InMemoryKnownWorkerFactsStore facts = InMemoryKnownWorkerFactsStore();
+    locator.unregister<ChatBloc>();
+    locator.registerFactory<ChatBloc>(() => ChatBloc(repo, knownFacts: facts));
+    when(() => repo.sendMessage('cnc', submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(
+              reply: 'Aap din ki shift chahte hain ya raat ki?',
+              askedQuestionId: 'shift_preference',
+              followups: <String>['Din ki shift', 'Raat ki shift', 'Koi bhi chalegi'],
+              suggestedOptions: <ChatOption>[
+                ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
+                ChatOption(optionKey: 'night', labelText: 'Raat ki shift'),
+                ChatOption(
+                  optionKey: 'any',
+                  labelText: 'Koi bhi chalegi',
+                  isNoneOfAbove: true,
+                ),
+              ],
+            ));
+    when(() => repo.sendMessage('Koi bhi chalegi',
+            submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai'));
+
+    await pumpScreen(tester);
+    await tester.enterText(find.byType(TextField), 'cnc');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+    expect(await facts.knownFacts(), isEmpty);
+
+    // The third chip sits past the 400px edge of the horizontal chip row.
+    await tester.ensureVisible(find.text('Koi bhi chalegi'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Koi bhi chalegi'));
+    await tester.pumpAndSettle();
+
+    verify(() => repo.sendMessage('Koi bhi chalegi',
+        submissionId: any(named: 'submissionId'))).called(1);
+    expect(await facts.knownFacts(), <WorkerFact>{WorkerFact.shift});
   });
   // #761 — a predicted chip renders the next prompt + chips instantly, before the
   // round trip. The optimistic render must not break the one-tap-per-turn latch.
@@ -672,6 +837,10 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.send);
       await tester.pumpAndSettle();
 
+      // A deterministic (non-llm, non-disambiguation) row keeps its own
+      // none-of-above chip as a real decline — no custom-answer escape here.
+      expect(find.text(kChatCustomAnswerLabel), findsNothing);
+
       await tester.tap(find.text('Kuch aur'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 350));
@@ -711,6 +880,310 @@ void main() {
       expect(find.text(predSkills.promptText), findsOneWidget,
           reason: 'the fallback path still indexes by the label (label == key)');
       verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
+    });
+  });
+
+  // "Kuch aur — khud likhein": when the chat suggests profiles, the worker can
+  // always type their own instead. The escape opens a focused composer and
+  // sends NOTHING; the typed answer goes out as a plain message (no optionKey,
+  // so no '__declined' that would stop the server identifying the trade).
+  group('Kuch aur — custom answer', () {
+    const PredictedQuestion predDeclined = PredictedQuestion(
+      questionKey: 'skills',
+      promptText: 'Aapko kaunse kaam aate hain?',
+      options: <String>['Welding', 'Fitting'],
+    );
+
+    /// A realistic disambiguation turn: job-profile rows from retrieval plus
+    /// the server's escape row, served options_only.
+    const ChatTurn disambiguation = ChatTurn(
+      reply: 'Inme se aapka kaam kaunsa hai?',
+      followups: <String>['CNC machine operator', 'VMC operator', 'Kuch aur'],
+      suggestedOptions: <ChatOption>[
+        ChatOption(optionKey: 'jp_cnc', labelText: 'CNC machine operator'),
+        ChatOption(optionKey: 'jp_vmc', labelText: 'VMC operator'),
+        ChatOption(
+          optionKey: 'kuch_aur',
+          labelText: 'Kuch aur',
+          isNoneOfAbove: true,
+        ),
+      ],
+      questionKind: ChatQuestionKind.disambiguate,
+      inputMode: ChatInputMode.optionsOnly,
+      lookahead: <String, PredictedQuestion?>{
+        '__declined': predDeclined,
+        'kuch_aur': predDeclined,
+      },
+    );
+
+    TextField composer(WidgetTester tester) =>
+        tester.widget<TextField>(find.byType(TextField));
+
+    testWidgets(
+        'the disambiguation escape opens a focused composer with the custom '
+        'hint and sends NOTHING', (WidgetTester tester) async {
+      int sends = 0;
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async {
+        sends++;
+        return disambiguation;
+      });
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+      expect(sends, 1);
+
+      // The escape row reads as an invitation to type, not the bare label.
+      expect(find.text(kChatCustomAnswerLabel), findsOneWidget);
+      expect(find.text('Kuch aur'), findsNothing);
+      expect(find.bySemanticsLabel(kChatCustomAnswerSemantics), findsOneWidget);
+      expect(composer(tester).focusNode!.hasFocus, isFalse);
+
+      await tester.tap(find.text(kChatCustomAnswerLabel));
+      await tester.pumpAndSettle();
+
+      expect(sends, 1, reason: 'the escape tap must not submit anything');
+      expect(find.byType(TextField), findsOneWidget);
+      expect(composer(tester).decoration!.hintText, kChatCustomAnswerHint);
+      expect(composer(tester).focusNode!.hasFocus, isTrue,
+          reason: 'the keyboard lands straight on the composer');
+      // The profile rows stay on screen and tappable.
+      expect(find.text('CNC machine operator'), findsOneWidget);
+      expect(find.text('VMC operator'), findsOneWidget);
+    });
+
+    testWidgets(
+        'typing a custom profile sends exactly that text with no optionKey, '
+        'then custom mode resets', (WidgetTester tester) async {
+      when(() => repo.sendMessage('mujhe job chahiye',
+          submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => disambiguation,
+      );
+      // Held open, so an optimistic (optionKey-driven) render would be visible.
+      final Completer<ChatTurn> pending = Completer<ChatTurn>();
+      when(() => repo.sendMessage('CNC operator',
+          submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) => pending.future,
+      );
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(kChatCustomAnswerLabel));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'CNC operator');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+
+      verify(() => repo.sendMessage('CNC operator',
+          submissionId: any(named: 'submissionId'))).called(1);
+      verifyNever(() => repo.sendMessage('Kuch aur',
+          submissionId: any(named: 'submissionId')));
+      expect(find.text(predDeclined.promptText), findsNothing,
+          reason: 'a typed send carries no optionKey, so no __declined / '
+              'kuch_aur prediction may render');
+      expect(find.text('Bada Bhai type kar raha hai…'), findsOneWidget);
+
+      pending.complete(const ChatTurn(reply: 'Kitne saal ka experience hai?'));
+      await tester.pumpAndSettle();
+      expect(composer(tester).decoration!.hintText, isNot(kChatCustomAnswerHint),
+          reason: 'custom mode is turn-scoped');
+    });
+
+    testWidgets('a profile row is still tappable while custom mode is open',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage('mujhe job chahiye',
+          submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => disambiguation,
+      );
+      when(() => repo.sendMessage('VMC operator',
+          submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => const ChatTurn(reply: 'Theek hai'),
+      );
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(kChatCustomAnswerLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('VMC operator'));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.sendMessage('VMC operator',
+          submissionId: any(named: 'submissionId'))).called(1);
+      expect(composer(tester).decoration!.hintText, isNot(kChatCustomAnswerHint));
+    });
+
+    testWidgets(
+        'the label-only disambiguation path (no suggested_options) also opens '
+        'custom mode instead of declining', (WidgetTester tester) async {
+      int sends = 0;
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async {
+        sends++;
+        return const ChatTurn(
+          reply: 'Inme se aapka kaam kaunsa hai?',
+          followups: <String>['CNC machine operator', 'Kuch aur'],
+          questionKind: ChatQuestionKind.disambiguate,
+        );
+      });
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'job');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(kChatCustomAnswerLabel));
+      await tester.pumpAndSettle();
+
+      expect(sends, 1);
+      expect(composer(tester).decoration!.hintText, kChatCustomAnswerHint);
+      expect(composer(tester).focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets(
+        'an LLM suggestion row gains a trailing Kuch aur chip that enters '
+        'custom mode without sending', (WidgetTester tester) async {
+      int sends = 0;
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async {
+        sends++;
+        return const ChatTurn(
+          reply: 'Aap kaunsa kaam karte hain?',
+          followups: <String>['CNC operator', 'Welder', 'Helper'],
+          suggestedOptions: <ChatOption>[
+            ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
+            ChatOption(optionKey: 'llm_b', labelText: 'Welder'),
+            ChatOption(optionKey: 'llm_c', labelText: 'Helper'),
+          ],
+        );
+      });
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'I need job');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      final Finder chip = find.text(kChatCustomAnswerLabel);
+      expect(chip, findsOneWidget);
+      expect(find.bySemanticsLabel(kChatCustomAnswerGenericSemantics),
+          findsOneWidget);
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(sends, 1, reason: 'the Kuch aur chip opens typing, never sends');
+      // A chip row can be about a skill or a duration: a neutral hint.
+      expect(
+          composer(tester).decoration!.hintText, kChatCustomAnswerGenericHint);
+      expect(composer(tester).focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets(
+        'the server escape (kuch_aur) on an LLM chip ASK turn is the one '
+        'escape chip and never sends "Kuch aur"', (WidgetTester tester) async {
+      final List<String> sent = <String>[];
+      when(() => repo.sendMessage(any(),
+          submissionId: any(named: 'submissionId'))).thenAnswer(
+        (Invocation call) async {
+          sent.add(call.positionalArguments.first as String);
+          return const ChatTurn(
+            reply: 'Aap kaunsa kaam karte hain?',
+            followups: <String>['CNC operator', 'Welder', 'Kuch aur'],
+            suggestedOptions: <ChatOption>[
+              ChatOption(optionKey: 'llm_a', labelText: 'CNC operator'),
+              ChatOption(optionKey: 'llm_b', labelText: 'Welder'),
+              ChatOption(
+                optionKey: 'kuch_aur',
+                labelText: 'Kuch aur',
+                isNoneOfAbove: true,
+              ),
+            ],
+          );
+        },
+      );
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Kuch aur'), findsNothing);
+      final Finder chip = find.text(kChatCustomAnswerLabel);
+      expect(chip, findsOneWidget, reason: 'one escape, never a double');
+      await tester.ensureVisible(chip);
+      await tester.pumpAndSettle();
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(sent, <String>['mujhe job chahiye'],
+          reason: '"Kuch aur" must never be recorded as the worker\'s role');
+      expect(
+          composer(tester).decoration!.hintText, kChatCustomAnswerGenericHint);
+      expect(composer(tester).focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets(
+        'the escape raises the keyboard even when the composer kept focus '
+        'from the send icon', (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => disambiguation);
+      await pumpScreen(tester);
+      await tester.enterText(find.byType(TextField), 'mujhe job chahiye');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+      expect(composer(tester).focusNode!.hasFocus, isTrue);
+      // The worker closes the keyboard with back to read the rows.
+      tester.testTextInput.hide();
+      expect(tester.testTextInput.isVisible, isFalse);
+
+      await tester.tap(find.text(kChatCustomAnswerLabel));
+      await tester.pumpAndSettle();
+
+      expect(tester.testTextInput.isVisible, isTrue);
+    });
+
+    testWidgets(
+        'no overflow at 320x568 with text scale 2.0 on a disambiguation turn '
+        'in custom mode', (WidgetTester tester) async {
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => disambiguation);
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (BuildContext context, Widget? child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2.0)),
+          child: child!,
+        ),
+        home: const ChatProfilingScreen(),
+      ));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'job');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      final Finder escape = find.text(kChatCustomAnswerLabel);
+      await tester.ensureVisible(escape);
+      await tester.pumpAndSettle();
+      await tester.tap(escape);
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull,
+          reason: 'custom mode must not overflow a short phone at 2.0x');
+      expect(find.byType(TextField), findsOneWidget);
+      expect(composer(tester).focusNode!.hasFocus, isTrue);
     });
   });
 

@@ -29,7 +29,7 @@ void main() {
   blocTest<ProfileTabCubit, ProfileTabState>(
     'load -> loading then ready with the summary',
     build: () {
-      when(() => repo.summary()).thenAnswer((_) async => _summary);
+      when(() => repo.summary(includeDisplayExtras: true)).thenAnswer((_) async => _summary);
       return ProfileTabCubit(repo);
     },
     act: (ProfileTabCubit c) => c.load(),
@@ -42,7 +42,7 @@ void main() {
   blocTest<ProfileTabCubit, ProfileTabState>(
     'load failure -> loading then failed',
     build: () {
-      when(() => repo.summary()).thenThrow(const NetworkFailure());
+      when(() => repo.summary(includeDisplayExtras: true)).thenThrow(const NetworkFailure());
       return ProfileTabCubit(repo);
     },
     act: (ProfileTabCubit c) => c.load(),
@@ -172,5 +172,25 @@ void main() {
       verifyNever(() => api.deleteAccountImmediatelyForTest(
           authToken: any(named: 'authToken')));
     });
+  });
+
+  group('#1586 attestation arrives WITH the summary, on first paint', () {
+    blocTest<ProfileTabCubit, ProfileTabState>(
+      'load opts into the extras shape — whatever attestation the repository '
+      'resolved is already on the ready state, no second emit',
+      build: () {
+        when(() => repo.summary(includeDisplayExtras: true)).thenAnswer(
+            (_) async => _summary.copyWith(attested: true));
+        return ProfileTabCubit(repo);
+      },
+      act: (ProfileTabCubit c) => c.load(),
+      expect: () => <ProfileTabState>[
+        const ProfileTabState(status: ProfileTabStatus.loading),
+        ProfileTabState(
+          status: ProfileTabStatus.ready,
+          summary: _summary.copyWith(attested: true),
+        ),
+      ],
+    );
   });
 }

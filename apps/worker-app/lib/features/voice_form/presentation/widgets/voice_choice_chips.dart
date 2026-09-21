@@ -127,6 +127,14 @@ class VoiceChoiceChips extends StatefulWidget {
   /// claimed the moment he presses the submit button on a screen that already
   /// looks answered. They are a hint about where to look, and a tick stays his
   /// own act. DEFAULT NULL, unchanged for every existing caller.
+  ///
+  /// UNFED IN PRODUCTION SINCE THE KIT REDESIGN. The trade form was the only
+  /// screen that ever passed it, and v3 draws the same ruling with
+  /// `TradeFormSuggestedOption` around its own option card (covered by
+  /// `trade_form_suggestion_test.dart`); the voice-form screen has never
+  /// passed it. Whether the voice path should also surface résumé hints is an
+  /// owner's call — until it is taken, this and [suggestedBoolean] are live
+  /// code with tests and no caller.
   final List<String>? suggestedKeys;
 
   /// #1499 — the same hint for a BOOLEAN question: highlights

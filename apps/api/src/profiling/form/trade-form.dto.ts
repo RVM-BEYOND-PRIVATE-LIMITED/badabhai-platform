@@ -55,6 +55,14 @@ const SavedAnswerSchema = z.object({
   text: z.string().nullable(),
   number: z.number().nullable(),
   bool: z.boolean().nullable(),
+  /**
+   * A worker's own typed words against a CLOSED-OPTION question ("typed custom answer,
+   * everywhere", owner ruling round 4) — replayed VERBATIM, exactly as he typed it, never the
+   * LLM-reviewed rewrite. This is the resumed-form edit surface, not the printed sheet: the
+   * worker editing his own answer must see what he actually typed, not a rewrite he has not yet
+   * had the chance to see or refuse.
+   */
+  other_text: z.string().nullable(),
 });
 
 /**

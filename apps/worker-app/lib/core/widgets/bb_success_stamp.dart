@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_motion.dart';
+import '../theme/onboarding_theme.dart';
 
 /// The "stamp" success mark — a green seal that lands once, like a rubber
 /// stamp hitting paper. Use it on verify / unlock / apply / resume-ready
-/// moments. See `.aw-stamp` (ui.css) and [AppMotion.stamp].
+/// moments.
 ///
 /// One-shot: on mount it scales `0.3 → 1.0` and fades `0 → 1` over
 /// [AppMotion.slow] on the [AppMotion.stamp] overshoot curve. Nothing loops.
+///
+/// **No glow.** It used to cast a 22px green [BoxShadow], which is the one
+/// thing the design system bans outright: separation is colour and hairline,
+/// never a shadow.
 class BbSuccessStamp extends StatefulWidget {
-  const BbSuccessStamp({
-    super.key,
-    this.size = 74,
-    this.icon = Icons.check,
-  });
+  const BbSuccessStamp({super.key, this.size = 74, this.icon = Icons.check});
 
+  /// Diameter of the disc. 74 is the full-screen moment; a status banner
+  /// passes something nearer 32.
   final double size;
   final IconData icon;
 
@@ -30,11 +32,15 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
     duration: AppMotion.slow,
   );
 
-  late final Animation<double> _scale = Tween<double>(begin: 0.3, end: 1.0)
-      .animate(CurvedAnimation(parent: _controller, curve: AppMotion.stamp));
+  late final Animation<double> _scale = Tween<double>(
+    begin: 0.3,
+    end: 1.0,
+  ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.stamp));
 
-  late final Animation<double> _opacity = Tween<double>(begin: 0, end: 1)
-      .animate(CurvedAnimation(parent: _controller, curve: AppMotion.stamp));
+  late final Animation<double> _opacity = Tween<double>(
+    begin: 0,
+    end: 1,
+  ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.stamp));
 
   @override
   void initState() {
@@ -57,21 +63,15 @@ class _BbSuccessStampState extends State<BbSuccessStamp>
         child: Container(
           width: widget.size,
           height: widget.size,
-          decoration: BoxDecoration(
-            color: AppColors.success,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            color: OnboardingColors.successGreen,
             shape: BoxShape.circle,
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: AppColors.success.withValues(alpha: 0.4),
-                blurRadius: 22,
-                offset: const Offset(0, 8),
-              ),
-            ],
           ),
           child: Icon(
             widget.icon,
             size: widget.size * 0.54,
-            color: AppColors.textInverse,
+            color: OnboardingColors.paperWhite,
           ),
         ),
       ),

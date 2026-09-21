@@ -1,13 +1,22 @@
 import {
+  AVAILABILITY_STATUSES,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
   JOB_TYPES,
   LANGUAGES,
+  SALARY_PERIODS,
   SHIFTS,
+  WORK_TYPES,
   labelFor,
   labelsFor,
 } from "../profiles/worker-preferences.vocabulary";
+import {
+  resolveAvailabilityState,
+  resolveSalaryPeriod,
+  resolveWorkTypes,
+  type SalaryPeriod,
+} from "../profiles/worker-field-precedence";
 
 /**
  * The finishing form's answers, read off `worker_attributes` and printed in English (R6 §4).
@@ -71,6 +80,31 @@ export interface ResumePreferenceFacts {
    * figure. NEVER derived — see `formatSalaryBand`.
    */
   readonly salaryMax: number | null;
+
+  // ── ADR-0042 D9 / Layer A (c) — the attribute extensions, read for the renderers ──────────
+  //
+  // THESE ARE FACTS, NOT ROWS YET: the existing sheet prints none of them (the Layer A universal
+  // sections do), and every field here is optional-with-a-neutral-default so an old attribute bag
+  // produces exactly the previous values.
+
+  /**
+   * The worker's employment types, multi-first — see `resolveWorkTypes`. LABELS, because the
+   * sheet prints English and the slack is a slug.
+   */
+  readonly workTypes: string[];
+  /** The period the salary figures are quoted in. ABSENT MEANS `month` (the pre-existing meaning). */
+  readonly salaryPeriod: SalaryPeriod;
+  /** "per month" / "per day" / "per year" — the period's printed label, or null for the default. */
+  readonly salaryPeriodLabel: string | null;
+  /** How far the worker will travel, in km, or null when they did not say. 0 is a stated 0. */
+  readonly commuteMaxKm: number | null;
+  /** Undefined means UNANSWERED; only `true` ever prints. Never derived from `commuteMaxKm`. */
+  readonly willingToTravel: boolean | undefined;
+  /** The printed status ("Within a week"), from the worker's own answer or the model's. */
+  readonly availabilityStatusLabel: string | null;
+  /** `YYYY-MM-DD`, as the worker stated it. Null unless the structured answer carries one. */
+  readonly availableFrom: string | null;
+  readonly noticePeriodDays: number | null;
 }
 
 export const NO_PREFERENCES: ResumePreferenceFacts = {
@@ -84,6 +118,14 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   educationDetail: null,
   educationCredential: null,
   salaryMax: null,
+  workTypes: [],
+  salaryPeriod: "month",
+  salaryPeriodLabel: null,
+  commuteMaxKm: null,
+  willingToTravel: undefined,
+  availabilityStatusLabel: null,
+  availableFrom: null,
+  noticePeriodDays: null,
 };
 
 function stringList(value: unknown): string[] {
@@ -136,6 +178,13 @@ export function readPreferenceFacts(
 ): ResumePreferenceFacts {
   const shift = labelFor(SHIFTS, scalar(attributes.shift_preference) ?? "");
   const jobType = labelFor(JOB_TYPES, scalar(attributes.job_type) ?? "");
+  const salaryPeriod = resolveSalaryPeriod(scalar(attributes.salary_period));
+  // THE WORKER'S OWN ANSWER OUTRANKS THE MODEL'S, on the rule `worker-field-precedence.ts`
+  // states — the model's status arrives on the caller's side and is not read here.
+  const availability = resolveAvailabilityState({
+    workerAnswer: asObject(attributes.availability),
+    legacyStatus: null,
+  });
   return {
     languages: labelsFor(LANGUAGES, stringList(attributes.languages)),
     documents: labelsFor(DOCUMENTS_READY, stringList(attributes.documents_ready)),
@@ -166,5 +215,43 @@ export function readPreferenceFacts(
       ]
         .filter((v): v is string => Boolean(v))
         .join(" · ") || null,
+    // ── Layer A (c) ─────────────────────────────────────────────────────────────────────────
+    workTypes: labelsFor(
+      WORK_TYPES,
+      resolveWorkTypes(stringList(attributes.work_types), scalar(attributes.job_type)),
+    ),
+    salaryPeriod,
+    // NULL FOR THE DEFAULT, so a worker who never answered prints exactly as they did before:
+    // the sheet's "/ month" suffix is the default and a label here would be a second spelling of
+    // the same fact.
+    salaryPeriodLabel:
+      scalar(attributes.salary_period) === null || salaryPeriod === "month"
+        ? null
+        : labelFor(SALARY_PERIODS, salaryPeriod),
+    commuteMaxKm: nonNegativeNumber(attributes.commute_max_km),
+    willingToTravel: flag(attributes.willing_to_travel),
+    availabilityStatusLabel: labelFor(AVAILABILITY_STATUSES, availability.status ?? ""),
+    availableFrom: availability.availableFrom,
+    noticePeriodDays: availability.noticePeriodDays,
   };
+}
+
+/** The stored `availability` json attribute, if it is an object. Anything else is absence. */
+function asObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * A stored non-negative number — `commute_max_km`'s reader.
+ *
+ * DELIBERATELY NOT {@link numeric}: that helper demands `n > 0` because every caller before this
+ * one was a salary or a year, where zero says nothing. Zero kilometres is a STATED answer here
+ * ("I will not travel"), and the DTO's own floor is 0, so a helper that dropped it would silently
+ * erase exactly the workers the field exists for.
+ */
+function nonNegativeNumber(value: unknown): number | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }

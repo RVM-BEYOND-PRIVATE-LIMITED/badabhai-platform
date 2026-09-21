@@ -1,4 +1,6 @@
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { TradeFormRepository } from "../profiling/form/trade-form.repository";
+import { overlayFreshCapabilityLines } from "./resume-draft-overlay";
 import { templateIdForPack } from "./resume-document";
 import {
   BadRequestException,
@@ -82,6 +84,11 @@ export class ResumeService {
     // by the render worker for the capability rows; read here so the row RECORDS the template
     // it will actually be drawn with, rather than claiming one and rendering another.
     private readonly attributes: WorkerAttributesRepository,
+    // `worker_pack_answer` reads for the generate-time capability overlay below. A SECOND
+    // instance of the profiling module's repository (DATABASE-only, so no module edge — the
+    // same pattern ProfilesModule uses for its duplicated readers), used READ-ONLY
+    // (`listAnswers`): this service never writes answers.
+    private readonly packAnswers: TradeFormRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
@@ -128,7 +135,42 @@ export class ResumeService {
     }
 
     // The stored rawProfile is the structured DraftProfile; re-validate its shape.
-    const draft = DraftProfileSchema.parse(profile.rawProfile);
+    const stored = DraftProfileSchema.parse(profile.rawProfile);
+
+    // FRESH PACK ANSWERS OVER A FROZEN EXTRACTION. Trade-form answers written
+    // after profiling (a section-walk edit, a later form visit) land in
+    // `worker_pack_answer` + `worker_attributes` and never reach the draft, so
+    // a regenerate would reprint the OLD Machines/Skills and the Resume tab
+    // would reuse them forever. The overlay rebuilds those two lines from the
+    // live capability rows when answers postdate the profile — every other
+    // generate is byte-identical to today (see resume-draft-overlay.ts).
+    // FAIL-OPEN: any read here that throws skips the overlay, never the resume.
+    let draft = stored;
+    try {
+      const sheet = await this.attributes.loadTradeSheet(dto.worker_id);
+      if (sheet.packId !== null) {
+        const rows = await this.packAnswers.listAnswers(dto.worker_id, sheet.packId);
+        const overlaid = overlayFreshCapabilityLines({
+          draft: stored,
+          packAnswers: rows,
+          profileCreatedAt: profile.createdAt,
+          packId: sheet.packId,
+          attributes: sheet.attributes,
+        });
+        if (overlaid.overlaidMachines || overlaid.overlaidSkills) {
+          this.logger.log(
+            `resume overlay worker=${dto.worker_id} ` +
+              `machines=${overlaid.overlaidMachines} skills=${overlaid.overlaidSkills}`,
+          );
+          draft = overlaid.draft;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `resume capability overlay skipped worker=${dto.worker_id} ` +
+          `(${err instanceof Error ? err.message : "unknown"})`,
+      );
+    }
 
     // The AI service receives ONLY the structured profile (no name/phone).
     const result = await this.ai.generateResume({ profile: draft }, ctx);
@@ -294,6 +336,9 @@ export class ResumeService {
           resume_id: saved.id,
           version: saved.version,
           format: result.format,
+          // Task 1 — the road of the profile this résumé renders (pre-0107
+          // rows carry NULL → unknown).
+          profile_source: profile.source ?? null,
         },
         idempotencyKey: `resume.generated:${saved.id}`,
         correlationId: ctx.correlationId,
