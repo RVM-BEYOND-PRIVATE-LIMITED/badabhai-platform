@@ -358,6 +358,7 @@ describe("notifications allowlist — validity + faceless copy", () => {
       "profile.confirmed",
       "profile.viewed",
       "profile.viewed_v2",
+      "relay.message_received",
       "resume.generated",
       "resume.regenerated",
       "voice_note.transcription_completed",
@@ -377,6 +378,16 @@ describe("notifications allowlist — validity + faceless copy", () => {
     // The projection still never passes the payload through.
     expect(JSON.stringify(out)).not.toContain("w-secret");
     expect(JSON.stringify(out)).not.toContain("p-secret");
+  });
+
+  it("relay.message_received surfaces as a faceless `new_message` alert — E0 item 5", async () => {
+    const { svc } = setup([row("relay.message_received", "e-msg", "2026-09-21T11:00:00.000Z")]);
+    const out = await svc.getForWorker("w-1");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.type).toBe("new_message");
+    expect(out[0]!.body).toBe(NOTIFICATION_TEMPLATES["relay.message_received"]!.copy["hi"]!.body);
+    // No counterparty, no body text — the payload is never read into the output.
+    expect(JSON.stringify(out)).not.toMatch(/payer|employer|message_id/i);
   });
 
   /**

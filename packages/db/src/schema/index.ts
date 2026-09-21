@@ -64,6 +64,7 @@ import {
   postingBoosts,
   postingPlans,
   pricingCatalog,
+  relayMessages,
   resumeDisclosures,
   unlockRouting,
   unlocks,
@@ -191,6 +192,9 @@ export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
 export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
+// E0 — the payer↔worker in-app relay message store (docs/agent/phases/E0_BUILD.md item 2).
+export type RelayMessage = typeof relayMessages.$inferSelect;
+export type NewRelayMessage = typeof relayMessages.$inferInsert;
 export type PricingCatalogRow = typeof pricingCatalog.$inferSelect;
 export type NewPricingCatalogRow = typeof pricingCatalog.$inferInsert;
 export type PostingPlan = typeof postingPlans.$inferSelect;
@@ -308,6 +312,7 @@ export const schema = {
   payerCredits,
   creditLedger,
   unlockRouting,
+  relayMessages,
   pricingCatalog,
   postingPlans,
   postingBoosts,

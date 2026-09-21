@@ -32,6 +32,9 @@ export type NotificationType =
   | "interview_kit_ready"
   | "job_available"
   | "profile_viewed"
+  // E0 item 5 — an inbound relay message. ADDITIVE on the wire: a client that does not
+  // know this type must fall back to a default icon, not crash (see the FE issue).
+  | "new_message"
   | "security";
 
 /** Static copy for one language — title + body, never interpolated. */
@@ -184,6 +187,19 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
       en: { title: "Profile viewed", body: "Someone has viewed your profile." },
     },
     push: false, // deferred
+  },
+  // relay.message_received (E0 item 5) — actor=payer, subject=worker, worker_id in
+  // payload. The INBOUND leg only: emitted when a PAYER sends, never for the worker's own
+  // reply. Faceless copy — the worker learns there is a message, never who sent it. The
+  // amended 2026-09-21 scope ruling covers exactly this class (a faceless payer-originated
+  // signal the worker is owed); an employer identity or message body still may not surface.
+  "relay.message_received": {
+    type: "new_message",
+    copy: {
+      hi: { title: "Naya message", body: "Aapko ek naya message aaya hai." },
+      en: { title: "New message", body: "You have a new message." },
+    },
+    push: false, // deferred — ADR-0034 scopes push to security alerts only
   },
   // worker.device_registered — actor=subject=worker.
   "worker.device_registered": {

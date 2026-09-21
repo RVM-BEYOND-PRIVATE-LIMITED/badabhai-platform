@@ -8,6 +8,38 @@ boundary moved).
 
 ---
 
+## 2026-09-21 — E0 relay built: resolution, message table, send/read/reply, notification, and the per-purpose exit
+- **The handle now resolves.** `UnlockService.resolveRelayForPayer` / `resolveRelayForWorker`
+  walk `relay_handle -> unlock_routing -> unlocks -> worker` and re-check AT USE TIME: caller
+  ownership, live `granted`/`revealed` grant, unexpired handle, worker exists (DSAR SET NULL),
+  not pending deletion, and BOTH `employer_sharing` + `employer_messaging` unrevoked on the
+  LATEST consent row. Any failure returns the one neutral body — never a reason (no oracle).
+  No phone is read on this path.
+- **New contract surface: the relay module** (`apps/api/src/relay/`). `POST
+  /payer/relay/:handle/messages` (PayerAuthGuard) sends; `GET/POST /workers/me/relay-threads*`
+  (WorkerAuthGuard + ConsentGuard) read/reply/mark-read. The payer's opening message is a
+  closed template set (§B ruling; the catalogue is served by `GET /payer/relay/templates`);
+  free text opens only after the worker has replied. Both controllers registered in
+  `guard-contract.test.ts`, with a module boot test.
+- **Migration 0120 (`relay_messages`)** — the one message table, PII-free: the unlock join, a
+  direction, a two-shaped body (`kind='template'` with id+closed params, or `kind='text'`),
+  timestamps. A CHECK enforces each ROW's shape; thread state ("no payer free text before the
+  worker replies") is enforced in the service. The same migration adds the missing
+  `unlock_routing_relay_handle_uq` — the handle had no index and no unique constraint
+  (HALT.md finding), so resolution would seq-scan. **Owner applies it.**
+- **Three relay events + one consent event, all PII-free** (`relay.message_sent`,
+  `relay.message_received`, `relay.message_read`, `consent.purposes_withdrawn`); new event
+  domain `relay`. The message BODY never rides the spine.
+- **The Alerts feed gains `relay.message_received`** with faceless copy ("Naya message"),
+  inbound leg only — under the amended 2026-09-21 scope ruling, still no counterparty identity,
+  still no push (ADR-0034).
+- **C-2/C-3: the per-purpose exit.** `POST /consent/employer-contact/withdraw` writes a NEW
+  consent row derived SERVER-SIDE from the latest row minus both employer purposes (never from
+  the request), keeps profiling/resume/voice, and does NOT revoke sessions. Because the relay
+  re-reads the latest row at use time, the exit reaches unlocks already granted — tested.
+
+---
+
 ## 2026-09-21 — E0 C-1 ruled (ii-v2): `profile.viewed_v2` emits on the unlock path; feed scope amended; P-021/P-022 fixed
 - **Owner rulings, recorded.** C-1's versioning question was HALTED on 2026-09-07 because the named
   precedent (`profile.form_completed`) has no version history and the two real precedents

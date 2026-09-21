@@ -603,6 +603,19 @@ export const ConsentRevokedPayload = z.object({
   sessions_revoked: z.number().int().min(0),
 });
 
+/**
+ * E0 C-2 — the per-purpose exit: a NEW consent row was written omitting the two
+ * employer-contact purposes, while everything else was carried over. PII-free: the
+ * opaque ids and the closed purpose strings that were REMOVED. Distinct from
+ * `consent.revoked` (all-or-nothing + session revocation) because the audit trail must
+ * say which act happened; a later reader cannot reconstruct that from a new row alone.
+ */
+export const ConsentPurposesWithdrawnPayload = z.object({
+  worker_id: uuidSchema,
+  consent_id: uuidSchema,
+  withdrawn_purposes: z.array(z.string().min(1).max(64)).min(1).max(20),
+});
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------
@@ -2337,6 +2350,40 @@ export const ProfileViewedV2Payload = z.object({
   job_id: uuidSchema.optional(),
 });
 export type ProfileViewedV2Payload = z.infer<typeof ProfileViewedV2Payload>;
+
+// ---------------------------------------------------------------------------
+// relay.* — the payer↔worker in-app relay (E0, docs/agent/phases/E0_BUILD.md).
+//
+// FACELESS BY CONSTRUCTION: opaque unlock/message ids, a closed direction/reader
+// vocabulary and counts ONLY. The message BODY never rides the spine — the words live in
+// `relay_messages` and are read by the two parties alone. No phone, no name, no employer
+// identity, in any payload here, ever.
+// ---------------------------------------------------------------------------
+
+/** A relay message was accepted, in either direction (E0 item 4). */
+export const RelayMessageSentPayload = z.object({
+  unlock_id: uuidSchema,
+  message_id: uuidSchema,
+  direction: z.enum(["payer_to_worker", "worker_to_payer"]),
+});
+
+/**
+ * An INBOUND relay message (payer→worker) — the worker-facing signal the Alerts feed
+ * allowlists (E0 item 5). Emitted ONLY for the payer→worker leg: emitting it for the
+ * worker's own reply would tell the worker "someone messaged you" about themselves.
+ */
+export const RelayMessageReceivedPayload = z.object({
+  worker_id: uuidSchema,
+  unlock_id: uuidSchema,
+  message_id: uuidSchema,
+});
+
+/** The worker marked a thread read. AUDIT ONLY — read receipts are out of scope in E0. */
+export const RelayMessageReadPayload = z.object({
+  unlock_id: uuidSchema,
+  reader: z.literal("worker"),
+  count: z.number().int().nonnegative(),
+});
 
 // ---------------------------------------------------------------------------
 // agency_invite.* — AGENCY supply-attribution funnel (ADR-0022). FACELESS, ids/enums.

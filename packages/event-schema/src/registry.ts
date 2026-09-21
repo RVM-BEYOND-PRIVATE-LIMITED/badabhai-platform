@@ -1106,6 +1106,37 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileResumeIdentityAnsweredPayload,
   },
+
+  // ── E0 — the in-app relay (docs/agent/phases/E0_BUILD.md) ────────────────────
+  // APPENDED AT THE END, per the registry's append-only protocol. A message crossing
+  // between a payer and a worker is a business action; each leg gets its event. All
+  // three are PII-FREE: opaque ids + closed enums + counts, never the body.
+  //
+  // `relay.message_received` is a SEPARATE name from `relay.message_sent` on purpose:
+  // the Alerts feed allowlists event NAMES, and a single name carrying both directions
+  // would surface "someone messaged you" for the worker's own reply.
+  "relay.message_sent": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageSentPayload,
+  },
+  "relay.message_received": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageReceivedPayload,
+  },
+  "relay.message_read": {
+    version: 1,
+    domain: "relay",
+    payload: p.RelayMessageReadPayload,
+  },
+  // E0 C-2 — the per-purpose exit wrote a new consent row minus the two employer-contact
+  // purposes. Distinct from `consent.revoked` (all-or-nothing, sessions revoked).
+  "consent.purposes_withdrawn": {
+    version: 1,
+    domain: "consent",
+    payload: p.ConsentPurposesWithdrawnPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

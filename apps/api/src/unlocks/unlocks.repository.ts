@@ -296,6 +296,25 @@ export class UnlocksRepository {
   }
 
   /**
+   * The routing row for a payer-facing `relay_handle`, or undefined (non-tx read).
+   *
+   * E0 item 1 (`docs/agent/phases/E0_BUILD.md`): the handle is the ONLY identifier a
+   * payer holds, so resolution starts here. Backed by `unlock_routing_relay_handle_uq`
+   * (migration 0120) — without it this read seq-scans. NOT tx-scoped: the resolution
+   * path takes no advisory lock (it writes nothing on `unlocks`/`unlock_routing`), and
+   * every re-check it needs is a plain read. This method is still only reachable from
+   * `UnlockService` — the repository stays unexported (F-2/F-5/T5-b).
+   */
+  async findRoutingByHandle(handle: string): Promise<UnlockRouting | undefined> {
+    const rows = await this.db
+      .select()
+      .from(unlockRouting)
+      .where(eq(unlockRouting.relayHandle, handle))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Write the SERVER-SIDE routing mapping (tx-scoped). PII-FREE: routing token,
    * channel kind, the non-reversible expiring relay handle, expiry — NEVER a phone.
    *
