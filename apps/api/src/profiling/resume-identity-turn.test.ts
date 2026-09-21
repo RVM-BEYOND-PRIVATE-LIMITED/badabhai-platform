@@ -94,13 +94,15 @@ function makeWorld(
     identity?: typeof LINE | null;
     route?: { route: string | null; formKind: string | null } | null;
     seed?: Partial<ProfilingEnvelope>;
+    /** The BUFFER's turn counter — NOT the envelope's, which has no such field. */
+    turnCount?: number;
   } = {},
 ) {
   const store = new Map<string, TranscriptBuffer>();
   const seeded: ProfilingEnvelope = { ...emptyProfilingEnvelope(), rev: 1, ...opts.seed };
   store.set(SESSION, {
     workerId: WORKER,
-    turnCount: 0,
+    turnCount: opts.turnCount ?? 0,
     captured: {},
     roleFamily: "",
     messages: [],
@@ -408,9 +410,9 @@ describe("the résumé identity turn (RI-identity)", () => {
       seed: {
         resumeIdentity: { importId: IMPORT, state: "settled" },
         resumeConfirm: { importId: IMPORT, state: "settled" },
-        // A session already past its opening turn: only the turn path can offer.
-        turnCount: 1,
       },
+      // A session already past its opening turn: only the turn path can offer.
+      turnCount: 1,
     });
 
     const offered = await orchestrator.takeTurn(say("7 saal"));
