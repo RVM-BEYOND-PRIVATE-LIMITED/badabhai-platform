@@ -474,6 +474,9 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // first api-touching branch to merge main — the same way, one release later.
   "/trade-form", // Routes.tradeForm
   "/alerts", // Routes.alerts
+  // Relay inbox (E0, FE #1628) — the worker's threads list and one thread.
+  "/inbox", // Routes.inbox
+  "/inbox/:id", // GoRoute(path: '/inbox/:unlockId')
   "/feedback", // Routes.feedback
   // The referral deep link. Declared inline in the route tree rather than as a `Routes`
   // constant, because nothing in the app navigates to it — the platform delivers it.
