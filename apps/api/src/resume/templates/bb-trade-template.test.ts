@@ -251,6 +251,14 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       const markSrc = /class="foot-mark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
       expect(markSrc, `${name}: the footer mark data URI is missing`).toBeTruthy();
       marks.push(markSrc!);
+      // BRAND-KIT COLOURS. The mark is the two-figure lockup from badabhai-mark.svg, adapted
+      // for white paper: the small figure the kit draws white renders in print navy (white is
+      // invisible on the sheet), the large figure in safety-yellow, the knockout halo white.
+      // All-ink would read as a black blob beside the wordmark.
+      const decodedMark = decodeURIComponent(markSrc!);
+      expect(decodedMark, `${name}: the large figure is not safety-yellow`).toContain("#FFB32C");
+      expect(decodedMark, `${name}: the small figure is not print navy`).toContain("#0f3d6e");
+      expect(decodedMark, `${name}: the mark regressed to all-ink`).not.toContain("#14181d");
       expect(file, `${name}: the wordmark is not mixed case`).toContain(
         'alt="" />BadaBhai</div>',
       );
@@ -288,14 +296,55 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
     expect(marks[0]).toBe(marks[1]);
   });
 
+  it("carries the masthead brand — mark + mixed-case wordmark on the navy band", () => {
+    // THE TWINS STAY IN STEP, same as the footer: the stripe is the app's own lockup (the
+    // Shift Blue header's white-and-yellow mark beside "BadaBhai"), so every assertion here
+    // runs over both.
+    const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
+    const marks: string[] = [];
+    for (const [name, file] of [
+      ["v1", v1],
+      ["v2", html],
+    ] as const) {
+      // LEFT: the two-figure mark in EXACT brand-kit colours — white small figure and
+      // safety-yellow large figure, both directly visible on the navy band — then the
+      // MIXED-CASE wordmark. `text-transform: uppercase` is what made the stripe read
+      // BADABHAI, and it must not come back on this line either.
+      const markSrc = /class="wordmark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
+      expect(markSrc, `${name}: the masthead mark data URI is missing`).toBeTruthy();
+      marks.push(markSrc!);
+      const decodedMark = decodeURIComponent(markSrc!);
+      expect(decodedMark, `${name}: the masthead small figure is not white`).toContain("#FFFFFF");
+      expect(decodedMark, `${name}: the masthead large figure is not safety-yellow`).toContain(
+        "#FFB32C",
+      );
+      expect(file, `${name}: the masthead wordmark is not mixed case`).toContain(
+        "/>BadaBhai</span>",
+      );
+      const style = /<style>([^]*?)<\/style>/.exec(file)?.[1] ?? "";
+      const wordmarkCss = /\.wordmark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(wordmarkCss, `${name}: .wordmark uppercases the brand`).not.toContain(
+        "text-transform",
+      );
+
+      // The trust-badge slot rides the same bar and is untouched by the lockup.
+      expect(file, `${name}: the badge slot went missing`).toContain(
+        '<span class="badge">{{trust_badge}}</span>',
+      );
+    }
+    // ONE MARK, TWO FILES: the same encoded bytes, so the twins cannot drift apart.
+    expect(marks[0]).toBe(marks[1]);
+  });
+
   it("keeps v1 frozen on disk — a shipped version is immutable", () => {
     // v1 still renders for every PDF already issued under it (the registry's own contract), so
     // it must remain byte-identical at the path old rows resolve to. If this fails, someone
     // edited history rather than adding v2.
     //
-    // #1547 IS THE ONE SANCTIONED IN-PLACE AMENDMENT TO BOTH FILES: the footer brand lockup is a
-    // visual correction the owner required on the twins together. What this test protects is the
-    // VERSION BOUNDARY — the v2-only `whatsapp_line` must never appear in v1.
+    // #1547 AND THE MASTHEAD BRAND ARE THE SANCTIONED IN-PLACE AMENDMENTS TO BOTH FILES:
+    // the footer and stripe lockups are visual corrections the owner required on the twins
+    // together. What this test protects is the VERSION BOUNDARY — the v2-only `whatsapp_line`
+    // must never appear in v1.
     const v1 = readFileSync(join(__dirname, "bb_trade.v1.html"), "utf8");
     expect(v1).toContain('id: "bb_trade", version: 1');
     expect(v1).not.toContain("whatsapp_line");
