@@ -280,3 +280,23 @@ shipping E0, not recommendations. E0 does not ship without them. A builder
 finding any of the three harder than scoped must HALT, not trim.
 
 Signed: Prakash Kantumutchu, TPM, 2026-09-07.
+
+---
+
+## Post-signature corrections (2026-09-21)
+
+**THE SIGNED TEXT ABOVE IS UNCHANGED.** Four line references in it went stale before the
+signature — they were inherited from the pre-correction brief, and PR #1457 corrected the same
+numbers in `E0_BUILD.md` and `PARKED.md`. The 2026-09-07 precedent is that dated, signed records
+stay, so this footnote is the fix, not a rewrite (owner instruction 2026-09-21, issue #1626):
+
+| cited above | actual |
+|---|---|
+| `:30` — `docs/agent/BUILD_RULES.md:28` | the consent NEVER-DO is at `docs/agent/BUILD_RULES.md:89-91` |
+| `:61` — same citation | same correction |
+| `:194` — `registry.ts:517` | `profile.viewed` is at `registry.ts:563`; `profile.viewed_v2` (the live emitter, added 2026-09-21) at `:571` |
+| `:199` — `payloads.ts:2145-2149` | `ProfileViewedPayload` is at `payloads.ts:2311-2315`; `ProfileViewedV2Payload` at `:2334-2339` |
+
+Also recorded post-signature: the owner accepted the provisional opening-template set as
+shipped on 2026-09-21 (issue #1624), and the owner applied migration `0120_fair_marauders`
+(issue #1625) — neither changes the rulings above.
