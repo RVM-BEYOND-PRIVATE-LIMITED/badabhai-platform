@@ -14,7 +14,7 @@ import STATES_FILE from "@badabhai/profiling-lexicon/data/states.json";
  * That is the miss #1406 reports, from a real device, on the word "Kota".
  *
  * SERVED AS ONE LIST, NOT A `?q=` SEARCH ROUTE, and the number is the argument. `cities.json` is
- * ~6.8 KB and resolves to 80 distinct values — a payload smaller than the response headers
+ * ~7 KB and resolves to 83 distinct values — a payload smaller than the response headers
  * carrying it. `trade-form.service.ts`'s `SEARCHABLE_OPTION_THRESHOLD` already ratified what the
  * product does with a list this size: past twelve options the server marks it `searchable` and
  * the client filters the DOWNLOADED list in memory with `BbSearchableMultiSelect`. A per-keystroke
@@ -146,8 +146,8 @@ function resolveOrThrow(token: string): string {
  * Fold the gazetteer's canonical entries and aliases into one option per DISTINCT resolved city.
  *
  * THE TRAP THIS EXISTS TO SURVIVE: two tokens — "bengaluru" and "gurgaon" — are members of
- * `canonical` AND keys of `aliases`, and the alias map wins in `canonicalCity`. So the 82
- * canonical entries are only 80 distinct answers, and a list built naively from `canonical` would
+ * `canonical` AND keys of `aliases`, and the alias map wins in `canonicalCity`. So the 85
+ * canonical entries are only 83 distinct answers, and a list built naively from `canonical` would
  * offer the worker both "Bengaluru" and "Bangalore", store the same value for either, and print a
  * chip that disagrees with the sheet. Grouping by the RESOLVED value rather than by the token is
  * what makes that impossible to get wrong.
@@ -205,7 +205,7 @@ function buildCatalogue(): readonly CityOption[] {
  *
  * TAKES THE TOKENS, NOT THE DISPLAY VALUE, because `states` is keyed by gazetteer token and two
  * tokens can reach one city: `bengaluru` and `gurgaon` are members of `canonical` AND keys of
- * `aliases`, so 82 canonical entries are only 80 distinct answers. A map keyed by token would give
+ * `aliases`, so 85 canonical entries are only 83 distinct answers. A map keyed by token would give
  * Bangalore two entries and let whichever was written last win silently; folding onto the RESOLVED
  * value and REFUSING a disagreement makes that impossible rather than merely unlikely — the same
  * rule, and the same trap, as the alias grouping above.
