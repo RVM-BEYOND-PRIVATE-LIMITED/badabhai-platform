@@ -34,6 +34,7 @@ const FAKE_TX = Symbol("fake-tx") as unknown as never;
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
+const RESUME = "33333333-3333-4333-8333-333333333333";
 
 let order = 0;
 function item(partial: Partial<QuestionPackItem> & { question_key: string }): QuestionPackItem {
@@ -113,6 +114,8 @@ function makeService(
     universal?: QuestionPack | null;
     /** ADR-0041 RI-4 — what a résumé staged for this worker, keyed by question key. */
     suggestions?: ReadonlyMap<string, unknown>;
+    /** An already-generated resume row id: set when the test is about a post-completion edit. */
+    resumeId?: string;
   } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
@@ -154,6 +157,20 @@ function makeService(
     return {};
   });
   const rebuildQuietly = vi.fn(async () => undefined);
+  // "TYPED CUSTOM ANSWER, EVERYWHERE" — the review-or-omit call `answer()` fires,
+  // fire-and-forget, whenever `recordFor` marks a value as an "other" answer. A spy, not the
+  // real service: these tests assert that the TRIGGER fires with the right arguments, not the
+  // AI/fail-closed contract itself, which `other-answer-polish.service.test.ts` already covers.
+  const review = vi.fn(async () => "reviewed" as string | null);
+  const otherAnswerPolish = { review };
+  const config = { WORK_HISTORY_POLISH_ENABLED: true };
+  // The safety-net resume refresh: no resume row by default (first-timer), so the
+  // re-render never fires unless a test opts in via `resumeId`. The queue double
+  // captures `add` calls so the enqueue tests can assert them.
+  const latestResume = vi.fn(async (_workerId: string) =>
+    opts.resumeId === undefined ? undefined : { id: opts.resumeId },
+  );
+  const renderQueueAdd = vi.fn(async (_name: string, _data: unknown, _opts: unknown) => ({}));
   const service = new TradeFormService(
     chat as never,
     packs as never,
@@ -173,8 +190,25 @@ function makeService(
     // reaches the form through the interview handover. NEITHER THIS SUITE NOR THE ROLE-DRIVE SUITE
     // EXERCISES THAT FALLBACK — both stub it exactly like this — so its branch is unit-untested.
     { findLatestForWorker: async () => undefined } as never,
+    otherAnswerPolish as never,
+    config as never,
+    { latestResume } as never,
+    { add: renderQueueAdd } as never,
   );
-  return { service, written, packs, chat, upsertMany, emitted, emit, answers, rebuildQuietly };
+  return {
+    service,
+    written,
+    packs,
+    chat,
+    upsertMany,
+    emitted,
+    emit,
+    answers,
+    rebuildQuietly,
+    review,
+    latestResume,
+    renderQueueAdd,
+  };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -254,6 +288,33 @@ describe("TradeFormService", () => {
       );
       expect(machine).toMatchObject({
         answer: { status: "answered", option_keys: ["k2", "k3"] },
+      });
+    });
+
+    // HONEST STATE, PROVED RATHER THAN ASSERTED IN A COMMENT: even once a rewrite exists,
+    // `other_text` on the resumed-form edit surface stays the worker's RAW typed words. The
+    // `SavedAnswerSchema.other_text` docblock says this is deliberate — the worker editing his
+    // own answer must see what he actually typed, not a rewrite he has not yet had the chance to
+    // see or refuse — and this test is what would go red the moment someone points this field at
+    // `answerOtherTextPolished` without that product decision being made.
+    it("still replays the RAW typed 'other' text on the edit surface, even once a reviewed rewrite exists", async () => {
+      const { service } = await makeService({
+        saved: [
+          answered({
+            questionKey: "turning_machine",
+            answerOptionKeys: null,
+            answerOtherText: "ek purana Batliboi lathe",
+            answerOtherTextPolished: "Batliboi lathe",
+          } as Partial<WorkerPackAnswer>),
+        ],
+      });
+      const schema = await service.schema(WORKER);
+      const screens = schema.sections.flatMap((s) => s.screens);
+      const machine = screens.find(
+        (s) => s.type === "question" && s.question.question_key === "turning_machine",
+      );
+      expect(machine).toMatchObject({
+        answer: { status: "answered", other_text: "ek purana Batliboi lathe" },
       });
     });
 
@@ -398,6 +459,83 @@ describe("TradeFormService", () => {
       });
     });
 
+    it("refreshes an already-generated resume after a capability answer — the Bada Bhai edit loop", async () => {
+      // THE SAFETY NET THIS EXISTS FOR. A section-walk edit writes fresh attributes, but the
+      // building-screen regenerate only runs when the worker finishes inside the app. An
+      // abandoned walk (or a failed generate) would otherwise leave the new attributes in the
+      // database with the OLD document + READY pill on screen, forever. The forced re-render
+      // rebuilds the sheet from the live attributes at run time: LLM-free, no version bump,
+      // no daily-cap spend.
+      const { service, renderQueueAdd, latestResume } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(latestResume).toHaveBeenCalledWith(WORKER);
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+      expect(renderQueueAdd).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME, workerId: WORKER, force: true }),
+        expect.objectContaining({
+          jobId: `trade-form-rerender:${WORKER}`,
+          delay: 60_000,
+          removeOnComplete: true,
+        }),
+      );
+    });
+
+    it("does NOT refresh when there is no resume yet — the first generate owns version 1", async () => {
+      // First run through the form: nothing to re-render, and the building screen's generate
+      // (with its overlay) is what mints the row. An eager enqueue here would render a row
+      // that does not exist yet — or worse, race the generate.
+      const { service, renderQueueAdd } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("does NOT refresh on the legacy-universal shim — it writes no attributes", async () => {
+      // The shim returns before the capability write, so the hook is never reached even with
+      // a resume on file. Same discipline as the preferences page owning shift (#1503).
+      const { service, renderQueueAdd, upsertMany } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "shift_preference",
+        answer: { kind: "chips", option_keys: ["night"] },
+      });
+      expect(upsertMany).not.toHaveBeenCalled();
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("still saves the answer when the refresh enqueue fails — fail open, always", async () => {
+      // The answer above already committed; a Redis blip must not fail it, and the worker
+      // must never be asked to re-tap a saved answer.
+      const { service, renderQueueAdd, written } = await makeService({ resumeId: RESUME });
+      renderQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it("still saves the answer when the resume lookup fails — fail open, always", async () => {
+      const { service, renderQueueAdd, latestResume, written } = await makeService({
+        resumeId: RESUME,
+      });
+      latestResume.mockRejectedValueOnce(new Error("db down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
     it("de-duplicates repeated option keys", async () => {
       const { service, written } = await makeService();
       await service.answer(WORKER, {
@@ -469,14 +607,85 @@ describe("TradeFormService", () => {
       ).rejects.toThrow(/not a yes\/no question/);
     });
 
-    it("rejects free text for a select question", async () => {
-      const { service } = await makeService();
-      await expect(
-        service.answer(WORKER, {
-          question_key: "turning_machine",
-          answer: { kind: "text", text: "CNC lathe" },
-        }),
-      ).rejects.toThrow(/does not take free text/);
+    // "Typed custom answer, everywhere" (owner ruling, round 4): a worker who types free text
+    // against a closed-option question is not turned away. This REPLACES the old assertion that
+    // this 400'd (`/does not take free text/`) — the old behaviour was exactly the silent-drop-
+    // by-rejection the ruling forbids: the worker typed a real answer and the form refused it.
+    it("captures free text on a select question as an 'other' answer, never a 400 and never a typed column", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      expect(written[0]).toMatchObject({ status: "answered" });
+      // NEVER a typed column — an "other" answer must not be readable as settled vocabulary by
+      // a tier gate or a `worker_attributes` projection. See `pack-answer-row.ts`.
+      expect(written[0]?.answerText).toBeUndefined();
+      expect(written[0]?.answerOptionKeys).toBeUndefined();
+      expect(written[0]?.answerOtherText).toBe("CNC lathe");
+    });
+
+    // INTEGRATION-SHAPED: exercises the real `answer()` flow end to end (through `recordFor`,
+    // `packAnswerRowFor`, the transaction, and the trigger below it) and asserts the review-or-
+    // omit path was actually invoked with the answer just saved — not a unit test of
+    // `OtherAnswerPolishService` in isolation, which `other-answer-polish.service.test.ts`
+    // already covers. This is the test that would have caught the dead-code finding: it fails
+    // red the moment `triggerOtherAnswerPolish`'s call site is removed or never wired.
+    it("hands a typed 'other' answer to the review-or-omit path, fire-and-forget", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      // CALLED SYNCHRONOUSLY WITHIN `answer()`, even though never awaited — a mocked async
+      // function records its call the instant it is invoked, before its own promise settles, so
+      // this assertion needs no `await`/flush to see the call `answer()`'s return already implies.
+      expect(review).toHaveBeenCalledTimes(1);
+      expect(review).toHaveBeenCalledWith(
+        WORKER,
+        "qp_cnc_turning",
+        "turning_machine",
+        "CNC lathe",
+        // The question's own prompt text — this pack's `item()` helper defaults it to
+        // `${question_key}?`.
+        "turning_machine?",
+        expect.objectContaining({ correlationId: undefined, requestId: undefined }),
+        expect.objectContaining({ WORK_HISTORY_POLISH_ENABLED: true }),
+        // A FRESH TRIGGER, ALWAYS — `upsertAnswer` clears any prior polish/decline on every
+        // write, so this is the only state `triggerOtherAnswerPolish` can honestly pass.
+        { polished: null, declined: false },
+      );
+    });
+
+    it("never triggers the review-or-omit path for a settled (non-'other') answer", async () => {
+      const { service, review } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "trade_test_status",
+        answer: { kind: "boolean", value: true },
+      });
+      expect(review).not.toHaveBeenCalled();
+    });
+
+    it("never triggers the review-or-omit path when the typed 'other' text is empty (declined, not stored)", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(review).not.toHaveBeenCalled();
+    });
+
+    it("declines (rather than 400s or silently drops) empty typed text on a select question", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(written[0]).toMatchObject({ status: "declined" });
     });
 
     it("rejects a question key this pack does not define, rather than dropping it", async () => {

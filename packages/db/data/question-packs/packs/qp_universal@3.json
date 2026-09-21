@@ -1,0 +1,178 @@
+{
+  "_why": "THE FALLBACK OF LAST RESORT. Every occupation with no family of its own resolves here through the universal binding, so this pack is the difference between an unauthored trade getting a degraded interview and getting NO interview at all. It is also the tail every other pack runs after its trade-specific questions — the fields that must survive abandonment because they are the strongest matching signals.",
+  "_ordering": "current_city and salary_expected are hoisted with min_turn/max_turn rather than left at the end. Occupation questions first is right (workers answer fluently about their own trade, and leading with salary has the highest abandon rate), but city and salary are what the match engine actually ranks on, so they must be asked before a worker is likely to walk. That hoist is DATA on the row, not a special case in the engine.",
+  "_v2": "THREE CHANGES, ALL FOR THE LLM-LED OPENING (Phase B). (1) `preferred_locations` was the one Resume Field Set entry with no question anywhere in the corpus — the interview asked where a worker IS and never where they want to WORK, so `location_preference.preferred_cities` was only ever filled by the extraction model guessing. (2) `relocation` is REMOVED: 'kya doosre sheher jaa sakte hain' and 'kahaan kaam karna chahte hain' are the same question asked twice, and the second carries strictly more information. Owner ruling 2026-08-11: the template tail is SIX questions. (3) The `max_turn` ceilings come off `current_city` and `salary_expected` — see below.",
+  "_v2_max_turn": "WHY THE CEILINGS HAD TO GO, and it is a live defect rather than a preference. `isServable` refuses an item once `state.turn > max_turn`, so `current_city` (mandatory, max_turn 5) became UNASKABLE from turn 6 onward — permanently, with no re-ask left, and the interview then closed `complete` without the single strongest matching signal. Measured by walking the real corpus: a tail entered at turn 8 served neither city nor salary. Any interview that spent a few turns on silences, clarifies or hardship acknowledgements already hit this; the LLM-led opening hits it EVERY time, because Phase A is several turns long by construction. `min_turn` is kept — the hoist the v1 note describes is the min side, which is what stops salary leading the interview. A ceiling that turns a mandatory question into one that is never asked protects nothing.",
+  "_v3": "THE FILL-GAP PHASE 1 — TWO STRUCTURALLY UNSERVABLE FIELDS JOIN THE CHAT, and nothing else moves. v2 shipped eight items, but `CHAT_FACT_OWNER` reads pages for four of them (salary_expected, preferred_locations, education, shift_preference), so the ownership filter dropped them before selection and the served tail was two questions. This version adds `languages` and `work_types` as ATTRIBUTE questions and the ownership table flips those two facts to chat; every v2 item is byte-identical and its served text is unchanged (the pack-served-text golden pins exactly that).",
+  "_v3_budget": "THE ASK BUDGET IS THE REASON THERE ARE TWO AND NOT EIGHT, and the split is deliberate. `MAX_ENGINE_ASKS` is 28; the worst-case worker (qp_cnc_turning's 15 + one retry on each of three mandatory questions + the tail) sat at 26, leaving headroom of 2. Both new items are ungated, so each costs one ask on EVERY tier: this version lands at exactly 28, headroom 0, and `ask-budget.guard.test.ts` pins that number. The remaining allow-listed fields (languages PROFICIENCY, commute_max_km, willing_to_travel, available_from, salary_period, training, secondary occupations) are NOT asked here — each needs a new parser and/or a write path, and there is no budget left. They stay PAGES-owned and the Phase 3 settled-vs-missing view is what surfaces them as missing; the finishing form remains their capture surface.",
+  "_v3_questions": "WHY THESE TWO. `languages` is the strongest matching signal that fits without a new seam: a multi_select whose chips carry the SAME slug vocabulary the preferences page already writes, so a chat answer lands in `worker_attributes.languages` (value_text_list) through the existing projector and prints on the résumé's Languages row unchanged. PROFICIENCY IS DELIBERATELY OUT: speak/read/write is a three-tick matrix over 16 languages, which a chip question cannot express honestly, and the richer `worker_language` page owns it. `work_types` is the same shape over the `WORK_TYPES` vocabulary (JOB_TYPES), the multi that supersedes the single `job_type`. Both are closed sets in the pack (target_kind `attribute`), so `matchOptions` refuses anything the worker did not tap or say, and a non-answer is dropped rather than guessed.",
+  "pack_id": "qp_universal",
+  "version": 3,
+  "family_id": "fam_universal",
+  "locale": "hi-IN",
+  "status": "deprecated",
+  "review_note": "DEPRECATED IN PLACE — qp_universal@4 is the active tail (Layer A elicitation, 2026-09-18). This file is BYTE-FROZEN: sessions pinned to qp_universal:3 keep resolving through `loadPinned`, and `reply-closure`/`pack-served-text` still carry its clips. v3 added languages and work_types (attribute multis) and flipped both facts to chat ownership. The deprecation is what the corpus validator's one-ACTIVE-per-family+locale rule requires; nothing inside the file moves.",
+  "items": [
+    {
+      "question_key": "primary_trade",
+      "prompt_text": "Aap kaunsa kaam karte hain?",
+      "why_text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain.",
+      "retry_text": "Aap kis tarah ka kaam karte hain?",
+      "target_kind": "rfs",
+      "target_field": "trade",
+      "answer_type": "text",
+      "is_mandatory": true,
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "experience_years",
+      "prompt_text": "Is kaam mein aapko kitne saal ho gaye?",
+      "why_text": "Tajurba dekhkar employer behtar offer dete hain.",
+      "retry_text": "Kitne saal se ye kaam kar rahe hain?",
+      "target_kind": "rfs",
+      "target_field": "experience_years",
+      "answer_type": "duration",
+      "is_core": true,
+      "max_asks": 2
+    },
+    {
+      "question_key": "current_city",
+      "prompt_text": "Abhi aap kaunse sheher mein hain?",
+      "why_text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai.",
+      "retry_text": "Aap kaunse sheher mein rehte hain?",
+      "target_kind": "rfs",
+      "target_field": "current_city",
+      "answer_type": "city",
+      "is_mandatory": true,
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 2
+    },
+    {
+      "question_key": "salary_expected",
+      "prompt_text": "Aap mahine ka kitna vetan chahte hain?",
+      "why_text": "Sahi vetan wali naukri hi dikhayenge.",
+      "retry_text": "Mahine ka kitna milna chahiye?",
+      "target_kind": "rfs",
+      "target_field": "salary_expected",
+      "answer_type": "salary",
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 3
+    },
+    {
+      "question_key": "preferred_locations",
+      "prompt_text": "Aap kahaan kaam karna chahte hain?",
+      "why_text": "Jahaan aap kaam karna chahte hain, wahin ki naukri pehle dikhayenge.",
+      "retry_text": "Kis sheher mein kaam karna hai?",
+      "target_kind": "rfs",
+      "target_field": "preferred_locations",
+      "answer_type": "city",
+      "is_core": true,
+      "max_asks": 2,
+      "min_turn": 3
+    },
+    {
+      "question_key": "availability",
+      "prompt_text": "Aap kaam kab se shuru kar sakte hain?",
+      "why_text": "Employer ko pata hona chahiye ki aap kab mil sakte hain.",
+      "target_kind": "rfs",
+      "target_field": "availability",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "immediate", "label_text": "Abhi turant", "value_text": "immediate" },
+        { "option_key": "fifteen_days", "label_text": "Pandrah din mein", "value_text": "15_days" },
+        { "option_key": "one_month", "label_text": "Ek mahine mein", "value_text": "1_month" },
+        {
+          "option_key": "not_sure",
+          "label_text": "Abhi pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "education",
+      "prompt_text": "Aapne kahaan tak padhai ki hai?",
+      "why_text": "Kuch naukri ke liye padhai ka record maanga jaata hai.",
+      "target_kind": "rfs",
+      "target_field": "education_level",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "below_tenth", "label_text": "Dasvi se kam", "value_text": "below_10" },
+        { "option_key": "tenth", "label_text": "Dasvi paas", "value_text": "10" },
+        { "option_key": "twelfth", "label_text": "Barhvi paas", "value_text": "12" },
+        {
+          "option_key": "iti_diploma",
+          "label_text": "ITI ya diploma",
+          "value_text": "iti_diploma"
+        },
+        { "option_key": "graduate", "label_text": "Graduation", "value_text": "graduate" }
+      ]
+    },
+    {
+      "question_key": "shift_preference",
+      "prompt_text": "Aap din ki shift chahte hain ya raat ki?",
+      "why_text": "Shift ke hisaab se naukri chhaant kar dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "shift_preference",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "day", "label_text": "Din ki shift", "value_text": "day" },
+        { "option_key": "night", "label_text": "Raat ki shift", "value_text": "night" },
+        {
+          "option_key": "any",
+          "label_text": "Koi bhi chalegi",
+          "value_text": "any",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "languages",
+      "prompt_text": "Aap kaun kaun si bhasha bolte hain?",
+      "why_text": "Bhasha se kaam ke mauke badh jaate hain.",
+      "target_kind": "attribute",
+      "target_field": "languages",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "hindi", "label_text": "Hindi", "value_text": "hindi" },
+        { "option_key": "english", "label_text": "English", "value_text": "english" },
+        { "option_key": "haryanvi", "label_text": "Haryanvi", "value_text": "haryanvi" },
+        { "option_key": "bhojpuri", "label_text": "Bhojpuri", "value_text": "bhojpuri" },
+        { "option_key": "punjabi", "label_text": "Punjabi", "value_text": "punjabi" },
+        { "option_key": "marathi", "label_text": "Marathi", "value_text": "marathi" },
+        { "option_key": "gujarati", "label_text": "Gujarati", "value_text": "gujarati" },
+        { "option_key": "bengali", "label_text": "Bengali", "value_text": "bengali" },
+        { "option_key": "tamil", "label_text": "Tamil", "value_text": "tamil" },
+        { "option_key": "telugu", "label_text": "Telugu", "value_text": "telugu" },
+        { "option_key": "kannada", "label_text": "Kannada", "value_text": "kannada" },
+        { "option_key": "malayalam", "label_text": "Malayalam", "value_text": "malayalam" },
+        { "option_key": "odia", "label_text": "Odia", "value_text": "odia" },
+        { "option_key": "urdu", "label_text": "Urdu", "value_text": "urdu" },
+        { "option_key": "assamese", "label_text": "Assamese", "value_text": "assamese" },
+        { "option_key": "rajasthani", "label_text": "Rajasthani", "value_text": "rajasthani" }
+      ]
+    },
+    {
+      "question_key": "work_types",
+      "prompt_text": "Aap kis tarah ka kaam lena chahte hain?",
+      "why_text": "Permanent aur daily kaam mein farak hota hai.",
+      "target_kind": "attribute",
+      "target_field": "work_types",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "permanent", "label_text": "Permanent", "value_text": "permanent" },
+        { "option_key": "contract", "label_text": "Contract", "value_text": "contract" },
+        { "option_key": "apprentice", "label_text": "Apprenticeship", "value_text": "apprentice" },
+        { "option_key": "daily_wage", "label_text": "Daily wage", "value_text": "daily_wage" }
+      ]
+    }
+  ]
+}

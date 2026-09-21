@@ -10,11 +10,16 @@
 library;
 
 /// Full pay-band line for the detail screen, e.g.:
-///   * both bounds  → "₹16,000–26,000/mo"
-///   * equal bounds → "₹16,000/mo"
-///   * min only     → "₹16,000+/mo"
-///   * max only     → "Up to ₹26,000/mo"
+///   * both bounds  → "₹16,000–26,000/mah"
+///   * equal bounds → "₹16,000/mah"
+///   * min only     → "₹16,000+/mah"
+///   * max only     → "Up to ₹26,000/mah"
 ///   * neither      → null (caller hides the row)
+///
+/// The period token is '/mah', the SAME one the feed card's salary row prints.
+/// It was '/mo' here and '/mah' there, so one field carried two suffixes on two
+/// screens a worker sees back to back — and the one this replaces was the only
+/// English token of the pair.
 ///
 /// A negative bound is contract-invalid and treated as absent — the formatter
 /// never renders a wage no employer could have offered.
@@ -22,11 +27,11 @@ String? formatPayBandFull(int? payMin, int? payMax) {
   final int? min = _validBound(payMin);
   final int? max = _validBound(payMax);
   if (min != null && max != null) {
-    if (min == max) return '₹${formatIndianGrouped(min)}/mo';
-    return '₹${formatIndianGrouped(min)}–${formatIndianGrouped(max)}/mo';
+    if (min == max) return '₹${formatIndianGrouped(min)}/mah';
+    return '₹${formatIndianGrouped(min)}–${formatIndianGrouped(max)}/mah';
   }
-  if (min != null) return '₹${formatIndianGrouped(min)}+/mo';
-  if (max != null) return 'Up to ₹${formatIndianGrouped(max)}/mo';
+  if (min != null) return '₹${formatIndianGrouped(min)}+/mah';
+  if (max != null) return 'Up to ₹${formatIndianGrouped(max)}/mah';
   return null;
 }
 

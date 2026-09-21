@@ -62,6 +62,13 @@ void main() {
     });
   });
 
+  group('client caps mirror the server contract', () {
+    test('languages cap is six — worker-preferences.dto.ts multiSelect 6', () {
+      expect(kTradeFormMaxLanguages, 6);
+      expect(kTradeFormMaxPreferredCities, 5);
+    });
+  });
+
   group('TradeFormEmploymentEntry.toJson', () {
     test('title-cases employer_name and role_label, never work_done', () {
       const TradeFormEmploymentEntry entry = TradeFormEmploymentEntry(

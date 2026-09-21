@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql as dsql } from "drizzle-orm";
 import {
   CURRENT_PROFILE_ORDER,
   type Database,
   jobPostings,
   workerAttributes,
   workerIndustryTenure,
+  workerOccupations,
   workerProfiles,
   workerSkills,
 } from "@badabhai/db";
@@ -86,6 +87,27 @@ export class WorkerSkillsRepository {
       profileSkills: Array.isArray(row.skills) ? row.skills.filter(isString) : [],
       totalYears,
     };
+  }
+
+  /**
+   * This worker's DECLARED SECONDARY occupation role ids (migration 0114, Layer A (f)), in the
+   * worker's own order.
+   *
+   * It returns CLOSED `role_*` ids and decides nothing: `deriveWorkerSkills` applies the same
+   * `ROLE_TO_MATCH_SKILL` bridge the primary role gets, and an id the bridge does not cover
+   * contributes no skill row. That split is why this is a query here and a rule in the engine.
+   *
+   * A missing table (migration not applied) throws — the rebuild callers treat it exactly like
+   * any other rebuild failure (`rebuildQuietly` logs and moves on), and the migration's
+   * schema-contract entry names the surfaces. See `0114_worker_occupation.sql`.
+   */
+  async findSecondaryRoleIds(workerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ roleId: workerOccupations.roleId })
+      .from(workerOccupations)
+      .where(eq(workerOccupations.workerId, workerId))
+      .orderBy(asc(workerOccupations.sortOrder));
+    return rows.map((row) => row.roleId);
   }
 
   /**

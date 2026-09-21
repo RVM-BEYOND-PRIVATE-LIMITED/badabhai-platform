@@ -1,0 +1,27 @@
+-- ===========================================================================
+-- 0119 — `wpa_source_chk` gains `'resume'`: answers the RI-autofill path wrote
+--
+-- Owner override B, 2026-09-20, of ruling D2 (signed ADR-0041): after the worker's
+-- identity "haan", the model's option mapping is applied as answers without
+-- per-fact confirmation. The new source value is what keeps those rows
+-- distinguishable from worker-tapped answers in every later audit — the same
+-- reason `chip` stays distinct from `chat`. Applying them as `form` would have
+-- been the D2 failure in a new shape: a parsed guess wearing a worker's claim.
+--
+-- CONSTRAINT-ONLY, NO DATA TOUCHED. Dropping and re-adding the CHECK admits the
+-- new value on future writes; every existing row already satisfies the widened
+-- set, so no backfill and no validation scan can fail.
+--
+-- ADDITIVE, BACKWARD-COMPATIBLE. Old code never writes the new value (its TS
+-- type predates it); new code reads all five. Old builds on a migrated database
+-- are fine; new builds on an unmigrated one 500 on the first autofill write,
+-- which is why this is APPLY-BEFORE-DEPLOY.
+--
+-- ROLLBACK: while no `source = 'resume'` row exists, straight reversal:
+--   ALTER TABLE "worker_pack_answer" DROP CONSTRAINT "wpa_source_chk";
+--   ALTER TABLE "worker_pack_answer" ADD CONSTRAINT "wpa_source_chk" CHECK ("worker_pack_answer"."source" IN ('chat', 'chip', 'form', 'ops'));
+-- Once resume-sourced rows exist, rollback is code-only (stop writing the value),
+-- never a schema rollback.
+-- ===========================================================================
+ALTER TABLE "worker_pack_answer" DROP CONSTRAINT "wpa_source_chk";--> statement-breakpoint
+ALTER TABLE "worker_pack_answer" ADD CONSTRAINT "wpa_source_chk" CHECK ("worker_pack_answer"."source" IN ('chat', 'chip', 'form', 'ops', 'resume'));

@@ -6,11 +6,12 @@
  * script carries it across.
  *
  * FOR EACH `jobs` ROW WITH status='open':
- *   1. INSERT a `job_postings` row — role_title=title, city, pay_min/pay_max, shift,
- *      needed_by, description copied verbatim; match_skill_ids from
- *      TRADE_TO_MATCH_SKILL[trade_key]; reach_skill_ids = match ∪ skill_related;
- *      industry_id from the match skill; status='open'; published_at = jobs.created_at
- *      (the honest visibility time, not now()); source_job_id = jobs.id.
+ *   1. INSERT a `job_postings` row — role_title=title, city, area, pay_min/pay_max,
+ *      shift, needed_by, description, experience window, benefits, requirements copied
+ *      verbatim; match_skill_ids from TRADE_TO_MATCH_SKILL[trade_key]; reach_skill_ids
+ *      = match ∪ skill_related; industry_id from the match skill; status='open';
+ *      published_at = jobs.created_at (the honest visibility time, not now());
+ *      source_job_id = jobs.id.
  *   2. Set the `jobs` row status='closed'.
  *
  * IDEMPOTENCY — the chosen mechanism, stated plainly: a `job_postings.source_job_id`
@@ -41,8 +42,16 @@
  * DRY-RUN IS THE DEFAULT; `--apply` writes. Each conversion runs in a TRANSACTION so a
  * posting can never exist with its source job still open (or vice versa).
  *
+ * `--feed-cutover-now` IS REQUIRED FOR `--apply` WHEN THERE IS ANYTHING TO CONVERT.
+ * Closing an open legacy row drains the LIVE worker feed while `MATCH_V1_ENABLED=false`
+ * (the committed default — the live feed reads `jobs`, the V1 feed reads `job_reach` and
+ * needs D5 materialized first). Running this early emptied the whole deck on 2026-09-18
+ * (#1561 follow-up: 18 rows closed on a flag-off deploy, feed went to zero). Pass the flag
+ * only when the `MATCH_V1_ENABLED` flip is happening NOW — D5 `db:materialize:reach --apply`
+ * must follow in the same window, per the runbook order D4 → D5.
+ *
  *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer"
- *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer" --apply
+ *   pnpm db:convert:seed-jobs --ops-actor=<uuid> --org-label="Hiring Employer" --apply --feed-cutover-now
  */
 import { looksLikePii, looksLikeUrl } from "@badabhai/validators";
 import { eq, sql as dsql } from "drizzle-orm";
@@ -108,11 +117,16 @@ async function main(): Promise<void> {
         tradeKey: jobs.tradeKey,
         title: jobs.title,
         city: jobs.city,
+        area: jobs.area,
         payMin: jobs.payMin,
         payMax: jobs.payMax,
         shift: jobs.shift,
         neededBy: jobs.neededBy,
         description: jobs.description,
+        minExperienceYears: jobs.minExperienceYears,
+        maxExperienceYears: jobs.maxExperienceYears,
+        benefits: jobs.benefits,
+        requirements: jobs.requirements,
         payerId: jobs.payerId,
         createdAt: jobs.createdAt,
       })
@@ -125,6 +139,24 @@ async function main(): Promise<void> {
       .from(jobPostings)
       .where(dsql`${jobPostings.sourceJobId} IS NOT NULL`);
     const alreadyConverted = new Set(converted.map((r) => r.sourceJobId as string));
+
+    // THE FEED-CUTOVER GATE (#1561 follow-up, 2026-09-18). Closing an open legacy row
+    // drains the LIVE worker feed while `MATCH_V1_ENABLED=false` — the live feed reads
+    // `jobs`, and the V1 replacement reads `job_reach`, which does not exist until D5
+    // materializes it. An early `--apply` emptied the whole deck (18 rows, zero supply
+    // on both paths). So `--apply` with anything left to convert requires the explicit
+    // `--feed-cutover-now` acknowledgement: pass it only when the flag flip is happening
+    // NOW, with D5 `db:materialize:reach --apply` in the same window. A no-op re-run
+    // (everything already converted) needs no acknowledgement and stays a no-op.
+    const pendingConvert = openJobs.filter((j) => !alreadyConverted.has(j.id)).length;
+    if (opts.apply && pendingConvert > 0 && !process.argv.includes("--feed-cutover-now")) {
+      throw new Error(
+        `[${NAME}] REFUSING --apply: ${pendingConvert} open legacy job(s) would be CLOSED, ` +
+          `which drains the live worker feed while MATCH_V1_ENABLED=false. Re-run with ` +
+          `--feed-cutover-now when the flag flip is happening NOW (and run D5 ` +
+          `db:materialize:reach --apply in the same window), or run without --apply for a dry run.`,
+      );
+    }
 
     const unbridgedTrades = new Map<string, number>();
     let toConvert = 0;
@@ -163,11 +195,16 @@ async function main(): Promise<void> {
             orgLabel,
             roleTitle: j.title,
             city: j.city,
+            area: j.area,
             payMin: j.payMin,
             payMax: j.payMax,
             shift: j.shift,
             neededBy: j.neededBy,
             description: j.description,
+            minExperienceYears: j.minExperienceYears,
+            maxExperienceYears: j.maxExperienceYears,
+            benefits: j.benefits,
+            requirements: j.requirements,
             vacancyBand: bandArg,
             status: "open",
             industryId,

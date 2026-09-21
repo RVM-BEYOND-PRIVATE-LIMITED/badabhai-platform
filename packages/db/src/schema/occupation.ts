@@ -1,7 +1,7 @@
 /**
  * Occupation domain — the generalized-profiling JOB DOMAIN catalog and its aliases.
  */
-import { sql } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
@@ -17,9 +17,8 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  LanguageCode,
-} from "@badabhai/types";
+import type { LanguageCode } from "@badabhai/types";
+import { workers } from "./worker";
 
 // ===========================================================================
 // Generalized profiling — the JOB DOMAIN catalog (migration 0066).
@@ -208,15 +207,9 @@ export const jobDomains = pgTable(
     check("job_domain_selectable_leaf_chk", sql`${t.selectable} = false OR ${t.level} >= 4`),
     // Only a MINTED row may lack a published code — otherwise a scrape gap would
     // enter the catalog as a codeless, unverifiable row.
-    check(
-      "job_domain_source_code_chk",
-      sql`${t.source} = 'rvm' OR ${t.sourceCode} IS NOT NULL`,
-    ),
+    check("job_domain_source_code_chk", sql`${t.source} = 'rvm' OR ${t.sourceCode} IS NOT NULL`),
     // Crosswalk discipline, mirroring skill_replaced_by_chk.
-    check(
-      "job_domain_replaced_by_chk",
-      sql`${t.replacedBy} IS NULL OR ${t.status} = 'deprecated'`,
-    ),
+    check("job_domain_replaced_by_chk", sql`${t.replacedBy} IS NULL OR ${t.status} = 'deprecated'`),
     check(
       "job_domain_no_self_parent_chk",
       sql`${t.parentJobDomainId} IS NULL OR ${t.parentJobDomainId} <> ${t.jobDomainId}`,
@@ -351,3 +344,68 @@ export const jobDomainAliases = pgTable(
 // the interview writer). No LLM ranks, scores, or decides anything here.
 // ===========================================================================
 
+// ===========================================================================
+// Layer A (f) — the worker's SECONDARY occupations (migration 0114).
+// ---------------------------------------------------------------------------
+// The PRIMARY occupation is `worker_profiles.canonical_role_id`; this table holds the
+// ADDITIONAL `role_*` ids a worker declares, in the worker's own order. It exists for two
+// reasons and no others:
+//
+//   1. DISPLAY — the app reads the worker's declared extra trades back verbatim.
+//   2. SUPPLY — `WorkerSkillsService` feeds the ids through the SAME runtime role bridge
+//      (`ROLE_TO_MATCH_SKILL`) every primary role already uses, so the worker derives extra
+//      `worker_skill` rows. No new `mskill_*` vocabulary, no new rank key, no engine change:
+//      the reach consequence is the existing bridge applied to one more declared id.
+//
+// THE ID SPACE IS `role_*` FROM @badabhai/taxonomy (13 ids today), NEVER A SLUG A CLIENT
+// INVENTED. The DTO validates membership; the CHECK here is shape only (`^role_[a-z_]+$`),
+// the same split 0110's `wl_language_chk` draws — a new role must not need a migration.
+//
+// ADDITIVE / BACKWARD-COMPATIBLE. One new, empty table; no shipped column moves, and no
+// existing reader changes. Workers with no rows derive exactly what they derived before.
+// Rollback: DROP TABLE "worker_occupation";
+//
+// NOT PII: closed ids and an integer position. The rows never cross the AI boundary.
+// ===========================================================================
+export const workerOccupations = pgTable(
+  "worker_occupation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    /** A `role_*` id from @badabhai/taxonomy — a closed vocabulary, never free text. */
+    roleId: text("role_id").notNull(),
+    /**
+     * Display order — the worker's own ordering, never re-derived, so a re-read reproduces
+     * the order the worker chose (the same rule `worker_language.sort_order` records).
+     */
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Shape only. Membership is the DTO's job against the single taxonomy constant, exactly
+    // as `wl_language_chk` leaves the language dictionary in TypeScript.
+    check("wo_role_id_chk", sql`${t.roleId} ~ '^role_[a-z_]+$' AND length(${t.roleId}) <= 60`),
+    check("wo_sort_order_chk", sql`${t.sortOrder} >= 0`),
+    // One row per role and one row per position: the API replaces the whole list
+    // (delete-then-insert), so these make a duplicate role or a duplicate position a 23505
+    // rather than a silently doubled derivation input.
+    uniqueIndex("wo_worker_role_uq").on(t.workerId, t.roleId),
+    uniqueIndex("wo_worker_sort_uq").on(t.workerId, t.sortOrder),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0114
+
+export const workerOccupationsRelations = relations(workerOccupations, ({ one }) => ({
+  worker: one(workers, {
+    fields: [workerOccupations.workerId],
+    references: [workers.id],
+  }),
+}));
+
+export type WorkerOccupation = typeof workerOccupations.$inferSelect;
+export type NewWorkerOccupation = typeof workerOccupations.$inferInsert;

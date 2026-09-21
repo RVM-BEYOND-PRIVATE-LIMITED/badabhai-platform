@@ -30,50 +30,80 @@ void main() {
   testWidgets('renders the rows + legal footer (account delete hidden)', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: const SettingsScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
+    );
 
     expect(find.text('WhatsApp alerts'), findsOneWidget);
     expect(find.text('Account delete karein'), findsNothing);
     // scrollUntilVisible — the footer is far enough down the ListView that
     // it isn't built into the element tree until something scrolls near it.
     await tester.scrollUntilVisible(
-        find.textContaining('Made in India'), 200,
-        scrollable: find.byType(Scrollable));
+      find.textContaining('Made in India'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
     expect(find.textContaining('Made in India'), findsOneWidget);
+  });
+
+  // The kit navy header (spec §2.1) replaced the light Material app bar. It is
+  // a PUSHED screen, so it owns its own back affordance — and the body must
+  // still hold exactly ONE Scrollable, because the two scroll helpers below
+  // address it with `find.byType(Scrollable)` singular.
+  testWidgets('the navy header carries the title and a back affordance', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
+    );
+
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.byTooltip('Wapas'), findsOneWidget);
+    expect(find.byType(Scrollable), findsOneWidget);
   });
 
   // #966 — a tester must be able to read WHICH build their device runs (to tell
   // a real bug from a stale APK) and copy it into a bug report. The footer shows
   // the build id inline; a long-press copies it.
-  testWidgets('shows the build id in the footer and long-press copies it',
-      (WidgetTester tester) async {
+  testWidgets('shows the build id in the footer and long-press copies it', (
+    WidgetTester tester,
+  ) async {
     final List<String> copied = <String>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform, (MethodCall call) async {
-      if (call.method == 'Clipboard.setData') {
-        copied.add((call.arguments as Map<Object?, Object?>)['text'] as String);
-      }
-      return null;
-    });
-    addTearDown(() => tester.binding.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, null));
+      SystemChannels.platform,
+      (MethodCall call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add(
+            (call.arguments as Map<Object?, Object?>)['text'] as String,
+          );
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
 
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: const SettingsScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
+    );
 
     // Readable inline — 'dev' with no --dart-define=APP_BUILD (a test binary).
-    // scrollUntilVisible, not ensureVisible — the footer is far enough down
-    // the ListView that it isn't built into the element tree at all until
-    // something scrolls near it (ensureVisible needs the element to already
-    // exist to find it).
+    // TWO steps, because they do different things: `scrollUntilVisible` stops as
+    // soon as the footer EXISTS in the element tree, which happens while it is
+    // still below the fold (a sliver builds a screen's worth beyond the
+    // viewport), and a press on an off-screen offset hits nothing. `ensureVisible`
+    // is what actually brings it on screen.
     await tester.scrollUntilVisible(
-        find.textContaining('build dev'), 200,
-        scrollable: find.byType(Scrollable));
+      find.textContaining('build dev'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.ensureVisible(find.textContaining('build dev'));
+    await tester.pump();
     expect(find.textContaining('build dev'), findsOneWidget);
 
     await tester.longPress(find.textContaining('build dev'));
@@ -87,10 +117,9 @@ void main() {
   // no translated strings behind it). The screen/route still exists — only the
   // entry point is gone, so assert the row to catch an accidental re-add.
   testWidgets('hides the Bhasha row', (WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: const SettingsScreen(),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
+    );
 
     expect(find.text('Bhasha'), findsNothing);
   });
@@ -101,8 +130,9 @@ void main() {
   // built but UNREACHABLE — a thief kept a live session and the worker's only
   // recourse was "contact support". This pins BOTH halves of reachability: the
   // row renders, and tapping it pushes the real Routes.devices constant.
-  testWidgets('the Aapke devices row navigates to Routes.devices',
-      (WidgetTester tester) async {
+  testWidgets('the Aapke devices row navigates to Routes.devices', (
+    WidgetTester tester,
+  ) async {
     final GoRouter router = GoRouter(
       initialLocation: '/',
       routes: <RouteBase>[
@@ -118,7 +148,8 @@ void main() {
       ],
     );
     await tester.pumpWidget(
-        MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+      MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+    );
 
     expect(find.text('Aapke devices'), findsOneWidget);
     expect(find.text('Logged-in devices dekhein · hatayein'), findsOneWidget);
@@ -136,8 +167,9 @@ void main() {
   // options response's own `states` list. A Settings row pointing at a
   // hardcoded 15-state map would now be a second, WRONG answer to the same
   // question.
-  testWidgets('no Sheher/State demo row — the real cascade superseded it',
-      (WidgetTester tester) async {
+  testWidgets('no Sheher/State demo row — the real cascade superseded it', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
       MaterialApp(theme: AppTheme.light(), home: const SettingsScreen()),
     );

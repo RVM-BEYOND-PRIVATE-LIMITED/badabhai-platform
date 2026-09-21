@@ -293,11 +293,11 @@ describe("ApplicationsService — skip", () => {
 });
 
 describe("ApplicationsService — feed", () => {
-  // Job 1 carries a bounded experience window + a pay band + a shift; job 2
-  // carries NONE of them (all null) — the two shapes the worker app must handle.
+  // Job 1 carries a bounded experience window + a pay band + a shift + card content;
+  // job 2 carries NONE of them (all null) — the two shapes the worker app must handle.
   const OPEN_JOBS = [
-    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, shift: "night" },
-    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, shift: null },
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], neededBy: "immediate" },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, shift: null, description: null, benefits: null, requirements: null, neededBy: null },
   ];
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
@@ -305,8 +305,8 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     expect(out.jobs).toEqual([
-      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", rank: 1 },
-      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, rank: 2 },
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate", rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, description: null, benefits: null, requirements: null, needed_by: null, rank: 2 },
     ]);
 
     // One feed.shown per returned job (per-impression), batched via emitMany.
@@ -389,6 +389,19 @@ describe("ApplicationsService — feed", () => {
     expect(out.jobs[1]!.pay_min).toBeNull();
     expect(out.jobs[1]!.pay_max).toBeNull();
     expect(out.jobs[1]!.shift).toBeNull();
+  });
+
+  it("carries the card content additively (#1561), nulls passed through un-coerced", async () => {
+    const { svc } = setup({ openJobs: OPEN_JOBS });
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
+
+    // Values pass through verbatim…
+    expect(out.jobs[0]).toMatchObject({ description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate" });
+    // …and a job with no content keeps honest NULLs — never "", never [], never dropped.
+    expect(out.jobs[1]!.description).toBeNull();
+    expect(out.jobs[1]!.benefits).toBeNull();
+    expect(out.jobs[1]!.requirements).toBeNull();
+    expect(out.jobs[1]!.needed_by).toBeNull();
   });
 
   it("stays backward-compatible: a consumer reading only the OLD FeedItem keys still works", async () => {

@@ -6,8 +6,9 @@
  * launch — there are no per-job stints yet).
  *
  * THE COARSE RULE (deterministic; no LLM — invariant #4):
- *   skills  = ROLE BRIDGE ∪ ATTRIBUTE BRIDGE
+ *   skills  = ROLE BRIDGE ∪ SECONDARY-ROLE BRIDGE ∪ ATTRIBUTE BRIDGE
  *             role bridge      : ROLE_TO_MATCH_SKILL[worker_profiles.canonical_role_id]
+ *             secondary bridge : ROLE_TO_MATCH_SKILL[each worker_occupation.role_id]  (Layer A (f))
  *             attribute bridge : ATTRIBUTE_TO_MATCH_SKILLS[each id in worker_profiles.skills]
  *   months  = floor(experience.total_years * 12 / month_bucket) * month_bucket
  *             — the SAME coarse number on every derived skill, because coarse history
@@ -34,7 +35,8 @@
  * DRY-RUN IS THE DEFAULT; `--apply` writes.
  *
  * PRIVACY: reads ONLY faceless signal columns (worker id, canonical_role_id, skills jsonb,
- * experience jsonb). It never reads phone/name and never logs anything but ids + counts.
+ * experience jsonb, and the closed `worker_occupation` role ids). It never reads phone/name and
+ * never logs anything but ids + counts.
  *
  *   pnpm db:backfill:worker-skills                      # dry run
  *   pnpm db:backfill:worker-skills --apply              # write
@@ -46,7 +48,14 @@ import { bucketMonths, deriveWorkerSkills, DEFAULT_MATCH_CONFIG } from "@badabha
 
 import { createDbClient, type Database } from "./client";
 import { CURRENT_PROFILE_ORDER } from "./current-profile";
-import { matchConfig, workerIndustryTenure, workerProfiles, workerSkills, workers } from "./schema";
+import {
+  matchConfig,
+  workerIndustryTenure,
+  workerOccupations,
+  workerProfiles,
+  workerSkills,
+  workers,
+} from "./schema";
 import { loadMatchTaxonomy, validateMatchTaxonomy } from "./match-taxonomy";
 import {
   asObject,
@@ -154,6 +163,17 @@ async function main(): Promise<void> {
         const exp = asObject(profile.experience);
         const totalYears = exp ? (finiteOrNull(exp.total_years) ?? 0) : 0;
 
+        // Layer A (f) — declared secondary occupations join the role bridge, exactly as the live
+        // path reads them (`WorkerSkillsRepository.findSecondaryRoleIds`). Without this the batch
+        // would prune the extra rows the endpoint derived, silently rolling a worker's reach back.
+        const secondaryRoleIds = (
+          await db
+            .select({ roleId: workerOccupations.roleId })
+            .from(workerOccupations)
+            .where(eq(workerOccupations.workerId, w.id))
+            .orderBy(asc(workerOccupations.sortOrder))
+        ).map((row) => row.roleId);
+
         // TD120 (paid 2026-08-01): the coarse rule lives in `@badabhai/match-engine` and
         // NOWHERE ELSE. This block used to be a hand-rolled second implementation that
         // agreed with the engine only by coincidence — nothing held them equal, so a future
@@ -165,6 +185,7 @@ async function main(): Promise<void> {
         const derived: DerivedSkill[] = deriveWorkerSkills(
           {
             canonicalRoleId: profile.canonicalRoleId,
+            additionalRoleIds: secondaryRoleIds,
             profileSkills: asStringArray(profile.skills),
             totalYears,
           },

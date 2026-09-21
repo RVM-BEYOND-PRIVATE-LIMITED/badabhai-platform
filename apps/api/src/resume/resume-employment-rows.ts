@@ -405,12 +405,12 @@ function workLines(
   const work: string[] = [];
   const ownWords: string[] = [];
   for (const role of contributing) {
-    // THE POLISHED LINE WHEN THERE IS ONE AND THE WORKER KEPT IT, their own words otherwise
-    // (#1350, #1354). The fallback is not a degradation to apologise for: it is what this sheet
-    // printed before the owner ruling, what it must keep printing on every path where the model
-    // did not run or was overruled by the far side's checks, and — since #1354 — what the
-    // worker themselves can choose. A refusal outranks a rewrite; nobody else is in a position
-    // to know whether a sentence about their work is true.
+    // THE POLISHED LINE WHEN THERE IS ONE AND THE WORKER KEPT IT, EMPTY WHEN THE MODEL RETURNED
+    // NULL, their own words only on the two paths that are not a model answer (#1350, #1354).
+    // A null rewrite means the far side declined, rejected or failed that stint, and the sheet
+    // prints nothing for it rather than falling back to the worker's own words. A refusal still
+    // outranks a rewrite — nobody else is in a position to know whether a sentence about their
+    // work is true — and the kill switch still reverts to the worker's own words.
     // THE KILL SWITCH IS READ HERE, NOT ONLY AT THE POLISHER (#1350 item 4).
     //
     // #1350 requires a switch that makes the override "revertible in production WITHOUT A DEPLOY".
@@ -420,12 +420,23 @@ function workLines(
     //
     // DEFAULTS TO OFF, so it fails closed. A caller that forgets to pass the flag gets the
     // worker's own words, which is the answer §8 guaranteed and is never the unsafe one.
-    const usePolished =
-      opts.polishEnabled === true &&
-      role.workDonePolished != null &&
-      role.workDonePolishDeclined !== true;
     const own = (role.workDone as string).trim();
-    const text = (usePolished ? (role.workDonePolished as string) : own).trim();
+    const declined = role.workDonePolishDeclined === true;
+    const polished = (role.workDonePolished ?? "").trim();
+    let text: string;
+    if (opts.polishEnabled === true) {
+      if (declined) {
+        text = own;
+      } else if (polished) {
+        text = polished;
+      } else {
+        // THE MODEL RETURNED NULL FOR THIS STINT. Print nothing for it — never the worker's
+        // own words. Skipped from both halves so the pair stays a like-for-like comparison.
+        continue;
+      }
+    } else {
+      text = own;
+    }
     // The same SENTENCE twice is still noise even when two stints described it differently, so
     // the printed text is deduped too — and the own-words half drops the same part, never its
     // own duplicate, so the pair stays a like-for-like comparison.

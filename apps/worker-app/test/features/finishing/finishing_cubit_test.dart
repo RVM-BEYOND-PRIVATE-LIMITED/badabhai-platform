@@ -1,6 +1,7 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
-    show WorkPrefOptionsDto;
+    show WorkPrefOptionsDto, SessionFillDto, SessionFillEntryDto;
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_models.dart';
 import 'package:badabhai_worker_app/features/finishing/domain/finishing_repository.dart';
 import 'package:badabhai_worker_app/features/finishing/presentation/cubit/finishing_cubit.dart';
@@ -27,6 +28,7 @@ void main() {
   setUp(() {
     repo = _MockRepo();
     when(() => repo.loadOptions()).thenAnswer((_) async => _options);
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => null);
     when(() => repo.saveWorkPreferences(any())).thenAnswer((_) async {});
     when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
   });
@@ -98,6 +100,25 @@ void main() {
       cubit.addEmployer();
     }
     expect(cubit.state.employments.length, kMaxEmployers);
+  });
+
+  test('languages cap at six — a seventh tick is ignored, untick still works',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    expect(kFinishingMaxLanguages, 6);
+    for (int i = 0; i < 6; i++) {
+      cubit.toggleLanguage('lang$i');
+    }
+    expect(cubit.state.prefs.languages, hasLength(6));
+    cubit.toggleLanguage('lang6');
+    expect(cubit.state.prefs.languages, hasLength(6),
+        reason: 'a seventh language must never reach the PUT as a 400');
+    cubit.toggleLanguage('lang0');
+    expect(cubit.state.prefs.languages, hasLength(5));
+    cubit.toggleLanguage('lang6');
+    expect(cubit.state.prefs.languages, hasLength(6));
+    expect(cubit.state.prefs.languages, contains('lang6'));
   });
 
   test('submit persists prefs + non-blank employers, then done', () async {
@@ -183,4 +204,186 @@ void main() {
     expect(cubit.state.submitError, 'Gurgram nahi mila');
     verifyNever(() => repo.saveEmployment(any())); // never reached the 2nd write
   });
+
+  // "Ask once, skip if known": what the chat already asked is not a page here.
+  test('a page whose fact the chat already recorded is skipped', () async {
+    final FinishingCubit cubit = FinishingCubit(
+      repo,
+      knownFacts: InMemoryKnownWorkerFactsStore(
+          <WorkerFact>[WorkerFact.preferredCities, WorkerFact.salary]),
+    );
+    await cubit.load();
+
+    expect(cubit.state.pages, hasLength(FinishingPage.values.length - 2));
+    expect(cubit.state.pages, isNot(contains(FinishingPage.cities)));
+    expect(cubit.state.pages, isNot(contains(FinishingPage.salary)));
+    for (int i = 0; i < 10; i++) {
+      cubit.nextPage();
+    }
+    expect(cubit.state.page, FinishingPage.history);
+    expect(cubit.state.isLastPage, isTrue);
+  });
+
+  test('an untouched work history is never sent (the PUT replaces it all)',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.toggleLanguage('hindi');
+
+    await cubit.submit();
+
+    expect(cubit.state.status, FinishingStatus.done);
+    verifyNever(() => repo.saveEmployment(any()));
+  });
+
+  test('adding then removing every employer still sends the empty list',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.addEmployer();
+    cubit.removeEmployer(0);
+
+    await cubit.submit();
+
+    final List<EmploymentEntry> sent =
+        verify(() => repo.saveEmployment(captureAny())).captured.single
+            as List<EmploymentEntry>;
+    expect(sent, isEmpty, reason: '"I have none" is a real answer');
+  });
+
+  /// #1575 — `/finishing` renders net-new-only from the session fill view.
+  group('settled-vs-missing fill view', () {
+  SessionFillDto fill({
+    List<SessionFillEntryDto> entries = const <SessionFillEntryDto>[],
+    List<String> settled = const <String>[],
+  }) =>
+      SessionFillDto(entries: entries, settled: settled);
+
+  SessionFillEntryDto entry(
+    String fact, {
+    String status = 'answered',
+    bool dropped = false,
+  }) =>
+      SessionFillEntryDto(
+        fact: fact,
+        questionKey: fact,
+        status: status,
+        source: 'chat',
+        droppedByProjector: dropped,
+        isCore: false,
+      );
+
+  test('settled languages + work_types are hidden after load', () async {
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          settled: const <String>['languages', 'shift', 'work_types'],
+        ));
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    expect(cubit.state.status, FinishingStatus.ready);
+    expect(cubit.state.pages, isNot(contains(FinishingPage.languages)));
+    // shift settled AND the multi settled: the whole type page goes.
+    expect(cubit.state.pages, isNot(contains(FinishingPage.shiftAndType)));
+    // Everything else still shows.
+    expect(cubit.state.pages, contains(FinishingPage.documents));
+    expect(cubit.state.pages, contains(FinishingPage.history));
+  });
+
+  test('a declined fact counts as settled and is never re-asked', () async {
+    // The server reports declines inside `settled`; the client cannot and
+    // must not distinguish them from answers — both hide the page.
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          entries: <SessionFillEntryDto>[entry('preferred_locations', status: 'declined')],
+          settled: const <String>['preferred_locations'],
+        ));
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    expect(cubit.state.pages, isNot(contains(FinishingPage.cities)));
+  });
+
+  test('a projector-dropped answer stays collectable', () async {
+    when(() => repo.loadSessionFill()).thenAnswer((_) async => fill(
+          entries: <SessionFillEntryDto>[
+            entry('languages', status: 'missing', dropped: true),
+          ],
+        ));
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    // Missing is NOT settled: the page shows so the answer can be re-added.
+    expect(cubit.state.pages, contains(FinishingPage.languages));
+  });
+
+  test('an empty fill view shows the full list (no false hiding)', () async {
+    when(() => repo.loadSessionFill())
+        .thenAnswer((_) async => fill());
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    expect(cubit.state.pages, hasLength(FinishingPage.values.length));
+  });
+
+  test('a failed fill read fails open to the full list', () async {
+    when(() => repo.loadSessionFill()).thenThrow(Exception('2G blip'));
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    // The form itself must never strand on an informational read.
+    expect(cubit.state.status, FinishingStatus.ready);
+    expect(cubit.state.pages, hasLength(FinishingPage.values.length));
+  });
+
+  test('no session (form road) behaves exactly as before', () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+
+    expect(cubit.state.settledFacts, isEmpty);
+    expect(cubit.state.fillEntries, isEmpty);
+    expect(cubit.state.pages, hasLength(FinishingPage.values.length));
+  });
+
+  group('gapNoteForPage', () {
+    test('dropped answers get the unusable-not-unanswered copy', () {
+      expect(
+        gapNoteForPage(FinishingPage.languages, <SessionFillEntryDto>[
+          entry('languages', status: 'missing', dropped: true),
+        ]),
+        'Hum ye jawaab use nahi kar paaye — phir se jodein.',
+      );
+    });
+
+    test('served-and-skipped facts get the unanswered copy', () {
+      expect(
+        gapNoteForPage(FinishingPage.languages, <SessionFillEntryDto>[
+          entry('languages', status: 'unanswered'),
+        ]),
+        'Ye sawaal pehle chhoot gaya tha — ab jawaab dein.',
+      );
+    });
+
+    test('never-asked facts get no note — the question is the ask', () {
+      expect(
+        gapNoteForPage(FinishingPage.languages, <SessionFillEntryDto>[
+          entry('languages', status: 'missing'),
+        ]),
+        isNull,
+      );
+    });
+
+    test('entries for other pages do not leak a note here', () {
+      expect(
+        gapNoteForPage(FinishingPage.languages, <SessionFillEntryDto>[
+          entry('shift', status: 'unanswered'),
+        ]),
+        isNull,
+      );
+    });
+
+    test('the history page never carries a note', () {
+      expect(gapNoteForPage(FinishingPage.history, <SessionFillEntryDto>[]),
+          isNull);
+    });
+  });
+});
 }

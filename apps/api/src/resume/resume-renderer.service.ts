@@ -84,6 +84,13 @@ export interface ResumeRenderInput {
   availability: string | null;
   /** `{{summary}}` — short professional summary. */
   summary: string | null;
+  /**
+   * Layer A (h) — the deterministic headline `{{headline}}` prints, when the mapper built one:
+   * "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens" (role · tenure · tools). Null keeps the legacy
+   * behaviour — `canonicalRole` alone fills the slot — so every pre-existing render is
+   * byte-identical. See `resume-headline.ts` for why the segments are exactly these.
+   */
+  profileHeadline?: string | null;
   /** Repeat regions `{{#skills}}` / `{{#machines}}` / `{{#controllers}}` / … */
   skills: string[];
   machines: string[];
@@ -242,6 +249,18 @@ export interface ResumeRenderInput {
    * the same rule: never logged, never echoed into an error.
    */
   phone?: string | null;
+  /**
+   * `{{whatsapp_line}}` — "WhatsApp: +91 98765 43210", WORKER COPY ONLY.
+   *
+   * ADR-0042 D9 / Layer A (a). `buildResumeRenderInput` gates this on the audience exactly as
+   * it gates `nameDevanagari`: the employer copy passes `"employer"` and receives null, so no
+   * payer-facing sheet can print it even if a call site passed a value. Same decrypt contract
+   * as {@link phone} — decrypted server-side by the caller, never logged, never echoed.
+   *
+   * The whole line is composed in the mapper (label included) so the template can collapse it
+   * with `.wa:empty` — a label the mapper did not write would otherwise print alone.
+   */
+  whatsappLine?: string | null;
   /** `{{name_devanagari}}` — auto-transliterated. Needs a Devanagari font in the API image. */
   nameDevanagari?: string | null;
   /**
@@ -474,7 +493,7 @@ export class ResumeRenderer {
   private static fillSlots(skeleton: string, input: ResumeRenderInput): string {
     const scalars: Record<string, string> = {
       full_name: input.displayName ?? "",
-      headline: input.canonicalRole ?? "",
+      headline: input.profileHeadline ?? input.canonicalRole ?? "",
       location: input.location ?? "",
       experience_years: input.experienceYears != null ? String(input.experienceYears) : "",
       availability: input.availability ?? "",
@@ -483,8 +502,11 @@ export class ResumeRenderer {
       // Grouped with the rupee sign in the template, not here — a bare number is what a layout
       // wants to format. Empty string collapses the line, which is what null must mean.
       expected_salary: input.expectedSalary != null ? String(input.expectedSalary) : "",
-      // --- bb_trade.v1 scalars. Absent on every other layout, where they collapse. ---
+      // --- bb_trade scalars. Absent on every other layout, where they collapse. ---
       phone: input.phone ?? "",
+      // bb_trade.v2 — worker-copy-only WhatsApp line (Layer A (a)); empty on every
+      // employer copy because the mapper never fills it there.
+      whatsapp_line: input.whatsappLine ?? "",
       // §11 #9 auto-fit. See NAME_ONE_LINE_MAX — a name past the measured one-line width drops
       // to the 18pt FLOOR rather than wrapping at 20pt, and is never truncated at any length.
       name_class: nameFitClass(input.displayName),

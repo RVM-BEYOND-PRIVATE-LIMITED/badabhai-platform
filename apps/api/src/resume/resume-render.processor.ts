@@ -4,14 +4,17 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { SERVER_CONFIG } from "../config/config.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { WorkerLanguagesRepository } from "../profiles/worker-languages.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
 import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
-import { qualificationFactsFrom } from "./resume-qualification-rows";
+import { qualificationFactsFrom, type WorkerLanguageRecord } from "./resume-qualification-rows";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
@@ -19,6 +22,7 @@ import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 import { buildResumeQrDataUri } from "./resume-qr";
+import { verificationBadgeFor } from "./verification-tier";
 import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 
@@ -62,6 +66,13 @@ export class ResumeRenderProcessor extends WorkerHost {
     // Migration 0098 — Zone 5's credentials. The Certificates row has never had a writer on this
     // path, so it has never printed for a form-first worker.
     private readonly qualifications: WorkerQualificationsRepository,
+    // Migration 0110 - the richer languages rows. A SEPARATE repository on the same section:
+    // when it fails, Zone 5 loses its language values and keeps its credentials.
+    private readonly languages: WorkerLanguagesRepository,
+    // Migration 0114 / Layer A (i) — the worker's declared secondary occupations, printed as the
+    // Terms zone's "Also works as" row. Same contract as the languages read: its own try/catch,
+    // so a failure costs one row and never the sheet.
+    private readonly occupations: WorkerOccupationsRepository,
     private readonly transcript: WorkerTranscriptRepository,
     // #1350 — the one field on this sheet the model may compose. Off by two independent
     // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
@@ -154,7 +165,9 @@ export class ResumeRenderProcessor extends WorkerHost {
 
     // THE NUMBER, DECRYPTED SERVER-SIDE, on the same degrade as the name and the photo above: a
     // rotated or tampered token costs the worker the phone line, never the whole PDF. Owner
-    // ruling 2026-08-28 puts it on both copies; the payer only ever receives one post-unlock.
+    // ruling 2026-08-28 put it on both copies but the disclosure never passed it; the owner
+    // ruling of 2026-09-18 reverses the withholding, so the payer copy carries it post-unlock
+    // (see the disclosure's phone block). The payer still only ever receives one post-unlock.
     let phone: string | null = null;
     if (worker?.phoneE164) {
       try {
@@ -163,6 +176,26 @@ export class ResumeRenderProcessor extends WorkerHost {
         this.logger.warn(`could not decrypt phone for worker ${workerId}; rendering without it`);
       }
     }
+
+    // Layer A (a) — the worker's OPTIONAL WhatsApp number, on the same degrade as the phone
+    // above: a rotated or tampered token costs the worker the WhatsApp line, never the PDF.
+    // WORKER COPY ONLY: the mapper gates the line on the audience, so this value cannot reach
+    // a payer-facing disclosure even though it is decrypted here.
+    let whatsapp: string | null = null;
+    if (worker?.whatsappEnc) {
+      try {
+        whatsapp = this.pii.decrypt(worker.whatsappEnc);
+      } catch {
+        this.logger.warn(`could not decrypt whatsapp for worker ${workerId}; rendering without it`);
+      }
+    }
+
+    // ADR-0042 D9 / Layer A (g) — the verification tier, read off the worker row already loaded
+    // above for the name, the photo and the phone. Pure mapping, no decrypt, no I/O, no failure
+    // mode of its own: the states that ARE BadaBhai verification print `BadaBhai Verified`, and
+    // unverified / self-declared / employer-rated print nothing. See `verification-tier.ts` for
+    // why a self-declaration may not wear the badge.
+    const trustBadge = verificationBadgeFor(worker?.verificationState);
 
     // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>` page
     // is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR that
@@ -313,10 +346,35 @@ export class ResumeRenderProcessor extends WorkerHost {
     // the catch names the worker id and nothing from the rows reaches a log line or an event.
     let qualification: ReturnType<typeof qualificationFactsFrom>;
     try {
-      qualification = qualificationFactsFrom(await this.qualifications.loadForResume(workerId));
+      const credentials = await this.qualifications.loadForResume(workerId);
+      // Migration 0110 - the language rows, loaded INSIDE this try because they belong to the
+      // same section: a failure here costs the Languages row and nothing else, and the languages
+      // attribute still prints through the mapper's `??` fallback.
+      let languageRows: readonly WorkerLanguageRecord[] = [];
+      try {
+        languageRows = await this.languages.loadForResume(workerId);
+      } catch {
+        this.logger.warn(
+          `could not load languages for worker ${workerId}; rendering Zone 5 without them`,
+        );
+      }
+      qualification = qualificationFactsFrom({ ...credentials, languages: languageRows });
     } catch {
       this.logger.warn(
         `could not load credentials for worker ${workerId}; rendering Zone 5 from the draft`,
+      );
+    }
+
+    // Layer A (f)/(i) — the worker's declared secondary occupations, resolved to taxonomy labels.
+    // OWN try/catch, like the languages read above: a failure costs the "Also works as" row and
+    // nothing else. The row crosses to the payer copy — a declared trade is capability, not
+    // identity. NEVER LOGGED: the catch names the worker id and nothing from the rows.
+    let occupations: string[] = [];
+    try {
+      occupations = (await this.occupations.loadForWorker(workerId)).map(labelForTaxonomyId);
+    } catch {
+      this.logger.warn(
+        `could not load secondary occupations for worker ${workerId}; rendering without them`,
       );
     }
 
@@ -347,6 +405,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // cannot date its footer one day and compute a current job's tenure against the next.
       asOf: renderedAt,
       phone,
+      whatsapp,
       // Devanagari is not transliterated yet; the slot stays null rather than printing the
       // Latin name twice. `nameDevanagari` is audience-gated inside the mapper regardless.
       nameDevanagari: null,
@@ -357,15 +416,18 @@ export class ResumeRenderProcessor extends WorkerHost {
       // ruling). A missing row leaves both halves null and the line collapses.
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
-      // No verification tier exists in the schema yet, so the masthead's right slot collapses.
-      // The unverified state must read as neutral, never as a warning.
-      trustBadge: null,
+      occupations,
+      // ADR-0042 D9 / Layer A (g) — the masthead's right slot, off the worker row already loaded
+      // above for the name/phone/photo (so it costs no extra query). `null` for the unverified,
+      // self-declared or employer-rated states; the unverified state must read as neutral, never
+      // as a warning. The five-value→label mapping lives in `verification-tier.ts`.
+      trustBadge,
       qrDataUri,
       qrCaption: "Scan to open this worker's live profile",
       shortLink: RESUME_PROFILE_ORIGIN.replace(/^https?:\/\//, ""),
       footerMeta: buildSheetFooterMeta({
         generatedAt: renderedAt,
-        trustBadge: null,
+        trustBadge,
         refCode: resumeRefCode(resumeId),
       }),
     };

@@ -260,6 +260,15 @@ describe.each(BRANCHES)("§6.2 collapse rules, both halves [%s branch]", (branch
         const { snapshot, tradeSheet } = segment.drop(branch);
         const { input } = render(branch, snapshot, tradeSheet);
         const text = lineOf(input, segment.line);
+        if (segment.id === "role") {
+          // FILL-GAP PHASE 4 — THE ROLE'S COLLAPSE IS TOTAL FOR ITS LINE. The role is the
+          // headline's SUBJECT; without one the whole strip is omitted (no "duration not stated"
+          // standing alone, no modifiers about nobody). The other line is untouched, which is
+          // what keeps this from being read as "the sheet degraded".
+          expect(input.headlineLine).toBeNull();
+          expect(lineOf(input, "subhead")).toMatch(/Faridabad/);
+          return;
+        }
         if (segment.collapses) {
           expect(text).not.toMatch(segment.present);
         } else {

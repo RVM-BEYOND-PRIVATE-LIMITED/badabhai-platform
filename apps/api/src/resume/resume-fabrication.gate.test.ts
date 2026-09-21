@@ -81,8 +81,12 @@ const SHEET_LABELS: readonly string[] = [
   "Willing to relocate",
   "Education",
   "Certificates",
+  "Training",
   "Languages spoken",
   "Documents ready",
+  // Layer A (f)/(i) — the declared secondary occupations row. The VALUES are taxonomy display
+  // labels (closed vocabulary from @badabhai/taxonomy), the label is this fixed English string.
+  "Also works as",
   "Duration not stated",
   // §6.2's TENURE STATUS, emitted by `tenurePhrase` when the role's own fresher rung was tapped.
   // A CLOSED-VOCABULARY LABEL, which is §8's first permitted source — not a figure and not a
@@ -165,6 +169,12 @@ function printedStrings(shape: (typeof SHEET_SHAPES)[number], audience: "worker"
   };
   push(input.headlineLine);
   push(input.subheadLine);
+  // LAYER A (h) — the generic headline and summary slots. They print on the classic layouts
+  // rather than on bb_trade, but they are composed from the same confirmed values as the verdict
+  // line and they are exactly the kind of composition this gate exists to hold to §8: every atom
+  // is a stated label, a licensed figure or a worker-stated city.
+  push(input.profileHeadline);
+  push(input.summary);
   // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08). SCANNED AS CONTENT, unlike the name
   // and the phone below: those are single caller-supplied values printed verbatim, while this is
   // COMPOSED — two columns joined with a separator — and anything composed is exactly what this

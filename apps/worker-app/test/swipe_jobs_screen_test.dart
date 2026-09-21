@@ -56,6 +56,8 @@ Map<String, dynamic> _job({
   int? payMin,
   int? payMax,
   String? shift,
+  int? minExp,
+  int? maxExp,
 }) {
   return <String, dynamic>{
     'job_id': id,
@@ -67,6 +69,8 @@ Map<String, dynamic> _job({
     if (payMin != null) 'pay_min': payMin,
     if (payMax != null) 'pay_max': payMax,
     if (shift != null) 'shift': shift,
+    if (minExp != null) 'min_experience_years': minExp,
+    if (maxExp != null) 'max_experience_years': maxExp,
   };
 }
 
@@ -137,8 +141,9 @@ void main() {
     addTearDown(() => locator.unregister<JobFeedViewStore>());
     http.Request? captured;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      
-      captured = req;
+      // #jobcard — a card also fetches GET /jobs/:id to enrich itself; this
+      // test asserts the FEED request, so capture only that one.
+      if (req.url.path == '/feed') captured = req;
       return http.Response(
         jsonEncode(<String, dynamic>{
           'jobs': <Map<String, dynamic>>[
@@ -174,6 +179,85 @@ void main() {
     // Every card carries the inline green "APPLY →"; the swipe deck is retired.
     expect(find.byKey(const Key('jobCardApplyButton')), findsOneWidget);
     expect(find.byKey(const Key('swipeSkipButton')), findsNothing);
+  });
+
+  // #jobcard — a Jobs-tab card is ENRICHED from the full posting
+  // (`GET /jobs/:jobId`): the real needed-by / description / requirements /
+  // benefits the feed does not carry land on the card. No fake data — only
+  // what the API returns.
+  testWidgets('a card is enriched with the full posting\'s real fields', (
+    WidgetTester tester,
+  ) async {
+    locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
+    addTearDown(() => locator.unregister<JobFeedViewStore>());
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/feed') {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'jobs': <Map<String, dynamic>>[
+              _job(id: 'job-1', title: 'VMC Operator', city: 'Pune', area: 'Chakan'),
+            ],
+          }),
+          200,
+        );
+      }
+      // GET /jobs/:jobId — the full worker-visible posting.
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'job_id': req.url.path.split('/').last,
+          'title': 'VMC Operator',
+          'city': 'Pune',
+          'area': 'Chakan',
+          'needed_by': 'immediate',
+          'description': 'Fanuc control par kaam karna hoga.',
+          'requirements': <String>['Fanuc control'],
+          'benefits': <String>['PF + ESI'],
+        }),
+        200,
+      );
+    }));
+
+    await tester.pumpWidget(_harness(bloc));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Turant chahiye'), findsOneWidget); // needed_by label
+    expect(find.text('Fanuc control par kaam karna hoga.'), findsOneWidget);
+    expect(find.text('Fanuc control'), findsOneWidget); // requirement chip
+    expect(find.text('PF + ESI'), findsOneWidget); // benefit chip
+  });
+
+  // #issue3 — every field the feed carries now reaches the card: the humanised
+  // trade (never the raw slug) and the experience window, alongside the title
+  // and place already covered above.
+  testWidgets('renders the humanised trade and the experience window', (
+    WidgetTester tester,
+  ) async {
+    locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
+    addTearDown(() => locator.unregister<JobFeedViewStore>());
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'jobs': <Map<String, dynamic>>[
+            _job(
+              id: 'job-1',
+              trade: 'cnc_operator',
+              title: 'VMC Operator',
+              city: 'Pune',
+              minExp: 1,
+              maxExp: 4,
+            ),
+          ],
+        }),
+        200,
+      );
+    }));
+
+    await tester.pumpWidget(_harness(bloc));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VMC Operator'), findsOneWidget);
+    expect(find.text('CNC Operator'), findsOneWidget); // humanised slug
+    expect(find.text('1–4 yrs experience'), findsOneWidget);
   });
 
   testWidgets('a feed job WITHOUT pay/shift keys (old shape) renders no pay '
@@ -214,8 +298,8 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    expect(find.text('No more jobs right now.'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Refresh'), findsOneWidget);
+    expect(find.text('Abhi naye jobs nahi hain.'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Dobara dekhein'), findsOneWidget);
   });
 
   testWidgets('network error on load shows a retry', (
@@ -260,7 +344,11 @@ void main() {
           200,
         );
       }
-      applyReq = req; // assert OUTSIDE the handler (inner expect would throw)
+      // #jobcard — the card also fetches GET /jobs/:id to enrich itself; the
+      // apply is the request under test, so capture only that one.
+      if (req.url.path.endsWith('/apply')) {
+        applyReq = req;
+      }
       return http.Response(
         jsonEncode(<String, dynamic>{
           'ok': true,
@@ -412,7 +500,11 @@ void main() {
             200,
           );
         }
-        applyReq = req; // assert OUTSIDE the handler (inner expect would throw)
+        // #jobcard — the card also fetches GET /jobs/:id to enrich itself; the
+        // apply is the request under test, so capture only that one.
+        if (req.url.path.endsWith('/apply')) {
+          applyReq = req;
+        }
         return http.Response(
           jsonEncode(<String, dynamic>{
             'ok': true,

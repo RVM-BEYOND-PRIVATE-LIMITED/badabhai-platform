@@ -1,27 +1,32 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show SystemUiOverlayStyle, TextInputFormatter;
+    show
+        HapticFeedback,
+        SystemChannels,
+        SystemUiOverlayStyle,
+        TextInputFormatter;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind, FormOffer;
+    show ChatInputMode, ChatOption, ChatQuestionKind, FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/util/devanagari_guard.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
-import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_chat_bubble.dart';
-import '../../../core/widgets/bb_chip.dart';
-import '../../../core/widgets/bb_progress_bar.dart';
+// Only for [kChatSendFailedLabel]: the bubble itself is drawn locally in the
+// Master UI Kit style (see [_ChatBubble]), the copy stays the shared constant.
+import '../../../core/widgets/bb_chat_bubble.dart' show kChatSendFailedLabel;
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
 import '../../voice/domain/speech_reader.dart';
@@ -29,6 +34,7 @@ import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/chat_message.dart';
+import '../domain/chat_resume_menu.dart';
 import 'bloc/chat_bloc.dart';
 import '../../../core/util/push_once.dart';
 
@@ -44,8 +50,76 @@ const double _kNearBottomThreshold = 120;
 /// breaks.
 const String _kDisambiguateEscape = 'Kuch aur';
 
+/// The label the escape row (and the trailing chip on an LLM suggestion row)
+/// DISPLAYS. The worker's profile may not be among the suggestions, so the
+/// escape no longer declines the list — it opens the composer for their own
+/// words ("custom answer" mode, see [_ChatViewState._customAnswerMode]).
+/// Aap-form, PII-free constant copy.
+const String kChatCustomAnswerLabel = 'Kuch aur — khud likhein';
+
+/// The composer hint while "custom answer" mode is on after the escape on a
+/// PROFILE list (a disambiguation turn): tells the worker what to type once
+/// they have said none of the suggested profiles fit.
+const String kChatCustomAnswerHint = 'Apna kaam ya profile khud likhein';
+
+/// Screen-reader label for the profile-list escape row — spells out that
+/// tapping it opens typing rather than answering.
+const String kChatCustomAnswerSemantics =
+    'Kuch aur, apna kaam ya profile khud likhein';
+
+/// The composer hint after the escape chip on an ordinary chip ROW. The
+/// model's chips can suggest a profile, a skill or a duration, so the hint
+/// asks for "your answer", never for a profile where a skill belongs.
+const String kChatCustomAnswerGenericHint = 'Apna jawab khud likhein';
+
+/// Screen-reader label for the chip-row escape (see
+/// [kChatCustomAnswerGenericHint]).
+const String kChatCustomAnswerGenericSemantics =
+    'Kuch aur, apna jawab khud likhein';
+
+/// The composer's everyday hint (unchanged copy, now named so the custom-mode
+/// swap reads plainly).
+const String _kComposerHint = 'Boliye ya likhiye…';
+
+/// Normalised labels of the ONE legitimate lock-the-keyboard turn: the
+/// engine's experience gate ("Aur koi experience jodna hai?" → Haan / Nahi).
+/// Any other `options_only` turn keeps the composer (see
+/// [_ChatViewState._isYesNoGate]).
+const Set<String> _kGateYesLabels = <String>{'haan', 'han', 'ha', 'yes'};
+const Set<String> _kGateNoLabels = <String>{'nahi', 'nahin', 'na', 'no'};
+
+/// The experience gate's prompt, byte-identical to the engine's
+/// `EXPERIENCE_GATE_PROMPT`. The chips alone do not identify the gate: the
+/// model can serve its own Haan / Nahi question as options_only, and that one
+/// must keep the composer. If the copy ever drifts the lock simply lifts,
+/// which is the safe side — the server accepts typed text on every turn.
+const String _kExperienceGatePrompt = 'Aur koi experience jodna hai?';
+
+/// `option_key` prefix of the LLM interview's model-suggested chips
+/// (`slugIndexKey("llm", i)` server-side → `llm_a`, `llm_b`, …; the slug schema
+/// allows no digits).
+const String _kLlmOptionKeyPrefix = 'llm_';
+
+/// The server's "none of these" escape `option_key` (mirrors
+/// `DISAMBIGUATION_ESCAPE_KEY` in `packages/config` occupation tuning).
+/// Whatever turn it rides on (a disambiguation list today, a model chip row
+/// once the backend appends it there) it opens custom-answer mode and is never
+/// submitted as the worker's answer.
+const String _kServerEscapeOptionKey = 'kuch_aur';
+
 /// Hinglish label on the jump-to-bottom pill.
 const String _kNewMessageLabel = 'Naye message';
+
+/// Height of the green pack-progress line on the header's bottom edge (#649).
+/// Reserved even before a pack resolves (as an empty navy strip), so the
+/// header never changes height mid-conversation.
+const double _kHeaderProgressHeight = 4;
+
+/// The most of the chat body the stack UNDER the transcript (answer options,
+/// notices, composer, CTA / handover card) may occupy before it scrolls within
+/// itself. Only reachable on a short phone with a very large system font; an
+/// ordinary layout is far below it.
+const double _kBottomStackMaxFraction = 0.6;
 
 /// Banner copy when the chat session could not be opened (#343). Honest about
 /// the cause: the connection was not established, and sending retries it.
@@ -171,6 +245,22 @@ class _ChatViewState extends State<_ChatView> {
   /// so that fires on the way IN and unlatches before the second tap.
   bool _wasSending = false;
 
+  /// "Custom answer" mode: the worker tapped [kChatCustomAnswerLabel] because
+  /// their profile is not among the suggestions. The composer is shown (even
+  /// on an `options_only` turn), focused, and hinted with
+  /// [_customAnswerHint]; whatever they type goes through the ordinary
+  /// typed-send path with no `optionKey`. TURN-SCOPED: cleared by the bloc
+  /// listener on the next send / reply, never latched across questions.
+  bool _customAnswerMode = false;
+
+  /// The composer hint while [_customAnswerMode] is on: the profile hint for a
+  /// disambiguation list, the question-neutral one for a chip row.
+  String _customAnswerHint = kChatCustomAnswerHint;
+
+  /// Focus for the composer [TextField], so entering [_customAnswerMode] can
+  /// raise the keyboard straight onto the field.
+  final FocusNode _composerFocus = FocusNode();
+
   /// Anchors the bottom composer/CTA segment (the composer-or-hint row plus
   /// the CTA-or-handover-card row) so its rendered height can be measured and
   /// published to [bottomBarInset] (#1364). This screen uses a raw [Scaffold],
@@ -228,6 +318,7 @@ class _ChatViewState extends State<_ChatView> {
       ..dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
+    _composerFocus.dispose();
     _controller.dispose();
     // #1364 — this page is leaving; stop claiming the FAB inset it published.
     // DEFERRED to after the frame, same reason as `BbScaffold.dispose`:
@@ -272,17 +363,47 @@ class _ChatViewState extends State<_ChatView> {
   /// Send an answer from a tap-to-answer chip — same path as typing it.
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
+    // The custom answer has been given — back to the everyday composer.
+    if (_customAnswerMode) setState(() => _customAnswerMode = false);
     context.read<ChatBloc>().add(ChatMessageSent(text));
   }
 
-  /// Send an answer chosen from an OPTIONS list (chips or the disambiguate
-  /// rows). One tap per turn: see [_optionTapPending].
+  /// The worker's profile is not among the suggestions: enter
+  /// [_customAnswerMode] and focus the composer. Sends NOTHING — the typed
+  /// answer goes out through [_send] like any other message. One tap per turn,
+  /// same as the options it sits beside (see [_optionTapPending]).
+  void _enterCustomAnswer({String hint = kChatCustomAnswerHint}) {
+    if (_optionTapPending) return;
+    setState(() {
+      _customAnswerMode = true;
+      _customAnswerHint = hint;
+    });
+    // After the frame: on a locked turn the TextField only mounts on the
+    // rebuild this setState schedules.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_customAnswerMode) return;
+      if (_composerFocus.hasFocus) {
+        // Still focused from an earlier send (the send icon keeps focus) with
+        // the keyboard closed by back: requestFocus would change nothing and
+        // the keyboard would stay down, so raise it directly.
+        unawaited(
+            SystemChannels.textInput.invokeMethod<void>('TextInput.show'));
+      } else {
+        _composerFocus.requestFocus();
+      }
+    });
+  }
+
+  /// Send an answer chosen from an OPTIONS list (the deterministic chips). One
+  /// tap per turn: see [_optionTapPending].
   ///
   /// #761 — carries the tapped option as `optionKey` so the bloc can index the
   /// previous turn's `lookahead` and render the predicted next question
   /// optimistically. On chat the LABEL is the answer of record, so it is both the
-  /// submit text (byte-identical, unchanged) and the lookahead key; the
-  /// decline/escape chip is keyed `'__declined'`.
+  /// submit text (byte-identical, unchanged) and the lookahead key; a
+  /// deterministic decline chip is keyed `'__declined'` — a real decline of a
+  /// closed list. The DISAMBIGUATION escape never reaches here: it opens
+  /// [_enterCustomAnswer] instead.
   void _sendOption(String label) {
     if (_optionTapPending) return;
     if (label.trim().isEmpty) return;
@@ -290,7 +411,11 @@ class _ChatViewState extends State<_ChatView> {
     final bool escape =
         label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
     context.read<ChatBloc>().add(
-          ChatMessageSent(label, optionKey: escape ? '__declined' : label),
+          ChatMessageSent(
+            label,
+            optionKey: escape ? '__declined' : label,
+            servedOption: !escape,
+          ),
         );
   }
 
@@ -298,12 +423,57 @@ class _ChatViewState extends State<_ChatView> {
   ///
   /// THE FIX. SUBMITS [ChatOption.labelText] as the answer of record — BYTE-
   /// IDENTICAL to typing it, exactly as [_sendOption] does — while passing the
-  /// stable [ChatOption.optionKey] (or `'__declined'` for the none-of-above chip)
-  /// as the lookahead index. On the LLM chat the display label differs from that
+  /// stable [ChatOption.optionKey] (or `'__declined'` for a deterministic
+  /// none-of-above chip; the disambiguation escape opens [_enterCustomAnswer]
+  /// instead) as the lookahead index. On the LLM chat the display label differs from that
   /// key, so keying the prediction by the label (the [_sendOption] path) missed
   /// and the optimistic render silently never fired; the option_key hits it.
   /// One tap per turn — see [_optionTapPending].
+  ///
+  /// Every option that reaches here is a served answer, none-of-above included
+  /// ('Koi bhi chalegi' is stored as shift `any`), so it is flagged
+  /// [ChatMessageSent.servedOption] and its closing fact is recorded. The
+  /// server's escape never reaches here.
+  ///
+  /// #1566 — POST-COMPLETION MENU. On an ended session the served options carry
+  /// the résumé menu's stable keys, and [resumeMenuActionFor] decides the route.
+  /// The two menu-NAVIGATION keys (`resume_edit`, `resume_redo`) still go to the
+  /// server, because the SERVER owns the next menu (six sections, or
+  /// upload-vs-chat). `resume_upload`, `resume_chat_create` and every
+  /// `section_*` are handled on the client and are NEVER submitted — sending
+  /// them would only produce the server's ack. Within `section_*`, the
+  /// Technical Skills pilot opens its filtered trade-form walk while the
+  /// other sections open the Resume Edit. An ordinary (non-menu) option
+  /// falls through to exactly today's submit.
   void _sendChoice(ChatOption option) {
+    switch (resumeMenuActionFor(option.optionKey)) {
+      case ResumeMenuAction.openResumeUpload:
+        // NO send, so no `_optionTapPending` latch: `pushOnce` already refuses a
+        // duplicate push, and latching here would block the NEXT tap on the menu
+        // if the worker comes back without sending anything.
+        context.pushOnce(Routes.resumeUpload);
+        return;
+      case ResumeMenuAction.startFreshChat:
+        // The BLOC owns the one-restart-at-a-time guard (a second event during
+        // the mint is ignored), so the screen does not latch either.
+        context.read<ChatBloc>().add(const ChatSessionRestarted());
+        return;
+      case ResumeMenuAction.openSection:
+        // PILOT: Technical Skills re-asks only its questions on the EXISTING
+        // trade-form pages (section-filtered walk, never submitted here).
+        // Every other section still opens the Resume tab's Edit surface — the
+        // same destination the server's ack copy names — until its own walk
+        // lands. The key rides along either way so a test can assert WHICH
+        // section was chosen without string-matching the display copy.
+        if (option.optionKey == kResumeMenuTechnicalSkillsKey) {
+          context.pushOnce(Routes.tradeForm, extra: option.optionKey);
+          return;
+        }
+        context.pushOnce(Routes.resumeEdit, extra: option.optionKey);
+        return;
+      case ResumeMenuAction.sendToServer:
+        break;
+    }
     if (_optionTapPending) return;
     if (option.labelText.trim().isEmpty) return;
     setState(() => _optionTapPending = true);
@@ -311,6 +481,7 @@ class _ChatViewState extends State<_ChatView> {
           ChatMessageSent(
             option.labelText,
             optionKey: option.isNoneOfAbove ? '__declined' : option.optionKey,
+            servedOption: true,
           ),
         );
   }
@@ -508,7 +679,7 @@ class _ChatViewState extends State<_ChatView> {
       icon: Icon(
         active ? Icons.stop_circle_outlined : Icons.volume_up_rounded,
         size: 20,
-        color: AppColors.blue,
+        color: OnboardingColors.shiftBlue,
       ),
     );
   }
@@ -568,20 +739,35 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s1,
       ),
-      child: Row(
-        children: <Widget>[
-          Icon(icon, size: 16, color: color),
-          const SizedBox(width: AppSpacing.s2),
-          Flexible(
-            child: Text(
-              text,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: color,
+      child: _capped(
+        Row(
+          children: <Widget>[
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: AppSpacing.s2),
+            Flexible(
+              child: Text(
+                text,
+                style: OnboardingTypography.inter(size: 13, color: color),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Caps a bottom-stack row at [OnboardingLayout.maxContentWidth] and centres
+  /// it, so on a tablet or landscape phone the composer, CTA and option cards
+  /// keep the kit's proportions instead of stretching edge to edge. A no-op on
+  /// any phone narrower than the cap.
+  Widget _capped(Widget child) {
+    return Center(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: OnboardingLayout.maxContentWidth,
+        ),
+        child: child,
       ),
     );
   }
@@ -601,22 +787,22 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s3,
       ),
-      child: BbButton(
-        label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
-        block: true,
-        // Compact "Thodi aur baat karein" (owner request 2026-07-23): the not-ready
-        // CTA is a small, low-emphasis nudge — smaller text + shorter height — so it
-        // frees vertical space with the keyboard open. The READY "profile banaiye"
-        // CTA stays full-size (lg): it is the primary action.
-        size: ready ? BbButtonSize.lg : BbButtonSize.sm,
-        variant: ready ? BbButtonVariant.primary : BbButtonVariant.secondary,
-        iconLeft: ready ? Icons.check_circle_outline : Icons.forum_outlined,
-        // #372's visible half: the same-frame half lives in
-        // `_openProfilePreview`. Only the READY path can stack previews —
-        // the not-ready path opens a sheet, which is its own guard.
-        onPressed: ready
-            ? (_openingPreview ? null : _openProfilePreview)
-            : _confirmEarlyFinish,
+      // Master UI Kit: both labels ride the kit's yellow PrimaryActionButton.
+      // The READY "profile banaiye" CTA keeps the forward arrow (it moves the
+      // worker on); the not-ready "Thodi aur baat karein" invitation drops it,
+      // so the two still read differently at a glance. Both stay tappable —
+      // the #421 soft gate is unchanged.
+      child: _capped(
+        PrimaryActionButton(
+          label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
+          showArrow: ready,
+          // #372's visible half: the same-frame half lives in
+          // `_openProfilePreview`. Only the READY path can stack previews —
+          // the not-ready path opens a sheet, which is its own guard.
+          onPressed: ready
+              ? (_openingPreview ? null : _openProfilePreview)
+              : _confirmEarlyFinish,
+        ),
       ),
     );
   }
@@ -628,9 +814,9 @@ class _ChatViewState extends State<_ChatView> {
   /// [offer].headline and the button label are SERVER-SUPPLIED copy, not
   /// client-authored — `persona_neutrality_test.dart`'s scan does not apply to
   /// them (see [FormOffer]); this widget's own layout contributes no static
-  /// copy of its own. Matches the [EmployerCard]-style surface card used
-  /// elsewhere in the app (filled surface, hairline border, `AppRadii.sm`),
-  /// not a new visual language.
+  /// copy of its own. Drawn as the Master UI Kit's sticky white action card: a
+  /// successGreen check icon before the SERVER headline (an icon, never a
+  /// glyph spliced into the server string), then the kit's yellow CTA.
   Widget _formOfferCard(FormOffer offer) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -639,48 +825,49 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s3,
       ),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        decoration: BoxDecoration(
-          color: AppColors.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadii.sm),
-          border: Border.all(color: AppColors.haldi),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Icon(
-                  Icons.assignment_turned_in_outlined,
-                  size: 20,
-                  color: AppColors.blue,
-                ),
-                const SizedBox(width: AppSpacing.s2),
-                Expanded(
-                  child: Text(
-                    offer.headline,
-                    style: AppTypography.display(size: AppTypography.sizeMd),
+      child: _capped(
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: OnboardingColors.paperWhite,
+            borderRadius: BorderRadius.circular(OnboardingRadii.card),
+            border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.check_circle_rounded,
+                      size: 20,
+                      color: OnboardingColors.successGreen,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            BbButton(
-              label: offer.ctaLabel,
-              block: true,
-              size: BbButtonSize.lg,
-              iconLeft: Icons.arrow_forward_rounded,
-              onPressed: _openingTradeForm ? null : _openTradeForm,
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      offer.headline,
+                      style: OnboardingTypography.subheadBold(),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s3),
               // #1364 — `ctaLabel` is server-supplied copy that can run long
               // ("Form bharkar resume pura karein") and must never be
-              // shortened client-side; let it wrap to a second line instead
-              // of truncating with an ellipsis.
-              allowMultilineLabel: true,
-            ),
-          ],
+              // shortened client-side; [_WrappingPrimaryButton] lets it wrap
+              // to a second line instead of truncating or shrinking it.
+              _WrappingPrimaryButton(
+                label: offer.ctaLabel,
+                onPressed: _openingTradeForm ? null : _openTradeForm,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -688,7 +875,7 @@ class _ChatViewState extends State<_ChatView> {
 
   /// Opens the trade form at most once per round trip — same same-frame
   /// double-tap guard as [_openProfilePreview] (#372): the disabled state on
-  /// [BbButton] arrives only on the NEXT frame, too late to stop a real
+  /// the CTA button arrives only on the NEXT frame, too late to stop a real
   /// double-tap landing both inside the current one.
   Future<void> _openTradeForm() async {
     if (_openingTradeForm) return;
@@ -731,34 +918,64 @@ class _ChatViewState extends State<_ChatView> {
   Future<void> _confirmEarlyFinish() async {
     final bool? proceed = await showBbBottomSheet<bool>(
       context: context,
-      builder: (BuildContext sheetContext) => Column(
+      // The EXPLANATION scrolls; the two ways out are DOCKED below it (the
+      // sheet's `footer`). With the actions at the end of the scrolling body, a
+      // 320x568 screen at a 2.0 system font showed a half-cut 'Baat jaari
+      // rakhein' and pushed the escape hatch off the sheet entirely — exactly
+      // what this screen's own rule forbids: a client-side gate must never be
+      // able to trap a worker in a chat they cannot leave.
+      builder: (BuildContext sheetContext) => SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(
+              kChatNudgeTitle,
+              style: OnboardingTypography.questionHeadline(
+                color: OnboardingColors.shiftBlue,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              kChatNudgeBody,
+              style: OnboardingTypography.body(color: OnboardingColors.ink600),
+            ),
+          ],
+        ),
+      ),
+      footer: (BuildContext sheetContext) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Text(
-            kChatNudgeTitle,
-            style: AppTypography.display(size: AppTypography.sizeLg),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            kChatNudgeBody,
-            style: AppTypography.body(
-              size: AppTypography.sizeBase,
-              color: AppColors.textSecondary,
-            ),
-          ),
           const SizedBox(height: AppSpacing.s5),
-          BbButton(
+          PrimaryActionButton(
             label: kChatNudgeContinueLabel,
-            block: true,
+            showArrow: false,
             onPressed: () => Navigator.of(sheetContext).pop(false),
           ),
           const SizedBox(height: AppSpacing.s2),
-          BbButton(
-            label: kChatNudgeProceedLabel,
-            block: true,
-            variant: BbButtonVariant.ghost,
-            onPressed: () => Navigator.of(sheetContext).pop(true),
+          // The escape hatch stays a quiet text action under the yellow CTA —
+          // present and thumb-sized, never competing with "keep talking".
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+            child: TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: OnboardingColors.shiftBlue,
+                minimumSize: const Size(
+                  double.infinity,
+                  OnboardingLayout.tapTarget,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(OnboardingRadii.button),
+                ),
+              ),
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              child: Text(
+                kChatNudgeProceedLabel,
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.buttonLabel(),
+              ),
+            ),
           ),
         ],
       ),
@@ -782,81 +999,167 @@ class _ChatViewState extends State<_ChatView> {
     // B7 display lever: a non-empty notice is shown above the composer. Empty by
     // default, so nothing renders unless ops set one.
     final String maintenance = BbRemoteConfig.instance.chatMaintenanceNotice;
+    // D3: the header's inner row sits on the SAME grid as the body. The
+    // transcript and the composer both stop at
+    // [OnboardingLayout.maxContentWidth] and centre, so on a tablet the 'BB /
+    // Bada Bhai / online' lockup and the Feedback action sat ~144dp outside the
+    // column they belong to.
+    //
+    // It is the SAME expression the transcript's `listGutter` uses, applied as
+    // PADDING with `titleSpacing: 0` rather than as titleSpacing: an AppBar
+    // charges `titleSpacing` against BOTH sides of the middle slot, so pushing
+    // the gutter through it took the width away twice and overflowed the
+    // lockup on a landscape phone.
+    final double headerGutter = math.max(
+      AppSpacing.s4,
+      (MediaQuery.sizeOf(context).width - OnboardingLayout.maxContentWidth) / 2,
+    );
+    final double headerActionGutter = math.max(
+      AppSpacing.s2,
+      (MediaQuery.sizeOf(context).width - OnboardingLayout.maxContentWidth) / 2,
+    );
     return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
       appBar: AppBar(
-        // Kit 03 chat header: a DEEP-BLUE bar with a haldi 'BB' avatar + 'Bada
-        // Bhai / online'. The voice-note entry moved OUT of the app bar and INTO
-        // the composer (the haldi mic), per the kit — its kill switch
-        // (`showVoice`) still governs it.
-        backgroundColor: AppColors.surfaceInk,
-        foregroundColor: AppColors.onBlue,
-        iconTheme: const IconThemeData(color: AppColors.onBlue),
+        // Master UI Kit chat header: a SHIFT BLUE bar with the brand mark
+        // (badabhai_main.png) + 'Bada Bhai / online'. The voice-note entry moved OUT of the
+        // app bar and INTO the composer (the haldi mic), per the kit — its kill
+        // switch (`showVoice`) still governs it. The back arrow is still the
+        // AppBar's own implied one: drawn only when this route can pop (the
+        // onboarding chat), absent on the Bada Bhai tab.
+        backgroundColor: OnboardingColors.shiftBlue,
+        foregroundColor: OnboardingColors.textOnBlue,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        iconTheme: const IconThemeData(color: OnboardingColors.textOnBlue),
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        // Gutter of left space so the BB avatar + title are not flush against
-        // the screen edge — aligns the header with the body's left margin.
-        titleSpacing: AppSpacing.gutter,
-        title: Row(
-          children: <Widget>[
-            Container(
-              width: 32,
-              height: 32,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.haldi,
-                borderRadius: BorderRadius.circular(9),
+        // Kit gutter of left space so the brand mark + title are not flush
+        // against the screen edge — aligns the header with the body's margin.
+        titleSpacing: 0,
+        title: Padding(
+          padding: EdgeInsets.only(left: headerGutter),
+          child: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+          child: Row(
+            children: <Widget>[
+              Image.asset(
+                // The brand mark, same asset as the global BrandBadge lockup.
+                'assets/fonts/image/badabhai_main.png',
+                width: 36,
+                height: 36,
+                filterQuality: FilterQuality.high,
+                excludeFromSemantics: true,
               ),
-              child: Text(
-                'BB',
-                style: AppTypography.display(
-                  size: AppTypography.sizeSm,
-                  color: AppColors.onHaldi,
+              const SizedBox(width: 10),
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'Bada Bhai',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: OnboardingTypography.anek(
+                        size: 17,
+                        weight: FontWeight.w700,
+                        color: OnboardingColors.textOnBlue,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: OnboardingColors.successGreen,
+                            shape: BoxShape.circle,
+                            // A light ring so the dark kit green still reads
+                            // as a status dot on the navy band.
+                            border: Border.all(
+                              color: OnboardingColors.successBg,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'online',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: OnboardingTypography.inter(
+                              size: 12,
+                              weight: FontWeight.w500,
+                              color: OnboardingColors.textOnBlueMuted,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.s2),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                Text(
-                  'Bada Bhai',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    weight: FontWeight.w700,
-                    color: AppColors.onBlue,
-                  ),
-                ),
-                Text(
-                  'online',
-                  style: AppTypography.body(
-                    size: AppTypography.size2xs,
-                    color: AppColors.green300,
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
+          ),
         ),
         // Feedback lives HERE instead of the app-wide floating button on this
         // screen (both the onboarding chat and the Bada Bhai tab reuse it) —
         // see the exclusion in feedback_fab.dart. Same action, same icon,
         // only the position differs.
         actions: <Widget>[
-          TextButton(
-            onPressed: () => context.pushOnce(
-              Routes.feedback,
-              extra: GoRouterState.of(context).uri.path,
-            ),
-            child: Text(
-              'Feedback',
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                weight: FontWeight.w700,
-                color: AppColors.onBlue,
+          Padding(
+            padding: EdgeInsets.only(right: headerActionGutter),
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+              child: TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: OnboardingColors.textOnBlue,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      OnboardingRadii.feedbackButton,
+                    ),
+                    side: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.25),
+                    ),
+                  ),
+                ),
+                onPressed: () => context.pushOnce(
+                  Routes.feedback,
+                  extra: GoRouterState.of(context).uri.path,
+                ),
+                child: Text(
+                  'Feedback',
+                  style: OnboardingTypography.inter(
+                    size: 13,
+                    weight: FontWeight.w700,
+                    color: OnboardingColors.textOnBlue,
+                  ),
+                ),
               ),
             ),
           ),
         ],
+        // OIE Phase 8 (#649): the pack progress line sits on the header's
+        // bottom edge. SAME value as before (`ChatState.progress`), and hidden
+        // (an empty navy strip) until a pack resolves — no invented progress.
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(_kHeaderProgressHeight),
+          child: BlocBuilder<ChatBloc, ChatState>(
+            buildWhen: (ChatState prev, ChatState curr) =>
+                prev.progress != curr.progress,
+            builder: (BuildContext context, ChatState state) =>
+                state.progress == null
+                    ? const SizedBox(height: _kHeaderProgressHeight)
+                    : _HeaderProgressLine(value: state.progress!.fraction),
+          ),
+        ),
       ),
       body: BlocListener<ChatBloc, ChatState>(
         // Fire when a message is appended (length grows) OR when the in-flight
@@ -874,6 +1177,10 @@ class _ChatViewState extends State<_ChatView> {
           if (_wasSending && !state.sending && _optionTapPending) {
             setState(() => _optionTapPending = false);
           }
+          // Custom-answer mode belongs to the question it was opened on. This
+          // listener only fires when a message lands or `sending` flips —
+          // i.e. the turn has moved on — so drop it here.
+          if (_customAnswerMode) setState(() => _customAnswerMode = false);
           _wasSending = state.sending;
           _onMessagesChanged(state.messages);
         },
@@ -885,17 +1192,35 @@ class _ChatViewState extends State<_ChatView> {
               return const BbStatusView.loading(
                   caption: 'Bada Bhai taiyaar ho raha hai…');
             }
+            // Master UI Kit width cap: the transcript column stops at
+            // [OnboardingLayout.maxContentWidth] and centres on a tablet or
+            // landscape phone. On any phone narrower than the cap this is the
+            // same 16px gutter and 78%-of-screen bubble as before.
+            final double screenWidth = MediaQuery.sizeOf(context).width;
+            final double listGutter = math.max(
+              AppSpacing.s4,
+              (screenWidth - OnboardingLayout.maxContentWidth) / 2,
+            );
+            final double bubbleMaxWidth =
+                math.min(screenWidth, OnboardingLayout.maxContentWidth) * 0.78;
             return Stack(
               children: <Widget>[
+                // bottom: false — the docked composer panel consumes the
+                // system inset ITSELF (see [_bottomComposerSegment]), so its
+                // white ground runs to the screen edge instead of stopping
+                // above the home-indicator area and showing canvas under it.
                 SafeArea(
-                  child: Column(
+                  bottom: false,
+                  child: LayoutBuilder(
+                   builder: (BuildContext context, BoxConstraints body) =>
+                    Column(
                     children: <Widget>[
                       if (state.sessionFailed) _sessionBanner(),
-                      // OIE Phase 8 (#649): the pack progress bar + the pinned
-                      // occupation pill. Hidden until a pack resolves / a trade pins.
-                      if (state.progress != null ||
-                          state.occupationLabel != null)
-                        _oieHeader(state.progress, state.occupationLabel),
+                      // OIE Phase 8 (#649): the pinned occupation pill. Hidden
+                      // until a trade pins. (The pack progress line moved onto
+                      // the header's bottom edge — see the AppBar `bottom`.)
+                      if (state.occupationLabel != null)
+                        _occupationStrip(state.occupationLabel!),
                       Expanded(
                         child: Stack(
                           children: <Widget>[
@@ -904,8 +1229,8 @@ class _ChatViewState extends State<_ChatView> {
                               // Full horizontal gutter, lighter vertical rhythm so
                               // more of the transcript stays visible with the
                               // keyboard up.
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.s4,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: listGutter,
                                 vertical: AppSpacing.s2,
                               ),
                               itemCount: state.messages.length,
@@ -913,9 +1238,10 @@ class _ChatViewState extends State<_ChatView> {
                                 final ChatMessage m = state.messages[i];
                                 final bool failed =
                                     m.status == ChatSendStatus.failed;
-                                return BbChatBubble(
+                                return _ChatBubble(
                                   text: m.text,
                                   fromWorker: m.fromWorker,
+                                  maxWidth: bubbleMaxWidth,
                                   failed: failed,
                                   onRetry: failed ? () => _retry(i) : null,
                                   // Read-aloud speaker on bada bhai's questions
@@ -942,6 +1268,21 @@ class _ChatViewState extends State<_ChatView> {
                       // cross-fades instead of snapping. The child is keyed by
                       // KIND ('typing' / 'chips' / 'none') so typing→chips
                       // animates while chip→chip content changes stay instant.
+                      // Layout safety (320x568 at a 2.0 system font): the stack
+                      // under the transcript — answer options, notices,
+                      // composer and CTA / handover card — takes at most
+                      // [_kBottomStackMaxFraction] of the body and scrolls
+                      // inside that, so the transcript is never squeezed into
+                      // an overflow. On an ordinary phone the stack is far
+                      // shorter than the cap: nothing scrolls, nothing moves.
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: body.maxHeight * _kBottomStackMaxFraction,
+                        ),
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
                       BbAnimatedSwitcher(child: _answerAffordance(state)),
                       // A blocked turn (pseudonymize fail-closed) never processed the
                       // worker's last answer — say so rather than let the canned
@@ -949,14 +1290,14 @@ class _ChatViewState extends State<_ChatView> {
                       if (state.lastReplyBlocked)
                         _replyNotice(
                           icon: Icons.error_outline,
-                          color: AppColors.red600,
+                          color: OnboardingColors.errorRed,
                           text: kChatBlockedNotice,
                         ),
                       // B7 maintenance notice — ops copy, shown only when set.
                       if (maintenance.isNotEmpty)
                         _replyNotice(
                           icon: Icons.info_outline,
-                          color: AppColors.textMuted,
+                          color: OnboardingColors.ink500,
                           text: maintenance,
                         ),
                       // #1411 — Devanagari never reaches the composer; this
@@ -964,11 +1305,16 @@ class _ChatViewState extends State<_ChatView> {
                       if (_devanagariBlocked)
                         _replyNotice(
                           icon: Icons.error_outline,
-                          color: AppColors.red600,
+                          color: OnboardingColors.errorRed,
                           text: kDevanagariBlockedHint,
                         ),
                       _bottomComposerSegment(state, showVoice),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
+                  ),
                   ),
                 ),
               ],
@@ -987,16 +1333,33 @@ class _ChatViewState extends State<_ChatView> {
   /// (and so this segment's height) can change from turn to turn.
   Widget _bottomComposerSegment(ChatState state, bool showVoice) {
     _publishBottomInset();
-    return Column(
+    // One white docked panel (Master UI Kit bottom bar): the composer's top
+    // hairline is the panel's edge, and the CTA / handover card sit on the same
+    // white below it. The ColoredBox adds no height, so the measured segment
+    // is exactly the keyed Column.
+    return ColoredBox(
+      color: OnboardingColors.paperWhite,
+      // The system bottom inset is consumed HERE, inside the white panel and
+      // OUTSIDE the measured Column: the panel paints to the screen edge while
+      // `bottomBarInset` keeps reporting the height above the inset, which is
+      // exactly what the floating Feedback pill adds the inset to.
+      child: Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.viewPaddingOf(context).bottom,
+      ),
+      child: Column(
       key: _bottomSegmentKey,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        // #770 — on an options_only turn the chips above are the
-        // ONLY answer path, so suppress the composer (and its mic,
-        // since voice resolves to typed text). GUARDED on non-empty
-        // followups: a malformed options_only turn with no chips
-        // must never trap the worker with no way to answer, so the
-        // composer stays in that case.
+        // #770 — the composer (and its mic, since voice resolves to
+        // typed text) is suppressed ONLY on the engine's yes/no gate
+        // ("Aur koi experience jodna hai?" → Haan / Nahi). Any other
+        // options_only turn — a model-chosen one, e.g. role
+        // suggestions — keeps it: the server accepts typed text on
+        // every turn and the worker's profile may not be a chip.
+        // [_isYesNoGate] needs two chips, so a malformed options_only
+        // turn with no chips still never traps the worker, and
+        // custom-answer mode always brings the composer back.
         //
         // #1363 — a form_offer turn is the server CLOSING the
         // session (`kind: "close"`, `form_handoff`): typing into it
@@ -1009,7 +1372,8 @@ class _ChatViewState extends State<_ChatView> {
         // FRAME (via [_lockedComposerBar]) with its own copy,
         // rather than leaving a bare gap.
         if (state.inputMode == ChatInputMode.optionsOnly &&
-            state.followups.isNotEmpty)
+            !_customAnswerMode &&
+            _isYesNoGate(state))
           _optionsOnlyHint()
         else if (state.formOffer != null)
           _formOfferLockedHint()
@@ -1028,6 +1392,8 @@ class _ChatViewState extends State<_ChatView> {
         else
           _doneCta(state),
       ],
+      ),
+      ),
     );
   }
 
@@ -1038,8 +1404,8 @@ class _ChatViewState extends State<_ChatView> {
   Widget _inputBar(bool showVoice) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppColors.surfaceCard,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+        color: OnboardingColors.paperWhite,
+        border: Border(top: BorderSide(color: OnboardingColors.borderDefault)),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s3,
@@ -1047,14 +1413,16 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s3,
         AppSpacing.s2,
       ),
-      child: _dictation.listening
-          ? DictationBar(
-              level: _dictation.level,
-              waveKey: const ValueKey<String>('voiceWaveInline'),
-              onStop: _stopDictation,
-              onSend: _sendFromDictation,
-            )
-          : _idleBar(showVoice),
+      child: _capped(
+        _dictation.listening
+            ? DictationBar(
+                level: _dictation.level,
+                waveKey: const ValueKey<String>('voiceWaveInline'),
+                onStop: _stopDictation,
+                onSend: _sendFromDictation,
+              )
+            : _idleBar(showVoice),
+      ),
     );
   }
 
@@ -1079,6 +1447,7 @@ class _ChatViewState extends State<_ChatView> {
         Expanded(
           child: TextField(
             controller: _controller,
+            focusNode: _composerFocus,
             minLines: 1,
             maxLines: 4,
             textInputAction: TextInputAction.send,
@@ -1091,12 +1460,17 @@ class _ChatViewState extends State<_ChatView> {
             // Compact composer (owner request): body-size text + dense padding so
             // the field is shorter and leaves more transcript visible with the
             // keyboard open. Matches the chat bubble size (sizeSm).
-            style: AppTypography.body(size: AppTypography.sizeSm),
+            style: OnboardingTypography.inter(size: 14),
             decoration: InputDecoration(
-              hintText: 'Boliye ya likhiye…',
+              hintText:
+                  _customAnswerMode ? _customAnswerHint : _kComposerHint,
+              hintStyle: OnboardingTypography.inter(
+                size: 14,
+                color: OnboardingColors.ink500,
+              ),
               isDense: true,
               filled: true,
-              fillColor: AppColors.canvas,
+              fillColor: OnboardingColors.paperWhite,
               // Roomier padding + the design's input radius (md=12, not the pill):
               // a fully-rounded pill made multi-line text hug the curved corners
               // and touch the border. A softer 12-radius box gives the text clear
@@ -1107,19 +1481,27 @@ class _ChatViewState extends State<_ChatView> {
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadii.md),
-                borderSide: const BorderSide(color: AppColors.borderSubtle),
+                borderSide: const BorderSide(
+                  color: OnboardingColors.borderDefault,
+                  width: 1.2,
+                ),
               ),
+              // UI kit v3 (decision D8): FOCUS is navy at 1.8 — the spec's one
+              // focus rule (§3.3, the OTP cell). Safety yellow now means
+              // SELECTED (a picked card, a ticked checkbox, a chosen chip) and
+              // nothing else, so a caret sitting in the composer can no longer
+              // read as an answer the worker has already given.
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(AppRadii.md),
                 borderSide: const BorderSide(
-                  color: AppColors.blue,
-                  width: 1.5,
+                  color: OnboardingColors.shiftBlue,
+                  width: 1.8,
                 ),
               ),
             ),
           ),
         ),
-        const SizedBox(width: AppSpacing.s1),
+        const SizedBox(width: AppSpacing.s2),
         _composerAction(),
       ],
     );
@@ -1136,24 +1518,81 @@ class _ChatViewState extends State<_ChatView> {
           return IconButton(
             tooltip: 'Bhejein',
             onPressed: _send,
+            style: _composerActionStyle,
             icon: const Icon(
               Icons.send_rounded,
-              color: AppColors.blue,
-              size: 24,
+              color: OnboardingColors.shiftBlue,
+              size: 22,
             ),
           );
         }
         return IconButton(
           tooltip: 'Bolkar likhein',
           onPressed: _startDictation,
+          style: _composerActionStyle,
           icon: const Icon(
             Icons.mic,
-            color: AppColors.blue,
-            size: 24,
+            color: OnboardingColors.shiftBlue,
+            size: 22,
           ),
         );
       },
     );
+  }
+
+  /// The labels THIS turn's chips display — from `suggested_options` when the
+  /// turn serves them (the same source [_answerAffordance] renders from), else
+  /// the label-only `suggested_followups`.
+  static List<String> _turnLabels(ChatState state) =>
+      state.suggestedOptions.isNotEmpty
+          ? <String>[
+              for (final ChatOption o in state.suggestedOptions) o.labelText,
+            ]
+          : state.followups;
+
+  /// Whether [labels] are exactly the engine's yes/no gate pair (normalised:
+  /// trimmed, lower-cased, trailing punctuation dropped) — one of
+  /// [_kGateYesLabels] and one of [_kGateNoLabels], nothing else.
+  static bool _isYesNoPair(List<String> labels) {
+    if (labels.length != 2) return false;
+    final List<String> norm = <String>[
+      for (final String l in labels)
+        l.trim().toLowerCase().replaceAll(RegExp(r'[.?]+$'), ''),
+    ];
+    return (_kGateYesLabels.contains(norm[0]) &&
+            _kGateNoLabels.contains(norm[1])) ||
+        (_kGateNoLabels.contains(norm[0]) &&
+            _kGateYesLabels.contains(norm[1]));
+  }
+
+  /// Whether this turn is the one legitimate keyboard lock (#770): the yes/no
+  /// gate — its chips ([_isYesNoPair]) AND its prompt, the latest bot bubble
+  /// ([_kExperienceGatePrompt], trimmed and case-folded). A model's own
+  /// Haan / Nahi question keeps the composer.
+  static bool _isYesNoGate(ChatState state) {
+    if (state.messages.isEmpty) return false;
+    final ChatMessage last = state.messages.last;
+    return !last.fromWorker &&
+        last.text.trim().toLowerCase() ==
+            _kExperienceGatePrompt.toLowerCase() &&
+        _isYesNoPair(_turnLabels(state));
+  }
+
+  /// Whether [option] is the server's own escape ([_kServerEscapeOptionKey]).
+  static bool _isServerEscape(ChatOption option) =>
+      option.optionKey == _kServerEscapeOptionKey;
+
+  /// Whether every option on the row, the server escape aside, is a model
+  /// suggestion (`llm_<letter>` keys) — the only horizontal row that gains a
+  /// trailing [kChatCustomAnswerLabel] chip when the server sent none.
+  /// Deterministic pack chips (closed lists) never do.
+  static bool _isLlmSuggestionRow(List<ChatOption> options) {
+    final Iterable<ChatOption> suggestions =
+        options.where((ChatOption o) => !_isServerEscape(o));
+    return suggestions.isNotEmpty &&
+        suggestions.every(
+          (ChatOption o) => o.optionKey.startsWith(_kLlmOptionKeyPrefix),
+        );
   }
 
   /// Replaces the composer on an `options_only` turn (#770): a locked-look bar
@@ -1178,8 +1617,8 @@ class _ChatViewState extends State<_ChatView> {
   Widget _lockedComposerBar({required String text, required IconData icon}) {
     return Container(
       decoration: const BoxDecoration(
-        color: AppColors.surfaceCard,
-        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+        color: OnboardingColors.paperWhite,
+        border: Border(top: BorderSide(color: OnboardingColors.borderDefault)),
       ),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s3,
@@ -1187,25 +1626,39 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s3,
         AppSpacing.s3,
       ),
-      child: Row(
-        children: <Widget>[
-          Icon(icon, color: AppColors.textMuted, size: 20),
-          const SizedBox(width: AppSpacing.s2),
-          Expanded(
-            child: Text(
-              text,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-              ).copyWith(color: AppColors.textMuted),
+      child: _capped(
+        Row(
+          children: <Widget>[
+            Icon(icon, color: OnboardingColors.ink500, size: 20),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(
+              child: Text(
+                text,
+                style: OnboardingTypography.bodyMuted(
+                  color: OnboardingColors.ink600,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  /// The haldi circular mic in the composer — opens the voice-note flow (kit 03).
-  /// Blue glyph on haldi (text/icon on haldi is always deep blue). TAP-ONLY now:
+  /// The composer's trailing MIC / SEND slot in the kit style: a 48px yellow
+  /// rounded square carrying a shift-blue glyph. Same tap floor as before.
+  static final ButtonStyle _composerActionStyle = IconButton.styleFrom(
+    backgroundColor: OnboardingColors.safetyYellow,
+    foregroundColor: OnboardingColors.shiftBlue,
+    fixedSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
+    minimumSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(AppRadii.md),
+    ),
+  );
+
+  /// The yellow circular mic in the composer — opens the voice-note flow (kit 03).
+  /// Shift-blue glyph on safety yellow (ink on yellow is always navy). TAP-ONLY now:
   /// speech-to-text moved to the tap-to-talk mic in the send slot
   /// ([_composerAction]), so this button no longer records into the composer on a
   /// hold — it only opens the server voice-note screen.
@@ -1216,7 +1669,7 @@ class _ChatViewState extends State<_ChatView> {
       child: Tooltip(
         message: 'Voice note',
         child: Material(
-          color: AppColors.haldi,
+          color: OnboardingColors.safetyYellow,
           shape: const CircleBorder(),
           child: InkWell(
             customBorder: const CircleBorder(),
@@ -1226,7 +1679,7 @@ class _ChatViewState extends State<_ChatView> {
               height: AppSpacing.tap,
               child: Icon(
                 Icons.mic,
-                color: AppColors.onHaldi,
+                color: OnboardingColors.textOnYellow,
                 size: 22,
               ),
             ),
@@ -1246,25 +1699,32 @@ class _ChatViewState extends State<_ChatView> {
   Widget _sessionBanner() {
     return Container(
       width: double.infinity,
-      color: AppColors.red50,
+      color: OnboardingColors.errorBg,
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s4,
         vertical: AppSpacing.s3,
       ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.cloud_off, size: 18, color: AppColors.red600),
-          const SizedBox(width: AppSpacing.s2),
-          Flexible(
-            child: Text(
-              _kSessionFailedLabel,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.red600,
+      child: _capped(
+        Row(
+          children: <Widget>[
+            const Icon(
+              Icons.cloud_off,
+              size: 18,
+              color: OnboardingColors.errorRed,
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Flexible(
+              child: Text(
+                _kSessionFailedLabel,
+                style: OnboardingTypography.inter(
+                  size: 13,
+                  weight: FontWeight.w500,
+                  color: OnboardingColors.errorRed,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1329,16 +1789,20 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
+          const Icon(
+            Icons.more_horiz,
+            size: 20,
+            color: OnboardingColors.shiftBlue,
+          ),
           const SizedBox(width: AppSpacing.s2),
           Flexible(
             child: Text(
               'Bada Bhai type kar raha hai…',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textMuted,
+              style: OnboardingTypography.inter(
+                size: 13,
+                color: OnboardingColors.ink500,
               ),
             ),
           ),
@@ -1359,13 +1823,9 @@ class _ChatViewState extends State<_ChatView> {
   /// row again, the fix belongs in `question_bank.py`, not in this widget.
   Widget _followups(List<String> followups) => _chipScroller(<Widget>[
         for (final String f in followups) ...<Widget>[
-          // Answer chips read like a chat message: same size (sizeSm) and a
-          // normal weight (owner request 2026-07-23).
-          BbChip(
-            label: f,
-            labelWeight: FontWeight.w400,
-            onTap: () => _sendOption(f),
-          ),
+          // Answer chips read like a chat message: same 14px size and a
+          // normal weight (owner request 2026-07-23), on the kit's chip surface.
+          _AnswerChip(label: f, onTap: () => _sendOption(f)),
           const SizedBox(width: AppSpacing.s2),
         ],
       ]);
@@ -1374,16 +1834,45 @@ class _ChatViewState extends State<_ChatView> {
   /// as [_followups] — each chip DISPLAYS [ChatOption.labelText] — but a tap
   /// routes through [_sendChoice], which submits that label byte-identically
   /// while indexing `lookahead` by the stable [ChatOption.optionKey].
-  Widget _followupOptions(List<ChatOption> options) => _chipScroller(<Widget>[
-        for (final ChatOption o in options) ...<Widget>[
-          BbChip(
-            label: o.labelText,
-            labelWeight: FontWeight.w400,
-            onTap: () => _sendChoice(o),
-          ),
-          const SizedBox(width: AppSpacing.s2),
-        ],
-      ]);
+  ///
+  /// ONE trailing [kChatCustomAnswerLabel] chip opens [_enterCustomAnswer]:
+  ///  * when the server sent its own escape ([_kServerEscapeOptionKey]) on the
+  ///    row, that option becomes this chip. It is never submitted: sending it
+  ///    would record "Kuch aur" as the worker's answer;
+  ///  * otherwise on an LLM suggestion row (every key `llm_<letter>`): the
+  ///    model offers at most four guesses and the worker's own answer may be
+  ///    none of them. Never on the yes/no gate — there the two chips ARE the
+  ///    full answer.
+  Widget _followupOptions(List<ChatOption> options) {
+    final List<ChatOption> answers =
+        options.where((ChatOption o) => !_isServerEscape(o)).toList();
+    final bool escape = answers.length != options.length ||
+        (_isLlmSuggestionRow(options) &&
+            !_isYesNoPair(<String>[
+              for (final ChatOption o in answers) o.labelText,
+            ]));
+    return _chipScroller(<Widget>[
+      for (final ChatOption o in answers) ...<Widget>[
+        _AnswerChip(label: o.labelText, onTap: () => _sendChoice(o)),
+        const SizedBox(width: AppSpacing.s2),
+      ],
+      if (escape) _customAnswerChip(),
+    ]);
+  }
+
+  /// The chip-row escape: opens [_enterCustomAnswer] with the question-neutral
+  /// hint, since a chip row can be about a skill or a duration, not a profile.
+  Widget _customAnswerChip() {
+    void open() => _enterCustomAnswer(hint: kChatCustomAnswerGenericHint);
+    return Semantics(
+      container: true,
+      button: true,
+      label: kChatCustomAnswerGenericSemantics,
+      excludeSemantics: true,
+      onTap: open,
+      child: _AnswerChip(label: kChatCustomAnswerLabel, onTap: open),
+    );
+  }
 
   /// The horizontal, scrollable wrapper shared by the label-keyed fallback
   /// ([_followups]) and the `suggested_options` path ([_followupOptions]) — just
@@ -1404,10 +1893,11 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// OIE Phase 8 header (#649): the pack progress bar (the finish line, the
-  /// single strongest completion lever for low-literacy users) and the pinned
-  /// occupation pill.
-  Widget _oieHeader(ChatProgress? progress, String? occupation) {
+  /// OIE Phase 8 (#649): the pinned occupation pill, under the header. The pack
+  /// progress bar (the finish line, the single strongest completion lever for
+  /// low-literacy users) is drawn on the header's bottom edge instead — see
+  /// [_HeaderProgressLine] — from the same `ChatState.progress` value.
+  Widget _occupationStrip(String occupation) {
     return Container(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.s4,
@@ -1415,19 +1905,11 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s4,
         AppSpacing.s2,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (progress != null) BbProgressBar(value: progress.fraction),
-          if (progress != null && occupation != null)
-            const SizedBox(height: AppSpacing.s2),
-          if (occupation != null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _occupationPill(occupation),
-            ),
-        ],
+      child: _capped(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _occupationPill(occupation),
+        ),
       ),
     );
   }
@@ -1441,19 +1923,26 @@ class _ChatViewState extends State<_ChatView> {
         vertical: AppSpacing.s1,
       ),
       decoration: BoxDecoration(
-        color: AppColors.haldiTint,
-        borderRadius: BorderRadius.circular(AppRadii.pill),
-        border: Border.all(color: AppColors.haldi),
+        color: OnboardingColors.selectedCardBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.badge),
+        border: Border.all(color: OnboardingColors.safetyYellow, width: 1.2),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.check_circle, size: 16, color: AppColors.blue),
+          const Icon(
+            Icons.check_circle,
+            size: 16,
+            color: OnboardingColors.shiftBlue,
+          ),
           const SizedBox(width: AppSpacing.s1),
           Flexible(
             child: Text(
               label,
-              style: AppTypography.body(size: 14, weight: FontWeight.w600),
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w600,
+              ),
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
             ),
@@ -1488,7 +1977,11 @@ class _ChatViewState extends State<_ChatView> {
   /// A disambiguation turn rendered from `suggested_options` (#761): same vertical
   /// single-select as [_disambiguate], but each row submits [ChatOption.labelText]
   /// while [_sendChoice] indexes `lookahead` by [ChatOption.optionKey] (and the
-  /// escape uses the option's own `is_none_of_above`, not the hardcoded label).
+  /// escape is the option's own `is_none_of_above`, not the hardcoded label).
+  ///
+  /// The escape does NOT submit: sending it as `'__declined'` made the server
+  /// stop identifying the trade with nobody asking the worker to name it. It
+  /// opens [_enterCustomAnswer] so they type their own profile.
   Widget _disambiguateOptions(List<ChatOption> options) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -1504,8 +1997,10 @@ class _ChatViewState extends State<_ChatView> {
           for (final ChatOption o in options)
             _disambiguateRow(
               label: o.labelText,
-              escape: o.isNoneOfAbove,
-              onTap: () => _sendChoice(o),
+              escape: o.isNoneOfAbove || _isServerEscape(o),
+              onTap: o.isNoneOfAbove || _isServerEscape(o)
+                  ? _enterCustomAnswer
+                  : () => _sendChoice(o),
             ),
         ],
       ),
@@ -1514,59 +2009,92 @@ class _ChatViewState extends State<_ChatView> {
 
   /// Fallback label path: the escape is recognised by the hardcoded
   /// [_kDisambiguateEscape] phrase and the tapped label is both submit and key.
-  Widget _disambiguateOption(String label) => _disambiguateRow(
-        label: label,
-        escape:
-            label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
-        onTap: () => _sendOption(label),
-      );
+  /// The escape opens [_enterCustomAnswer], exactly as on the options path.
+  Widget _disambiguateOption(String label) {
+    final bool escape =
+        label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase();
+    return _disambiguateRow(
+      label: label,
+      escape: escape,
+      onTap: escape ? _enterCustomAnswer : () => _sendOption(label),
+    );
+  }
 
   /// One vertical single-select row, shared by the fallback ([_disambiguateOption])
   /// and the `suggested_options` path ([_disambiguateOptions]). [escape] renders
-  /// the "none of these" style (borderless, muted); [onTap] submits.
+  /// the "none of these" style (borderless, muted) with the
+  /// [kChatCustomAnswerLabel] copy in place of the server's bare label; [onTap]
+  /// submits a real row or opens custom-answer mode for the escape.
   Widget _disambiguateRow({
     required String label,
     required bool escape,
     required VoidCallback onTap,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-      child: Material(
-        color: escape ? Colors.transparent : AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(AppRadii.md),
+    // Master UI Kit: a single-select option is a SingleSelectQuestionCard. It
+    // is never pre-selected — the tap IS the answer and the row leaves on the
+    // next rebuild (the one-tap latch lives in [_sendOption]/[_sendChoice]).
+    if (!escape) {
+      return _capped(
+        SingleSelectQuestionCard(
+          title: label,
+          isSelected: false,
           onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: AppSpacing.tap),
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s4,
-              vertical: AppSpacing.s3,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(AppRadii.md),
-              border: Border.all(
-                color: escape ? AppColors.borderSubtle : AppColors.blue,
-              ),
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    label,
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      weight: escape ? FontWeight.w400 : FontWeight.w600,
-                      color:
-                          escape ? AppColors.textMuted : AppColors.textPrimary,
-                    ),
+        ),
+      );
+    }
+    // The "none of these" escape stays visibly quieter than a real option
+    // (#649): a hairline, muted text, no radio. It reads "Kuch aur — khud
+    // likhein" whatever the server labelled it, because tapping it now opens
+    // typing rather than declining the list.
+    const BorderRadius radius = BorderRadius.all(Radius.circular(14));
+    return _capped(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Semantics(
+          container: true,
+          button: true,
+          label: kChatCustomAnswerSemantics,
+          excludeSemantics: true,
+          onTap: onTap,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: radius,
+            child: InkWell(
+              borderRadius: radius,
+              onTap: onTap,
+              child: Container(
+                constraints: const BoxConstraints(
+                  minHeight: OnboardingLayout.tapTarget,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s4,
+                  vertical: AppSpacing.s3,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: radius,
+                  border: Border.all(
+                    color: OnboardingColors.borderSubtle,
+                    width: 1.2,
                   ),
                 ),
-                Icon(
-                  escape ? Icons.more_horiz : Icons.chevron_right,
-                  color: escape ? AppColors.textMuted : AppColors.blue,
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: Text(
+                        kChatCustomAnswerLabel,
+                        style: OnboardingTypography.inter(
+                          size: 14,
+                          color: OnboardingColors.ink500,
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.edit_outlined,
+                      color: OnboardingColors.ink500,
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -1577,13 +2105,21 @@ class _ChatViewState extends State<_ChatView> {
   /// "Naye message" jump pill — shown bottom-centre above the composer when a
   /// bot reply lands while the worker has scrolled up. Tapping rides them down.
   Widget _jumpPill() {
+    // Chrome, so its text scale is clamped like the kit's other chrome; the
+    // label may still ellipsize rather than overflow on a very narrow phone.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: _jumpPillBody(),
+    );
+  }
+
+  Widget _jumpPillBody() {
     return Material(
-      color: AppColors.surfaceCard,
+      color: OnboardingColors.paperWhite,
       elevation: 0,
-      // Flat pill (JUL31 system): a hairline border, not a shadow, lifts it off
-      // the chat.
+      // Flat pill (kit): a hairline border, not a shadow, lifts it off the chat.
       shape: const StadiumBorder(
-        side: BorderSide(color: AppColors.borderSubtle),
+        side: BorderSide(color: OnboardingColors.borderDefault),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(AppRadii.pill),
@@ -1597,22 +2133,315 @@ class _ChatViewState extends State<_ChatView> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Text(
-                _kNewMessageLabel,
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  weight: FontWeight.w700,
-                  color: AppColors.brand,
+              Flexible(
+                child: Text(
+                  _kNewMessageLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: OnboardingTypography.inter(
+                    size: 13,
+                    weight: FontWeight.w700,
+                    color: OnboardingColors.shiftBlue,
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.s1),
               const Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: AppColors.brand,
+                color: OnboardingColors.shiftBlue,
                 size: 20,
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One transcript bubble in the Master UI Kit chat style: bada bhai on white
+/// with a `borderDefault` hairline, the worker on Shift Blue with white text.
+///
+/// A LOCAL restyle of [BbChatBubble] (shared chrome other surfaces still use),
+/// keeping every behaviour it carries: the ~78% width cap, one squared "tail"
+/// corner toward the speaker, the #343 failed-send tint + footer, the whole
+/// failed bubble as the retry control with its combined semantics label, and
+/// the optional [trailing] control (the read-aloud speaker).
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({
+    required this.text,
+    required this.fromWorker,
+    required this.maxWidth,
+    this.failed = false,
+    this.onRetry,
+    this.trailing,
+  });
+
+  final String text;
+  final bool fromWorker;
+
+  /// The bubble never spans the full column, so the speaker side stays legible.
+  final double maxWidth;
+
+  /// The message did not reach the server (#343).
+  final bool failed;
+
+  /// Tapped on a [failed] bubble to re-send it.
+  final VoidCallback? onRetry;
+
+  /// Rendered just to the RIGHT of the bubble (the read-aloud speaker).
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    const Radius soft = Radius.circular(AppRadii.md);
+    const Radius tail = Radius.circular(AppRadii.bubbleTail);
+
+    final bool workerFilled = fromWorker && !failed;
+    final Color background = failed
+        ? OnboardingColors.errorBg
+        : (fromWorker
+            ? OnboardingColors.shiftBlue
+            : OnboardingColors.paperWhite);
+    final Color borderColor = failed
+        ? OnboardingColors.errorRed
+        : (fromWorker
+            ? OnboardingColors.shiftBlue
+            : OnboardingColors.borderDefault);
+    // White on the filled navy bubble; dark ink everywhere else (a failed
+    // worker bubble sits on the light error tint, so it keeps dark text).
+    final Color textColor =
+        workerFilled ? OnboardingColors.textOnBlue : OnboardingColors.ink900;
+
+    final Widget bubble = Container(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      margin: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s3,
+        vertical: AppSpacing.s2,
+      ),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.only(
+          topLeft: soft,
+          topRight: soft,
+          bottomLeft: fromWorker ? soft : tail,
+          bottomRight: fromWorker ? tail : soft,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(text, style: OnboardingTypography.body(color: textColor)),
+          if (failed) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: OnboardingColors.errorRed,
+                ),
+                const SizedBox(width: AppSpacing.s1),
+                Flexible(
+                  child: Text(
+                    kChatSendFailedLabel,
+                    overflow: TextOverflow.ellipsis,
+                    style: OnboardingTypography.inter(
+                      size: 13,
+                      weight: FontWeight.w700,
+                      color: OnboardingColors.errorRed,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+
+    // A failed bubble is the retry control itself — the whole bubble is the
+    // tap target, so it comfortably clears the 48px minimum.
+    final Widget content = failed && onRetry != null
+        ? Semantics(
+            button: true,
+            label: '$text — $kChatSendFailedLabel',
+            child: InkWell(
+              onTap: onRetry,
+              borderRadius: BorderRadius.circular(AppRadii.lg),
+              child: bubble,
+            ),
+          )
+        : bubble;
+
+    return Align(
+      alignment: fromWorker ? Alignment.centerRight : Alignment.centerLeft,
+      child: trailing == null
+          ? content
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Flexible(child: content),
+                trailing!,
+              ],
+            ),
+    );
+  }
+}
+
+/// A tap-to-answer chip in the Master UI Kit style: `chipBg` fill with a
+/// `borderDefault` hairline; the press state washes it safety yellow. There is
+/// no persistent "selected" state — the tap sends the answer and the row is
+/// replaced on the next turn. Keeps `BbChip`'s 48px tap floor and its
+/// single-line label inside the horizontally-scrolling row.
+class _AnswerChip extends StatelessWidget {
+  const _AnswerChip({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(12));
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: OnboardingColors.chipBg,
+          borderRadius: _radius,
+          border: Border.all(color: OnboardingColors.borderDefault, width: 1.2),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: _radius,
+          splashColor: OnboardingColors.safetyYellow.withValues(alpha: 0.30),
+          highlightColor: OnboardingColors.safetyYellow.withValues(alpha: 0.18),
+          child: Container(
+            alignment: Alignment.center,
+            constraints: const BoxConstraints(
+              minHeight: OnboardingLayout.tapTarget,
+            ),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: AppSpacing.s2,
+            ),
+            child: Text(
+              label,
+              style: OnboardingTypography.inter(size: 14),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The pack progress line on the Shift Blue header's bottom edge (#649): a
+/// successGreen fill over a faint white track, animating to [value] the way
+/// `BbProgressBar` did. Finite animation, so `pumpAndSettle` still settles.
+class _HeaderProgressLine extends StatelessWidget {
+  const _HeaderProgressLine({required this.value});
+
+  /// Completion fraction, `0..1` (`ChatProgress.fraction`). Clamped.
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _kHeaderProgressHeight,
+      width: double.infinity,
+      child: ColoredBox(
+        color: Colors.white.withValues(alpha: 0.12),
+        child: TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: value.clamp(0, 1).toDouble()),
+          duration: AppMotion.slow,
+          curve: AppMotion.easeOut,
+          builder: (BuildContext context, double t, _) {
+            return FractionallySizedBox(
+              widthFactor: t,
+              alignment: Alignment.centerLeft,
+              child: const ColoredBox(color: OnboardingColors.successGreen),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// The kit's yellow primary CTA for a SERVER-SUPPLIED label that may need two
+/// lines (#1364): same fill, 52px minimum height, 14 radius, shift-blue Anek
+/// label, trailing arrow and light haptic as [PrimaryActionButton] — but the
+/// label WRAPS instead of being scaled down, so long copy is never shrunk or
+/// truncated client-side.
+class _WrappingPrimaryButton extends StatelessWidget {
+  const _WrappingPrimaryButton({required this.label, required this.onPressed});
+
+  final String label;
+
+  /// Null renders the kit's disabled state.
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = onPressed != null;
+    final Color ink =
+        enabled ? OnboardingColors.shiftBlue : OnboardingColors.disabledText;
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: ElevatedButton(
+        style: ButtonStyle(
+          elevation: const WidgetStatePropertyAll<double>(0),
+          minimumSize: const WidgetStatePropertyAll<Size>(
+            Size(double.infinity, OnboardingLayout.buttonHeight),
+          ),
+          padding: const WidgetStatePropertyAll<EdgeInsetsGeometry>(
+            EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          ),
+          shape: const WidgetStatePropertyAll<OutlinedBorder>(
+            RoundedRectangleBorder(
+              borderRadius:
+                  BorderRadius.all(Radius.circular(OnboardingRadii.button)),
+            ),
+          ),
+          backgroundColor:
+              WidgetStateProperty.resolveWith((Set<WidgetState> s) {
+            if (s.contains(WidgetState.disabled)) {
+              return OnboardingColors.disabledBg;
+            }
+            if (s.contains(WidgetState.pressed)) {
+              return OnboardingColors.safetyYellowDark;
+            }
+            return OnboardingColors.safetyYellow;
+          }),
+          foregroundColor: WidgetStatePropertyAll<Color>(ink),
+          overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
+        ),
+        onPressed: enabled
+            ? () {
+                HapticFeedback.lightImpact();
+                onPressed!();
+              }
+            : null,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                softWrap: true,
+                style: OnboardingTypography.buttonLabel(color: ink),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(Icons.arrow_forward_rounded, size: 20, color: ink),
+          ],
         ),
       ),
     );

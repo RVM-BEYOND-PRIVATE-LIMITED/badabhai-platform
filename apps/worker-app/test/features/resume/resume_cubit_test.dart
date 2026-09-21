@@ -7,6 +7,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -17,6 +19,9 @@ class MockResumeRepository extends Mock implements ResumeRepository {}
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 
 class MockProfileRepository extends Mock implements ProfileRepository {}
+
+class MockProfileSummaryRepository extends Mock
+    implements ProfileSummaryRepository {}
 
 void main() {
   late MockResumeRepository repo;
@@ -34,10 +39,12 @@ void main() {
         nightShiftReady: false,
       ),
     );
-    // #1343 — the ORDINARY answer (no structured document yet). Tests below
-    // that care about a real document override this per-test.
-    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
-    // The default answer above is `null` on every call, which would
+    // #1343 — the ORDINARY answer (no structured document yet, and no render
+    // status known). Tests below that care about either override this.
+    when(
+      () => repo.loadResumeDocument(),
+    ).thenAnswer((_) async => const ResumeDocumentSnapshot());
+    // The default answer above has a null document on every call, which would
     // otherwise run every retrying document fetch through its full real
     // multi-second backoff on every single test in this file (see
     // ResumeCubit.documentPollInterval's own doc for why the retry exists).
@@ -140,36 +147,43 @@ void main() {
     expect(cubit.state.resumeText, isEmpty);
   });
 
-  test('a refresh that returns EMPTY keeps the resume already on screen (#820)',
-      () async {
-    when(() => repo.generateResume(force: any(named: 'force')))
-        .thenAnswer((_) async => '');
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
-    addTearDown(cubit.close);
+  test(
+    'a refresh that returns EMPTY keeps the resume already on screen (#820)',
+    () async {
+      when(
+        () => repo.generateResume(force: any(named: 'force')),
+      ).thenAnswer((_) async => '');
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
 
-    await cubit.showGenerated('good resume');
-    await cubit.refresh();
+      await cubit.showGenerated('good resume');
+      await cubit.refresh();
 
-    // A blank reused resume must not overwrite a readable one (stale beats blank).
-    expect(cubit.state.status, ResumeStatus.ready);
-    expect(cubit.state.resumeText, 'good resume');
-  });
+      // A blank reused resume must not overwrite a readable one (stale beats blank).
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.resumeText, 'good resume');
+    },
+  );
 
-  test('a refresh that returns EMPTY with nothing good on screen -> failed (#820)',
-      () async {
-    when(() => repo.generateResume(force: any(named: 'force')))
-        .thenAnswer((_) async => '');
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
-    addTearDown(cubit.close);
+  test(
+    'a refresh that returns EMPTY with nothing good on screen -> failed (#820)',
+    () async {
+      when(
+        () => repo.generateResume(force: any(named: 'force')),
+      ).thenAnswer((_) async => '');
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
 
-    await cubit.refresh();
+      await cubit.refresh();
 
-    expect(cubit.state.status, ResumeStatus.failed);
-  });
+      expect(cubit.state.status, ResumeStatus.failed);
+    },
+  );
 
   test('resolveDownloadUrl returns the signed url on success', () async {
-    when(() => repo.resumeDownloadUrl())
-        .thenAnswer((_) async => 'https://signed/u?token=x');
+    when(
+      () => repo.resumeDownloadUrl(),
+    ).thenAnswer((_) async => 'https://signed/u?token=x');
     final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     expect(await cubit.resolveDownloadUrl(), 'https://signed/u?token=x');
     verify(() => repo.resumeDownloadUrl()).called(1);
@@ -179,7 +193,10 @@ void main() {
       'real reason, not a blank generic line)', () {
     when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
     final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
-    expect(() => cubit.resolveDownloadUrl(), throwsA(isA<UnauthorizedFailure>()));
+    expect(
+      () => cubit.resolveDownloadUrl(),
+      throwsA(isA<UnauthorizedFailure>()),
+    );
   });
 
   // T4 — the Resume tab refetches when it comes back into view. It must REUSE
@@ -188,8 +205,9 @@ void main() {
   // burn one of the worker's 5 daily generates — just for looking at the tab.
   group('tab-focus refresh (T4)', () {
     test('refresh NEVER forces a regenerate', () async {
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenAnswer((_) async => 'resume text');
+      when(
+        () => repo.generateResume(force: any(named: 'force')),
+      ).thenAnswer((_) async => 'resume text');
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -202,8 +220,9 @@ void main() {
     });
 
     test('a failed refresh keeps the resume already on screen', () async {
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenThrow(const NetworkFailure());
+      when(
+        () => repo.generateResume(force: any(named: 'force')),
+      ).thenThrow(const NetworkFailure());
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -216,21 +235,25 @@ void main() {
       expect(cubit.state.resumeText, 'good resume');
     });
 
-    test('a failed refresh DOES surface when nothing good is on screen',
-        () async {
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
-      addTearDown(cubit.close);
+    test(
+      'a failed refresh DOES surface when nothing good is on screen',
+      () async {
+        when(
+          () => repo.generateResume(force: any(named: 'force')),
+        ).thenThrow(const NetworkFailure());
+        final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+        addTearDown(cubit.close);
 
-      await cubit.refresh();
+        await cubit.refresh();
 
-      expect(cubit.state.status, ResumeStatus.failed);
-    });
+        expect(cubit.state.status, ResumeStatus.failed);
+      },
+    );
 
     test('refresh does not emit a spinner over a readable resume', () async {
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenAnswer((_) async {
+      when(() => repo.generateResume(force: any(named: 'force'))).thenAnswer((
+        _,
+      ) async {
         await Future<void>.delayed(const Duration(milliseconds: 20));
         return 'fresh';
       });
@@ -244,15 +267,19 @@ void main() {
 
       await cubit.refresh();
 
-      expect(seen, isNot(contains(ResumeStatus.loading)),
-          reason: 'the worker must not watch their resume flash to a spinner');
+      expect(
+        seen,
+        isNot(contains(ResumeStatus.loading)),
+        reason: 'the worker must not watch their resume flash to a spinner',
+      );
       expect(cubit.state.resumeText, 'fresh');
     });
 
     test('overlapping loads are ignored', () async {
       int calls = 0;
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenAnswer((_) async {
+      when(() => repo.generateResume(force: any(named: 'force'))).thenAnswer((
+        _,
+      ) async {
         calls++;
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return 'resume text';
@@ -261,7 +288,10 @@ void main() {
       addTearDown(cubit.close);
 
       // Tab focus can fire while the create:-time generate is still in flight.
-      await Future.wait<void>(<Future<void>>[cubit.generate(), cubit.refresh()]);
+      await Future.wait<void>(<Future<void>>[
+        cubit.generate(),
+        cubit.refresh(),
+      ]);
 
       expect(calls, 1, reason: 'the second load must be ignored, not stacked');
     });
@@ -275,11 +305,15 @@ void main() {
       header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
       trade: 'cnc_turner',
     );
+    const ResumeDocumentSnapshot sheetSnapshot = ResumeDocumentSnapshot(
+      document: tradeSheet,
+    );
 
     test('generate() carries the repo\'s document onto ready state', () async {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => tradeSheet);
+      when(
+        () => repo.loadResumeDocument(),
+      ).thenAnswer((_) async => sheetSnapshot);
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -289,11 +323,87 @@ void main() {
       expect(cubit.state.document, same(tradeSheet));
     });
 
+    test('generate() skips a STALE-under-pending document and waits for the '
+        'fresh render (section-walk edit)', () async {
+      // A manual regenerate resets the row to pending + rendered_at null while
+      // leaving the previous render's document in place: the first polls hold
+      // the OLD skills and only the render landing carries the new ones.
+      ResumeCubit.documentPollMaxAttempts = 3;
+      ResumeCubit.documentPollInterval = Duration.zero;
+      const ResumeDocument oldSheet = TradeSheetResumeDocument(
+        header: ResumeDocumentHeaderDto(name: 'Old Skills'),
+        trade: 'cnc_turner',
+      );
+      const ResumeDocument newSheet = TradeSheetResumeDocument(
+        header: ResumeDocumentHeaderDto(name: 'New Skills'),
+        trade: 'cnc_turner',
+      );
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      int calls = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        calls++;
+        if (calls < 3) {
+          return const ResumeDocumentSnapshot(
+            document: oldSheet,
+            renderStatus: 'pending',
+          );
+        }
+        return ResumeDocumentSnapshot(
+          document: newSheet,
+          renderStatus: 'rendered',
+          renderedAt: DateTime.utc(2026, 9, 18),
+        );
+      });
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.document, same(newSheet));
+      expect(cubit.state.renderStatus, 'rendered');
+      verify(() => repo.loadResumeDocument()).called(3);
+    });
+
+    test('isStalePendingDocument marks only pending + document + null '
+        'renderedAt as stale', () {
+      const ResumeDocumentSnapshot stale = ResumeDocumentSnapshot(
+        document: tradeSheet,
+        renderStatus: 'pending',
+      );
+      expect(stale.isStalePendingDocument, isTrue);
+      expect(
+        ResumeDocumentSnapshot(
+          document: tradeSheet,
+          renderStatus: 'pending',
+          renderedAt: DateTime.utc(2026, 9, 18),
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          document: tradeSheet,
+          renderStatus: 'rendered',
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          document: tradeSheet,
+        ).isStalePendingDocument,
+        isFalse,
+      );
+      expect(
+        const ResumeDocumentSnapshot(
+          renderStatus: 'pending',
+        ).isStalePendingDocument,
+        isFalse,
+      );
+    });
+
     test('a document fetch that THROWS never costs the worker their resume '
         'text (belt-and-suspenders, matching the night-shift pref)', () async {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
-      when(() => repo.loadResumeDocument())
-          .thenThrow(const NetworkFailure());
+      when(() => repo.loadResumeDocument()).thenThrow(const NetworkFailure());
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -305,8 +415,9 @@ void main() {
     });
 
     test('showGenerated() also loads the structured document', () async {
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => tradeSheet);
+      when(
+        () => repo.loadResumeDocument(),
+      ).thenAnswer((_) async => sheetSnapshot);
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -323,40 +434,49 @@ void main() {
     // and its `_syncActiveTabAfterBuild`) could race in and stomp
     // `awaitingDocument` back to false with a stale null document WHILE
     // showGenerated()'s own document poll was still resolving.
-    test('a refresh() racing showGenerated()\'s document poll is ignored — '
-        'the worker never sees an intermediate stale/incomplete state',
-        () async {
-      final Completer<ResumeDocument?> documentPoll =
-          Completer<ResumeDocument?>();
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) => documentPoll.future);
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenAnswer((_) async => 'resume text'); // refresh()'s reuse read
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
-      addTearDown(cubit.close);
+    test(
+      'a refresh() racing showGenerated()\'s document poll is ignored — '
+      'the worker never sees an intermediate stale/incomplete state',
+      () async {
+        final Completer<ResumeDocumentSnapshot> documentPoll =
+            Completer<ResumeDocumentSnapshot>();
+        when(
+          () => repo.loadResumeDocument(),
+        ).thenAnswer((_) => documentPoll.future);
+        when(
+          () => repo.generateResume(force: any(named: 'force')),
+        ).thenAnswer((_) async => 'resume text'); // refresh()'s reuse read
+        final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+        addTearDown(cubit.close);
 
-      final Future<void> handoff = cubit.showGenerated('resume text');
-      // The tab-sync-triggered refresh(), firing while the handoff's own
-      // document poll is still in flight — exactly the real race.
-      await cubit.refresh();
+        final Future<void> handoff = cubit.showGenerated('resume text');
+        // The tab-sync-triggered refresh(), firing while the handoff's own
+        // document poll is still in flight — exactly the real race.
+        await cubit.refresh();
 
-      // Must still be waiting on the loader: refresh() was ignored, not
-      // raced in with a stale awaitingDocument:false/document:null state.
-      expect(cubit.state.awaitingDocument, isTrue,
-          reason: 'a racing refresh() must never stomp the loader flag '
-              'while the handoff\'s own document poll is still pending');
+        // Must still be waiting on the loader: refresh() was ignored, not
+        // raced in with a stale awaitingDocument:false/document:null state.
+        expect(
+          cubit.state.awaitingDocument,
+          isTrue,
+          reason:
+              'a racing refresh() must never stomp the loader flag '
+              'while the handoff\'s own document poll is still pending',
+        );
 
-      documentPoll.complete(tradeSheet);
-      await handoff;
+        documentPoll.complete(sheetSnapshot);
+        await handoff;
 
-      expect(cubit.state.awaitingDocument, isFalse);
-      expect(cubit.state.document, same(tradeSheet));
-    });
+        expect(cubit.state.awaitingDocument, isFalse);
+        expect(cubit.state.document, same(tradeSheet));
+      },
+    );
 
     test('refreshNightShift() PRESERVES the document — a prefs-only reload '
         'must not blank a document that was already on screen', () async {
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => tradeSheet);
+      when(
+        () => repo.loadResumeDocument(),
+      ).thenAnswer((_) async => sheetSnapshot);
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.showGenerated('good resume');
@@ -389,11 +509,13 @@ void main() {
           if (calls == 1) throw const ProfileIncompleteFailure();
           return 'RETRY RESUME TEXT';
         });
-        when(() => profileRepo.extractProfile())
-            .thenAnswer((_) async => 'profile-1');
-        when(() => profileRepo.confirmProfile()).thenAnswer((_) async {});
-        when(() => repo.loadResumeDocument())
-            .thenAnswer((_) async => tradeSheet);
+        when(
+          () => profileRepo.extractProfile(),
+        ).thenAnswer((_) async => 'profile-1');
+        when(() => profileRepo.confirmProfile()).thenAnswer((_) async => null);
+        when(
+          () => repo.loadResumeDocument(),
+        ).thenAnswer((_) async => sheetSnapshot);
         return ResumeCubit(repo, editRepo, profileRepo);
       },
       act: (ResumeCubit c) => c.generate(),
@@ -419,20 +541,216 @@ void main() {
 
     test('refresh() re-fetches and can pick up a document that appeared '
         'since the last load', () async {
-      when(() => repo.generateResume(force: any(named: 'force')))
-          .thenAnswer((_) async => 'resume text');
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => null);
+      when(
+        () => repo.generateResume(force: any(named: 'force')),
+      ).thenAnswer((_) async => 'resume text');
+      when(
+        () => repo.loadResumeDocument(),
+      ).thenAnswer((_) async => const ResumeDocumentSnapshot());
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.generate();
       expect(cubit.state.document, isNull);
 
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => tradeSheet);
+      when(
+        () => repo.loadResumeDocument(),
+      ).thenAnswer((_) async => sheetSnapshot);
       await cubit.refresh();
 
       expect(cubit.state.document, same(tradeSheet));
+    });
+  });
+
+  // R6 — the READY pill's ONLY source. It used to be painted from "there is
+  // resume text", which says nothing about whether a PDF exists, so a worker
+  // saw a green success mark and then "PDF taiyaar ho rahi hai…" the moment
+  // they tapped Download.
+  group('PDF render status (R6)', () {
+    const ResumeDocument sheet = TradeSheetResumeDocument(
+      header: ResumeDocumentHeaderDto(),
+      trade: 'cnc_turner',
+    );
+
+    Future<ResumeCubit> generateWith(String? renderStatus) async {
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      when(() => repo.loadResumeDocument()).thenAnswer(
+        (_) async =>
+            ResumeDocumentSnapshot(document: sheet, renderStatus: renderStatus),
+      );
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+      await cubit.generate();
+      return cubit;
+    }
+
+    test('"rendered" is the one value that reads as ready', () async {
+      final ResumeCubit cubit = await generateWith('rendered');
+      expect(cubit.state.renderStatus, 'rendered');
+      expect(cubit.state.pdfRendered, isTrue);
+    });
+
+    test(
+      '"pending" is NOT ready — no READY pill while the PDF is rendering',
+      () async {
+        final ResumeCubit cubit = await generateWith('pending');
+        expect(cubit.state.renderStatus, 'pending');
+        expect(cubit.state.pdfRendered, isFalse);
+      },
+    );
+
+    test('"failed" is not ready', () async {
+      final ResumeCubit cubit = await generateWith('failed');
+      expect(cubit.state.pdfRendered, isFalse);
+    });
+
+    test('an ABSENT status fails closed — unknown is never ready', () async {
+      final ResumeCubit cubit = await generateWith(null);
+      expect(cubit.state.renderStatus, isNull);
+      expect(cubit.state.pdfRendered, isFalse);
+    });
+
+    test('the status survives a legacy worker with NO document at all — the '
+        'banner still needs it', () async {
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      when(() => repo.loadResumeDocument()).thenAnswer(
+        (_) async => const ResumeDocumentSnapshot(renderStatus: 'rendered'),
+      );
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.document, isNull);
+      expect(
+        cubit.state.pdfRendered,
+        isTrue,
+        reason:
+            'the document and the PDF are different things — a worker '
+            'on the text path still has a rendered PDF',
+      );
+    });
+
+    test('refreshNightShift PRESERVES the status — a prefs-only reload must '
+        'not blink the READY pill off', () async {
+      final ResumeCubit cubit = await generateWith('rendered');
+
+      await cubit.refreshNightShift();
+
+      expect(cubit.state.pdfRendered, isTrue);
+    });
+
+    test(
+      'a description-source reload with NO status keeps the last known one',
+      () async {
+        when(
+          () => repo.setEmploymentDescriptionSource(
+            any(),
+            ownWords: any(named: 'ownWords'),
+          ),
+        ).thenAnswer((_) async {});
+        final ResumeCubit cubit = await generateWith('rendered');
+        when(() => repo.loadResumeDocument()).thenAnswer(
+          (_) async => const ResumeDocumentSnapshot(document: sheet),
+        );
+
+        await cubit.setEmploymentDescriptionSource('emp-1', ownWords: true);
+
+        expect(
+          cubit.state.pdfRendered,
+          isTrue,
+          reason: 'stale-but-true beats blanking a pill the worker already saw',
+        );
+      },
+    );
+  });
+
+  // R7 — the DRAFT pill. ai-service stamps "WORKER PROFILE (DRAFT)" on every
+  // resume it builds, so the old text-parsed pill was permanently true and
+  // told a confirmed worker their profile was a draft forever.
+  group('profile confirmed (R7)', () {
+    late MockProfileSummaryRepository summaryRepo;
+
+    ProfileSummary summary({required bool verified, String status = 'draft'}) =>
+        ProfileSummary(
+          strengthSignals: 3,
+          verified: verified,
+          profileStatus: status,
+        );
+
+    setUp(() {
+      summaryRepo = MockProfileSummaryRepository();
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+    });
+
+    Future<ResumeCubit> generate() async {
+      final ResumeCubit cubit = ResumeCubit(
+        repo,
+        editRepo,
+        profileRepo,
+        profileSummaryRepository: summaryRepo,
+      );
+      addTearDown(cubit.close);
+      await cubit.generate();
+      return cubit;
+    }
+
+    test(
+      'an unconfirmed profile reports false, which is what shows DRAFT',
+      () async {
+        when(
+          () => summaryRepo.summary(),
+        ).thenAnswer((_) async => summary(verified: false));
+
+        final ResumeCubit cubit = await generate();
+
+        expect(cubit.state.profileConfirmed, isFalse);
+      },
+    );
+
+    test('a confirmed profile reports true, which HIDES the pill', () async {
+      when(
+        () => summaryRepo.summary(),
+      ).thenAnswer((_) async => summary(verified: true, status: 'confirmed'));
+
+      final ResumeCubit cubit = await generate();
+
+      expect(cubit.state.profileConfirmed, isTrue);
+    });
+
+    test('a FAILED summary read leaves it null — unknown must never accuse a '
+        'resume of being a draft', () async {
+      when(() => summaryRepo.summary()).thenThrow(const NetworkFailure());
+
+      final ResumeCubit cubit = await generate();
+
+      expect(cubit.state.profileConfirmed, isNull);
+      // And the resume itself is untouched by that failure.
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.resumeText, 'RESUME TEXT');
+    });
+
+    test('with NO summary repository wired at all it stays null, and the '
+        'resume still loads', () async {
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.profileConfirmed, isNull);
+      expect(cubit.state.status, ResumeStatus.ready);
+    });
+
+    test('refreshNightShift PRESERVES it — a toggle does not re-read the '
+        'profile, and must not drop what it knew', () async {
+      when(
+        () => summaryRepo.summary(),
+      ).thenAnswer((_) async => summary(verified: true));
+      final ResumeCubit cubit = await generate();
+      expect(cubit.state.profileConfirmed, isTrue);
+
+      await cubit.refreshNightShift();
+
+      expect(cubit.state.profileConfirmed, isTrue);
     });
   });
 
@@ -454,11 +772,15 @@ void main() {
       'success -> PUTs the choice then RE-FETCHES the document, keeping the '
       'resume text and night-shift pref already on screen',
       build: () {
-        when(() => repo.setEmploymentDescriptionSource(any(),
-                ownWords: any(named: 'ownWords')))
-            .thenAnswer((_) async {});
-        when(() => repo.loadResumeDocument())
-            .thenAnswer((_) async => reloadedSheet);
+        when(
+          () => repo.setEmploymentDescriptionSource(
+            any(),
+            ownWords: any(named: 'ownWords'),
+          ),
+        ).thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument()).thenAnswer(
+          (_) async => const ResumeDocumentSnapshot(document: reloadedSheet),
+        );
         return ResumeCubit(repo, editRepo, profileRepo);
       },
       seed: () => const ResumeState(
@@ -478,8 +800,9 @@ void main() {
         ),
       ],
       verify: (_) {
-        verify(() => repo.setEmploymentDescriptionSource('emp-1',
-            ownWords: true)).called(1);
+        verify(
+          () => repo.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        ).called(1);
         verify(() => repo.loadResumeDocument()).called(1);
       },
     );
@@ -488,30 +811,35 @@ void main() {
       'ownWords: false is passed straight through — reversible in both '
       'directions',
       build: () {
-        when(() => repo.setEmploymentDescriptionSource(any(),
-                ownWords: any(named: 'ownWords')))
-            .thenAnswer((_) async {});
-        when(() => repo.loadResumeDocument())
-            .thenAnswer((_) async => reloadedSheet);
+        when(
+          () => repo.setEmploymentDescriptionSource(
+            any(),
+            ownWords: any(named: 'ownWords'),
+          ),
+        ).thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument()).thenAnswer(
+          (_) async => const ResumeDocumentSnapshot(document: reloadedSheet),
+        );
         return ResumeCubit(repo, editRepo, profileRepo);
       },
       act: (ResumeCubit c) =>
           c.setEmploymentDescriptionSource('emp-1', ownWords: false),
-      expect: () => const <ResumeState>[
-        ResumeState(document: reloadedSheet),
-      ],
+      expect: () => const <ResumeState>[ResumeState(document: reloadedSheet)],
       verify: (_) {
-        verify(() => repo.setEmploymentDescriptionSource('emp-1',
-            ownWords: false)).called(1);
+        verify(
+          () => repo.setEmploymentDescriptionSource('emp-1', ownWords: false),
+        ).called(1);
       },
     );
 
-    test(
-        'a write failure PROPAGATES the Failure — never a silent no-op over '
+    test('a write failure PROPAGATES the Failure — never a silent no-op over '
         'a sentence carrying the worker\'s name', () async {
-      when(() => repo.setEmploymentDescriptionSource(any(),
-              ownWords: any(named: 'ownWords')))
-          .thenThrow(const ServerFailure(404));
+      when(
+        () => repo.setEmploymentDescriptionSource(
+          any(),
+          ownWords: any(named: 'ownWords'),
+        ),
+      ).thenThrow(const ServerFailure(404));
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
@@ -523,15 +851,17 @@ void main() {
       verifyNever(() => repo.loadResumeDocument());
     });
 
-    test(
-        'a write success but a hiccupping reload KEEPS the document already '
-        'on screen (mirrors refreshNightShift: stale beats blanked)',
-        () async {
-      when(() => repo.setEmploymentDescriptionSource(any(),
-              ownWords: any(named: 'ownWords')))
-          .thenAnswer((_) async {});
-      when(() => repo.loadResumeDocument())
-          .thenAnswer((_) async => tradeSheet);
+    test('a write success but a hiccupping reload KEEPS the document already '
+        'on screen (mirrors refreshNightShift: stale beats blanked)', () async {
+      when(
+        () => repo.setEmploymentDescriptionSource(
+          any(),
+          ownWords: any(named: 'ownWords'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => repo.loadResumeDocument()).thenAnswer(
+        (_) async => const ResumeDocumentSnapshot(document: tradeSheet),
+      );
       final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.showGenerated('good resume');

@@ -278,8 +278,53 @@ export class UnlocksRepository {
   }
 
   /**
+   * The routing row an unlock already has, if a reveal opened one (tx-scoped).
+   *
+   * P-021 (owner ruling 2026-09-21, idempotent direction). `routing_token` is unique, so
+   * the reveal path must not blindly re-insert on attempt 2/3 of the per-unlock cap — it
+   * reads this first and re-serves the SAME handle. The reveal caller holds the per-worker
+   * advisory lock, so two concurrent reveals cannot both miss this; `createRouting`'s
+   * ON CONFLICT below is the second wall.
+   */
+  async findRoutingByUnlock(tx: Tx, unlockId: string): Promise<UnlockRouting | undefined> {
+    const rows = await tx
+      .select()
+      .from(unlockRouting)
+      .where(eq(unlockRouting.unlockId, unlockId))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * The routing row for a payer-facing `relay_handle`, or undefined (non-tx read).
+   *
+   * E0 item 1 (`docs/agent/phases/E0_BUILD.md`): the handle is the ONLY identifier a
+   * payer holds, so resolution starts here. Backed by `unlock_routing_relay_handle_uq`
+   * (migration 0120) — without it this read seq-scans. NOT tx-scoped: the resolution
+   * path takes no advisory lock (it writes nothing on `unlocks`/`unlock_routing`), and
+   * every re-check it needs is a plain read. This method is still only reachable from
+   * `UnlockService` — the repository stays unexported (F-2/F-5/T5-b).
+   */
+  async findRoutingByHandle(handle: string): Promise<UnlockRouting | undefined> {
+    const rows = await this.db
+      .select()
+      .from(unlockRouting)
+      .where(eq(unlockRouting.relayHandle, handle))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Write the SERVER-SIDE routing mapping (tx-scoped). PII-FREE: routing token,
    * channel kind, the non-reversible expiring relay handle, expiry — NEVER a phone.
+   *
+   * IDEMPOTENT ON THE ROUTING TOKEN (P-021, owner ruling 2026-09-21). The token is
+   * minted once per GRANT, so a second insert for the same unlock is the same token and
+   * belongs to THIS unlock's existing row — return it instead of throwing. The old plain
+   * insert made a cap-permitted second reveal a unique-violation 500 (a crash and a
+   * status-code oracle). `onConflictDoNothing` + a read-back keeps one row per unlock by
+   * contract rather than by accident, for any caller that reaches here without the
+   * service's pre-read.
    */
   async createRouting(
     tx: Tx,
@@ -300,10 +345,21 @@ export class UnlocksRepository {
         relayHandle: input.relayHandle,
         expiresAt: input.expiresAt,
       })
+      .onConflictDoNothing({ target: unlockRouting.routingToken })
       .returning();
     const row = rows[0];
-    if (!row) throw new Error("Failed to create unlock routing");
-    return row;
+    if (row) return row;
+
+    // Conflict: this unlock already has its routing row (the token is minted once per
+    // grant). Read it back — a second reveal is an idempotent re-read, not an error.
+    const existing = await tx
+      .select()
+      .from(unlockRouting)
+      .where(eq(unlockRouting.routingToken, input.routingToken))
+      .limit(1);
+    const conflicted = existing[0];
+    if (!conflicted) throw new Error("Failed to create unlock routing");
+    return conflicted;
   }
 
   // -------------------------------------------------------------------------

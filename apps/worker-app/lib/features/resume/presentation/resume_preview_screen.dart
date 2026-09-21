@@ -8,42 +8,63 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
-import '../../../core/api/api_models.dart' show ResumeDocument, TradeSheetResumeDocument;
+import '../../../core/api/api_models.dart'
+    show ResumeDocument, TradeSheetResumeDocument;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/nav/tab_focus.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/pdf_downloader.dart';
+import '../../../core/util/push_once.dart';
 import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/util/transient_retry.dart';
 import '../../../core/util/resume_file_name.dart';
 import '../../../core/widgets/bb_alerts_action.dart';
-import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_chat_action.dart';
-import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_success_stamp.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_header_actions.dart';
+import '../../../core/widgets/kit/kit_status_banner.dart';
+import '../../../core/widgets/kit/kit_tab_header.dart';
 import '../../../router.dart';
 import '../domain/resume_edit_repository.dart';
 import '../domain/resume_safe_fields.dart';
 import 'cubit/resume_cubit.dart';
-import 'resume_photo_header.dart';
+import 'widgets/resume_action_row.dart';
+import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
+import 'widgets/resume_profile_card.dart';
 import 'widgets/resume_sections.dart';
 
-/// The shared resume-tab header — title + the Bada Bhai chat entry point — used
-/// on the loading / no-profile / failed states. The ready state replaces it with
-/// the kit-06 deep-blue status header.
-const BbAppBar _resumeAppBar = BbAppBar(
-  title: 'Your resume',
-  // Bell = the relocated Alerts entry point (notifications lost their bottom-nav
-  // tab in the kit's 4-tab set). Sits alongside the Bada Bhai chat action.
-  actions: <Widget>[BbAlertsAction(), BbChatAction()],
-);
+/// The Resume tab's navy header (spec §4), shared by ALL FIVE states so the
+/// chrome never moves while the resume loads, fails or arrives.
+///
+/// Bell + Feedback, and nothing else. The chat action that used to sit here
+/// opened the onboarding profiling chat, which is not what a yellow chat
+/// bubble means in spec §4 — there it means FEEDBACK, and the Bada Bhai tab is
+/// where a worker goes to talk to the bot (ruling R2).
+class _ResumeTabHeader extends StatelessWidget {
+  const _ResumeTabHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const KitTabHeader(
+      // KEEP THIS LITERAL: it is the shell landmark the routing and journey
+      // tests wait on to know the worker reached the Resume tab.
+      title: 'Your resume',
+      actions: <Widget>[
+        // The relocated Alerts entry point (notifications lost their bottom-nav
+        // tab in the kit's 4-tab set), white on the navy band. It carries the
+        // reactive unread badge.
+        BbAlertsAction(color: OnboardingColors.textOnBlue),
+        KitFeedbackAction(),
+      ],
+    );
+  }
+}
 
 class ResumePreviewScreen extends StatelessWidget {
   const ResumePreviewScreen({super.key, this.initialResume});
@@ -78,12 +99,13 @@ class _ResumeView extends StatefulWidget {
 
 class _ResumeViewState extends State<_ResumeView> {
   /// Bumped every time the worker returns from the edit screen, and used as the
-  /// [ResumePhotoHeader]'s key so a NEW State is built and the photo re-fetched.
+  /// [ResumeProfileCard]'s key so a NEW State is built and the photo + name
+  /// re-fetched.
   ///
-  /// The header loads only in initState, so without this a photo the worker just
-  /// added/removed never appeared on return — the preview kept showing the photo
+  /// The card loads only in initState, so without this a photo the worker just
+  /// added/removed never appeared on return — the preview kept showing the
   /// state from when the screen first mounted. Keyed rather than lifting the
-  /// photo into ResumeCubit: the header is deliberately self-contained and
+  /// photo into ResumeCubit: the card is deliberately self-contained and
   /// fail-silent (the photo is garnish; it must never cost the worker their
   /// resume text), and a key keeps that property.
   int _photoNonce = 0;
@@ -94,7 +116,7 @@ class _ResumeViewState extends State<_ResumeView> {
   /// worker's 5 daily generates and bin the rendered PDF.
   void _onEditReturned(bool nameChanged) {
     if (!mounted) return;
-    // Bump the nonce so the header re-fetches the (possibly new) name + photo from
+    // Bump the nonce so the card re-fetches the (possibly new) name + photo from
     // the live resume-fields — the displayed name is NOT baked into the resume text.
     setState(() => _photoNonce++);
     // Reflect a night-shift toggle IMMEDIATELY. Use refreshNightShift(), NOT
@@ -110,9 +132,9 @@ class _ResumeViewState extends State<_ResumeView> {
   /// The Resume tab came back into view. Refetch the resume text AND the photo
   /// strip. The photo can be changed from the PROFILE tab (ADR-0032 B1-B3 — one
   /// photo flow, reachable from Profile too), so on returning here we must
-  /// re-fetch it; without bumping [_photoNonce] the header — which loads only in
+  /// re-fetch it; without bumping [_photoNonce] the card — which loads only in
   /// initState — kept showing mount-time state until the worker opened and
-  /// backed out of the editor. Bumping the nonce rebuilds a fresh header that
+  /// backed out of the editor. Bumping the nonce rebuilds a fresh card that
   /// re-fetches. refresh() (not generate) for the text, for the reason below.
   void _onTabFocused() {
     if (!mounted) return;
@@ -135,207 +157,149 @@ class _ResumeViewState extends State<_ResumeView> {
       onFocused: _onTabFocused,
       child: BlocBuilder<ResumeCubit, ResumeState>(
         builder: (BuildContext context, ResumeState state) {
-          return switch (state.status) {
-            // Bare centered spinners are banned — use the shared status surface
-            // under the same 'Your resume' chrome.
-            ResumeStatus.loading => const BbScaffold(
-                appBar: _resumeAppBar,
-                body: BbStatusView.loading(),
-              ),
-            ResumeStatus.noProfile => BbScaffold(
-                appBar: _resumeAppBar,
-                body: _buildNoProfile(context),
-              ),
-            ResumeStatus.failed => BbScaffold(
-                appBar: _resumeAppBar,
-                body: _buildFailed(context),
-              ),
-            // A fresh generate/handoff whose structured document is still
-            // being fetched (see ResumeState.awaitingDocument's own doc) — a
-            // loader, NEVER the resumeText fallback, so a form-first
-            // worker's thin narrative never flashes on screen only to be
-            // replaced a moment later by the real trade-sheet content.
-            ResumeStatus.ready when state.awaitingDocument => const BbScaffold(
-                appBar: _resumeAppBar,
-                body: BbStatusView.loading(
-                  caption: 'Resume taiyaar ho raha hai…',
-                ),
-              ),
-            // Kit 06 "Resume ready": a deep-blue status header over the resume
-            // artifact card and its download / WhatsApp / edit actions.
-            ResumeStatus.ready => _buildReady(
-                context,
-                state.resumeText,
-                state.nightShiftReady,
-                state.document,
-              ),
-          };
+          final bool showBanner =
+              state.status == ResumeStatus.ready && !state.awaitingDocument;
+          return Scaffold(
+            backgroundColor: OnboardingColors.canvasBg,
+            body: Column(
+              children: <Widget>[
+                const _ResumeTabHeader(),
+                if (showBanner) _banner(state),
+                Expanded(child: _body(context, state)),
+              ],
+            ),
+          );
         },
       ),
     );
   }
 
-  /// Kit 06 — the ready screen. The 'Your resume' chrome is retained (it is the
-  /// shell landmark and carries the Bada Bhai chat action); directly beneath it a
-  /// full-width deep-blue "Resume taiyaar!" banner leads into the artifact card
-  /// and its download / WhatsApp / edit actions.
-  Widget _buildReady(
-    BuildContext context,
-    String resumeText,
-    bool nightShiftReady,
-    ResumeDocument? document,
-  ) {
-    return BbScaffold(
-      appBar: _resumeAppBar,
-      padded: false,
-      body: Column(
-        children: <Widget>[
-          _blueBanner(),
-          Expanded(
-            child: _resumeList(context, resumeText, nightShiftReady, document),
-          ),
-        ],
-      ),
+  /// The navy status strip under the header (spec §4).
+  ///
+  /// THE PILL IS THE PDF's REAL STATE, not "there is resume text" (ruling R6).
+  /// A worker whose render is still pending now sees the title with NO READY
+  /// badge, instead of a green success mark followed by "PDF taiyaar ho rahi
+  /// hai…" the moment they tap Download.
+  Widget _banner(ResumeState state) {
+    return KitStatusBanner(
+      title: 'Resume taiyaar',
+      pillLabel: state.pdfRendered ? 'READY' : null,
+      subline: 'Bilkul free · share-ready',
+      // #1058 — the green "stamp" seal lands once, on the transition INTO the
+      // ready state (this banner only mounts when the resume is ready). It is
+      // keyless so a background refresh/tab-refocus rebuild keeps the same
+      // State and never replays the animation.
+      trailing: const BbSuccessStamp(size: 32),
     );
   }
 
-  /// The full-width deep-blue "Resume taiyaar!" status banner — the celebratory
-  /// strip (haldi headline on blue) that sits directly under the app bar.
-  Widget _blueBanner() {
-    return Container(
-      width: double.infinity,
-      color: AppColors.blue,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s4,
-        AppSpacing.gutter,
-        AppSpacing.s4,
-      ),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  'Resume taiyaar ✓',
-                  style: AppTypography.display(
-                    size: AppTypography.sizeLg,
-                    weight: FontWeight.w800,
-                    color: AppColors.haldi,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.s1 / 2),
-                Text(
-                  'Bilkul free · share-ready',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.onBlueMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.s3),
-          // #1058 — the green "stamp" seal lands once, on the transition INTO the
-          // ready state (this banner only mounts when the resume is ready). It is
-          // keyless so a background refresh/tab-refocus rebuild keeps the same
-          // State and never replays the animation.
-          const BbSuccessStamp(size: 44),
-        ],
-      ),
-    );
+  Widget _body(BuildContext context, ResumeState state) {
+    return switch (state.status) {
+      // Bare centered spinners are banned — use the shared status surface
+      // under the same 'Your resume' chrome.
+      ResumeStatus.loading => const BbStatusView.loading(),
+      ResumeStatus.noProfile => _buildNoProfile(context),
+      ResumeStatus.failed => _buildFailed(context),
+      // A fresh generate/handoff whose structured document is still being
+      // fetched (see ResumeState.awaitingDocument's own doc) — a loader,
+      // NEVER the resumeText fallback, so a form-first worker's thin
+      // narrative never flashes on screen only to be replaced a moment later
+      // by the real trade-sheet content.
+      ResumeStatus.ready when state.awaitingDocument =>
+        const BbStatusView.loading(caption: 'Resume taiyaar ho raha hai…'),
+      ResumeStatus.ready => _resumeList(context, state),
+    };
   }
 
-  /// The scrollable body: the resume artifact card, the three actions, then the
-  /// muted "aap control karte ho" note.
-  Widget _resumeList(
-    BuildContext context,
-    String resumeText,
-    bool nightShiftReady,
-    ResumeDocument? document,
-  ) {
+  /// The scrollable card stack (spec §4): the profile card, the trade cards,
+  /// then the correction affordance and the control note.
+  Widget _resumeList(BuildContext context, ResumeState state) {
+    final ResumeDocument? document = state.document;
+    final String resumeText = state.resumeText;
+
     // Presentation-only transform: the resume body is a deterministic
     // `Label: value` template (ADR-0013), so it is re-structured into the
     // design's grouped sections WITHOUT re-fetching or inventing any data — the
     // same real, per-worker text, laid out instead of dumped as one block. Ids
     // are resolved to display names first (defensive; the server already does).
-    //
-    // ALWAYS parsed, even on the #1343 structured-document path below: this is
-    // still the only source for [ParsedResume.isDraft] (the "WORKER PROFILE
-    // (DRAFT)" banner), which [ResumeDocument] does not carry.
     final ParsedResume parsed = parseResumeText(
       replaceTaxonomyIds(resumeText),
-      nightShiftReady: nightShiftReady,
+      nightShiftReady: state.nightShiftReady,
     );
 
-    // #1343 — SWITCH ON FORMAT, NEVER ON `trade`: [ResumeDocument.fromJson]
-    // already dispatched the wire's `format` string into ONE OF TWO Dart
-    // types, so testing the type here (never a `trade` value) is that same
-    // switch. Only `trade_sheet` gets the new structured renderer — it is the
-    // one layout `resume_text` cannot represent at all (zoned rows, not
-    // `Label: value` lines). `document == null` (no structured projection
-    // yet) AND `format: "generic"` both fall through to the SAME, UNCHANGED
-    // text-parsing render below: a non-CNC worker's tab must read exactly as
-    // it did before this landed (#1343 acceptance).
-    final Widget resumeBody = document is TradeSheetResumeDocument
-        ? ResumeDocumentView(document: document)
-        : _legacyResumeBody(resumeText, parsed, nightShiftReady);
+    // The profile card's own facts come from whichever shape exists — the
+    // trade sheet's server-composed masthead, a generic document's flat
+    // fields, or the parsed text. See resolveProfileFacts.
+    final ResumeProfileFacts facts = resolveProfileFacts(
+      document: document,
+      parsed: parsed,
+    );
+
+    // #1525 — SWITCH ON THE PROFILE ROAD WHEN THE SERVER KNOWS IT, THEN (only
+    // for a form or unknown road) ON FORMAT, NEVER ON `trade`.
+    //
+    // `source` is the road that produced the profile, not the layout: a
+    // chat-road worker whose trade has an authored sheet is still sent
+    // `format: "trade_sheet"`, so keying on the format alone would render them
+    // as a form-road sheet that they never filled. The chat road gets its own
+    // type and NEVER the trade-sheet cards (see [ChatResumeView]).
+    //
+    // `form` AND null (unknown: old server / pre-migration row) keep EXACTLY
+    // today's layout-by-format behaviour, byte for byte (#1525 acceptance):
+    // [ResumeDocument.fromJson] already dispatched the wire's `format` string
+    // into ONE OF TWO Dart types, so testing the type here is that same switch.
+    // Only `trade_sheet` gets the structured card renderer — it is the one
+    // layout `resume_text` cannot represent at all (zoned rows, not
+    // `Label: value` lines) — while `document == null` (no structured
+    // projection yet) and `format: "generic"` both fall through to the SAME
+    // text-parsing render, so a non-CNC worker's tab reads as it always did.
+    final Widget legacyBody = _legacyResumeBody(
+      resumeText,
+      parsed,
+      state.nightShiftReady,
+    );
+    final Widget resumeBody = switch (resumeRoadOf(document)) {
+      ResumeRoad.chat => ChatResumeView(child: legacyBody),
+      ResumeRoad.form || ResumeRoad.unknown =>
+        document is TradeSheetResumeDocument
+            ? ResumeDocumentView(document: document)
+            : legacyBody,
+    };
+
+    final double width = MediaQuery.sizeOf(context).width;
+    final EdgeInsets side = KitInsets.list(width);
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.s3,
-        AppSpacing.s4,
-        AppSpacing.s3,
-        AppSpacing.s6,
-      ),
+      // KitInsets keeps the scrollbar at the SCREEN edge while the content
+      // column centres and stops at 600 on a tablet (R13).
+      padding: EdgeInsets.fromLTRB(side.left, 14, side.right, 28),
       children: <Widget>[
-        // The resume artifact card, marked by a 4px HALDI TOP RAIL. Flat — the
-        // card theme's hairline border separates it, never a shadow; clipped so
-        // the rail follows the card's rounded top corners.
-        Card(
-          // Flat card (JUL31 system): the card theme's 1px hairline border — not a
-          // shadow — separates the resume from the paper background. Clipped so the
-          // haldi top-rail follows the card's rounded top corners.
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Container(height: AppSpacing.s1, color: AppColors.haldi),
-              // ADR-0032: the worker's OWN photo + name + WORKER PROFILE (DRAFT)
-              // header. Self-contained + fail-silent (the photo/name are garnish
-              // and never fabricated). Keyed on the edit-return nonce so a photo
-              // the worker just added/removed is re-fetched instead of showing
-              // mount-time state; `isDraft` comes from the parsed resume text.
-              ResumePhotoHeader(
-                key: ValueKey<int>(_photoNonce),
-                isDraft: parsed.isDraft,
-              ),
-              const Divider(height: 1, color: AppColors.divider),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.s5),
-                child: resumeBody,
-              ),
-            ],
+        ResumeProfileCard(
+          key: ValueKey<int>(_photoNonce),
+          facts: facts,
+          profileConfirmed: state.profileConfirmed,
+          onEditReturned: _onEditReturned,
+          // Download the PDF (GET /resume/:id/download — real, worker-authed)
+          // as a deep-blue commitment, and SHARE that PDF in green (#336).
+          actions: const ResumeActionRow(
+            share: ResumeShareButton(),
+            download: _DownloadResumeButton(),
           ),
         ),
-        const SizedBox(height: AppSpacing.s3),
-        // Download the PDF (GET /resume/:id/download — real, worker-authed) as a
-        // deep-blue commitment, SHARE that PDF to WhatsApp in green (#336), and
-        // the safe-field edit entry-point — the only route to ResumeEditScreen.
-        const _DownloadResumeButton(),
-        const SizedBox(height: AppSpacing.s2),
-        const ResumeShareButton(),
-        const SizedBox(height: AppSpacing.s2),
-        _EditResumeButton(onReturned: _onEditReturned),
-        const SizedBox(height: AppSpacing.s4),
+        const SizedBox(height: kResumeCardGap),
+        resumeBody,
+        const SizedBox(height: kResumeCardGap),
+        const _ReportCorrectionButton(),
+        const SizedBox(height: 10),
+        const _ReviewExtractedButton(),
+        const SizedBox(height: 16),
         Center(
           child: Text(
             'Naam / photo / phone aap control karte hain',
             textAlign: TextAlign.center,
-            style: AppTypography.body(
-              size: AppTypography.size2xs,
-              color: AppColors.textMuted,
+            style: OnboardingTypography.inter(
+              size: 11,
+              color: OnboardingColors.ink500,
             ),
           ),
         ),
@@ -343,32 +307,34 @@ class _ResumeViewState extends State<_ResumeView> {
     );
   }
 
-  /// The ORIGINAL, UNCHANGED resume body: sections when the text parses as the
-  /// deterministic template, otherwise the raw text so an unexpected shape is
-  /// shown in full rather than as a blank card (nothing is lost). Used for
-  /// `document == null` AND `format: "generic"` alike (#1343) — see the switch
-  /// at the [_resumeList] call site.
+  /// The legacy body: sections when the text parses as the deterministic
+  /// template, otherwise the raw text so an unexpected shape is shown in full
+  /// rather than as a blank card (nothing is lost). Used for `document == null`
+  /// AND `format: "generic"` alike (#1343) — see the switch at the
+  /// [_resumeList] call site.
   Widget _legacyResumeBody(
     String resumeText,
     ParsedResume parsed,
     bool nightShiftReady,
   ) {
     if (parsed.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            replaceTaxonomyIds(resumeText),
-            style: AppTypography.body(size: AppTypography.sizeMd),
-          ),
-          // Night-shift readiness is a worker PREF carried OUTSIDE the resume
-          // text (workers.resumeNightShiftReady), so it must show even when the
-          // body falls back to raw prose — never dropped just because the text
-          // did not parse into sections. In the template path it lives in the
-          // Location section; here it stands on its own so it is NEVER lost.
-          const SizedBox(height: AppSpacing.s4),
-          _nightShiftRow(nightShiftReady),
-        ],
+      return KitCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              replaceTaxonomyIds(resumeText),
+              style: OnboardingTypography.inter(size: 13, height: 1.45),
+            ),
+            // Night-shift readiness is a worker PREF carried OUTSIDE the resume
+            // text (workers.resumeNightShiftReady), so it must show even when the
+            // body falls back to raw prose — never dropped just because the text
+            // did not parse into sections. In the template path it lives in the
+            // Location section; here it stands on its own so it is NEVER lost.
+            const SizedBox(height: 16),
+            _nightShiftRow(nightShiftReady),
+          ],
+        ),
       );
     }
     return ResumeSectionsView(parsed: parsed);
@@ -384,17 +350,18 @@ class _ResumeViewState extends State<_ResumeView> {
         children: <InlineSpan>[
           TextSpan(
             text: '$kNightShiftLabel: ',
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textSecondary,
+            style: OnboardingTypography.inter(
+              size: 13,
+              height: 1.45,
+              color: OnboardingColors.ink600,
             ),
           ),
           TextSpan(
             text: ready ? 'Yes' : 'No',
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
+            style: OnboardingTypography.inter(
+              size: 13,
               weight: FontWeight.w700,
-              color: AppColors.textPrimary,
+              height: 1.45,
             ),
           ),
         ],
@@ -405,98 +372,105 @@ class _ResumeViewState extends State<_ResumeView> {
   /// Worker has no profile yet — nothing to build a resume from. Guide them to
   /// finish profiling rather than showing a network error.
   Widget _buildNoProfile(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.badge_outlined,
-                size: 48, color: AppColors.textMuted),
-            const SizedBox(height: AppSpacing.s4),
-            Text('Abhi resume nahi ban sakta.',
-                textAlign: TextAlign.center,
-                style: AppTypography.display(size: AppTypography.sizeMd)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(
-                'Pehle apna profile poora karein — fir resume apne aap ban jayega.',
-                textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary)),
-            const SizedBox(height: AppSpacing.s6),
-            BbButton(
-              label: 'Profile poora karein',
-              iconLeft: Icons.arrow_forward_rounded,
-              onPressed: () => context.go(Routes.consent),
-            ),
-          ],
-        ),
+    return BbStatusView(
+      icon: Icons.badge_outlined,
+      title: 'Abhi resume nahi ban sakta.',
+      subtitle:
+          'Pehle apna profile poora karein — fir resume apne aap ban jayega.',
+      action: BbButton(
+        label: 'Profile poora karein',
+        iconLeft: Icons.arrow_forward_rounded,
+        onPressed: () => context.go(Routes.consent),
       ),
     );
   }
 
   Widget _buildFailed(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(Icons.cloud_off_rounded,
-              size: 48, color: AppColors.textMuted),
-          const SizedBox(height: AppSpacing.s4),
-          Text('Resume abhi ban nahi paya.',
-              textAlign: TextAlign.center,
-              style: AppTypography.display(size: AppTypography.sizeMd)),
-          const SizedBox(height: AppSpacing.s2),
-          Text('Thodi der baad dobara try karein.',
-              textAlign: TextAlign.center,
-              style: AppTypography.body(color: AppColors.textSecondary)),
-          const SizedBox(height: AppSpacing.s6),
-          BbButton(
-            label: 'Try again',
-            iconLeft: Icons.refresh_rounded,
-            onPressed: context.read<ResumeCubit>().generate,
-          ),
-        ],
+    return BbStatusView(
+      icon: Icons.cloud_off_rounded,
+      title: 'Resume abhi ban nahi paya.',
+      subtitle: 'Thodi der baad dobara try karein.',
+      action: BbButton(
+        label: 'Try again',
+        iconLeft: Icons.refresh_rounded,
+        onPressed: context.read<ResumeCubit>().generate,
       ),
     );
   }
 }
 
-/// "Download PDF" CTA. Resolves a short-lived signed url via the cubit and
-/// downloads the PDF IN-APP into the device's Downloads — the worker stays on
-/// this screen (started/complete SnackBars, "Kholein" opens the saved file).
-/// The button stays busy (disabled) for the WHOLE download so a double-tap
-/// can't produce double files. The url is fetched in memory, never logged.
-/// "Edit resume" — opens the safe-field editor and, when the worker actually
-/// CHANGED THEIR NAME, regenerates the resume on return.
+/// Spec §4's last row — the worker's way to say a line on their own resume is
+/// wrong.
 ///
-/// The name is baked into the resume at generation time, so a PATCHed name was
-/// invisible here: the editor popped a bare `null` and the preview kept showing
-/// the old text (and downloaded a PDF titled with the old name, #398).
-/// Regenerating rebuilds the text AND — because a generate resets the row to
-/// render_status 'pending' server-side — re-enqueues the PDF render.
-///
-/// Gated on `changed == true` deliberately: an unconditional regenerate would
-/// spend one of the worker's 5 daily generates and bin the rendered PDF on every
-/// prefs-only save.
-class _EditResumeButton extends StatelessWidget {
-  const _EditResumeButton({required this.onReturned});
-
-  /// Called when the editor pops, with TRUE when the worker's NAME changed.
-  final ValueChanged<bool> onReturned;
+/// 'Report correction' only, not the spec's 'Report Correction or Add
+/// Certificate': there is no certificate upload anywhere in the app and no
+/// endpoint behind one (backend gap B9), so half that button would have been a
+/// promise with nothing behind it. It goes to the real feedback screen,
+/// carrying the route the worker was on.
+class _ReportCorrectionButton extends StatelessWidget {
+  const _ReportCorrectionButton();
 
   @override
   Widget build(BuildContext context) {
-    return BbButton(
-      label: 'Edit resume',
-      block: true,
-      variant: BbButtonVariant.ghost,
-      iconLeft: Icons.edit_outlined,
-      onPressed: () async {
-        // The editor pops `true` only when the name actually changed; a
-        // dismissed screen pops null.
-        final bool? changed = await context.push<bool>(Routes.resumeEdit);
-        onReturned(changed == true);
-      },
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        // Spec draws h46; the worker touch floor is 48 and it wins.
+        minimumSize: const Size(double.infinity, OnboardingLayout.tapTarget),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(OnboardingRadii.docked),
+        ),
+        side: const BorderSide(color: OnboardingColors.borderDefault),
+        backgroundColor: OnboardingColors.paperWhite,
+        foregroundColor: OnboardingColors.ink600,
+        textStyle: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w600,
+        ),
+      ),
+      onPressed: () => context.pushOnce(Routes.feedback, extra: Routes.resume),
+      icon: const Icon(Icons.report_problem_outlined, size: 16),
+      // maxLines 2: an `OutlinedButton.icon` label single-line-ellipsises by
+      // default, and at a large system font this one did not fit the card
+      // width beside its glyph.
+      label: const Text(
+        'Report correction',
+        maxLines: 2,
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+/// The extracted-profile review surface (#1595, §8.4): what the interview
+/// heard, with a correction affordance per writable field. Sits beside
+/// 'Report correction' (which is the free-text feedback door); this one is
+/// the structured door — bounded fields, audited writes, re-read values.
+class _ReviewExtractedButton extends StatelessWidget {
+  const _ReviewExtractedButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, OnboardingLayout.tapTarget),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(OnboardingRadii.docked),
+        ),
+        side: const BorderSide(color: OnboardingColors.borderDefault),
+        backgroundColor: OnboardingColors.paperWhite,
+        foregroundColor: OnboardingColors.ink600,
+        textStyle: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w600,
+        ),
+      ),
+      onPressed: () => context.pushOnce(Routes.extractedReview),
+      icon: const Icon(Icons.fact_check_outlined, size: 16),
+      label: const Text(
+        'Profile review karein',
+        maxLines: 2,
+        textAlign: TextAlign.center,
+      ),
     );
   }
 }
@@ -537,8 +511,8 @@ const String kResumePreparingLabel = 'PDF taiyaar ho rahi hai…';
 /// Downloads folder does.
 Future<String> _loadResumeFileName() async {
   try {
-    final ResumeSafeFields fields =
-        await locator<ResumeEditRepository>().load();
+    final ResumeSafeFields fields = await locator<ResumeEditRepository>()
+        .load();
     return resumeDownloadFileName(fields.displayName);
   } catch (_) {
     return kFallbackResumeFileName;
@@ -594,6 +568,11 @@ Future<String?> resolveSignedResumeUrl(
   return null; // unreachable: the last attempt either returns or rethrows.
 }
 
+/// "PDF download karein" — resolves a short-lived signed url via the cubit and
+/// downloads the PDF IN-APP into the device's Downloads, so the worker stays on
+/// this screen (started/complete SnackBars, "Kholein" opens the saved file).
+/// The button stays busy (disabled) for the WHOLE download so a double-tap
+/// can't produce double files. The url is fetched in memory, never logged.
 class _DownloadResumeButton extends StatefulWidget {
   const _DownloadResumeButton();
 
@@ -670,10 +649,13 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
       // silent spinner.
       label: _preparing ? kResumePreparingLabel : 'PDF download karein',
       block: true,
-      // Kit 06: navy download (deep-blue commitment) + green WhatsApp. There is
-      // NO haldi button on this screen by design — haldi lives in the banner
-      // headline and the artifact card's top rail, not on a CTA here.
+      // Same as the share button: wrap rather than truncate the worker's action.
+      allowMultilineLabel: true,
+      // Spec §4: navy download (deep-blue commitment) + green WhatsApp. There
+      // is NO yellow button on this screen by design — yellow lives on the
+      // banner headline, not on a CTA here.
       variant: BbButtonVariant.navy,
+      size: BbButtonSize.md,
       iconLeft: Icons.download_rounded,
       loading: _loading,
       onPressed: _loading ? null : _download,
@@ -710,11 +692,12 @@ const String kResumeShareText =
 /// Returns the platform [ShareResult] so the caller can report `resume.shared`
 /// with the chosen channel ONLY on a real, completed share (#1317) — a
 /// dismissed sheet reports nothing.
-typedef ResumeShareFn = Future<ShareResult> Function({
-  required Uint8List bytes,
-  required String fileName,
-  required String text,
-});
+typedef ResumeShareFn =
+    Future<ShareResult> Function({
+      required Uint8List bytes,
+      required String fileName,
+      required String text,
+    });
 
 /// Production [ResumeShareFn] — the system share sheet with the PDF attached.
 Future<ShareResult> _shareResumeFile({
@@ -752,14 +735,15 @@ Future<ShareResult> _shareResumeFile({
 /// manages, and the OS reclaims that).
 Future<Uint8List> _fetchResumePdfBytes(http.Client client, Uri uri) {
   return retryTransient(() async {
-    final http.Response res =
-        await client.get(uri).timeout(kPdfDownloadTimeout);
+    final http.Response res = await client
+        .get(uri)
+        .timeout(kPdfDownloadTimeout);
     if (res.statusCode != 200) throw ServerFailure(res.statusCode);
     return res.bodyBytes;
   });
 }
 
-/// "WhatsApp par bhejein" — shares the resume as an attached PDF (#336).
+/// "WhatsApp pe bhejein" — shares the resume as an attached PDF (#336).
 ///
 /// The build-kit parity item that was never built: the worker could save their
 /// PDF to Downloads but had no way to actually SEND it to the factory owner who
@@ -767,6 +751,10 @@ Future<Uint8List> _fetchResumePdfBytes(http.Client client, Uri uri) {
 /// is used rather than a `wa.me` deep link — a deep link can only carry text (so
 /// it could only carry the url, see below), and the sheet puts WhatsApp first on
 /// virtually every worker's phone while still working when it is not installed.
+///
+/// The glyph stays [Icons.share_rounded] rather than the spec's chat bubble:
+/// this opens the SYSTEM SHEET, not WhatsApp, and in spec §4 the yellow chat
+/// bubble in the header already means Feedback — one glyph, one meaning.
 ///
 /// SECURITY — SHARE THE FILE, NEVER THE URL (#354). DO NOT "SIMPLIFY" THIS.
 /// The url minted by GET /resume/:id/download is a SIGNED, time-limited
@@ -820,7 +808,8 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
     messenger
       ..clearSnackBars()
       ..showSnackBar(
-          const SnackBar(content: Text(kResumeSharePreparingNotice)));
+        const SnackBar(content: Text(kResumeSharePreparingNotice)),
+      );
 
     // Resolved at tap time rather than prefetched on mount the way the download
     // button does it: a second load() per mount would double this screen's
@@ -831,8 +820,10 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
 
     String? reason; // the actual failure to surface, or null on success
     try {
-      final String? url =
-          await resolveSignedResumeUrl(cubit, onPreparing: _markPreparing);
+      final String? url = await resolveSignedResumeUrl(
+        cubit,
+        onPreparing: _markPreparing,
+      );
       final Uri? uri = (url == null || url.isEmpty) ? null : Uri.tryParse(url);
       if (uri == null) {
         // Minted, but no usable url came back.
@@ -903,8 +894,9 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
   /// repository swallows any failure AND the future is caught here, so a lost
   /// report can never fail the share the worker already made.
   void _reportShared(ResumeCubit cubit, String rawTarget) {
-    final String channel =
-        rawTarget.toLowerCase().contains('whatsapp') ? 'whatsapp' : 'other';
+    final String channel = rawTarget.toLowerCase().contains('whatsapp')
+        ? 'whatsapp'
+        : 'other';
     unawaited(cubit.reportShared(channel).catchError((Object _) {}));
   }
 
@@ -915,7 +907,13 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
       // renders — waiting on a render is not an error.
       label: _preparing ? kResumePreparingLabel : kResumeShareLabel,
       block: true,
+      // 'WhatsApp pe bhejein' does not fit one line of a full-width button at a
+      // large system font, and it read as 'WhatsApp p…'. The stacked-button row
+      // above already gives it the full card width, so the only thing missing
+      // was permission to use a second line.
+      allowMultilineLabel: true,
       variant: BbButtonVariant.success,
+      size: BbButtonSize.md,
       iconLeft: Icons.share_rounded,
       loading: _loading,
       // Busy for the WHOLE share so a double-tap can't open two sheets.

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/worker-app/lib/**",
+        "$TURBO_ROOT$/apps/admin-web/src/lib/**",
+        "$TURBO_ROOT$/packages/config/src/**",
+        "$TURBO_ROOT$/packages/db/data/question-packs/**",
+        "$TURBO_ROOT$/apps/ai-service/app/**",
+        "$TURBO_ROOT$/apps/ai-service/.env.staging.example",
+        "$TURBO_ROOT$/scripts/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/docker-compose.yml",
+        "$TURBO_ROOT$/docker-compose.staging.yml",
+        "$TURBO_ROOT$/docker-compose.e2e.yml",
+        "$TURBO_ROOT$/pnpm-workspace.yaml",
+        "$TURBO_ROOT$/.npmrc",
+        "$TURBO_ROOT$/package.json",
+        "$TURBO_ROOT$/turbo.json"
+      ]
+    }
+  }
+}

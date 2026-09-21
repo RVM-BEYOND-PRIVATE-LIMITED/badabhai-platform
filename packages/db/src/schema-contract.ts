@@ -83,7 +83,8 @@ const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: str
   },
   {
     table: "agency_payout_accruals",
-    holds: "the commission accrual ledger — ₹ amounts and opaque ids, of which source_unlock_id is one hop from a worker",
+    holds:
+      "the commission accrual ledger — ₹ amounts and opaque ids, of which source_unlock_id is one hop from a worker",
   },
   {
     table: "agency_payout_requests",
@@ -130,21 +131,23 @@ export const R39_TABLES: readonly R39Table[] = [
   { table: "payer_member_invites", cls: "declared-by-0084" },
 ];
 
-const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(({ table, holds }) => ({
-  id: `0082-${table.replace(/_/g, "-")}-rls`,
-  migration: "0082_rls_lock_seven_tables",
-  kind: "rls" as const,
-  table,
-  requiredBy:
-    "no code path — this is the platform-wide table-DEFAULT lock (TD20). 0048 declares it for " +
-    "this table and its REVOKE tail never reached production, so the grant, not RLS, is what " +
-    "governs `service_role` here: that role has rolbypassrls = true, which means RLS does not " +
-    "apply to it at all and an open grant is an open table",
-  failureMode:
-    `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
-    "yet — the exposure begins with the first row written, and no surface degrades to announce " +
-    "it. Only db:audit:rls or this audit will ever say so",
-}));
+const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(
+  ({ table, holds }) => ({
+    id: `0082-${table.replace(/_/g, "-")}-rls`,
+    migration: "0082_rls_lock_seven_tables",
+    kind: "rls" as const,
+    table,
+    requiredBy:
+      "no code path — this is the platform-wide table-DEFAULT lock (TD20). 0048 declares it for " +
+      "this table and its REVOKE tail never reached production, so the grant, not RLS, is what " +
+      "governs `service_role` here: that role has rolbypassrls = true, which means RLS does not " +
+      "apply to it at all and an open grant is an open table",
+    failureMode:
+      `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
+      "yet — the exposure begins with the first row written, and no surface degrades to announce " +
+      "it. Only db:audit:rls or this audit will ever say so",
+  }),
+);
 
 /**
  * The four GAP-DB-21 tables, now that `0084` creates them everywhere.
@@ -212,7 +215,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "column",
     table: "unresolved_phrase",
     object: "job_domain_id",
-    requiredBy: "SkillsRepository.recordUnresolved — named in the INSERT column list and the ON CONFLICT target, unconditionally",
+    requiredBy:
+      "SkillsRepository.recordUnresolved — named in the INSERT column list and the ON CONFLICT target, unconditionally",
     failureMode:
       "every unresolved write throws. POST /skills/unresolved and POST /occupation/unresolved return 500; the interview path catches and logs, so canonical growth signal is lost SILENTLY",
   },
@@ -222,7 +226,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "index",
     table: "unresolved_phrase",
     object: "unresolved_phrase_scope_uq",
-    requiredBy: "SkillsRepository.recordUnresolved — ON CONFLICT (scope, phrase, domain_id, job_domain_id, lang)",
+    requiredBy:
+      "SkillsRepository.recordUnresolved — ON CONFLICT (scope, phrase, domain_id, job_domain_id, lang)",
     failureMode:
       "with the old 4-column index the ON CONFLICT target does not match any index and the INSERT throws; if it were widened WITHOUT NULLS NOT DISTINCT, occupation-scope rows would stop deduping instead",
   },
@@ -232,7 +237,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "constraint",
     table: "unresolved_phrase",
     object: "unresolved_phrase_one_domain_chk",
-    requiredBy: "the at-most-one-vocabulary invariant; the repository also refuses pre-DB, so this is defence in depth",
+    requiredBy:
+      "the at-most-one-vocabulary invariant; the repository also refuses pre-DB, so this is defence in depth",
     failureMode:
       "a row carrying BOTH domain_id and job_domain_id becomes storable. Nothing throws; the row is simply meaningless to both retrieval paths",
   },
@@ -307,9 +313,308 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     kind: "column",
     table: "workers",
     object: "current_state",
-    requiredBy: "the same `workers` model column list as its city sibling — one migration adds both",
+    requiredBy:
+      "the same `workers` model column list as its city sibling — one migration adds both",
     failureMode:
       "identical to the city column and listed separately for the same reason 0081 is: the two are added by one migration but a database can be missing either, and the audit must name the object that is actually absent",
+  },
+  {
+    id: "0109-worker-whatsapp-enc-column",
+    migration: "0109_worker_whatsapp_enc",
+    kind: "column",
+    table: "workers",
+    object: "whatsapp_enc",
+    requiredBy:
+      "the `workers` drizzle model's full column list — WorkersRepository.findById and every other " +
+      "bare `select()` over the table unconditionally, and those sit under worker authentication " +
+      "itself. Also named by the WhatsApp self-read/write service (Layer A (a)) and the résumé " +
+      "render worker's own-copy decrypt",
+    failureMode:
+      "the same total-worker-outage shape as 0099's city columns: a bare `select()` compiles to " +
+      "every column the MODEL declares, so a database missing this one fails EVERY read of " +
+      "`workers` — WorkerAuthGuard, profile summary, résumé render, deletion — with " +
+      "`column workers.whatsapp_enc does not exist`. The WhatsApp endpoints themselves 500, but " +
+      "that is the smaller half of the blast radius",
+  },
+  {
+    id: "0110-worker-language-table",
+    migration: "0110_worker_language",
+    kind: "table",
+    table: "worker_language",
+    requiredBy:
+      "WorkerLanguagesRepository.loadForResume / .replaceForWorker on GET+PUT /workers/me/languages " +
+      "and the résumé render processor's language load — all name the table unconditionally, none " +
+      "is behind a flag. The render path degrades on failure (the row falls back to the `languages` " +
+      "attribute), so the PUT is the loud surface",
+    failureMode:
+      "PUT /workers/me/languages 500s (relation does not exist) and the languages row silently " +
+      "falls back to the older attribute list on every render. The fallback is CORRECT, which is " +
+      "why this is listed rather than left to be noticed: nothing looks broken, the richer fact " +
+      "is simply never stored",
+  },
+  {
+    id: "0110-worker-language-rls",
+    migration: "0110_worker_language",
+    kind: "rls",
+    table: "worker_language",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. These rows are a worker's own declared abilities for THIS platform's matching and " +
+      "résumé surfaces. Without FORCE the table owner — the only connection the backend uses — " +
+      "bypasses every policy, and without the REVOKEs every PostgREST role can read the worker " +
+      "base's language profile. Both surfaces keep working, so nothing reports it",
+  },
+  {
+    id: "0111-worker-attributes-value-json-column",
+    migration: "0111_worker_attributes_json",
+    kind: "column",
+    table: "worker_attributes",
+    object: "value_json",
+    requiredBy:
+      "WorkerAttributesRepository.upsertMany names every value column in its INSERT list and its " +
+      "ON CONFLICT SET (`excluded.value_json` included), and loadKeys/loadTradeSheet select it — " +
+      "all unconditional, none behind a flag",
+    failureMode:
+      'every attribute write fails with `column "value_json" does not exist` (42703 or 42P10 on ' +
+      "the conflict target) — the interview soak's flush and the trade form's submission included. " +
+      "The write path wraps most callers in try/catch, so the loud half is the trade form 500ing " +
+      "while the interview SILENTLY keeps 0 rows for the 77% of the corpus that is attribute-kind",
+  },
+  {
+    id: "0112-worker-training-table",
+    migration: "0112_worker_training_licence",
+    kind: "table",
+    table: "worker_training",
+    requiredBy:
+      "WorkerQualificationsRepository.replaceForWorker / .loadForResume on PUT+GET " +
+      "/workers/me/qualifications — both name the table unconditionally, neither is behind a flag",
+    failureMode:
+      "every qualifications save 500s (relation does not exist) and the trainings prefill comes " +
+      "back empty. The read degrades in the service, so the failure is one-sided: the worker " +
+      "cannot see or edit their trainings while the rest of the page still works",
+  },
+  {
+    id: "0112-worker-training-rls",
+    migration: "0112_worker_training_licence",
+    kind: "rls",
+    table: "worker_training",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. A worker's training history is a personal record; without FORCE the owner bypasses " +
+      "every policy and without the REVOKEs every PostgREST role can read it. Both surfaces keep " +
+      "working, so nothing reports it",
+  },
+  {
+    id: "0112-worker-certificate-licence-columns",
+    migration: "0112_worker_training_licence",
+    kind: "column",
+    table: "worker_certificate",
+    object: "licence_number_enc",
+    requiredBy:
+      "WorkerQualificationsRepository.replaceForWorker (INSERT/SET) and .loadForResume (SELECT) " +
+      "name the licence columns on PUT+GET /workers/me/qualifications, unconditionally",
+    failureMode:
+      "the qualifications save 500s and the worker-self GET omits the licence fields, so a worker " +
+      "who already entered a licence number appears never to have one. `licence_expiry` is added " +
+      "by the same migration and fails together",
+  },
+  {
+    id: "0113-worker-portfolio-table",
+    migration: "0113_worker_portfolio",
+    kind: "table",
+    table: "worker_portfolio",
+    requiredBy:
+      "WorkerPortfolioRepository on PUT+GET /workers/me/portfolio and the media mint route — the " +
+      "table is named unconditionally, not behind a flag (the bucket flag gates MINTING, not the " +
+      "row store)",
+    failureMode:
+      "every portfolio save 500s (relation does not exist) and the GET comes back empty. A worker " +
+      "sees their samples vanish; nothing else on the profile is affected",
+  },
+  {
+    id: "0113-worker-portfolio-rls",
+    migration: "0113_worker_portfolio",
+    kind: "rls",
+    table: "worker_portfolio",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. Storage keys and captions are a worker's personal record; without FORCE the owner " +
+      "bypasses every policy and without the REVOKEs every PostgREST role can read the whole " +
+      "portfolio base. Both surfaces keep working, so nothing reports it",
+  },
+  {
+    id: "0114-worker-occupation-table",
+    migration: "0114_worker_occupation",
+    kind: "table",
+    table: "worker_occupation",
+    requiredBy:
+      "WorkerOccupationsRepository on PUT+GET /workers/me/occupations AND " +
+      "WorkerSkillsRepository.findSecondaryRoleIds on every match rebuild — both name the table " +
+      "unconditionally, neither is behind a flag",
+    failureMode:
+      "the occupations save/list 500s (relation does not exist) and every skill rebuild throws " +
+      "for that worker. The rebuild is called from trade-form completion and the extraction " +
+      "processor through rebuildQuietly, so extraction survives — but the worker's derived " +
+      "supply silently stops tracking his declared secondary roles",
+  },
+  {
+    id: "0114-worker-occupation-rls",
+    migration: "0114_worker_occupation",
+    kind: "rls",
+    table: "worker_occupation",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. A worker's declared occupations are a personal record of what he says he can do; " +
+      "without FORCE the owner bypasses every policy and without the REVOKEs every PostgREST " +
+      "role can read the whole table. Both surfaces keep working, so nothing reports it",
+  },
+  {
+    id: "0115-worker-verification-columns",
+    migration: "0115_worker_verification",
+    kind: "column",
+    table: "workers",
+    object: "verification_state",
+    requiredBy:
+      "WorkersRepository.findById is `select()` = every model column, on the render path " +
+      "(resume-render.processor) AND the worker-auth path — both name the columns " +
+      "unconditionally. `verified_at` is added by the same migration and fails together",
+    failureMode:
+      "every worker read 500s (column does not exist): login, guard, profile summary, résumé " +
+      "render — the whole worker surface. Old builds on a migrated database are fine (a " +
+      "superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0116-job-postings-card-columns",
+    migration: "0116_job_postings_card_content",
+    kind: "column",
+    table: "job_postings",
+    object: "area",
+    requiredBy:
+      "MatchFeedRepository.listFeed, JobsRepository.searchOpenPostings and " +
+      "JobsRepository.findWorkerVisibleJobById name area/min/max_experience_years/" +
+      "benefits/requirements unconditionally on GET /feed, GET /jobs/search and the " +
+      "worker job-detail read (#1561). `max_experience_years`, `benefits` and " +
+      "`requirements` are added by the same migration and fail together",
+    failureMode:
+      "every job read 500s (column does not exist): feed, search and detail — the whole " +
+      "worker jobs surface. Old builds on a migrated database are fine (a superset); new " +
+      "builds on an unmigrated one are not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0117-profile-correction-table",
+    migration: "0117_profile_correction",
+    kind: "table",
+    table: "profile_correction",
+    requiredBy:
+      "ProfileCorrectionsRepository on POST /profile/corrections (count + insert, " +
+      "unconditional) — names the table on every extracted-profile correction",
+    failureMode:
+      "the corrections route 500s (relation does not exist). Old builds on a migrated " +
+      "database are fine (a superset); new builds on an unmigrated one are not, which " +
+      "is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0119-pack-answer-resume-source",
+    migration: "0119_pack_answer_resume_source",
+    kind: "constraint",
+    table: "worker_pack_answer",
+    object: "wpa_source_chk",
+    requiredBy:
+      "ResumeAutofillService writes applied answers with source 'resume' on the identity " +
+      "Haan (owner override B, 2026-09-20). Without the widened CHECK the first autofill " +
+      "write 500s on the constraint",
+    failureMode:
+      "autofill writes 500 (constraint violation) while the Haan turn reports success — " +
+      "the worker is told his résumé filled the form and nothing was stored. Old builds on " +
+      "a migrated database are fine (a superset); new builds on an unmigrated one are not, " +
+      "which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0120-relay-messages-table",
+    migration: "0120_fair_marauders",
+    kind: "table",
+    table: "relay_messages",
+    requiredBy:
+      "RelayRepository on the E0 relay routes (POST /payer/relay/:handle/messages, " +
+      "GET/POST /workers/me/relay-threads*) — every send, read and mark-read names the table",
+    failureMode:
+      "every relay route 500s (relation does not exist). Old builds on a migrated database " +
+      "are fine (a superset); new builds on an unmigrated one are not, which is why this is " +
+      "APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0120-relay-handle-index",
+    migration: "0120_fair_marauders",
+    kind: "index",
+    table: "unlock_routing",
+    object: "unlock_routing_relay_handle_uq",
+    requiredBy:
+      "UnlocksRepository.findRoutingByHandle on every relay send — the handle is the payer's " +
+      "only identifier. Without the index that read seq-scans `unlock_routing`",
+    failureMode:
+      "the relay still works but degrades as the table grows; the unique half is what keeps " +
+      "one candidate row per handle, which the resolution assumes",
+  },
+  {
+    id: "0120-relay-messages-rls",
+    migration: "0120_fair_marauders",
+    kind: "rls",
+    table: "relay_messages",
+    requiredBy:
+      "no code path — the platform-wide table-DEFAULT lock (TD20): FORCE RLS + REVOKE from " +
+      "PUBLIC/anon/authenticated/service_role, no policy. Only the API's BYPASSRLS connection " +
+      "may reach the rows",
+    failureMode:
+      "SILENT. relay_messages holds two-party message text; an open grant is an open table to " +
+      "the Data-API roles. Only db:audit:rls or this audit will ever say so",
+  },
+  {
+    id: "0118-resume-identity-columns",
+    migration: "0118_resume_identity_columns",
+    kind: "column",
+    table: "worker_resume_import",
+    object: "identity_role_kind",
+    requiredBy:
+      "ResumeImportRepository.saveIdentitySummary names identity_role_kind/" +
+      "identity_experience_text/identity_summary_text unconditionally when staging the " +
+      "RI-identity Hinglish line. `identity_experience_text` and `identity_summary_text` " +
+      "are added by the same migration and fail together",
+    failureMode:
+      "the résumé import job 500s on the summary stage (column does not exist). Old builds " +
+      "on a migrated database are fine (a superset); new builds on an unmigrated one are " +
+      "not, which is why this is APPLY-BEFORE-DEPLOY",
+  },
+  {
+    id: "0117-profile-correction-rls",
+    migration: "0117_profile_correction",
+    kind: "rls",
+    table: "profile_correction",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated",
+    failureMode:
+      "SILENT. A correction row links a worker's profile to the interview it was corrected " +
+      "against, with when and which field — correction linkage across the worker base, to " +
+      "every PostgREST role. Both surfaces keep working, so nothing reports it",
   },
   {
     id: "0084-ai-call-traces-table",
@@ -388,7 +693,10 @@ export function evaluateContract(
   requirements: readonly SchemaRequirement[],
   presence: PresenceMap,
 ): ContractResult[] {
-  return requirements.map((requirement) => ({ requirement, present: presence[requirement.id] === true }));
+  return requirements.map((requirement) => ({
+    requirement,
+    present: presence[requirement.id] === true,
+  }));
 }
 
 /**

@@ -129,11 +129,33 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<void> confirmProfile({
+  Future<String?> confirmProfile({
     required String authToken,
     required String profileId,
   }) async {
     await _delay();
+    // No road signal in mock mode: null keeps the caller on today's
+    // GET /profiling/form probe fallback, exactly as an older server would.
+    return null;
+  }
+
+  @override
+  Future<CorrectionsApplied> postProfileCorrections({
+    required String authToken,
+    required String profileId,
+    required String sessionId,
+    required List<ExtractedCorrection> corrections,
+  }) async {
+    // #1595 — canned acceptance so the review screen renders in mock mode:
+    // every entry applies, and the count ticks by the batch size. Cap and
+    // deferral states are cubit-level branches, covered by unit tests with a
+    // throwing double — the mock never needs to invent a 409.
+    await _delay();
+    return CorrectionsApplied(
+      profileId: profileId,
+      correctionsApplied: corrections.length,
+      correctionCount: corrections.length,
+    );
   }
 
   @override
@@ -1134,7 +1156,7 @@ class MockApiClient extends ApiClient {
 
   /// #1499 — DEFAULT FALSE, matching production reality exactly as
   /// [mockHasTradeForm] does: `RESUME_UPLOADS_BUCKET` is unset on every box
-  /// today, so every processing route answers 503 and the three-door screen's
+  /// today, so every processing route answers 503 and the résumé screen's
   /// REAL behaviour is the dormant one. Mock mode must show that by default,
   /// or the door nobody can open looks open in every dev build.
   ///

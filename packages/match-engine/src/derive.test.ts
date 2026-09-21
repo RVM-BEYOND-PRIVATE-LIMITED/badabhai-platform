@@ -25,7 +25,12 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
         canonicalRoleId: "role_cnc_turner_operator",
         // turning -> cnc_turner (same as the role), milling -> vmc_operator,
         // CMM + inspection -> quality_inspector (deduped to one row).
-        profileSkills: ["skill_turning", "skill_milling", "skill_cmm", "skill_dimensional_inspection"],
+        profileSkills: [
+          "skill_turning",
+          "skill_milling",
+          "skill_cmm",
+          "skill_dimensional_inspection",
+        ],
         totalYears: 3,
       },
       cfg,
@@ -51,11 +56,18 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
   it("returns [] when nothing implies a posting-level skill — never fabricates reach", () => {
     // GD&T and a micrometer make a man employable; they do not make him a vacancy.
     expect(
-      deriveWorkerSkills({ profileSkills: ["skill_gdt_reading", "skill_measuring_instruments"], totalYears: 10 }, cfg),
+      deriveWorkerSkills(
+        { profileSkills: ["skill_gdt_reading", "skill_measuring_instruments"], totalYears: 10 },
+        cfg,
+      ),
     ).toEqual([]);
     expect(deriveWorkerSkills({}, cfg)).toEqual([]);
-    expect(deriveWorkerSkills({ canonicalRoleId: null, profileSkills: [], totalYears: 5 }, cfg)).toEqual([]);
-    expect(deriveWorkerSkills({ canonicalRoleId: "role_does_not_exist", totalYears: 5 }, cfg)).toEqual([]);
+    expect(
+      deriveWorkerSkills({ canonicalRoleId: null, profileSkills: [], totalYears: 5 }, cfg),
+    ).toEqual([]);
+    expect(
+      deriveWorkerSkills({ canonicalRoleId: "role_does_not_exist", totalYears: 5 }, cfg),
+    ).toEqual([]);
   });
 
   it("carries the industry from the vocabulary, not from the caller", () => {
@@ -71,7 +83,10 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
   });
 
   it("unknown duration derives 0 months, not a guess", () => {
-    const rows = deriveWorkerSkills({ canonicalRoleId: "role_vmc_operator", totalYears: null }, cfg);
+    const rows = deriveWorkerSkills(
+      { canonicalRoleId: "role_vmc_operator", totalYears: null },
+      cfg,
+    );
     expect(rows[0]?.monthsBucketed).toBe(0);
   });
 
@@ -90,7 +105,10 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
 
   it("ignores non-string attribute entries instead of throwing", () => {
     const rows = deriveWorkerSkills(
-      { profileSkills: [null as unknown as string, 7 as unknown as string, "skill_turning"], totalYears: 1 },
+      {
+        profileSkills: [null as unknown as string, 7 as unknown as string, "skill_turning"],
+        totalYears: 1,
+      },
       cfg,
     );
     expect(rows.map((r) => r.skillId)).toEqual(["mskill_cnc_turner"]);
@@ -98,7 +116,44 @@ describe("deriveWorkerSkills — the COARSE launch rule", () => {
 
   it("honours a different month bucket from config", () => {
     const yearly = parseMatchConfig({ monthBucket: 12 });
-    const rows = deriveWorkerSkills({ canonicalRoleId: "role_vmc_operator", totalYears: 2.5 }, yearly);
+    const rows = deriveWorkerSkills(
+      { canonicalRoleId: "role_vmc_operator", totalYears: 2.5 },
+      yearly,
+    );
     expect(rows[0]?.monthsBucketed).toBe(24);
+  });
+
+  it("adds a DECLARED SECONDARY role through the same bridge (Layer A (f))", () => {
+    const rows = deriveWorkerSkills(
+      {
+        canonicalRoleId: "role_welder",
+        additionalRoleIds: ["role_plumber"],
+        totalYears: 3,
+      },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_mig_welder", "mskill_plumber"]);
+    // The coarse rule is not special-cased for secondaries: one bucketed total on every row.
+    for (const r of rows) expect(r.monthsBucketed).toBe(36);
+  });
+
+  it("secondary roles are a UNION — a duplicate of the primary adds nothing", () => {
+    const rows = deriveWorkerSkills(
+      {
+        canonicalRoleId: "role_plumber",
+        additionalRoleIds: ["role_plumber", "role_carpenter"],
+        totalYears: 1,
+      },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_carpenter", "mskill_plumber"]);
+  });
+
+  it("a secondary role alone derives its bridge row, and an unknown id contributes nothing", () => {
+    const rows = deriveWorkerSkills(
+      { additionalRoleIds: ["role_designer", "role_invented", null as unknown as string] },
+      cfg,
+    );
+    expect(rows.map((r) => r.skillId)).toEqual(["mskill_designer"]);
   });
 });

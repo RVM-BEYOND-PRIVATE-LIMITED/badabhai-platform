@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/data/trade_form_repository_impl.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
@@ -9,6 +10,8 @@ import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'trade_form_universal_fixture.dart';
 
 SessionRepository _session() => SessionRepository()
   ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
@@ -111,6 +114,59 @@ Map<String, dynamic> _formJson() => <String, dynamic>{
     };
 
 void main() {
+  group('TradeFormRepositoryImpl.loadForm — one fact, asked once', () {
+    test(
+        'the universal questions the deployed API appends are gone from the '
+        'parsed form, except availability (city known from /name)', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async =>
+            http.Response(jsonEncode(universalAppendedFormJson()), 200)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        api,
+        _session(),
+        knownFacts: InMemoryKnownWorkerFactsStore(
+            <WorkerFact>[WorkerFact.currentCity]),
+      );
+
+      final TradeForm form = (await repo.loadForm())!;
+
+      final List<String> keys = form.questionSteps
+          .map((TradeFormQuestionStep q) => q.question.id)
+          .toList();
+      expect(keys, <String>[
+        'turning_experience',
+        'turning_machine',
+        'availability',
+        'iti_project_work',
+      ]);
+
+      // Without a recorded city (the worker skipped it on /name) the current
+      // city question stays: nothing else in the flow asks it.
+      final TradeForm unknownCity =
+          (await TradeFormRepositoryImpl(api, _session()).loadForm())!;
+      expect(
+          unknownCity.questionSteps
+              .map((TradeFormQuestionStep q) => q.question.id),
+          contains('current_city'));
+      for (final String key in kUniversalQuestionKeys) {
+        if (key == 'availability') continue;
+        expect(keys, isNot(contains(key)), reason: '$key is asked elsewhere');
+      }
+      // The markers that own those facts, and the form's identity, survive.
+      expect(form.sections.map((TradeFormSection s) => s.id), <String>[
+        'capability',
+        'terms',
+        'work_history',
+        'qualifications',
+      ]);
+      expect(form.sections[1].screens.single, isA<TradeFormPreferencesStep>());
+      expect(form.sections[3].screens.last, isA<TradeFormQualificationsStep>());
+      expect(form.sessionId, '8f7c2a8e-3b7e-4c61-9a57-2f1d0b6c9e11');
+    });
+  });
+
   group('TradeFormRepositoryImpl.loadForm', () {
     test('parses every screen type + the answered/unanswered distinction',
         () async {

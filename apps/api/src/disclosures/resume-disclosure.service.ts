@@ -15,8 +15,12 @@ import { buildResumeRenderInput, type TradeSheetContext } from "../resume/resume
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
+import { verificationBadgeFor } from "../resume/verification-tier";
+import { containsOtherAnswerMarker } from "../resume/other-answer-leak-guard";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
 
@@ -83,6 +87,11 @@ export class ResumeDisclosureService {
     // exactly the reasoning the capability block and the work history already cross on. The three
     // things this surface withholds stay three: the real name, the photo, the expected salary.
     private readonly qualifications: WorkerQualificationsRepository,
+    // Migration 0114 / Layer A (i) — the declared secondary occupations, printed as the Terms
+    // zone's "Also works as" row on BOTH copies. A declared trade is capability, not identity, so
+    // it crosses on the qualifications paragraph's reasoning. Same degrade: its own read fails
+    // to an empty row, never to a failed disclosure.
+    private readonly occupations: WorkerOccupationsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
@@ -240,6 +249,24 @@ export class ResumeDisclosureService {
       }
     }
 
+    // THE NUMBER CROSSES TO THE PAYER — owner ruling 2026-09-18 REVERSING the
+    // 2026-08-28 withholding. A sheet handed over at a factory gate is useless without a
+    // number, and the payer copy is only ever produced post-unlock (consent + cap +
+    // deletion gates above), so the number reaches exactly the payer who unlocked this
+    // worker and nobody else. Decrypted server-side on the same degrade as the name:
+    // a rotated or tampered token costs the phone line, never the disclosure. Never
+    // logged, evented, or persisted — the B-D/B-E rule is unchanged (the number rides
+    // the RENDER INPUT to the PDF, which is the artifact the payer unlocked, not the
+    // spine). Name, photo, salary, WhatsApp and licence gating are identical.
+    let phone: string | null = null;
+    if (worker?.phoneE164) {
+      try {
+        phone = this.pii.decrypt(worker.phoneE164);
+      } catch {
+        this.logger.warn(`could not decrypt phone for worker ${workerId}; rendering without it`);
+      }
+    }
+
     // THE TRADE CAPABILITY BLOCK CROSSES TO THE PAYER, and that is the intended reading of the
     // audience rule rather than an oversight. What a worker can do on a machine — his machines,
     // controllers, materials, setting operations, the tolerance he holds — is trade information
@@ -303,6 +330,17 @@ export class ResumeDisclosureService {
       tradeSheet = { packId: null, attributes: {}, ...tradeSheet, qualification };
     }
 
+    // Layer A (f)/(i) — the declared secondary occupations, as taxonomy labels. OWN try/catch,
+    // like the two loads above: a failure costs the "Also works as" row and nothing else.
+    let occupations: string[] = [];
+    try {
+      occupations = (await this.occupations.loadForWorker(workerId)).map(labelForTaxonomyId);
+    } catch {
+      this.logger.warn(
+        `could not load secondary occupations for worker ${workerId}; rendering without them`,
+      );
+    }
+
     // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08) — off the worker row already loaded
     // above for the masked name, so it costs no extra query.
     //
@@ -323,6 +361,15 @@ export class ResumeDisclosureService {
       ...tradeSheet,
       currentCity: worker?.currentCity ?? null,
       currentState: worker?.currentState ?? null,
+      occupations,
+      // 2026-09-18 reversal: the decrypted number, or null when undecryptable/absent
+      // (degrades to the same missing line as a worker with no number on file).
+      phone,
+      // ADR-0042 D9 / Layer A (g) — THE VERIFICATION TIER CROSSES TO THE PAYER, deliberately.
+      // It is a trust signal about the worker's record — the entire point of the badge — and it is
+      // not one of the three things this surface withholds (real name, photo, expected salary).
+      // Off the row already loaded above for the mask, so it costs no extra query.
+      trustBadge: verificationBadgeFor(worker?.verificationState),
       // Unconditional for the same reason, and load-bearing for a different one: the merge above
       // only runs when `employments.length > 0`, which is never true on the path where this flag
       // matters. Without this line a failed history read would reach the mapper as a trustworthy
@@ -342,6 +389,18 @@ export class ResumeDisclosureService {
       // what this surface showed before either ruling.
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
     };
+
+    // LAST-LINE GUARD (mandatory fix, "typed custom answer, everywhere" ruling): an unreviewed
+    // "other" answer must never reach this payer-facing render. The primary defence is that
+    // nothing above reads `worker_pack_answer` at all — see `other-answer-leak-guard.ts` for why
+    // a second, structural check sits here anyway. FAIL CLOSED, whole disclosure, never partial.
+    if (containsOtherAnswerMarker(tradeSheet)) {
+      this.logger.error(
+        `an unreviewed 'other' answer reached the payer-facing render for disclosure=` +
+          `${disclosureId}; refusing the disclosure`,
+      );
+      return neutralUnavailable();
+    }
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
     // their OWN resume only and must NEVER appear on the payer-facing disclosure

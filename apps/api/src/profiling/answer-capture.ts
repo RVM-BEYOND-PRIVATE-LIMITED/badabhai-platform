@@ -20,8 +20,10 @@ import {
   detectSalaries,
   parseAffirmation,
   parseAvailability,
+  parseCommuteKm,
   parseExperienceYears,
   parseRelocationWillingness,
+  parseTrainingYear,
   type UtteranceClass,
 } from "@badabhai/profiling-lexicon";
 
@@ -75,8 +77,9 @@ export function mayCommit(
  * THE KEYS ARE RFS IDS AND NOTHING ELSE (`RFS_FIELD_IDS` in `@badabhai/db`), asserted by a test.
  * A key spelled as the WorkerProfileDraft column instead — `willing_to_relocate` rather than
  * `relocation_willingness` — matches no pack question, so the field silently falls through to the
- * verbatim path and stores a whole sentence where a boolean belongs. `notice_period_days` is the
- * deliberate exception: it is an `attribute` target, never an `rfs` one.
+ * verbatim path and stores a whole sentence where a boolean belongs. The `attribute`-target keys
+ * are the deliberate exceptions, named by the test that holds this rule: `notice_period_days`
+ * (Layer A (c)), and now `commute_max_km` and `training_year` (Layer A elicitation, qp_universal@4).
  * A field with no entry falls through to the verbatim path, which is correct for free text and for
  * chip answers whose label IS the value.
  */
@@ -88,6 +91,12 @@ const NORMALIZER_BY_FIELD: Readonly<Record<string, (text: string) => unknown>> =
   availability: (text) => parseAvailability(text)?.value.availability ?? null,
   notice_period_days: (text) => parseAvailability(text)?.value.noticeDays ?? null,
   relocation_willingness: (text) => parseRelocationWillingness(text)?.value ?? null,
+  // Layer A elicitation (qp_universal@4). Both live on `attribute` targets and store into the
+  // same `worker_attributes` keys the preferences page writes, so the chat answer and the form
+  // answer are one row. `willing_to_travel` needs no entry here — it is a plain boolean and the
+  // TYPE layer's `parseAffirmation` already answers it.
+  commute_max_km: (text) => parseCommuteKm(text)?.value ?? null,
+  training_year: (text) => parseTrainingYear(text)?.value ?? null,
 };
 
 /**
@@ -573,6 +582,10 @@ function spanFor(item: QuestionPackItem, text: string): { start: number; end: nu
       return parseAvailability(text)?.span;
     case "relocation_willingness":
       return parseRelocationWillingness(text)?.span;
+    case "commute_max_km":
+      return parseCommuteKm(text)?.span;
+    case "training_year":
+      return parseTrainingYear(text)?.span;
     default:
       // Free text and chips have no sub-span to veto: the whole message IS the answer, and
       // vetoing it wholesale would delete answers containing an unrelated negation.

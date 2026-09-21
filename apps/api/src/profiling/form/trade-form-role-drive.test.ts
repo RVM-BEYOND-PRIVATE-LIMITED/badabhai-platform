@@ -230,6 +230,15 @@ function harnessFor(role: RoleUnderTest): Harness {
     // reaches the form through the interview handover. NEITHER THIS SUITE NOR
     // `trade-form.service.test.ts` EXERCISES THAT FALLBACK — both stub it exactly like this.
     { findLatestForWorker: async () => undefined } as never,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" trigger — a spy, since this suite drives role packs
+    // end to end and asserts routing, not the review-or-omit path
+    // (`trade-form.service.test.ts` covers that).
+    { review: vi.fn(async () => null) } as never,
+    { WORK_HISTORY_POLISH_ENABLED: false } as never,
+    // Safety-net resume refresh (no resume row here → never fires) + render queue.
+    // Present so the constructor arity matches; this suite asserts routing, not the refresh.
+    { latestResume: vi.fn(async () => undefined) } as never,
+    { add: vi.fn(async () => ({})) } as never,
   );
   return { service, rows, attributes, events };
 }

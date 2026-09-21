@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
 import type { RequestContext } from "../common/request-context";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -12,6 +13,7 @@ import {
   type EducationEntryDto,
   type MyQualificationsResponse,
   type SetMyQualificationsDto,
+  type TrainingEntryDto,
 } from "./worker-qualifications.dto";
 import { WorkerQualificationsRepository } from "./worker-qualifications.repository";
 
@@ -54,6 +56,9 @@ export class WorkerQualificationsService {
     private readonly qualifications: WorkerQualificationsRepository,
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
+    // Layer A (d) — the ONE encrypted field on this surface (a licence number). The same
+    // @Global PiiCryptoService every other PII writer uses; no module edge is added.
+    private readonly pii: PiiCryptoService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue<ResumeRenderJobData>,
   ) {}
 
@@ -68,12 +73,15 @@ export class WorkerQualificationsService {
     // `undefined` IS FORWARDED AS `undefined`, deliberately. Normalising to `[]` here would be
     // the one-line bug that wipes a worker's certificates the first time a client saves only
     // their education — see the repository's three-state contract.
-    const { certificatesWritten, educationsWritten, replacedExisting } =
+    const { certificatesWritten, educationsWritten, trainingsWritten, replacedExisting } =
       await this.qualifications.replaceForWorker(workerId, {
         certificates: dto.certificates?.map((c) => ({
           name: c.name,
           issuer: c.issuer,
           year: c.year,
+          // ENCRYPTED BEFORE THE REPOSITORY. `null` stays `null` (no number given).
+          licenceNumberEnc: c.licence_number === null ? null : this.pii.encrypt(c.licence_number),
+          licenceExpiry: c.licence_expiry,
         })),
         educations: dto.educations?.map((e) => ({
           credential: e.credential,
@@ -81,6 +89,11 @@ export class WorkerQualificationsService {
           council: e.council,
           year: e.year,
           institute: e.institute,
+        })),
+        trainings: dto.trainings?.map((t) => ({
+          name: t.name,
+          provider: t.provider,
+          year: t.year,
         })),
       });
 
@@ -96,6 +109,8 @@ export class WorkerQualificationsService {
         worker_id: workerId,
         certificate_count: certificatesWritten,
         education_count: educationsWritten,
+        // Optional field added for Layer A (d); old payloads (without it) stay valid.
+        training_count: trainingsWritten,
         replaced_existing: replacedExisting,
       },
       correlationId: ctx.correlationId,
@@ -105,7 +120,7 @@ export class WorkerQualificationsService {
     // Counts only — never a certificate name, an issuer or an institute.
     this.logger.log(
       `qualifications recorded for worker ${workerId}: ${certificatesWritten} certificate(s), ` +
-        `${educationsWritten} education(s)`,
+        `${educationsWritten} education(s), ${trainingsWritten} training(s)`,
     );
 
     await this.enqueueRerender(workerId, ctx);
@@ -133,10 +148,37 @@ export class WorkerQualificationsService {
 
     const certificates: CertificateEntryDto[] = [];
     const educations: EducationEntryDto[] = [];
+    const trainings: TrainingEntryDto[] = [];
     let droppedCertificates = 0;
     let droppedEducations = 0;
+    let droppedTrainings = 0;
     for (const row of stored.certificates) {
-      const parsed = SetMyQualificationsSchema.safeParse({ certificates: [row] });
+      // Layer A (d) — the stored row carries the CIPHERTEXT; the PUT schema wants the plaintext.
+      // A decrypt failure withholds the row and counts it, exactly like a shape failure: the
+      // client must not re-send a list whose licence number it never received.
+      let licenceNumber: string | null = null;
+      if (row.licenceNumberEnc) {
+        try {
+          licenceNumber = this.pii.decrypt(row.licenceNumberEnc);
+        } catch {
+          droppedCertificates += 1;
+          this.logger.warn(
+            `could not decrypt a licence number for worker ${workerId}; withholding that certificate`,
+          );
+          continue;
+        }
+      }
+      const parsed = SetMyQualificationsSchema.safeParse({
+        certificates: [
+          {
+            name: row.name,
+            issuer: row.issuer,
+            year: row.year,
+            licence_number: licenceNumber,
+            licence_expiry: row.licenceExpiry,
+          },
+        ],
+      });
       if (parsed.success && parsed.data.certificates)
         certificates.push(parsed.data.certificates[0]!);
       else droppedCertificates += 1;
@@ -146,17 +188,23 @@ export class WorkerQualificationsService {
       if (parsed.success && parsed.data.educations) educations.push(parsed.data.educations[0]!);
       else droppedEducations += 1;
     }
+    for (const row of stored.trainings) {
+      const parsed = SetMyQualificationsSchema.safeParse({ trainings: [row] });
+      if (parsed.success && parsed.data.trainings) trainings.push(parsed.data.trainings[0]!);
+      else droppedTrainings += 1;
+    }
 
-    const partial: ("certificates" | "educations")[] = [];
+    const partial: ("certificates" | "educations" | "trainings")[] = [];
     if (droppedCertificates > 0) partial.push("certificates");
     if (droppedEducations > 0) partial.push("educations");
-    const droppedCount = droppedCertificates + droppedEducations;
+    if (droppedTrainings > 0) partial.push("trainings");
+    const droppedCount = droppedCertificates + droppedEducations + droppedTrainings;
 
     this.logger.log(
       `qualifications read for worker ${workerId}: ${certificates.length} certificate(s), ` +
-        `${educations.length} education(s), ${droppedCount} withheld`,
+        `${educations.length} education(s), ${trainings.length} training(s), ${droppedCount} withheld`,
     );
-    return { certificates, educations, partial, dropped_count: droppedCount };
+    return { certificates, educations, trainings, partial, dropped_count: droppedCount };
   }
 
   /**

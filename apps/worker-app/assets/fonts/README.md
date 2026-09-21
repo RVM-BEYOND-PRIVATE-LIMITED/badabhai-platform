@@ -52,3 +52,30 @@ Do **not** do 3 before 1 and 2: the app would render fallback glyphs for asset
 families that do not exist, which is the very failure #350 is about.
 
 `apps/payer-app` has the identical gap and the same fix shape.
+
+
+## Onboarding kit — Anek Latin + Inter (shipping)
+
+The six onboarding screens (splash, phone login, OTP, set PIN, privacy consent,
+name & location) follow `badabhai_worker_app_flutter_ui_kit_5_screens.md`, which
+specifies **Anek Latin** for display and **Inter** for body. Both are bundled:
+
+| File | Weight | Cut from |
+|---|---|---|
+| `AnekLatin-SemiBold.ttf` | 600 | `ofl/aneklatin/AnekLatin[wdth,wght].ttf`, wdth 100 |
+| `AnekLatin-Bold.ttf` | 700 | same |
+| `AnekLatin-ExtraBold.ttf` | 800 | same (the kit's w900 resolves here) |
+| `Inter-Regular.ttf` | 400 | `ofl/inter/Inter[opsz,wght].ttf`, opsz 14 |
+| `Inter-Medium.ttf` | 500 | same |
+| `Inter-SemiBold.ttf` | 600 | same |
+| `Inter-Bold.ttf` | 700 | same |
+
+Recipe: `fontTools.varLib.instancer.instantiateVariableFont` at the pinned axes,
+then `fontTools.subset` to Basic Latin, Latin-1, Latin Extended-A, General
+Punctuation, Currency (₹), Letterlike, Arrows — with all layout features kept
+and hinting dropped. Each output was re-opened and checked: no `fvar` (truly
+static), `usWeightClass` matches, and ₹ • — … are present. SIL OFL 1.1 —
+`OFL-AnekLatin.txt` and `OFL-Inter.txt` ship alongside.
+
+Consumed ONLY through `lib/core/theme/onboarding_theme.dart`
+(`OnboardingTypography`). `google_fonts` is never called for them.

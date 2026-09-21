@@ -3,14 +3,22 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/auth_api.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_spinner.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/kit/kit_docked_bar.dart';
+import '../../../core/widgets/kit/kit_pill.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import 'cubit/devices_cubit.dart';
+import '../../../core/widgets/feedback_fab.dart';
+
+/// The soft square icon tile shared by every device row (kit list idiom, the
+/// same 40dp/8-radius tile `BbListRow` draws).
+const double _kIconTile = 40;
+const double _kIconTileRadius = 8;
 
 /// My-devices: the worker's logged-in devices. The current one is marked; others
 /// can be revoked (confirm dialog → revoke → reload). Reachable from Settings.
@@ -31,13 +39,14 @@ class _DevicesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Kit auth chrome: full-bleed blue header over the list. Pushed from
-    // Settings, so a white back affordance is shown. Not [BbScaffold] — the
-    // header bleeds to the status bar.
+    // Kit chrome (spec §2.1): the full-bleed navy header carries the status-bar
+    // inset over a canvas body. Pushed from Settings, so a back affordance is
+    // shown. Not [BbScaffold] — the header bleeds to the status bar.
     return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
       body: Column(
         children: <Widget>[
-          BbBlueHeader(
+          ShiftBlueHeader(
             title: 'Aapke devices',
             onBack: () => Navigator.of(context).maybePop(),
           ),
@@ -48,39 +57,32 @@ class _DevicesView extends StatelessWidget {
               child: BlocBuilder<DevicesCubit, DevicesState>(
                 builder: (BuildContext context, DevicesState state) {
                   return switch (state.status) {
-            DevicesStatus.loading => const BbStatusView.loading(),
-            DevicesStatus.failed => BbStatusView(
-                icon: Icons.error_outline_rounded,
-                title: 'Devices load nahi hue.',
-                // DevicesCubit surfaces an AuthFailure as a localized reason in
-                // state.message (via authErrorMessage) — show that honest cause,
-                // not a false "check internet".
-                subtitle: state.message ?? 'Dobara try karein.',
-                action: FilledButton(
-                  onPressed: () => context.read<DevicesCubit>().load(),
-                  child: const Text('Try again'),
-                ),
-              ),
-            // Empty ≠ failed: a valid 2xx with no other devices shows an honest
-            // "only this phone" note, NOT a blank list — and never the failed
-            // view's parse/unauthorized reason. (A shape drift now throws
-            // contractError upstream, so it lands in DevicesStatus.failed.)
-            DevicesStatus.ready => state.devices.isEmpty
-                ? const BbStatusView(
-                    icon: Icons.devices_other_rounded,
-                    title: 'Koi doosra device nahi.',
-                    subtitle: 'Sirf yeh phone is account mein logged-in hai.',
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(AppSpacing.gutter),
-                    itemCount: state.devices.length,
-                    separatorBuilder: (_, __) =>
-                        const SizedBox(height: AppSpacing.s3),
-                    itemBuilder: (BuildContext context, int i) => _DeviceTile(
-                      device: state.devices[i],
-                      revokingId: state.revokingId,
+                    DevicesStatus.loading => const BbStatusView.loading(),
+                    DevicesStatus.failed => BbStatusView(
+                      icon: Icons.error_outline_rounded,
+                      title: 'Devices load nahi hue.',
+                      // DevicesCubit surfaces an AuthFailure as a localized reason in
+                      // state.message (via authErrorMessage) — show that honest cause,
+                      // not a false "check internet".
+                      subtitle: state.message ?? 'Dobara try karein.',
+                      action: FilledButton(
+                        onPressed: () => context.read<DevicesCubit>().load(),
+                        child: const Text('Try again'),
+                      ),
                     ),
-                  ),
+                    // Empty ≠ failed: a valid 2xx with no other devices shows an honest
+                    // "only this phone" note, NOT a blank list — and never the failed
+                    // view's parse/unauthorized reason. (A shape drift now throws
+                    // contractError upstream, so it lands in DevicesStatus.failed.)
+                    DevicesStatus.ready =>
+                      state.devices.isEmpty
+                          ? const BbStatusView(
+                              icon: Icons.devices_other_rounded,
+                              title: 'Koi doosra device nahi.',
+                              subtitle:
+                                  'Sirf yeh phone is account mein logged-in hai.',
+                            )
+                          : _list(context, state),
                   };
                 },
               ),
@@ -92,6 +94,27 @@ class _DevicesView extends StatelessWidget {
           const _LogoutAllBar(),
         ],
       ),
+    );
+  }
+
+  /// The device cards. The scroll view owns its horizontal padding (D7), so the
+  /// column centres on a tablet while the scrollbar stays at the screen edge.
+  Widget _list(BuildContext context, DevicesState state) {
+    final double width = MediaQuery.sizeOf(context).width;
+    return ListView.separated(
+      padding: KitInsets.list(
+        width,
+        max: OnboardingLayout.maxContentWidth,
+        gutter: 16,
+      ).copyWith(
+        top: 16,
+        // Plus the floating Feedback pill's band. See [FeedbackFabInset].
+        bottom: 16 + FeedbackFabInset.of(context),
+      ),
+      itemCount: state.devices.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (BuildContext context, int i) =>
+          _DeviceTile(device: state.devices[i], revokingId: state.revokingId),
     );
   }
 }
@@ -112,29 +135,18 @@ class _LogoutAllBarState extends State<_LogoutAllBar> {
 
   Future<void> _confirm() async {
     final DevicesCubit cubit = context.read<DevicesCubit>();
-    final bool ok = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext d) => AlertDialog(
-            title: const Text('Sabhi devices se logout?'),
-            content: const Text(
-              'Aap sabhi phone aur devices se — yeh phone bhi — logout ho '
-              'jaayenge. Dobara use karne ke liye phir se login karna hoga.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(d).pop(false),
-                child: const Text('Rehne dein'),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                onPressed: () => Navigator.of(d).pop(true),
-                child: const Text('Logout karein'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    final bool ok = await showBbConfirm(
+      context,
+      title: 'Sabhi devices se logout?',
+      message:
+          'Aap sabhi phone aur devices se — yeh phone bhi — logout ho '
+          'jaayenge. Dobara use karne ke liye phir se login karna hoga.',
+      confirmLabel: 'Logout karein',
+      destructive: true,
+      // A worker signing every device out of their account must read this, not
+      // tap past it: the barrier does not dismiss it.
+      barrierDismissible: false,
+    );
     if (!ok || !mounted) return;
     setState(() => _busy = true);
     await cubit.logoutAll();
@@ -146,18 +158,22 @@ class _LogoutAllBarState extends State<_LogoutAllBar> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        child: BbButton(
-          label: 'Sabhi devices se logout',
-          variant: BbButtonVariant.danger,
-          block: true,
-          loading: _busy,
-          iconLeft: Icons.logout_rounded,
-          onPressed: _busy ? null : _confirm,
-        ),
+    // The kit's docked bar (D4): white, top hairline, safe-area padded — and it
+    // publishes its own height to `bottomBarInset`, so the app-wide Feedback
+    // pill floats clear of this button instead of sitting on it.
+    return KitDockedBar(
+      maxWidth: OnboardingLayout.maxContentWidth,
+      child: BbButton(
+        label: 'Sabhi devices se logout',
+        // The longest CTA label in the app: it wraps rather than truncating,
+        // because 'Sabhi devices se log…' does not say what the button does.
+        allowMultilineLabel: true,
+        variant: BbButtonVariant.danger,
+        size: BbButtonSize.md,
+        block: true,
+        loading: _busy,
+        iconLeft: Icons.logout_rounded,
+        onPressed: _busy ? null : _confirm,
       ),
     );
   }
@@ -178,76 +194,104 @@ class _DeviceTile extends StatelessWidget {
     final String label = _deviceLabel(device);
     final bool isRevoking = revokingId == device.id;
     final bool revokeBlocked = revokingId != null;
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.s4),
+    return KitCard(
       child: Row(
         children: <Widget>[
-          // Soft square icon tile (kit list idiom). Blue = trust / this-is-you
-          // for the current handset; a muted sunken tile for the rest.
+          // Blue = trust / this-is-you for the current handset; a muted tile for
+          // the rest.
           Container(
-            width: 40,
-            height: 40,
+            width: _kIconTile,
+            height: _kIconTile,
             decoration: BoxDecoration(
               color: device.isCurrent
-                  ? AppColors.infoTint
-                  : AppColors.surfaceSunken,
-              borderRadius: BorderRadius.circular(AppRadii.sm),
+                  ? OnboardingColors.infoBg
+                  : OnboardingColors.pillMutedBg,
+              borderRadius: BorderRadius.circular(_kIconTileRadius),
             ),
             alignment: Alignment.center,
             child: Icon(
               device.isCurrent
-                  ? Icons.phone_android_rounded
+                  ? Icons.smartphone_rounded
                   : Icons.devices_other_rounded,
               size: 20,
-              color: device.isCurrent ? AppColors.blue : AppColors.textMuted,
+              color: device.isCurrent
+                  ? OnboardingColors.shiftBlue
+                  : OnboardingColors.ink500,
             ),
           ),
-          const SizedBox(width: AppSpacing.s3),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Row(
+                // A Wrap, not a Row: at a large system font the label and the
+                // 'Yeh phone' pill no longer fit on one line, and the pill drops
+                // under the label instead of squeezing it to an ellipsis.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        label,
-                        style: AppTypography.body(weight: FontWeight.w700),
+                    Text(
+                      label,
+                      style: OnboardingTypography.inter(
+                        size: 14,
+                        weight: FontWeight.w700,
                       ),
                     ),
-                    if (device.isCurrent) ...<Widget>[
-                      const SizedBox(width: AppSpacing.s2),
-                      Text('· Yeh phone',
-                          style: AppTypography.body(
-                              size: AppTypography.sizeSm,
-                              color: AppColors.success)),
-                    ],
+                    if (device.isCurrent)
+                      const KitPill(
+                        label: 'Yeh phone',
+                        tone: KitPillTone.green,
+                      ),
                   ],
                 ),
-                if (device.lastSeenAt != null)
+                if (device.lastSeenAt != null) ...<Widget>[
+                  const SizedBox(height: 2),
                   Text(
                     'Aakhri baar: ${_ago(device.lastSeenAt!)}',
-                    style: AppTypography.body(
-                        size: AppTypography.sizeSm, color: AppColors.textMuted),
+                    style: OnboardingTypography.bodyMuted(),
                   ),
+                ],
               ],
             ),
           ),
+          // The revoke action is a COMPACT CONTROL, not body copy, so it
+          // clamps its own text scaling like the rest of the chrome. Unclamped
+          // at a 2.0 system font 'Hatayein' plus its padding was wider than the
+          // whole card minus the icon tile, which starved the `Expanded`
+          // beside it and painted an overflow stripe across the tile — on the
+          // one screen a worker uses to kick a stolen phone off their account.
           if (!device.isCurrent)
-            isRevoking
+            MediaQuery.withClampedTextScaling(
+              maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+              child: isRevoking
                 ? const Padding(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: AppSpacing.s3),
-                    child: BbSpinner(size: 24),
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: OnboardingColors.shiftBlue,
+                      ),
+                    ),
                   )
                 : TextButton(
                     style: TextButton.styleFrom(
-                        foregroundColor: AppColors.danger),
+                      foregroundColor: OnboardingColors.errorRed,
+                      textStyle: OnboardingTypography.inter(
+                        size: 13,
+                        weight: FontWeight.w700,
+                        color: OnboardingColors.errorRed,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: const Size(
+                        OnboardingLayout.tapTarget,
+                        OnboardingLayout.tapTarget,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                    ),
                     // Disabled while any revoke is in flight so a second tile
                     // cannot fire a duplicate revoke.
                     onPressed: revokeBlocked
@@ -255,44 +299,44 @@ class _DeviceTile extends StatelessWidget {
                         : () => _confirmRevoke(context, device),
                     child: const Text('Hatayein'),
                   ),
+            ),
         ],
       ),
     );
   }
 
-  /// Derives a human label from platform + model (there is no server `label`).
-  /// e.g. "Android · Pixel 6", or just "Android" when the model is unknown.
+  /// Derives a human label from platform + model (there is no server `label`,
+  /// B16). e.g. "Android · Pixel 6", or just "Android" when the model is unknown.
+  ///
+  /// The platform is a raw wire token, so it is HUMANIZED here rather than
+  /// title-cased blindly: `ios` used to render as "Ios", which is not the name
+  /// of any phone a worker owns. An unknown platform still title-cases (better
+  /// than hiding a real device), and an empty one becomes "Device".
   static String _deviceLabel(AuthDevice device) {
-    final String platform = device.platform.isEmpty
-        ? 'Device'
-        : '${device.platform[0].toUpperCase()}${device.platform.substring(1)}';
+    final String raw = device.platform.trim();
+    final String platform = switch (raw.toLowerCase()) {
+      '' => 'Device',
+      'ios' => 'iPhone',
+      'ipados' => 'iPad',
+      'android' => 'Android',
+      _ => '${raw[0].toUpperCase()}${raw.substring(1)}',
+    };
     final String? model = device.model;
-    if (model == null || model.isEmpty) return platform;
-    return '$platform · $model';
+    if (model == null || model.trim().isEmpty) return platform;
+    return '$platform · ${model.trim()}';
   }
 
   Future<void> _confirmRevoke(BuildContext context, AuthDevice device) async {
     final DevicesCubit cubit = context.read<DevicesCubit>();
     final String label = _deviceLabel(device);
-    final bool ok = await showDialog<bool>(
-          context: context,
-          builder: (BuildContext d) => AlertDialog(
-            title: const Text('Device hatayein?'),
-            content: Text('$label se logout ho jayega.'),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(d).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                onPressed: () => Navigator.of(d).pop(true),
-                child: const Text('Hatayein'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    final bool ok = await showBbConfirm(
+      context,
+      title: 'Device hatayein?',
+      message: '$label se logout ho jayega.',
+      confirmLabel: 'Hatayein',
+      cancelLabel: 'Cancel',
+      destructive: true,
+    );
     if (ok) await cubit.revoke(device.id);
   }
 

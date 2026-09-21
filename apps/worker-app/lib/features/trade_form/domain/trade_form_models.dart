@@ -380,6 +380,13 @@ class TradeFormAnswerResult extends Equatable {
 /// `kTradeFormMaxCertificates`/`kTradeFormMaxEducations`.
 const int kTradeFormMaxPreferredCities = 5;
 
+/// Server cap (`languages`'s `.max(6)` in `worker-preferences.dto.ts`) —
+/// an editorial limit on how many print on the sheet, not the dictionary's
+/// size (16). A plain client-side bound so a seventh tick can never become
+/// a 400 on the LAST internal page (`terms`), same convention as
+/// [kTradeFormMaxPreferredCities].
+const int kTradeFormMaxLanguages = 6;
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 ///
 /// Deliberately carries NO education/credential fields any more — this
@@ -400,6 +407,7 @@ class TradeFormPreferences extends Equatable {
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
     this.salaryExpectedMax,
+    this.touched = const <String>{},
   });
 
   final Set<String> languages;
@@ -410,6 +418,14 @@ class TradeFormPreferences extends Equatable {
   final bool willingToRelocate;
   final bool accommodationNeeded;
   final int? salaryExpectedMax;
+
+  /// Wire keys of the list and yes/no fields the worker CHANGED, set by
+  /// [copyWith] (every page edit goes through it). [toJson] sends those fields
+  /// only when touched — the same idea as [TradeFormQualifications]'s touched
+  /// flags. A fresh cubit opens this page BLANK (the endpoint has no read), so
+  /// sending an untouched `[]` or `false` would erase what the worker saved
+  /// earlier; the server leaves an absent key alone.
+  final Set<String> touched;
 
   TradeFormPreferences copyWith({
     Set<String>? languages,
@@ -432,19 +448,32 @@ class TradeFormPreferences extends Equatable {
       salaryExpectedMax: salaryExpectedMax == _sentinel
           ? this.salaryExpectedMax
           : salaryExpectedMax as int?,
+      touched: <String>{
+        ...touched,
+        if (languages != null) _kPrefLanguagesKey,
+        if (documentsReady != null) _kPrefDocumentsKey,
+        if (preferredCities != null) _kPrefCitiesKey,
+        if (willingToRelocate != null) _kPrefRelocateKey,
+        if (accommodationNeeded != null) _kPrefAccommodationKey,
+      },
     );
   }
 
-  /// Wire body for `PUT /workers/me/work-preferences` — lists always present
-  /// (`[]` = "none of these"); scalars only when chosen (absent = leave the
-  /// stored value alone).
+  /// Wire body for `PUT /workers/me/work-preferences` — a list or yes/no key
+  /// only when [touched] (`[]` then means "none of these"; absent = leave the
+  /// stored value alone); scalars only when chosen (absent = leave the stored
+  /// value alone). An untouched page therefore sends `{}`, which writes nothing.
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> body = <String, dynamic>{
-      'languages': languages.toList(),
-      'documents_ready': documentsReady.toList(),
-      'preferred_cities': preferredCities,
-      'willing_to_relocate': willingToRelocate,
-      'accommodation_needed': accommodationNeeded,
+      if (touched.contains(_kPrefLanguagesKey))
+        _kPrefLanguagesKey: languages.toList(),
+      if (touched.contains(_kPrefDocumentsKey))
+        _kPrefDocumentsKey: documentsReady.toList(),
+      if (touched.contains(_kPrefCitiesKey)) _kPrefCitiesKey: preferredCities,
+      if (touched.contains(_kPrefRelocateKey))
+        _kPrefRelocateKey: willingToRelocate,
+      if (touched.contains(_kPrefAccommodationKey))
+        _kPrefAccommodationKey: accommodationNeeded,
     };
     if (jobType != null) body['job_type'] = jobType;
     if (shift != null) body['shift'] = shift;
@@ -464,8 +493,17 @@ class TradeFormPreferences extends Equatable {
         willingToRelocate,
         accommodationNeeded,
         salaryExpectedMax,
+        touched,
       ];
 }
+
+// `PUT /workers/me/work-preferences` wire keys for the fields
+// [TradeFormPreferences.touched] tracks.
+const String _kPrefLanguagesKey = 'languages';
+const String _kPrefDocumentsKey = 'documents_ready';
+const String _kPrefCitiesKey = 'preferred_cities';
+const String _kPrefRelocateKey = 'willing_to_relocate';
+const String _kPrefAccommodationKey = 'accommodation_needed';
 
 /// One row of work history for the `employment` marker screen.
 ///
@@ -481,6 +519,7 @@ class TradeFormEmploymentEntry extends Equatable {
     this.endYm,
     this.workDone,
     this.workDoneVoiceNoteId,
+    this.stillWorking = true,
   });
 
   final String employerName;
@@ -493,6 +532,15 @@ class TradeFormEmploymentEntry extends Equatable {
 
   /// "YYYY-MM" or null. Null = CURRENT (still working here) — never "missing".
   final String? endYm;
+
+  /// Whether the worker has told us this is his CURRENT job (the "Abhi yahin
+  /// kaam kar rahe hain" switch). [endYm] null ALONE cannot express this: the
+  /// switch starts ON for a fresh card, and a worker who turns it OFF without
+  /// picking an end date must be blocked rather than saved as "still working"
+  /// (the résumé would otherwise print "Present" for a job he left). Defaults
+  /// TRUE so a loaded entry with no end reads as current, never as missing.
+  final bool stillWorking;
+
   final String? workDone;
 
   /// The clip [workDone] was SPOKEN into, when the worker used the mic (#1472).
@@ -525,6 +573,7 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? endYm = _sentinel,
     Object? workDone = _sentinel,
     Object? workDoneVoiceNoteId = _sentinel,
+    bool? stillWorking,
   }) {
     return TradeFormEmploymentEntry(
       employerName: employerName ?? this.employerName,
@@ -541,6 +590,7 @@ class TradeFormEmploymentEntry extends Equatable {
       workDoneVoiceNoteId: workDoneVoiceNoteId == _sentinel
           ? this.workDoneVoiceNoteId
           : workDoneVoiceNoteId as String?,
+      stillWorking: stillWorking ?? this.stillWorking,
     );
   }
 
@@ -584,6 +634,7 @@ class TradeFormEmploymentEntry extends Equatable {
         employerState,
         startYm,
         endYm,
+        stillWorking,
         workDone,
         workDoneVoiceNoteId,
       ];

@@ -40,7 +40,7 @@ describe("the Verdict Line (§6.2)", () => {
     expect(middle.subheadLine).not.toMatch(/·\s+·/);
   });
 
-  it("collapses to null when a whole line has nothing, so the strip can hide", () => {
+  it("OMITS the headline strip when there is no role — a modifier is not a headline (Phase 4)", () => {
     const empty = buildVerdictLine({
       role: null,
       years: null,
@@ -49,9 +49,25 @@ describe("the Verdict Line (§6.2)", () => {
       availability: null,
       salary: null,
     });
-    // The years segment is never empty — an unknown is STATED — so the headline survives.
-    expect(empty.headlineLine).toBe("duration not stated");
+    // FILL-GAP PHASE 4 SUPERSEDES THE OLD PIN ("the headline survives as 'duration not stated'").
+    // §11 #3 requires an unknown TENURE to be stated where a tenure is being described; a strip
+    // with no subject is not that — it printed the bare system phrase at the top of a sheet.
+    expect(empty.headlineLine).toBeNull();
     expect(empty.subheadLine).toBeNull();
+  });
+
+  it("STILL states the unknown once a subject exists — the Phase 4 boundary", () => {
+    // The other half of the ruling, so the fix cannot be read as deleting §11 #3: with a role,
+    // an unknown tenure is still stated in words.
+    const subject = buildVerdictLine({
+      role: "Welder",
+      years: null,
+      tools: [],
+      city: null,
+      availability: null,
+      salary: null,
+    });
+    expect(subject.headlineLine).toBe("Welder · duration not stated");
   });
 
   it('renders an unknown tenure as "duration not stated" — never a guess, never "fresher"', () => {

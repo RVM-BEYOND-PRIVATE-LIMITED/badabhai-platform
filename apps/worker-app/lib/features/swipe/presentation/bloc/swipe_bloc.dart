@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/error/failure.dart';
+import '../../domain/job_detail.dart';
 import '../../domain/job_filter.dart';
 import '../../domain/swipe_repository.dart';
 import 'swipe_state.dart';
@@ -102,6 +103,13 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   }
 
   final SwipeRepository _repo;
+
+  /// The FULL posting for one job, delegated to the feed repository so a card
+  /// can be enriched through the SAME client/session (and the same test mock).
+  /// Exposed as a method, not an event: it never mutates feed state, and the
+  /// screen owns the per-card detail cache. A failure propagates as a
+  /// [Failure]; the caller treats it as "no extra facts".
+  Future<JobDetail> jobDetail(String jobId) => _repo.jobDetail(jobId);
 
   /// True while a feed load is in flight. The tab-focus refetch and the screen's
   /// own initState load can both fire around a first visit, and bloc 8.x runs

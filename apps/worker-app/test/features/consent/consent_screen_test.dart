@@ -30,8 +30,9 @@ void main() {
   setUp(() async {
     await locator.reset();
     repo = _MockConsentRepository();
-    when(() => repo.acceptConsent(purposes: any(named: 'purposes')))
-        .thenAnswer((_) async {});
+    when(
+      () => repo.acceptConsent(purposes: any(named: 'purposes')),
+    ).thenAnswer((_) async {});
     locator.registerFactory<ConsentCubit>(() => ConsentCubit(repo));
   });
 
@@ -53,8 +54,10 @@ void main() {
           builder: (_, __) => Scaffold(
             body: Builder(
               builder: (BuildContext c) => TextButton(
-                onPressed: () => c.push('/consent',
-                    extra: recovery ? const ConsentReturnIntent() : null),
+                onPressed: () => c.push(
+                  '/consent',
+                  extra: recovery ? const ConsentReturnIntent() : null,
+                ),
                 child: const Text('OPEN CONSENT'),
               ),
             ),
@@ -72,7 +75,8 @@ void main() {
       ],
     );
     await tester.pumpWidget(
-        MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+      MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+    );
     await tester.tap(find.text('OPEN CONSENT'));
     await tester.pumpAndSettle();
     return router;
@@ -86,7 +90,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
-    await tester.tap(find.text('Continue'));
+    await tester.tap(find.text('Aage Badhein'));
     await tester.pumpAndSettle();
   }
 
@@ -95,8 +99,10 @@ void main() {
       WidgetTester tester,
     ) async {
       await pump(tester, recovery: false);
-      expect(find.text('Your privacy'), findsOneWidget);
-      expect(find.byIcon(Icons.arrow_back), findsNothing);
+      expect(find.text('YOUR PRIVACY'), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+      // Icon-agnostic too: no 'Wapas' back control of ANY glyph.
+      expect(find.byTooltip('Wapas'), findsNothing);
     });
 
     testWidgets('accepting continues into the name step', (
@@ -106,47 +112,74 @@ void main() {
       await agreeAndContinue(tester);
 
       expect(find.text('NAME STEP'), findsOneWidget);
-      verify(() => repo.acceptConsent(
-          purposes: <String>['profiling', 'resume_generation', 'voice_processing']))
-          .called(1);
+      verify(
+        () => repo.acceptConsent(
+          purposes: <String>[
+            'profiling',
+            'resume_generation',
+            'voice_processing',
+          ],
+        ),
+      ).called(1);
     });
   });
 
-  group('the RECOVERY arrival can be declined and never hijacks onboarding', () {
-    testWidgets('it offers a way back', (WidgetTester tester) async {
-      await pump(tester, recovery: true);
-      expect(find.byIcon(Icons.arrow_back), findsOneWidget,
-          reason: 'a worker pushed here mid-task must be able to decline');
-    });
+  group(
+    'the RECOVERY arrival can be declined and never hijacks onboarding',
+    () {
+      testWidgets('it offers a way back', (WidgetTester tester) async {
+        await pump(tester, recovery: true);
+        expect(
+          find.byIcon(Icons.arrow_back_rounded),
+          findsOneWidget,
+          reason: 'a worker pushed here mid-task must be able to decline',
+        );
+        expect(find.byTooltip('Wapas'), findsOneWidget);
+      });
 
-    testWidgets('the back arrow returns false to the caller and records NOTHING',
+      testWidgets(
+        'the back arrow returns false to the caller and records NOTHING',
         (WidgetTester tester) async {
-      await pump(tester, recovery: true);
+          await pump(tester, recovery: true);
 
-      await tester.tap(find.byIcon(Icons.arrow_back));
-      await tester.pumpAndSettle();
+          await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+          await tester.pumpAndSettle();
 
-      expect(find.text('OPEN CONSENT'), findsOneWidget);
-      expect(find.text('Your privacy'), findsNothing);
-      // Backing out is not consent. Nothing may be written on the way out.
-      verifyNever(() => repo.acceptConsent(purposes: any(named: 'purposes')));
-    });
+          expect(find.text('OPEN CONSENT'), findsOneWidget);
+          expect(find.text('YOUR PRIVACY'), findsNothing);
+          // Backing out is not consent. Nothing may be written on the way out.
+          verifyNever(
+            () => repo.acceptConsent(purposes: any(named: 'purposes')),
+          );
+        },
+      );
 
-    testWidgets('accepting POPS back to the caller — never on into /name', (
-      WidgetTester tester,
-    ) async {
-      await pump(tester, recovery: true);
-      await agreeAndContinue(tester);
+      testWidgets('accepting POPS back to the caller — never on into /name', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester, recovery: true);
+        await agreeAndContinue(tester);
 
-      // The consent itself is still recorded exactly once — the recovery path
-      // changes where the worker LANDS, never whether consent was given.
-      verify(() => repo.acceptConsent(
-          purposes: <String>['profiling', 'resume_generation', 'voice_processing']))
-          .called(1);
-      expect(find.text('NAME STEP'), findsNothing,
-          reason: 'an onboarded worker must not be walked back through '
-              'onboarding to send one piece of feedback');
-      expect(find.text('OPEN CONSENT'), findsOneWidget);
-    });
-  });
+        // The consent itself is still recorded exactly once — the recovery path
+        // changes where the worker LANDS, never whether consent was given.
+        verify(
+          () => repo.acceptConsent(
+            purposes: <String>[
+              'profiling',
+              'resume_generation',
+              'voice_processing',
+            ],
+          ),
+        ).called(1);
+        expect(
+          find.text('NAME STEP'),
+          findsNothing,
+          reason:
+              'an onboarded worker must not be walked back through '
+              'onboarding to send one piece of feedback',
+        );
+        expect(find.text('OPEN CONSENT'), findsOneWidget);
+      });
+    },
+  );
 }

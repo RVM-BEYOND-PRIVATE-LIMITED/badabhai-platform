@@ -15,11 +15,17 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  WorkerStatus,
-  ConsentPurpose,
-  LanguageCode,
-} from "@badabhai/types";
+import type { WorkerStatus, ConsentPurpose, LanguageCode } from "@badabhai/types";
+
+/**
+ * The AES-256-GCM token shape `encryptPii` produces (`v1.<iv>.<tag>.<ct>`) and the
+ * keyring variant (`v2.<kid>.<iv>.<tag>.<ct>`). Mirrors the `ai_call_traces` constant —
+ * deliberately duplicated rather than exported across schema files so the two columns'
+ * invariants can be argued independently if either ever changes.
+ */
+const ENC_TOKEN_SQL_PATTERN =
+  "^(v1\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+" +
+  "|v2\\.[A-Za-z0-9_-]{1,32}\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+\\.[A-Za-z0-9+/=]+)$";
 
 // ---------------------------------------------------------------------------
 // workers — identity (PII lives here only)
@@ -40,6 +46,21 @@ export const workers = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     phoneE164: text("phone_e164").notNull(), // AES-256-GCM ciphertext token (see above)
     phoneHash: text("phone_hash").notNull(), // keyed HMAC-SHA256
+    // ADR-0042 D9 / Layer A (a) — the worker's OWN WhatsApp number, OPTIONAL and
+    // worker-supplied (unlike `phone_e164`, which is the login identity and NOT NULL).
+    // AES-256-GCM ciphertext (an `encryptPii` token) exactly like `phone_e164`; the key
+    // lives only in backend config and never in the DB. NULL = no number on file.
+    //
+    // WRITE SITE (exactly one): WorkerWhatsapp service via PiiCryptoService.encrypt.
+    // READ SITES: the worker's own self-read (decrypted, own-session only) and the résumé
+    // render worker, where it reaches the WORKER copy alone — `ResumeAudience` gates it
+    // structurally, so no employer copy can print it. NEVER logged, never echoed in an
+    // event: `worker.whatsapp_recorded` carries only whether a number is on file.
+    //
+    // The CHECK below is a SHAPE check, not a length or charset bound — see the
+    // `ai_call_traces` precedent. It refuses prose (a 23514) rather than trusting a writer
+    // to have encrypted.
+    whatsappEnc: text("whatsapp_enc"),
     // full_name is raw PII, and — like phone_e164 — this column holds AES-256-GCM
     // CIPHERTEXT (an `encryptPii` token), never a readable name. The column name is
     // kept for migration safety.
@@ -122,6 +143,22 @@ export const workers = pgTable(
     currentCity: text("current_city"),
     currentState: text("current_state"),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
+    // ADR-0042 D9 / Layer A (g) — the verification tier (Resume Engine Part 10.2; ASSUMPTIONS A1).
+    //
+    // FIVE VALUES IN THE SCHEMA, TWO IN THE UI: `verification_state` reserves the full vocabulary
+    // while the sheet prints only `BadaBhai Verified` — or nothing. The value→label mapping lives
+    // in `apps/api/src/resume/verification-tier.ts`, NOT in a second list here or in code.
+    //
+    // NULL = never verified, and absence must read NEUTRAL on the sheet: the masthead's right slot
+    // collapses rather than printing "Unverified" (Part 10.2, restated in ASSUMPTIONS A1).
+    //
+    // NO APPLICATION WRITE PATH YET, deliberately. The tier is set by the verification process
+    // itself — an ops act — when one exists; nothing in the app writes this column, so no event is
+    // emitted for it. `verified_at` records that act's time and no render reads it.
+    // `verification_source` (Part 10.2's third reserved name) is deliberately deferred until a
+    // writer can define its closed vocabulary; adding a nullable column later costs nothing.
+    verificationState: text("verification_state"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
     // ADR-0031 — 7-day deletion grace window. The DUE time of the scheduled hard-
     // delete (requested_at + ACCOUNT_DELETION_GRACE_DAYS). NULL = active worker;
     // set = pending deletion (cancellable until the sweep erases). Single source
@@ -144,6 +181,22 @@ export const workers = pgTable(
     // sorting the table. `id` last is what makes the ordering total: without it a page
     // boundary landing inside a bulk insert's shared timestamp silently skips or repeats.
     index("workers_admin_keyset_idx").on(t.createdAt.desc(), t.id.desc()),
+    // ADR-0042 D9 / Layer A (a) — ciphertext at rest, enforced by the database. Same
+    // shape check as `ai_call_traces`'s two encrypted columns: a worker's plaintext
+    // number is REFUSED with a 23514, so "the column holds a token" is not a code-review
+    // question. It does NOT claim the plaintext inside was validated — the producer's
+    // job — only that whatever is here went through `encryptPii`.
+    check(
+      "workers_whatsapp_enc_token_chk",
+      sql`${t.whatsappEnc} IS NULL OR ${t.whatsappEnc} ~ ${sql.raw(`'${ENC_TOKEN_SQL_PATTERN}'`)}`,
+    ),
+    // ASSUMPTIONS A1's five-value vocabulary, enforced at the database so a typo cannot create a
+    // sixth tier that no renderer knows how to map. The LABEL mapping is not here on purpose: a
+    // future two-tier→three-tier UI change is a TypeScript edit, not a migration.
+    check(
+      "workers_verification_state_chk",
+      sql`${t.verificationState} IS NULL OR ${t.verificationState} IN ('self-declared', 'RVM-attested', 'document-verified', 'EPFO-verified', 'employer-rated')`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
@@ -287,4 +340,3 @@ export const workerCredentials = pgTable(
     uniqueIndex("worker_credentials_worker_id_uq").on(t.workerId),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
-

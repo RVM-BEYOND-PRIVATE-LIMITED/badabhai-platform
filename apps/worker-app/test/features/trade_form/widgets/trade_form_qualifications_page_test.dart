@@ -291,4 +291,187 @@ void main() {
     expect(visibleThings(tester), greaterThan(0));
     expect(tester.takeException(), isNull);
   });
+
+  // ── A USED ROW MUST BE COMPLETE ───────────────────────────────────────────
+  //
+  // Only state/city may be left empty anywhere in the form. A certificate the
+  // worker started needs all three of its fields, and an education needs every
+  // field its pages show (the subject only when the credential names a trade).
+  // A wholly-blank row is still skippable — it is dropped before the write, so
+  // a worker with none is never forced to invent one.
+  group('a used row must be complete', () {
+    testWidgets('a used certificate needs a name, an issuer and a valid year',
+        (WidgetTester tester) async {
+      const String blocked = 'Sahi saal daalein — tabhi aage badh sakte hain.';
+
+      // Blank row → skippable.
+      GlobalKey<TradeFormQualificationsPageState> key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[TradeFormCertificateEntry(name: '')],
+        ),
+      );
+      expect(key.currentState!.currentPageError(), isNull);
+
+      // Name only → issuer required.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'ITI Certificate'),
+          ],
+        ),
+      );
+      expect(key.currentState!.currentPageError(), 'Kisne diya — likhein.');
+
+      // Name + issuer → year required.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'ITI Certificate', issuer: 'Govt ITI'),
+          ],
+        ),
+      );
+      expect(key.currentState!.currentPageError(), 'Kis saal mila — saal likhein.');
+
+      // A year loaded from saved data that is out of range is refused too — the
+      // inline field callback never fired for it.
+      key = await pump(
+        tester,
+        initial: TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(
+              name: 'ITI Certificate',
+              issuer: 'Govt ITI',
+              year: DateTime.now().year + 1,
+            ),
+          ],
+        ),
+      );
+      expect(key.currentState!.currentPageError(), blocked);
+
+      // Complete → passes.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(
+              name: 'ITI Certificate',
+              issuer: 'Govt ITI',
+              year: 2019,
+            ),
+          ],
+        ),
+      );
+      expect(key.currentState!.currentPageError(), isNull);
+    });
+
+    testWidgets('a used education is required page by page', (WidgetTester tester) async {
+      // Subject typed first, credential still unset → the credential page blocks.
+      GlobalKey<TradeFormQualificationsPageState> key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(field: 'Machinist'),
+          ],
+        ),
+      );
+      key.currentState!.goToNextPage(); // certificates -> credential+subject
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), 'ITI ya Diploma — chunein.');
+
+      // ITI names a trade, so the subject is required on the same page.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(credential: 'iti'),
+          ],
+        ),
+      );
+      key.currentState!.goToNextPage();
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), 'Trade ya subject likhein.');
+
+      // Credential + subject complete → the council page is next.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(credential: 'iti', field: 'Machinist'),
+          ],
+        ),
+      );
+      key.currentState!.goToNextPage(); // -> credential+subject
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), isNull);
+      key.currentState!.goToNextPage(); // -> council
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), 'Council ya board chunein.');
+
+      // Council set → the year+institute page requires a year.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(
+                credential: 'iti', field: 'Machinist', council: 'nios'),
+          ],
+        ),
+      );
+      for (int i = 0; i < 3; i++) {
+        key.currentState!.goToNextPage();
+      }
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), 'Kis saal poora hua — saal likhein.');
+
+      // Year only → institute required.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(
+              credential: 'iti',
+              field: 'Machinist',
+              council: 'nios',
+              year: 2018,
+            ),
+          ],
+        ),
+      );
+      for (int i = 0; i < 3; i++) {
+        key.currentState!.goToNextPage();
+      }
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), 'Institute ka naam likhein.');
+
+      // Fully complete → passes.
+      key = await pump(
+        tester,
+        initial: const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[],
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(
+              credential: 'iti',
+              field: 'Machinist',
+              council: 'nios',
+              year: 2018,
+              institute: 'Govt ITI',
+            ),
+          ],
+        ),
+      );
+      for (int i = 0; i < 3; i++) {
+        key.currentState!.goToNextPage();
+      }
+      await tester.pump();
+      expect(key.currentState!.currentPageError(), isNull);
+    });
+  });
 }

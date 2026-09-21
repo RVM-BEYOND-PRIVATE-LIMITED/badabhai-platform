@@ -37,6 +37,10 @@ interface SetupOpts {
   workerExists?: boolean;
   pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
   existingUnlock?: Record<string, unknown>;
+  existingRouting?: Record<string, unknown>; // P-021: a routing row an earlier reveal wrote
+  /** E0 resolution: the routing row `findRoutingByHandle` returns, and the exact projection. */
+  routingByHandle?: Record<string, unknown>;
+  projection?: Record<string, unknown>;
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
   debitOk?: boolean;
@@ -67,7 +71,15 @@ function setup(opts: SetupOpts = {}) {
       status: "denied",
     })),
     incrementReveal: vi.fn(async () => 1),
-    createRouting: vi.fn(async () => ({ id: "routing-1" })),
+    // P-021: echo the input so the reveal response reads the STORED row (the service no
+    // longer answers from the in-memory handle it just minted).
+    createRouting: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
+      id: "routing-1",
+      ...input,
+    })),
+    findRoutingByUnlock: vi.fn(async () => opts.existingRouting),
+    // E0 item 1 — the handle-keyed read the relay resolution starts from.
+    findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
@@ -85,7 +97,11 @@ function setup(opts: SetupOpts = {}) {
     // a test can mockResolvedValue a null-worker_id projection (the deleted-worker guard).
     getProjection: vi.fn(
       async (): Promise<{ worker_id: string | null; payer_id: string } | undefined> =>
-        opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined,
+        opts.projection !== undefined
+          ? (opts.projection as { worker_id: string | null; payer_id: string })
+          : opts.existingUnlock
+            ? { worker_id: WORKER, payer_id: PAYER }
+            : undefined,
     ),
     ...txMethods,
   };
@@ -309,6 +325,8 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
       "payment.authorized",
       "payment.captured",
       "unlock.granted",
+      // E0 C-1 — the worker is told he was unlocked, AFTER the grant is durable.
+      "profile.viewed_v2",
     ]);
     expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
     expect(txMethods.upsertGrant).toHaveBeenCalledTimes(1);
@@ -319,6 +337,47 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
       const e = c[0] as { event_name: string; payload: Record<string, unknown> };
       if (e.event_name.startsWith("payment.")) expect(e.payload.real_call).toBe(false);
     }
+  });
+
+  // ---- E0 C-1 (owner ruling 2026-09-21, route ii-v2) ----
+
+  it("tells the worker he was unlocked — profile.viewed_v2, opaque ids, job_id OMITTED with no posting", async () => {
+    const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+
+    const viewed = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
+    );
+    expect(viewed, "the unlock path must EMIT profile.viewed_v2, not merely register it").toBeDefined();
+    const evt = viewed![0] as {
+      payload: Record<string, unknown>;
+      actor: Record<string, unknown>;
+      subject: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    // An absent key, not null — the payload's job_id is optional by design.
+    expect(evt.payload).toEqual({ worker_id: WORKER, viewer_payer_id: PAYER });
+    expect(evt.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+    expect(evt.subject).toEqual({ subject_type: "worker", subject_id: WORKER });
+    expect(evt.idempotencyKey).toBe("profile.viewed_v2:unlock-1");
+    // The counterparty id is `viewer_payer_id` — a payload key literally named `payer_id`
+    // would fail the Alerts feed's own payload-shape ban at test time.
+    expect(Object.keys(evt.payload)).not.toContain("payer_id");
+    expect(JSON.stringify(evt)).not.toContain(SENTINEL_PHONE);
+  });
+
+  it("carries job_id when the unlock has a posting (search-found unlocks omit it)", async () => {
+    const JOB = "55555555-5555-4555-8555-555555555555";
+    const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
+    const viewed = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
+    );
+    expect((viewed![0] as { payload: Record<string, unknown> }).payload).toEqual({
+      worker_id: WORKER,
+      viewer_payer_id: PAYER,
+      job_id: JOB,
+    });
   });
 
   it("an already-live grant for THIS payer returns the SAME grant with no second debit (idempotent, F-6)", async () => {
@@ -426,6 +485,37 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
     );
     expect(JSON.stringify(payload)).not.toContain(SENTINEL_PHONE);
     expect(JSON.stringify(payload)).not.toContain(handle); // the handle is not evented either
+  });
+
+  // ---- P-021 (owner ruling 2026-09-21): the second reveal is idempotent, not a 500 ----
+
+  it("a SECOND reveal re-serves the SAME handle, writes NO second routing row, and never re-decrypts the phone", async () => {
+    const u = grantedUnlock();
+    const stored = {
+      id: "routing-1",
+      unlockId: "unlock-1",
+      routingToken: u.routingTokenRef,
+      channel: "in_app_relay",
+      relayHandle: "relay_unlock-1_stored-handle",
+      expiresAt: u.expiresAt,
+    };
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: u });
+    // First reveal: no routing row yet → wires + inserts. Second: reads the stored row.
+    t.txMethods.findRoutingByUnlock.mockResolvedValueOnce(undefined).mockResolvedValue(stored);
+    t.txMethods.createRouting.mockResolvedValueOnce(stored);
+
+    const first = await t.svc.reveal("unlock-1", CTX);
+    const second = await t.svc.reveal("unlock-1", CTX);
+
+    expect(first).toMatchObject({ relay_handle: stored.relayHandle, channel: "in_app_relay" });
+    expect(second).toMatchObject({ relay_handle: stored.relayHandle, channel: "in_app_relay" });
+    // ONE routing row for the unlock, and the phone read exactly once — the whole point.
+    expect(t.txMethods.createRouting).toHaveBeenCalledTimes(1);
+    expect(t.pii.decrypt).toHaveBeenCalledTimes(1);
+    // Both reveals still count against the cap and are audited.
+    expect(t.txMethods.incrementReveal).toHaveBeenCalledTimes(2);
+    expect(emitted(t.events).filter((n) => n === "contact.revealed")).toHaveLength(2);
+    expect(JSON.stringify([first, second])).not.toContain(SENTINEL_PHONE);
   });
 
   it("the routing token is NEVER in the response or the contact.revealed event (F-4)", async () => {
@@ -746,5 +836,150 @@ describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signa
     await t.svc.requestUnlock(grantFixture, CTX);
 
     expect(exhaustionEvents(t.events)[0]?.payload.free_tier_credits).toBe(25);
+  });
+});
+
+describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reach)", () => {
+  const HANDLE =
+    "relay_44444444-4444-4444-4444-444444444444_55555555-5555-4555-8555-555555555555";
+  const future = new Date(Date.now() + 60_000);
+  const BOTH = ["profiling", "employer_sharing", "employer_messaging"];
+
+  function liveProjection(overrides: Record<string, unknown> = {}) {
+    return {
+      unlock_id: "unlock-1",
+      payer_id: PAYER,
+      worker_id: WORKER,
+      job_id: null,
+      status: "granted",
+      reveal_count: 1,
+      granted_at: new Date(),
+      expires_at: future,
+      created_at: new Date(),
+      ...overrides,
+    };
+  }
+
+  function routingRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "routing-1",
+      unlockId: "unlock-1",
+      routingToken: "44444444-4444-4444-4444-444444444444",
+      channel: "in_app_relay",
+      relayHandle: HANDLE,
+      expiresAt: future,
+      createdAt: new Date(),
+      ...overrides,
+    };
+  }
+
+  it("resolves a live, caller-owned unlock whose worker holds BOTH employer purposes", async () => {
+    const { svc } = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toEqual({
+      unlockId: "unlock-1",
+      workerId: WORKER,
+    });
+  });
+
+  it("fails closed for an unknown handle", async () => {
+    const { svc } = setup({ consentPurposes: BOTH, projection: liveProjection() });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed when the caller does not own the unlock (no oracle)", async () => {
+    const { svc } = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ payer_id: "99999999-9999-4999-8999-999999999999" }),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("C-3: fails closed when the latest consent row omits employer_messaging — the C-2 exit reaches live unlocks", async () => {
+    const { svc } = setup({
+      consentPurposes: ["profiling", "employer_sharing"],
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed when employer_sharing is missing or the row is revoked", async () => {
+    const missing = setup({
+      consentPurposes: ["profiling", "employer_messaging"],
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await missing.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const revoked = setup({
+      consentPurposes: BOTH,
+      consentRevoked: true,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await revoked.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed on an expired unlock or an expired handle", async () => {
+    const expiredUnlock = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ expires_at: new Date(Date.now() - 1_000) }),
+    });
+    expect(await expiredUnlock.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const expiredHandle = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow({ expiresAt: new Date(Date.now() - 1_000) }),
+      projection: liveProjection(),
+    });
+    expect(await expiredHandle.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed for a pending-deletion worker and for a DSAR null worker_id", async () => {
+    const leaving = setup({
+      consentPurposes: BOTH,
+      pendingDeletion: true,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await leaving.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const gone = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ worker_id: null }),
+    });
+    expect(await gone.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("worker side: resolves the caller's own live unlock, and fails closed for a foreign worker", async () => {
+    const mine = setup({
+      consentPurposes: BOTH,
+      projection: liveProjection(),
+    });
+    expect(await mine.svc.resolveRelayForWorker("unlock-1", WORKER)).toEqual({
+      unlockId: "unlock-1",
+      workerId: WORKER,
+    });
+
+    const foreign = setup({
+      consentPurposes: BOTH,
+      projection: liveProjection({ worker_id: "99999999-9999-4999-8999-999999999999" }),
+    });
+    expect(await foreign.svc.resolveRelayForWorker("unlock-1", WORKER)).toBeNull();
+  });
+
+  it("worker side: a withdrawn employer_messaging closes the worker's own read/reply path too", async () => {
+    const { svc } = setup({
+      consentPurposes: ["profiling", "employer_sharing"],
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForWorker("unlock-1", WORKER)).toBeNull();
   });
 });

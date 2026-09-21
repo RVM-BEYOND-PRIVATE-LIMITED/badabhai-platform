@@ -22,9 +22,14 @@ export * from "./question-pack-resolver";
 // orchestrator keys its capture-time normalizers on these same ids.
 export * from "./rfs-vocabulary";
 // The L0/L1 eval harness. Exported so `apps/api` can assert PARITY between the number this
-// harness publishes and what `OccupationIndexService` actually does — see
+// harness publishes and what `OccupationIndexService` actually does - see
 // `occupation-retrieval-parity.test.ts`. Nothing on a request path imports it.
 export * from "./occupation-retrieval-eval";
+// The chat-road fill ruler: the field universe + the pure per-road aggregation. Exported so
+// `apps/api` can hold the fact half of the field list to `WORKER_FACT_IDS` (the named mirror in
+// `chat-fill-coverage.ts` cannot import it) and so the Phase 3 settled-vs-missing view can reuse
+// the SAME field list rather than typing a second one. Nothing on a request path imports it.
+export * from "./chat-fill-coverage";
 // The authored question-pack corpus reader + its validator. Exported for the SAME reason as the
 // eval harness above and with the same caveat: nothing on a request path imports it. `apps/api`
 // needs it to generate the reply-closure manifest — the enumeration of every string the engine can

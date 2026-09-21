@@ -150,6 +150,14 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /WORK_HISTORY_POLISH_ENABLED:\s*\$\{\{\s*secrets\.WORK_HISTORY_POLISH_ENABLED\s*\}\}/,
       /envs:[^\n]*\bWORK_HISTORY_POLISH_ENABLED\b/,
     ],
+    // RI-autofill kill switch (owner override B, 2026-09-20, of ruling D2). Bridged like
+    // the plain boolean flags above because that is what it is: the D2-override write
+    // half. Contrast AI_REAL_CALL_TASKS below, which stays a box-side scope decision.
+    [
+      "RESUME_AUTOFILL_ENABLED",
+      /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -174,6 +182,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["SKILL_CANONICALIZE_ENABLED", "false"],
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
+    ["RESUME_AUTOFILL_ENABLED", "false"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {

@@ -23,13 +23,24 @@ Widget _app() {
 
 void main() {
   group('SplashScreen', () {
+    // Onboarding kit Screen 1: the splash artwork (logo, `BADABHAI` wordmark,
+    // `SAB HOJAYEGA` tagline, handshake — all inside the image) fills the
+    // screen, and the "Get started" CTA is the kit's PrimaryActionButton
+    // (ElevatedButton) drawn by Flutter on top of it.
     testWidgets('renders the brand promise + the CTA',
         (WidgetTester tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
-      expect(find.text('No test. Just talk.'), findsOneWidget);
+      final Image art = tester.widget<Image>(find.byKey(kSplashImageKey));
+      expect((art.image as AssetImage).assetName, kSplashImageAsset);
+      expect(art.fit, BoxFit.fill);
       expect(find.text('Get started'), findsOneWidget);
+      expect(find.widgetWithText(ElevatedButton, 'Get started'),
+          findsOneWidget);
+      // The retired copy must not linger alongside the kit lockup.
+      expect(find.text('No test. Just talk.'), findsNothing);
+      expect(find.text('Your placement team for factory jobs'), findsNothing);
     });
 
     // The language picker is hidden until real localization ships. It wrote
@@ -58,9 +69,8 @@ void main() {
       expect(find.text('LOGIN STUB'), findsOneWidget);
     });
 
-    // Fits every screen (Y): on a SHORT screen the flexible layout must scroll
-    // instead of overflowing, and the CTA + brand promise must still be present
-    // (reachable by scroll). A RenderFlex overflow would throw and takeException
+    // Fits every screen (Y): on a SHORT screen the artwork covers the screen
+    // and the CTA stays docked at the bottom, with nothing overflowing. A RenderFlex overflow would throw and takeException
     // would return it.
     testWidgets('fits a short screen without overflowing',
         (WidgetTester tester) async {
@@ -74,6 +84,7 @@ void main() {
 
       expect(tester.takeException(), isNull,
           reason: 'the splash must scroll, never overflow, on a short screen');
+      expect(find.byKey(kSplashImageKey), findsOneWidget);
       expect(find.text('Get started'), findsOneWidget);
     });
   });

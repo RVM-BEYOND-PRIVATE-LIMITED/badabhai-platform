@@ -54,10 +54,11 @@ describe("GET /workers/me/work-preferences/options", () => {
     const offered = new Set(states);
     for (const city of cities) expect(offered.has(city.state)).toBe(true);
 
-    // DELIBERATELY WIDER THAN THE CITY SET. The employer-location field on the same form asks
-    // where a PREVIOUS employer was, which can be anywhere in India — so the state list must not
-    // collapse to the 13 states that happen to hold a manufacturing hub.
-    expect(new Set(cities.map((c) => c.state)).size).toBeLessThan(states.length);
+    // FULL COVERAGE SINCE #1560. The employer-location field asks where a PREVIOUS employer
+    // was, which can be anywhere in India — so every one of the 36 states/UTs must have at least
+    // one city. Previously the catalogue held 36 hubs across 13 states and this asserted the gap;
+    // now the gap is closed and the assertion pins the coverage instead.
+    expect(new Set(cities.map((c) => c.state)).size).toBe(states.length);
   });
 
   it("serves the four closed vocabularies by reference, not a copy", () => {

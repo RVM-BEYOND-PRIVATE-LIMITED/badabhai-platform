@@ -41,6 +41,7 @@ interface Harness {
   repo: {
     findLatestProfileSignals: ReturnType<typeof vi.fn>;
     findPackAttributeOptions: ReturnType<typeof vi.fn>;
+    findSecondaryRoleIds: ReturnType<typeof vi.fn>;
     replaceDerivedSkillsAndTenure: ReturnType<typeof vi.fn>;
     listWantedSkillIds: ReturnType<typeof vi.fn>;
     reconcileReachForWorker: ReturnType<typeof vi.fn>;
@@ -57,6 +58,8 @@ interface Harness {
 
 function setup(opts: {
   signals: WorkerProfileSignals | undefined;
+  /** Layer A (f) — the worker's declared secondary `role_*` ids. `[]` by default. */
+  secondaryRoleIds?: string[];
   /** What the DB says the worker WANTS after the write. Defaults to the derived set. */
   wanted?: string[];
   postings?: string[];
@@ -70,6 +73,8 @@ function setup(opts: {
     // signals, and a stub that returned pack answers would change what every one of them
     // derives. `pack-attribute-skills.test.ts` covers the bridge itself.
     findPackAttributeOptions: vi.fn(async () => new Map<string, string[]>()),
+    // Layer A (f): the declared secondary occupations. Empty unless a case opts in.
+    findSecondaryRoleIds: vi.fn(async () => opts.secondaryRoleIds ?? []),
     findLatestProfileSignals: vi.fn(async () => {
       order.push("find");
       return opts.signals;
@@ -371,6 +376,39 @@ describe("WorkerSkillsService — no profile is a legitimate state, not a failur
     // Writing a skill/tenure/reach row for a worker with no profile would put a man in
     // an employer's list on the strength of a profile that does not exist.
     expect(h.order).toEqual(["find"]);
+  });
+});
+
+describe("WorkerSkillsService — declared SECONDARY occupations join the role bridge (Layer A (f))", () => {
+  it("unions the secondary role's bridge row with the primary's", async () => {
+    const h = setup({
+      signals: signals({ canonicalRoleId: ROLE_VMC, totalYears: 3 }),
+      secondaryRoleIds: ["role_plumber"],
+    });
+    await h.svc.rebuildForWorker(WORKER);
+    expect(h.writtenSkills().map((r) => r.skillId)).toEqual([
+      "mskill_plumber",
+      "mskill_vmc_operator",
+    ]);
+  });
+
+  it("a worker with ONLY declared secondaries still derives them — the guard counts the declaration", async () => {
+    // The rebuild is delete-then-insert: if declared occupations did not count as evidence, the
+    // occupations page's own rebuild would delete the very rows it derived.
+    const h = setup({ signals: undefined, secondaryRoleIds: ["role_welder"] });
+    const res = await h.svc.rebuildForWorker(WORKER);
+    expect(res?.skillCount).toBe(1);
+    expect(h.writtenSkills().map((r) => r.skillId)).toEqual(["mskill_mig_welder"]);
+    expect(h.order).toContain("replace");
+  });
+
+  it("an id the role bridge does not cover contributes no row", async () => {
+    // The DTO only accepts the closed role ids, all of which the bridge covers; a hand-written
+    // row or a retired role degrades to zero rows rather than a fabricated skill.
+    const h = setup({ signals: undefined, secondaryRoleIds: ["role_invented"] });
+    const res = await h.svc.rebuildForWorker(WORKER);
+    expect(res?.skillCount).toBe(0);
+    expect(h.writtenSkills()).toEqual([]);
   });
 });
 

@@ -7,8 +7,8 @@
   "version": 2,
   "family_id": "fam_universal",
   "locale": "hi-IN",
-  "status": "active",
-  "review_note": "v2 adds preferred_locations and retires relocation behind it. v1 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose.",
+  "status": "deprecated",
+  "review_note": "v3 adds languages and work_types as chat-owned attribute questions. v2 is deprecated in the same commit — the corpus validator refuses a second ACTIVE pack for one family+locale, because the resolver must never have to choose. Every v2 item and its served text are unchanged.",
   "items": [
     {
       "question_key": "primary_trade",

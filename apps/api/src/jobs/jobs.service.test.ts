@@ -155,10 +155,10 @@ describe("JobsService.getWorkerVisibleJob — the ADR-0024 SHOW projection", () 
 
   it("V1 posting: a NULL trade_key is passed through (job_postings carries role_title only)", async () => {
     // ADR-0036: the feed serves `job_postings`, so a tapped/applied job id is a
-    // POSTING id and the repo's fallback returns a row with NO trade_key/area/
-    // experience/benefits/requirements (postings don't store them). The service
-    // must surface `trade_key: null` honestly — never invent a trade — so the
-    // detail screen shows the posting's real title/city/pay/shift/description.
+    // POSTING id. The service must surface `trade_key: null` honestly — never invent
+    // a trade — so the detail screen shows the posting's real title/city/pay/shift/
+    // description. (This row also exercises the honest-nulls path for the #1561
+    // content columns on a posting created before migration 0116.)
     const posting: WorkerVisibleJobRow = {
       id: JOB_ID,
       tradeKey: null,
@@ -224,14 +224,21 @@ describe("JobsService.searchJobs", () => {
     title: "CNC Operator",
     city: "Pune",
     state: "Maharashtra",
+    area: "Chakan",
     payMin: 20000,
     payMax: 35000,
     shift: "day" as const,
+    minExperienceYears: 1,
+    maxExperienceYears: 4,
+    description: "Fanuc CNC machine operate karna.",
+    benefits: ["PF + ESI"],
+    requirements: ["Fanuc control"],
+    neededBy: "immediate" as const,
     publishedAt: new Date("2026-08-01T00:00:00.000Z"),
   };
   const q = (over: Record<string, unknown> = {}) => JobSearchQuerySchema.parse(over);
 
-  it("maps a posting to the wire contract, with honest nulls for what a posting lacks", async () => {
+  it("maps a posting to the wire contract, carrying the card content through", async () => {
     const { svc } = setup(undefined, { rows: [HIT], hasMore: false });
     const res = await svc.searchJobs(WORKER_ID, q(), CTX);
     expect(res.jobs[0]).toEqual({
@@ -239,16 +246,44 @@ describe("JobsService.searchJobs", () => {
       title: "CNC Operator",
       city: "Pune",
       state: "Maharashtra",
-      // `area` and the experience window live on the legacy `jobs` table only — null, never
-      // invented, exactly as the detail read already answers for a V1 posting.
-      area: null,
+      // Card content (#1561, migration 0116): the posting's own columns, verbatim —
+      // null only when the posting has none (honest absence, never invented).
+      area: "Chakan",
       pay_min: 20000,
       pay_max: 35000,
       shift: "day",
-      min_experience_years: null,
-      max_experience_years: null,
+      min_experience_years: 1,
+      max_experience_years: 4,
+      description: "Fanuc CNC machine operate karna.",
+      benefits: ["PF + ESI"],
+      requirements: ["Fanuc control"],
+      needed_by: "immediate",
       matched_skill_label: null,
       published_at: "2026-08-01T00:00:00.000Z",
+    });
+  });
+
+  it("passes honest nulls for a posting with no card content (never fabricated)", async () => {
+    const bare = {
+      ...HIT,
+      area: null,
+      minExperienceYears: null,
+      maxExperienceYears: null,
+      description: null,
+      benefits: null,
+      requirements: null,
+      neededBy: null,
+    };
+    const { svc } = setup(undefined, { rows: [bare], hasMore: false });
+    const res = await svc.searchJobs(WORKER_ID, q(), CTX);
+    expect(res.jobs[0]).toMatchObject({
+      area: null,
+      min_experience_years: null,
+      max_experience_years: null,
+      description: null,
+      benefits: null,
+      requirements: null,
+      needed_by: null,
     });
   });
 

@@ -14,7 +14,7 @@ import STATES_FILE from "@badabhai/profiling-lexicon/data/states.json";
  * That is the miss #1406 reports, from a real device, on the word "Kota".
  *
  * SERVED AS ONE LIST, NOT A `?q=` SEARCH ROUTE, and the number is the argument. `cities.json` is
- * 1,754 bytes and resolves to 36 distinct values — a payload smaller than the response headers
+ * ~6.8 KB and resolves to 80 distinct values — a payload smaller than the response headers
  * carrying it. `trade-form.service.ts`'s `SEARCHABLE_OPTION_THRESHOLD` already ratified what the
  * product does with a list this size: past twelve options the server marks it `searchable` and
  * the client filters the DOWNLOADED list in memory with `BbSearchableMultiSelect`. A per-keystroke
@@ -105,10 +105,11 @@ export interface CityOption {
  * The state/UT options, in the order the picker shows them.
  *
  * WHY IT IS SERVED AT ALL. #1429 asks for a state-then-city cascade, and a client cannot build
- * one from the city list alone: it would have to derive the state set by scanning the cities it
- * was given, which yields only the 13 states that happen to contain a manufacturing hub. That is
- * the right list for filtering the closed city set and the wrong one for the employer-location
- * field beside it, where a worker's previous employer can be anywhere in India.
+ * one from the city list alone: before #1560 it would have derived only the 13 states that
+ * happened to contain a manufacturing hub. That is the right list for filtering a hub-only set
+ * and the wrong one for the employer-location field beside it, where a worker's previous
+ * employer can be anywhere in India — so the full administrative list is served, and since
+ * #1560 the city catalogue covers all 36 of them.
  *
  * READ FROM `administrative`, NOT `names`. `names` is DETECTION data — signals.py compiles it
  * into a regex that runs over free worker speech — and it holds 22 entries with no union
@@ -145,8 +146,8 @@ function resolveOrThrow(token: string): string {
  * Fold the gazetteer's canonical entries and aliases into one option per DISTINCT resolved city.
  *
  * THE TRAP THIS EXISTS TO SURVIVE: two tokens — "bengaluru" and "gurgaon" — are members of
- * `canonical` AND keys of `aliases`, and the alias map wins in `canonicalCity`. So the 38
- * canonical entries are only 36 distinct answers, and a list built naively from `canonical` would
+ * `canonical` AND keys of `aliases`, and the alias map wins in `canonicalCity`. So the 82
+ * canonical entries are only 80 distinct answers, and a list built naively from `canonical` would
  * offer the worker both "Bengaluru" and "Bangalore", store the same value for either, and print a
  * chip that disagrees with the sheet. Grouping by the RESOLVED value rather than by the token is
  * what makes that impossible to get wrong.
@@ -193,7 +194,10 @@ function buildCatalogue(): readonly CityOption[] {
     }
   }
 
-  return grouped.map((city) => ({ ...city, state: stateOf(city.value, tokensByCity.get(city.value)!) }));
+  return grouped.map((city) => ({
+    ...city,
+    state: stateOf(city.value, tokensByCity.get(city.value)!),
+  }));
 }
 
 /**
@@ -201,7 +205,7 @@ function buildCatalogue(): readonly CityOption[] {
  *
  * TAKES THE TOKENS, NOT THE DISPLAY VALUE, because `states` is keyed by gazetteer token and two
  * tokens can reach one city: `bengaluru` and `gurgaon` are members of `canonical` AND keys of
- * `aliases`, so 38 canonical entries are only 36 distinct answers. A map keyed by token would give
+ * `aliases`, so 82 canonical entries are only 80 distinct answers. A map keyed by token would give
  * Bangalore two entries and let whichever was written last win silently; folding onto the RESOLVED
  * value and REFUSING a disagreement makes that impossible rather than merely unlikely — the same
  * rule, and the same trap, as the alias grouping above.

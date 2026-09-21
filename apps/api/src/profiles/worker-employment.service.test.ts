@@ -3,6 +3,7 @@ import { ConflictException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RequestContext } from "../common/request-context";
+import type { EmploymentSuggestion } from "./employment-suggestions";
 import {
   SetMyEmploymentSchema,
   projectEmploymentForPut,
@@ -62,10 +63,15 @@ function setup(
   );
   const svc = new WorkerEmploymentService(
     { replaceForWorker, setPolishDeclined, findOwnedVoiceNoteIds } as never,
-    { findById: async () => ({ id: WORKER }), latestResume: async () => latestResume } as never,
+    {
+      findById: async () => ({ id: WORKER }),
+      latestResume: async () => latestResume,
+      latestProfile: async () => undefined,
+    } as never,
     { encrypt } as never,
     { emit } as never,
     { add } as never,
+    { employmentSuggestionsForWorker: async () => [] } as never,
   );
   return { svc, replaceForWorker, emit, add, encrypt, setPolishDeclined, findOwnedVoiceNoteIds };
 }
@@ -259,6 +265,7 @@ describe("the work-history writer (R4 Q1)", () => {
       { encrypt: () => "CIPHERTEXT-TOKEN" } as never,
       { emit: async () => undefined } as never,
       { add: async () => undefined } as never,
+      { employmentSuggestionsForWorker: async () => [] } as never,
     );
     // The history is already committed by this point. Losing the re-render costs a stale PDF
     // until the next render; failing the request would lose the worker's typing.
@@ -437,7 +444,13 @@ function editRecord(over: Partial<WorkerEmploymentEditRecord> = {}): WorkerEmplo
   };
 }
 
-function readSetup(records: WorkerEmploymentEditRecord[]) {
+function readSetup(
+  records: WorkerEmploymentEditRecord[],
+  opts: {
+    resumeEmploymentSuggestions?: EmploymentSuggestion[];
+    rawProfile?: unknown;
+  } = {},
+) {
   const loadForWorkerEdit = vi.fn(async (_w: string) => records);
   // The RÉSUMÉ read, present on the stub so a service that used it instead would still run — and
   // return rows WITHOUT the clip, which is exactly what the voice-note test below catches.
@@ -464,12 +477,19 @@ function readSetup(records: WorkerEmploymentEditRecord[]) {
     throw new Error(`unsupported state or unable to authenticate data: ${token}`);
   });
   const emit = vi.fn(async (_event: { event_name: string; payload: unknown }) => undefined);
+  const employmentSuggestionsForWorker = vi.fn(
+    async (_w: string) => opts.resumeEmploymentSuggestions ?? [],
+  );
+  const latestProfile = vi.fn(async (_w: string) =>
+    "rawProfile" in opts ? ({ rawProfile: opts.rawProfile } as never) : undefined,
+  );
   const svc = new WorkerEmploymentService(
     { loadForWorkerEdit, loadForResume, replaceForWorker, findOwnedVoiceNoteIds } as never,
-    { findById: async () => ({ id: WORKER }), latestResume: async () => null } as never,
+    { findById: async () => ({ id: WORKER }), latestResume: async () => null, latestProfile } as never,
     { decrypt, encrypt: () => "CIPHERTEXT-TOKEN" } as never,
     { emit } as never,
     { add: async () => undefined } as never,
+    { employmentSuggestionsForWorker } as never,
   );
   const lines: string[] = [];
   const logger = (
@@ -478,7 +498,17 @@ function readSetup(records: WorkerEmploymentEditRecord[]) {
   for (const level of ["log", "warn", "error", "debug"] as const) {
     logger[level] = (m: string) => void lines.push(String(m));
   }
-  return { svc, loadForWorkerEdit, loadForResume, replaceForWorker, decrypt, emit, lines };
+  return {
+    svc,
+    loadForWorkerEdit,
+    loadForResume,
+    replaceForWorker,
+    decrypt,
+    emit,
+    lines,
+    employmentSuggestionsForWorker,
+    latestProfile,
+  };
 }
 
 describe("reading the worker's own history back (#1504)", () => {
@@ -578,6 +608,123 @@ describe("reading the worker's own history back (#1504)", () => {
     expect(wire).not.toContain("Operated CNC lathes.");
     expect(wire).not.toContain("workDonePolished");
     expect(wire).not.toContain("polished");
+  });
+});
+
+/**
+ * Jobs never confirmed — from a résumé, from chat, or both — offered beside the stored history
+ * (the ruling: "résumé-parsed jobs AND chat-described jobs prefill Work History rows; saved only
+ * when the worker saves").
+ */
+describe("employment suggestions (résumé + chat)", () => {
+  // A minimal `DraftProfile` (packages/ai-contracts/src/profile.ts) — every OTHER field on that
+  // schema is `.default()`-ed, so this is all `chatEmploymentSuggestions` needs to parse.
+  const chatDraft = (experiences: Record<string, unknown>[]) => ({ experiences });
+
+  it("a settled chat session with two experience entries produces exactly two staged suggestions, source:'chat'", async () => {
+    const h = readSetup([], {
+      rawProfile: chatDraft([
+        { role_label: "CNC Turner", duration_text: "2 saal", duration_months: 24, work_done: "Twin-spindle lathes" },
+        { role_label: "Fitter", duration_text: null, duration_months: null, work_done: null },
+      ]),
+    });
+    const { employment_suggestions } = await h.svc.getForWorker(WORKER);
+    expect(employment_suggestions).toHaveLength(2);
+    expect(employment_suggestions.every((s) => s.source === "chat")).toBe(true);
+    expect(employment_suggestions.map((s) => s.values.role_label)).toEqual(["CNC Turner", "Fitter"]);
+    // VACUITY CHECK: never an employer name — see `employment-suggestions.ts`'s own docblock for
+    // why that is architectural, not a masking choice this test could fool by omission.
+    expect(employment_suggestions.every((s) => s.values.employer_name === null)).toBe(true);
+    expect(employment_suggestions[0]!.values.work_done).toBe("Twin-spindle lathes");
+    expect(employment_suggestions[1]!.values.work_done).toBeNull();
+  });
+
+  it("an unparseable stored draft degrades to zero chat suggestions, never a throw", async () => {
+    const h = readSetup([], { rawProfile: { experiences: "not an array" } });
+    await expect(h.svc.getForWorker(WORKER)).resolves.toMatchObject({ employment_suggestions: [] });
+  });
+
+  it("no stored profile at all is zero chat suggestions", async () => {
+    const h = readSetup([]); // no `rawProfile` key => latestProfile resolves undefined
+    const { employment_suggestions } = await h.svc.getForWorker(WORKER);
+    expect(employment_suggestions).toEqual([]);
+  });
+
+  it("a résumé suggestion AND a chat suggestion for a DIFFERENT job coexist distinctly — neither drops the other", async () => {
+    const resumeSuggestion: EmploymentSuggestion = {
+      source: "resume",
+      values: {
+        employer_name: "Sandhar Technologies",
+        employer_city: null,
+        role_label: "CNC Operator",
+        start_ym: null,
+        end_ym: null,
+        work_done: null,
+      },
+    };
+    const h = readSetup([], {
+      resumeEmploymentSuggestions: [resumeSuggestion],
+      rawProfile: chatDraft([
+        { role_label: "Welder", duration_text: "1 saal", duration_months: 12, work_done: null },
+      ]),
+    });
+    const { employment_suggestions } = await h.svc.getForWorker(WORKER);
+    expect(employment_suggestions).toHaveLength(2);
+    expect(employment_suggestions).toContainEqual(resumeSuggestion);
+    expect(employment_suggestions).toContainEqual({
+      source: "chat",
+      values: {
+        employer_name: null,
+        employer_city: null,
+        role_label: "Welder",
+        start_ym: null,
+        end_ym: null,
+        work_done: null,
+      },
+    });
+    // DISTINCT, NOT MERGED: two entries with two different sources, never one row picked over
+    // the other.
+    const sources = employment_suggestions.map((s) => s.source).sort();
+    expect(sources).toEqual(["chat", "resume"]);
+  });
+
+  it("staging a suggestion writes no worker_employment row — getForWorker never calls the writer", async () => {
+    const h = readSetup([], {
+      resumeEmploymentSuggestions: [
+        {
+          source: "resume",
+          values: {
+            employer_name: "Sandhar Technologies",
+            employer_city: null,
+            role_label: "CNC Operator",
+            start_ym: null,
+            end_ym: null,
+            work_done: null,
+          },
+        },
+      ],
+      rawProfile: chatDraft([{ role_label: "Welder", duration_text: null, duration_months: null, work_done: null }]),
+    });
+    await h.svc.getForWorker(WORKER);
+    expect(h.replaceForWorker).not.toHaveBeenCalled();
+  });
+
+  it("PUT /workers/me/employment is unaffected by whether staged suggestions exist — same outcome, same #1504 count logic", async () => {
+    const baseline = setup();
+    // A résumé-suggestion reader that THROWS if the writer ever consults it. If
+    // `replaceForWorker` accidentally read suggestions, this proves it by failing the write
+    // instead of silently passing.
+    const angrySuggestions = setup();
+    (angrySuggestions.svc as unknown as { resumeSuggestions: unknown }).resumeSuggestions = {
+      employmentSuggestionsForWorker: async () => {
+        throw new Error("the writer must never call this");
+      },
+    };
+    const body = parse([entry()]);
+    const a = await baseline.svc.replaceForWorker(WORKER, body, CTX);
+    const b = await angrySuggestions.svc.replaceForWorker(WORKER, body, CTX);
+    expect(a).toEqual(b);
+    expect(a).toEqual({ worker_id: WORKER, employer_count: 1 });
   });
 });
 

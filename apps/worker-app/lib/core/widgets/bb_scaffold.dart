@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_spacing.dart';
+import '../theme/onboarding_theme.dart';
 import 'bottom_bar_inset.dart';
 
-/// Standard BadaBhai page shell: cream background (from the theme), a safe area,
-/// and the shared gutter padding. Keeps a real [Scaffold] underneath so
-/// `ScaffoldMessenger` (snackbars) keeps working.
+/// Standard BadaBhai page shell: the cool [OnboardingColors.canvasBg] page
+/// background, a safe area, and the shared gutter padding. Keeps a real
+/// [Scaffold] underneath so `ScaffoldMessenger` (snackbars) keeps working.
 ///
 /// #1071 — when it carries a [bottomBar] it also publishes that bar's measured
 /// height to [bottomBarInset], so the app-wide Feedback FAB (which lives above
@@ -69,7 +70,9 @@ class _BbScaffoldState extends State<BbScaffold> {
     // FAB overlay mid-build. The closure touches only the global notifier, so it
     // is safe once this State is defunct. An overlay that outlives us falls back
     // to its own default inset (never an overlap).
-    WidgetsBinding.instance.addPostFrameCallback((_) => bottomBarInset.value = 0);
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => bottomBarInset.value = 0,
+    );
     super.dispose();
   }
 
@@ -80,8 +83,9 @@ class _BbScaffoldState extends State<BbScaffold> {
     final bool hasBar = widget.bottomBar != null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      bottomBarInset.value =
-          hasBar ? (_bottomBarKey.currentContext?.size?.height ?? 0) : 0;
+      bottomBarInset.value = hasBar
+          ? (_bottomBarKey.currentContext?.size?.height ?? 0)
+          : 0;
     });
   }
 
@@ -95,10 +99,7 @@ class _BbScaffoldState extends State<BbScaffold> {
       );
     }
     if (widget.safeArea) {
-      content = SafeArea(
-        bottom: widget.bottomBar == null,
-        child: content,
-      );
+      content = SafeArea(bottom: widget.bottomBar == null, child: content);
     }
 
     Widget? bottom = widget.bottomBar;
@@ -119,6 +120,7 @@ class _BbScaffoldState extends State<BbScaffold> {
     }
 
     return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
       appBar: widget.appBar,
       body: content,
       bottomNavigationBar: bottom,

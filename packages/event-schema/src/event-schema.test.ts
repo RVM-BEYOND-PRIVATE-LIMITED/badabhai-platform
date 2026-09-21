@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 179 event names (175 prior + the four résumé-import steps)", () => {
-    expect(EVENT_NAMES).toHaveLength(179);
+  it("exposes all 193 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit)", () => {
+    expect(EVENT_NAMES).toHaveLength(193);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3054,6 +3054,10 @@ describe("registry", () => {
     expect(isEventName("profile.resume_parsed")).toBe(true);
     expect(isEventName("profile.resume_parse_failed")).toBe(true);
     expect(isEventName("profile.resume_prefill_applied")).toBe(true);
+    // RI-identity: whether the worker recognised the staged Hinglish line as his.
+    expect(isEventName("profile.resume_identity_answered")).toBe(true);
+    // RI-autofill (owner override B): what the identity "haan" wrote from the staged mappings.
+    expect(isEventName("profile.resume_autofill_applied")).toBe(true);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
@@ -3265,6 +3269,9 @@ describe("registry", () => {
     expect(isEventName("resume.downloaded")).toBe(true);
     expect(isEventName("resume.regenerated")).toBe(true);
     expect(isEventName("resume.shared")).toBe(true);
+    // #1311 backend half — the per-field extracted-correction audit event (NOT #1318:
+    // skin_changed / qr_scanned stay absent).
+    expect(isEventName("resume.edited")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
@@ -3299,6 +3306,10 @@ describe("registry", () => {
     // reason as `feed.shown_v2` — v1's `domain_id` is REQUIRED and a Path A miss has no
     // legacy slug, so the alternative was relaxing a shipped required field.
     "skill.phrase_unresolved_v2": 2,
+    // E0 C-1 (owner ruling 2026-09-21, route ii-v2): the unlock-path generation of
+    // `profile.viewed`. v1's `job_id` is REQUIRED and an unlock found by search carries
+    // none, so v2 makes it OPTIONAL rather than relaxing v1 in place.
+    "profile.viewed_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
@@ -3326,6 +3337,18 @@ describe("registry", () => {
       matched_skill_id: "mskill_vmc_operator",
     });
     expect(v2Shape.success).toBe(false);
+  });
+
+  it("keeps the shipped profile.viewed v1 payload EXACTLY as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["profile.viewed"];
+    expect(v1.version).toBe(1);
+    // v1's job_id stays REQUIRED. Nothing emits it (the unlock path uses v2), but a
+    // shipped consumer that reads job_id without a null check must keep compiling
+    // against the shape it was written for — which is the whole reason v2 is a new name.
+    expect(
+      v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B, job_id: UUID_C }).success,
+    ).toBe(true);
+    expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(false);
   });
 });
 
@@ -4365,6 +4388,94 @@ describe("worker.location_recorded (#1428)", () => {
   });
 });
 
+describe("worker.whatsapp_recorded (Layer A (a) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.whatsapp_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, has_whatsapp: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: false })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the number — or any derivative of it", () => {
+    // The number is the whole feature and it never leaves `workers.whatsapp_enc`. `.strict()` is
+    // what makes that structural: a future writer cannot "helpfully" attach the plaintext, a
+    // masked tail, or a hash. The base case is asserted valid first, so a rejection here is the
+    // extra key and not a malformed envelope.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { whatsapp: "+919876543210" },
+      { whatsapp_e164: "+919876543210" },
+      { last4: "3210" },
+      { phone_hash: "deadbeef" },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the boolean — 'set or cleared' may not be silently omitted", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, has_whatsapp: "yes" })).success).toBe(false);
+  });
+});
+
+describe("worker.languages_recorded (Layer A (b) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.languages_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, language_count: 2, replaced_existing: true };
+
+  it("validates the PII-free shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, language_count: 0 })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying the languages themselves", () => {
+    // `.strict()` is the whole guard: a future writer cannot attach the slugs, the printed
+    // labels, or the abilities. Asserted valid first, so a rejection is the extra key.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { languages: ["hindi", "english"] },
+      { language: "hindi" },
+      { can_speak: true },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the count and the replaced flag", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
+    expect(validateEvent(recorded({ worker_id: UUID_A, language_count: 1 })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, language_count: -1 })).success).toBe(false);
+  });
+});
+
 describe("résumé import (ADR-0041) — the funnel carries ids, enums and counts, never the document", () => {
   const imported = (eventName: string, payload: Record<string, unknown>) => ({
     event_id: UUID_A,
@@ -4420,6 +4531,51 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
         }),
       ).success,
     ).toBe(true);
+    expect(
+      validateEvent(
+        imported("profile.resume_identity_answered", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          answer: "yes",
+        }),
+      ).success,
+    ).toBe(true);
+    // The answer is closed: free text here would be worker prose on the spine.
+    expect(
+      validateEvent(
+        imported("profile.resume_identity_answered", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          answer: "haan ye main hoon",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        imported("profile.resume_autofill_applied", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          form_kind: "cnc_grinding",
+          mapped: 9,
+          applied: 7,
+          skipped_answered: 2,
+        }),
+      ).success,
+    ).toBe(true);
+    // Counts and slugs only: an answer or a label here would be model-matched prose
+    // about a specific worker on the spine.
+    expect(
+      validateEvent(
+        imported("profile.resume_autofill_applied", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          form_kind: "bus_driver",
+          mapped: 9,
+          applied: 7,
+          skipped_answered: 2,
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   it("REFUSES the filename, and every other scrap of the document", () => {
@@ -4438,9 +4594,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
       { extracted_text: "CNC Turner, 5 years" },
       { signed_url: "https://example.invalid/x" },
     ]) {
-      expect(validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success).toBe(
-        false,
-      );
+      expect(
+        validateEvent(imported("profile.resume_imported", { ...uploaded, ...smuggled })).success,
+      ).toBe(false);
     }
   });
 
@@ -4449,7 +4605,8 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // it as an enum means that even if that sourcing regressed, an attacker-chosen content-type
     // string still could not ride onto the spine as untrusted text in analytics.
     expect(
-      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" })).success,
+      validateEvent(imported("profile.resume_imported", { ...uploaded, mime: "text/html" }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(
@@ -4495,8 +4652,9 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
     // be representable without inventing a kind. The pairing itself is enforced in the database
     // by `wri_form_kind_chk`; the event only has to be able to express both.
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }))
-        .success,
+      validateEvent(
+        imported("profile.resume_parsed", { ...parsed, route: "chat", form_kind: null }),
+      ).success,
     ).toBe(true);
     expect(
       validateEvent(imported("profile.resume_parsed", { ...parsed, form_kind: "not_a_trade" }))
@@ -4506,10 +4664,98 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
 
   it("REFUSES negative counts", () => {
     expect(
-      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 })).success,
+      validateEvent(imported("profile.resume_parsed", { ...parsed, suggestions_offered: -1 }))
+        .success,
     ).toBe(false);
     expect(
       validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,
     ).toBe(false);
+  });
+});
+
+describe("worker.portfolio_recorded (Layer A (e) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.portfolio_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, item_count: 2, replaced_existing: true };
+
+  it("validates the counts-only shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, item_count: 0 })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying a caption, a storage key or a URL", () => {
+    // `.strict()` is the guard: a worker's caption is free text and a storage key points at
+    // personal media — neither may ride the spine. Asserted valid first.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { caption: "Meri welding clip" },
+      { storage_key: "portfolio/w/key.jpg" },
+      { url: "https://youtu.be/abc" },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the count and the replaced flag", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
+    expect(validateEvent(recorded({ ...valid, item_count: 13 })).success).toBe(false);
+  });
+});
+
+describe("worker.occupations_recorded (Layer A (f) / ADR-0042 D9)", () => {
+  const recorded = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "worker.occupations_recorded",
+    event_version: 1,
+    occurred_at: "2026-09-17T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_A },
+    subject: { subject_type: "worker", subject_id: UUID_A },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  const valid = { worker_id: UUID_A, occupation_count: 2, replaced_existing: true };
+
+  it("validates the counts-only shape", () => {
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    expect(validateEvent(recorded({ ...valid, occupation_count: 0 })).success).toBe(true);
+  });
+
+  it("REFUSES a payload carrying a role id — the spine has no reader for a trade list", () => {
+    // `.strict()` is the guard: a per-worker list of trades he can also do is a supply profile,
+    // the same reason `worker.match_skills_rebuilt` carries no skill ids. Asserted valid first.
+    expect(validateEvent(recorded(valid)).success).toBe(true);
+    for (const smuggled of [
+      { role_ids: ["role_welder"] },
+      { role_id: "role_welder" },
+      { occupations: [{ role_id: "role_welder" }] },
+    ]) {
+      expect(validateEvent(recorded({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("requires the count and the replaced flag, and bounds the count at four", () => {
+    expect(validateEvent(recorded({ worker_id: UUID_A, replaced_existing: true })).success).toBe(
+      false,
+    );
+    expect(validateEvent(recorded({ ...valid, occupation_count: 5 })).success).toBe(false);
+    expect(validateEvent(recorded({ ...valid, occupation_count: -1 })).success).toBe(false);
   });
 });

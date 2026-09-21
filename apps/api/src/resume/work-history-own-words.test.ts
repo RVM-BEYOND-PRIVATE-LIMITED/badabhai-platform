@@ -70,9 +70,9 @@ describe("which text prints", () => {
     expect(block.work).toBe(RAW);
   });
 
-  it("prints the worker's own words when there is no rewrite at all", () => {
+  it("prints empty when the model returned null — never the worker's own words", () => {
     const block = buildEmploymentBlock([record({ polished: null })], ON_OPTS).employments[0]!;
-    expect(block.work).toBe(RAW);
+    expect(block.work).toBe("");
   });
 
   it("always carries the own-words line beside the printed one", () => {

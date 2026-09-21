@@ -12,6 +12,7 @@ import 'package:badabhai_worker_app/core/api/api_models.dart'
         ChatQuestionKind,
         PredictedQuestion;
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
@@ -901,6 +902,92 @@ void main() {
           reason: 'the bubble still SHOWS the romanized text');
       expect(reply.ttsText, 'आप कौनसा काम करते हैं?',
           reason: 'read-aloud SPEAKS the Devanagari sibling');
+    });
+  });
+
+  // "Ask once, skip if known": a closing answer the server processed is
+  // recorded, so the form after the chat does not ask it again.
+  group('closing answers become known facts', () {
+    test('a typed preferred-cities answer is recorded; a blocked turn is not',
+        () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage('cnc',
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap kahaan kaam karna chahte hain?',
+                askedQuestionId: 'preferred_locations',
+              ));
+      when(() => repo.sendMessage('Pune',
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap din ki shift chahte hain ya raat ki?',
+                askedQuestionId: 'shift_preference',
+              ));
+      when(() => repo.sendMessage('Raat',
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer(
+              (_) async => const ChatTurn(reply: 'Theek hai', blocked: true));
+      final InMemoryKnownWorkerFactsStore facts =
+          InMemoryKnownWorkerFactsStore();
+      final ChatBloc bloc = ChatBloc(repo, knownFacts: facts);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await facts.knownFacts(), isEmpty,
+          reason: 'the first answer settled no closing question');
+
+      bloc.add(const ChatMessageSent('Pune'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await facts.knownFacts(), <WorkerFact>{WorkerFact.preferredCities});
+
+      bloc.add(const ChatMessageSent('Raat', optionKey: 'raat'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await facts.knownFacts(), <WorkerFact>{WorkerFact.preferredCities},
+          reason: 'a blocked turn processed nothing');
+    });
+
+    // Review round 2: 'Koi bhi chalegi' is shift_preference's none-of-above
+    // option. It indexes the '__declined' lookahead, but the server stores it
+    // as shift `any`, so a tap on it is an answer and must be recorded.
+    test(
+        'a none-of-above shift chip records the shift; the same words typed '
+        'do not', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.sendMessage(any(),
+              submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(
+                reply: 'Aap din ki shift chahte hain ya raat ki?',
+                askedQuestionId: 'shift_preference',
+                suggestedOptions: <ChatOption>[
+                  ChatOption(optionKey: 'day', labelText: 'Din ki shift'),
+                  ChatOption(optionKey: 'night', labelText: 'Raat ki shift'),
+                  ChatOption(
+                    optionKey: 'any',
+                    labelText: 'Koi bhi chalegi',
+                    isNoneOfAbove: true,
+                  ),
+                ],
+              ));
+      final InMemoryKnownWorkerFactsStore facts =
+          InMemoryKnownWorkerFactsStore();
+      final ChatBloc bloc = ChatBloc(repo, knownFacts: facts);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      bloc.add(const ChatMessageSent('Koi bhi chalegi'));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await facts.knownFacts(), isEmpty,
+          reason: 'typed shift text may miss the closed list: not recorded');
+
+      bloc.add(const ChatMessageSent(
+        'Koi bhi chalegi',
+        optionKey: '__declined',
+        servedOption: true,
+      ));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await facts.knownFacts(), <WorkerFact>{WorkerFact.shift});
     });
   });
 }

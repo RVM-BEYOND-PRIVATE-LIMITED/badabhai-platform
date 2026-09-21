@@ -127,3 +127,54 @@ describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
     expect(text).not.toMatch(/\+?\d{7,}/); // never a phone-like run
   });
 });
+
+describe("withheld-vs-missing display contract (#1581)", () => {
+  type MaskedView = Extract<
+    import("./unlock-view").RevealView,
+    { kind: "masked" }
+  >;
+
+  const base: MaskedView = {
+    kind: "masked",
+    disclosureId: "aaaa7777-0000-4000-8000-000000000001",
+    resumeUrl: "https://api.test/signed/masked.pdf",
+    expiresAt: "2026-07-20T00:00:00.000Z",
+  };
+
+  async function rendered(view: MaskedView): Promise<string> {
+    const { MaskedResumeCard } = await import(
+      "../components/unlock/routed-contact-card"
+    );
+    return JSON.stringify(MaskedResumeCard({ view }));
+  }
+
+  it("a withheld value and a never-given one render identical layouts", async () => {
+    // The backend pins the employer artifact byte-identical for both cases;
+    // the client must not add differences. The ONLY legal delta is the
+    // candidate line the server itself labels.
+    const normalize = (s: string): string =>
+      s.replace(/R\*\*\*\*\* K\.|Masked candidate/g, "CAND");
+    const withInitials = normalize(
+      await rendered({ ...base, displayInitials: "R***** K." }),
+    );
+    const withoutInitials = normalize(await rendered(base));
+    expect(withInitials).toBe(withoutInitials);
+  });
+
+  it("names no hidden/withheld/locked affordance and no photo/salary region", async () => {
+    const text = await rendered({ ...base, displayInitials: "R***** K." });
+    expect(text).not.toMatch(/\bhidden\b/i);
+    expect(text).not.toMatch(/\bwithheld\b/i);
+    expect(text).not.toMatch(/\blocked\b/i);
+    expect(text).not.toMatch(/not disclosed/i);
+    expect(text).not.toMatch(/photo/i);
+    expect(text).not.toMatch(/salary/i);
+    expect(text).not.toContain("••");
+    expect(text).not.toContain("Ramesh");
+  });
+
+  it("renders the server initials verbatim when the wire carries them", async () => {
+    const text = await rendered({ ...base, displayInitials: "R***** K." });
+    expect(text).toContain("R***** K.");
+  });
+});

@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { evaluatePredicate } from "./predicate";
+import { MAX_ENGINE_ASKS } from "./next-question";
 
 interface PackOption {
   option_key: string;
@@ -79,9 +80,15 @@ const tiered = pack.items.filter((i) => i.ask_if);
 const tier1 = tiered.filter((i) => i.ask_if?.right?.const === 2).map((i) => i.question_key);
 const tier2 = tiered.filter((i) => i.ask_if?.right?.const === 5).map((i) => i.question_key);
 
-/** `MAX_ENGINE_ASKS` in next-question.ts, minus the 8 items `qp_universal@2` always spends. */
-const ENGINE_ASK_BUDGET = 24;
-const UNIVERSAL_ASKS = 8;
+/**
+ * The active tail's item count, pinned so a tail change shows up here too. `qp_universal@4`
+ * serves eighteen items: v2's eight plus `languages`/`work_types` (Phase 1) plus the Layer A
+ * elicitation's eight. It is deliberately a literal HERE rather than a corpus read — this file
+ * proves the turner LADDER's fit (`asked + universal <= budget`), and the budget guard beside it
+ * is what pins the walk against a real corpus.
+ */
+const UNIVERSAL_ASKS = 18;
+const ENGINE_ASK_BUDGET = MAX_ENGINE_ASKS;
 
 describe("qp_cnc_turning depth ladder", () => {
   it("the tier gate carries a numeric value and NO value_text", () => {

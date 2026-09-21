@@ -154,6 +154,61 @@ function looksLikeAYear(num: string, unit: string | null, near: string): boolean
 }
 
 /**
+ * Does `cue` fire in `near` — the text AFTER an amount — without a clause boundary standing
+ * between the amount and the cue? `_cue_fires_after`, R16 §1 (issue #1507 case 1).
+ *
+ * `periodWindowAfter` (18 chars) is wide enough to reach "saal ka" in "1.5 lakh saal ka", but the
+ * same width also reaches into an entirely separate clause: "15000 chahiye, 5 saal ho gaye" has
+ * "5 saal" eight characters past the comma — an EXPERIENCE clause, not the salary's period — and
+ * the naked window read it as annual, dividing a correct ₹15,000 by twelve to ₹1,250. Measured
+ * twice: in the #1505 design pass and again by its adversarial reviewer.
+ *
+ * THE GUARD IS ON THE CUE'S OWN POSITION, NOT ON THE SEARCH TEXT. An earlier version of this fix
+ * pre-truncated `near` at the first clause terminator before searching at all, and that broke
+ * `annualCuesAfter`'s own abbreviated cues: "4.2 lakh p.a." has its ANNUAL marker matched by
+ * `p\.?\s?a\.?`, and `clauseTerminator` includes `.` — the abbreviation's OWN internal dot — so
+ * truncating the search text cut the window off before the cue could match at all, and a correctly
+ * annual figure was read as monthly, twelve times too high. Testing the region BEFORE the cue's
+ * match rather than pre-cutting the text leaves the cue free to match through its own punctuation;
+ * only a terminator standing between the amount and where the cue STARTS can veto it.
+ */
+function cueFiresAfter(cue: RegExp, near: string): boolean {
+  const found = cue.exec(near);
+  if (found === null) return false;
+  return clauseGuardAllows(near.slice(0, found.index));
+}
+
+/** The mirror of {@link cueFiresAfter} for text BEFORE an amount — same guard, other direction. */
+function cueFiresBefore(cue: RegExp, near: string): boolean {
+  const found = cue.exec(near);
+  if (found === null) return false;
+  return clauseGuardAllows(near.slice(found.index + found[0].length));
+}
+
+/**
+ * Does the text `between` an amount and a period cue's edge still let the cue fire?
+ * `signals._clause_guard_allows`, R16 §2 (issue #1520 review).
+ *
+ * A bare clause terminator sitting alone between the amount and the cue — "4.2 lakh, saal ka
+ * chahiye" has only ", " between the amount and "saal" — is a speaker's PAUSE inside one sentence
+ * about one amount, not a boundary into a different clause, and must not veto the cue. "15000
+ * chahiye, 5 saal ho gaye" has real content on top of the comma — "chahiye" before it, "5" after
+ * — a subject and a separate verb phrase about work EXPERIENCE, not the salary's period, and that
+ * is what must still be vetoed.
+ *
+ * The distinguishing signal is content, not the terminator's mere presence: strip the FIRST
+ * terminator match out of `between` and see what is left. Nothing (once whitespace is trimmed)
+ * means "amount, cue" with nothing wedged in — allow. Anything else — another word, another
+ * number, a second clause — means real content sits between the amount and the cue — veto.
+ */
+function clauseGuardAllows(between: string): boolean {
+  const found = CLAUSE_TERMINATOR.exec(between);
+  if (found === null) return true;
+  const remainder = between.slice(0, found.index) + between.slice(found.index + found[0].length);
+  return remainder.trim() === "";
+}
+
+/**
  * How many months the amount covers: 1 (monthly, the default), 12 (annual), or null when the cues
  * CONFLICT. `signals._period_months`.
  *
@@ -162,15 +217,21 @@ function looksLikeAYear(num: string, unit: string | null, near: string): boolean
  */
 function periodMonths(nearBefore: string, nearAfter: string): number | null {
   const annual =
-    ANNUAL_AFTER.some((cue) => cue.test(nearAfter)) ||
-    ANNUAL_BEFORE.some((cue) => cue.test(nearBefore));
-  const monthly = MONTHLY.some((cue) => cue.test(nearBefore) || cue.test(nearAfter));
+    ANNUAL_AFTER.some((cue) => cueFiresAfter(cue, nearAfter)) ||
+    ANNUAL_BEFORE.some((cue) => cueFiresBefore(cue, nearBefore));
+  const monthly = MONTHLY.some(
+    (cue) => cueFiresBefore(cue, nearBefore) || cueFiresAfter(cue, nearAfter),
+  );
   if (annual && monthly) return null;
   // R14 2.1 — a DAILY or WEEKLY wage is not a monthly one, and the `1` below is what made it
   // one: '1200 daily milta hai' found neither an annual nor a monthly cue, defaulted, and
   // recorded ₹1,200 a month for a worker on roughly ₹31,000. Suppressed rather than converted —
   // see data/salary.json. Checked after the conflict rule so an explicit period still wins.
-  if (!annual && !monthly && SUB_MONTHLY.some((cue) => cue.test(nearBefore) || cue.test(nearAfter)))
+  if (
+    !annual &&
+    !monthly &&
+    SUB_MONTHLY.some((cue) => cueFiresBefore(cue, nearBefore) || cueFiresAfter(cue, nearAfter))
+  )
     return null;
   return annual ? 12 : 1;
 }
@@ -414,6 +475,10 @@ export function detectSalaries(text: string): SalaryReading {
 
     if (looksLikeAYear(num, unit, `${nearBefore} ${nearAfter}`)) continue;
 
+    // R16 §1 (issue #1507 case 1) — `periodMonths` applies its own clause guard internally
+    // (`cueFiresAfter`/`cueFiresBefore`), so the windows it reads are the SAME line-clamped
+    // `nearBefore`/`nearAfter` every other check here uses. See those functions' docs for why
+    // pre-truncating this text at a clause boundary is the wrong place for the guard.
     const months = periodMonths(nearBefore, nearAfter);
     if (months === null) continue; // ambiguous period -> record nothing
 

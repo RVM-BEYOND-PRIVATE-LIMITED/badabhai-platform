@@ -1,12 +1,15 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
+import { DraftProfileSchema } from "@badabhai/ai-contracts";
 
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { ResumeSuggestionReader } from "../profiling/resume-import/resume-suggestion-reader";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
+import { buildChatEmploymentSuggestions, type EmploymentSuggestion } from "./employment-suggestions";
 import type {
   DescriptionSource,
   EmploymentView,
@@ -51,6 +54,11 @@ export class WorkerEmploymentService {
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // Résumé-parsed employments, staged the same way a pack-question suggestion is (ruling D2).
+    // `ResumeImportRepository`/`PiiCryptoService` are both @Global-reachable, so this adds a
+    // provider to `ProfilesModule` and no module edge — see that module's own comment on
+    // `WorkerEmploymentRepository` for the identical reasoning.
+    private readonly resumeSuggestions: ResumeSuggestionReader,
   ) {}
 
   async replaceForWorker(
@@ -236,7 +244,62 @@ export class WorkerEmploymentService {
     this.logger.log(
       `employment read for worker ${workerId}: ${employments.length} readable, ${unreadable} unreadable`,
     );
-    return { employments, unreadable_count: unreadable };
+
+    const employmentSuggestions = await this.buildEmploymentSuggestions(workerId);
+
+    return { employments, unreadable_count: unreadable, employment_suggestions: employmentSuggestions };
+  }
+
+  /**
+   * Jobs the worker never confirmed, from either source — résumé and chat, both offered rather
+   * than one silently winning (see `MyEmploymentResponse.employment_suggestions`'s own docblock).
+   *
+   * BOTH READS ARE SOFT. A résumé import that will not decrypt, or a stored profile whose
+   * `rich_profile_draft` fails its own schema, costs the worker that ONE source's suggestions —
+   * never this route, and never the other source's. `ResumeSuggestionReader` already holds that
+   * discipline for the résumé half; this method holds it for the chat half the same way.
+   */
+  private async buildEmploymentSuggestions(workerId: string): Promise<EmploymentSuggestion[]> {
+    const [resumeSuggestions, chatSuggestions] = await Promise.all([
+      this.resumeSuggestions.employmentSuggestionsForWorker(workerId),
+      this.chatEmploymentSuggestions(workerId),
+    ]);
+    // RÉSUMÉ FIRST, THEN CHAT — a stable, documented order so the client's list does not
+    // reshuffle between requests. Neither array is capped or deduped against the other: the
+    // worker chooses which (if any) he accepts on the page, which is what "offer both" means.
+    return [...resumeSuggestions, ...chatSuggestions];
+  }
+
+  /**
+   * The chat interview's Phase A `experiences[]`, off the worker's own CURRENT profile —
+   * `WorkersRepository.latestProfile` (`CURRENT_PROFILE_ORDER`), the same row `GET
+   * /workers/me/profile` and the résumé renderer both treat as "this worker's profile".
+   *
+   * `raw_profile`, NOT `rich_profile_draft`. `DraftProfileSchema.experiences` (packages/
+   * ai-contracts/src/profile.ts) carries its own docblock stating exactly why: the LLM-led
+   * interview's multi-job history "lands HERE rather than on the rich draft because
+   * `resume.service.ts` parses `rawProfile` through `DraftProfileSchema` and never reads
+   * `richProfileDraft`" — the résumé's own Zone-4 fallback line is built from this same column,
+   * for the same reason. `WorkerProfileDraftSchema` (the OTHER, differently-named schema this
+   * method does NOT use) has no `experiences` field at all.
+   *
+   * VALIDATED ON THE WAY OUT, not trusted because the extraction processor wrote it. `raw_profile`
+   * is untyped `jsonb` and `.notNull().default({})`; `DraftProfileSchema.safeParse` is the same
+   * wall every other reader of persisted profiling JSON in this codebase stands behind. A row
+   * that fails it degrades to no chat suggestions, never a 500.
+   */
+  private async chatEmploymentSuggestions(workerId: string): Promise<EmploymentSuggestion[]> {
+    const profile = await this.workers.latestProfile(workerId);
+    if (!profile) return [];
+    const parsed = DraftProfileSchema.safeParse(profile.rawProfile);
+    if (!parsed.success) {
+      this.logger.warn(
+        `worker ${workerId}: stored profile draft failed DraftProfileSchema; serving the ` +
+          `employment page with no chat suggestions`,
+      );
+      return [];
+    }
+    return buildChatEmploymentSuggestions(parsed.data.experiences);
   }
 
   /**

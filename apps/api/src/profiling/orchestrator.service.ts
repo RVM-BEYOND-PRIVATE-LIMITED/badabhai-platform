@@ -16,11 +16,18 @@
  */
 
 import {
+  narrowTradeFormOffer,
   routeToTradeForm,
   TRADE_FORM_OFFERS,
   type TradeFormKind,
   type TradeFormOffer,
 } from "./trade-form-router";
+import {
+  FORM_OFFER_OPTIONS,
+  offerPrompt,
+  readFormOfferReply,
+  type FormOfferReply,
+} from "./trade-form-offer";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
@@ -46,20 +53,40 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
 import {
+  DISAMBIGUATION_ESCAPE_KEY,
+  DISAMBIGUATION_ESCAPE_LABEL,
+  ESCAPE_CHIP_ALIASES,
+} from "@badabhai/config";
+import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+
+import {
   DISAMBIGUATION_PROMPT,
+  IDENTIFY_TYPE_PROMPT,
   IdentifyService,
   slugIndexKey,
   toPackOption,
 } from "./identify.service";
-import { LlmTurnService } from "./llm-turn.service";
+import { EXPERIENCE_GATE_PROMPT, LlmTurnService } from "./llm-turn.service";
 import {
   confirmableFacts,
   confirmedValues,
   confirmPrompt,
   readConfirmReply,
   RESUME_CONFIRM_OPTIONS,
+  type ResumeConfirmFact,
 } from "./resume-confirm";
+import {
+  identityPrompt,
+  readIdentityReply,
+  RESUME_IDENTITY_OPTIONS,
+  type IdentitySummary,
+} from "./resume-import/resume-identity";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
+import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
+import { parseDurationMonths } from "./duration-months";
+import { WorkersRepository } from "../workers/workers.repository";
+import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
@@ -84,6 +111,7 @@ import {
   REPLY_CACHE_WINDOW_MS,
   ID_REPLAY_MAX_AGE_MS,
   STALE_RESPONSE_WINDOW_MS,
+  stampUniversalPointer,
   TURN_KINDS,
   toEngineState,
   withAnswers,
@@ -136,6 +164,17 @@ export const HARDSHIP_REPLIES = HARDSHIP_REPLY_TEXTS;
 /** Served when the interview ends normally. */
 export const CLOSING_REPLY = CLOSING_REPLY_TEXT;
 
+/**
+ * Served when an OLD client sends the words "Kuch aur" after tapping the escape on a model's chip
+ * turn (#1506).
+ *
+ * New builds focus the composer on that tap and send nothing. Builds already in the field send
+ * the label as text, and before this it reached capture, identify and the model as though the
+ * worker's answer were literally "Kuch aur". Engine copy, so no model call: aap-form, no question
+ * mark, no exclamation, and it says what to do next.
+ */
+export const ESCAPE_TYPE_PROMPT = "Apna jawab apne shabdon mein likhiye.";
+
 /** Re-exported: the join moved to the pure module so a TTS renderer need not boot Nest. */
 export { joinClarify };
 
@@ -156,6 +195,20 @@ export const UNAVAILABLE_REPLY = CHAT_UNAVAILABLE_REPLY;
  * third concurrent writer gets an honest "try again" having written nothing.
  */
 export const MAX_CAS_ATTEMPTS = 2;
+
+/**
+ * The city-seed memo cell (#1504 item 5) — one per `takeTurn`/`openTurn` CALL, shared across every
+ * attempt of that call's CAS retry loop.
+ *
+ * A MUTABLE BOX, not a plain `Promise | null` local, because `??=` on a `let` re-declares nothing
+ * across the closure `seedCity` runs in — this is the same "declared outside, memoized with `??=`
+ * inside" shape the reply cache and the CAS loop itself use elsewhere in this file. A retry against
+ * the SAME fresh envelope reuses the one read; a retry that lands on a winner's (no-longer-fresh)
+ * envelope never calls `seedCity` at all, because `fresh` gates that at the call site.
+ */
+interface CitySeedRef {
+  promise: Promise<string | null> | null;
+}
 
 /**
  * Asks between mid-interview Postgres checkpoints (OIE Phase 9, risk #10).
@@ -441,6 +494,15 @@ export class ProfilingOrchestrator {
     // ask it are "is there something a résumé wants to confirm" and "what was it". It cannot
     // learn that a document exists, cannot read its key, and cannot write.
     private readonly resumeSuggestions: ResumeSuggestionReader,
+    // #1504 item 5 (city-seed). READ-ONLY: `findCurrentCity` is an explicit, PII-minimal
+    // projection — see `WorkersRepository.findCurrentCity`.
+    private readonly workers: WorkersRepository,
+    // RI-AUTOFILL (owner override B). WRITE, and narrow by construction: the only question
+    // this class can ask it is "apply this import's staged mappings as answers". Called on
+    // the identity "haan" only, before the form handover, so the form the worker lands on
+    // is already filled. Last constructor param so every existing test construction keeps
+    // compiling; tests that reach the Haan pass their own fake.
+    private readonly resumeAutofill?: ResumeAutofillService,
   ) {}
 
   /**
@@ -459,10 +521,16 @@ export class ProfilingOrchestrator {
     // `Date.now()` rather than `input.now`, because `input.now` is the injected logical clock the
     // decision is derived from; measuring elapsed time against a fixed value is measuring zero.
     const startedAt = Date.now();
+    // #1504 item 5 (city-seed). OUTSIDE the CAS loop and memoized with `??=` inside `seedCity`:
+    // a retry against the SAME fresh envelope must not re-read `workers.current_city` a second
+    // time, and a retry that loads a winner's (no-longer-fresh) envelope must not read at all —
+    // `fresh` below gates that. See `seedFromWorkerRecord`'s docblock.
+    const citySeed: CitySeedRef = { promise: null };
 
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
+      const fresh = loaded === null || loaded.profiling == null;
       const envelope =
         loaded === null
           ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
@@ -583,7 +651,7 @@ export class ProfilingOrchestrator {
         continue;
       }
 
-      const decided = await this.decide(buffer, envelope, input);
+      const decided = await this.decide(buffer, envelope, input, fresh, citySeed);
       if (!decided) return unavailable();
 
       // Stamp the histogram onto the buffer that is about to be written. Done HERE rather than
@@ -645,10 +713,15 @@ export class ProfilingOrchestrator {
    * writes nothing and returns the retryable unavailable line.
    */
   async openTurn(input: OpenTurnInput): Promise<TurnResult> {
+    // #1504 item 5 (city-seed). See `takeTurn`'s identical declaration for why this lives outside
+    // the loop.
+    const citySeed: CitySeedRef = { promise: null };
+
     for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
       const loaded = await this.buffer.load(input.sessionId);
       const buffer = loaded ?? ChatTranscriptBuffer.create(input.workerId, "", input.now);
-      const envelope =
+      const fresh = loaded === null || loaded.profiling == null;
+      let envelope =
         loaded === null
           ? await this.restorePin(input.sessionId, emptyProfilingEnvelope())
           : (buffer.profiling ?? emptyProfilingEnvelope());
@@ -662,6 +735,12 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      // #1504 item 5 (city-seed) — BEFORE `openSelectable`/`progressItems`/`answers` below, and
+      // before every early return in this method (the outstanding offer, the type-your-trade
+      // prompt, the model's question, the pack re-serve): all of them render `progress` off
+      // `answers`, and a seed applied after they run would leave a reopened session reporting a
+      // progress bar that has not yet accounted for it.
+      if (fresh) envelope = await this.seedCity(envelope, citySeed, items, input);
       // Same split as `decide` — see the note there. A reopened session must not report a
       // different denominator from the turn loop it is about to hand back to.
       const openSelectable = selectableEnginePacks(envelope, packs.engine);
@@ -677,6 +756,198 @@ export class ProfilingOrchestrator {
       // {@link selectableEnginePacks}.
       const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
+
+      // ── THE RÉSUMÉ CONFIRM OPENS THE SCREEN (Task 1 B3; ADR-0042 D8) ──────────────────
+      //
+      // A session whose résumé was routed to the chat opens on "Resume se ye mila: … Sahi
+      // hai?" — the SAME bubble the turn path would serve as its reply, moved to the front
+      // so the worker's first act is confirming what we read instead of answering a generic
+      // question the document already answered. The client asks for this explicitly
+      // (`confirm_first` on session start); a build that does not ask sees nothing new.
+      //
+      // ── THE RÉSUMÉ IDENTITY RE-SERVE (RI-identity) ─────────────────────────────
+      //
+      // BEFORE the batch-confirm re-serve below, deliberately: while the "is this you?"
+      // bubble is on screen it is the most recent thing, and owner ruling says only the
+      // new turn shows — the old bubble never redraws beneath it.
+      //
+      // THE RE-SERVE MUST NAME THE IMPORT IT WAS SERVED FOR (fix 2026-09-21). A worker who
+      // re-uploads has a NEWER staged line than the pending marker names, and re-serving the
+      // newer text under the OLD id would have the Haan autofill the previous document. So a
+      // mismatched pending marker falls through to the offer below, which re-writes the
+      // marker with the current import id and spends a fresh ask.
+      if (envelope.resumeIdentity?.state === "pending") {
+        const line = await this.resolveResumeIdentity(input.workerId);
+        if (line && line.importId === envelope.resumeIdentity.importId) {
+          // RE-SERVE ONLY — no write, no ask. Same rule as the confirm re-serve below.
+          return this.identityTurnFields(line, items, answers, progressItems, true);
+        }
+      }
+
+      // BEFORE THE OUTSTANDING-ASK RE-SERVES BELOW, deliberately: a pending confirm is the
+      // most recent thing on screen, so if it and a stale offer are both outstanding, it is
+      // the one a reopened app must redraw.
+      if (envelope.resumeConfirm?.state === "pending") {
+        const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
+        if (pending && pending.facts.length > 0) {
+          // RE-SERVE ONLY — no write, no ask. The turn that served it already persisted the
+          // pending state and the assistant line; a reload must not spend a second ask.
+          return {
+            reply: confirmPrompt(pending.facts),
+            kind: "ask",
+            questionKey: null,
+            options: [...RESUME_CONFIRM_OPTIONS],
+            whyText: null,
+            answerType: "single_select",
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            complete: false,
+            completionReason: null,
+            replayed: true,
+            excludeFromParse: false,
+            unavailable: false,
+            checkpointDue: false,
+          };
+        }
+      }
+
+      // ── THE RÉSUMÉ IDENTITY OPENS THE SCREEN (RI-identity) ─────────────────────
+      //
+      // BEFORE the batch-confirm open below: the worker's first act is recognising his own
+      // résumé, not confirming facts off a document he hasn't claimed. Serve it AND persist
+      // the pending state, for the batch branch's reason — the capture block in `decide`
+      // reads `resumeIdentity.state === "pending"`, and without the write the tap would fall
+      // through to ordinary selection. IT SPENDS AN ASK, AND MUST: it is a question, the
+      // worker can decline it, and the budget must keep counting what he was asked.
+      //
+      // A NEW IMPORT RE-OPENS IT (fix 2026-09-21). The gate was `resumeIdentity === null`,
+      // which meant ONCE EVER PER SESSION: a worker who re-uploaded a corrected document
+      // never saw its summary, and — worse — the new document's autofill never ran. A
+      // résumé is a claim about ONE document, so a DIFFERENT import id is a fresh claim
+      // that must be asked about again; the same id is never asked twice.
+      if (buffer.turnCount === 0) {
+        const line = await this.resolveResumeIdentity(input.workerId);
+        const alreadyHandled = line !== null && envelope.resumeIdentity?.importId === line.importId;
+        if (line && !alreadyHandled) {
+          const reply = identityPrompt(line);
+          const next: ProfilingEnvelope = stampUniversalPointer(
+            {
+              ...envelope,
+              packId: packs.packId,
+              packVersion: packs.packVersion,
+              resumeIdentity: { importId: line.importId, state: "pending" },
+              engineAsks: envelope.engineAsks + 1,
+              // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
+              servedQuestionKey: null,
+              clarifyCount: 0,
+            },
+            packs.engine.universal,
+          );
+          // ONLY THE ASSISTANT LINE, exactly like the ordinary opening write: there is no
+          // worker message, and `turnCount` is not bumped for the same reason.
+          const at = input.now.toISOString();
+          const opened: TranscriptBuffer = {
+            ...buffer,
+            messages: [
+              ...buffer.messages,
+              { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+            ],
+            profiling: next,
+          };
+          if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
+            await this.persistPin(envelope, next, {
+              sessionId: input.sessionId,
+              workerId: input.workerId,
+              text: "",
+              now: input.now,
+              // No submission, no clip — nothing was sent or spoken to open the screen.
+              submissionId: null,
+              voiceNoteId: null,
+              ctx: input.ctx,
+            });
+            return this.identityTurnFields(line, items, answers, progressItems, false);
+          }
+          this.logger.log(
+            `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
+              `attempt=${attempt + 1}; reloading — the winner may already have served the résumé identity`,
+          );
+          continue;
+        }
+        // NOTHING STAGED — fall through to the batch-confirm open below, which serves the
+        // old turn exactly as it always has when there is no identity line.
+      }
+
+      // NEVER OFFERED, AND THIS IS THE FIRST TURN — serve it AND persist the pending state,
+      // because the worker's reply must be captured as the confirm's answer (the capture block
+      // in `decide` reads `resumeConfirm.state === "pending"`). Without the write, the tap
+      // would fall through to ordinary selection and the confirm would be served a second time.
+      if (envelope.resumeConfirm === null && buffer.turnCount === 0) {
+        const pending = await this.resolveResumeConfirm(input.workerId, items, answers);
+        if (pending && pending.facts.length > 0) {
+          const reply = confirmPrompt(pending.facts);
+          const next: ProfilingEnvelope = stampUniversalPointer(
+            {
+              ...envelope,
+              packId: packs.packId,
+              packVersion: packs.packVersion,
+              resumeConfirm: { importId: pending.importId, state: "pending" },
+              // IT SPENDS AN ASK, AND MUST — the same rule the turn path serves it under: it is
+              // a question, the worker can decline it, and the budget must keep counting.
+              engineAsks: envelope.engineAsks + 1,
+              // NO `servedQuestionKey` — it belongs to no pack and would mis-capture the reply.
+              servedQuestionKey: null,
+              clarifyCount: 0,
+            },
+            packs.engine.universal,
+          );
+          // ONLY THE ASSISTANT LINE, exactly like the ordinary opening write: there is no
+          // worker message, and `turnCount` is not bumped for the same reason.
+          const at = input.now.toISOString();
+          const opened: TranscriptBuffer = {
+            ...buffer,
+            messages: [
+              ...buffer.messages,
+              { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+            ],
+            profiling: next,
+          };
+          if (await this.buffer.saveWithCas(input.sessionId, opened, envelope.rev)) {
+            await this.persistPin(envelope, next, {
+              sessionId: input.sessionId,
+              workerId: input.workerId,
+              text: "",
+              now: input.now,
+              // No submission, no clip — nothing was sent or spoken to open the screen.
+              submissionId: null,
+              voiceNoteId: null,
+              ctx: input.ctx,
+            });
+            return {
+              reply,
+              kind: "ask",
+              questionKey: null,
+              options: [...RESUME_CONFIRM_OPTIONS],
+              whyText: null,
+              answerType: "single_select",
+              progress: progressOf(progressItems, answers),
+              unansweredEssentials: essentialsOf(items, answers),
+              complete: false,
+              completionReason: null,
+              replayed: false,
+              excludeFromParse: false,
+              unavailable: false,
+              checkpointDue: false,
+            };
+          }
+          this.logger.log(
+            `CAS lost opening session=${input.sessionId} rev=${envelope.rev} ` +
+              `attempt=${attempt + 1}; reloading — the winner may already have served the résumé confirm`,
+          );
+          continue;
+        }
+        // NOTHING SERVABLE (every fact already settled) — fall through to the ordinary
+        // opening path below, which serves the first pack question exactly as it always has.
+      }
 
       // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
       //
@@ -697,6 +968,30 @@ export class ProfilingOrchestrator {
           options: offer.options,
           whyText: null,
           answerType: "single_select",
+          progress: progressOf(progressItems, answers),
+          unansweredEssentials: essentialsOf(items, answers),
+          complete: false,
+          completionReason: null,
+          replayed: true,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        };
+      }
+
+      // THE TYPE-YOUR-TRADE PROMPT OUTRANKS BOTH READERS' FALLBACKS (#1506), for the offer's
+      // reason: "Kuch aur" cleared the chips but not `servedQuestionKey`, so without this a cold
+      // start re-served the stale pack question — and `viewSession` reported it as answerable.
+      const typePrompt = outstandingTypeRequest(envelope);
+      if (typePrompt) {
+        return {
+          reply: typePrompt.prompt,
+          kind: "ask",
+          questionKey: null,
+          options: [],
+          whyText: null,
+          answerType: typePrompt.answerType,
+          inputMode: "text",
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -784,22 +1079,25 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
 
-      const next: ProfilingEnvelope = {
-        ...envelope,
-        packId: packs.packId,
-        packVersion: packs.packVersion,
-        phase: decision.phase,
-        ...(decision.kind === "ask" && decision.questionKey
-          ? {
-              engineAsks: envelope.engineAsks + 1,
-              askCounts: {
-                ...envelope.askCounts,
-                [decision.questionKey]: (envelope.askCounts[decision.questionKey] ?? 0) + 1,
-              },
-              servedQuestionKey: decision.questionKey,
-            }
-          : { servedQuestionKey: decision.questionKey }),
-      };
+      const next: ProfilingEnvelope = stampUniversalPointer(
+        {
+          ...envelope,
+          packId: packs.packId,
+          packVersion: packs.packVersion,
+          phase: decision.phase,
+          ...(decision.kind === "ask" && decision.questionKey
+            ? {
+                engineAsks: envelope.engineAsks + 1,
+                askCounts: {
+                  ...envelope.askCounts,
+                  [decision.questionKey]: (envelope.askCounts[decision.questionKey] ?? 0) + 1,
+                },
+                servedQuestionKey: decision.questionKey,
+              }
+            : { servedQuestionKey: decision.questionKey }),
+        },
+        packs.engine.universal,
+      );
 
       // ONLY THE ASSISTANT LINE. There is no worker message to record, and inventing an empty one
       // to keep the transcript alternating would put a silence into the record of what the worker
@@ -882,6 +1180,69 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * OPEN the résumé confirm for a session that has not served it yet — or report `null`.
+   *
+   * ── WHY THIS IS NOT JUST `openTurn` (Task 1 B3; ADR-0042 D8) ────────────────────────────
+   *
+   * `ChatService.startSession` must know whether the opening it just served IS the résumé
+   * confirm before it announces one to the client — announcing the ordinary first question as
+   * a résumé confirm would put a lie in the start response. This wrapper answers that: it
+   * performs the cheap gates, delegates to `openTurn`, and returns non-null ONLY when the turn
+   * that came back is the confirm (the chip key is the discriminator, and the constants live
+   * in this module so the check cannot drift from what was served).
+   *
+   * THE GATES, and each is deliberate:
+   *   - a confirm ALREADY on screen (`pending`) ⇒ null. History redraws it; serving it again
+   *     from the start path would duplicate the bubble in the client's first frame.
+   *   - an IDENTITY already on screen (`pending`) ⇒ null, for the same reason. A SETTLED
+   *     identity blocks only the import it names — a newer staged line is a new document
+   *     and a fresh claim, and re-uploading must re-open the turn (fix 2026-09-21).
+   *   - a confirm already CONSIDERED (`settled`) ⇒ null. It was asked and answered; re-opening
+   *     it would re-litigate something settled.
+   *   - a session with turns ⇒ null. The turn path owns the offer from here; an opening must
+   *     not appear beneath a conversation the worker is already having.
+   *   - no pending import AND no unhandled staged identity line ⇒ null, WITHOUT calling
+   *     `openTurn` — so a normal session's opening question is never pre-served by this path.
+   */
+  async openResumeConfirm(input: OpenTurnInput): Promise<TurnResult | null> {
+    const loaded = await this.buffer.load(input.sessionId);
+    const envelope = loaded?.profiling ?? null;
+    if (envelope?.resumeConfirm != null) return null;
+    if (loaded !== null && loaded.turnCount > 0) return null;
+
+    // THE IDENTITY GATE NAMES AN IMPORT (fix 2026-09-21). A `pending` marker means the bubble
+    // is already on screen and history redraws it — the start path must never duplicate it.
+    // A `settled` one blocks ONLY the import it names: a worker who re-uploaded has a newer
+    // staged line, and that is a fresh claim the opening turn is entitled to ask about.
+    const stored = envelope?.resumeIdentity ?? null;
+    if (stored?.state === "pending") return null;
+
+    const line = await this.resolveResumeIdentity(input.workerId);
+    const identityHandled = line !== null && stored?.importId === line.importId;
+
+    const pending = await this.resumeSuggestions.pendingForChat(input.workerId);
+    // RI-identity: no batch facts, but a staged identity line still opens the session on
+    // the "is this you?" bubble. Either résumé turn counts as a pending résumé.
+    if (!pending && (line === null || identityHandled)) return null;
+
+    const opened = await this.openTurn(input);
+    // ONLY A RÉSUMÉ TURN IS AN ANNOUNCEABLE OPENING. `openTurn` falls through to the ordinary
+    // first question when every fact is already settled — and the caller must not label that
+    // as the résumé confirm. The chip key is the discriminator, and the identity turn counts
+    // alongside the batch-confirm: both are résumé openings the client renders with chips.
+    const confirmKey = RESUME_CONFIRM_OPTIONS[0]!.option_key;
+    const identityKey = RESUME_IDENTITY_OPTIONS[0]!.option_key;
+    if (
+      !opened.options.some(
+        (option) => option.option_key === confirmKey || option.option_key === identityKey,
+      )
+    ) {
+      return null;
+    }
+    return opened;
+  }
+
+  /**
    * The whole turn as a value: the buffer to write and the result to return, or `null` when no
    * pack could be resolved.
    *
@@ -892,6 +1253,8 @@ export class ProfilingOrchestrator {
     buffer: TranscriptBuffer,
     envelope: ProfilingEnvelope,
     input: TurnInput,
+    fresh: boolean,
+    citySeed: CitySeedRef,
   ): Promise<{ buffer: TranscriptBuffer; result: TurnResult } | null> {
     const packs = await this.resolvePacks(envelope, input.now.getTime());
     if (!packs) {
@@ -906,6 +1269,11 @@ export class ProfilingOrchestrator {
     // `let`, because a MID-TURN RE-PIN replaces the pack this was built from. See the reassignment
     // below the identify step.
     let items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+    // #1504 item 5 (city-seed) — BEFORE anything below reads `envelope.answerMap` or a progress
+    // count, and gated on `fresh` so a resumed interview never re-reads `workers.current_city`
+    // once a session already exists. See `seedFromWorkerRecord`'s docblock for why this is safe
+    // to apply unconditionally on a fresh envelope and a no-op on every other one.
+    if (fresh) envelope = await this.seedCity(envelope, citySeed, items, input);
     // ONE DENOMINATOR FOR THE WHOLE SESSION. `items` stays the FULL pinned universe, because
     // settlement, `shapeOf` and `essentialsOf` all have to keep seeing the trade pack's rows —
     // every `skills` question in the corpus lives in an occupation pack, and narrowing that list
@@ -921,8 +1289,17 @@ export class ProfilingOrchestrator {
     // a cost the pack skip was signed off with.
     const selectable = selectableEnginePacks(envelope, packs.engine);
     let progressItems = [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
-    const askedItem =
-      items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
+    // IDENTIFY OWNS THIS MESSAGE while chips or the type-your-trade prompt are on screen (#1506).
+    //
+    // `servedQuestionKey` is NOT cleared when an offer is served, so it still names the pack
+    // question from the turn before — and capture records ANY text against a free-text item,
+    // off-topic included (measured: "Kuch aur" and "mujhe job chahiye" both land as values). A
+    // "Kuch aur" tap was therefore filed as the worker's trade. With the key ignored, the trade
+    // question is settled only from identify's `tradeText`, which is the worker's actual answer.
+    const identifyOwnsTurn = outstandingOffer(envelope) !== null || envelope.identifyTypeRequested;
+    const askedItem = identifyOwnsTurn
+      ? null
+      : (items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null);
     // THE SAME QUESTION, BUT ONLY IF THE ENGINE WOULD STILL SERVE IT — the re-serve twin of
     // `askedItem`, and the two are deliberately different objects.
     //
@@ -950,14 +1327,67 @@ export class ProfilingOrchestrator {
     // cap every turn class falls through to `nextQuestion`, which closes with `turn_cap`.
     const capped = turn > MAX_ENGINE_TURNS;
 
+    // --- An OLD client's "Kuch aur" tap on a model chip turn (#1506) ---------
+    //
+    // BEFORE CAPTURE, and the position is the whole fix. Placed any later — the first design put it
+    // just above the model call — capture, cross-question fill and identify have already run on the
+    // words "Kuch aur": an identify attempt spent, the phrase possibly queued to the growth queue,
+    // and `profile.occupation_unresolved` possibly emitted with a reason that then blocks the real
+    // one (the event is idempotent per session).
+    //
+    // Served as engine copy with no chips, so a second "Kuch aur" cannot match this predicate
+    // again: it needs the escape among the options on screen, and this reply has none.
+    //
+    // WHAT IT COSTS, stated: one TURN (`turnCount` +1, the worker line and this reply appended to
+    // the transcript, `lastTurn` stamped with this prompt). No model call, no `llmAsks`, no
+    // `llmLedTurns`, no identify attempt, no event. On a reopen `outstandingLlmAsk` re-serves it
+    // from `lastTurn`, and the model reads it in history on the next turn as the prompt the worker
+    // is answering.
+    if (!capped && isEscapeTapOnModelChips(envelope, input.text, this.llm.leads(envelope))) {
+      const answersNow = answersOf(envelope);
+      return this.turn(
+        buffer,
+        stampUniversalPointer(
+          {
+            ...envelope,
+            packId: packs.packId,
+            packVersion: packs.packVersion,
+            servedQuestionKey: null,
+          },
+          packs.engine.universal,
+        ),
+        input,
+        {
+          reply: ESCAPE_TYPE_PROMPT,
+          kind: "ask",
+          questionKey: null,
+          options: [],
+          answerType: "text",
+          whyText: null,
+          inputMode: "text",
+          progress: progressOf(progressItems, answersNow),
+          unansweredEssentials: essentialsOf(items, answersNow),
+          complete: false,
+          completionReason: null,
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        },
+      );
+    }
+
     const capture = captureAnswer(input.text, askedItem);
     let answers = answersOf(envelope);
-    let next: ProfilingEnvelope = {
-      ...envelope,
-      packId: packs.packId,
-      packVersion: packs.packVersion,
-      catalogVersion: envelope.occupation?.catalog_version ?? envelope.catalogVersion,
-    };
+    let next: ProfilingEnvelope = stampUniversalPointer(
+      {
+        ...envelope,
+        packId: packs.packId,
+        packVersion: packs.packVersion,
+        catalogVersion: envelope.occupation?.catalog_version ?? envelope.catalogVersion,
+      },
+      packs.engine.universal,
+    );
 
     // --- Turn classes that do not advance the interview ---------------------
     if (capture.turnClass === "abusive") {
@@ -1119,6 +1549,79 @@ export class ProfilingOrchestrator {
       // Past the clarify bound: fall through to ordinary selection and move the interview on.
     }
 
+    // --- The résumé identity answer, settled (RI-identity) --------------------
+    //
+    // BEFORE THE BATCH-CONFIRM CAPTURE BELOW, for the precedence the open path serves under:
+    // while the "is this you?" bubble is on screen it owns the worker's next words, and a
+    // "haan" must settle the identity — never fall through to the batch capture and confirm
+    // facts off a résumé the worker just denied.
+    //
+    // BEFORE ANY ANSWER CLASS, for the batch block's reason: the bubble is not a pack question.
+    // AFTER the abusive branch, which outranks everything.
+    if (next.resumeIdentity?.state === "pending") {
+      const identityImportId = next.resumeIdentity.importId;
+      const reply = readIdentityReply(input.text);
+      // SETTLED WHATEVER HE SAID, including "unclear" — same rule as the confirm: the offer
+      // is spent, and re-asking would spend a second ask on a question already given once.
+      next = { ...next, resumeIdentity: { importId: identityImportId, state: "settled" } };
+      // THE OLD CONFIRM IS RETIRED WITH THE IDENTITY, on BOTH answers. Owner ruling: while
+      // an identity line exists the worker sees ONLY the new turn. On "haan" a form-routed
+      // import hands over to its form below and a chat-routed one falls through to ordinary
+      // selection (the extraction route lands later); on "nahi" or an unreadable reply the
+      // résumé leaves the chat entirely and the ordinary interview continues.
+      // Settling `resumeConfirm` here is what withholds the old bubble on every later turn.
+      next = { ...next, resumeConfirm: { importId: identityImportId, state: "settled" } };
+
+      if (reply === "accept") {
+        await this.recordIdentityAnswered(input, identityImportId, "yes");
+        // RI-AUTOFILL (owner override B): apply the staged mappings as answers BEFORE the
+        // handover, so the form the worker lands on is already filled. Best-effort and
+        // never blocking: a throw here must not cost the handover, so it is caught and
+        // logged without document text or answers. Off by kill switch (the service
+        // returns zeros without reading) — then this is a no-op and the handover below
+        // is today's behaviour byte for byte.
+        try {
+          await this.resumeAutofill?.applyOnHaan(input.workerId, identityImportId, input.ctx);
+        } catch (error) {
+          this.logger.warn(
+            `résumé autofill skipped on Haan for import ${identityImportId}: ` +
+              `${(error as Error).message}`,
+          );
+        }
+        // HAND OVER TO THE FORM THE IMPORT WAS ROUTED TO, when there is one (owner ruling
+        // 2026-09-20). The client brings form-routed uploads to the chat first, so the
+        // identity turn owns the first bubble — and a "haan" must not strand the form route
+        // the import already settled. This reuses the handover the offer-accept path serves
+        // byte for byte: same close turn, same CTA card, same handoff event. A chat-routed
+        // import falls through to ordinary selection below, and the deferred extraction
+        // route decides what a "haan" means there.
+        const routed = await this.resumeSuggestions.routeForImport(
+          input.workerId,
+          identityImportId,
+        );
+        const handover =
+          routed?.route === "form" ? narrowTradeFormOffer({ kind: routed.formKind }) : null;
+        if (handover !== null) {
+          return this.completeFormHandover(
+            buffer,
+            next,
+            input,
+            answers,
+            items,
+            progressItems,
+            turn,
+            handover.kind,
+            capture.excludeFromParse,
+          );
+        }
+      } else {
+        // `decline` AND `unclear`: an unreadable reply is a NO, never a yes — attaching a
+        // résumé on a sentence nobody understood is the worst failure available to this turn.
+        await this.recordIdentityAnswered(input, identityImportId, "no");
+      }
+      // FALL THROUGH to ordinary selection, so the next question arrives in the SAME bubble.
+    }
+
     // --- The résumé batch-confirm, settled (ADR-0041 RI-5) ------------------
     //
     // BEFORE ANY ANSWER CLASS, because the bubble on screen is not a pack question: there is no
@@ -1127,6 +1630,10 @@ export class ProfilingOrchestrator {
     // read as an answer to something else.
     //
     // AFTER the abusive branch, which outranks everything.
+    //
+    // UNREACHABLE WHILE AN IDENTITY LINE EXISTS: the identity capture above settles
+    // `resumeConfirm` alongside the identity on every answer, so this branch only ever reads
+    // a pending confirm for imports that staged no identity line.
     if (next.resumeConfirm?.state === "pending") {
       // CAPTURED BEFORE `next` IS REASSIGNED. Reading it off `next` afterwards loses the
       // narrowing, and re-narrowing with a `!` would be asserting something the compiler had
@@ -1143,7 +1650,13 @@ export class ProfilingOrchestrator {
         // RE-DERIVED AGAINST THE ANSWER MAP AS IT IS NOW, not against the list that was shown.
         // A worker can answer one of these questions between the offer and his reply — on the
         // voice surface the two are separate submissions — and D7 says his answer wins.
-        const facts = confirmableFacts(staged, items, answers);
+        //
+        // `chatServableItems(items)`, NOT `items` (#1505 F3) — the SAME shared filter the offer
+        // below runs the batch through, so accept and offer can never disagree about which
+        // suggestions are worth confirming in the chat. A résumé's `education`/`salary_expected`/
+        // `preferred_locations` suggestions stay on the pages that own them; only trade,
+        // experience, city and availability are ever offered for confirmation here.
+        const facts = confirmableFacts(staged, chatServableItems(items), answers);
         for (const value of confirmedValues(facts)) {
           answers = recordAnswer(answers, value, turn);
         }
@@ -1161,18 +1674,73 @@ export class ProfilingOrchestrator {
       // Returning here would cost the worker a round trip to be told "theek hai" and nothing else.
     }
 
+    // --- The trade-form OFFER, settled (Task 1 recall path; ruling 2026-09-16) ----
+    //
+    // BEFORE ANY ANSWER CLASS, for the résumé-confirm block's reason directly above: the
+    // bubble on screen is not a pack question (`servedQuestionKey` is null while it is up),
+    // so the ordinary capture would find nothing and a "haan" would fall through to
+    // cross-question filling and be read as an answer to something else.
+    //
+    // THE OFFER IS NOT A GATE. Deterministic code decided ELIGIBILITY, on the turn the
+    // trade was named (`routeToTradeForm`); this block reads the worker's CHOICE. An
+    // unreadable reply is a DECLINE — never a re-ask — because the offer is a question and
+    // re-asking one the worker did not answer spends the ask twice.
+    if (next.formOfferPrompt?.state === "pending") {
+      const offeredKind = next.formOfferPrompt.kind;
+      const reply = readFormOfferReply(input.text);
+      // SETTLED WHATEVER HE SAID, so the offer is never served twice. The transcript still
+      // carries the words; only the state moves.
+      next = { ...next, formOfferPrompt: { kind: offeredKind, state: "settled" } };
+
+      if (reply === "accept") {
+        // THE SAME HANDOVER THE GATE USED TO RUN, now on the worker's word. `answers` is
+        // passed so the accept turn settles the draft exactly as the forced path did.
+        return this.completeFormHandover(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          turn,
+          offeredKind,
+          capture.excludeFromParse,
+        );
+      }
+
+      await this.recordFormOfferDeclined(input, offeredKind, reply);
+      // FALL THROUGH: the interview continues on this same bubble, exactly where it paused.
+    }
+
     // --- Answer classes: write what the worker said -------------------------
     next = { ...next, silentTurns: 0, clarifyCount: 0, hardshipTurns: 0 };
 
-    if (capture.turnClass === "dont_know" && envelope.servedQuestionKey) {
+    // NOT UNDER AN OFFER (#1506): the key on the envelope is stale there, and "pata nahi" said
+    // over trade chips must not decline whichever pack question happened to precede them.
+    if (capture.turnClass === "dont_know" && envelope.servedQuestionKey && !identifyOwnsTurn) {
       // A COMPLETE answer, not a gap. Never re-asked, never blocks completion.
       answers = recordDeclined(answers, envelope.servedQuestionKey, turn);
     }
     for (const value of capture.values) {
       answers = recordAnswer(answers, value, turn);
     }
+    // #1505 F1: `phaseALeads` tells `crossFillItems` whether a PER-JOB model question is on
+    // screen right now — NOT merely whether Phase A is running. `envelope.servedQuestionKey ===
+    // null && this.llm.leads(envelope)` is true for every Phase-A turn with no pack question on
+    // screen (branch 5 of `LlmTurnService.take` clears `servedQuestionKey` for exactly this
+    // reason) — but that set ALSO includes the turn that answers the composite opener
+    // ("… aur kitna tajurba hai?"), and a worker who states a total there must be allowed to have
+    // it captured (critique-6). `isOpenerReplyTurn` excludes exactly that one turn, so
+    // `experience_years` is only dropped from cross-fill while an ordinary per-job question is
+    // what the worker is actually answering. Whatever the opener turn DOES capture is never final
+    // either way — `settleFromLlmDraft` below unconditionally overwrites it with the sum of every
+    // resolved job entry once Phase A hands over (owner ruling, ADR §1505-1).
+    const phaseALeads =
+      envelope.servedQuestionKey === null &&
+      this.llm.leads(envelope) &&
+      !isOpenerReplyTurn(envelope);
     answers = this.fillCrossQuestion(
-      items,
+      crossFillItems(items, phaseALeads),
       input.text,
       envelope,
       answers,
@@ -1190,16 +1758,72 @@ export class ProfilingOrchestrator {
     // next question on the very turn we learned the trade wastes the turn the worker just spent
     // telling us.
     next = withAnswers(next, answers);
-    const identified = await this.identify.identify(next, input.text, {
-      ...input.ctx,
-      sessionId: input.sessionId,
-      workerId: input.workerId,
-    });
+    const identified = await this.identify.identify(
+      next,
+      input.text,
+      {
+        ...input.ctx,
+        sessionId: input.sessionId,
+        workerId: input.workerId,
+      },
+      capture.turnClass,
+    );
     next = { ...next, ...identified.patch };
+
+    // THE WORKER'S OWN STATEMENT OF THEIR TRADE, settled as their answer of record (#1506).
+    //
+    // SUPERSEDES, deliberately — `recordAnswer` pushes any earlier value onto `history` rather than
+    // discarding it. An opener like "mujhe job chahiye" is captured against a free-text trade item
+    // today; a worker who then types "main electrician hoon" over the chips is correcting that, and
+    // first-write-wins here would keep the request for a job as their trade.
+    //
+    // Raw words, never an id: the occupation, when there is one, arrives only through the
+    // deterministic pin in `identified.pinned`.
+    if (identified.tradeText) {
+      answers = settleWorkerTrade(answersOf(next), identified.tradeText, items, turn);
+      next = withAnswers(next, answers);
+    }
+
+    // The worker is being asked to type their trade. A chipless engine line, and it IS the turn —
+    // the same reason the offer below returns early.
+    //
+    // `!capped` (#1506 HIGH-1) — the same guard every other early-return branch above this one
+    // already carries. `identify` bounds its OWN re-serves against `identifyStalledTurns` (see
+    // `MAX_IDENTIFY_STALLED_TURNS`), but this is the backstop for whatever that bound does not
+    // cover: past `MAX_ENGINE_TURNS` the interview must close, and returning here regardless would
+    // route around `nextQuestion` — the one place `turn_cap` is decided — exactly the way the
+    // un-gated branch did before this fix.
+    if (!capped && identified.prompt) {
+      next = { ...next, servedQuestionKey: null };
+      return this.turn(buffer, next, input, {
+        reply: identified.prompt,
+        kind: "ask",
+        // NO KEY — the same rule the offer follows. `identifyTypeRequested` is what routes the next
+        // message, and a key here would let capture file the worker's trade against a pack row.
+        questionKey: null,
+        options: [],
+        whyText: null,
+        answerType: "text",
+        inputMode: "text",
+        checkpointDue: false,
+        progress: progressOf(progressItems, answers),
+        unansweredEssentials: essentialsOf(items, answers),
+        complete: false,
+        completionReason: null,
+        replayed: false,
+        excludeFromParse: false,
+        unavailable: false,
+      });
+    }
 
     // Chips are on screen. That IS the turn — there is no pack question to ask until the worker
     // resolves the ambiguity, and asking one anyway would put two questions in one bubble.
-    if (identified.offer) {
+    //
+    // `!capped` (#1506 HIGH-1), the same backstop the prompt branch above carries and for the same
+    // reason: `identify` bounds its own re-serves, and this is the wall that holds if that bound
+    // does not — past `MAX_ENGINE_TURNS` the interview closes through `nextQuestion` rather than
+    // re-serving chips one more time.
+    if (!capped && identified.offer) {
       return this.turn(buffer, next, input, {
         reply: identified.offer.prompt,
         // THE ONE SITE THAT KNOWS. Everything downstream had to guess before #695: the fact was
@@ -1238,7 +1862,10 @@ export class ProfilingOrchestrator {
       const repinned = await this.resolvePacks(next, input.now.getTime());
       if (repinned) {
         engine = repinned.engine;
-        next = { ...next, packId: repinned.packId, packVersion: repinned.packVersion };
+        next = stampUniversalPointer(
+          { ...next, packId: repinned.packId, packVersion: repinned.packVersion },
+          repinned.engine.universal,
+        );
         // AND THE ITEM LIST WITH IT. Measured live: the turn that pins "main welder hoon" serves
         // `welding_process` — a row that exists only in the pack just resolved — while `items`
         // still held the universal pack's eight. So `shapeOf` found nothing and the client was
@@ -1353,13 +1980,31 @@ export class ProfilingOrchestrator {
           // turner; their own "vmc" appears nowhere but the sentence they typed.
           workerText: input.text,
         });
-        if (formKind !== null) {
-          // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the
-          // interview closes, for the same reason the fallback branch settles: the form picks
-          // up from the answer map, and a handover that discarded the trade would open the form
-          // by asking a worker the one question they have already answered. Unguarded by
-          // `llmLedTurns` here -- unlike the fallback -- because routing REQUIRES a label, so
-          // there is always a draft to settle and never a bare retrieval pin to settle from.
+        if (formKind !== null && next.formOfferPrompt === null && !capped) {
+          // ── THE OFFER TURN (owner ruling 2026-09-16) ───────────────────────────────
+          //
+          // OFFER, NOT A GATE. `routeToTradeForm` above decided ELIGIBILITY — that part
+          // is unchanged and stays deterministic. What changed is who decides next: the
+          // worker, with the same Haan/Nahi reader every binary question uses. The gate
+          // this replaces closed the interview and pushed the worker onto the form; a
+          // worker who would rather finish in the chat now says so and the interview
+          // resumes on the NEXT turn's bubble.
+          //
+          // THE OFFER SPENDS AN ASK, AND MUST — the same argument as the résumé
+          // batch-confirm: it is a question, the worker can decline it, and a budget that
+          // stopped counting what he was asked would stop describing the thing
+          // `chat.session_abandoned` measures.
+          //
+          // NEVER OFFERED TWICE: `formOfferPrompt` settles on the first reply, and the
+          // `=== null` guard above is what makes a decline final. `capped` turns skip the
+          // offer entirely — past the turn cap the interview is closing, and a question
+          // there would be an ask the worker can no longer spend.
+          //
+          // SETTLE ON THE OFFER, NOT ONLY ON THE ACCEPT. These are the worker's own words
+          // from Phase A — not a document's claims — and settling them is what Phase A's
+          // `done` and fallback branches do anyway. Doing it BEFORE the pause is what keeps
+          // a decline from walking back into a re-ask of the trade the conversation just
+          // named; the accept path settles again idempotently.
           answers = settleFromLlmDraft(
             answers,
             next.llmDraft,
@@ -1370,37 +2015,40 @@ export class ProfilingOrchestrator {
           next = withAnswers(next, answers);
           next = {
             ...next,
-            formKind,
-            // PHASE A IS OFF FOR GOOD. `leads()` gates on the stage, so this is what makes the
-            // handover survive a reload -- and `llmGateOpen` closes with it, or the worker next
-            // sentence would be read as a yes/no to a question no longer on screen.
-            llmStage: "done",
-            llmGateOpen: false,
-            phase: "close",
+            formOfferPrompt: { kind: formKind, state: "pending" },
+            // The model-led stretch is still what owns the interview — the offer pauses it,
+            // it does not end it. Decline and the SAME branch set the ask branch below uses
+            // picks straight back up.
+            phase: "llm_interview",
+            // NO `servedQuestionKey`. This question belongs to no pack — the same reason
+            // the résumé-confirm turn claims none — and naming one would make the next
+            // turn's `askedItem` lookup capture "haan" as that question's answer.
             servedQuestionKey: null,
+            clarifyCount: 0,
+            engineAsks: next.engineAsks + 1,
           };
-          await this.recordFormHandoff(next, input, formKind);
-          const offer: TradeFormOffer = TRADE_FORM_OFFERS[formKind];
+          await this.recordFormOffered(next, input, formKind);
           return this.turn(buffer, next, input, {
-            reply: offer.reply,
-            kind: "close",
+            reply: offerPrompt(formKind),
+            // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped
+            // clients know, so a new value would reach a build in the field as an
+            // unrenderable turn. This IS an ask: a question with two chips, answered
+            // like any other single-select.
+            kind: "ask",
             questionKey: null,
-            options: [],
-            answerType: null,
+            options: [...FORM_OFFER_OPTIONS],
             whyText: null,
-            inputMode: "text",
+            answerType: "single_select",
+            // An ask CAN cross a checkpoint boundary, but nothing is on the line here
+            // beyond the offer itself.
+            checkpointDue: false,
             progress: progressOf(progressItems, answers),
             unansweredEssentials: essentialsOf(items, answers),
-            // COMPLETE, so the flush transaction runs and the answer map is DURABLE before the
-            // worker leaves for the form. A handover that left the session open would
-            // checkpoint only every fifth ask, and a two-turn interview never reaches a fifth.
-            complete: true,
-            completionReason: "form_handoff",
+            complete: false,
+            completionReason: null,
             replayed: false,
             excludeFromParse: capture.excludeFromParse,
             unavailable: false,
-            checkpointDue: false,
-            formOffer: offer,
           });
         }
 
@@ -1409,7 +2057,9 @@ export class ProfilingOrchestrator {
           // key for it would make the next turn's `askedItem` lookup capture the answer as that
           // question's — the same rule the disambiguation offer follows one branch up.
           next = { ...next, phase: "llm_interview", servedQuestionKey: null };
-          const options = led.chips.map(toLlmOption);
+          // `options_only` IS THE ENGINE GATE AND NOTHING ELSE: `LlmTurnService` clamps every
+          // model-authored ask to `text`, so the mode is the discriminant — no escape on Haan/Nahi.
+          const options = llmChipOptions(led.chips, led.inputMode === "options_only");
           return this.turn(buffer, next, input, {
             reply: led.reply,
             kind: "ask",
@@ -1459,6 +2109,52 @@ export class ProfilingOrchestrator {
     // {@link selectableEnginePacks} for why an interview Phase A led stops selecting from it.
     engine = selectableEnginePacks(next, engine);
 
+    // --- The résumé identity, offered (RI-identity) ---------------------------
+    //
+    // BEFORE THE BATCH-CONFIRM OFFER BELOW, and exactly once. Same ask-budget rule: it is a
+    // question, the worker can decline it, and the budget must count what he was asked.
+    //
+    // AFTER identify and after Phase A's settlement, for the batch branch's reasons: the
+    // pack must be pinned and anything he has already said must be in `answers`.
+    //
+    // NOT WHEN THE TURN IS CAPPED, for the batch branch's reason: past `MAX_ENGINE_TURNS`
+    // the interview is closing, and opening a new question there spends an ask he no longer has.
+    //
+    // A DIFFERENT IMPORT RE-OPENS IT (fix 2026-09-21). The gate used to be
+    // `resumeIdentity === null`, i.e. ONCE EVER PER SESSION — so a worker who re-uploaded a
+    // corrected résumé mid-interview was never asked about the new document, and its
+    // autofill never ran. One document is one claim, so a new import id is a new question;
+    // the SAME id is asked once and never again.
+    if (!capped) {
+      const line = await this.resolveResumeIdentity(input.workerId);
+      const alreadyHandled =
+        line !== null &&
+        next.resumeIdentity !== null &&
+        next.resumeIdentity.importId === line.importId;
+
+      if (line !== null && !alreadyHandled) {
+        next = {
+          ...next,
+          resumeIdentity: { importId: line.importId, state: "pending" },
+          // IT SPENDS AN ASK, AND MUST — the same rule every offer on this path serves under.
+          engineAsks: next.engineAsks + 1,
+          // NO `servedQuestionKey`. This question belongs to no pack.
+          servedQuestionKey: null,
+          clarifyCount: 0,
+        };
+        return this.turn(
+          buffer,
+          next,
+          input,
+          this.identityTurnFields(line, items, answers, progressItems, false),
+        );
+      }
+
+      // NOTHING STAGED, OR THIS IMPORT ALREADY HANDLED — left untouched, like the batch
+      // branch below: the next turn re-resolves cheaply, and a matching marker must stay
+      // `settled` so the worker is never asked about the same document twice.
+    }
+
     // --- The résumé batch-confirm, offered (ADR-0041 RI-5) ------------------
     //
     // BEFORE THE ENGINE PICKS, and exactly once. Six questions a résumé already answered become
@@ -1471,11 +2167,15 @@ export class ProfilingOrchestrator {
     //
     // NOT WHEN THE TURN IS CAPPED. Past `MAX_ENGINE_TURNS` the interview is closing, and opening
     // a new question there would be an ask the worker can no longer spend.
-    if (next.resumeConfirm === null && !capped) {
-      const offer = await this.resumeSuggestions.pendingForChat(input.workerId);
-      const facts = offer ? confirmableFacts(offer.suggestions, items, answers) : [];
+    //
+    // NOT WHILE AN IDENTITY OFFER IS LIVE. The identity capture above settles `resumeConfirm`
+    // alongside every answer, so `resumeConfirm === null` already implies no live identity in
+    // every reachable state — the `resumeIdentity === null` conjunct is belt-and-braces for a
+    // future edit that settles one without the other, so the worker can never see both bubbles.
+    if (next.resumeConfirm === null && next.resumeIdentity === null && !capped) {
+      const offer = await this.resolveResumeConfirm(input.workerId, items, answers);
 
-      if (offer && facts.length > 0) {
+      if (offer && offer.facts.length > 0) {
         next = {
           ...next,
           resumeConfirm: { importId: offer.importId, state: "pending" },
@@ -1490,7 +2190,7 @@ export class ProfilingOrchestrator {
           clarifyCount: 0,
         };
         return this.turn(buffer, next, input, {
-          reply: confirmPrompt(facts),
+          reply: confirmPrompt(offer.facts),
           // `ask`, not a new kind. `TURN_KINDS` is pinned as a subset of what shipped clients
           // know, so a new value would reach a build in the field as an unrenderable turn. This
           // IS an ask: a question with two chips, answered like any other single-select.
@@ -1718,6 +2418,26 @@ export class ProfilingOrchestrator {
       };
     }
 
+    // THE TYPE-YOUR-TRADE PROMPT, through the helper `openTurn` uses (#1506). `questionKey: null`
+    // is load-bearing: `ProfilingSessionService.answer` guards on this key, and reporting the stale
+    // one would accept a voice-form answer to a question that is not on screen.
+    const typePrompt = outstandingTypeRequest(envelope);
+    if (typePrompt) {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: typePrompt.prompt,
+          answerType: typePrompt.answerType,
+          options: [],
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
+
     // AND THE MODEL'S QUESTION OUTRANKS IT TOO — the same precedence `openTurn` applies, through
     // the same helper, so the two readers of a reopened session cannot disagree about what the
     // worker is looking at.
@@ -1868,6 +2588,15 @@ export class ProfilingOrchestrator {
     const correctionCount = view.correctionCount + 1;
     const record = answers[input.questionKey] as AnswerRecord;
 
+    // #1504 item 5 (city-seed). THE ONLY PLACE A KEY EVER LEAVES `prefilled_keys` (see
+    // `worker-record-seed.ts`'s docblock for why no mid-chat mechanism does this). A correction
+    // IS the worker's own answer of record now, exactly like any other `worker_pack_answer` row
+    // this method writes below — so the key stops meaning "seeded, never asked" the moment it is
+    // corrected.
+    const priorPrefilledKeys = Array.isArray(view.state.prefilled_keys)
+      ? view.state.prefilled_keys.filter((key): key is string => typeof key === "string")
+      : [];
+
     const patched: Record<string, unknown> = {
       ...view.state,
       answer_map: toAnswerArray(answers),
@@ -1875,6 +2604,7 @@ export class ProfilingOrchestrator {
       // so the two halves of the column cannot disagree about a corrected value.
       captured: toCapturedProjection(answers),
       correction_count: correctionCount,
+      prefilled_keys: priorPrefilledKeys.filter((key) => key !== input.questionKey),
     };
 
     const row = packAnswerRowFor({
@@ -1987,6 +2717,52 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * #1504 item 5 (city-seed). Seed `envelope.answerMap`'s `current_city` from
+   * `workers.current_city`, IF this interview is fresh — the caller has already checked that.
+   *
+   * WHY THE READ IS MEMOIZED IN A BOX RATHER THAN AWAITED DIRECTLY HERE: `??=` on `citySeed`
+   * fires at most once no matter how many CAS attempts this call makes, and a retry that reuses
+   * a fresh envelope reuses that ONE read rather than issuing a second one for the same turn.
+   *
+   * FAILS OPEN, UNSEEDED. A read failure here is not a validation, privacy or auth failure — it
+   * is "the convenience prefill did not happen", and the worker falls back to exactly what
+   * shipped before this change: the pack asks `current_city` like any other question. Logged
+   * with the session id and the error's class name only, never a value that could be PII.
+   */
+  private async seedCity(
+    envelope: ProfilingEnvelope,
+    citySeed: CitySeedRef,
+    items: readonly Pick<QuestionPackItem, "question_key" | "target_field">[],
+    input: { readonly sessionId: string; readonly workerId: string },
+  ): Promise<ProfilingEnvelope> {
+    citySeed.promise ??= this.readCityForSeed(input.workerId, input.sessionId);
+    const city = await citySeed.promise;
+    if (city === null) return envelope;
+
+    const outcome = seedFromWorkerRecord(envelope, city, items);
+    if (outcome.seeded) {
+      // BOOLEAN ONLY, NEVER THE CITY. `city_recognized` is exactly the signal #1504 asks for —
+      // how often a seeded city fails the gazetteer — without the value itself ever reaching a
+      // log line (CLAUDE.md §2).
+      this.logger.log(
+        `city-seed applied session=${input.sessionId} city_recognized=${outcome.cityRecognized}`,
+      );
+    }
+    return outcome.envelope;
+  }
+
+  private async readCityForSeed(workerId: string, sessionId: string): Promise<string | null> {
+    try {
+      return await this.workers.findCurrentCity(workerId);
+    } catch (error) {
+      this.logger.warn(
+        `city-seed read failed session=${sessionId}: ${(error as Error).name ?? "UnknownError"}`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * Make the pack pin durable, and emit the audit event — on the transition only.
    *
    * WHAT "THE TRANSITION" MEANS: the envelope that came out of this turn names a pack and the one
@@ -2067,6 +2843,114 @@ export class ProfilingOrchestrator {
    * NEVER FAILS THE TURN. The answers are already durable in the envelope; a worker must not
    * lose a confirmed prefill because an event INSERT hit a connection blip.
    */
+  /**
+   * THE PENDING RÉSUMÉ CONFIRM, RESOLVED AGAINST THE PACK AND THE CURRENT ANSWERS — or null.
+   *
+   * ONE RESOLVER FOR BOTH SURFACES (Task 1 B3; ADR-0042 D8). The turn path (`decide`'s offer
+   * block, RI-5) and the open path (`openTurn`'s confirm branches) must never disagree about
+   * what a résumé entitles the worker to be asked — a second copy of `pendingForChat` +
+   * `confirmableFacts` + `chatServableItems` is exactly the kind of duplicate that drifts, and
+   * its drift would surface as one surface offering facts the other has already settled.
+   *
+   * A NON-NULL RESULT WITH EMPTY `facts` IS MEANINGFUL, not a bug: it means an import is
+   * pending but every fact is already settled, and the turn path records it `settled` so the
+   * storage read + decrypt do not re-run on every remaining turn. The open path treats the
+   * same shape as "nothing to serve here".
+   */
+  private async resolveResumeConfirm(
+    workerId: string,
+    items: readonly QuestionPackItem[],
+    answers: AnswerMap,
+  ): Promise<{ importId: string; facts: ResumeConfirmFact[] } | null> {
+    const offer = await this.resumeSuggestions.pendingForChat(workerId);
+    if (!offer) return null;
+    // `chatServableItems(items)` — the same shared filter the accept path runs through
+    // (#1505 F3), so a résumé's `education`/`salary_expected`/`preferred_locations` suggestions
+    // are never offered for confirmation in the chat; only trade/experience/city/availability
+    // shrink the batch-confirm bubble.
+    const facts = confirmableFacts(offer.suggestions, chatServableItems(items), answers);
+    return { importId: offer.importId, facts };
+  }
+
+  /**
+   * THE STAGED IDENTITY LINE, or null (RI-identity).
+   *
+   * ONE RESOLVER FOR ALL THREE SERVE SITES, for the same reason `resolveResumeConfirm`
+   * states: the open path's two branches and the turn path's offer block must never
+   * disagree about whether an identity line exists. Unlike the confirm, there is nothing
+   * to resolve against packs or answers — the line is static — so this takes only the
+   * worker id and returns the row's staged values verbatim.
+   */
+  private async resolveResumeIdentity(workerId: string): Promise<IdentitySummary | null> {
+    return this.resumeSuggestions.identityForChat(workerId);
+  }
+
+  /**
+   * The identity turn's wire fields, from a resolved line.
+   *
+   * ONE BUILDER FOR THREE SERVE SITES — the open path's re-serve, its first-turn offer,
+   * and the turn path's offer block all render byte-identical bubbles, and a second copy
+   * of this literal is how a re-serve would one day disagree with the offer about what
+   * "is this you?" says. `ask`, not a new kind (`TURN_KINDS` is pinned to what shipped
+   * clients render), `single_select` with the two reviewed chips.
+   */
+  private identityTurnFields(
+    line: IdentitySummary,
+    items: readonly QuestionPackItem[],
+    answers: AnswerMap,
+    progressItems: readonly QuestionPackItem[],
+    replayed: boolean,
+  ): TurnResult {
+    return {
+      reply: identityPrompt(line),
+      kind: "ask",
+      questionKey: null,
+      options: [...RESUME_IDENTITY_OPTIONS],
+      whyText: null,
+      answerType: "single_select",
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed,
+      excludeFromParse: false,
+      unavailable: false,
+      checkpointDue: false,
+    };
+  }
+
+  /**
+   * Record the worker's answer to "is this you?" — once per import.
+   *
+   * NEVER FAILS THE TURN, same posture as `recordPrefillApplied`: the answer is already
+   * durable in the envelope; a worker must not lose his interview because an event INSERT
+   * hit a connection blip. Idempotent by import id: a retried turn re-settles settled
+   * state without reaching here, so a second confirmation of the same document cannot
+   * double-count the funnel.
+   */
+  private async recordIdentityAnswered(
+    input: TurnInput,
+    importId: string,
+    answer: "yes" | "no",
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.resume_identity_answered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "worker", subject_id: input.workerId },
+        payload: { worker_id: input.workerId, import_id: importId, answer },
+        idempotencyKey: `profile.resume_identity_answered:${importId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the résumé identity answer for import ${importId} was not recorded; the interview ` +
+          `continues but RI-7 cannot see the answer: ${(error as Error).message}`,
+      );
+    }
+  }
+
   private async recordPrefillApplied(
     input: TurnInput,
     importId: string,
@@ -2095,6 +2979,157 @@ export class ProfilingOrchestrator {
       this.logger.error(
         `the résumé prefill confirmation for import ${importId} was not recorded; the answers ` +
           `stand but RI-7 cannot see them: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * THE HANDOVER, ON THE WORKER'S WORD (Task 1 recall path; owner ruling 2026-09-16).
+   *
+   * The exact body the forced gate used to run, moved here so the ONLY caller is the
+   * accept branch of the offer capture: determinism kept the eligibility decision, the
+   * worker kept the choice, and everything downstream of an accept — the settlement, the
+   * sticky `formKind`, Phase A switched off, the close turn with its CTA — is byte for
+   * byte what a handover always was. Shipped clients already know this shape; nothing
+   * about the wire moved by adding the offer in front of it.
+   */
+  private async completeFormHandover(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    formKind: TradeFormKind,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the
+    // interview closes: the form picks up from the answer map, and a handover that
+    // discarded the trade would open the form by asking a worker the one question they
+    // have already answered. Unguarded by `llmLedTurns` here -- unlike the fallback --
+    // because routing REQUIRES a label, so there is always a draft to settle.
+    const settled = settleFromLlmDraft(
+      answers,
+      envelope.llmDraft,
+      envelope.occupation?.label ?? null,
+      items,
+      turn,
+    );
+    let next = withAnswers(envelope, settled);
+    next = {
+      ...next,
+      formKind,
+      // SETTLED, NOT PENDING. The offer has been answered; the guard that stops a second
+      // offer reads this state on every later turn.
+      formOfferPrompt: { kind: formKind, state: "settled" },
+      // PHASE A IS OFF FOR GOOD. `leads()` gates on the stage, so this is what makes the
+      // handover survive a reload -- and `llmGateOpen` closes with it, or the worker's
+      // next sentence would be read as a yes/no to a question no longer on screen.
+      llmStage: "done",
+      llmGateOpen: false,
+      phase: "close",
+      servedQuestionKey: null,
+    };
+    await this.recordFormHandoff(next, input, formKind);
+    const offer: TradeFormOffer = TRADE_FORM_OFFERS[formKind];
+    return this.turn(buffer, next, input, {
+      reply: offer.reply,
+      kind: "close",
+      questionKey: null,
+      options: [],
+      answerType: null,
+      whyText: null,
+      inputMode: "text",
+      progress: progressOf(progressItems, settled),
+      unansweredEssentials: essentialsOf(items, settled),
+      // COMPLETE, so the flush transaction runs and the answer map is DURABLE before the
+      // worker leaves for the form. A handover that left the session open would
+      // checkpoint only every fifth ask, and a two-turn interview never reaches a fifth.
+      complete: true,
+      completionReason: "form_handoff",
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+      checkpointDue: false,
+      formOffer: offer,
+    });
+  }
+
+  /**
+   * The offer was SERVED (once per session).
+   *
+   * WHY OFFERED AND ENTERED ARE SEPARATE EVENTS, not one with an outcome: they answer
+   * different funnel questions. `form_offered` counts eligibility — workers whose trade
+   * the router recognised — and `form_mode_entered` stays exactly what it always was
+   * ("this worker took the form"). Offered minus entered minus declined is abandonment,
+   * and folding them together would delete the decline rate the offer ruling exists to
+   * produce. Counts and closed enums only; no labels.
+   */
+  private async recordFormOffered(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    formKind: TradeFormKind,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_offered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          form_kind: formKind,
+          llm_led_turns: envelope.llmLedTurns,
+          asks: envelope.llmAsks,
+        },
+        idempotencyKey: `profile.form_offered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the trade-form offer for session ${input.sessionId} was not recorded; the offer ` +
+          `still stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * The offer was declined — explicitly, or by a reply the binary reader could not read.
+   *
+   * THE TWO ARE COUNTED APART ON PURPOSE. `unclear` is treated exactly like a decline at
+   * the interview level (the offer is settled, never re-served), but as a measurement it
+   * is the reader's miss rate: a shrinking `declined` and a growing `unclear` means the
+   * parser needs teaching, not that workers changed their minds. Anything else treated
+   * as a decline would hide that entirely.
+   */
+  private async recordFormOfferDeclined(
+    input: TurnInput,
+    formKind: TradeFormKind,
+    reply: FormOfferReply,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_offer_declined",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          form_kind: formKind,
+          reply: reply === "unclear" ? "unclear" : "declined",
+        },
+        // ONCE PER SESSION -- the offer settles on the first reply, so a second row
+        // would misreport how often the offer was refused.
+        idempotencyKey: `profile.form_offer_declined:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the declined trade-form offer for session ${input.sessionId} was not recorded; ` +
+          `the interview continues and the decline is invisible: ${(error as Error).message}`,
       );
     }
   }
@@ -2459,7 +3494,13 @@ function replayResultOf(last: LastTurn): TurnResult {
     progress: last.progress,
     whyText: last.whyText,
     answerType: last.answerType,
-    inputMode: last.inputMode,
+    // CLAMPED ON THE WAY OUT (#1506). A model ask stamped `options_only` before this deployed is
+    // sitting in Redis behind a 24 h TTL, and replaying it verbatim would re-lock the composer the
+    // live path no longer locks. The engine gate is the only turn allowed to keep it.
+    inputMode:
+      last.inputMode === "options_only" && last.reply === EXPERIENCE_GATE_PROMPT
+        ? "options_only"
+        : "text",
     // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.
     formOffer: last.formOffer,
     unansweredEssentials: [],
@@ -2678,6 +3719,82 @@ function outstandingOffer(
 }
 
 /**
+ * The type-your-trade prompt a reopened session is still waiting on, or null (#1506).
+ *
+ * THE THIRD MEMBER OF THE SAME PRECEDENCE, and in the same place for the same reason: "Kuch aur"
+ * clears the chips, so {@link outstandingOffer} no longer sees anything, while `servedQuestionKey`
+ * still names the pack question from before the offer. Both readers must return this ahead of
+ * that key or they re-serve — and accept answers to — a question the worker is not looking at.
+ */
+function outstandingTypeRequest(
+  envelope: ProfilingEnvelope,
+): { prompt: string; answerType: AnswerType } | null {
+  if (!envelope.identifyTypeRequested || envelope.occupation !== null) return null;
+  return { prompt: IDENTIFY_TYPE_PROMPT, answerType: "text" };
+}
+
+/**
+ * Is this message an OLD client's "Kuch aur" tap on a model-authored chip turn? (#1506)
+ *
+ * EVERY CONDITION IS ABOUT WHAT IS ON SCREEN, never about the words alone. A worker who types
+ * "kuch aur" as an answer to an ordinary question — or on a disambiguation offer, which identify
+ * settles itself — is not tapping this escape, and treating them as though they were would throw
+ * their answer away. The stamped `lastTurn` is literally what the worker was shown.
+ *
+ * MATCHED ON EITHER THE LABEL OR THE KEY (#1506 MEDIUM-2). The wire contract sends `option_key`
+ * ("kuch_aur"), not the label ("Kuch aur"); today the two happen to normalize identically — the
+ * underscore folds to the same space the label's own space does — but that is a coincidence of
+ * `normalizeOccupationText`'s keep-set, not a guarantee, and it was untested. Matched explicitly
+ * so a future change to that keep-set cannot silently stop this escape from firing for a client
+ * that (correctly, per the schema) sends the key.
+ */
+function isEscapeTapOnModelChips(
+  envelope: ProfilingEnvelope,
+  text: string,
+  leads: boolean,
+): boolean {
+  const last = envelope.lastTurn;
+  if (!leads || envelope.llmGateOpen || last === null) return false;
+  if (last.kind !== "ask" || last.questionKey !== null) return false;
+  if (!last.options.some((option) => option.option_key === DISAMBIGUATION_ESCAPE_KEY)) return false;
+  const normalized = normalizeOccupationText(text);
+  return (
+    normalized === normalizeOccupationText(DISAMBIGUATION_ESCAPE_LABEL) ||
+    text.trim().toLowerCase() === DISAMBIGUATION_ESCAPE_KEY.toLowerCase()
+  );
+}
+
+/**
+ * The trade question settled from the worker's own words (#1506). See the call site in `decide`.
+ *
+ * KEYED ON `target_field`, like {@link settleFromLlmDraft}: the trade question is `primary_trade`
+ * in the universal pack and may be named differently elsewhere. No trade item among the pinned
+ * packs means nothing to settle, which is the same answer a pack-less interview gets everywhere.
+ */
+function settleWorkerTrade(
+  answers: AnswerMap,
+  tradeText: string,
+  items: readonly QuestionPackItem[],
+  turn: number,
+): AnswerMap {
+  const trimmed = tradeText.trim();
+  const item = items.find((candidate) => candidate.target_field === "trade");
+  if (!item || trimmed.length === 0) return answers;
+  return recordAnswer(
+    answers,
+    {
+      questionKey: item.question_key,
+      targetField: "trade",
+      valueRaw: trimmed,
+      valueNormalized: trimmed,
+      // No span: identify is handed the message text, not its index in the transcript.
+      evidence: null,
+    },
+    turn,
+  );
+}
+
+/**
  * The model's question, still on screen, for a session being REOPENED.
  *
  * THE SAME HAZARD `outstandingOffer` EXISTS FOR, and a worse version of it. A model's question
@@ -2755,7 +3872,26 @@ function outstandingLlmAsk(
  * Phase A ran and is finished ⟹ nothing from the worker's trade pack is served, re-served,
  * predicted or spoken for the rest of the interview. Phase A never ran ⟹ this returns the very
  * object it was handed, and every deterministic interview behaves exactly as it did before this
- * function existed. That second branch is the majority path and it is an identity return.
+ * function existed.
+ *
+ * ─── #1505 F3: THE OWNERSHIP FILTER RUNS FIRST, ON EVERY SESSION ────────────────────────────
+ *
+ * BEFORE either of the two branches above, `chatServableItems` (`facts/worker-fact.ownership.ts`)
+ * drops any item that SETTLES a fact a PAGE owns — `salary_expected`, `preferred_locations`,
+ * `education`, `shift` — from both packs. This is NOT gated on `llmLedTurns > 0` the way the rest
+ * of this function is: `qp_universal@2` still carries those five questions for the deterministic
+ * engine (`f455bb36` appended them, #1503 stopped the TRADE FORM asking them, and this is the
+ * same fix one layer up, for the chat), so an interview the model never led would otherwise ask
+ * them anyway. Neither branch below is therefore a true identity return any more — see the note
+ * at each: the corrected claim is that the CALLER'S OBJECT SHAPE is unchanged (still `EnginePacks`
+ * with the same two keys), not that its `items` arrays are byte-identical to what was passed in.
+ *
+ * `CHAT_LLM_INTERVIEW_ENABLED` DOES NOT DEFAULT OFF — it is `true` in
+ * `docker-compose.staging.yml`, so `leads()` is NOT false "for every session" the way an earlier
+ * revision of this docblock claimed. The ownership filter's unconditional placement is exactly why
+ * that no longer matters here: whether or not Phase A leads, the five pages-owned questions never
+ * reach `chatServableItems`'s output, so which branch below fires changes only whether the
+ * OCCUPATION pack is also dropped — not whether the pages-owned facts are.
  *
  * ─── §3: WHY THE MODEL IS NOT WHAT DECIDES THIS ─────────────────────────────────────────────
  *
@@ -2827,23 +3963,33 @@ function outstandingLlmAsk(
  * recorded rather than smuggled in.
  */
 function selectableEnginePacks(envelope: ProfilingEnvelope, resolved: EnginePacks): EnginePacks {
-  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW — an identity return, so the engine is
-  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmLedTurns: 0`,
-  // `narrowProfilingEnvelope` reads an absent field as 0, and `LlmTurnService` is the only writer
-  // that ever moves it — so with `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF, `leads()` is
-  // false for every session, `take()` is never called, and nothing on the majority path can get
-  // past this line. FIRST because it is the majority path, and because it is the one branch whose
-  // correctness has to be obvious at a glance.
-  if (envelope.llmLedTurns === 0) return resolved;
+  // THE OWNERSHIP FILTER, FIRST AND UNCONDITIONAL (#1505 F3). Applies to `occupation` and
+  // `universal` alike, and to every session — not gated on `llmLedTurns`. See the docblock above:
+  // this is what stops `qp_universal@2`'s pages-owned questions (`salary_expected`,
+  // `preferred_locations`, `education`, `shift`) reaching a worker who never touched Phase A at
+  // all.
+  const filtered: EnginePacks = {
+    occupation: resolved.occupation
+      ? { ...resolved.occupation, items: chatServableItems(resolved.occupation.items) }
+      : null,
+    universal: { ...resolved.universal, items: chatServableItems(resolved.universal.items) },
+  };
+
+  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW'S TRADE PACK. `emptyProfilingEnvelope`
+  // seeds `llmLedTurns: 0`, `narrowProfilingEnvelope` reads an absent field as 0, and
+  // `LlmTurnService` is the only writer that ever moves it — so for any session Phase A never led,
+  // both packs are returned WHOLE (past the ownership filter above) and nothing on this path can
+  // get past this line. FIRST because it is the majority path.
+  if (envelope.llmLedTurns === 0) return filtered;
 
   // STILL RUNNING. Phase A is mid-interview, so the engine is not selecting anything this turn
   // anyway — but `openTurn` and `viewSession` read this too, and a worker who reopens the app
   // mid-Phase-A must be shown the same denominator the turn loop is about to use. `llmStage` is
   // written only by `LlmTurnService` and `llmFallback` only by `decide`; neither is reachable
   // from the wire.
-  if (envelope.llmStage !== "done" && !envelope.llmFallback) return resolved;
+  if (envelope.llmStage !== "done" && !envelope.llmFallback) return filtered;
 
-  return { occupation: null, universal: resolved.universal };
+  return { occupation: null, universal: filtered.universal };
 }
 
 function unavailable(): TurnResult {
@@ -2895,7 +4041,8 @@ function unavailable(): TurnResult {
  * THE PINNED OCCUPATION IS THE LAST TRADE FALLBACK, and it is what closes the bug this function
  * was already written to prevent. Both draft labels default to `null`, and an `experience_entry`
  * may arrive on ANY turn — including the first, which the composite opener actively invites
- * ("aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?"). An entry opens the
+ * ("aap kaun sa kaam karte hain, aur kitna tajurba hai?" — #1504 item 5 dropped the opener's city
+ * clause). An entry opens the
  * Yes/No gate immediately, so a worker can reach "Aur koi experience jodna hai?" with both labels
  * still null, answer "nahi", and be asked "Aap kaunsa kaam karte hain?" as the very next line —
  * after a conversation that was entirely about their trade.
@@ -2920,7 +4067,14 @@ function settleFromLlmDraft(
   turn: number,
 ): AnswerMap {
   const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
-  const months = draft.experiences.map((entry) => entry.duration_months);
+  // #1505 F2/ruling-1: `duration_months` FIRST (the ai-service's own parse, when it has one),
+  // `parseDurationMonths(duration_text)` as the API-side fallback for an entry that reached here
+  // with no month count at all. `resolvedMonths` returning `null` for even ONE entry is what
+  // holds `years` unsettled below — a partial sum understates a worker's experience, and
+  // understating it is the one direction that costs them jobs.
+  const resolvedMonths = (entry: (typeof draft.experiences)[number]): number | null =>
+    entry.duration_months ?? parseDurationMonths(entry.duration_text);
+  const months = draft.experiences.map(resolvedMonths);
   const years =
     months.length > 0 && months.every((m): m is number => typeof m === "number")
       ? Math.round(months.reduce((sum, m) => sum + m, 0) / 12)
@@ -2947,7 +4101,30 @@ function settleFromLlmDraft(
   };
 
   if (trade) settle("trade", trade, trade);
-  if (years !== null) settle("experience_years", `${years}`, years);
+
+  // `experience_years` IS THE ONE FIELD WHERE FIRST-WRITE-WINS IS DELIBERATELY BROKEN (owner
+  // ruling, ADR §1505-1) — NOT routed through `settle` above, which skips an already-settled
+  // question. The composite opener's reply CAN cross-fill a worker's stated total into this same
+  // field before every job entry has resolved (`crossFillItems`'s `phaseALeads` exclusion does
+  // not cover that one turn — see the call site's note), and once every entry DOES resolve, the
+  // sum must OVERRIDE whatever number the opener turn wrote — never the reverse, and never for
+  // any other field. `isSettled` is therefore ignored on purpose here, in this one direction only.
+  if (years !== null) {
+    const item = items.find((candidate) => candidate.target_field === "experience_years");
+    if (item) {
+      next = recordAnswer(
+        next,
+        {
+          questionKey: item.question_key,
+          targetField: "experience_years",
+          valueRaw: `${years}`,
+          valueNormalized: years,
+          evidence: null,
+        },
+        turn,
+      );
+    }
+  }
 
   // EVERY skills item, not the first one `settle` would have found: a pack may carry more than one
   // (`welding_process` and a materials question both target `skills`), and they ask about different
@@ -2998,6 +4175,29 @@ function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
 }
 
 /**
+ * Is this turn the worker's REPLY to the one-shot composite opener (#1505 F1)?
+ *
+ * NOT `turn === 1` — that was the ORIGINAL, measured-wrong version of this function (review on
+ * #1517): `buffer.turnCount` is bumped by {@link ProfilingOrchestrator.turn} on EVERY branch that
+ * returns through it, including the non-advancing ones — abusive, silent/empty, hardship,
+ * clarify/question-back — every one of which can fire on the worker's LITERAL first message,
+ * before the opener has been answered at all. Concretely: worker's turn 1 is abusive ("chutiya"),
+ * `turnCount` becomes 1 with nothing captured; turn 2 is the worker's REAL reply to the
+ * still-unanswered opener, stating a total — but `turn === 1` is false at turn 2, so the total
+ * would be wrongly excluded from cross-fill, reproducing the exact defect #1505 exists to close.
+ *
+ * WHAT ACTUALLY IDENTIFIES THE OPENER REPLY: nothing has been captured yet. `envelope.answerMap`
+ * is empty AND `envelope.llmDraft.experiences` is empty — the two places a captured fact can live
+ * before this turn runs. Read off `envelope` as handed to `decide()`, BEFORE this turn's own
+ * `capture`/identify/settlement writes anything, so a non-advancing turn (which writes neither)
+ * leaves both still empty and this correctly keeps reporting "the opener is still unanswered" on
+ * the worker's next real turn — however many non-advancing turns came before it.
+ */
+function isOpenerReplyTurn(envelope: ProfilingEnvelope): boolean {
+  return envelope.answerMap.length === 0 && envelope.llmDraft.experiences.length === 0;
+}
+
+/**
  * A model-authored chip, in the shape the client already renders.
  *
  * THE KEY IS SYNTHESISED AND NEVER READ BACK, exactly as a disambiguation chip's is: these come
@@ -3019,6 +4219,54 @@ function toLlmOption(label: string, index: number): QuestionPackOption {
     implies_skill_id: null,
     is_none_of_above: false,
   };
+}
+
+/** Normalized chip pairs that make a yes/no question, where "Kuch aur" would be nonsense. */
+const YES_NO_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ["haan", "nahi"],
+  ["yes", "no"],
+];
+
+/**
+ * A model chip turn, as options — with the server's own escape on the end (#1506).
+ *
+ * WHY THE SERVER OWNS THE ESCAPE. Model chips never carried one (`toLlmOption` is always
+ * `is_none_of_above: false`), so a worker whose trade was not among the model's guesses had a row
+ * of wrong answers and, on a locked composer, nothing else. The escape is the same constant pair
+ * the disambiguation offer already uses, so the client keys "type your own" off one flag on both.
+ *
+ * THE CASES WITH NO ESCAPE, each deliberate:
+ *   - the engine gate — Haan/Nahi is a closed control-flow question, not a guess;
+ *   - a turn with no chips, where the composer already is the answer;
+ *   - a yes/no pair, where "Kuch aur" beside Haan/Nahi reads as nonsense and typing stays open.
+ *
+ * MODEL-WRITTEN ESCAPES ARE DROPPED FIRST (`ESCAPE_CHIP_ALIASES`, a closed whole-label set), or the
+ * worker sees two, and tapping the model's one records "Koi aur" as an answer. NOT counted against
+ * the four-chip cap — the same precedent the disambiguation offer set.
+ */
+export function llmChipOptions(chips: readonly string[], gate: boolean): QuestionPackOption[] {
+  if (gate) return chips.map(toLlmOption);
+  const kept = chips.filter((chip) => !ESCAPE_CHIP_ALIASES.includes(normalizeOccupationText(chip)));
+  const options = kept.map(toLlmOption);
+  if (options.length === 0) return options;
+
+  const normalized = kept.map((chip) => normalizeOccupationText(chip)).sort();
+  const yesNo = YES_NO_PAIRS.some(
+    (pair) =>
+      normalized.length === 2 && [...pair].sort().every((word, i) => word === normalized[i]),
+  );
+  if (yesNo) return options;
+
+  return [
+    ...options,
+    {
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      value: DISAMBIGUATION_ESCAPE_LABEL,
+      implies_skill_id: null,
+      is_none_of_above: true,
+    },
+  ];
 }
 
 /**
