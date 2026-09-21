@@ -56,6 +56,12 @@ docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
        PRESCRIBED FAIL SHAPE: say the worker is never told a stranger holds his contact. Do
        not write "profile.viewed not emitted" — that reads as a wiring detail and will be
        deferred.
+       RULED 2026-09-21 (route ii-v2, owner): the emit is `profile.viewed_v2` — a NEW name, so
+       v1's entry and payload stay untouched (CLAUDE.md §3). The grep above still matches
+       (`profile.viewed_v2` contains the substring); read the emit and apply the same checks.
+       `job_id` is OPTIONAL and omitted for a search-found unlock — a 500/throw on that case
+       would be the regression. The feed allowlist gained `profile.viewed_v2` under the amended
+       2026-09-21 scope ruling; an employer-message alert is STILL barred.
 
   C-2. [DELIVERABLE · base: RED] An exit from employer contact that costs nothing else.
        Find the route. It must write a NEW consent row whose purposes are DERIVED SERVER-SIDE

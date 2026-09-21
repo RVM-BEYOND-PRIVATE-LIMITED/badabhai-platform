@@ -75,18 +75,20 @@ export function templateCopy(
  * faceless, PII-free copy. Event names are VERIFIED against
  * packages/event-schema/src/registry.ts.
  *
- * SCOPE (widened 2026-07-17): worker-lifecycle / security signals, PLUS the worker's
- * OWN apply action (`application.submitted`). The original scope excluded
- * "employer/demand signals"; that line still holds for anything the EMPLOYER does —
- * an unlock, a view, a payer action must NEVER surface here. What was added is the
- * worker's own outbound act, which is worker-lifecycle by nature: they did it, so
- * telling them it happened reveals nothing they don't already know.
+ * SCOPE (widened 2026-07-17, AMENDED 2026-09-21). Worker-lifecycle / security signals,
+ * PLUS the worker's OWN apply action (`application.submitted`), PLUS — by owner ruling
+ * 2026-09-21 — the one faceless payer-originated signal the worker is OWED: that his
+ * profile was unlocked/viewed (`profile.viewed_v2`, the event E0's C-1 condition emits).
+ * The old line ("an unlock, a view, a payer action must NEVER surface") is what the
+ * amendment corrects for that single signal: `profile.viewed` had already been in this
+ * map since 2026-07-27, and the condition exists so the worker's first knowledge that a
+ * stranger holds his contact is not the stranger's message.
  *
- * The employer stays invisible regardless: copy is STATIC and server-rendered from
- * this map, and the event payload is never selected (see notifications.repository.ts),
- * so no employer identity, job title, or pay can reach the client — ADR-0024 rules
- * employer identity HIDDEN from workers, and this feed cannot breach that by
- * construction.
+ * WHAT DID NOT WIDEN: no employer identity, no job title, no pay, ever. Copy is STATIC
+ * and server-rendered from this map, and the event payload is never selected (see
+ * notifications.repository.ts), so the feed cannot leak a counterparty by construction —
+ * which is exactly why a faceless "someone viewed your profile" is admissible while a
+ * message from an employer still needs its own ruling (PARKED/architecture-log).
  */
 export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplate>> = {
   // resume.generated (registry.ts) — actor=system, worker_id in payload.
@@ -163,6 +165,19 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
   // profile was seen, not who saw it. That is the most this signal can say without
   // revealing a counterparty identity.
   "profile.viewed": {
+    type: "profile_viewed",
+    copy: {
+      hi: { title: "Profile dekha gaya", body: "Aapki profile kisi ne dekhi hai." },
+      en: { title: "Profile viewed", body: "Someone has viewed your profile." },
+    },
+    push: false, // deferred
+  },
+  // profile.viewed_v2 (E0 C-1, owner ruling 2026-09-21, route ii-v2) — actor=payer,
+  // subject=worker, worker_id in payload. THE LIVE ONE: the unlock path emits it on a
+  // new grant (v1 had no emitter and its REQUIRED job_id cannot describe a search-found
+  // unlock). Same faceless copy as v1 — the worker is told he was unlocked, never by
+  // whom. Both names stay allowlisted: v1 for history, v2 for the emit.
+  "profile.viewed_v2": {
     type: "profile_viewed",
     copy: {
       hi: { title: "Profile dekha gaya", body: "Aapki profile kisi ne dekhi hai." },

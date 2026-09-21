@@ -344,6 +344,11 @@ describe("notifications allowlist — validity + faceless copy", () => {
    * conscious edit here. Before adding one, check it is the WORKER's own lifecycle or
    * own act — never something an EMPLOYER did (2026-07-17 scope ruling, see
    * notifications.dto.ts + docs/registers/architecture-log.md).
+   *
+   * AMENDED 2026-09-21 (owner ruling): the ONE payer-originated signal the worker is OWED
+   * may surface — that his profile was unlocked/viewed (`profile.viewed_v2`, E0 C-1), still
+   * faceless and still bounded by the payload-shape ban below. Nothing else widened; an
+   * employer message alert is NOT in scope of this amendment.
    */
   it("the allowlist membership is EXACTLY these events — adding one is a deliberate, reviewed edit", () => {
     expect([...NOTIFICATION_EVENT_NAMES].sort()).toEqual([
@@ -352,12 +357,26 @@ describe("notifications allowlist — validity + faceless copy", () => {
       "job.available",
       "profile.confirmed",
       "profile.viewed",
+      "profile.viewed_v2",
       "resume.generated",
       "resume.regenerated",
       "voice_note.transcription_completed",
       "worker.device_registered",
       "worker.logged_out_all",
     ]);
+  });
+
+  it("profile.viewed_v2 surfaces as a faceless `profile_viewed` alert — the E0 C-1 signal", async () => {
+    const { svc } = setup([row("profile.viewed_v2", "e-v2", "2026-09-21T10:00:00.000Z")]);
+    const out = await svc.getForWorker("w-1");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.type).toBe("profile_viewed");
+    // The SAME neutral copy as v1 — the worker learns he was unlocked, not by whom.
+    expect(out[0]!.title).toBe(NOTIFICATION_TEMPLATES["profile.viewed_v2"]!.copy["hi"]!.title);
+    expect(out[0]!.body).toBe(NOTIFICATION_TEMPLATES["profile.viewed_v2"]!.copy["hi"]!.body);
+    // The projection still never passes the payload through.
+    expect(JSON.stringify(out)).not.toContain("w-secret");
+    expect(JSON.stringify(out)).not.toContain("p-secret");
   });
 
   /**

@@ -853,9 +853,13 @@ Recording that it is a human check is the point of this entry.
 ## P-021 · The second reveal of an unlock 500s, which is both a crash and a status-code oracle
 
 **Found:** 2026-09-07, phase E0, measuring the relay path before building on it.
-**Owner ruling:** none yet — surfaced, not fixed. E0 is barred from writing to `unlocks` /
-`unlock_routing` outside `UnlockService` (`docs/agent/phases/E0_BUILD.md`, NEVER DO), so this is
-reported rather than repaired.
+**Owner ruling:** FIXED — Prakash, 2026-09-21. Idempotent direction, as recommended below: the
+row count per unlock stays 1 by contract. Resolved in the C-1/E0 follow-up PR:
+`UnlocksRepository.findRoutingByUnlock` reads the existing row under the worker lock before any
+wire/decrypt, `createRouting` gained `onConflictDoNothing` + read-back as the second wall, and the
+reveal response is rebuilt from the STORED row — so reveal 2 re-serves the same handle, never
+re-decrypts the phone, and is never a 500. `unlocks.service.test.ts` now reveals the same unlock
+twice (a case the file previously had none of).
 
 **The defect.** `UnlocksRepository.createRouting` is a plain insert with no `onConflict`
 (`apps/api/src/unlocks/unlocks.repository.ts:294-303`), and the reveal path always passes
@@ -892,8 +896,17 @@ which is why this is parked rather than left to be discovered mid-build.
 ## P-022 · `guard.mjs` blocks ordinary JavaScript because a secret-extension pattern is anchored on a word boundary
 
 **Found:** 2026-09-07, phase E0, reading a workflow result file.
-**Owner ruling:** none yet — surfaced, not fixed. The hook is a security control; loosening its
-pattern is not a builder's call.
+**Owner ruling:** FIXED — Prakash, 2026-09-21. Path-shaped context, per the narrow fix sketched
+below: `touchesNonEnvSecret` matches a bare extension only inside a path-like token (containing
+`/` or `\`), matches the distinctive basenames (`id_rsa`, `service-account*.json`,
+`credentials*.json`) anywhere, and skips tokens starting with a backslash (a regex escape such as
+`"\.pem"`, the second false positive). The file-tool predicate (`isSecretFilePath`) is deliberately
+UNCHANGED, and `guard.selftest.mjs` gained both directions: the exact `x.key === 'consent'` case
+now allowed, and real paths (`C:\certs\cert.pem`, `infra/service-account.json`,
+`certs/private.key`, a `node -e` read of a path) still blocked. Accepted trade, recorded in the
+code: a BARE `cat cert.key` with no path prefix is no longer caught by the SHELL layer — the hard
+guarantee is `permissions.deny` plus the file-tool layer, and this hook is the fail-open smart
+layer beside it.
 
 **What happened.** A `node -e` command that looked up a plain object property was blocked:
 

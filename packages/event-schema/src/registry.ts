@@ -561,6 +561,14 @@ export const EVENT_REGISTRY = {
   "job.available": { version: 1, domain: "job", payload: p.NewJobAvailablePayload },
 
   "profile.viewed": { version: 1, domain: "profile", payload: p.ProfileViewedPayload },
+  // E0 C-1 (owner ruling 2026-09-21, route ii-v2) — `profile.viewed` VERSION 2. The v1
+  // entry above KEEPS its definition, unmodified, as history (invariant #8), exactly as
+  // `feed.shown_v2` and `skill.phrase_unresolved_v2` do: `validateEvent` allows exactly
+  // one version per NAME, so relaxing v1's REQUIRED `job_id` in place would invalidate
+  // every shipped consumer that reads the field without a null check. v2's `job_id` is
+  // OPTIONAL, which is what lets the unlock path — whose `unlocks.job_id` is nullable —
+  // emit at all. Emitted from `UnlockService.requestUnlock` on a NEW grant only.
+  "profile.viewed_v2": { version: 2, domain: "profile", payload: p.ProfileViewedV2Payload },
   // AGENCY supply-attribution funnel (ADR-0022) — the payer-axis sibling of `invite.*`.
   // PII-FREE: opaque ids + channel enum + optional non-PII campaign tag only.
   // `agency_invite.accepted` carries the invited worker id and is emitted ONLY after

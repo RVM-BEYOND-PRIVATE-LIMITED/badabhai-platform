@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 188 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill)", () => {
-    expect(EVENT_NAMES).toHaveLength(188);
+  it("exposes all 189 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2)", () => {
+    expect(EVENT_NAMES).toHaveLength(189);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3306,6 +3306,10 @@ describe("registry", () => {
     // reason as `feed.shown_v2` — v1's `domain_id` is REQUIRED and a Path A miss has no
     // legacy slug, so the alternative was relaxing a shipped required field.
     "skill.phrase_unresolved_v2": 2,
+    // E0 C-1 (owner ruling 2026-09-21, route ii-v2): the unlock-path generation of
+    // `profile.viewed`. v1's `job_id` is REQUIRED and an unlock found by search carries
+    // none, so v2 makes it OPTIONAL rather than relaxing v1 in place.
+    "profile.viewed_v2": 2,
   };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
@@ -3333,6 +3337,18 @@ describe("registry", () => {
       matched_skill_id: "mskill_vmc_operator",
     });
     expect(v2Shape.success).toBe(false);
+  });
+
+  it("keeps the shipped profile.viewed v1 payload EXACTLY as it was (invariant #8)", () => {
+    const v1 = EVENT_REGISTRY["profile.viewed"];
+    expect(v1.version).toBe(1);
+    // v1's job_id stays REQUIRED. Nothing emits it (the unlock path uses v2), but a
+    // shipped consumer that reads job_id without a null check must keep compiling
+    // against the shape it was written for — which is the whole reason v2 is a new name.
+    expect(
+      v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B, job_id: UUID_C }).success,
+    ).toBe(true);
+    expect(v1.payload.safeParse({ worker_id: UUID_A, viewer_payer_id: UUID_B }).success).toBe(false);
   });
 });
 

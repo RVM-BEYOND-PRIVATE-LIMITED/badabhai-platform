@@ -37,6 +37,7 @@ interface SetupOpts {
   workerExists?: boolean;
   pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
   existingUnlock?: Record<string, unknown>;
+  existingRouting?: Record<string, unknown>; // P-021: a routing row an earlier reveal wrote
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
   debitOk?: boolean;
@@ -67,7 +68,13 @@ function setup(opts: SetupOpts = {}) {
       status: "denied",
     })),
     incrementReveal: vi.fn(async () => 1),
-    createRouting: vi.fn(async () => ({ id: "routing-1" })),
+    // P-021: echo the input so the reveal response reads the STORED row (the service no
+    // longer answers from the in-memory handle it just minted).
+    createRouting: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
+      id: "routing-1",
+      ...input,
+    })),
+    findRoutingByUnlock: vi.fn(async () => opts.existingRouting),
     appendLedger: vi.fn(async () => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
@@ -309,6 +316,8 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
       "payment.authorized",
       "payment.captured",
       "unlock.granted",
+      // E0 C-1 — the worker is told he was unlocked, AFTER the grant is durable.
+      "profile.viewed_v2",
     ]);
     expect(txMethods.tryDebit).toHaveBeenCalledTimes(1);
     expect(txMethods.upsertGrant).toHaveBeenCalledTimes(1);
@@ -319,6 +328,47 @@ describe("UnlockService — happy path (apply→grant) emits the right PII-free 
       const e = c[0] as { event_name: string; payload: Record<string, unknown> };
       if (e.event_name.startsWith("payment.")) expect(e.payload.real_call).toBe(false);
     }
+  });
+
+  // ---- E0 C-1 (owner ruling 2026-09-21, route ii-v2) ----
+
+  it("tells the worker he was unlocked — profile.viewed_v2, opaque ids, job_id OMITTED with no posting", async () => {
+    const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+
+    const viewed = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
+    );
+    expect(viewed, "the unlock path must EMIT profile.viewed_v2, not merely register it").toBeDefined();
+    const evt = viewed![0] as {
+      payload: Record<string, unknown>;
+      actor: Record<string, unknown>;
+      subject: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    // An absent key, not null — the payload's job_id is optional by design.
+    expect(evt.payload).toEqual({ worker_id: WORKER, viewer_payer_id: PAYER });
+    expect(evt.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+    expect(evt.subject).toEqual({ subject_type: "worker", subject_id: WORKER });
+    expect(evt.idempotencyKey).toBe("profile.viewed_v2:unlock-1");
+    // The counterparty id is `viewer_payer_id` — a payload key literally named `payer_id`
+    // would fail the Alerts feed's own payload-shape ban at test time.
+    expect(Object.keys(evt.payload)).not.toContain("payer_id");
+    expect(JSON.stringify(evt)).not.toContain(SENTINEL_PHONE);
+  });
+
+  it("carries job_id when the unlock has a posting (search-found unlocks omit it)", async () => {
+    const JOB = "55555555-5555-4555-8555-555555555555";
+    const { svc, events } = setup({ balance: 5, consentPurposes: ["employer_sharing"] });
+    await svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: JOB }, CTX);
+    const viewed = events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "profile.viewed_v2",
+    );
+    expect((viewed![0] as { payload: Record<string, unknown> }).payload).toEqual({
+      worker_id: WORKER,
+      viewer_payer_id: PAYER,
+      job_id: JOB,
+    });
   });
 
   it("an already-live grant for THIS payer returns the SAME grant with no second debit (idempotent, F-6)", async () => {
@@ -426,6 +476,37 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
     );
     expect(JSON.stringify(payload)).not.toContain(SENTINEL_PHONE);
     expect(JSON.stringify(payload)).not.toContain(handle); // the handle is not evented either
+  });
+
+  // ---- P-021 (owner ruling 2026-09-21): the second reveal is idempotent, not a 500 ----
+
+  it("a SECOND reveal re-serves the SAME handle, writes NO second routing row, and never re-decrypts the phone", async () => {
+    const u = grantedUnlock();
+    const stored = {
+      id: "routing-1",
+      unlockId: "unlock-1",
+      routingToken: u.routingTokenRef,
+      channel: "in_app_relay",
+      relayHandle: "relay_unlock-1_stored-handle",
+      expiresAt: u.expiresAt,
+    };
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: u });
+    // First reveal: no routing row yet → wires + inserts. Second: reads the stored row.
+    t.txMethods.findRoutingByUnlock.mockResolvedValueOnce(undefined).mockResolvedValue(stored);
+    t.txMethods.createRouting.mockResolvedValueOnce(stored);
+
+    const first = await t.svc.reveal("unlock-1", CTX);
+    const second = await t.svc.reveal("unlock-1", CTX);
+
+    expect(first).toMatchObject({ relay_handle: stored.relayHandle, channel: "in_app_relay" });
+    expect(second).toMatchObject({ relay_handle: stored.relayHandle, channel: "in_app_relay" });
+    // ONE routing row for the unlock, and the phone read exactly once — the whole point.
+    expect(t.txMethods.createRouting).toHaveBeenCalledTimes(1);
+    expect(t.pii.decrypt).toHaveBeenCalledTimes(1);
+    // Both reveals still count against the cap and are audited.
+    expect(t.txMethods.incrementReveal).toHaveBeenCalledTimes(2);
+    expect(emitted(t.events).filter((n) => n === "contact.revealed")).toHaveLength(2);
+    expect(JSON.stringify([first, second])).not.toContain(SENTINEL_PHONE);
   });
 
   it("the routing token is NEVER in the response or the contact.revealed event (F-4)", async () => {
