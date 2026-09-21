@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Ip, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, HttpCode, Ip, Post, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
@@ -64,5 +64,19 @@ export class ConsentController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.consent.withdrawEmployerContact(worker.id, ip, userAgent, ctx);
+  }
+
+  /**
+   * #1637 — the caller's LATEST consent row: purposes + revocation only. Worker-self, the
+   * same guard posture as the writes above; `no-store` because purposes are worker data.
+   *
+   * NO ROW IS A REAL ANSWER (`consent_id: null`, `purposes: []`), not a 404 — the
+   * stop-employer-contact switch must render "off" on a first launch, not an error.
+   */
+  @Get("me")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard)
+  async mine(@CurrentWorker() worker: AuthenticatedWorker) {
+    return this.consent.getLatestForWorker(worker.id);
   }
 }

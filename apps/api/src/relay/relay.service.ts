@@ -168,6 +168,31 @@ export class RelayService {
     return { message_id: row.id, created_at: row.createdAt.toISOString() };
   }
 
+  /**
+   * The PAYER half of the thread read (#1636) — the payer's own unlock, resolved from the
+   * handle they hold and nothing else.
+   *
+   * WHY IT EXISTS. Without it a payer can send a template but cannot read the thread or learn
+   * whether the worker replied, so the FE would have to invent thread state the E0 contract
+   * keeps server-owned (and `POST .../messages` gates free text on exactly that fact).
+   *
+   * SAME LADDER, SAME NEUTRAL BODY: `resolveRelayForPayer` re-runs the full use-time checks and
+   * any failure returns the ONE neutral body — the payer must not learn expiry, ownership or
+   * consent state. The wire mirrors the worker route (`RelayMessageWire`), rendered
+   * server-side, so one renderer serves both surfaces and the raw body column is never exposed.
+   * NO COUNTERPARTY IDENTITY: the payer learns what was said, never who the worker is beyond the
+   * handle they already had.
+   */
+  async readThreadForPayer(
+    payerId: string,
+    handle: string,
+  ): Promise<{ messages: RelayMessageWire[] } | NeutralUnavailableResponse> {
+    const resolved = await this.unlocks.resolveRelayForPayer(handle, payerId);
+    if (resolved === null) return neutralUnavailable();
+    const rows = await this.relay.listByUnlock(resolved.unlockId);
+    return { messages: rows.map((row) => this.toWire(row)) };
+  }
+
   /** Mark the thread's inbound messages read. AUDIT event only (no payer-visible receipt). */
   async markThreadRead(
     workerId: string,

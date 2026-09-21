@@ -22,3 +22,24 @@ export const AcceptConsentSchema = z.object({
   purposes: consentPurposesSchema,
 });
 export type AcceptConsentDto = z.infer<typeof AcceptConsentSchema>;
+
+/**
+ * `GET /consent/me` (#1637) — the caller's LATEST consent row, as the worker's own screen
+ * needs it: purposes + revocation only.
+ *
+ * DELIBERATELY NOT the row. `ip_hash` and `user_agent` are consent EVIDENCE, not state a
+ * client renders, and returning them would put a hashed IP on a worker's device for no
+ * reason (§9: never expose unnecessary data). `consent_id` is included so a client can tell
+ * "a write landed" from "nothing changed" without comparing timestamps.
+ *
+ * `purposes: []` AND NULLS IS A REAL ANSWER: a worker who has never consented gets this
+ * shape, not a 404 — the switch screen needs to render "off", and an error would be a dead
+ * end on a first launch.
+ */
+export interface MyConsentState {
+  consent_id: string | null;
+  consent_version: string | null;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  purposes: string[];
+}

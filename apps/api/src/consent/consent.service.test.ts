@@ -108,6 +108,64 @@ describe("ConsentService.withdraw (TD69)", () => {
   });
 });
 
+describe("ConsentService.getLatestForWorker (#1637)", () => {
+  it("maps the latest row to purposes + revocation only — never ipHash/userAgent", async () => {
+    const { svc, consents } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      id: "consent-9",
+      consentVersion: "2026-06-01",
+      acceptedAt: new Date("2026-09-21T10:00:00.000Z"),
+      revokedAt: null,
+      purposes: ["profiling", "employer_sharing", "employer_messaging"],
+      ipHash: "iphash-sentinel",
+      userAgent: "ua-sentinel",
+    });
+    const out = await svc.getLatestForWorker(WORKER);
+    expect(out).toEqual({
+      consent_id: "consent-9",
+      consent_version: "2026-06-01",
+      accepted_at: "2026-09-21T10:00:00.000Z",
+      revoked_at: null,
+      purposes: ["profiling", "employer_sharing", "employer_messaging"],
+    });
+    expect(JSON.stringify(out)).not.toContain("sentinel");
+  });
+
+  it("no row is a REAL answer — nulls and [] (the switch renders off, not an error)", async () => {
+    const { svc } = setup();
+    expect(await svc.getLatestForWorker(WORKER)).toEqual({
+      consent_id: null,
+      consent_version: null,
+      accepted_at: null,
+      revoked_at: null,
+      purposes: [],
+    });
+  });
+
+  it("reflects the C-2 exit on the NEXT read — the server truth the switch renders from", async () => {
+    const { svc, consents } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      id: "consent-old",
+      consentVersion: "2026-06-01",
+      acceptedAt: new Date("2026-09-21T09:00:00.000Z"),
+      revokedAt: null,
+      purposes: ["profiling", "employer_sharing", "employer_messaging"],
+    });
+    await svc.withdrawEmployerContact(WORKER, undefined, undefined, CTX);
+
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      id: "consent-1",
+      consentVersion: "2026-06-01",
+      acceptedAt: new Date("2026-09-21T10:00:00.000Z"),
+      revokedAt: null,
+      purposes: ["profiling"],
+    });
+    const after = await svc.getLatestForWorker(WORKER);
+    expect(after.consent_id).toBe("consent-1");
+    expect(after.purposes).toEqual(["profiling"]);
+  });
+});
+
 describe("ConsentService.withdrawEmployerContact (E0 C-2)", () => {
   const LATEST = {
     id: "consent-old",
