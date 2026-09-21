@@ -45,6 +45,46 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  /// Canned employer-contact consent state (#1630): the worker is contactable,
+  /// so the mock switch starts ON and `withdrawEmployerContact` flips it OFF
+  /// (session-local, like the rest of mock mode).
+  bool _mockEmployerContact = true;
+
+  @override
+  Future<ConsentStateDto> getConsentState({required String authToken}) async {
+    await _delay();
+    return ConsentStateDto(
+      consentId: 'mock-consent-0001',
+      consentVersion: kConsentVersion,
+      acceptedAt: DateTime.fromMillisecondsSinceEpoch(0).toIso8601String(),
+      purposes: <String>[
+        'profiling',
+        'resume_generation',
+        'voice_processing',
+        if (_mockEmployerContact) ...<String>[
+          'employer_sharing',
+          'employer_messaging',
+        ],
+      ],
+    );
+  }
+
+  @override
+  Future<EmployerContactWithdrawDto> withdrawEmployerContact({
+    required String authToken,
+  }) async {
+    await _delay();
+    final bool wasOn = _mockEmployerContact;
+    _mockEmployerContact = false;
+    return EmployerContactWithdrawDto(
+      ok: true,
+      consentId: wasOn ? 'mock-consent-0002' : null,
+      withdrawn: wasOn
+          ? const <String>['employer_sharing', 'employer_messaging']
+          : const <String>[],
+    );
+  }
+
   /// No `openingText`, deliberately. Returning one here would be a THIRD copy of
   /// the opener copy (after `question_bank.py` and the client const) with nothing
   /// keeping the three in step. Null makes the bloc render `kChatOpeningText`,
@@ -970,6 +1010,62 @@ class MockApiClient extends ApiClient {
 
   @override
   Future<void> markNotificationsRead({required String authToken}) async {
+    await _delay();
+  }
+
+  // ── E0 in-app relay (FE #1628). Canned, FACELESS: no payer identity exists
+  // on the wire, so none can appear here. One thread with one inbound message
+  // so the list + thread + reply + read flows are all exercisable in mock mode.
+
+  static final DateTime _mockRelayAt =
+      DateTime.fromMillisecondsSinceEpoch(0).add(const Duration(days: 20000));
+
+  @override
+  Future<List<RelayThreadDto>> getRelayThreads({
+    required String authToken,
+  }) async {
+    await _delay();
+    return <RelayThreadDto>[
+      RelayThreadDto(
+        unlockId: 'mock-unlock-0001',
+        lastMessageAt: _mockRelayAt,
+        unreadCount: 1,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<RelayMessageDto>?> getRelayThread({
+    required String authToken,
+    required String unlockId,
+  }) async {
+    await _delay();
+    if (unlockId != 'mock-unlock-0001') return null;
+    return <RelayMessageDto>[
+      RelayMessageDto(
+        messageId: 'mock-message-0001',
+        direction: 'payer_to_worker',
+        text: 'Aap kaam ke liye available hain?',
+        createdAt: _mockRelayAt,
+      ),
+    ];
+  }
+
+  @override
+  Future<bool> sendRelayReply({
+    required String authToken,
+    required String unlockId,
+    required String text,
+  }) async {
+    await _delay();
+    return unlockId == 'mock-unlock-0001' && text.trim().isNotEmpty;
+  }
+
+  @override
+  Future<void> markRelayThreadRead({
+    required String authToken,
+    required String unlockId,
+  }) async {
     await _delay();
   }
 

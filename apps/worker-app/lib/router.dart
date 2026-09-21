@@ -25,6 +25,8 @@ import 'features/resume_import/presentation/resume_upload_screen.dart';
 import 'features/voice/presentation/voice_note_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
+import 'features/inbox/presentation/inbox_screen.dart';
+import 'features/inbox/presentation/inbox_thread_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/profile_edit/presentation/profile_edit_screen.dart';
@@ -114,6 +116,13 @@ class Routes {
   /// full-screen from a header bell ([BbAlertsAction]); the screen carries its
   /// own back affordance.
   static const String alerts = '/alerts';
+
+  /// Relay inbox (E0, FE #1628) — the worker's threads with payers. Pushed
+  /// full-screen from Profile; the screen carries its own back affordance.
+  static const String inbox = '/inbox';
+
+  /// One relay thread. The opaque `unlock_id` is the only identifier.
+  static String inboxThreadOf(String unlockId) => '/inbox/$unlockId';
 
   // --- Shell sub-routes (append the id where noted) ---
   /// Indeed-style job search (title/skill + city, state) — pushed full-screen
@@ -533,6 +542,20 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.alerts,
         builder: (_, __) => const NotificationsScreen(),
+      ),
+
+      // Relay inbox (E0, FE #1628) — the worker's threads with payers, pushed
+      // full-screen from Profile. Root-scoped so the thread screen covers the
+      // shell; both carry their own back affordance.
+      GoRoute(
+        path: Routes.inbox,
+        builder: (_, __) => const InboxScreen(),
+      ),
+      GoRoute(
+        path: '/inbox/:unlockId',
+        builder: (_, GoRouterState state) => InboxThreadScreen(
+          unlockId: state.pathParameters['unlockId'] ?? '',
+        ),
       ),
 
       // ---------------- Shell (persistent 4-tab bottom nav) ----------------

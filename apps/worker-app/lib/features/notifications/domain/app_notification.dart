@@ -11,6 +11,10 @@ enum NotificationKind {
   profileReady,
   voiceProcessed,
   applicationSent,
+
+  /// E0 item 5 (`relay.message_received` → `type: "new_message"`): a faceless
+  /// "you have a message" alert. No counterparty identity rides it.
+  messageReceived,
   security,
 }
 

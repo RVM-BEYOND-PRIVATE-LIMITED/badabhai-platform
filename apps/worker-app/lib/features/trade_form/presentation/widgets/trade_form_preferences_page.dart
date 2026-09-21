@@ -1,16 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_client.dart'
-    show CityOptionDto, WorkPrefOptionsDto;
+    show CityHubDto, CityOptionDto, WorkPrefOptionsDto;
 import '../../../../core/session/known_worker_facts_store.dart' show WorkerFact;
 import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/form_flow_parts.dart';
-import '../../../../core/widgets/onboarding/onboarding_select_field.dart';
 import '../../../../core/widgets/onboarding/option_icons.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../domain/trade_form_models.dart';
+import 'design2_cities_page.dart';
 import 'trade_form_kit.dart';
-import 'trade_form_text_field.dart';
 
 /// The tile glyph for one option card, from its slug and label.
 typedef _OptionIcon = IconData Function(String optionKey, String label);
@@ -23,11 +22,8 @@ const String _kDocLabel = 'Kaun se document taiyaar hain?';
 const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
-const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
-const String _kStateLabel = 'State (Rajya)';
-const String _kCityLabel = 'Sheher (City)';
-const String _kPickStateLabel = 'STATE CHUNEIN';
-const String _kCityHint = 'Sheher ka naam likhein';
+const String _kCitiesSubtitle =
+    'Aap 1 se $kTradeFormMaxPreferredCities sheher chun sakte hain.';
 const String _kCityNotFoundError =
     'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
 const String _kCityAddedToast = 'Sheher add ho gaya';
@@ -69,10 +65,11 @@ const Map<int, String> _kSalaryBands = <int, String>{
 ///
 /// Painted with the Master UI Kit: closed-set lists are kit option cards
 /// (multi-select → [MultiSelectQuestionCard], single-select →
-/// [SingleSelectQuestionCard]), the state picker is [OnboardingSelectField],
-/// and the two yes/no preferences are kit switch rows. Every label and option
-/// still comes from the server's options response (or, for salary, the
-/// existing [_kSalaryBands]).
+/// [SingleSelectQuestionCard]), the preferred-cities picker is the DESIGN2
+/// [Design2CitiesPage] (states → hubs → search), and the two yes/no
+/// preferences are kit switch rows. Every label and option still comes from
+/// the server's options response (or, for salary, the existing
+/// [_kSalaryBands]).
 class TradeFormPreferencesPage extends StatefulWidget {
   const TradeFormPreferencesPage({
     super.key,
@@ -161,6 +158,11 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   final TextEditingController _city = TextEditingController();
 
+  /// The DESIGN2 browse box — filters the hub/city cards. Separate from
+  /// [_city], which stays the exact "Koi sheher?" entry with alias resolution.
+  final TextEditingController _search = TextEditingController();
+  String? _searchError;
+
   /// Set when submitted text doesn't resolve against the server's gazetteer
   /// (`options.cities`) — never a bare string add any more (#1406/#1410):
   /// the server's `preferred_cities` 400s on anything outside the same
@@ -207,6 +209,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   @override
   void dispose() {
     _city.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -277,42 +280,10 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _prefs.copyWith(languages: _toggled(_prefs.languages, slug)));
   }
 
-  /// A MaterialBanner (top), NOT a SnackBar — the sticky bottom bar owns the
-  /// bottom edge, so a SnackBar would cover "Aage badhein" (same reason as
-  /// [_addResolvedCity]'s toast below).
-  void _showCapBanner() {
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-    messenger.clearMaterialBanners();
-    messenger.showMaterialBanner(
-      MaterialBanner(
-        backgroundColor: OnboardingColors.shiftBlue,
-        content: Text(
-          _kLangSubtitle,
-          style: OnboardingTypography.inter(
-            size: 13,
-            weight: FontWeight.w500,
-            color: OnboardingColors.textOnBlue,
-          ),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: messenger.hideCurrentMaterialBanner,
-            child: Text(
-              'Theek hai',
-              style: OnboardingTypography.inter(
-                size: 14,
-                weight: FontWeight.w700,
-                color: OnboardingColors.textOnBlue,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-    Future<void>.delayed(const Duration(seconds: 2), () {
-      if (mounted) messenger.hideCurrentMaterialBanner();
-    });
-  }
+  /// The language cap's honest banner, naming the limit — see [_showBanner]
+  /// for why it is a top [MaterialBanner] and not a SnackBar.
+  void _showCapBanner() =>
+      _showBanner(_kLangSubtitle, OnboardingColors.shiftBlue);
 
   @override
   Widget build(BuildContext context) {
@@ -412,121 +383,137 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  /// Opens the kit's searchable state sheet over the server's own state
-  /// catalogue — the same pick-then-clear-the-city behaviour the old dropdown
-  /// field had (#1429).
-  Future<void> _pickState(WorkPrefOptionsDto options) async {
-    final String? state = await showOnboardingPicker(
-      context,
-      title: _kStateLabel,
-      options: options.states,
-      selected: _cityState,
-    );
-    if (state == null || !mounted) return;
+  /// Switches the cascading state filter (#1429) — re-tapping the same state
+  /// clears it. Clears both text boxes so a stale query never filters a new
+  /// state's list.
+  void _selectState(String state) {
     setState(() {
-      _cityState = state;
+      _cityState = _cityState == state ? null : state;
+      _search.clear();
       _city.clear();
       _cityError = null;
+      _searchError = null;
     });
   }
 
+  bool _isPicked(String value) {
+    final String q = value.toLowerCase();
+    return _prefs.preferredCities.any((String c) => c.toLowerCase() == q);
+  }
+
+  /// The DESIGN2 cities picker — states, hubs and search (see
+  /// [Design2CitiesPage]). Everything is real server data: `city_hubs` when
+  /// the backend ships it (#1634), otherwise the selected state's real
+  /// `cities` rendered as hub cards without their industrial-area sub-label.
   Widget _citiesPage(WorkPrefOptionsDto options) {
-    final bool atCityCap =
-        _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
-    final List<CityOptionDto> suggestions = _matchingCities(options);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const TradeFormHeading(
-          title: _kCitiesLabel,
-          subtitle: _kCitiesSubtitle,
-        ),
-        const SizedBox(height: FormFlowLayout.introToOptionsGap),
-        // The add row itself IS this section's "add another" affordance —
-        // there's no per-city card to hide, so the row disappears at the
-        // cap, same convention as `kTradeFormMaxCertificates`/
-        // `kTradeFormMaxEducations`'s add button.
-        if (!atCityCap) ...<Widget>[
-          // State-then-city cascade (#1429): the state list picks which
-          // state's cities the search below offers — State ALWAYS precedes
-          // Sheher. No "+" add button, a worker cannot enter a custom city
-          // (the server's gazetteer is closed, #1406/#1410), so the ONLY way
-          // to add one is picking a suggestion chip below (or hitting the
-          // keyboard's "Done", which resolves the same exact-match check a
-          // "+" button would have).
-          const TradeFormFieldLabel(_kStateLabel),
-          OnboardingSelectField(
-            value: _cityState ?? '',
-            hint: _kPickStateLabel,
-            semanticLabel: _kStateLabel,
-            onTap: () => _pickState(options),
-          ),
-          if (_cityState != null) ...<Widget>[
-            const SizedBox(height: 14),
-            const TradeFormFieldLabel(_kCityLabel),
-            TradeFormTextField(
-              controller: _city,
-              hint: _kCityHint,
-              label: _kCityLabel,
-              textInputAction: TextInputAction.done,
-              errorText: _cityError,
-              onChanged: (String v) => setState(() => _cityError = null),
-              onSubmitted: (_) => _submitTypedCity(options),
-            ),
-            if (suggestions.isNotEmpty) ...<Widget>[
-              const SizedBox(height: 10),
-              // Quick-pick chips — straight off the server gazetteer for the
-              // picked state; never a client-side city list.
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  for (final CityOptionDto c in suggestions)
-                    TradeFormPillChip(
-                      label: c.value,
-                      // A city is a place, not a pack option — the icon
-                      // rules have nothing to say about it.
-                      leadingIcon: Icons.location_on_outlined,
-                      onTap: () => _addResolvedCity(c),
-                    ),
-                ],
-              ),
-            ],
-          ],
-        ],
-        if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
-          const SizedBox(height: 14),
-          // Horizontal `ListView.builder`, not a `Wrap` — a picked-cities row
-          // scrolls sideways instead of stacking to a second line, so it
-          // reads the same as every other horizontally-scrolling chip row in
-          // the app (the job feed's header filters).
-          SizedBox(
-            height: OnboardingLayout.tapTarget,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _prefs.preferredCities.length,
-              itemBuilder: (BuildContext context, int index) {
-                final String c = _prefs.preferredCities[index];
-                final bool isLast =
-                    index == _prefs.preferredCities.length - 1;
-                return Padding(
-                  padding: EdgeInsets.only(right: isLast ? 0 : 8),
-                  child: TradeFormPillChip(
-                    label: c,
-                    selected: true,
-                    trailingIcon: Icons.close,
-                    onTap: () => setState(() => _prefs = _prefs.copyWith(
-                        preferredCities: _prefs.preferredCities
-                            .where((String x) => x != c)
-                            .toList())),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ],
+    return Design2CitiesPage(
+      maxCities: kTradeFormMaxPreferredCities,
+      selectedCities: _prefs.preferredCities,
+      states: options.states,
+      selectedState: _cityState,
+      stateHubs: _stateHubs(options),
+      popularHubs: _popularHubs(options),
+      searchResults: _searchResults(options),
+      searchController: _search,
+      onSearchChanged: (String _) => setState(() => _searchError = null),
+      onSearchSubmit: () => _submitSearch(options),
+      searchError: _searchError,
+      cityController: _city,
+      onCityChanged: (String _) => setState(() => _cityError = null),
+      onCitySubmit: () => _submitTypedCity(options),
+      cityError: _cityError,
+      onSelectState: _selectState,
+      onToggleHub: _toggleHub,
+      onRemoveCity: _removeCity,
     );
+  }
+
+  /// The selected state's hubs: the curated catalogue when present, else its
+  /// real cities (title-only cards — no invented industrial areas).
+  List<Design2Hub> _stateHubs(WorkPrefOptionsDto options) {
+    final String? state = _cityState;
+    if (state == null) return const <Design2Hub>[];
+    if (options.cityHubs.isNotEmpty) {
+      return <Design2Hub>[
+        for (final CityHubDto h in options.cityHubs)
+          if (h.state == state) h.toView(selected: _isPicked(h.cityValue)),
+      ];
+    }
+    return <Design2Hub>[
+      for (final CityOptionDto c in options.cities)
+        if (c.state == state)
+          Design2Hub(
+            cityValue: c.value,
+            title: c.value,
+            selected: _isPicked(c.value),
+          ),
+    ];
+  }
+
+  /// The popular hub row (catalogue only; empty until #1634 ships).
+  List<Design2Hub> _popularHubs(WorkPrefOptionsDto options) => <Design2Hub>[
+        for (final CityHubDto h in options.cityHubs)
+          if (h.popular) h.toView(selected: _isPicked(h.cityValue)),
+      ];
+
+  /// Cards matching the browse box — a hub's display/areas/ city, or a city's
+  /// value/alias — scoped to [_cityState] when one is picked. Empty while the
+  /// box is empty, so the state's hub list stays the default view.
+  List<Design2Hub> _searchResults(WorkPrefOptionsDto options) {
+    final String q = _search.text.trim().toLowerCase();
+    if (q.isEmpty) return const <Design2Hub>[];
+    final String? state = _cityState;
+    final List<Design2Hub> out = <Design2Hub>[];
+    if (options.cityHubs.isNotEmpty) {
+      for (final CityHubDto h in options.cityHubs) {
+        if (state != null && h.state != state) continue;
+        final String hay = '${h.display} ${h.areas.join(' ')}'.toLowerCase();
+        if (hay.contains(q) || h.cityValue.toLowerCase().contains(q)) {
+          out.add(h.toView(selected: _isPicked(h.cityValue)));
+        }
+      }
+    } else {
+      for (final CityOptionDto c in options.cities) {
+        if (state != null && c.state != state) continue;
+        if (c.value.toLowerCase().contains(q) ||
+            c.aliases.any((String a) => a.toLowerCase().contains(q))) {
+          out.add(Design2Hub(
+            cityValue: c.value,
+            title: c.value,
+            selected: _isPicked(c.value),
+          ));
+        }
+      }
+    }
+    return out.take(_kMaxCitySuggestions).toList();
+  }
+
+  void _toggleHub(String value) {
+    if (_isPicked(value)) {
+      _removeCity(value);
+      return;
+    }
+    _addCityValue(value);
+  }
+
+  void _removeCity(String value) {
+    final String q = value.toLowerCase();
+    setState(() => _prefs = _prefs.copyWith(
+        preferredCities: _prefs.preferredCities
+            .where((String c) => c.toLowerCase() != q)
+            .toList()));
+  }
+
+  void _submitSearch(WorkPrefOptionsDto options) {
+    final String typed = _search.text.trim();
+    if (typed.isEmpty) return;
+    final CityOptionDto? resolved = _resolveCity(options, typed);
+    if (resolved == null) {
+      setState(() => _searchError = _kCityNotFoundError);
+      return;
+    }
+    _addCityValue(resolved.value);
+    setState(() => _search.clear());
   }
 
   Widget _relocateAccommodationSalaryPage() {
@@ -570,46 +557,20 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  /// Chips matching what's typed so far against BOTH `value` and its
-  /// `aliases` (a worker typing "dilli"/"bombay"/"banglore"/"poona" must
-  /// still find the city) — or the first few when the field is empty, so a
-  /// worker can browse without typing at all. Already-picked cities are
-  /// dropped from the pool; there is no reason to suggest adding one twice.
-  ///
-  /// FILTERED TO [_cityState] FIRST (#1429) — the state-then-city cascade;
-  /// empty when no state is picked yet (the caller doesn't even show the
-  /// search box in that case — see [_citiesPage]).
-  List<CityOptionDto> _matchingCities(WorkPrefOptionsDto options) {
-    final String? state = _cityState;
-    if (state == null) return const <CityOptionDto>[];
-    final String typed = _city.text.trim().toLowerCase();
-    final Set<String> picked =
-        _prefs.preferredCities.map((String c) => c.toLowerCase()).toSet();
-    final Iterable<CityOptionDto> pool = options.cities.where(
-      (CityOptionDto c) =>
-          c.state == state &&
-          !picked.contains(c.value.toLowerCase()) &&
-          (typed.isEmpty ||
-              c.value.toLowerCase().contains(typed) ||
-              c.aliases.any((String a) => a.toLowerCase().contains(typed))),
-    );
-    return pool.take(_kMaxCitySuggestions).toList();
-  }
-
   /// Resolves typed text against the gazetteer — an exact match (`value` OR
-  /// any `alias`, case-insensitive), WITHIN [_cityState] — or null. There is
-  /// no fuzzy/partial accept: [_matchingCities] is how a worker finds the
-  /// right chip to tap, this is only for pressing "+"/submit with the full
-  /// name already typed. Scoped to the picked state so typing an exact city
-  /// name that belongs to a DIFFERENT state is treated as not-found rather
-  /// than silently resolving against the wrong cascade branch.
+  /// any `alias`, case-insensitive) — or null. There is no fuzzy/partial
+  /// accept: [_searchResults] is how a worker finds the right card to tap; this
+  /// is only for submitting the full name already typed. Scoped to
+  /// [_cityState] when one is picked, so an exact city name that belongs to a
+  /// DIFFERENT state is treated as not-found rather than silently resolving
+  /// against the wrong cascade branch; unscoped when no state is picked (the
+  /// "Koi sheher?" box is meaningful before any state).
   CityOptionDto? _resolveCity(WorkPrefOptionsDto options, String typed) {
     final String? state = _cityState;
-    if (state == null) return null;
     final String q = typed.trim().toLowerCase();
     if (q.isEmpty) return null;
     for (final CityOptionDto c in options.cities) {
-      if (c.state != state) continue;
+      if (state != null && c.state != state) continue;
       if (c.value.toLowerCase() == q) return c;
       if (c.aliases.any((String a) => a.toLowerCase() == q)) return c;
     }
@@ -624,38 +585,45 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       setState(() => _cityError = _kCityNotFoundError);
       return;
     }
-    _addResolvedCity(resolved);
+    _addCityValue(resolved.value);
+    _city.clear();
   }
 
-  /// Adds the CANONICAL `value` — never the raw typed text — so
-  /// `preferred_cities` always sends exactly the spelling the server's own
+  /// Adds the CANONICAL `value` — never raw typed text and never a hub label —
+  /// so `preferred_cities` always sends exactly the spelling the server's own
   /// validator already accepted (`worker-cities.catalogue.ts`'s round-trip
-  /// guarantee). Shared by the "+"/submit path (after [_resolveCity]) and a
-  /// direct tap on a suggestion chip (already resolved).
-  void _addResolvedCity(CityOptionDto city) {
-    if (_prefs.preferredCities.length >= kTradeFormMaxPreferredCities) return;
-    final bool exists = _prefs.preferredCities
-        .any((String c) => c.toLowerCase() == city.value.toLowerCase());
+  /// guarantee). A hub tap, a search result and a typed exact match all funnel
+  /// through here. At the 5-city cap a new add is ignored (the `n/5` badge
+  /// already states the limit); removing always works.
+  void _addCityValue(String value) {
+    if (value.isEmpty) return;
+    final bool exists = _isPicked(value);
+    final bool atCap =
+        _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
     setState(() {
       _cityError = null;
-      if (!exists) {
+      _searchError = null;
+      if (!exists && !atCap) {
         _prefs = _prefs.copyWith(
-            preferredCities: <String>[..._prefs.preferredCities, city.value]);
+            preferredCities: <String>[..._prefs.preferredCities, value]);
       }
     });
-    _city.clear();
-    if (exists) return; // already in the list — nothing new happened
-    // A MaterialBanner (top), NOT a SnackBar — this screen's sticky bottom
-    // bar owns the bottom edge (see `trade_form_screen.dart`'s
-    // `_showBlockedBanner` doc: a SnackBar here would animate up from the
-    // bottom and cover "Aage badhein").
+    if (exists || atCap) return;
+    _showBanner(_kCityAddedToast, OnboardingColors.successGreen);
+  }
+
+  /// A MaterialBanner (top), NOT a SnackBar — this screen's sticky bottom bar
+  /// owns the bottom edge (see `trade_form_screen.dart`'s `_showBlockedBanner`
+  /// doc: a SnackBar here would animate up from the bottom and cover "Aage
+  /// badhein").
+  void _showBanner(String text, Color color) {
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
     messenger.clearMaterialBanners();
     messenger.showMaterialBanner(
       MaterialBanner(
-        backgroundColor: OnboardingColors.successGreen,
+        backgroundColor: color,
         content: Text(
-          _kCityAddedToast,
+          text,
           style: OnboardingTypography.inter(
             size: 13,
             weight: FontWeight.w500,

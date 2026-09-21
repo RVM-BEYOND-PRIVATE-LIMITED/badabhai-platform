@@ -21,6 +21,7 @@ import '../../../core/widgets/kit/kit_content_column.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
+import '../../consent/presentation/cubit/employer_contact_cubit.dart';
 import '../../../core/widgets/feedback_fab.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
@@ -57,6 +58,10 @@ class SettingsScreen extends StatelessWidget {
         ),
         BlocProvider<ConsentWithdrawCubit>(
           create: (_) => locator<ConsentWithdrawCubit>(),
+        ),
+        // E0 C-2 (#1630) — loads server truth for the switch on mount.
+        BlocProvider<EmployerContactCubit>(
+          create: (_) => locator<EmployerContactCubit>()..load(),
         ),
       ],
       child: const _SettingsView(),
@@ -217,6 +222,7 @@ class _SettingsView extends StatelessWidget {
                     onTap: () => _comingSoon(context),
                   ),
                   const _WithdrawConsentRow(),
+                  const _EmployerContactRow(),
                 ]),
                 // Account delete hidden for now; will return after the flow is
                 // redesigned.
@@ -782,6 +788,70 @@ class _SubmittingWithdrawRow extends StatelessWidget {
       title: 'Consent wapas liya ja raha hai…',
       subtitle: 'Profiling band · sabhi devices se logout',
       danger: true,
+    );
+  }
+}
+
+/// E0 C-2 (#1630): the PER-PURPOSE exit from employer contact — NOT the
+/// all-or-nothing [_WithdrawConsentRow] above. This keeps the worker's profile,
+/// resume and voice, and does NOT log him out. Confirm-before-write; the state
+/// is read from the server on mount and re-read after the write (never
+/// optimistic-only), so the switch can only render server truth.
+class _EmployerContactRow extends StatelessWidget {
+  const _EmployerContactRow();
+
+  Future<void> _confirmAndWithdraw(BuildContext context) async {
+    final EmployerContactCubit cubit = context.read<EmployerContactCubit>();
+    final bool proceed = await showBbConfirm(
+      context,
+      title: 'Employer contact band karein?',
+      message:
+          'Iske baad employer aapko contact nahi kar payenge. Aapka profile, '
+          'resume aur login waisa hi rahega — aap logout nahi honge.',
+      confirmLabel: 'Haan, band karein',
+      destructive: true,
+      barrierDismissible: false,
+    );
+    if (!proceed || !context.mounted) return;
+    await cubit.withdraw();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocConsumer<EmployerContactCubit, EmployerContactState>(
+      listenWhen: (EmployerContactState prev, EmployerContactState curr) =>
+          curr.status == EmployerContactStatus.failed,
+      listener: (BuildContext context, EmployerContactState state) {
+        showBbAlert(
+          context,
+          title: 'Employer contact band nahi ho saka',
+          message: failureReason(state.failure).reason,
+        );
+      },
+      builder: (BuildContext context, EmployerContactState state) {
+        final bool loading =
+            state.status == EmployerContactStatus.loading;
+        final bool submitting =
+            state.status == EmployerContactStatus.submitting;
+        final bool failed = state.status == EmployerContactStatus.failed;
+        final String subtitle = loading || submitting
+            ? 'Update ho raha hai…'
+            : failed
+                ? 'Status pata nahi chala'
+                : state.enabled
+                    ? 'Employer abhi aapko contact kar sakte hain'
+                    : 'Employer contact band hai';
+        return BbListRow.toggle(
+          icon: Icons.do_not_disturb_on_outlined,
+          title: 'Employer contact band karein',
+          subtitle: subtitle,
+          value: state.enabled,
+          // Only the ON → OFF direction exists: re-enabling is the consent
+          // notice's job, not this switch's.
+          enabled: state.status == EmployerContactStatus.ready && state.enabled,
+          onChanged: (_) => _confirmAndWithdraw(context),
+        );
+      },
     );
   }
 }

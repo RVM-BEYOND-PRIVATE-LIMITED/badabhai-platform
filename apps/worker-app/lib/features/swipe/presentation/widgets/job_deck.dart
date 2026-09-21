@@ -24,11 +24,40 @@ const double kJobDeckBehindPeek = 14;
 /// One swipeable card: a stable [id] (used for the widget key + the detail
 /// route) plus the rendered [data].
 class JobDeckItem {
-  const JobDeckItem({required this.id, required this.data});
+  const JobDeckItem({required this.id, required this.data, this.payFull});
 
   final String id;
   final BbJobCardData data;
+
+  /// The card's full grouped pay figure (`formatPayBandFull`), for faces
+  /// that draw the design's salary box. Null faces fall back to
+  /// [BbJobCardData.payBand]. ADDITIVE and optional — every existing
+  /// `JobDeckItem(id: data:)` call keeps compiling.
+  final String? payFull;
 }
+
+/// Builds one deck card's face. Null [onTitleTap] renders the face's title
+/// inert (the deck is mid-commit) — faces mirror [BbJobCard]'s contract.
+typedef JobDeckFaceBuilder =
+    Widget Function(
+      BuildContext context,
+      JobDeckItem item, {
+      required bool compact,
+      required VoidCallback? onTitleTap,
+    });
+
+/// Builds the deck's docked action row beneath the card stack. [onSkip] /
+/// [onApply] drive the SAME visual commit the swipe gesture does (fly-off,
+/// then the fired event) — a dock button never dispatches the decision
+/// directly.
+typedef JobDeckDockBuilder =
+    Widget Function(
+      BuildContext context, {
+      required double width,
+      required bool locked,
+      required VoidCallback onSkip,
+      required VoidCallback onApply,
+    });
 
 /// The signature swipe-to-apply card deck (spec §6 + `.aw-deck` / `.aw-job`).
 ///
@@ -47,6 +76,8 @@ class JobDeck extends StatefulWidget {
     required this.onSkip,
     this.onTitleTap,
     this.deciding = false,
+    this.faceBuilder,
+    this.dockBuilder,
   });
 
   /// The visible queue; the head (index 0) is the draggable front card.
@@ -63,6 +94,16 @@ class JobDeck extends StatefulWidget {
 
   /// While a decision is in flight the deck is locked (mirrors bloc state).
   final bool deciding;
+
+  /// Draws one card's face. Null renders the standard [BbJobCard] deck face
+  /// (every existing caller), so the gesture engine never repaints by
+  /// accident — a new caller only swaps the paper, never the physics.
+  final JobDeckFaceBuilder? faceBuilder;
+
+  /// Draws the docked row beneath the stack. Null renders the standard
+  /// skip-square + Apply pair. A custom dock drives its buttons through the
+  /// supplied [onSkip]/[onApply] visual commits, never around them.
+  final JobDeckDockBuilder? dockBuilder;
 
   @override
   State<JobDeck> createState() => _JobDeckState();
@@ -305,8 +346,20 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
                           // front card and animates up to the front position
                           // as the front card is dragged away.
                           if (cards.length > 1)
-                            _behind(cards[1], width, cardHeight, compact),
-                          _front(cards.first, width, cardHeight, compact),
+                            _behind(
+                              context,
+                              cards[1],
+                              width,
+                              cardHeight,
+                              compact,
+                            ),
+                          _front(
+                            context,
+                            cards.first,
+                            width,
+                            cardHeight,
+                            compact,
+                          ),
                         ],
                       ),
                     );
@@ -314,7 +367,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
                 ),
               ),
               const SizedBox(height: 16),
-              _ctaRow(width),
+              _dock(context, width),
             ],
           );
         },
@@ -335,6 +388,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   /// so a drag frame re-runs only the Transform; the RepaintBoundary keeps
   /// BbFestiveCard's blur shadow + dashed-border CustomPaint out of the repaint.
   Widget _behind(
+    BuildContext context,
     JobDeckItem item,
     double width,
     double? height,
@@ -346,13 +400,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
         child: _sized(
           width,
           height,
-          RepaintBoundary(
-            child: BbJobCard(
-              data: item.data,
-              layout: BbJobCardLayout.deck,
-              compact: compact,
-            ),
-          ),
+          RepaintBoundary(child: _face(context, item, compact, null)),
         ),
         builder: (BuildContext ctx, Offset drag, Widget? child) {
           // #374 — promotion follows the HORIZONTAL commit progress only. An
@@ -398,7 +446,34 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     return SizedBox(width: width, height: height, child: card);
   }
 
+  /// One card's face: the custom [faceBuilder] when a caller supplied one,
+  /// else the standard [BbJobCard] deck face. The gesture physics around the
+  /// face never change — only the paper does.
+  Widget _face(
+    BuildContext context,
+    JobDeckItem item,
+    bool compact,
+    VoidCallback? onTitleTap,
+  ) {
+    final JobDeckFaceBuilder? builder = widget.faceBuilder;
+    if (builder != null) {
+      return builder(
+        context,
+        item,
+        compact: compact,
+        onTitleTap: onTitleTap,
+      );
+    }
+    return BbJobCard(
+      data: item.data,
+      layout: BbJobCardLayout.deck,
+      compact: compact,
+      onTitleTap: onTitleTap,
+    );
+  }
+
   Widget _front(
+    BuildContext context,
     JobDeckItem item,
     double width,
     double? height,
@@ -409,13 +484,13 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
       width,
       height,
       RepaintBoundary(
-        child: BbJobCard(
-          data: item.data,
-          layout: BbJobCardLayout.deck,
-          compact: compact,
-          // Gate the title tap too: during a commit/decision the (stale)
-          // head must not open a detail for a card already being applied.
-          onTitleTap: (_locked || widget.onTitleTap == null)
+        // Gate the title tap too: during a commit/decision the (stale)
+        // head must not open a detail for a card already being applied.
+        child: _face(
+          context,
+          item,
+          compact,
+          (_locked || widget.onTitleTap == null)
               ? null
               : () => widget.onTitleTap!(item.id),
         ),
@@ -496,6 +571,24 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   // affordance survived, so the card charged up a committed-looking gradient
   // and then just snapped back — the exact fake-feedback the removal targeted.
   // Do not reintroduce it before a real prioritize route ships.
+
+  /// The docked action row beneath the stack: the custom [dockBuilder] when
+  /// a caller supplied one, else the standard skip-square + Apply pair. The
+  /// custom dock drives the SAME [_flyOff] visual commits the swipe does —
+  /// it never dispatches the decision itself.
+  Widget _dock(BuildContext context, double width) {
+    final JobDeckDockBuilder? builder = widget.dockBuilder;
+    if (builder != null) {
+      return builder(
+        context,
+        width: width,
+        locked: _locked,
+        onSkip: () => _flyOff(-1, width),
+        onApply: () => _flyOff(1, width),
+      );
+    }
+    return _ctaRow(width);
+  }
 
   /// The deck's own docked action row, drawn to spec §2.2: a 50x48 square tile
   /// beside the full-width primary button. The deck already carries the side
