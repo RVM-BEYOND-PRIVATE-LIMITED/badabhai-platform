@@ -382,10 +382,24 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
         1,
       );
 
-      // The trust-badge slot rides the same bar and is untouched by the lockup.
-      expect(file, `${name}: the badge slot went missing`).toContain(
-        '<span class="badge">{{trust_badge}}</span>',
+      // THE LOCKUP SITS AT THE RIGHT END OF THE BAND (owner correction), with the trust tier —
+      // when a sheet ever carries one — at the left.
+      //
+      // `margin-left: auto` ON THE LOCKUP, NOT `justify-content` ON THE BAR, and the difference
+      // is not style: the badge collapses to `display: none` on every sheet issued today, and
+      // with space-between a lone flex item falls back to the LEFT edge — so the lockup would be
+      // right-aligned only on the sheets that carry a badge, i.e. on none of them. The two
+      // assertions below pin the mechanism, not just the outcome, because the outcome is
+      // invisible until a badge exists.
+      expect(file, `${name}: the badge no longer precedes the lockup`).toContain(
+        '<span class="badge">{{trust_badge}}</span><span class="wordmark">',
       );
+      expect(wordmarkCss, `${name}: the lockup can fall back to the left edge`).toMatch(
+        /margin-left:\s*auto/,
+      );
+      const barCss = /\.bar\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(barCss, `${name}: .bar distributes the items, which breaks the empty-badge case`).
+        not.toMatch(/justify-content/);
     }
     // ONE MARK, TWO FILES: the same encoded bytes, so the twins cannot drift apart.
     expect(marks[0]).toBe(marks[1]);
