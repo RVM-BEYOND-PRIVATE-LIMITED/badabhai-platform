@@ -19,6 +19,13 @@ hit inside CONSENT_PURPOSES, and expect the array to hold NINE members. Its abse
 FAIL; its presence is the expected state. Do NOT fail a build for having added it.
 (The rule itself is at docs/agent/BUILD_RULES.md:89-91. `:28` was never this rule — it is the
 PARKED.md entry of the authority list.)
+SCHEMA APPLIED (owner, 2026-09-21). Migration `0120_fair_marauders` — `relay_messages` + the
+`unlock_routing_relay_handle_uq` index — is APPLIED on the owner's database. That is option (a)
+of the HALT Q3 procedure question, recorded on issue #1625: the E0 build is on `main` (4e05e36a,
+PR #1631) and this check runs against a real applied schema. Item 12 still needs SEEDED ROWS;
+without them it records `NOT EXECUTABLE: <which>`, never a PASS. The owner also accepted the
+provisional opening-template set as shipped (issue #1624), so the copy in
+`apps/api/src/relay/relay.dto.ts` is the reviewed copy, not a placeholder.
 
 INVARIANT: no message crosses between a payer and a worker without a live, unexpired,
 consent-valid unlock joining them — re-checked at send time, not merely at grant time.
@@ -192,6 +199,8 @@ exit code for every item.
     is missing, write "NOT EXECUTABLE: <which>" and do NOT record a PASS. Item 2's mutation is
     the unit-level evidence; this is the integration-level evidence; neither substitutes for
     the other.
+    SCHEMA: APPLIED (owner, 2026-09-21 — option (a) of the HALT Q3 procedure, issue #1625).
+    So the only remaining precondition here is SEEDED ROWS; do not record a schema miss.
 
 RECORD IN THE VERDICT, do not check:
   - That §A and §B of docs/decisions/E0_RELAY_DECISION_2026-09.md are RULED AND SIGNED

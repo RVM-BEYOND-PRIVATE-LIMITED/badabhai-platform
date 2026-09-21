@@ -19,7 +19,9 @@ import { z } from "zod";
  * is free text by design. This catalogue reduces the opening surface. It prevents nothing.
  *
  * COPY. The three entries below are the examples named in the signed ruling, rendered in the
- * platform's Hinglish voice; the copy is an owner call (issue #1624) and is expected to change.
+ * platform's Hinglish voice. ACCEPTED AS SHIPPED by the owner on 2026-09-21 (issue #1624) —
+ * this is the reviewed set, not a placeholder; a later copy change is an owner edit to this
+ * catalogue, never a client-side override.
  */
 
 /** Max free-text length. Long enough for a real question, short enough to bound a row. */
