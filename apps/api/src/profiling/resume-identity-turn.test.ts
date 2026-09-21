@@ -32,6 +32,8 @@ import { RESUME_IDENTITY_OPTIONS } from "./resume-import/resume-identity";
 const SESSION = "33333333-3333-4333-8333-333333333333";
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const IMPORT = "44444444-4444-4444-8444-444444444444";
+/** A SECOND document, as a re-upload mints — the id is what makes it a fresh claim. */
+const NEW_IMPORT = "55555555-5555-4555-8555-555555555555";
 const T0 = new Date("2026-09-16T10:00:00.000Z");
 const CTX = { correlationId: "c1", requestId: "r1" };
 
@@ -367,5 +369,58 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(result).toBeNull();
     expect(saved(store)?.resumeIdentity ?? null).toBeNull();
     expect(store.get(SESSION)!.messages).toHaveLength(0);
+  });
+
+  it("a RE-UPLOAD re-opens the identity turn — a new document is a fresh claim", async () => {
+    // THE DEFECT THIS PINS (found 2026-09-21). The gate used to be "ever settled", so a
+    // worker who re-uploaded a corrected résumé mid-session was never asked about the new
+    // document — and, because the Haan is what runs the autofill, its mapping never
+    // applied. Symptom: "I uploaded a résumé and no chip was pre-selected."
+    const { orchestrator, store } = makeWorld({
+      identity: LINE,
+      seed: { resumeIdentity: { importId: IMPORT, state: "settled" } },
+    });
+
+    // Same import ⇒ never asked twice.
+    const sameImport = await orchestrator.openResumeConfirm(open());
+    expect(sameImport).toBeNull();
+
+    // New import ⇒ a new question, asked once.
+    const fresh = makeWorld({
+      identity: { ...LINE, importId: NEW_IMPORT },
+      seed: { resumeIdentity: { importId: IMPORT, state: "settled" } },
+    });
+    const result = await fresh.orchestrator.openResumeConfirm(open());
+    expect(result).not.toBeNull();
+    expect(result!.reply).toBe(IDENTITY_REPLY);
+    expect(saved(fresh.store)?.resumeIdentity).toEqual({
+      importId: NEW_IMPORT,
+      state: "pending",
+    });
+    // The old session's marker is untouched — this is a different envelope.
+    expect(saved(store)?.resumeIdentity).toEqual({ importId: IMPORT, state: "settled" });
+  });
+
+  it("a re-upload mid-interview re-offers on the TURN path, and its Haan autofills the NEW import", async () => {
+    const { orchestrator, store, autofill } = makeWorld({
+      identity: { ...LINE, importId: NEW_IMPORT },
+      route: { route: "form", formKind: "cnc_grinding" },
+      seed: {
+        resumeIdentity: { importId: IMPORT, state: "settled" },
+        resumeConfirm: { importId: IMPORT, state: "settled" },
+        // A session already past its opening turn: only the turn path can offer.
+        turnCount: 1,
+      },
+    });
+
+    const offered = await orchestrator.takeTurn(say("7 saal"));
+    expect(offered.reply).toBe(IDENTITY_REPLY);
+    expect(saved(store)?.resumeIdentity).toEqual({ importId: NEW_IMPORT, state: "pending" });
+
+    const haan = await orchestrator.takeTurn(say("resume_identity_yes"));
+    // THE AUTOFILL IS NAMED THE NEW IMPORT — never the settled one. Serving the newer
+    // line under the old id would have applied the previous document's mapping.
+    expect(autofill.applyOnHaan).toHaveBeenCalledWith(WORKER, NEW_IMPORT, expect.anything());
+    expect(haan.kind).toBe("close");
   });
 });
