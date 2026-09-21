@@ -58,6 +58,9 @@ const LOCKED_TABLES = [
   "payer_credits",
   "credit_ledger",
   "unlock_routing",
+  // E0 relay (migration 0120): two-party message text + closed template ids. RLS+FORCE+REVOKE,
+  // no policy — only the API's BYPASSRLS connection may read it.
+  "relay_messages",
   "job_postings",
   "pricing_catalog",
   "posting_plans",

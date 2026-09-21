@@ -137,6 +137,14 @@ export const EVENT_DOMAINS = [
   // category, a LENGTH and a build stamp — the words themselves live in `worker_feedback`
   // and never in an event.
   "feedback",
+  // E0 — the in-app RELAY: a payer and a worker messaging over a granted unlock
+  // (`docs/agent/phases/E0_BUILD.md`; docs/decisions/E0_RELAY_DECISION_2026-09.md). A
+  // DISTINCT domain from `unlock` (the ENTITLEMENT lifecycle: requested/granted/denied/
+  // revealed) and from `chat` (worker↔AI): a relay message is neither, and conflating
+  // either would make a conversation indistinguishable from a grant or from the worker's
+  // own AI interview. PII-FREE: opaque unlock/message ids + a direction enum + counts ONLY
+  // — never the body, never a phone, never a name, never an employer identity.
+  "relay",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

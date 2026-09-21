@@ -38,6 +38,9 @@ interface SetupOpts {
   pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
   existingUnlock?: Record<string, unknown>;
   existingRouting?: Record<string, unknown>; // P-021: a routing row an earlier reveal wrote
+  /** E0 resolution: the routing row `findRoutingByHandle` returns, and the exact projection. */
+  routingByHandle?: Record<string, unknown>;
+  projection?: Record<string, unknown>;
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
   debitOk?: boolean;
@@ -75,6 +78,8 @@ function setup(opts: SetupOpts = {}) {
       ...input,
     })),
     findRoutingByUnlock: vi.fn(async () => opts.existingRouting),
+    // E0 item 1 — the handle-keyed read the relay resolution starts from.
+    findRoutingByHandle: vi.fn(async () => opts.routingByHandle),
     appendLedger: vi.fn(async () => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
@@ -92,7 +97,11 @@ function setup(opts: SetupOpts = {}) {
     // a test can mockResolvedValue a null-worker_id projection (the deleted-worker guard).
     getProjection: vi.fn(
       async (): Promise<{ worker_id: string | null; payer_id: string } | undefined> =>
-        opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined,
+        opts.projection !== undefined
+          ? (opts.projection as { worker_id: string | null; payer_id: string })
+          : opts.existingUnlock
+            ? { worker_id: WORKER, payer_id: PAYER }
+            : undefined,
     ),
     ...txMethods,
   };
@@ -827,5 +836,150 @@ describe("UnlockService — ADR-0036 §7 credits_exhausted (the conversion signa
     await t.svc.requestUnlock(grantFixture, CTX);
 
     expect(exhaustionEvents(t.events)[0]?.payload.free_tier_credits).toBe(25);
+  });
+});
+
+describe("UnlockService — E0 relay resolution (item 1, and C-3's use-time reach)", () => {
+  const HANDLE =
+    "relay_44444444-4444-4444-4444-444444444444_55555555-5555-4555-8555-555555555555";
+  const future = new Date(Date.now() + 60_000);
+  const BOTH = ["profiling", "employer_sharing", "employer_messaging"];
+
+  function liveProjection(overrides: Record<string, unknown> = {}) {
+    return {
+      unlock_id: "unlock-1",
+      payer_id: PAYER,
+      worker_id: WORKER,
+      job_id: null,
+      status: "granted",
+      reveal_count: 1,
+      granted_at: new Date(),
+      expires_at: future,
+      created_at: new Date(),
+      ...overrides,
+    };
+  }
+
+  function routingRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "routing-1",
+      unlockId: "unlock-1",
+      routingToken: "44444444-4444-4444-4444-444444444444",
+      channel: "in_app_relay",
+      relayHandle: HANDLE,
+      expiresAt: future,
+      createdAt: new Date(),
+      ...overrides,
+    };
+  }
+
+  it("resolves a live, caller-owned unlock whose worker holds BOTH employer purposes", async () => {
+    const { svc } = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toEqual({
+      unlockId: "unlock-1",
+      workerId: WORKER,
+    });
+  });
+
+  it("fails closed for an unknown handle", async () => {
+    const { svc } = setup({ consentPurposes: BOTH, projection: liveProjection() });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed when the caller does not own the unlock (no oracle)", async () => {
+    const { svc } = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ payer_id: "99999999-9999-4999-8999-999999999999" }),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("C-3: fails closed when the latest consent row omits employer_messaging — the C-2 exit reaches live unlocks", async () => {
+    const { svc } = setup({
+      consentPurposes: ["profiling", "employer_sharing"],
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed when employer_sharing is missing or the row is revoked", async () => {
+    const missing = setup({
+      consentPurposes: ["profiling", "employer_messaging"],
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await missing.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const revoked = setup({
+      consentPurposes: BOTH,
+      consentRevoked: true,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await revoked.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed on an expired unlock or an expired handle", async () => {
+    const expiredUnlock = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ expires_at: new Date(Date.now() - 1_000) }),
+    });
+    expect(await expiredUnlock.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const expiredHandle = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow({ expiresAt: new Date(Date.now() - 1_000) }),
+      projection: liveProjection(),
+    });
+    expect(await expiredHandle.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("fails closed for a pending-deletion worker and for a DSAR null worker_id", async () => {
+    const leaving = setup({
+      consentPurposes: BOTH,
+      pendingDeletion: true,
+      routingByHandle: routingRow(),
+      projection: liveProjection(),
+    });
+    expect(await leaving.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+
+    const gone = setup({
+      consentPurposes: BOTH,
+      routingByHandle: routingRow(),
+      projection: liveProjection({ worker_id: null }),
+    });
+    expect(await gone.svc.resolveRelayForPayer(HANDLE, PAYER)).toBeNull();
+  });
+
+  it("worker side: resolves the caller's own live unlock, and fails closed for a foreign worker", async () => {
+    const mine = setup({
+      consentPurposes: BOTH,
+      projection: liveProjection(),
+    });
+    expect(await mine.svc.resolveRelayForWorker("unlock-1", WORKER)).toEqual({
+      unlockId: "unlock-1",
+      workerId: WORKER,
+    });
+
+    const foreign = setup({
+      consentPurposes: BOTH,
+      projection: liveProjection({ worker_id: "99999999-9999-4999-8999-999999999999" }),
+    });
+    expect(await foreign.svc.resolveRelayForWorker("unlock-1", WORKER)).toBeNull();
+  });
+
+  it("worker side: a withdrawn employer_messaging closes the worker's own read/reply path too", async () => {
+    const { svc } = setup({
+      consentPurposes: ["profiling", "employer_sharing"],
+      projection: liveProjection(),
+    });
+    expect(await svc.resolveRelayForWorker("unlock-1", WORKER)).toBeNull();
   });
 });

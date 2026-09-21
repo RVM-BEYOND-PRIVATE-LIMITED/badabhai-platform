@@ -29,6 +29,7 @@ import { PostingPlansModule } from "./posting-plans/posting-plans.module";
 import { ReachModule } from "./reach/reach.module";
 import { PaceModule } from "./pace/pace.module";
 import { UnlocksModule } from "./unlocks/unlocks.module";
+import { RelayModule } from "./relay/relay.module";
 import { MessagingModule } from "./messaging/messaging.module";
 import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
@@ -97,6 +98,8 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     PostingPlansModule,
     ReachModule,
     UnlocksModule,
+    // E0 — the in-app relay: payer send + worker read/reply over a granted unlock.
+    RelayModule,
     MessagingModule,
     ResumeDisclosureModule,
     PaceModule,

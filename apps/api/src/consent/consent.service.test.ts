@@ -19,7 +19,11 @@ const DTO = {
 } as never;
 
 function setup() {
-  const consents = { create: vi.fn(async (_i: Record<string, unknown>) => ({ id: "consent-1" })), withdraw: vi.fn(async () => {}) };
+  const consents = {
+    create: vi.fn(async (_i: Record<string, unknown>) => ({ id: "consent-1" })),
+    withdraw: vi.fn(async () => {}),
+    findLatestByWorker: vi.fn(async () => undefined as Record<string, unknown> | undefined),
+  };
   const workers = { findById: vi.fn(async () => undefined as Record<string, unknown> | undefined) };
   const events = {
     emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string }) => p),
@@ -101,5 +105,86 @@ describe("ConsentService.withdraw (TD69)", () => {
     expect(consents.withdraw).toHaveBeenCalledWith(WORKER);
     expect(sessions.revokeAll).toHaveBeenCalledWith(WORKER);
     expect(events.emit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ConsentService.withdrawEmployerContact (E0 C-2)", () => {
+  const LATEST = {
+    id: "consent-old",
+    consentVersion: "2026-06-01",
+    revokedAt: null as Date | null,
+    purposes: ["profiling", "resume_generation", "voice_processing", "employer_sharing", "employer_messaging"],
+  };
+
+  it("writes a NEW row derived SERVER-SIDE: both employer purposes gone, everything else carried over", async () => {
+    const { svc, consents, events, sessions } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce(LATEST);
+
+    const res = await svc.withdrawEmployerContact(WORKER, "1.2.3.4", "ua", CTX);
+
+    expect(res).toMatchObject({ ok: true, consent_id: "consent-1" });
+    expect(res.withdrawn.sort()).toEqual(["employer_messaging", "employer_sharing"]);
+    const created = consents.create.mock.calls[0]![0];
+    expect(created.purposes).toEqual(["profiling", "resume_generation", "voice_processing"]);
+    // The notice version the worker ACTUALLY read is carried over — never bumped here.
+    expect(created.consentVersion).toBe("2026-06-01");
+    // NOT the all-or-nothing exit: the worker keeps his sessions.
+    expect(sessions.revokeAll).not.toHaveBeenCalled();
+    const evt = events.emit.mock.calls[0]![0];
+    expect(evt.event_name).toBe("consent.purposes_withdrawn");
+    expect((evt.payload.withdrawn_purposes as string[]).sort()).toEqual([
+      "employer_messaging",
+      "employer_sharing",
+    ]);
+  });
+
+  it("is a no-op when the latest row already omits both purposes — no new row, no event", async () => {
+    const { svc, consents, events } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce({
+      ...LATEST,
+      purposes: ["profiling", "resume_generation"],
+    });
+    expect(await svc.withdrawEmployerContact(WORKER, undefined, undefined, CTX)).toEqual({
+      ok: true,
+      consent_id: null,
+      withdrawn: [],
+    });
+    expect(consents.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("404s when there is no live consent row to derive from (nothing written, nothing emitted)", async () => {
+    const missing = setup();
+    await expect(
+      missing.svc.withdrawEmployerContact(WORKER, undefined, undefined, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(missing.consents.create).not.toHaveBeenCalled();
+
+    const revoked = setup();
+    vi.mocked(revoked.consents.findLatestByWorker).mockResolvedValueOnce({
+      ...LATEST,
+      revokedAt: new Date(),
+    });
+    await expect(
+      revoked.svc.withdrawEmployerContact(WORKER, undefined, undefined, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(revoked.consents.create).not.toHaveBeenCalled();
+  });
+
+  it("the request cannot supply the purposes — the service has no parameter for them", async () => {
+    const { svc, consents } = setup();
+    vi.mocked(consents.findLatestByWorker).mockResolvedValueOnce(LATEST);
+    // Structural: calling with extra arguments changes nothing. The derived array above is
+    // the only path into `create`, which is the C-2 trap this method exists to close.
+    await (
+      svc.withdrawEmployerContact as unknown as (
+        ...args: unknown[]
+      ) => Promise<unknown>
+    )(WORKER, undefined, undefined, CTX, { purposes: ["profiling"] });
+    expect(consents.create.mock.calls[0]![0].purposes).toEqual([
+      "profiling",
+      "resume_generation",
+      "voice_processing",
+    ]);
   });
 });

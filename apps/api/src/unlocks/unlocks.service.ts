@@ -42,10 +42,26 @@ import {
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
+/**
+ * The ninth consent purpose, minted for messaging (E0 §A ruling, 2026-09-07). The relay's
+ * use-time ladder requires BOTH this and `EMPLOYER_SHARING` on the latest consent row —
+ * disclosing a routed contact does not authorise messaging over it.
+ */
+const EMPLOYER_MESSAGING = "employer_messaging";
 
 /** Either the one distinguishable success, or the byte-identical neutral body (F-3). */
 type UnlockOutcome = UnlockGrantedResponse | NeutralUnavailableResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
+
+/**
+ * What a successful relay resolution yields: the unlock the handle names and the worker
+ * on the other side. NEVER put this on the wire — the payer receives the neutral body or
+ * nothing; the ids stay server-side (E0 item 1: "do NOT return a worker_id").
+ */
+export interface RelayResolution {
+  readonly unlockId: string;
+  readonly workerId: string;
+}
 
 /**
  * A deferred event emission: a zero-arg thunk that closes over already-computed,
@@ -833,14 +849,101 @@ export class UnlockService {
    * false (fail closed).
    */
   private async isConsentedForSharing(workerId: string): Promise<boolean> {
+    const purposes = await this.latestConsentPurposes(workerId);
+    return purposes !== null && purposes.includes(EMPLOYER_SHARING);
+  }
+
+  /**
+   * The LATEST unrevoked consent row's purposes, or null (no row / revoked / read error).
+   *
+   * ONE read, TWO callers — and that is the C-3 property made structural. `employer_sharing`
+   * (disclosure) and `employer_messaging` (the ninth purpose, §A ruling) are separate grants,
+   * so the relay's use-time check needs BOTH from the SAME row; a second reader would be free
+   * to resolve a different row and let a worker who used the E0-C2 exit keep receiving
+   * messages from payers who unlocked him before he left.
+   */
+  private async latestConsentPurposes(workerId: string): Promise<string[] | null> {
     try {
       const latest = await this.consents.findLatestByWorker(workerId);
-      if (!latest || latest.revokedAt !== null) return false;
-      const purposes = (latest.purposes ?? []) as string[];
-      return purposes.includes(EMPLOYER_SHARING);
+      if (!latest || latest.revokedAt !== null) return null;
+      return (latest.purposes ?? []) as string[];
     } catch {
-      return false; // fail closed
+      return null; // fail closed
     }
+  }
+
+  /** Both employer-contact purposes, unrevoked, on the LATEST row — the relay invariant. */
+  private async isConsentedForEmployerContact(workerId: string): Promise<boolean> {
+    const purposes = await this.latestConsentPurposes(workerId);
+    if (purposes === null) return false;
+    return purposes.includes(EMPLOYER_SHARING) && purposes.includes(EMPLOYER_MESSAGING);
+  }
+
+  /**
+   * E0 item 1 — RESOLUTION, SERVER-SIDE AND FAIL-CLOSED (`docs/agent/phases/E0_BUILD.md`).
+   *
+   * `relay_handle -> unlock_routing -> unlocks -> worker`, re-checked AT USE TIME rather
+   * than trusted from grant time: the caller owns the unlock, the unlock is live
+   * (`granted`/`revealed`, unexpired, and the routing row unexpired), the worker exists
+   * (DSAR SET-NULL guard), is not pending deletion, and still holds BOTH employer-contact
+   * purposes on the latest consent row. `null` means every one of those failed — and the
+   * caller must serve the ONE neutral body, never a reason (`neutralUnavailable()`); a
+   * distinguishing answer would be a worker-state oracle.
+   *
+   * NO PHONE IS READ, EVER, ON THIS PATH. The handle is the only input; no worker_id is
+   * accepted or returned to the caller's wire.
+   *
+   * The try/catch is the fail-closed wall: a read error resolves to null, never to an
+   * allow. This is a non-tx read path — it writes nothing on `unlocks`/`unlock_routing`
+   * (single-writer stays structural) and needs no advisory lock.
+   */
+  async resolveRelayForPayer(handle: string, payerId: string): Promise<RelayResolution | null> {
+    try {
+      const routing = await this.repo.findRoutingByHandle(handle);
+      if (!routing) return null;
+      const unlock = await this.repo.getProjection(routing.unlockId);
+      if (!unlock) return null;
+      // Ownership (XB-A): a payer resolves only their OWN unlock, and not-owned is
+      // indistinguishable from unknown.
+      if (unlock.payer_id !== payerId) return null;
+      if (unlock.worker_id === null) return null; // DSAR SET NULL — a gone worker is not relayable
+      if (!this.isLiveGrant(unlock)) return null;
+      if (routing.expiresAt.getTime() <= Date.now()) return null; // handle expires with the window
+      if (await this.isPendingDeletion(unlock.worker_id)) return null;
+      if (!(await this.isConsentedForEmployerContact(unlock.worker_id))) return null;
+      return { unlockId: unlock.unlock_id, workerId: unlock.worker_id };
+    } catch {
+      return null; // fail closed
+    }
+  }
+
+  /**
+   * The WORKER half of the same ladder: the caller owns the unlock (worker_id), the grant
+   * is live, the worker is not pending deletion, and both employer-contact purposes are
+   * still held. Used by the worker's read/reply routes (E0 item 3) so a withdrawn
+   * `employer_messaging` closes the worker's own reply path too — one ladder, both sides.
+   */
+  async resolveRelayForWorker(unlockId: string, workerId: string): Promise<RelayResolution | null> {
+    try {
+      const unlock = await this.repo.getProjection(unlockId);
+      if (!unlock) return null;
+      if (unlock.worker_id !== workerId) return null;
+      if (!this.isLiveGrant(unlock)) return null;
+      if (await this.isPendingDeletion(workerId)) return null;
+      if (!(await this.isConsentedForEmployerContact(workerId))) return null;
+      return { unlockId: unlock.unlock_id, workerId };
+    } catch {
+      return null; // fail closed
+    }
+  }
+
+  /** `granted`/`revealed` + unexpired, the one spelling of "live" for relay resolution. */
+  private isLiveGrant(unlock: UnlockProjection): boolean {
+    return (
+      (unlock.status === "granted" || unlock.status === "revealed") &&
+      unlock.expires_at !== null &&
+      unlock.expires_at.getTime() > Date.now()
+    );
   }
 
   private async workerExists(workerId: string): Promise<boolean> {

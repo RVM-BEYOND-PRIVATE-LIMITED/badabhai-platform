@@ -366,6 +366,77 @@ export const unlockRouting = pgTable(
     // The token is the server-internal lookup key; it must be unique.
     uniqueIndex("unlock_routing_routing_token_uq").on(t.routingToken),
     index("unlock_routing_unlock_id_idx").on(t.unlockId),
+    // E0 item 1 — the resolution lookup key. The handle had NO index and no unique
+    // constraint until now (PARKED/HALT.md finding), so a `relay_handle -> routing row`
+    // read would seq-scan. Unique is correct, not merely faster: handles are
+    // `relay_<unlockId>_<randomUUID>` (unique by construction) and a repeat reveal
+    // re-serves the SAME row since P-021 was fixed (one routing row per unlock), so two
+    // candidate rows must never be silently possible.
+    uniqueIndex("unlock_routing_relay_handle_uq").on(t.relayHandle),
+  ],
+).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
+
+/** Which way a relay message travelled. Closed vocabulary (E0, docs/agent/phases/E0_BUILD.md item 2). */
+export type RelayMessageDirection = "payer_to_worker" | "worker_to_payer";
+/** The two body shapes: a closed template for the payer's opening message, free text after. */
+export type RelayMessageKind = "template" | "text";
+/**
+ * The typed body union — the compile-time half of the two-shape rule (§B ruling,
+ * docs/decisions/E0_RELAY_DECISION_2026-09.md). The database CHECK mirrors it.
+ */
+export type RelayMessageBody =
+  | { template_id: string; params: Record<string, string> }
+  | { text: string };
+
+// relay_messages — the payer↔worker in-app relay (E0, docs/agent/phases/E0_BUILD.md item 2).
+//
+// PII-FREE BY CONSTRUCTION, exactly like `unlock_routing` above: the row carries the
+// unlock join, a direction, a body and timestamps — NEVER a phone, a name, an employer,
+// or an email. The raw phone is not decryptable on this path at all.
+//
+// THE BODY IS TWO-SHAPED (§B ruling): the payer's OPENING message is a closed template
+// (`kind='template'`, a `template_id` plus a closed parameter set), so a leak in the
+// first message is a compile error rather than a review miss; after the worker has
+// replied — an affirmative act by the party the property protects — the thread is free
+// text both ways (`kind='text'`).
+//
+// THE CHECK BELOW ENFORCES EACH ROW'S SHAPE ONLY. "No payer free text before the
+// worker's first reply" is THREAD state (an EXISTS over earlier rows), enforced in the
+// service; do not read the CHECK as the whole rule. And INTENT IS UNSOLVED — "mera
+// number profile pe hai", a number split across two messages, "WhatsApp pe naam se
+// search karo" — shape does not address it and this schema does not claim to.
+export const relayMessages = pgTable(
+  "relay_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    unlockId: uuid("unlock_id")
+      .notNull()
+      .references(() => unlocks.id, { onDelete: "cascade" }),
+    direction: text("direction").$type<RelayMessageDirection>().notNull(),
+    kind: text("kind").$type<RelayMessageKind>().notNull(),
+    // Required iff kind='template' (the CHECK below mirrors the rule).
+    templateId: text("template_id"),
+    // `{template_id, params}` for a template row; `{text}` for a text row.
+    body: jsonb("body").$type<RelayMessageBody>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Set by the worker's read route (E0 item 3). AUDIT ONLY — no payer-visible read
+    // receipt exists (E0_BUILD "OUT OF SCOPE": read receipts).
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [
+    // A thread is read by unlock, oldest-first.
+    index("relay_messages_unlock_id_created_idx").on(t.unlockId, t.createdAt),
+    check(
+      "relay_messages_direction_chk",
+      sql`${t.direction} IN ('payer_to_worker', 'worker_to_payer')`,
+    ),
+    check("relay_messages_kind_chk", sql`${t.kind} IN ('template', 'text')`),
+    // The two shapes, on the row: a template row has a template_id and no `text` key;
+    // a text row has no template_id and no `template_id` key in the body.
+    check(
+      "relay_messages_body_shape_chk",
+      sql`(${t.kind} = 'template' AND ${t.templateId} IS NOT NULL AND NOT (${t.body} ? 'text')) OR (${t.kind} = 'text' AND ${t.templateId} IS NULL AND NOT (${t.body} ? 'template_id'))`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
 
