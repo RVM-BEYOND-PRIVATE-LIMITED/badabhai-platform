@@ -16,6 +16,7 @@
  * `classic.v3.html`, i.e. `pnpm format` would have rewritten the whole directory. The directory is
  * now in `.prettierignore`; this file is the guard that survives someone removing that entry.
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -39,6 +40,51 @@ const html = readFileSync(join(__dirname, getResumeTemplate(TEMPLATE_ID).file), 
  * `<style>` is not an HTML comment and survived the first strip.
  */
 const body = html.replace(/<!--[^]*?-->/g, "").replace(/\/\*[^]*?\*\//g, "");
+
+/**
+ * The two embedded lockup marks, pinned by SHA-256.
+ *
+ * THE ARTWORK IS THE APP'S SHIPPED MARK, not the design-system SVG. `badabhai_main.png` is what
+ * every worker actually sees in the Shift Blue header; the SVG in the docs kit is a SLIMMER
+ * variant whose two figures overlap, and at the ~4mm this sheet prints them at they blob into
+ * one unrecognisable shape — which is exactly what the owner rejected on a rendered sheet. No
+ * vector of the shipped artwork exists, so both lockups embed it as a raster data URI: offline,
+ * and the same shape of reference the worker photo and the QR already use.
+ *
+ * A HASH RATHER THAN A COLOUR SCAN, because a PNG's pixels are deflate-compressed and there is
+ * nothing in the file for a `toContain("#FFB32C")` to find. One hash catches a colour
+ * regression, a shape regression and a swapped pair at once. Regenerating the marks is a
+ * deliberate act, so updating these two constants is too.
+ */
+const MASTHEAD_MARK_SHA256 = "374a7a738449fed699da548b765faa1dc71599414d5c8d41baa056e749102440";
+const FOOTER_MARK_SHA256 = "254384514f76fc0ef0a7a4c043a3d37a04001251e921fb21009eaa2562cc7001";
+
+/**
+ * Decode a `data:image/png;base64,…` mark: signature, IHDR dimensions, content hash.
+ *
+ * THE SIGNATURE AND THE DIMENSIONS ARE NOT PADDING. A data URI that fails to decode renders as
+ * nothing at all in WeasyPrint — a silent hole beside the wordmark on a sheet that otherwise
+ * looks correct — and the dimensions are what let the CSS aspect be pinned to the artwork's own.
+ */
+function decodePngMark(src: string): { width: number; height: number; sha256: string } {
+  expect(src.startsWith("data:image/png;base64,"), "the mark is not a PNG data URI").toBe(true);
+  const bytes = Buffer.from(src.slice("data:image/png;base64,".length), "base64");
+  expect(bytes.subarray(0, 8).toString("hex"), "the mark is not a PNG").toBe("89504e470d0a1a0a");
+  return {
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+}
+
+/** The width/height ratio an `img` rule reserves, so a stretched raster cannot pass. */
+function markAspectRatio(css: string): number {
+  const w = Number(/width:\s*([\d.]+)mm/.exec(css)?.[1]);
+  const h = Number(/height:\s*([\d.]+)mm/.exec(css)?.[1]);
+  expect(w, "the mark has no mm width").toBeGreaterThan(0);
+  expect(h, "the mark has no mm height").toBeGreaterThan(0);
+  return w / h;
+}
 
 describe("bb_trade — the locked trade sheet (current version)", () => {
   it("is registered, and is NOT the fallback", () => {
@@ -245,20 +291,18 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       ["v1", v1],
       ["v2", html],
     ] as const) {
-      // LEFT: the two-figure mark as an inline SVG data URI (offline — no network asset), then
+      // LEFT: the shipped mark as an embedded PNG data URI (offline — no network asset), then
       // the MIXED-CASE wordmark. `text-transform: uppercase` is what made the old footer read
       // BADABHAI, and it must not come back on this line.
-      const markSrc = /class="foot-mark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
+      const markSrc = /class="foot-mark"><img src="(data:image\/png;base64,[^"]+)"/.exec(file)?.[1];
       expect(markSrc, `${name}: the footer mark data URI is missing`).toBeTruthy();
       marks.push(markSrc!);
-      // BRAND-KIT COLOURS. The mark is the two-figure lockup from badabhai-mark.svg, adapted
-      // for white paper: the small figure the kit draws white renders in print navy (white is
-      // invisible on the sheet), the large figure in safety-yellow, the knockout halo white.
-      // All-ink would read as a black blob beside the wordmark.
-      const decodedMark = decodeURIComponent(markSrc!);
-      expect(decodedMark, `${name}: the large figure is not safety-yellow`).toContain("#FFB32C");
-      expect(decodedMark, `${name}: the small figure is not print navy`).toContain("#0f3d6e");
-      expect(decodedMark, `${name}: the mark regressed to all-ink`).not.toContain("#14181d");
+      // THE SHIPPED ARTWORK, WITH THE SMALL FIGURE RECOLOURED TO PRINT NAVY. The app draws that
+      // figure near-white; on white paper it would be invisible, so this lockup cannot use the
+      // masthead's bytes and pins its own. All-ink would read as a black blob beside the
+      // wordmark, which is what the earlier SVG mark did on this sheet.
+      const mark = decodePngMark(markSrc!);
+      expect(mark.sha256, `${name}: the footer mark artwork changed`).toBe(FOOTER_MARK_SHA256);
       expect(file, `${name}: the wordmark is not mixed case`).toContain(
         'alt="" />BadaBhai</div>',
       );
@@ -266,6 +310,12 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       const markCss = /\.foot-mark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
       expect(markCss, `${name}: .foot-mark uppercases the wordmark`).not.toContain(
         "text-transform",
+      );
+      // THE RASTER IS NEVER STRETCHED: the CSS reserves the artwork's own aspect ratio.
+      const markImgCss = /\.foot-mark img\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markAspectRatio(markImgCss), `${name}: the footer mark is distorted`).toBeCloseTo(
+        mark.width / mark.height,
+        1,
       );
 
       // RIGHT: the wordmark lockup, ink, as its own non-shrinking slot.
@@ -306,17 +356,16 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       ["v1", v1],
       ["v2", html],
     ] as const) {
-      // LEFT: the two-figure mark in EXACT brand-kit colours — white small figure and
-      // safety-yellow large figure, both directly visible on the navy band — then the
-      // MIXED-CASE wordmark. `text-transform: uppercase` is what made the stripe read
-      // BADABHAI, and it must not come back on this line either.
-      const markSrc = /class="wordmark"><img src="(data:image\/svg\+xml,[^"]+)"/.exec(file)?.[1];
+      // LEFT: the shipped mark in the app's own colours — a near-white small figure and a
+      // larger safety-yellow one, embedded as exact bytes — then the MIXED-CASE wordmark.
+      // `text-transform: uppercase` is what made the stripe read BADABHAI, and it must not
+      // come back on this line either.
+      const markSrc = /class="wordmark"><img src="(data:image\/png;base64,[^"]+)"/.exec(file)?.[1];
       expect(markSrc, `${name}: the masthead mark data URI is missing`).toBeTruthy();
       marks.push(markSrc!);
-      const decodedMark = decodeURIComponent(markSrc!);
-      expect(decodedMark, `${name}: the masthead small figure is not white`).toContain("#FFFFFF");
-      expect(decodedMark, `${name}: the masthead large figure is not safety-yellow`).toContain(
-        "#FFB32C",
+      const mark = decodePngMark(markSrc!);
+      expect(mark.sha256, `${name}: the masthead mark artwork changed`).toBe(
+        MASTHEAD_MARK_SHA256,
       );
       expect(file, `${name}: the masthead wordmark is not mixed case`).toContain(
         "/>BadaBhai</span>",
@@ -325,6 +374,12 @@ describe("bb_trade — the locked trade sheet (current version)", () => {
       const wordmarkCss = /\.wordmark\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
       expect(wordmarkCss, `${name}: .wordmark uppercases the brand`).not.toContain(
         "text-transform",
+      );
+      // THE RASTER IS NEVER STRETCHED: the CSS reserves the artwork's own aspect ratio.
+      const markImgCss = /\.wordmark img\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+      expect(markAspectRatio(markImgCss), `${name}: the masthead mark is distorted`).toBeCloseTo(
+        mark.width / mark.height,
+        1,
       );
 
       // The trust-badge slot rides the same bar and is untouched by the lockup.
