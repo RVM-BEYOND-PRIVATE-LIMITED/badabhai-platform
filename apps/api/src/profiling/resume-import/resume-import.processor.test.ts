@@ -311,6 +311,7 @@ function setup(
     packs as never,
     crypto as never,
     events,
+    { map: vi.fn(async () => []) } as never,
   );
   // RI-summary is best-effort: null means "no summary", never a failure.
   const summary = { summarizeAndStage: vi.fn().mockResolvedValue(null) };

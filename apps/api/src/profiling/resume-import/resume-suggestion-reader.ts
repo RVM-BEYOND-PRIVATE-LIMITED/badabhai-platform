@@ -155,6 +155,32 @@ export class ResumeSuggestionReader {
     }
   }
 
+  /**
+   * The staged option mappings for one specific import, by id (RI-autofill).
+   *
+   * WHAT THIS IS FOR AND ONLY THIS: the identity "haan" applies these as the
+   * worker's form answers (owner override B). Closed ids only — the envelope never
+   * carried prose or spans, so there is nothing here to decrypt beyond the ids.
+   * SOFT, on the same terms as every other read here: an unreadable row applies
+   * nothing and the Haan hands over to an unfilled form.
+   */
+  async mappedOptionsForImport(
+    workerId: string,
+    importId: string,
+  ): Promise<readonly StagedOptionMapping[]> {
+    try {
+      const row = await this.imports.findForWorker(importId, workerId);
+      // WORKER-SCOPED, like every read on that repository — see `forImport` above.
+      if (!row) return [];
+      return this.decodeEnvelope(row.suggestionsEnc).optionMap;
+    } catch (error) {
+      this.logger.warn(
+        `résumé option mappings unreadable for import ${importId}: ${(error as Error).message}`,
+      );
+      return [];
+    }
+  }
+
   /** The suggestions staged against one specific import, by id. */
   async forImport(
     workerId: string,
@@ -234,14 +260,16 @@ export class ResumeSuggestionReader {
   private decodeEnvelope(token: string | null): {
     readonly answers: ReadonlyMap<string, ResumeSuggestion>;
     readonly employments: readonly EmploymentSuggestion[];
+    readonly optionMap: readonly StagedOptionMapping[];
   } {
     const answers = new Map<string, ResumeSuggestion>();
     const employments: EmploymentSuggestion[] = [];
-    if (token === null) return { answers, employments };
+    const optionMap: StagedOptionMapping[] = [];
+    if (token === null) return { answers, employments, optionMap };
 
     const parsed: unknown = JSON.parse(this.crypto.decrypt(token));
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { answers, employments };
+      return { answers, employments, optionMap };
     }
     const record = parsed as Record<string, unknown>;
 
@@ -258,8 +286,50 @@ export class ResumeSuggestionReader {
         if (isEmploymentSuggestion(value)) employments.push(value);
       }
     }
-    return { answers, employments };
+
+    // The third envelope shape (RI-autofill). Rows predating the mapping carry no
+    // `option_map` key and read as empty — additive, not a migration. Each entry is
+    // re-validated: a blob written by an earlier deploy that drifted degrades to
+    // "no mappings" rather than reaching a write.
+    if (Array.isArray(record.option_map)) {
+      for (const value of record.option_map) {
+        const staged = toStagedOptionMapping(value);
+        if (staged) optionMap.push(staged);
+      }
+    }
+    return { answers, employments, optionMap };
   }
+}
+
+/** One staged option mapping: closed ids for one pack question. */
+export interface StagedOptionMapping {
+  readonly questionKey: string;
+  readonly optionKeys: readonly string[];
+}
+
+/**
+ * Wire shape → staged mapping, or null.
+ *
+ * The envelope speaks snake_case (`question_key`, `option_keys`) — the same convention
+ * `answers` (`option_keys`) and `employments` (`employer_name`) already keep — while
+ * TypeScript callers read camelCase. Validating AND remapping in one function keeps the
+ * wire convention in exactly one place: a blob that drifted degrades to "no mapping"
+ * rather than reaching a write.
+ */
+function toStagedOptionMapping(value: unknown): StagedOptionMapping | null {
+  if (value === null || typeof value !== "object") return null;
+  const candidate = value as Partial<{
+    question_key: unknown;
+    option_keys: unknown;
+  }>;
+  if (typeof candidate.question_key !== "string" || candidate.question_key.length === 0) {
+    return null;
+  }
+  if (!Array.isArray(candidate.option_keys) || candidate.option_keys.length === 0) return null;
+  if (!candidate.option_keys.every((k): k is string => typeof k === "string" && k.length > 0)) {
+    return null;
+  }
+  return { questionKey: candidate.question_key, optionKeys: [...candidate.option_keys] };
 }
 
 function isEmploymentSuggestion(value: unknown): value is EmploymentSuggestion {

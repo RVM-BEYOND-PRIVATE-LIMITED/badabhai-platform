@@ -1060,6 +1060,11 @@ const aiTaskType = z.enum([
   // uploaded document, beside the parse — a second read of the same file for one
   // Hinglish line. Added in the SAME change that routes it, per the lesson above.
   "resume_profile_summary",
+  // THE RESUME OPTION MAPPING (RI-autofill, owner override B). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_option_map` and charged once per
+  // form-routed document — a third read of the same file, this time against the
+  // pack's closed options. Added in the SAME change that routes it.
+  "resume_option_map",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -3976,6 +3981,36 @@ export const ProfileResumeIdentityAnsweredPayload = z
   .strict();
 export type ProfileResumeIdentityAnsweredPayload = z.infer<
   typeof ProfileResumeIdentityAnsweredPayload
+>;
+
+/**
+ * The identity "haan" applied the staged option mappings as form answers.
+ *
+ * THE ONE EVENT THAT MEASURES OWNER OVERRIDE B. Everything above counts what the
+ * machine staged; this counts what the override wrote — and `applied` minus
+ * `mapped` is the gap between "the document supported" and "the form accepted",
+ * as judged by packs, gates and already-stored answers. A rising gap is the
+ * earliest signal the mapping prompt has drifted or a pack has moved its options.
+ *
+ * COUNTS AND SLUGS ONLY. Never an answer, never a label: the answers are what a
+ * model matched about a specific worker, and they have no business on the spine.
+ */
+export const ProfileResumeAutofillAppliedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** The form whose questions were filled. Closed enabled kinds only. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** How many mappings the import staged. */
+    mapped: z.number().int().nonnegative(),
+    /** How many became stored answers. Never assumed equal to `mapped`. */
+    applied: z.number().int().nonnegative(),
+    /** How many were skipped because the worker had already answered. D7, counted. */
+    skipped_answered: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumeAutofillAppliedPayload = z.infer<
+  typeof ProfileResumeAutofillAppliedPayload
 >;
 
 /**

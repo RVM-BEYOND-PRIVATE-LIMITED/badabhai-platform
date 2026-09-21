@@ -15,6 +15,8 @@ import {
   ResumeParseOutputSchema,
   ResumeSummaryInputSchema,
   ResumeSummaryOutputSchema,
+  ResumeOptionMapInputSchema,
+  ResumeOptionMapOutputSchema,
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
   WorkHistoryPolishOutputSchema,
@@ -31,6 +33,8 @@ import {
   type ResumeParseOutput,
   type ResumeSummaryInput,
   type ResumeSummaryOutput,
+  type ResumeOptionMapInput,
+  type ResumeOptionMapOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
@@ -166,6 +170,19 @@ const RESUME_PARSE_TIMEOUT_MS = 100_000;
  * ordinary flow when it never completes.
  */
 const RESUME_SUMMARY_TIMEOUT_MS = 100_000;
+
+/**
+ * RI-autofill (owner override B, 2026-09-20, of ruling D2). The SAME budget as the
+ * parse, and for the same reason: `/resume/map-options` downloads the object and
+ * runs the same deterministic extract + OCR BEFORE its own LLM call. A third read
+ * of the same photographed résumé costs the same seconds as the first two.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE, deliberately — same argument as
+ * `RESUME_PARSE_TIMEOUT_MS`. NOBODY IS BLOCKED: the import runs on a queue, the
+ * mapping stages beside the route, and ruling D9 hands over to an unfilled form
+ * when it never completes.
+ */
+const RESUME_OPTION_MAP_TIMEOUT_MS = 100_000;
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -630,6 +647,43 @@ export class AiService {
       checked.data,
       ResumeSummaryOutputSchema,
       RESUME_SUMMARY_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Map an uploaded résumé onto pack option ids (RI-autofill, owner override B,
+   * 2026-09-20, of ruling D2).
+   *
+   * SENDS A KEY PLUS CALLER-OWNED PACK COPY, NEVER THE DOCUMENT — same posture as
+   * `parseResume`: the ai-service fetches and extracts the object itself. The
+   * response carries closed option ids plus certified spans — never identity, never
+   * free text the model composed.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT, same as the parse and summary: every
+   * semantic failure comes back as a healthy 200 carrying a `failure_reason` from
+   * the closed vocabulary. The caller stages nothing on null — the Haan hands over
+   * to an unfilled form, which is today's behaviour byte for byte.
+   */
+  async mapResumeOptions(
+    input: ResumeOptionMapInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeOptionMapOutput | null> {
+    // Shape-check the pack copy before it nears the wire: the far side sanitises
+    // again, but a caller bug that widened the option list should fail here, not as
+    // a prompt carrying an id nobody reviewed.
+    const checked = ResumeOptionMapInputSchema.safeParse(input);
+    if (!checked.success) {
+      this.logger.warn(
+        `resume option-map input refused locally paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+      return null;
+    }
+    return this.post(
+      "/resume/map-options",
+      checked.data,
+      ResumeOptionMapOutputSchema,
+      RESUME_OPTION_MAP_TIMEOUT_MS,
       ctx,
     );
   }

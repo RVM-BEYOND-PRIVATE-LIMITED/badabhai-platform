@@ -67,6 +67,10 @@ RESUME_PARSE = "resume-parse"
 # Versioned like the rest so "did v2 summarise better than v1?" is answerable from one
 # generation record — same reason as the parse above.
 RESUME_SUMMARY = "resume-profile-summary"
+# RI-autofill (owner override B, 2026-09-20, of ruling D2). The THIRD call after the
+# parse: document lines onto pack option ids. Versioned like the rest so "did v2 map
+# better than v1?" is answerable from one generation record — same reason as above.
+RESUME_OPTION_MAP = "resume-option-map"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -212,6 +216,7 @@ def install_default_prompts() -> None:
         work_history_polish_prompt,
     )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
+    from ..resume_import.option_map_prompt import RESUME_OPTION_MAP_SYSTEM_PROMPT
     from ..resume_import.parse_prompt import RESUME_PARSE_SYSTEM_PROMPT
     from ..resume_import.summary_prompt import RESUME_SUMMARY_SYSTEM_PROMPT
 
@@ -221,3 +226,4 @@ def install_default_prompts() -> None:
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)
     register(RESUME_PARSE, lambda: RESUME_PARSE_SYSTEM_PROMPT)
     register(RESUME_SUMMARY, lambda: RESUME_SUMMARY_SYSTEM_PROMPT)
+    register(RESUME_OPTION_MAP, lambda: RESUME_OPTION_MAP_SYSTEM_PROMPT)

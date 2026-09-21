@@ -1736,6 +1736,85 @@ class ResumeParseOutput(BaseModel):
     ai_metadata: AICallMetadata | None = None
 
 
+# --- Résumé option mapping (RI-autofill, owner override B) --------------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts` (`ResumeOptionMapInputSchema` /
+# `ResumeOptionMapOutputSchema`). A THIRD call after `/resume/parse`, run at import
+# time for form-routed workers: which of the pack's CLOSED option ids the document
+# supports, one cited mapping per question at most.
+#
+# OWNER OVERRIDE B (2026-09-20) OF RULING D2 APPLIES TO THE CONSUMER OF THIS OUTPUT,
+# NOT TO THIS CONTRACT: the model selects among caller-supplied ids and the API writes
+# them as answers on the identity "haan" without per-fact confirmation. This contract
+# stays as strict as the parse's — closed ids, cited spans, gated output — because the
+# override widens what may be DONE with a mapping, never what counts AS one.
+#
+# PRIVACY: the request carries a storage KEY plus caller-owned pack copy, never the
+# document. The response carries closed option ids plus certified spans — no identity.
+
+
+class ResumeMapOption(BaseModel):
+    """One closed option the model may return, exactly as the pack declares it."""
+
+    option_key: str = Field(min_length=1, max_length=40)
+    label_text: str = Field(min_length=1, max_length=200)
+
+
+class ResumeMapQuestion(BaseModel):
+    """One pack question the model may answer, with its closed options."""
+
+    question_key: str = Field(min_length=1, max_length=40)
+    answer_type: Literal["single_select", "multi_select"] = "single_select"
+    options: list[ResumeMapOption] = Field(default_factory=list, max_length=32)
+
+
+class ResumeOptionMapInput(BaseModel):
+    """Map an uploaded résumé onto pack option keys.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so
+    the résumé's text never passes through apps/api at all — the same posture as
+    `ResumeParseInput` and `ResumeSummaryInput`.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    #: The pack's option questions — at most one mapping each comes back. Caller-owned
+    #: reviewed copy (never worker input), rendered into the prompt verbatim, so bounded
+    #: in count; each entry is length-capped above, not here, because this list is
+    #: caller-controlled (our own server), never worker input.
+    questions: list[ResumeMapQuestion] = Field(default_factory=list, max_length=40)
+    #: BOUNDED like `ResumeParseInput.language`: the one request field that reaches
+    #: a trace attribute without passing through the masker.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class ResumeOptionEvidence(BaseModel):
+    """The cited line a mapping was read from — provenance, same as the parse."""
+
+    message_index: AskCount
+    quote: str = Field(min_length=1)
+
+
+class ResumeOptionMapping(BaseModel):
+    """One question's closed option ids, with the line they were read from."""
+
+    question_key: str = Field(min_length=1, max_length=40)
+    option_keys: list[str] = Field(default_factory=list, max_length=32)
+    evidence: ResumeOptionEvidence
+
+
+class ResumeOptionMapOutput(BaseModel):
+    """Gated mappings. `None`/empty fields mean "no mapping" — never an error."""
+
+    mappings: list[ResumeOptionMapping] = Field(default_factory=list)
+    #: Closed vocabulary (`RESUME_IMPORT_FAILURES`), else None. Never model text.
+    failure_reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    ai_metadata: AICallMetadata | None = None
+
+
 # --- Résumé profile summary (RI-summary, backend-only slice) -----------------
 #
 # Mirrors `packages/ai-contracts/src/resume-import.ts` (`ResumeSummaryInputSchema` /

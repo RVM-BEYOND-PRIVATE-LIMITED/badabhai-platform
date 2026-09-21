@@ -171,6 +171,69 @@ export const ResumeSummaryInputSchema = z.object({
 });
 export type ResumeSummaryInput = z.infer<typeof ResumeSummaryInputSchema>;
 
+/**
+ * One pack question the option-mapping call may answer, with its closed options.
+ *
+ * Caller-controlled reviewed copy (pack question + option keys/labels), never worker
+ * input — so it is rendered into the prompt verbatim, bounded in count. The model
+ * selects among these ids; the gates drop anything else.
+ */
+export const ResumeMapQuestionSchema = z.object({
+  question_key: z.string().min(1).max(40),
+  answer_type: z.enum(["single_select", "multi_select"]),
+  options: z
+    .array(
+      z.object({
+        option_key: z.string().min(1).max(40),
+        label_text: z.string().min(1).max(200),
+      }),
+    )
+    .max(32),
+});
+export type ResumeMapQuestion = z.infer<typeof ResumeMapQuestionSchema>;
+
+/**
+ * Map an uploaded résumé onto pack option keys (RI-autofill, owner override B).
+ *
+ * A SEPARATE call after `/resume/parse`, run at import time for form-routed workers.
+ * The parse reads citable VALUES; this call answers one question per pack item: which
+ * of THESE option ids does the document support. Same fetch-extract-mask-call-gate
+ * pipeline, same document, different contract.
+ *
+ * PRIVACY: inputs carry a storage KEY plus caller-owned pack copy, never the document.
+ * Outputs carry closed option ids plus certified spans — never identity.
+ */
+export const ResumeOptionMapInputSchema = z.object({
+  schema_version: z.literal("resume.v1").default("resume.v1"),
+  worker_ref: z.string().min(1),
+  /** The private-bucket object key minted by `POST /profiling/resume-import/upload-url`. */
+  storage_key: z.string().min(1),
+  mime: z.string().min(1),
+  /** The pack's option questions — at most one mapping each comes back. */
+  questions: z.array(ResumeMapQuestionSchema).max(40).default([]),
+  language: languageCode.optional(),
+});
+export type ResumeOptionMapInput = z.infer<typeof ResumeOptionMapInputSchema>;
+
+export const ResumeOptionMappingSchema = z.object({
+  question_key: z.string().min(1).max(40),
+  option_keys: z.array(z.string().min(1).max(40)).max(32).default([]),
+  evidence: EvidenceSpanSchema,
+});
+export type ResumeOptionMapping = z.infer<typeof ResumeOptionMappingSchema>;
+
+export const ResumeOptionMapOutputSchema = z.object({
+  /** One entry per question the model could cite — never more than asked. */
+  mappings: z.array(ResumeOptionMappingSchema).default([]),
+  /** Closed vocabulary (`RESUME_IMPORT_FAILURES`), else null. Never model text. */
+  failure_reason: z.enum(RESUME_IMPORT_FAILURES).nullable().default(null),
+  /** PII-free diagnostics from a CLOSED vocabulary — counts and codes, never model text. */
+  notes: z.array(z.string()).default([]),
+  /** `null` on every degraded path: a fabricated zero-cost record is worse than an absent one. */
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type ResumeOptionMapOutput = z.infer<typeof ResumeOptionMapOutputSchema>;
+
 export const ResumeSummaryOutputSchema = z.object({
   /** One id from the request's `role_kinds`, or null when none fits. */
   role_kind: z.string().nullable().default(null),

@@ -24,12 +24,14 @@ import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
 import { ResumeImportController } from "./resume-import/resume-import.controller";
 import { ResumeImportRepository } from "./resume-import/resume-import.repository";
 import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
 import { ResumeSummaryService } from "./resume-import/resume-summary.service";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 
@@ -135,6 +137,9 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    // RI-AUTOFILL (owner override B). Called by the orchestrator's identity-Haan branch
+    // only; `AiService`/`AiCostRecorder` come from `AiModule`, already imported above.
+    ResumeAutofillService,
     // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` calls it from
     // `answer()`, fire-and-forget — see `TradeFormService.triggerOtherAnswerPolish`. `AiService`
     // and `AiCostRecorder` come from `AiModule`, already imported above.
@@ -143,6 +148,7 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ResumeImportService,
     ResumeParseService,
     ResumeRouteService,
+    ResumeOptionMapService,
     ResumeSummaryService,
     ResumeSuggestionReader,
     ResumeImportProcessor,

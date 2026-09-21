@@ -81,6 +81,13 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # null, so a cheap tier here buys nothing but "no judgment". Real calls still need
     # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
     "resume_profile_summary": ("capable", True),
+    # RI-autofill (owner override B, 2026-09-20, of ruling D2). CAPABLE, and json_mode
+    # on, for the same reason `resume_parse` is: the task is closed-id selection under
+    # a strict schema, where a weaker model does not answer worse so much as it stops
+    # echoing ids verbatim — and an off-list id is one the gates drop, so a cheap tier
+    # here buys nothing but omissions. Real calls still need AI_REAL_CALL_TASKS to name
+    # it; being in this table arms nothing.
+    "resume_option_map": ("capable", True),
     "resume_generation": ("cheap", False),
     # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
     # retrieval has already narrowed thousands of occupations to ten labelled lines, so
@@ -215,6 +222,25 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # here would mean a re-import could re-file a worker into a different trade
             # with no input change — and would make the Hinglish line non-comparable
             # across prompt versions on Langfuse.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "resume_option_map":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
+            # object per pack question, each carrying a quoted span, so it scales with the
+            # pack rather than being a fixed-size answer — and slack is safer than tight:
+            # a truncated candidate loses the closing brace and degrades the whole mapping
+            # to nothing.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. Mapping a document onto a fixed
+            # option list must give the same answer for the same document every time;
+            # sampling here would mean a re-import ticks different boxes with no input
+            # change — and would make the applied answers non-comparable across prompt
+            # versions on Langfuse.
             temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,

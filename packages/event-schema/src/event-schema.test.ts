@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 187 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity)", () => {
-    expect(EVENT_NAMES).toHaveLength(187);
+  it("exposes all 188 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill)", () => {
+    expect(EVENT_NAMES).toHaveLength(188);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -3056,6 +3056,8 @@ describe("registry", () => {
     expect(isEventName("profile.resume_prefill_applied")).toBe(true);
     // RI-identity: whether the worker recognised the staged Hinglish line as his.
     expect(isEventName("profile.resume_identity_answered")).toBe(true);
+    // RI-autofill (owner override B): what the identity "haan" wrote from the staged mappings.
+    expect(isEventName("profile.resume_autofill_applied")).toBe(true);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
@@ -4529,6 +4531,32 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
           worker_id: UUID_A,
           import_id: UUID_B,
           answer: "haan ye main hoon",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        imported("profile.resume_autofill_applied", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          form_kind: "cnc_grinding",
+          mapped: 9,
+          applied: 7,
+          skipped_answered: 2,
+        }),
+      ).success,
+    ).toBe(true);
+    // Counts and slugs only: an answer or a label here would be model-matched prose
+    // about a specific worker on the spine.
+    expect(
+      validateEvent(
+        imported("profile.resume_autofill_applied", {
+          worker_id: UUID_A,
+          import_id: UUID_B,
+          form_kind: "bus_driver",
+          mapped: 9,
+          applied: 7,
+          skipped_answered: 2,
         }),
       ).success,
     ).toBe(false);

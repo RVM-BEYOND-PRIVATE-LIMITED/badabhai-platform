@@ -52,8 +52,14 @@ import { chatSessions } from "./chat";
  * from a reviewed closed set, and free text is an interpretation of prose. When the two
  * disagree about the same worker later, knowing which was which is the difference between a
  * data-quality question and a parser bug.
+ *
+ * `resume` (migration 0119) marks answers the RI-autofill path wrote from a model's
+ * option mapping after the worker's identity "haan" — owner override B, 2026-09-20, of
+ * ruling D2. It exists for exactly the `chip`-vs-`chat` reason above: a capability the
+ * worker tapped and a capability a model matched for him must never be indistinguishable
+ * in a later audit.
  */
-export const PACK_ANSWER_SOURCES = ["chat", "chip", "form", "ops"] as const;
+export const PACK_ANSWER_SOURCES = ["chat", "chip", "form", "ops", "resume"] as const;
 export type PackAnswerSource = (typeof PACK_ANSWER_SOURCES)[number];
 
 /**
@@ -150,11 +156,8 @@ export const workerPackAnswers = pgTable(
     // The FK-referencing column Postgres does not index for you. Needed so deleting a chat
     // session does not seq-scan every answer row to apply SET NULL.
     index("wpa_chat_session_idx").on(t.chatSessionId),
-    check(
-      "wpa_status_chk",
-      sql`${t.status} IN ('answered', 'declined', 'unanswered')`,
-    ),
-    check("wpa_source_chk", sql`${t.source} IN ('chat', 'chip', 'form', 'ops')`),
+    check("wpa_status_chk", sql`${t.status} IN ('answered', 'declined', 'unanswered')`),
+    check("wpa_source_chk", sql`${t.source} IN ('chat', 'chip', 'form', 'ops', 'resume')`),
     // A BICONDITIONAL, not two one-way rules: `answered` implies exactly one value column,
     // and exactly one value column implies `answered`. Written this way so neither a valued
     // declination nor a valueless answer can exist — both would be a row whose status lies
