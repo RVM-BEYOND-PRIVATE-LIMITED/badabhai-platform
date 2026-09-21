@@ -194,8 +194,47 @@ describe("RelayService — the worker's read/reply", () => {
   });
 });
 
-describe("RelayService — the template catalogue", () => {
-  it("serves the closed set with its closed parameter vocabulary", () => {
+describe("RelayService — the payer's thread read (#1636)", () => {
+  it("renders the thread for the payer's own handle, template rows included", async () => {
+    const { svc, relay } = setup();
+    relay.listByUnlock.mockResolvedValueOnce([
+      messageRow(),
+      messageRow({
+        id: "msg-2",
+        direction: "worker_to_payer",
+        kind: "text",
+        templateId: null,
+        body: { text: "Haan ji" },
+      }),
+    ]);
+    const out = await svc.readThreadForPayer(PAYER, HANDLE);
+    expect(out).toMatchObject({
+      messages: [
+        { message_id: "msg-1", direction: "payer_to_worker", text: "Aap kaam ke liye available hain?" },
+        { message_id: "msg-2", direction: "worker_to_payer", text: "Haan ji" },
+      ],
+    });
+  });
+
+  it("a failed resolution returns the ONE neutral body and reads nothing", async () => {
+    const { svc, relay } = setup({ resolvePayer: null });
+    expect(await svc.readThreadForPayer(PAYER, HANDLE)).toEqual({ status: "unavailable" });
+    expect(relay.listByUnlock).not.toHaveBeenCalled();
+  });
+
+  it("carries no counterparty identity and never the raw body column", async () => {
+    const { svc, relay } = setup();
+    relay.listByUnlock.mockResolvedValueOnce([
+      messageRow({ templateId: "visit_day", body: { template_id: "visit_day", params: { day: "tomorrow" } } }),
+    ]);
+    const out = await svc.readThreadForPayer(PAYER, HANDLE);
+    const json = JSON.stringify(out);
+    expect(json).not.toContain("params");
+    expect(json).not.toMatch(/worker_id|payer_id|phone/i);
+  });
+});
+
+describe("RelayService — the template catalogue", () => {  it("serves the closed set with its closed parameter vocabulary", () => {
     const { svc } = setup();
     const { templates } = svc.listTemplates();
     expect(templates.map((t) => t.template_id)).toEqual(["availability", "visit_day", "rate"]);

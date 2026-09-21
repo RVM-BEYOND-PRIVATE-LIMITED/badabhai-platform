@@ -204,10 +204,10 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
-  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W] } },
+  { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], mine: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
-  { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P] } },
+  { name: "PayerRelay", ctor: PayerRelayController, routes: { templates: [P], send: [P], read: [P] } },
   {
     name: "WorkerRelay",
     ctor: WorkerRelayController,

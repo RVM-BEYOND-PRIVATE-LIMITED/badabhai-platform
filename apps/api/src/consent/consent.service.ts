@@ -5,7 +5,7 @@ import { EventsService } from "../events/events.service";
 import { SessionService } from "../auth/session.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ConsentRepository } from "./consent.repository";
-import type { AcceptConsentDto } from "./consent.dto";
+import type { AcceptConsentDto, MyConsentState } from "./consent.dto";
 
 /**
  * The two employer-contact purposes the E0 C-2 exit removes — ONE switch, not two. A
@@ -92,6 +92,37 @@ export class ConsentService {
       requestId: ctx.requestId,
     });
     return { ok: true };
+  }
+
+  /**
+   * #1637 — the caller's LATEST consent row, for the stop-employer-contact switch.
+   *
+   * WHY IT EXISTS. The consent surface was write-only, so the FE could only render the
+   * switch from optimistic local state; #1630 requires server truth on mount and after a
+   * write. This is that read.
+   *
+   * NO ROW IS A REAL ANSWER, not a 404: a worker who has never consented renders "off".
+   * `ip_hash`/`user_agent` are deliberately absent — they are consent EVIDENCE, not state a
+   * client draws (§9). Purposes come back verbatim; `[]` when there is no row.
+   */
+  async getLatestForWorker(workerId: string): Promise<MyConsentState> {
+    const latest = await this.consents.findLatestByWorker(workerId);
+    if (!latest) {
+      return {
+        consent_id: null,
+        consent_version: null,
+        accepted_at: null,
+        revoked_at: null,
+        purposes: [],
+      };
+    }
+    return {
+      consent_id: latest.id,
+      consent_version: latest.consentVersion,
+      accepted_at: latest.acceptedAt.toISOString(),
+      revoked_at: latest.revokedAt ? latest.revokedAt.toISOString() : null,
+      purposes: [...(latest.purposes ?? [])],
+    };
   }
 
   /**

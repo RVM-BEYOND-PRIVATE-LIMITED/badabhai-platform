@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
@@ -54,5 +63,21 @@ export class PayerRelayController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.relay.sendFromPayer(payer.id, handle, dto, ctx);
+  }
+
+  /**
+   * Read the thread (#1636) — the payer's own unlock, keyed on the SAME handle the send route
+   * takes. `no-store`: the body is two-party message text.
+   *
+   * The FE gates free text on "a `worker_to_payer` message exists", which is the same fact the
+   * send route enforces server-side; without this read it would have to guess it.
+   */
+  @Get("relay/:handle/messages")
+  @Header("Cache-Control", "no-store")
+  read(
+    @Param("handle", new ZodValidationPipe(RelayHandleSchema)) handle: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ) {
+    return this.relay.readThreadForPayer(payer.id, handle);
   }
 }
