@@ -74,11 +74,12 @@ describe("R16 §1 — the Verdict Line's reachability, measured rather than assu
     expect(service).toContain("templateIdForPack");
   });
 
-  it("the gate is the pack having a resume map, and nothing looser", () => {
-    // A looser gate silently re-lays-out every worker in the country. This is the assertion
-    // that keeps the flip incremental: a trade with no authored map still renders `classic`.
+  it("the gate is the worker having a pack at all (Layer A (i)), and nothing looser", () => {
+    // It USED to be "the pack has a resume map", which dropped ~102 packs onto the flat classic
+    // layout and took the verdict line with them — the cliff Layer A (i) closes. The only
+    // remaining `classic` case is a worker whose profile carries no pack answers at all.
     expect(templateIdForPack("qp_cnc_turning")).toBe("bb_trade");
-    expect(templateIdForPack("qp_universal")).toBe("classic");
+    expect(templateIdForPack("qp_universal")).toBe("bb_trade");
     expect(templateIdForPack(null)).toBe("classic");
   });
 });

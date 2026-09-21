@@ -93,7 +93,12 @@ const answer = (partial: Partial<AnswerRecord> & { question_key: string }): Answ
 
 function makeWorld(
   opts: {
-    session?: { id: string; workerId: string; status: string } | null;
+    session?: {
+      id: string;
+      workerId: string;
+      status: string;
+      conversationState?: Record<string, unknown> | null;
+    } | null;
     latest?: { id: string; workerId: string; status: string } | null;
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
@@ -121,6 +126,16 @@ function makeWorld(
     profile?: { id: string } | null;
     /** What `rebuildAfterCorrection` reports. `null` = the rebuild could not be queued. */
     rebuild?: { ai_job_id: string; status: string } | null;
+    /** Fill-gap Phase 3: the worker's stored `worker_attributes` rows, as `loadKeys` returns them. */
+    storedAttributes?: readonly {
+      attributeKey: string;
+      valueKind: string;
+      valueBool?: boolean | null;
+      valueText?: string | null;
+      valueNumber?: number | string | null;
+      valueTextList?: readonly string[] | null;
+      valueJson?: Record<string, unknown> | null;
+    }[];
   } = {},
 ) {
   const session =
@@ -180,6 +195,7 @@ function makeWorld(
     voiceAnswers as never,
     workers as never,
     profiles as never,
+    { loadKeys: vi.fn(async () => opts.storedAttributes ?? []) } as never,
   );
   return {
     service,
@@ -839,6 +855,63 @@ describe("the review the worker confirms", () => {
 
     await expect(service.review(WORKER, SESSION)).resolves.toMatchObject({ rows: [] });
   });
+
+  describe("#1504 item 5 (city-seed): a flushed session still shows a seeded, never-asked key", () => {
+    it("merges the seeded key in from conversation_state — no worker_pack_answer row exists for it", async () => {
+      const { service } = makeWorld({
+        // Post-flush: the Redis envelope is gone, so `view` is what a lapsed buffer looks like.
+        view: null,
+        flushed: [
+          { questionKey: "q_years", status: "answered", answerNumber: 8 },
+        ],
+        session: {
+          id: SESSION,
+          workerId: WORKER,
+          status: "ended",
+          conversationState: {
+            prefilled_keys: ["q_city"],
+            answer_map: [
+              { question_key: "q_city", target_field: "current_city", value_raw: null, value_normalized: "Pune", status: "answered", evidence: null, turn: 0, history: [] },
+            ],
+          },
+        },
+      });
+
+      const result = await service.review(WORKER, SESSION);
+
+      expect(result.rows).toContainEqual({
+        question_key: "q_city",
+        prompt_text: "q_city",
+        status: "answered",
+        display_value: "Pune",
+      });
+      expect(result.rows).toHaveLength(2);
+    });
+
+    it("does NOT merge a prefilled key that already has a real worker_pack_answer row (post-correction)", async () => {
+      const { service } = makeWorld({
+        view: null,
+        flushed: [{ questionKey: "q_city", status: "answered", answerText: "Mumbai" }],
+        session: {
+          id: SESSION,
+          workerId: WORKER,
+          status: "ended",
+          conversationState: {
+            // `prefilled_keys` stale/unset here — correctAnswer already removed it, and the row
+            // is the source of truth.
+            prefilled_keys: [],
+            answer_map: [
+              { question_key: "q_city", target_field: "current_city", value_raw: "Mumbai", value_normalized: "Mumbai", status: "answered", evidence: null, turn: 4, history: [] },
+            ],
+          },
+        },
+      });
+
+      const result = await service.review(WORKER, SESSION);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.display_value).toBe("Mumbai");
+    });
+  });
 });
 
 describe("finalize — durable, never a completion decision", () => {
@@ -1419,5 +1492,72 @@ describe("correcting a settled answer", () => {
       expect(orchestrator.correctAnswer).toHaveBeenCalled();
       expect(result.row.display_value).toBe("Pune");
     });
+  });
+});
+
+describe("the review's fill view (fill-gap Phase 3)", () => {
+  const fillItems = [
+    // The helper writes `target_field = question_key`, so these names ARE the fact aliases the
+    // registry resolves — the same shape `qp_universal` carries for the tail.
+    item("current_city", "Aap kis sheher mein rehte hain?"),
+    item("languages", "Aap kaun si bhasha bolte hain?"),
+  ];
+  const fillWorld = (over: Record<string, unknown> = {}) => ({
+    packId: "qp_universal",
+    packVersion: 3,
+    items: fillItems,
+    answers: {},
+    state: {},
+    correctionCount: 0,
+    ...over,
+  });
+
+  it("reports a chat answer and a stored-elsewhere fact side by side", async () => {
+    const { service } = makeWorld({
+      settled: fillWorld({
+        answers: {
+          current_city: answer({ question_key: "current_city", value_normalized: "Pune" }),
+        },
+      }),
+      storedAttributes: [
+        { attributeKey: "languages", valueKind: "text_list", valueTextList: ["hindi"] },
+      ],
+    });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill.settled.sort()).toEqual(["current_city", "languages"]);
+    const byFact = Object.fromEntries(fill.entries.map((e) => [e.fact, e]));
+    expect(byFact.current_city).toMatchObject({ status: "answered", source: "chat" });
+    expect(byFact.languages).toMatchObject({ status: "answered", source: "other_road" });
+  });
+
+  it("is EMPTY when the session has no pin — never a guess that everything is settled", async () => {
+    // `viewSettled` returns null for a session with no pinned pack (the no-occupation fallback);
+    // reporting an empty `settled` set is the only honest answer, and it makes the surface ask
+    // rather than hide.
+    const { service } = makeWorld({ settled: undefined });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill).toEqual({ entries: [], settled: [] });
+  });
+
+  it("keeps a non-projecting city missing so the profile gap stays visible", async () => {
+    const { service } = makeWorld({
+      settled: fillWorld({
+        answers: {
+          current_city: answer({ question_key: "current_city", value_normalized: "Gaon XYZ" }),
+        },
+      }),
+    });
+
+    const { fill } = await service.review(WORKER, SESSION);
+
+    expect(fill.entries.find((e) => e.fact === "current_city")).toMatchObject({
+      status: "missing",
+      dropped_by_projector: true,
+    });
+    expect(fill.settled).not.toContain("current_city");
   });
 });

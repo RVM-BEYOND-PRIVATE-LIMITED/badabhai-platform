@@ -7,6 +7,10 @@ import {
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
+  RESUME_EXTRACTION_METHODS,
+  RESUME_IMPORT_FAILURES,
+  RESUME_IMPORT_ROUTES,
+  RESUME_UPLOAD_MIME_TYPES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -85,6 +89,64 @@ export const WorkerLocationRecordedPayload = z
   })
   .strict();
 
+// ADR-0042 D9 / Layer A (a) — the worker recorded, replaced or cleared an optional WhatsApp
+// number (PATCH /workers/me/whatsapp).
+//
+// PII-FREE BY CONSTRUCTION. The number is AES-256-GCM ciphertext in
+// `workers.whatsapp_enc`; it never appears on the spine, in a log line, or in an analytics
+// read. This event carries the RESULTING STATE, not the value — the same "counts, never the
+// answers" rule `WorkerLocationRecordedPayload` follows, and for the same reason: a number
+// plus a worker id is identity.
+export const WorkerWhatsappRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** TRUE when a number is now on file; FALSE when the worker cleared it. */
+    has_whatsapp: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (b) — the worker recorded how they know each language they listed
+// (PUT /workers/me/languages, migration 0110).
+//
+// COUNTS, NEVER THE LANGUAGES. A single language slug is not an identifier, but a regional
+// language plus a worker id plus a timestamp narrows a person considerably — the same ruling
+// `worker.qualifications_recorded` carries, and the spine needs to know the page was answered
+// rather than what it said.
+export const WorkerLanguagesRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    language_count: z.number().int().nonnegative(),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (e) — the worker replaced their portfolio (PUT /workers/me/portfolio,
+// migration 0113).
+//
+// COUNTS ONLY. A caption is worker-typed free text and a storage key is a pointer to personal
+// media; neither may ride the spine. `item_count` is the resulting list length.
+export const WorkerPortfolioRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    item_count: z.number().int().min(0).max(12),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// ADR-0042 D9 / Layer A (f) — the worker replaced their list of SECONDARY occupations
+// (PUT /workers/me/occupations, migration 0114).
+//
+// COUNTS ONLY. The role ids are a closed public vocabulary, but a per-worker list of trades he
+// can also do is a supply profile the spine has no reader for — the same rule
+// `worker.match_skills_rebuilt` already applies to skill ids.
+export const WorkerOccupationsRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    occupation_count: z.number().int().min(0).max(4),
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
@@ -104,6 +166,34 @@ export const WorkerEmploymentRecordedPayload = z
     durations_stated: z.number().int().min(0).max(4),
     /** True when this replaced an existing history rather than creating the first one. */
     replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// The worker chose WHICH text prints for one free-text answer of his — his own words, or the
+// model's rewrite of them (#1485).
+//
+// A SEPARATE EVENT RATHER THAN REUSING `worker.employment_recorded`, which is what the #1354
+// employment route emits for the same decision. That payload counts EMPLOYERS, and this is the
+// path for a worker who has none: emitting `employer_count: 1` for a fresher would write a fact
+// into the audit trail that is not true. Two different subjects, two events.
+//
+// PII-FREE, AND NEITHER TEXT TRAVELS — not the worker's sentence and not the rewrite of it. The
+// whole point of the route is that one of them may be false, and an audit trail does not need to
+// know which words were involved to record that he made the choice.
+//
+// `attribute_key` IS A QUESTION KEY, NOT AN ANSWER — closed vocabulary from the pack corpus, on
+// exactly the shape `wa_attribute_key_chk` enforces on the column, so no free text can reach the
+// spine through it. Shaped rather than enumerated so that a second free-text item in a future pack
+// needs no schema edit: widening a shipped payload is the mutation §3 forbids.
+export const WorkerAnswerTextSourceSetPayload = z
+  .object({
+    worker_id: uuidSchema,
+    attribute_key: z
+      .string()
+      .regex(/^[a-z_]+$/)
+      .max(40),
+    /** Which text he chose to print. `own_words` is a refusal of the rewrite. */
+    source: z.enum(["own_words", "polished"]),
   })
   .strict();
 
@@ -158,6 +248,14 @@ export const WorkerQualificationsRecordedPayload = z
     certificate_count: z.number().int().min(0).max(8),
     /** How many education rows this submission stored. */
     education_count: z.number().int().min(0).max(4),
+    /**
+     * ADR-0042 D9 / Layer A (d) — how many TRAINING rows this submission stored.
+     *
+     * OPTIONAL, AND THAT IS THE SCHEMA-CONTRACT POSTURE: rows emitted before migration 0112
+     * carry no such field and must stay valid (invariant #8), so this is `.optional()` rather
+     * than defaulted. New rows always carry it.
+     */
+    training_count: z.number().int().min(0).max(8).optional(),
     /** True when this replaced rows the worker already had, rather than creating the first ones. */
     replaced_existing: z.boolean(),
   })
@@ -620,6 +718,11 @@ export const VoiceNoteTranscriptionFailedPayload = z.object({
 // profile.*
 // ---------------------------------------------------------------------------
 const profileStatus = z.enum(["draft", "extracting", "extracted", "confirmed"]);
+// Task 1 — the road that produced the profile (`worker_profiles.source`).
+// Closed vocabulary, shared by the profile/resume payloads below. Nullable
+// with a null default: rows written before migration 0107 carry no road, and
+// an additive field must never break an old emitter or reader.
+const profileSource = z.enum(["form", "chat"]);
 
 export const ProfileExtractionRequestedPayload = z.object({
   worker_id: uuidSchema,
@@ -639,6 +742,7 @@ export const ProfileConfirmedPayload = z.object({
   worker_id: uuidSchema,
   profile_id: uuidSchema,
   confirmed_at: isoDateTimeSchema,
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** Terminal failure of an async (BullMQ) extraction job — keeps failures in the stream. */
@@ -758,6 +862,7 @@ export const ResumeGeneratedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   format: z.enum(["text", "json"]).default("text"),
+  profile_source: profileSource.nullable().default(null),
 });
 
 /** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
@@ -784,6 +889,23 @@ export const ResumeSharedPayload = z.object({
   resume_id: uuidSchema,
   version: z.number().int().positive().default(1),
   channel: z.enum(["whatsapp", "link", "download", "other"]).default("link"),
+});
+
+/**
+ * A worker corrected an extracted profile field (#1311 backend half, NOT #1318).
+ *
+ * IDS + CLOSED FIELD ENUM ONLY — the corrected values live in the authored stores
+ * (`worker_profile_skill`, `worker_education`, …), never here. `field` names which
+ * extracted fact moved; `correction_id` is the `profile_correction` row; `session_id`
+ * is the pinned interview the correction anchors to. No free text, no values, no PII —
+ * the same discipline as every `resume.*` sibling above.
+ */
+export const ResumeEditedPayload = z.object({
+  worker_id: uuidSchema,
+  profile_id: uuidSchema,
+  correction_id: uuidSchema,
+  session_id: uuidSchema,
+  field: z.enum(["skills", "machines", "experience", "education", "certificates"]),
 });
 
 // ---------------------------------------------------------------------------
@@ -923,6 +1045,26 @@ const aiTaskType = z.enum([
   // Routed, but never in this enum until now — the interview's ONE LLM call.
   "profile_parse",
   "domain_match",
+  // THE WORK-HISTORY REWRITE (#1350). Routed in `model_config._ROUTE_SHAPES` and charged like
+  // any other call — once per employment stint for every worker who files a history, and once
+  // more for a fresher's training description — and it was unnameable here, so every rupee of
+  // it produced no `ai.cost_recorded` at all. Exactly the `profile_parse` failure this enum's
+  // own comment describes, on the next route to arrive.
+  "work_history_polish",
+  // THE RESUME IMPORT PARSE (ADR-0041 RI-3). Routed in `model_config._ROUTE_SHAPES` and
+  // charged once per uploaded document. Added in the SAME change that routes it, which is
+  // the lesson the two entries above were each written to record after the fact.
+  "resume_parse",
+  // THE RESUME PROFILE SUMMARY (RI-summary, backend-only slice). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_profile_summary` and charged once per
+  // uploaded document, beside the parse — a second read of the same file for one
+  // Hinglish line. Added in the SAME change that routes it, per the lesson above.
+  "resume_profile_summary",
+  // THE RESUME OPTION MAPPING (RI-autofill, owner override B). Routed in
+  // `model_config._ROUTE_SHAPES` as `resume_option_map` and charged once per
+  // form-routed document — a third read of the same file, this time against the
+  // pack's closed options. Added in the SAME change that routes it.
+  "resume_option_map",
   // Provider calls with their own fail-closed allowlist keys, outside the LLM router.
   "stt_transcription",
   "tts_synthesis",
@@ -3616,6 +3758,54 @@ export const ProfileFormModeEnteredPayload = z
 export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
 
 /**
+ * THE TRADE-FORM OFFER WENT ON SCREEN — the eligibility half of the handover funnel
+ * (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * WHY THIS IS NOT `form_mode_entered`. That event says a worker was SENT to a form, and
+ * it still says exactly that — the offer ruling did not change it. This one says the
+ * router RECOGNISED a form-enabled trade and the worker was ASKED whether to take it.
+ * Without it the decline rate the ruling exists to produce is uncomputable: offered minus
+ * entered (accepted) minus declined = workers who abandoned mid-offer.
+ *
+ * PII-FREE: two ids, one closed-set form kind, two counts. NO LABELS. `.strict()`.
+ */
+export const ProfileFormOfferedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model asked before the offer. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormOfferedPayload = z.infer<typeof ProfileFormOfferedPayload>;
+
+/**
+ * THE WORKER DECLINED THE TRADE-FORM OFFER (Task 1 recall path; owner ruling 2026-09-16).
+ *
+ * `reply` IS TWO-VALUED ON PURPOSE AND THE SPLIT IS THE MEASUREMENT. `declined` is an
+ * explicit no. `unclear` is a reply the binary reader could not read — treated exactly
+ * like a decline at the interview level (settled, never re-served) but counted apart, so
+ * a growing `unclear` share reads as the parser needing teaching rather than as workers
+ * changing their minds.
+ *
+ * PII-FREE: two ids, one closed-set form kind, one closed-set reply. `.strict()`.
+ */
+export const ProfileFormOfferDeclinedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form — see {@link TRADE_FORM_KINDS_ALL} in `@badabhai/types`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    reply: z.enum(["declined", "unclear"]),
+  })
+  .strict();
+export type ProfileFormOfferDeclinedPayload = z.infer<typeof ProfileFormOfferDeclinedPayload>;
+
+/**
  * A WORKER FINISHED A TRADE FORM — every question they are still asked now has an answer.
  *
  * ═══ WHY THE HANDOVER EVENT IS NOT ENOUGH ═══
@@ -3660,6 +3850,168 @@ export const ProfileFormCompletedPayload = z
   })
   .strict();
 export type ProfileFormCompletedPayload = z.infer<typeof ProfileFormCompletedPayload>;
+
+/**
+ * ══ RÉSUMÉ IMPORT (ADR-0041) ═══════════════════════════════════════════════════════════════
+ *
+ * FOUR EVENTS, AND THE HARDEST RULE ON THEM IS WHAT THEY MAY NOT CARRY. The subject here is a
+ * document holding a worker's name, address, email, every employer he has worked for and his
+ * past salaries — and under ruling D6 we keep it permanently. So: no filename, no storage key,
+ * no extracted value, no label, no model text. Ids, closed-set enums and counts only, and
+ * `.strict()` on every one so a later field cannot quietly add them back.
+ *
+ * Note especially that `mime` is a CLOSED ENUM and not a free string. A client-supplied
+ * content-type echoed onto the spine would be untrusted text in analytics; the value here is the
+ * one read back from Storage object-info and narrowed to the four types D3 accepts.
+ */
+
+/**
+ * A worker uploaded a résumé and we registered it. The bytes are stored; nothing is parsed yet.
+ *
+ * SEPARATE FROM `profile.resume_parsed` ON PURPOSE. Registration and extraction fail for
+ * completely different reasons — a failed upload is a network or a bucket problem, a failed
+ * parse is a document problem — and one event covering both would make "how many workers got
+ * their file to us" unanswerable, which is the first number worth knowing about this feature.
+ */
+export const ProfileResumeImportedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** Read back from Storage object-info at confirm — never the client's claim. */
+    mime: z.enum(RESUME_UPLOAD_MIME_TYPES),
+    /** Size in bytes. A magnitude, not content — it says nothing about who the worker is. */
+    byte_size: z.number().int().positive(),
+  })
+  .strict();
+export type ProfileResumeImportedPayload = z.infer<typeof ProfileResumeImportedPayload>;
+
+/**
+ * A résumé was read, and the worker was routed off the back of it.
+ *
+ * `route` and `form_kind` are here because the routing decision is otherwise unreproducible: it
+ * is deterministic on inputs (the model's two labels, the pinned occupation) that are never
+ * stored. Only 9 of 21 declared roles have a form at all, so "how often did an import actually
+ * reach one" is a real question about whether the feature earns its keep.
+ *
+ * `fields_extracted` vs `suggestions_offered` is deliberately two numbers. They differ by
+ * everything the gates threw away, and a widening gap is the earliest signal that the prompt has
+ * drifted — one number would hide exactly that.
+ */
+export const ProfileResumeParsedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    extraction_method: z.enum(RESUME_EXTRACTION_METHODS),
+    route: z.enum(RESUME_IMPORT_ROUTES),
+    /** Present only on the `form` route — see the table's `wri_form_kind_chk`. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL).nullable(),
+    /** How many typed fields the model returned and the gates let through. */
+    fields_extracted: z.number().int().nonnegative(),
+    /** How many of those actually mapped onto a question this worker will be shown. */
+    suggestions_offered: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumeParsedPayload = z.infer<typeof ProfileResumeParsedPayload>;
+
+/**
+ * We could not read the document, and the worker was told so and sent on (ruling D9).
+ *
+ * THIS IS THE FEATURE'S QUALITY METRIC, not an error log. Ruling D3 accepts photographs of
+ * printed sheets, so a meaningful share of these will be `ocr_below_floor` and that is the
+ * number RI-7 exists to move. `extraction_method` is nullable because the commonest failures
+ * happen BEFORE a method is chosen — an encrypted PDF never gets that far.
+ */
+export const ProfileResumeParseFailedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** A closed reason. The model's own account of its failure is discarded unread. */
+    reason: z.enum(RESUME_IMPORT_FAILURES),
+    extraction_method: z.enum(RESUME_EXTRACTION_METHODS).nullable(),
+  })
+  .strict();
+export type ProfileResumeParseFailedPayload = z.infer<typeof ProfileResumeParseFailedPayload>;
+
+/**
+ * The worker looked at what we read out of his résumé and CONFIRMED some of it.
+ *
+ * THE ONE EVENT THAT MEASURES RULING D2. Everything above counts what the machine did; this
+ * counts what the worker agreed with, and the two are not the same fact. `offered` minus
+ * `accepted` is the parser's error rate as judged by the only person qualified to judge it.
+ *
+ * It is also the guard against the failure D2 was written to prevent. Capability chips arrive
+ * UNTICKED and a tick is the worker's own claim, so if acceptance ever ran near 100% that would
+ * not be a triumph — it would be evidence that workers are tapping past the screen, and that the
+ * suggestions have quietly become pre-ticked in effect if not in code.
+ */
+export const ProfileResumePrefillAppliedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** Where he confirmed them — the trade form, or the chat's batch-confirm turn. */
+    surface: z.enum(RESUME_IMPORT_ROUTES),
+    /** How many suggestions he was shown. */
+    offered: z.number().int().nonnegative(),
+    /** How many he actually accepted. Never assumed equal to `offered`. */
+    accepted: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumePrefillAppliedPayload = z.infer<typeof ProfileResumePrefillAppliedPayload>;
+
+/**
+ * The worker answered the "is this you?" turn over his résumé's Hinglish line.
+ *
+ * THE IDENTITY TWIN OF `profile.resume_prefill_applied`. That event counts what the
+ * worker agreed with fact by fact; this counts whether he recognised the profile as
+ * his at all — and the two are not the same funnel step. A "no" here retires the
+ * import from the chat (the old batch-confirm is suppressed with it), so without
+ * this event "how often does the summary misfire" would be unanswerable, which is
+ * the one number the Hinglish line exists to move.
+ *
+ * Ids and a closed answer only — never the Hinglish line itself, which is
+ * worker-derived free text and has no business on the spine.
+ */
+export const ProfileResumeIdentityAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** His answer. `no` covers an explicit denial AND an unreadable reply (fail-closed). */
+    answer: z.enum(["yes", "no"]),
+  })
+  .strict();
+export type ProfileResumeIdentityAnsweredPayload = z.infer<
+  typeof ProfileResumeIdentityAnsweredPayload
+>;
+
+/**
+ * The identity "haan" applied the staged option mappings as form answers.
+ *
+ * THE ONE EVENT THAT MEASURES OWNER OVERRIDE B. Everything above counts what the
+ * machine staged; this counts what the override wrote — and `applied` minus
+ * `mapped` is the gap between "the document supported" and "the form accepted",
+ * as judged by packs, gates and already-stored answers. A rising gap is the
+ * earliest signal the mapping prompt has drifted or a pack has moved its options.
+ *
+ * COUNTS AND SLUGS ONLY. Never an answer, never a label: the answers are what a
+ * model matched about a specific worker, and they have no business on the spine.
+ */
+export const ProfileResumeAutofillAppliedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    import_id: uuidSchema,
+    /** The form whose questions were filled. Closed enabled kinds only. */
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    /** How many mappings the import staged. */
+    mapped: z.number().int().nonnegative(),
+    /** How many became stored answers. Never assumed equal to `mapped`. */
+    applied: z.number().int().nonnegative(),
+    /** How many were skipped because the worker had already answered. D7, counted. */
+    skipped_answered: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileResumeAutofillAppliedPayload = z.infer<
+  typeof ProfileResumeAutofillAppliedPayload
+>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache

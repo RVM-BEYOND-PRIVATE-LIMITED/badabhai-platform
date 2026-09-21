@@ -26,7 +26,9 @@ const PAYER = "11111111-1111-1111-1111-111111111111";
 const WORKER = "22222222-2222-2222-2222-222222222222";
 const REAL_NAME = "Ramesh Kumar"; // must NEVER appear in event/response
 const MASKED = "R***** K.";
-const SENTINEL_PHONE = "+919876500000"; // must NEVER appear anywhere client-visible
+const SENTINEL_PHONE = "+919876500000"; // must NEVER appear in events, logs or API
+// JSON (B-D/B-E) — but it DOES appear in the disclosed PDF itself since the 2026-09-18
+// reversal (asserted below): the PDF is the artifact the payer unlocked, not the spine.
 const SIGNED_URL = "https://signed.example/disclosure/abc?token=secret"; // never logged/evented (B-D)
 
 const CONFIG = {
@@ -45,6 +47,14 @@ interface SetupOpts {
   weeklyPayers?: number;
   renderNull?: boolean; // renderPdf degrades to null
   nightShiftReady?: boolean; // #947 — the worker's own toggle, as the column stores it
+  // The worker's registered location (owner ruling 2026-09-08), as the plaintext columns store it.
+  currentCity?: string | null;
+  currentState?: string | null;
+  // Makes the trade-attribute read throw, so the degrade around it can be asserted.
+  attrThrows?: boolean;
+  // Makes the work-history read throw. Since the 2026-09-08 ruling that degrade must stay
+  // distinguishable from a worker who filed no jobs.
+  empThrows?: boolean;
   existing?: Record<string, unknown>; // existing disclosure row for idempotency
   // The worker's settled pack answers, which the payer DOES see — trade capability is neither
   // identity nor negotiating position.
@@ -56,6 +66,14 @@ interface SetupOpts {
     certificates: WorkerCertificateRecord[];
     educations: WorkerEducationRecord[];
   };
+  /** Layer A (f)/(i) — the declared secondary occupations, as stored role ids. */
+  occupations?: string[];
+  // 2026-09-18 reversal — the worker's number for the payer copy, as the stored
+  // ciphertext (`enc:` prefix: the fake decrypt strips it, like the name). ABSENT by
+  // default, which is what keeps every pre-existing test on the old behavior.
+  phoneE164?: string | null;
+  // Makes the phone decrypt (and only the phone decrypt) throw, for the degrade case.
+  phoneDecryptThrows?: boolean;
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -111,15 +129,23 @@ function setup(opts: SetupOpts = {}) {
         ? {
             id: WORKER,
             fullName: "enc:" + REAL_NAME,
+            phoneE164: opts.phoneE164 ?? null,
             deletionScheduledAt,
             resumeNightShiftReady: opts.nightShiftReady ?? false,
+            currentCity: opts.currentCity ?? null,
+            currentState: opts.currentState ?? null,
           }
         : undefined,
     ),
   };
 
   const pii = {
-    decrypt: vi.fn((token: string) => token.replace(/^enc:/, "")), // returns REAL_NAME
+    decrypt: vi.fn((token: string) => {
+      if (opts.phoneDecryptThrows && opts.phoneE164 != null && token === opts.phoneE164) {
+        throw new Error("bad/rotated key");
+      }
+      return token.replace(/^enc:/, "");
+    }),
   };
 
   let renderInput: ResumeRenderInput | undefined;
@@ -144,18 +170,30 @@ function setup(opts: SetupOpts = {}) {
   };
 
   // The trade capability block — read-only, and it degrades to absence if it throws.
+  // exercises that degrade: the failure must cost this section and nothing else on the sheet.
   const attributes = {
-    loadTradeSheet: vi.fn(async () => opts.tradeSheet ?? { packId: null, attributes: {} }),
+    loadTradeSheet: vi.fn(async () => {
+      if (opts.attrThrows) throw new Error("attr boom");
+      return opts.tradeSheet ?? { packId: null, attributes: {} };
+    }),
   };
   // Zone 4 — read-only on the same terms. Empty for every worker today.
   const employments = {
-    loadForResume: vi.fn(async () => opts.employments ?? []),
+    loadForResume: vi.fn(async () => {
+      if (opts.empThrows) throw new Error("employment boom");
+      return opts.employments ?? [];
+    }),
   };
   // Zone 5 (migration 0098) — read-only, degrades to absence. Empty by default, which
   // `qualificationFactsFrom` turns into `undefined`, so every assertion below sees exactly the
   // masked sheet it saw before this repository existed.
   const qualifications = {
     loadForResume: vi.fn(async () => opts.qualifications ?? { certificates: [], educations: [] }),
+  };
+  // Layer A (f)/(i) — the declared secondary occupations. Read-only, degrades to absence; empty
+  // by default so the "Also works as" row is absent unless a case opts in.
+  const occupations = {
+    loadForWorker: vi.fn(async () => opts.occupations ?? []),
   };
 
   const service = new ResumeDisclosureService(
@@ -168,6 +206,7 @@ function setup(opts: SetupOpts = {}) {
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
     qualifications as unknown as WorkerQualificationsRepository,
+    occupations as never,
     events as unknown as EventsService,
     CONFIG,
   );
@@ -254,6 +293,60 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     expect(t.getRenderInput()?.photoDataUri).toBeNull();
   });
 
+  it("2026-09-08: the worker's registered location reaches the payer, and the masking holds", async () => {
+    // THE AUDIENCE CALL, PINNED HERE FOR THE SAME REASON THE TOGGLE ABOVE IS. A city is on the
+    // owner's never-redact list (2026-07-31: "cities as PII → a 20-point matching input"), the
+    // Verdict Line has composed one on this copy since the sheet shipped, and a supervisor hires
+    // for one plant. The three things this surface withholds stay exactly three.
+    const t = setup({ currentCity: "Faridabad", currentState: "Haryana" });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.locationLine).toBe("Faridabad, Haryana");
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+  });
+
+  it("2026-09-08: the location survives a failed trade-attribute load", async () => {
+    // The regression this pins. The context is built by MERGING onto whatever `loadTradeSheet`
+    // returned, and that call has its own degrade — so a location merged inside one of the
+    // conditional blocks would vanish for a worker with no employments and no credentials, or
+    // whenever that query threw. It is set unconditionally; this is what says so.
+    const t = setup({ attrThrows: true, currentCity: "Rajkot", currentState: null });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.locationLine).toBe("Rajkot");
+  });
+
+  it("2026-09-08: a failed work-history read does not turn the worker into a fresher", async () => {
+    // THE SAME FAIL-CLOSED RULE THE RENDER WORKER HOLDS, asserted separately because this path
+    // builds its context by MERGING rather than by constructing it once — and the merge that
+    // carries the flag is the one that runs unconditionally. A twelve-year turner whose history
+    // could not be read must reach the payer as an unknown tenure, never as a fresher.
+    const t = setup({
+      empThrows: true,
+      tradeSheet: {
+        packId: "qp_cnc_turning",
+        attributes: { turning_experience: 0, turning_machine: ["cnc_lathe"] },
+      },
+    });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    // FILL-GAP PHASE 4 changed the SHAPE of the guarantee without weakening it: with no role the
+    // whole headline strip is now omitted (`""` here), where it used to print a subject-less
+    // system phrase. Both outcomes are pinned: never the word "Fresher", and when a strip DOES
+    // print it can only be the licensed unknown-tenure phrasing.
+    const line = t.getRenderInput()?.headlineLine ?? "";
+    expect(line).not.toMatch(/fresher/i);
+    if (line.length > 0) expect(line).toMatch(/duration not stated/i);
+  });
+
   it("the payer DOES see the trade capability block, and the masking around it holds", async () => {
     // THE AUDIENCE DECISION, PINNED. What a worker can do on a machine is trade information and
     // the most decisive thing on the sheet for a hiring supervisor — neither identity nor
@@ -299,6 +392,61 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
       CTX,
     );
     expect(t.getRenderInput()?.availability).toBeNull();
+  });
+});
+
+describe("2026-09-18 reversal — the worker's number reaches the payer copy", () => {
+  // THE AUDIENCE CALL, PINNED HERE BECAUSE THE OLD BEHAVIOR WAS SILENCE. The 2026-08-28
+  // ruling said "both copies" but this surface never passed the number, so the employer
+  // sheet silently carried no contact line. The 2026-09-18 ruling reverses the
+  // withholding (post-unlock only — the consent/cap/deletion gates above are untouched).
+  // The worker-copy half is pinned in `resume-render.processor.test.ts` ("decrypts the
+  // phone SERVER-SIDE and puts it on the worker's own sheet"); this file pins the payer
+  // half. Name/photo/salary/WhatsApp/licence gating is identical — the "three withheld
+  // things" assertions above stay green as-is.
+  it("the employer render input carries the number, formatted", async () => {
+    const t = setup({ phoneE164: "enc:" + SENTINEL_PHONE });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.getRenderInput()?.phone).toBe("+91 98765 00000");
+    // The masking around it holds — the number crossing is not a hole in the gate.
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
+  });
+
+  it("name and number are each decrypted exactly once (two PII touches, F-5)", async () => {
+    // DELIBERATE UPDATE of the old "EXACTLY once" pin two describes up: that test's
+    // default setup carries no phoneE164, so it still observes exactly one decrypt and
+    // stays green untouched. With a number on file there are two touches — one per
+    // secret — and the count below is what keeps a third from arriving quietly.
+    const t = setup({ phoneE164: "enc:" + SENTINEL_PHONE });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.pii.decrypt).toHaveBeenCalledTimes(2);
+  });
+
+  it("withheld-vs-missing parity: absent and undecryptable both collapse to the same null", async () => {
+    // A caller holding this input cannot tell "no number on file" from "decrypt
+    // failed" — both are the missing line, never a placeholder, an error string, or a
+    // partial digit run. Same collapse the worker copy takes (processor test).
+    const absent = setup();
+    await absent.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(absent.getRenderInput()?.phone).toBeNull();
+
+    const broken = setup({ phoneE164: "enc:" + SENTINEL_PHONE, phoneDecryptThrows: true });
+    await broken.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(broken.getRenderInput()?.phone).toBeNull();
   });
 });
 

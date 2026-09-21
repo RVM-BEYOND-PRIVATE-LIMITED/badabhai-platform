@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { SetMyPreferencesSchema } from "./worker-preferences.dto";
+import { PREFERENCE_WIRE_KEYS, SetMyPreferencesSchema } from "./worker-preferences.dto";
 import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
 
 /**
@@ -41,6 +41,15 @@ import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
  * WHAT MAKES THE READ SAFE. It matches on `toUpdateBody`'s own body, so an unrelated mention of a
  * key elsewhere in the file — a comment, a model field, a test helper — cannot satisfy it. If the
  * file moves, the test fails loudly with the path rather than silently passing on an empty string.
+ *
+ * ── #1521 (UI kit v3) LIFTED FIVE KEYS INTO CONSTANTS, AND THIS FILE GOT LITERAL ─────────────
+ *
+ * `_kLanguagesKey = 'languages'` and four siblings replaced the inline literals in the body.
+ * The wire contract did not move one inch, but a literal-grep can no longer see the keys —
+ * and the break hid behind turbo's cache: the API task's inputs do not include the Dart file,
+ * so worker-app-only PRs replayed a green cache while the real read went red on the next API
+ * change. `bodySendsKey` now resolves `const String` indirection in the body it already reads;
+ * a key reachable by neither a literal nor a resolved constant still fails.
  */
 
 const WORKER_APP_FINISHING_MODELS = join(
@@ -48,30 +57,81 @@ const WORKER_APP_FINISHING_MODELS = join(
   "../../../../apps/worker-app/lib/features/finishing/domain/finishing_models.dart",
 );
 
-/** Every wire key `SetMyPreferencesSchema` accepts, derived — never restated. */
+/**
+ * The body keys that are REQUEST MODES, not answers — they have no storage kind by design.
+ *
+ * #1504 added `touched_only` (owner ruling 2026-09-15), the new-build signal that switches the
+ * server from the old-build blank-save protection to the strict three-state contract. It is listed
+ * here, by name, so the twelve-answer assertion below stays exact: a future answer field cannot hide
+ * in this list without a reviewer seeing it added.
+ */
+const REQUEST_MODE_KEYS = ["touched_only"];
+
+/** Every ANSWER key `SetMyPreferencesSchema` accepts, derived — never restated. */
 function acceptedWireKeys(): string[] {
   const shape = (SetMyPreferencesSchema as unknown as { shape: Record<string, unknown> }).shape;
-  return Object.keys(shape).sort();
+  const keys = Object.keys(shape);
+  for (const mode of REQUEST_MODE_KEYS) {
+    expect(keys, `request-mode key ${mode} is missing from the schema`).toContain(mode);
+  }
+  return keys.filter((k) => !REQUEST_MODE_KEYS.includes(k)).sort();
 }
 
-/** The body of `toUpdateBody()` — the map the app actually PATCHes. */
-function toUpdateBodySource(): string {
+/** The body of `toUpdateBody()` — the map the app actually PATCHes — plus the file's
+ * Dart key constants it may route through. */
+function toUpdateBodySource(): { body: string; constants: Map<string, string> } {
   const src = readFileSync(WORKER_APP_FINISHING_MODELS, "utf8");
   const start = src.indexOf("Map<String, dynamic> toUpdateBody()");
   expect(start, `toUpdateBody() not found in ${WORKER_APP_FINISHING_MODELS}`).toBeGreaterThan(-1);
   // To the next method at the same indentation — `@override` on `props` in the shipped file.
   const end = src.indexOf("\n  @override", start);
-  return src.slice(start, end === -1 ? undefined : end);
+  return {
+    body: src.slice(start, end === -1 ? undefined : end),
+    constants: dartKeyConstants(src),
+  };
+}
+
+/**
+ * Dart string constants that carry wire keys — `const String _kLanguagesKey = 'languages';`.
+ *
+ * #1521 (UI kit v3) lifted five of the seven body keys into these constants, and the
+ * plain literal-grep this file used to run went red on a refactor that kept the wire
+ * contract exactly. The keys still have to be SENT; the test now resolves the
+ * indirection instead of forbidding it. A constant whose value is not a string is
+ * ignored, and a key reachable by neither a literal nor a resolved constant still fails.
+ */
+function dartKeyConstants(src: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /const\s+String\s+(\w+)\s*=\s*'([^']+)'/g;
+  for (const match of src.matchAll(re)) map.set(match[1]!, match[2]!);
+  return map;
+}
+
+/** True when `body` sends `key` — as a literal, or through a resolved Dart constant. */
+function bodySendsKey(body: string, key: string, constants: Map<string, string>): boolean {
+  if (body.includes(`'${key}'`)) return true;
+  for (const [name, value] of constants) {
+    if (value === key && body.includes(name)) return true;
+  }
+  return false;
 }
 
 describe("the finishing form's server contract", () => {
-  it("accepts all twelve fields, and every one of them has a storage kind", () => {
+  it("accepts all seventeen fields, and every one of them has a storage kind", () => {
     // The two halves of the BACKEND contract, asserted against each other. A field on the schema
     // with no `PREFERENCE_KEYS` entry is accepted, validated and then never written; one in
     // `PREFERENCE_KEYS` with no schema field can never be reached. Both are silent.
+    //
+    // SEVENTEEN SINCE LAYER A (c) (ADR-0042 D9): `work_types`, `salary_period`,
+    // `commute_max_km`, `willing_to_travel` and the structured `availability` joined the twelve.
+    // The app does not send them YET — additive fields on a `.strict()` schema are forward-
+    // compatible, and the mobile half of the contract below is deliberately a subset assertion,
+    // not equality, so an app build that predates a field is never a test failure.
     const accepted = acceptedWireKeys();
     expect(accepted).toEqual([
       "accommodation_needed",
+      "availability",
+      "commute_max_km",
       "documents_ready",
       "education_council",
       "education_credential",
@@ -81,8 +141,11 @@ describe("the finishing form's server contract", () => {
       "languages",
       "preferred_cities",
       "salary_expected_max",
+      "salary_period",
       "shift",
       "willing_to_relocate",
+      "willing_to_travel",
+      "work_types",
     ]);
 
     // The three names that differ between the wire and storage, and they differ on purpose:
@@ -107,6 +170,19 @@ describe("the finishing form's server contract", () => {
         stored,
       );
     }
+
+    // #1504 — the service now reads the pairing from ONE table, `PREFERENCE_WIRE_KEYS`, shared by
+    // the write and the new GET. The hand-transcribed pairs above are still the claim; this pins the
+    // table to them, so a swapped entry fails here rather than landing an answer under the wrong key.
+    const tableWireToStored = Object.fromEntries(
+      Object.entries(PREFERENCE_WIRE_KEYS).map(([storedKey, wire]) => [wire, storedKey]),
+    );
+    expect(Object.keys(tableWireToStored).sort()).toEqual(accepted);
+    for (const key of accepted) {
+      expect(tableWireToStored[key], `PREFERENCE_WIRE_KEYS maps ${key} wrongly`).toBe(
+        wireToStored[key] ?? key,
+      );
+    }
   });
 
   it("rejects an unknown field rather than dropping it", () => {
@@ -129,7 +205,7 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
   it("sends the seven keys it already carries", () => {
     // The seven the form has always sent. Kept as its own case so a mobile refactor that adds
     // fields cannot quietly drop one of the originals — the assertion below would still pass.
-    const body = toUpdateBodySource();
+    const { body, constants } = toUpdateBodySource();
     for (const key of [
       "languages",
       "documents_ready",
@@ -139,7 +215,9 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
       "job_type",
       "shift",
     ]) {
-      expect(body, `toUpdateBody() no longer sends '${key}'`).toContain(`'${key}'`);
+      expect(bodySendsKey(body, key, constants), `toUpdateBody() no longer sends '${key}'`).toBe(
+        true,
+      );
     }
   });
 
@@ -156,7 +234,7 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
     // salary was mandatory in name only, and the ruling that closed Q5 asked specifically for
     // completion rate on it — a number that could not exist while the field could not be
     // answered. It can now.
-    const body = toUpdateBodySource();
+    const { body, constants } = toUpdateBodySource();
     for (const key of [
       "salary_expected_max",
       "education_credential",
@@ -164,7 +242,10 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
       "education_year",
       "education_institute",
     ]) {
-      expect(body, `toUpdateBody() does not send '${key}' — #1298`).toContain(`'${key}'`);
+      expect(
+        bodySendsKey(body, key, constants),
+        `toUpdateBody() does not send '${key}' — #1298`,
+      ).toBe(true);
     }
   });
 });

@@ -6,17 +6,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/devanagari_guard.dart';
-import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
-import '../../../core/widgets/bb_scaffold.dart';
-import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/kit/kit_micro_label.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../domain/voice_models.dart';
 import 'cubit/voice_note_cubit.dart';
 
@@ -86,26 +84,23 @@ const String kVoiceAbandonStay = 'Rukein';
 
 /// Confirms abandoning an in-flight TRANSCRIBE (#680.1). Returns true only if the
 /// worker explicitly chooses to leave. Dismissing keeps them on the wait.
-Future<bool> _confirmAbandonTranscribe(BuildContext context) async {
-  final bool? leave = await showDialog<bool>(
-    context: context,
-    builder: (BuildContext ctx) => AlertDialog(
-      title: const Text(kVoiceAbandonTitle),
-      content: const Text(kVoiceAbandonBody),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text(kVoiceAbandonStay),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: const Text(kVoiceAbandonConfirm),
-        ),
-      ],
-    ),
+///
+/// The kit's [showBbConfirm] is the one confirm drawing in the app (white card,
+/// 16 radius, navy scrim, no shadow) and it is `false`-by-construction: a
+/// barrier tap or a back press resolves false, never null, so a dismissal can
+/// never read as "yes, throw my recording away". The confirm button is crimson
+/// because leaving DOES lose this transcription — the safe choice stays quiet.
+Future<bool> _confirmAbandonTranscribe(BuildContext context) {
+  return showBbConfirm(
+    context,
+    title: kVoiceAbandonTitle,
+    message: kVoiceAbandonBody,
+    confirmLabel: kVoiceAbandonConfirm,
+    cancelLabel: kVoiceAbandonStay,
+    destructive: true,
   );
-  return leave ?? false;
 }
+
 const String _kErrorTitle = 'Voice note nahi gaya.';
 const String _kRetryLabel = 'Dobara try karein';
 const String _kTypeInsteadLabel = 'Type karke bhejein';
@@ -120,6 +115,13 @@ const String _kTypeInsteadLabel = 'Type karke bhejein';
 /// record was whatever the recogniser heard — they saw it for the first time as
 /// a sent bubble, already parsed. Now nothing reaches the chat session until
 /// they say so, and "Sudhaarna hai" lets them re-record or fix the words first.
+///
+/// UI kit v3: this is a PUSHED route, so it wears the Shift Blue header (the
+/// title lives there, on the navy band) over a `canvasBg` body inside
+/// [_VoiceBody] — which scrolls on a short screen and caps its column on a
+/// tablet instead of stretching a 96dp mic hero across 1000px of glass. The mic
+/// is the screen's ONE safety-yellow hero; the record ring, its clock and the
+/// confirm bubbles read from the v3 tokens.
 ///
 /// Errors are honest and worker-safe ([failureReason]); a denied mic permission
 /// or a 503 (voice not enabled server-side) never dead-ends — the worker can
@@ -145,105 +147,180 @@ class _VoiceNoteView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BbScaffold(
-      appBar: const BbAppBar(title: _kTitle),
-      body: BlocConsumer<VoiceNoteCubit, VoiceNoteState>(
-        listenWhen: (VoiceNoteState prev, VoiceNoteState curr) =>
-            curr is VoiceNoteSuccess,
-        listener: (BuildContext context, VoiceNoteState state) {
-          // Pop back to chat with the transcript + reply; the chat screen
-          // appends both bubbles (see ChatVoiceMerged).
-          context.pop((state as VoiceNoteSuccess).outcome);
-        },
-        builder: (BuildContext context, VoiceNoteState state) {
-          // #373 — hold the route while work is in flight. On the SENDING leg
-          // the transcript is already on its way into the SERVER chat session
-          // and the cubit closing does not cancel that detached future: a back
-          // press used to pop a null outcome, so the answer landed server-side
-          // but never rendered in chat, and the worker re-typed it. On the
-          // TRANSCRIBE leg nothing has been sent, but the upload + poll are
-          // running and leaving would silently bin them.
-          //
-          // NOT held on the confirm turn — that is a decision point, and a
-          // worker who changes their mind there must be able to walk away.
-          //
-          // BOUNDED, but no longer briefly: the transcribe leg now polls on
-          // `kVoiceTranscriptPollMaxAttempts` (~150s, #635/TD59) rather than
-          // the 14s extraction default, because the server's own floor is
-          // ~140s. An error state still releases back immediately and typing
-          // is always open as a fallback — but a worker on a slow transcription
-          // can now be held here for up to ~2.5 minutes with only the snackbar
-          // to explain it. Revisit this hold when TD59's server-side merge
-          // (backend B5) removes the latency dependency.
-          final bool pipelineInFlight =
-              state is VoiceNoteProcessing || state is VoiceNoteSuccess;
-          final bool sendingLeg =
-              state is VoiceNoteProcessing && state.sending;
-          // #680.1 — the transcribe leg (Processing, NOT sending) is the long
-          // one (~150s); it gets an explicit abandon. The SEND leg + Success
-          // keep the #373 hold — leaving there strands the message.
-          final bool transcribingLeg =
-              state is VoiceNoteProcessing && !state.sending;
-          return PopScope<Object?>(
-            canPop: !pipelineInFlight,
-            onPopInvokedWithResult: (bool didPop, Object? result) async {
-              if (didPop) return;
-              if (transcribingLeg) {
-                final bool leave = await _confirmAbandonTranscribe(context);
-                if (leave && context.mounted) {
-                  // Best-effort teardown; the screen pop closes the cubit too.
-                  context.read<VoiceNoteCubit>().cancelRecording();
-                  Navigator.of(context).maybePop();
-                }
-                return;
+    return BlocConsumer<VoiceNoteCubit, VoiceNoteState>(
+      listenWhen: (VoiceNoteState prev, VoiceNoteState curr) =>
+          curr is VoiceNoteSuccess,
+      listener: (BuildContext context, VoiceNoteState state) {
+        // Pop back to chat with the transcript + reply; the chat screen
+        // appends both bubbles (see ChatVoiceMerged).
+        context.pop((state as VoiceNoteSuccess).outcome);
+      },
+      builder: (BuildContext context, VoiceNoteState state) {
+        // #373 — hold the route while work is in flight. On the SENDING leg
+        // the transcript is already on its way into the SERVER chat session
+        // and the cubit closing does not cancel that detached future: a back
+        // press used to pop a null outcome, so the answer landed server-side
+        // but never rendered in chat, and the worker re-typed it. On the
+        // TRANSCRIBE leg nothing has been sent, but the upload + poll are
+        // running and leaving would silently bin them.
+        //
+        // NOT held on the confirm turn — that is a decision point, and a
+        // worker who changes their mind there must be able to walk away.
+        //
+        // BOUNDED, but no longer briefly: the transcribe leg now polls on
+        // `kVoiceTranscriptPollMaxAttempts` (~150s, #635/TD59) rather than
+        // the 14s extraction default, because the server's own floor is
+        // ~140s. An error state still releases back immediately and typing
+        // is always open as a fallback — but a worker on a slow transcription
+        // can now be held here for up to ~2.5 minutes with only the snackbar
+        // to explain it. Revisit this hold when TD59's server-side merge
+        // (backend B5) removes the latency dependency.
+        final bool pipelineInFlight =
+            state is VoiceNoteProcessing || state is VoiceNoteSuccess;
+        final bool sendingLeg = state is VoiceNoteProcessing && state.sending;
+        // #680.1 — the transcribe leg (Processing, NOT sending) is the long
+        // one (~150s); it gets an explicit abandon. The SEND leg + Success
+        // keep the #373 hold — leaving there strands the message.
+        final bool transcribingLeg =
+            state is VoiceNoteProcessing && !state.sending;
+        return PopScope<Object?>(
+          canPop: !pipelineInFlight,
+          onPopInvokedWithResult: (bool didPop, Object? result) async {
+            if (didPop) return;
+            if (transcribingLeg) {
+              final bool leave = await _confirmAbandonTranscribe(context);
+              if (leave && context.mounted) {
+                // Best-effort teardown; the screen pop closes the cubit too.
+                context.read<VoiceNoteCubit>().cancelRecording();
+                Navigator.of(context).maybePop();
               }
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  SnackBar(
-                    content: Text(sendingLeg
+              return;
+            }
+            ScaffoldMessenger.of(context)
+              ..hideCurrentSnackBar()
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    sendingLeg
                         ? kVoiceBackBlockedSendingLabel
-                        : kVoiceBackBlockedLabel),
+                        : kVoiceBackBlockedLabel,
                   ),
-                );
-            },
-            child: switch (state) {
-              VoiceNoteIdle() => _IdleView(
-                  onStart: () =>
-                      context.read<VoiceNoteCubit>().startRecording(),
                 ),
-              VoiceNoteRecording(:final int elapsedSeconds) => _RecordingView(
-                  elapsedSeconds: elapsedSeconds,
-                  maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
-                  onSend: () =>
-                      context.read<VoiceNoteCubit>().stopAndTranscribe(),
-                  onCancel: () =>
-                      context.read<VoiceNoteCubit>().cancelRecording(),
+              );
+          },
+          child: Scaffold(
+            backgroundColor: OnboardingColors.canvasBg,
+            body: Column(
+              children: <Widget>[
+                // Kit chrome for a pushed route. The back arrow goes through
+                // `maybePop`, so the hold above still owns whether it leaves.
+                ShiftBlueHeader(
+                  title: _kTitle,
+                  onBack: () => Navigator.of(context).maybePop(),
                 ),
-              VoiceNoteProcessing(:final bool sending) => BbStatusView.loading(
-                  caption: sending ? _kSendingCaption : _kProcessingCaption,
+                Expanded(
+                  child: SafeArea(
+                    top: false,
+                    child: switch (state) {
+                      VoiceNoteIdle() => _IdleView(
+                        onStart: () =>
+                            context.read<VoiceNoteCubit>().startRecording(),
+                      ),
+                      VoiceNoteRecording(:final int elapsedSeconds) =>
+                        _RecordingView(
+                          elapsedSeconds: elapsedSeconds,
+                          maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
+                          onSend: () => context
+                              .read<VoiceNoteCubit>()
+                              .stopAndTranscribe(),
+                          onCancel: () =>
+                              context.read<VoiceNoteCubit>().cancelRecording(),
+                        ),
+                      VoiceNoteProcessing(:final bool sending) =>
+                        BbStatusView.loading(
+                          caption: sending
+                              ? _kSendingCaption
+                              : _kProcessingCaption,
+                        ),
+                      // The confirm turn — keyed on the transcript so an edit
+                      // rebuilds the panel with the corrected text instead of a
+                      // stale controller.
+                      VoiceNoteTranscriptReady(:final String transcript) =>
+                        _ConfirmView(
+                          key: ValueKey<String>(transcript),
+                          transcript: transcript,
+                          onConfirm: () =>
+                              context.read<VoiceNoteCubit>().confirm(),
+                          onReRecord: () =>
+                              context.read<VoiceNoteCubit>().reRecord(),
+                          onEdit: (String text) =>
+                              context.read<VoiceNoteCubit>().edit(text),
+                        ),
+                      // Brief frame between success and the pop — keep the
+                      // spinner up.
+                      VoiceNoteSuccess() => const BbStatusView.loading(),
+                      VoiceNoteError(:final Failure failure) => _ErrorView(
+                        failure: failure,
+                        onRetry: () => context.read<VoiceNoteCubit>().reset(),
+                        onTypeInstead: () => context.pop(),
+                      ),
+                    },
+                  ),
                 ),
-              // The confirm turn — keyed on the transcript so an edit rebuilds
-              // the panel with the corrected text instead of a stale controller.
-              VoiceNoteTranscriptReady(:final String transcript) => _ConfirmView(
-                  key: ValueKey<String>(transcript),
-                  transcript: transcript,
-                  onConfirm: () => context.read<VoiceNoteCubit>().confirm(),
-                  onReRecord: () => context.read<VoiceNoteCubit>().reRecord(),
-                  onEdit: (String text) =>
-                      context.read<VoiceNoteCubit>().edit(text),
-                ),
-              // Brief frame between success and the pop — keep the spinner up.
-              VoiceNoteSuccess() => const BbStatusView.loading(),
-              VoiceNoteError(:final Failure failure) => _ErrorView(
-                  failure: failure,
-                  onRetry: () => context.read<VoiceNoteCubit>().reset(),
-                  onTypeInstead: () => context.pop(),
-                ),
-            },
-          );
-        },
-      ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The body padding shared by the capture states — the header's 16dp gutter
+/// widened to the forms' 20, with air above and below the hero.
+const EdgeInsets _kBodyPadding = EdgeInsets.fromLTRB(20, 24, 20, 24);
+
+/// The scrolling body every voice state sits in: it fills the viewport when the
+/// content is shorter (so a hero layout centres), scrolls when it is taller (so
+/// a 568dp handset at 200% font can never overflow), and caps its column at
+/// [OnboardingLayout.maxContentWidth] on a tablet or a landscape phone.
+///
+/// NOT `OnboardingBody(fillViewport: true)`, deliberately: that widget reaches
+/// the same contract through an [IntrinsicHeight], which exists so a column of
+/// `Spacer`s can centre on a tall screen. Intrinsics cannot be measured through
+/// a [LayoutBuilder], and this screen's turns contain several, so an
+/// `IntrinsicHeight` above them throws "LayoutBuilder does not support
+/// returning intrinsic dimensions". Nothing here uses a `Spacer`, so a [Column]
+/// under a `minHeight` box already sizes to `max(its content, the viewport)`
+/// and gets the contract for free.
+class _VoiceBody extends StatelessWidget {
+  const _VoiceBody({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double minHeight = constraints.maxHeight.isFinite
+            ? (constraints.maxHeight - _kBodyPadding.vertical).clamp(
+                0.0,
+                double.infinity,
+              )
+            : 0.0;
+        return SingleChildScrollView(
+          padding: _kBodyPadding,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: minHeight,
+                maxWidth: OnboardingLayout.maxContentWidth,
+              ),
+              child: child,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -257,53 +334,63 @@ class _IdleView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // Scroll-safe: the mic hero + copy centre on a tall screen and scroll
-    // (never a RenderFlex overflow) on a short handset or at a large text scale.
-    return BbScrollSafeBody(
+    // (never a RenderFlex overflow) on a short handset or at a large text
+    // scale, and the column stops at 440 on a tablet.
+    return _VoiceBody(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Semantics(
-            button: true,
-            label: _kMicSemanticLabel,
-            child: Material(
-              // Kit mic language: the mic is the ONE haldi hero on this screen —
-              // a solid haldi circle with a deep-blue glyph (on-haldi is always blue).
-              color: AppColors.haldi,
-              shape: const CircleBorder(),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: onStart,
-                child: const SizedBox(
-                  // 2x the s12 token — a mitten-friendly hero target.
-                  width: AppSpacing.s12,
-                  height: AppSpacing.s12,
-                  child: Icon(Icons.mic_rounded,
-                      size: AppSpacing.s9, color: AppColors.onHaldi),
+          // CENTRED, not stretched. The column stretches so the copy below can
+          // wrap across the full 440, and a stretched circle is a 440-wide
+          // ink target painting a 96dp disc in the middle of it — a worker
+          // tapping the empty canvas beside the mic would start a recording.
+          Center(
+            child: Semantics(
+              button: true,
+              label: _kMicSemanticLabel,
+              child: Material(
+                // The mic is the ONE safety-yellow hero on this screen — a
+                // solid yellow circle with a shift-blue glyph (on-yellow is
+                // always navy, spec §1.1 `textOnYellow`).
+                color: OnboardingColors.safetyYellow,
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: onStart,
+                  child: const SizedBox(
+                    // A mitten-friendly hero target, twice the 48dp floor.
+                    width: 96,
+                    height: 96,
+                    child: Icon(
+                      Icons.mic_rounded,
+                      size: 40,
+                      color: OnboardingColors.textOnYellow,
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: AppSpacing.s5),
+          const SizedBox(height: 20),
           Text(
             _kIdleHeading,
             textAlign: TextAlign.center,
-            style: AppTypography.display(
-                size: AppTypography.sizeXl, weight: FontWeight.w800),
+            style: OnboardingTypography.questionHeadline(),
           ),
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           Text(
             _kIdleBody,
             textAlign: TextAlign.center,
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textSecondary,
-            ),
+            style: OnboardingTypography.body(color: OnboardingColors.ink600),
           ),
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           Text(
             _kIdleHint,
             textAlign: TextAlign.center,
-            style: AppTypography.body(color: AppColors.textMuted),
+            style: OnboardingTypography.bodyMuted(
+              color: OnboardingColors.ink500,
+            ),
           ),
         ],
       ),
@@ -337,87 +424,109 @@ class _RecordingView extends StatelessWidget {
     // Scroll-safe: the record ring + counter + send/cancel CTAs centre on a tall
     // screen and scroll (never a RenderFlex overflow) on a short handset or at a
     // large accessibility text scale.
-    return BbScrollSafeBody(
+    return _VoiceBody(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          SizedBox(
-            width: AppSpacing.s12,
-            height: AppSpacing.s12,
-            child: Stack(
-              alignment: Alignment.center,
-              children: <Widget>[
-                // DETERMINATE record ring — fills as the cap (maxSeconds)
-                // approaches, so the record state shows real progress rather than
-                // a bare/indeterminate spinner. The mono clock reads out the same.
-                Positioned.fill(
-                  // Tween the ring between per-second ticks so it sweeps
-                  // continuously instead of snapping once a second. Each tick
-                  // moves `end`, and TweenAnimationBuilder animates from the
-                  // current value to it over one second on a linear curve.
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(
-                      begin: 0.0,
-                      end: maxSeconds > 0
-                          ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
-                          : 0.0,
-                    ),
-                    duration: const Duration(seconds: 1),
-                    curve: Curves.linear,
-                    builder: (BuildContext context, double value, Widget? _) =>
-                        CircularProgressIndicator(
-                      value: value,
-                      strokeWidth: 4,
-                      backgroundColor: AppColors.dangerTint,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                          AppColors.danger),
+          Center(
+            child: SizedBox(
+              width: 96,
+              height: 96,
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  // DETERMINATE record ring — fills as the cap (maxSeconds)
+                  // approaches, so the record state shows real progress rather
+                  // than a bare/indeterminate spinner. The mono clock reads out
+                  // the same.
+                  Positioned.fill(
+                    // Tween the ring between per-second ticks so it sweeps
+                    // continuously instead of snapping once a second. Each tick
+                    // moves `end`, and TweenAnimationBuilder animates from the
+                    // current value to it over one second on a linear curve.
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween<double>(
+                        begin: 0.0,
+                        end: maxSeconds > 0
+                            ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
+                            : 0.0,
+                      ),
+                      duration: const Duration(seconds: 1),
+                      curve: Curves.linear,
+                      builder:
+                          (BuildContext context, double value, Widget? _) =>
+                              CircularProgressIndicator(
+                                value: value,
+                                strokeWidth: 4,
+                                backgroundColor: OnboardingColors.errorBg,
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  OnboardingColors.errorRed,
+                                ),
+                              ),
                     ),
                   ),
-                ),
-                Container(
-                  width: AppSpacing.s11,
-                  height: AppSpacing.s11,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: AppColors.dangerTint,
-                    shape: BoxShape.circle,
+                  Container(
+                    width: 80,
+                    height: 80,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: OnboardingColors.errorBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.mic_rounded,
+                      size: 40,
+                      color: OnboardingColors.errorRed,
+                    ),
                   ),
-                  child: const Icon(Icons.mic_rounded,
-                      size: AppSpacing.s8, color: AppColors.danger),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: AppSpacing.s5),
+          const SizedBox(height: 20),
           Row(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.fiber_manual_record_rounded,
-                  size: 14, color: AppColors.danger),
-              const SizedBox(width: AppSpacing.s2),
-              Text(
-                _kRecordingLabel,
-                style: AppTypography.body(
-                  size: AppTypography.sizeMd,
-                  weight: FontWeight.w700,
-                  color: AppColors.textSecondary,
+              const Icon(
+                Icons.fiber_manual_record_rounded,
+                size: 14,
+                color: OnboardingColors.errorRed,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  _kRecordingLabel,
+                  style: OnboardingTypography.inter(
+                    size: 14,
+                    weight: FontWeight.w700,
+                    color: OnboardingColors.ink600,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
+          // The elapsed / cap clock is DATA, so it is mono with tabular figures
+          // — the digits cannot jitter as the seconds tick.
           Text(
             '${_clock(elapsedSeconds)} / ${_clock(maxSeconds)}',
-            style: AppTypography.mono(size: AppTypography.sizeXl),
+            textAlign: TextAlign.center,
+            style: OnboardingTypography.mono(
+              size: 24,
+              weight: FontWeight.w700,
+              color: OnboardingColors.shiftBlue,
+            ),
           ),
-          const SizedBox(height: AppSpacing.s7),
+          const SizedBox(height: 32),
           BbButton(
             label: _kSendLabel,
             block: true,
             iconLeft: Icons.send_rounded,
             onPressed: onSend,
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
           BbButton(
             label: _kCancelLabel,
             variant: BbButtonVariant.ghost,
@@ -500,25 +609,18 @@ class _ConfirmViewState extends State<_ConfirmView> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s5),
+    return _VoiceBody(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Text(
-            kVoiceConfirmHeading,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
+          const KitMicroLabel(kVoiceConfirmHeading),
+          const SizedBox(height: 8),
           // The worker's own words, in the worker's own bubble.
           BbChatBubble(text: widget.transcript, fromWorker: true),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
           // Bada bhai asking. Left-aligned bot bubble, exactly as in chat.
           const BbChatBubble(text: kVoiceConfirmPrompt, fromWorker: false),
-          const SizedBox(height: AppSpacing.s4),
+          const SizedBox(height: 16),
           if (!_correcting) _chips() else _correctionPanel(),
         ],
       ),
@@ -535,7 +637,7 @@ class _ConfirmViewState extends State<_ConfirmView> {
             onTap: widget.onConfirm,
           ),
         ),
-        const SizedBox(width: AppSpacing.s3),
+        const SizedBox(width: 12),
         Expanded(
           child: BbChip(
             label: kVoiceConfirmFixLabel,
@@ -550,60 +652,52 @@ class _ConfirmViewState extends State<_ConfirmView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(
-          kVoiceEditHeading,
-          style: AppTypography.body(
-            size: AppTypography.sizeMd,
-            weight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
+        Text(kVoiceEditHeading, style: OnboardingTypography.subheadBold()),
+        const SizedBox(height: 8),
         TextField(
           controller: _controller,
           minLines: 3,
           maxLines: 6,
           autofocus: true,
-          style: AppTypography.body(size: AppTypography.sizeSm),
+          // The box, its hairline and its navy focus ring all come from the
+          // app-wide v3 `inputDecorationTheme` — nothing is restated here.
+          style: OnboardingTypography.body(),
           inputFormatters: <TextInputFormatter>[
             DevanagariBlockFormatter(
               onBlocked: () => setState(() => _devanagariBlocked = true),
             ),
           ],
-          decoration: const InputDecoration(
-            hintText: kVoiceEditHint,
-            contentPadding: EdgeInsets.symmetric(
-              horizontal: AppSpacing.s3,
-              vertical: AppSpacing.s3,
-            ),
-          ),
+          decoration: const InputDecoration(hintText: kVoiceEditHint),
         ),
         if (_devanagariBlocked) ...<Widget>[
-          const SizedBox(height: AppSpacing.s2),
+          const SizedBox(height: 8),
           Row(
             children: <Widget>[
-              const Icon(Icons.error_outline,
-                  size: 16, color: AppColors.red600),
-              const SizedBox(width: AppSpacing.s2),
+              const Icon(
+                Icons.error_outline,
+                size: 16,
+                color: OnboardingColors.errorRed,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   kDevanagariBlockedHint,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    color: AppColors.red600,
+                  style: OnboardingTypography.bodyMuted(
+                    color: OnboardingColors.errorRed,
                   ),
                 ),
               ),
             ],
           ),
         ],
-        const SizedBox(height: AppSpacing.s4),
+        const SizedBox(height: 16),
         BbButton(
           label: _kSendLabel,
           block: true,
           iconLeft: Icons.send_rounded,
           onPressed: _sendEdited,
         ),
-        const SizedBox(height: AppSpacing.s3),
+        const SizedBox(height: 12),
         // The other half of "Sudhaarna hai": start over with the mic.
         BbButton(
           label: kVoiceReRecordLabel,
@@ -634,6 +728,9 @@ class _ErrorView extends StatelessWidget {
     final ({IconData icon, String reason}) why = failureReason(failure);
     return BbStatusView(
       icon: why.icon,
+      // The glyph is the error tone, so the disc behind it takes the error
+      // tint instead of the informational blue.
+      iconColor: OnboardingColors.errorRed,
       title: _kErrorTitle,
       subtitle: why.reason,
       action: Column(
@@ -644,7 +741,7 @@ class _ErrorView extends StatelessWidget {
             iconLeft: Icons.refresh_rounded,
             onPressed: onRetry,
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
           BbButton(
             label: _kTypeInsteadLabel,
             variant: BbButtonVariant.ghost,

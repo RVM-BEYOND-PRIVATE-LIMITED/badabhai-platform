@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 
 /// A custom on-screen 0–9 keypad + backspace — NO OS keyboard.
 ///
@@ -11,6 +9,12 @@ import '../../../../core/theme/app_typography.dart';
 /// backspace. The OS keyboard is deliberately avoided so the PIN entry surface
 /// is consistent across every device and never shows a number row that could be
 /// screen-recorded by an IME.
+///
+/// UI kit v3: white keys behind a `borderDefault` hairline at 1.2, the kit's
+/// 14 radius, and the digits in Roboto Mono navy — spec §1.2 puts codes in mono.
+/// The kit has no keypad of its own (its PIN screens use the OS keyboard); this
+/// one exists for the security and literacy reasons above, so it is restyled
+/// rather than replaced.
 ///
 /// SECURITY: this widget is STATELESS over the PIN — it only emits key events
 /// ([onDigit] / [onBackspace]). The PIN value is assembled and held by the
@@ -32,50 +36,110 @@ class BbPinKeypad extends StatelessWidget {
   /// When false (e.g. PIN locked), every key is inert.
   final bool enabled;
 
+  /// One key's painted size. Kept from the JUL31 keypad: 80x64 is far above the
+  /// 48dp floor, and the [FittedBox] in [_row] is what keeps it legal at 320dp.
+  static const double keyWidth = 80;
+  static const double keyHeight = 64;
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        for (final List<String> row in const <List<String>>[
-          <String>['1', '2', '3'],
-          <String>['4', '5', '6'],
-          <String>['7', '8', '9'],
-        ])
-          _row(row.map(_digitKey).toList()),
-        _row(<Widget>[
-          const _KeySpacer(),
-          _digitKey('0'),
-          _BackspaceKey(
-            onTap: enabled ? onBackspace : null,
-          ),
-        ]),
-      ],
+    // The keys are FIXED-SIZE tiles, so the digit on them is chrome, not copy:
+    // it clamps at [OnboardingLayout.chromeMaxTextScale] like every other piece
+    // of chrome (ruling R1). Unclamped, a 2.0 system font printed a 48px glyph
+    // inside a 64px box that the 320dp [FittedBox] then shrank further — the
+    // digits crowded their own tiles while telling the worker nothing more.
+    // The PIN row above and the copy around it still scale the whole way.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: OnboardingLayout.chromeMaxTextScale,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final List<String> row in const <List<String>>[
+            <String>['1', '2', '3'],
+            <String>['4', '5', '6'],
+            <String>['7', '8', '9'],
+          ])
+            _row(row.map(_digitKey).toList()),
+          _row(<Widget>[
+            const _KeySpacer(),
+            _digitKey('0'),
+            _BackspaceKey(onTap: enabled ? onBackspace : null),
+          ]),
+        ],
+      ),
     );
   }
 
-  Widget _digitKey(String digit) => _DigitKey(
-        digit: digit,
-        onTap: enabled ? () => onDigit(digit) : null,
-      );
+  Widget _digitKey(String digit) =>
+      _DigitKey(digit: digit, onTap: enabled ? () => onDigit(digit) : null);
 
+  // Three 80px keys plus their 12px side padding need 312, but a 320dp handset
+  // inside the auth screens' 20px gutter offers 280 — a RenderFlex overflow
+  // that CLIPPED THE BACKSPACE KEY (#1469), the one control the whole "fix a
+  // wrong PIN" story depends on. scaleDown is inert at 360dp and above.
   Widget _row(List<Widget> keys) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            for (final Widget key in keys)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
-                child: key,
-              ),
-          ],
-        ),
-      );
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          for (final Widget key in keys)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: key,
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
-/// One large digit key. 72px target — comfortably above the 48px floor.
+/// The shared key surface: a white 80x64 tile behind the kit's hairline, with
+/// the press ink CLIPPED to the tile.
+///
+/// Its own [Material] is the load-bearing part. The keys used to be a bare
+/// [InkResponse] with `radius: 48` over the SCAFFOLD's material, so a tap
+/// painted a 48dp-radius circular splash in the theme's yellow that was never
+/// bounded by the key: it washed across the background behind the neighbouring
+/// keys and off the left edge of the screen. A locked-out worker's only screen
+/// is not the place to look broken. The `Material` + matching `borderRadius` +
+/// `clipBehavior` keep the splash inside the key it belongs to.
+class _KeySurface extends StatelessWidget {
+  const _KeySurface({required this.onTap, required this.child});
+
+  final VoidCallback? onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final BorderRadius radius = BorderRadius.circular(OnboardingRadii.pinBox);
+    return Material(
+      color: OnboardingColors.paperWhite,
+      borderRadius: radius,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: Container(
+          width: BbPinKeypad.keyWidth,
+          height: BbPinKeypad.keyHeight,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            border: Border.all(
+              color: OnboardingColors.borderDefault,
+              width: 1.2,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// One large digit key. 80x64 painted — comfortably above the 48px floor.
 class _DigitKey extends StatelessWidget {
   const _DigitKey({required this.digit, required this.onTap});
 
@@ -84,24 +148,14 @@ class _DigitKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkResponse(
+    return _KeySurface(
       onTap: onTap,
-      radius: AppSpacing.s9,
-      child: Container(
-        width: AppSpacing.s11, // 80
-        height: AppSpacing.s10, // 64
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceCard,
-          borderRadius: BorderRadius.circular(AppRadii.lg),
-          border: Border.all(color: AppColors.borderSubtle),
-        ),
-        child: Text(
-          digit,
-          style: AppTypography.display(
-            size: AppTypography.size2xl,
-            weight: FontWeight.w700,
-          ),
+      child: Text(
+        digit,
+        style: OnboardingTypography.mono(
+          size: 24,
+          weight: FontWeight.w700,
+          color: OnboardingColors.shiftBlue,
         ),
       ),
     );
@@ -126,17 +180,17 @@ class _BackspaceKey extends StatelessWidget {
     return Semantics(
       button: true,
       label: kBackspaceSemanticLabel,
-      child: InkResponse(
+      // The SAME tile as the digits. It used to be a bare glyph on the canvas,
+      // which gave the one key that fixes a mistyped PIN the weakest
+      // affordance on the screen.
+      child: _KeySurface(
         onTap: onTap,
-        radius: AppSpacing.s9,
-        child: SizedBox(
-          width: AppSpacing.s11,
-          height: AppSpacing.s10,
-          child: Icon(
-            Icons.backspace_outlined,
-            size: AppSpacing.s6,
-            color: onTap == null ? AppColors.textFaint : AppColors.textSecondary,
-          ),
+        child: Icon(
+          Icons.backspace_outlined,
+          size: 24,
+          color: onTap == null
+              ? OnboardingColors.disabledText
+              : OnboardingColors.ink600,
         ),
       ),
     );
@@ -148,6 +202,8 @@ class _KeySpacer extends StatelessWidget {
   const _KeySpacer();
 
   @override
-  Widget build(BuildContext context) =>
-      const SizedBox(width: AppSpacing.s11, height: AppSpacing.s10);
+  Widget build(BuildContext context) => const SizedBox(
+    width: BbPinKeypad.keyWidth,
+    height: BbPinKeypad.keyHeight,
+  );
 }

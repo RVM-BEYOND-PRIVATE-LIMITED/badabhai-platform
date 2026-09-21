@@ -58,6 +58,8 @@ function make(
     photoBucket?: string;
     /** #1191 — arms the feedback-attachment prefix sweep. Empty (default) = DORMANT. */
     feedbackAttachmentsBucket?: string;
+    /** #1548 — arms the portfolio prefix sweep. Empty (default) = DORMANT. */
+    portfolioBucket?: string;
     hadPin?: boolean;
     devices?: number;
     sessions?: number;
@@ -124,6 +126,9 @@ function make(
     // #1191: same dormant default again. While unset the attachment MINT 503s, so nothing can
     // have been uploaded to orphan — which is why "skipped" is the honest record, not a gap.
     WORKER_FEEDBACK_ATTACHMENTS_BUCKET: opts.feedbackAttachmentsBucket ?? "",
+    // #1548: same dormant default once more; setting it arms the portfolio prefix-sweep leg in
+    // the same act the mint is armed by.
+    WORKER_PORTFOLIO_BUCKET: opts.portfolioBucket ?? "",
     ACCOUNT_DELETION_COOLDOWN_SECONDS: opts.cooldown ?? 604800,
     // ADR-0031 — the grace window schedule() stamps (default 7 days).
     ACCOUNT_DELETION_GRACE_DAYS: 7,
@@ -891,9 +896,9 @@ describe("the erasure records what each store actually reported (#712)", () => {
     expect(auditOf(h).outcome).not.toBe("failed");
     const emitted = h.events.emit.mock.calls[0]![0];
     expect(emitted.payload.storage_objects_failed).toBe(0);
-    expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes("account deletion complete"))).toBe(
-      true,
-    );
+    expect(
+      log.mock.calls.map((c) => String(c[0])).some((l) => l.includes("account deletion complete")),
+    ).toBe(true);
     expect(error.mock.calls).toHaveLength(0);
     vi.restoreAllMocks();
   });
@@ -921,7 +926,11 @@ describe("the erasure records what each store actually reported (#712)", () => {
     );
 
     // The two voice legs are recorded FAILED, not skipped.
-    expect(legOf(h, "voice_objects")).toMatchObject({ outcome: "failed", attempted: 1, deleted: 0 });
+    expect(legOf(h, "voice_objects")).toMatchObject({
+      outcome: "failed",
+      attempted: 1,
+      deleted: 0,
+    });
     expect(legOf(h, "voice_prefix")).toMatchObject({ outcome: "failed", attempted: 1, deleted: 0 });
 
     // FAIL CLOSED at the top level: the whole erasure is "failed", never "deleted"/"nothing_to_delete".
@@ -1052,6 +1061,8 @@ describe("the erasure records what each store actually reported (#712)", () => {
       `voice-notes/${WORKER_ID}/`,
       `photos/${WORKER_ID}/`,
       `feedback-attachments/${WORKER_ID}/`,
+      `resume-uploads/${WORKER_ID}/`,
+      `portfolio/${WORKER_ID}/`,
       `${WORKER_ID}/`,
     ]);
     for (const leg of auditOf(h).legs) {
@@ -1122,6 +1133,79 @@ describe("erasing the feedback attachments (#1191)", () => {
     await h.svc.execute(WORKER_ID);
 
     expect(auditOf(h).legs.find((l) => l.leg === "feedback_attachment_prefix")).toMatchObject({
+      outcome: "failed",
+    });
+    // Fail CLOSED at the top level: one dead bucket is not a successful erasure with a footnote.
+    expect(auditOf(h).outcome).toBe("failed");
+  });
+});
+
+/**
+ * ── PORTFOLIO MEDIA (ADR-0042 D9 / Layer A (e), #1548) ──────────────────────────────────
+ *
+ * The work samples a worker uploaded live in object storage; the cascade that erases
+ * `worker_portfolio` rows does NOT touch them. A PREFIX sweep rather than a per-row read is
+ * load-bearing here for the feedback leg's reason: the register step has no per-object confirm,
+ * so an object uploaded to a minted slot whose row was never saved — or was refused by the
+ * ownership check — is referenced by no row at all, and only the prefix knows about it.
+ *
+ * UNTIL THIS LEG LANDED THE BUCKET WAS DOCUMENTED AS DO-NOT-ARM (#1548): arming the mint without
+ * the sweep would have stranded every portfolio object past an account deletion.
+ */
+describe("erasing the portfolio media (#1548)", () => {
+  const BUCKET = "worker-portfolio";
+  const PREFIX = `portfolio/${WORKER_ID}/`;
+
+  it("sweeps the worker's OWN prefix, in the portfolio bucket", async () => {
+    const h = make({ portfolioBucket: BUCKET });
+    h.storage.deleteByPrefix.mockResolvedValue(2);
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(PREFIX, BUCKET);
+    const leg = auditOf(h).legs.find((l) => l.leg === "portfolio_prefix");
+    expect(leg).toMatchObject({ target: PREFIX, outcome: "deleted", deleted: 2 });
+  });
+
+  it("records a DORMANT bucket as SKIPPED, never as an empty sweep", async () => {
+    // "We looked and found nothing" and "we never looked" are different claims, and only the
+    // first is evidence a DSAR request was honoured.
+    const h = make();
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deleteByPrefix).not.toHaveBeenCalledWith(PREFIX, expect.anything());
+    expect(auditOf(h).legs.find((l) => l.leg === "portfolio_prefix")).toMatchObject({
+      outcome: "skipped",
+    });
+  });
+
+  it("is its OWN leg — never folded into the photo or feedback sweeps", async () => {
+    // Three buckets, three env vars, three sensitivity classes. A record that fused them could
+    // report a sweep that only one of the buckets actually received.
+    const h = make({
+      photoBucket: "worker-profile-photos",
+      feedbackAttachmentsBucket: "worker-feedback-attachments",
+      portfolioBucket: BUCKET,
+    });
+    await h.svc.execute(WORKER_ID);
+
+    const legs = auditOf(h).legs.map((l) => l.leg);
+    expect(legs).toContain("photo_prefix");
+    expect(legs).toContain("feedback_attachment_prefix");
+    expect(legs).toContain("portfolio_prefix");
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(PREFIX, BUCKET);
+  });
+
+  it("records a storage failure as FAILED — an incomplete erasure must say so", async () => {
+    const h = make({ portfolioBucket: BUCKET });
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) => {
+      if (prefix === PREFIX) throw new Error("bucket unreachable");
+      return 0;
+    });
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(auditOf(h).legs.find((l) => l.leg === "portfolio_prefix")).toMatchObject({
       outcome: "failed",
     });
     // Fail CLOSED at the top level: one dead bucket is not a successful erasure with a footnote.

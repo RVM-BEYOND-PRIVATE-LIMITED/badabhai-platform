@@ -200,6 +200,29 @@ function ownWordsLines(phrases: readonly string[] | undefined): number {
 export interface DegradableSheet {
   displayName?: string | null;
   nameDevanagari?: string | null;
+  /**
+   * The masthead's location line — "Faridabad, Haryana" (owner ruling 2026-09-08).
+   *
+   * MODELLED EVEN THOUGH THE LADDER NEVER DROPS IT, exactly like `ownWords` and for the same
+   * reason: an unmodelled line is a line the budget silently spends.
+   *
+   * THE ARITHMETIC, SINCE "ROUGHLY ONE LINE" IS NOT A MEASUREMENT. `.loc` is 9 pt and inherits
+   * `line-height: 1.32` from `body`, so its box is 11.88 pt = 4.19 mm, plus `margin-top: 0.8 mm`
+   * = 4.99 mm against the body line's 4.89. The one-line charge therefore UNDER-counts by
+   * 0.10 mm — about 2% of a line, two orders of magnitude inside the 5 mm headroom floor and far
+   * below the ±3.64 mm the font stack alone moves a sheet. It is not rounded up to two, which
+   * would spend a whole line of a worker's page to buy back a tenth of a millimetre.
+   *
+   * CHARGED THROUGH `rowLines` RATHER THAN AS A FLAT 1, so a pathological value still costs what
+   * it prints: both columns are capped at 80 characters by the write-side DTO, and 162 characters
+   * wrap. `CHARS_PER_LINE` is calibrated at the 10.5 pt body size, so a 9 pt line actually fits
+   * MORE — which makes this over-count for a long value, the safe direction.
+   *
+   * NOT DROPPABLE. A résumé that does not say where the worker is cannot be acted on by a
+   * supervisor hiring for one plant, which is why it is absent from the ladder rather than last
+   * in it. See {@link NEVER_DROPPED}.
+   */
+  locationLine?: string | null;
   capSectionTitle?: string | null;
   capChipRows?: ResumeListRow[];
   capTickRows?: ResumeListRow[];
@@ -229,6 +252,7 @@ export function sheetContentLines(s: DegradableSheet): number {
   return (
     nameLines(s.displayName) +
     (s.nameDevanagari ? 1 : 0) +
+    (s.locationLine ? rowLines("", s.locationLine) : 0) +
     sections * SECTION_CHROME_LINES +
     ownWordsLines(s.ownWords) +
     listRowLines(s.capChipRows) +
@@ -258,6 +282,7 @@ export function sheetContentLines(s: DegradableSheet): number {
 export const NEVER_DROPPED = [
   "verdict_line", // §5.1 rank 1 — the sheet's entire triage value
   "display_name", // a résumé without a name is not a résumé
+  "location_line", // owner ruling 2026-09-08 — a sheet with no place cannot be acted on
   "availability", // §5.1 rank 6 — one of the four real rejection filters
   "expected_salary", // §5.1 rank 6 — the other one
   "trust_badge", // Part 10.2: absence must read as neutral, never as doubt

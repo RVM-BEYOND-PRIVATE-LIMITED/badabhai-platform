@@ -1,10 +1,75 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { type Database, workerEmployment, workerEmploymentRole } from "@badabhai/db";
+import { type Database, voiceNotes, workerEmployment, workerEmploymentRole } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
+
+/**
+ * The employer name behind one token, or `null` when there is no name this system can honestly use.
+ *
+ * ONE PREDICATE, THREE READERS, AND THEY MUST AGREE (#1504). The résumé read drops a row it cannot
+ * read; the worker's edit read withholds it and counts it; the replace CARRIES it across instead of
+ * deleting it. If those three disagreed about what "readable" means, a row the GET withheld could
+ * be one the replace deletes — the exact erase this helper exists to rule out.
+ *
+ * A BLANK NAME IS UNREADABLE TOO. The PUT refuses an empty employer (§11 #4), so a blank plaintext
+ * could neither be rendered nor round-tripped; treating it as readable would hand the client a row
+ * whose save is a 400.
+ *
+ * NEVER LOGS AND NEVER RETHROWS. The token, the key id and the error detail all stay here — the
+ * same contract the name and the phone already have.
+ */
+export function readEmployerName(
+  pii: Pick<PiiCryptoService, "decrypt">,
+  token: string,
+): string | null {
+  let name: string;
+  try {
+    name = pii.decrypt(token);
+  } catch {
+    return null;
+  }
+  return name.trim() ? name : null;
+}
+
+/**
+ * The client's `expected_existing_count` did not match the rows the replace transaction read (#1504).
+ *
+ * A DOMAIN ERROR, NOT AN HTTP ONE — this layer does database access and nothing else, so the service
+ * decides that this is a 409. Thrown INSIDE the transaction, before the delete, so the rollback has
+ * nothing to undo. Carries counts only.
+ */
+export class EmploymentCountMismatchError extends Error {
+  constructor(
+    readonly actual: number,
+    readonly expected: number,
+  ) {
+    super(`expected ${expected} stored employment row(s), found ${actual}`);
+    this.name = "EmploymentCountMismatchError";
+  }
+}
+
+/** One stored employment as the worker's own edit page needs it — ciphertext still sealed (#1504). */
+export interface WorkerEmploymentEditRecord {
+  id: string;
+  employerNameEnc: string;
+  employerCity: string | null;
+  employerState: string | null;
+  startYm: string | null;
+  endYm: string | null;
+  roles: {
+    roleLabel: string;
+    startYm: string | null;
+    endYm: string | null;
+    workDone: string | null;
+    workDoneVoiceNoteId: string | null;
+    workDonePolishDeclined: boolean;
+    /** Whether a rewrite exists. The rewrite TEXT is never selected into this record. */
+    hasPolish: boolean;
+  }[];
+}
 
 /**
  * READS AND WRITES `worker_employment` for the résumé's Zone 4.
@@ -47,6 +112,18 @@ export class WorkerEmploymentRepository {
    *
    * Returns whether it replaced an existing history, which the event needs and only the
    * transaction can know.
+   *
+   * ═══ THREE PRECONDITIONS, ALL DECIDED ON THE TRANSACTION'S OWN READ (#1504) ═══
+   *
+   * 1. `expectedExistingCount` — when given and different from the rows read, throw
+   *    {@link EmploymentCountMismatchError} BEFORE the delete. A client that prefilled from a stale
+   *    GET would otherwise replace rows it never saw.
+   * 2. `preserveWhenEmpty` — an old build's `[]` over a stored history is a no-op: nothing deleted,
+   *    `skipped: true`. The service decides when this applies; this layer only makes it atomic.
+   * 3. UNREADABLE ROWS SURVIVE. A row whose employer name will not decrypt was withheld from the
+   *    worker's GET, so a full replace built from that GET cannot be a decision about it. It is
+   *    excluded from the delete and carried across, and the new rows are numbered after it so
+   *    `we_worker_sort_uq` still holds.
    */
   async replaceForWorker(
     workerId: string,
@@ -67,17 +144,125 @@ export class WorkerEmploymentRepository {
         startYm: string | null;
         endYm: string | null;
         workDone: string | null;
+        workDoneVoiceNoteId: string | null;
       }[];
     }[],
-  ): Promise<{ replacedExisting: boolean }> {
+    options: { expectedExistingCount?: number; preserveWhenEmpty?: boolean } = {},
+  ): Promise<{
+    replacedExisting: boolean;
+    existingCount: number;
+    skipped: boolean;
+    carriedUnreadable: number;
+  }> {
     return this.db.transaction(async (tx) => {
       const existing = await tx
-        .select({ id: workerEmployment.id })
+        .select({
+          id: workerEmployment.id,
+          employerNameEnc: workerEmployment.employerNameEnc,
+          sortOrder: workerEmployment.sortOrder,
+        })
         .from(workerEmployment)
         .where(eq(workerEmployment.workerId, workerId));
 
-      await tx.delete(workerEmployment).where(eq(workerEmployment.workerId, workerId));
-      if (rows.length === 0) return { replacedExisting: existing.length > 0 };
+      // (1) THE STALE-PREFILL GUARD, on the rows this transaction just read and before anything
+      // below can write. See the method docstring.
+      if (
+        options.expectedExistingCount !== undefined &&
+        existing.length !== options.expectedExistingCount
+      ) {
+        throw new EmploymentCountMismatchError(existing.length, options.expectedExistingCount);
+      }
+
+      // (2) THE OLD-BUILD BLANK SAVE (owner ruling 2026-09-15). Nothing is written.
+      if (options.preserveWhenEmpty === true && rows.length === 0 && existing.length > 0) {
+        return {
+          replacedExisting: false,
+          existingCount: existing.length,
+          skipped: true,
+          carriedUnreadable: 0,
+        };
+      }
+
+      // (3) WHAT THE WORKER COULD NOT SEE, THE WORKER DID NOT REPLACE.
+      const unreadable = existing.filter(
+        (e) => readEmployerName(this.pii, e.employerNameEnc) === null,
+      );
+      const unreadableIds = new Set(unreadable.map((e) => e.id));
+      const replaceableIds = existing.filter((e) => !unreadableIds.has(e.id)).map((e) => e.id);
+      // AFTER every carried row, so an insert can never collide with one on `we_worker_sort_uq`.
+      // Display order among the NEW rows is still the submitted order; a carried row renders
+      // nowhere, so where it sits relative to them changes no sheet.
+      const sortBase =
+        unreadable.length === 0 ? 0 : Math.max(...unreadable.map((e) => e.sortOrder)) + 1;
+
+      // ── WHAT THE DELETE WOULD OTHERWISE TAKE WITH IT ────────────────────────────────────
+      //
+      // This endpoint has REPLACE semantics over the whole history, and the roles cascade — so
+      // every save re-created every stint with a fresh id, `work_done_polished` NULL and
+      // `work_done_polish_declined` back at its default. Two things were being destroyed by a
+      // worker doing nothing worse than adding a second employer:
+      //
+      //   1. THE POLISH. Every stint's rewrite was thrown away and had to be bought again on the
+      //      next render — N model calls to restore text that had not changed, and, until that
+      //      render lands, a sheet that prints Hinglish where it printed English yesterday.
+      //   2. THE WORKER'S REFUSAL (#1354), which is worse, because it is not merely re-earned.
+      //      A cleared decline is EXACTLY the state the polisher reads as "not done yet", so the
+      //      next render silently rewrote a description the worker had explicitly chosen to keep
+      //      in his own words. That is the defect `work-history-own-words.test.ts` exists to
+      //      prevent, arriving through a door that test does not watch.
+      //
+      // KEYED ON THE TEXT, NEVER ON POSITION. `sort_order` shifts the moment an employer is
+      // added, removed or reordered — and adding a most-recent employer at slot 0, which pushes
+      // everything down, is the ordinary case — so a slot match would carry nothing in exactly
+      // the situation this exists for, and could migrate one employer's refusal onto another's
+      // sentence. The description IS the identity here: the rewrite is a presentation of that
+      // text, so an unchanged description keeps its rewrite and an EDITED one arrives with a null
+      // polish and is re-polished for free, which is the behaviour `WorkHistoryPolishService`
+      // already documents.
+      const carried = new Map<string, { polished: string | null; declined: boolean }>();
+      for (const row of await tx
+        .select({
+          workDone: workerEmploymentRole.workDone,
+          workDonePolished: workerEmploymentRole.workDonePolished,
+          workDonePolishDeclined: workerEmploymentRole.workDonePolishDeclined,
+        })
+        .from(workerEmploymentRole)
+        .innerJoin(workerEmployment, eq(workerEmploymentRole.employmentId, workerEmployment.id))
+        .where(eq(workerEmployment.workerId, workerId))) {
+        const key = row.workDone?.trim();
+        if (!key) continue;
+        if (row.workDonePolished === null && !row.workDonePolishDeclined) continue;
+        // FIRST WRITER WINS on a duplicate description, and the tie cannot matter: the two rows
+        // carry the same text, so they would have earned the same rewrite.
+        if (!carried.has(key)) {
+          carried.set(key, {
+            polished: row.workDonePolished,
+            declined: row.workDonePolishDeclined,
+          });
+        }
+      }
+
+      const done = {
+        replacedExisting: existing.length > 0,
+        existingCount: existing.length,
+        skipped: false,
+        carriedUnreadable: unreadable.length,
+      };
+
+      // SCOPED TO THE WORKER AND TO THE READABLE IDS, never "every row for this worker". The
+      // worker predicate stays even though the ids came from a worker-scoped read, so the delete is
+      // provably one worker's on its own.
+      if (replaceableIds.length > 0) {
+        await tx
+          .delete(workerEmployment)
+          .where(
+            and(
+              eq(workerEmployment.workerId, workerId),
+              inArray(workerEmployment.id, replaceableIds),
+            ),
+          );
+      }
+      if (rows.length === 0) return done;
 
       const inserted = await tx
         .insert(workerEmployment)
@@ -92,31 +277,135 @@ export class WorkerEmploymentRepository {
             durationStated: r.durationStated,
             // The FORM's order is the display order, most recent first. Never derived from the
             // dates: two jobs can start in the same month, and a worker whose dates are unstated
-            // still described them in an order.
-            sortOrder: index,
+            // still described them in an order. Offset past any carried unreadable row (see
+            // `sortBase` above).
+            sortOrder: sortBase + index,
           })),
         )
         .returning({ id: workerEmployment.id });
 
       await tx.insert(workerEmploymentRole).values(
         inserted.flatMap((employment, index) =>
-          rows[index]!.roles.map((role, roleIndex) => ({
-            employmentId: employment.id,
-            roleLabel: role.roleLabel,
-            startYm: role.startYm,
-            endYm: role.endYm,
-            workDone: role.workDone,
-            // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
-            // `sortOrder` follows one statement up, and for the same reason: a promotion in the
-            // same month as its predecessor has no date to sort by, and re-deriving would
-            // reshuffle stints between renders and make every regenerated PDF a false diff.
-            sortOrder: roleIndex,
-          })),
+          rows[index]!.roles.map((role, roleIndex) => {
+            // See the read above the delete. An unchanged description keeps the rewrite it
+            // already earned AND the worker's decision about it; a changed one matches nothing
+            // and is re-polished on the next render, which is the documented behaviour.
+            const kept = carried.get(role.workDone?.trim() ?? "");
+            return {
+              employmentId: employment.id,
+              roleLabel: role.roleLabel,
+              startYm: role.startYm,
+              endYm: role.endYm,
+              workDone: role.workDone,
+              workDoneVoiceNoteId: role.workDoneVoiceNoteId,
+              workDonePolished: kept?.polished ?? null,
+              workDonePolishDeclined: kept?.declined ?? false,
+              // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
+              // `sortOrder` follows one statement up, and for the same reason: a promotion in the
+              // same month as its predecessor has no date to sort by, and re-deriving would
+              // reshuffle stints between renders and make every regenerated PDF a false diff.
+              sortOrder: roleIndex,
+            };
+          }),
         ),
       );
 
-      return { replacedExisting: existing.length > 0 };
+      return done;
     });
+  }
+
+  /**
+   * One worker's history for THEIR OWN edit page (#1504) — NOT {@link loadForResume}.
+   *
+   * THE RÉSUMÉ READ IS THE WRONG READ FOR A PREFILL, IN TWO WAYS THAT EACH ERASE DATA. It drops a
+   * row whose employer name will not decrypt, and it never selects `work_done_voice_note_id`. A page
+   * prefilled from it and saved as a full replace would delete the row the worker never saw and
+   * null the provenance of every spoken description. This read keeps both: every row comes back
+   * with its ciphertext still sealed (the service decides readability through
+   * {@link readEmployerName}, the same predicate the replace uses), and every stint carries its clip.
+   *
+   * THE REWRITE TEXT IS NOT SELECTED — only whether one exists. The page needs to know which text
+   * prints; it does not need a model's sentence on the wire to know that.
+   *
+   * Same ordering and same two-statement shape as the résumé read, for the same reasons.
+   */
+  async loadForWorkerEdit(workerId: string): Promise<WorkerEmploymentEditRecord[]> {
+    const employments = await this.db
+      .select({
+        id: workerEmployment.id,
+        employerNameEnc: workerEmployment.employerNameEnc,
+        employerCity: workerEmployment.employerCity,
+        employerState: workerEmployment.employerState,
+        startYm: workerEmployment.startYm,
+        endYm: workerEmployment.endYm,
+      })
+      .from(workerEmployment)
+      .where(eq(workerEmployment.workerId, workerId))
+      .orderBy(asc(workerEmployment.sortOrder));
+
+    if (employments.length === 0) return [];
+
+    const roles = await this.db
+      .select({
+        employmentId: workerEmploymentRole.employmentId,
+        roleLabel: workerEmploymentRole.roleLabel,
+        startYm: workerEmploymentRole.startYm,
+        endYm: workerEmploymentRole.endYm,
+        workDone: workerEmploymentRole.workDone,
+        workDoneVoiceNoteId: workerEmploymentRole.workDoneVoiceNoteId,
+        workDonePolishDeclined: workerEmploymentRole.workDonePolishDeclined,
+        workDonePolished: workerEmploymentRole.workDonePolished,
+      })
+      .from(workerEmploymentRole)
+      .where(
+        inArray(
+          workerEmploymentRole.employmentId,
+          employments.map((e) => e.id),
+        ),
+      )
+      .orderBy(asc(workerEmploymentRole.sortOrder));
+
+    const byEmployment = new Map<string, WorkerEmploymentEditRecord["roles"]>();
+    for (const role of roles) {
+      const bucket = byEmployment.get(role.employmentId) ?? [];
+      bucket.push({
+        roleLabel: role.roleLabel,
+        startYm: role.startYm,
+        endYm: role.endYm,
+        workDone: role.workDone,
+        workDoneVoiceNoteId: role.workDoneVoiceNoteId,
+        workDonePolishDeclined: role.workDonePolishDeclined,
+        hasPolish: role.workDonePolished !== null && role.workDonePolished.trim() !== "",
+      });
+      byEmployment.set(role.employmentId, bucket);
+    }
+
+    return employments.map((e) => ({ ...e, roles: byEmployment.get(e.id) ?? [] }));
+  }
+
+  /**
+   * Of `ids`, which voice notes actually belong to THIS worker.
+   *
+   * THE FOREIGN KEY IS NOT THE CHECK. `work_done_voice_note_id` references `voice_notes(id)`, so
+   * the database proves the clip EXISTS and nothing more — a worker who guessed or replayed
+   * another worker's note id would write a row whose provenance points at audio that is not
+   * theirs. The FK cannot express ownership because `voice_notes.worker_id` is on the other row.
+   *
+   * A SCOPED READ, NOT A JOIN ON THE WRITE. Returning the owned subset lets the SERVICE decide
+   * what an unowned id means (it fails the request closed) rather than this method silently
+   * dropping one, which would store a description whose recording quietly vanished.
+   *
+   * `voice_notes` is read here rather than through `VoiceService` on purpose: `ProfilesModule`
+   * importing `VoiceModule` would close a cycle (`VoiceModule` -> `ChatModule` -> `ProfilesModule`),
+   * and this is one scoped SELECT of two columns, not a reach into the voice layer's writes.
+   */
+  async findOwnedVoiceNoteIds(workerId: string, ids: readonly string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    const rows = await this.db
+      .select({ id: voiceNotes.id })
+      .from(voiceNotes)
+      .where(and(eq(voiceNotes.workerId, workerId), inArray(voiceNotes.id, [...new Set(ids)])));
+    return new Set(rows.map((r) => r.id));
   }
 
   /**
@@ -248,17 +537,12 @@ export class WorkerEmploymentRepository {
 
     const out: WorkerEmploymentRecord[] = [];
     for (const e of employments) {
-      let employer: string;
-      try {
-        employer = this.pii.decrypt(e.employerNameEnc);
-      } catch {
-        // NEVER LOG THE TOKEN OR THE ERROR DETAIL — the same contract the name and the phone
-        // already have. The employment is dropped rather than printed with a placeholder: an
-        // employer field is never blank and is never invented (§11 #4), so a name we cannot
-        // read is a row we cannot honestly render.
-        continue;
-      }
-      if (!employer.trim()) continue;
+      // The employment is dropped rather than printed with a placeholder: an employer field is
+      // never blank and is never invented (§11 #4), so a name we cannot read is a row we cannot
+      // honestly render. The predicate is shared with the replace and the edit read — see
+      // `readEmployerName`, which also owns the never-log-the-token rule.
+      const employer = readEmployerName(this.pii, e.employerNameEnc);
+      if (employer === null) continue;
       out.push({
         // #1353/#1354 — already selected above (`id: workerEmployment.id`); just
         // wasn't threaded into the render-input record until now.

@@ -146,6 +146,8 @@ describe("the screen table is the worker app's route table", () => {
         "detail/:tradeKey", // → Routes.kitDetail     '/profile/kit/detail' + '/<tradeKey>'
         "devices", // → Routes.devices       '/profile/settings/devices'
         "edit", // → Routes.resumeEdit    '/resume/edit'
+        "edit", // → Routes.profileEdit   '/profile/edit'  (Layer A, #1545)
+        "review", // → Routes.extractedReview '/resume/review'  (extracted-profile review, #1595)
         "kit", // → Routes.kit           '/profile/kit'
         "search", // → Routes.jobSearch     '/jobs/search'
         "settings", // → Routes.settings      '/profile/settings'

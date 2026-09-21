@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/forgot_pin_screen.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -16,13 +17,21 @@ class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 /// PIN. The new-PIN phase is ONE page: enter + confirm rows both on screen
 /// together, driven by the OS numeric keyboard (no custom keypad). The OTP is
 /// verified with the new PIN at the single `confirmPinReset` call (there is no
-/// standalone reset-OTP verify), so a matching PIN is what submits. A
-/// guessable PIN is still blocked client-side before that call, and a weak PIN
-/// / confirm mismatch each raise the centred dialog.
+/// standalone reset-OTP verify).
+///
+/// SAVED BY THE BUTTON, like set-PIN (UI kit v3). Completing the confirm row
+/// explains a mismatch immediately but sends nothing; "Save PIN & Continue" is
+/// the submit. A guessable PIN is NOT blocked client-side (#1464) — it goes
+/// straight to the server, whose weak-PIN rejection, like a bad OTP and a
+/// confirm mismatch, raises the centred dialog.
 void main() {
-  const String guessMsg =
-      '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
-      'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';
+  // #1463 — the active PIN slot carries a BLINKING caret, and a perpetual
+  // blink keeps a frame scheduled forever, so every `pumpAndSettle` below
+  // would pump until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen. The blink
+  // itself is covered by its own discrete-pump test in bb_pin_keypad_test.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
 
   late MockAuthSessionManager manager;
 
@@ -81,8 +90,19 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('flow order: phone → OTP → new PIN (OTP comes BEFORE the PIN)',
-      (WidgetTester tester) async {
+  /// The new PIN is saved BY THE BUTTON, exactly as on set-PIN: completing the
+  /// confirm row only reports "ready" (it still explains a mismatch on the
+  /// spot), and nothing reaches `confirmPinReset` until this tap. Button mode
+  /// is what makes the last typed digit recoverable — the old form submitted
+  /// itself the instant the 4th confirm digit landed.
+  Future<void> tapSave(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('forgotPinSaveButton')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('flow order: phone → OTP → new PIN (OTP comes BEFORE the PIN)', (
+    WidgetTester tester,
+  ) async {
     await pumpToOtpPhase(tester);
 
     // After Send OTP we are on the OTP step — NOT the PIN step.
@@ -104,43 +124,49 @@ void main() {
     verifyNever(() => manager.confirmPinReset(any(), any(), any()));
   });
 
-  testWidgets('a matching new PIN submits {phone, otp, pin} exactly once',
-      (WidgetTester tester) async {
-    when(() => manager.confirmPinReset(any(), any(), any()))
-        .thenAnswer((_) async {});
+  testWidgets('a matching new PIN submits {phone, otp, pin} exactly once', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => manager.confirmPinReset(any(), any(), any()),
+    ).thenAnswer((_) async {});
 
     await pumpToPinPhase(tester);
     await enterFirst(tester, '3927'); // strong
-    await enterConfirm(tester, '3927'); // matches → submit
+    await enterConfirm(tester, '3927'); // matches → the save button lights up
     await tester.pumpAndSettle();
+    await tapSave(tester);
 
     // The OTP entered in the OTP phase rides the confirm with the new PIN.
     verify(() => manager.confirmPinReset(any(), '123456', '3927')).called(1);
     expect(find.text('PIN STUB'), findsOneWidget); // routed on success
   });
 
-  testWidgets('a guessable new PIN is blocked before the confirm call',
-      (WidgetTester tester) async {
+  // #1464 — the client no longer judges PIN strength on the reset flow either.
+  // A guessable PIN now goes STRAIGHT to the server, which is the only place
+  // any remaining policy lives.
+  testWidgets('a guessable new PIN is submitted, not blocked on the client', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => manager.confirmPinReset(any(), any(), any()),
+    ).thenAnswer((_) async {});
+
     await pumpToPinPhase(tester);
     expect(find.text('Naya PIN banayein'), findsOneWidget);
 
     await enterFirst(tester, '1234');
+    await enterConfirm(tester, '1234');
     await tester.pumpAndSettle();
+    await tapSave(tester);
 
-    // Blocked with the centred dialog, not silently advanced.
-    expect(find.text('Yeh PIN aasan hai'), findsOneWidget);
-    expect(find.text(guessMsg), findsOneWidget);
-
-    await tester.tap(find.text('Theek hai'));
-    await tester.pumpAndSettle();
-
-    // Still on the same one-page PIN phase; the reset OTP was never spent.
-    expect(find.text('Naya PIN banayein'), findsOneWidget);
-    verifyNever(() => manager.confirmPinReset(any(), any(), any()));
+    expect(find.text('Yeh PIN aasan hai'), findsNothing);
+    verify(() => manager.confirmPinReset(any(), any(), '1234')).called(1);
   });
 
-  testWidgets('a mismatched confirm shows the dialog and clears both rows',
-      (WidgetTester tester) async {
+  testWidgets('a mismatched confirm shows the dialog and clears both rows', (
+    WidgetTester tester,
+  ) async {
     await pumpToPinPhase(tester);
 
     await enterFirst(tester, '3927');
@@ -154,10 +180,12 @@ void main() {
     verifyNever(() => manager.confirmPinReset(any(), any(), any()));
   });
 
-  testWidgets('a failed send-OTP is a dialog, and stays on the phone step',
-      (WidgetTester tester) async {
-    when(() => manager.requestPinReset(any()))
-        .thenThrow(const AuthFailure(AuthErrorCode.otpRateLimited));
+  testWidgets('a failed send-OTP is a dialog, and stays on the phone step', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => manager.requestPinReset(any()),
+    ).thenThrow(const AuthFailure(AuthErrorCode.otpRateLimited));
 
     await tester.pumpWidget(app());
     await tester.pump();
@@ -166,7 +194,10 @@ void main() {
     await tester.tap(find.text('Send OTP'));
     await tester.pumpAndSettle();
 
-    expect(find.text('OTP nahi bhej paye'), findsOneWidget); // dialog, not inline
+    expect(
+      find.text('OTP nahi bhej paye'),
+      findsOneWidget,
+    ); // dialog, not inline
     await tester.tap(find.text('Theek hai'));
     await tester.pumpAndSettle();
     // Still on the phone step (never advanced to OTP).
@@ -174,15 +205,18 @@ void main() {
     expect(find.text('OTP DAALEIN'), findsNothing);
   });
 
-  testWidgets('a bad OTP at confirm is a dialog and returns to the OTP step',
-      (WidgetTester tester) async {
-    when(() => manager.confirmPinReset(any(), any(), any()))
-        .thenThrow(const AuthFailure(AuthErrorCode.otpInvalid));
+  testWidgets('a bad OTP at confirm is a dialog and returns to the OTP step', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => manager.confirmPinReset(any(), any(), any()),
+    ).thenThrow(const AuthFailure(AuthErrorCode.otpInvalid));
 
     await pumpToPinPhase(tester);
     await enterFirst(tester, '3927');
-    await enterConfirm(tester, '3927'); // matches → submit → throws otpInvalid
+    await enterConfirm(tester, '3927');
     await tester.pumpAndSettle();
+    await tapSave(tester); // → throws otpInvalid
 
     expect(find.text('OTP sahi nahi'), findsOneWidget); // dialog
     await tester.tap(find.text('Theek hai'));
@@ -194,13 +228,15 @@ void main() {
 
   testWidgets('a server weak-PIN rejection is a dialog and clears both rows, '
       'same PIN page', (WidgetTester tester) async {
-    when(() => manager.confirmPinReset(any(), any(), any()))
-        .thenThrow(const AuthFailure(AuthErrorCode.pinWeak));
+    when(
+      () => manager.confirmPinReset(any(), any(), any()),
+    ).thenThrow(const AuthFailure(AuthErrorCode.pinWeak));
 
     await pumpToPinPhase(tester);
     await enterFirst(tester, '3927');
-    await enterConfirm(tester, '3927'); // matches → submit → throws pinWeak
+    await enterConfirm(tester, '3927');
     await tester.pumpAndSettle();
+    await tapSave(tester); // → throws pinWeak
 
     expect(find.text('Yeh PIN aasan hai'), findsOneWidget); // dialog
     await tester.tap(find.text('Theek hai'));

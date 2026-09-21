@@ -68,6 +68,26 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # response is parsed as a `ProfileParseOutput` — a prose preamble would exhaust the budget and
     # lose the whole overlay.
     "profile_parse": ("capable", True),
+    # ADR-0041 RI-3. CAPABLE, and json_mode on, for the same reason `profile_parse` is:
+    # the task is citation under a strict schema, where a weaker model does not answer
+    # worse so much as it stops citing — and an uncited value is one the gates drop, so a
+    # cheap tier here buys nothing but rejections. Real calls still need
+    # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
+    "resume_parse": ("capable", True),
+    # RI-summary (backend-only slice). CAPABLE, and json_mode on, for the same reason
+    # `resume_parse` is: the task is a closed-list classification plus two short bounded
+    # strings under a strict schema, where a weaker model does not answer worse so much
+    # as it stops echoing the closed id — and an off-list id is one the gate drops to
+    # null, so a cheap tier here buys nothing but "no judgment". Real calls still need
+    # AI_REAL_CALL_TASKS to name it; being in this table arms nothing.
+    "resume_profile_summary": ("capable", True),
+    # RI-autofill (owner override B, 2026-09-20, of ruling D2). CAPABLE, and json_mode
+    # on, for the same reason `resume_parse` is: the task is closed-id selection under
+    # a strict schema, where a weaker model does not answer worse so much as it stops
+    # echoing ids verbatim — and an off-list id is one the gates drop, so a cheap tier
+    # here buys nothing but omissions. Real calls still need AI_REAL_CALL_TASKS to name
+    # it; being in this table arms nothing.
+    "resume_option_map": ("capable", True),
     "resume_generation": ("cheap", False),
     # The RAG job-domain pick. CHEAP on purpose, and it is not a cost compromise: the
     # retrieval has already narrowed thousands of occupations to ten labelled lines, so
@@ -171,6 +191,60 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
         )
+    if task_type == "resume_parse":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `profile_parse`. The output is one object
+            # per requested field plus one per job held, each carrying a quoted span, so it
+            # scales with the résumé rather than being a fixed-size answer.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. Reading a value off a document has
+            # exactly one right result; sampling would let a re-import of the SAME file
+            # return a different employer or a different year. It also needs its own branch
+            # for the reason `profile_parse` documents: without one it falls through to the
+            # resume-GENERATION defaults and runs a citation task at 0.4.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "resume_profile_summary":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
+            # object (a closed id plus two short Hinglish strings), so this is slack —
+            # and slack is safer than tight here: a truncated candidate loses the closing
+            # brace, fails the contract, and degrades the whole line to null.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. A classification against a fixed
+            # list must give the same answer for the same document every time; sampling
+            # here would mean a re-import could re-file a worker into a different trade
+            # with no input change — and would make the Hinglish line non-comparable
+            # across prompt versions on Langfuse.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "resume_option_map":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
+            # object per pack question, each carrying a quoted span, so it scales with the
+            # pack rather than being a fixed-size answer — and slack is safer than tight:
+            # a truncated candidate loses the closing brace and degrades the whole mapping
+            # to nothing.
+            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings. Mapping a document onto a fixed
+            # option list must give the same answer for the same document every time;
+            # sampling here would mean a re-import ticks different boxes with no input
+            # change — and would make the applied answers non-comparable across prompt
+            # versions on Langfuse.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_extraction_max_retries,
+        )
     if task_type == "domain_match":
         return TaskRoute(
             task_type,
@@ -185,6 +259,35 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             temperature=0.0,
             json_mode=json_mode,
             max_retries=settings.ai_extraction_max_retries,
+        )
+    if task_type == "work_history_polish":
+        return TaskRoute(
+            task_type,
+            default_tier,
+            # SHARES THE RESUME BUDGET DELIBERATELY. The answer is one line the route itself caps
+            # at 300 characters, wrapped in `{"work_done": "..."}`, so this is already slack. A
+            # tighter budget would buy nothing and add a failure mode: a truncated candidate loses
+            # the closing brace, fails the contract, and degrades to null exactly like a rejected
+            # rewrite — i.e. it prints as Hinglish.
+            max_output_tokens=settings.ai_resume_max_output_tokens,
+            # TEMPERATURE ZERO, and NOT from settings — the same ruling `profile_parse` states
+            # four branches up, and this route needed its own branch for exactly the reason that
+            # one documents: without it, it fell through to the resume defaults and ran at 0.4.
+            #
+            # WHY 0.4 WAS THE WRONG NUMBER HERE, AND WHAT IT COST. `ai_resume_temperature` is
+            # tuned for RESUME GENERATION, which writes prose and wants variety. This route
+            # rewrites one sentence under a list of prohibitions and is explicitly licensed to
+            # answer null when it cannot. Sampling does not make that rewrite better; it makes the
+            # NULL DECISION A COIN FLIP, independently, once per stint. That is precisely the
+            # reported defect: a worker with two employers got professional English on one line
+            # and his own Hinglish on the other, from a single render, because the same prompt
+            # over comparable inputs was sampled twice.
+            #
+            # It is also the determinism this sheet needs everywhere else: a re-render of an
+            # unchanged history must not quietly reword a description an employer already read.
+            temperature=0.0,
+            json_mode=json_mode,
+            max_retries=settings.ai_resume_max_retries,
         )
     return TaskRoute(
         task_type,

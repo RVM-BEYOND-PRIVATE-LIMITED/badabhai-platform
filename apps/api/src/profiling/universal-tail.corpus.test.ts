@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
-import { loadQuestionPackCorpus, type PackRecord } from "@badabhai/db";
 
-import { recordAnswer, toAnswerMap, type AnswerMap } from "./answer-map";
+import { recordAnswer, recordDeclined, toAnswerMap, type AnswerMap } from "./answer-map";
+import { universalPack } from "./corpus-packs.fixture";
 import { emptyProfilingEnvelope, toEngineState, withAnswers } from "./conversation-state";
+import { chatServableItems } from "./facts/worker-fact.ownership";
 import { nextQuestion } from "./next-question";
 
 /**
@@ -21,70 +22,26 @@ import { nextQuestion } from "./next-question";
  * closed `complete` without the strongest matching signal there is. The LLM-led opening reaches
  * the tail late BY CONSTRUCTION, so what was a long-interview edge case became the normal path.
  * The late-start case below is that regression, pinned.
- */
-
-/**
- * The corpus record → the engine's item shape.
  *
- * NOT A CAST. The JSON omits every field it does not need (`parent_item_key`, `ask_if`,
- * `options`, …) and the engine reads them as `null`/`[]` — `PackRepository` does this mapping
- * when it loads from Postgres. Casting instead makes `item.parent_item_key` `undefined`, which
- * `isServable` compares `!== null` and then treats as a follow-up whose parent is unanswered:
- * EVERY item becomes unservable and the walk closes on turn one with `complete`. That is a
- * silently green test, so the mapping is written out rather than asserted away.
+ * ROUND 4 (#1505): THE OWNER'S 2026-08-11 SIX-QUESTION RULING IS SUPERSEDED, IN THE CHAT ONLY.
+ * `salary_expected`, `preferred_locations`, `education` and `shift_preference` are now asked by
+ * the pages that own them (résumé/preferences/qualifications), never by the chat — the same #1503
+ * fix the trade form got, one layer up. The TAIL a chat session actually serves is walked through
+ * `chatServableItems` (`facts/worker-fact.ownership.ts`), the exact filter `selectableEnginePacks`
+ * (`orchestrator.service.ts`) applies before either of its own branches run. The v1-starvation and
+ * relocation tests below stay on the RAW, unfiltered pack deliberately — they are pinning a
+ * property of the corpus DATA (a mandatory item's `max_turn`, a retired item's presence in v1
+ * only), not of what the chat currently chooses to ask, and filtering them would test the wrong
+ * thing.
  */
-function toItem(raw: Record<string, unknown>, displayOrder: number): QuestionPackItem {
-  const options = (raw.options as Array<Record<string, unknown>> | undefined) ?? [];
-  return {
-    question_key: raw.question_key as string,
-    prompt_text: raw.prompt_text as string,
-    display_order: displayOrder,
-    target_kind: (raw.target_kind as QuestionPackItem["target_kind"]) ?? "none",
-    target_field: (raw.target_field as string | undefined) ?? null,
-    target_skill_id: (raw.target_skill_id as string | undefined) ?? null,
-    // The corpus carries three authoring types the contract does not (`city`, `salary`,
-    // `duration`); the seed path narrows them the same way. Only `select` matters to selection.
-    answer_type: (["city", "salary", "duration"].includes(raw.answer_type as string)
-      ? "text"
-      : raw.answer_type) as QuestionPackItem["answer_type"],
-    is_mandatory: (raw.is_mandatory as boolean | undefined) ?? false,
-    is_core: (raw.is_core as boolean | undefined) ?? false,
-    max_asks: (raw.max_asks as number | undefined) ?? 2,
-    min_turn: (raw.min_turn as number | undefined) ?? null,
-    max_turn: (raw.max_turn as number | undefined) ?? null,
-    ask_if: (raw.ask_if as QuestionPackItem["ask_if"]) ?? null,
-    skip_if: (raw.skip_if as QuestionPackItem["skip_if"]) ?? null,
-    parent_item_key: (raw.parent_item_key as string | undefined) ?? null,
-    retry_text: (raw.retry_text as string | undefined) ?? null,
-    why_text: (raw.why_text as string | undefined) ?? null,
-    options: options.map((o) => ({
-      option_key: o.option_key as string,
-      label_text: o.label_text as string,
-      value: (o.value_text ?? o.value_bool ?? null) as QuestionPackItem["options"][number]["value"],
-      implies_skill_id: null,
-      is_none_of_above: (o.is_none_of_above as boolean | undefined) ?? false,
-    })),
-  };
-}
-
-function universal(version: number): QuestionPack {
-  const record = loadQuestionPackCorpus().packs.find(
-    (p: PackRecord) => p.pack_id === "qp_universal" && p.version === version,
-  );
-  if (!record) throw new Error(`qp_universal@${version} is not in the corpus`);
-  return {
-    pack_id: record.pack_id,
-    version: record.version,
-    family_id: record.family_id,
-    locale: record.locale ?? "hi-IN",
-    status: (record.status ?? "active") as QuestionPack["status"],
-    content_hash: `corpus_${record.pack_id}_${record.version}`,
-    items: (record.items as unknown as Array<Record<string, unknown>>).map(toItem),
-  };
-}
 
 /** Answer whatever the engine serves, in order, and report what it asked. */
-function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unknown>): string[] {
+function walk(
+  pack: QuestionPack,
+  startTurn: number,
+  settled: Record<string, unknown>,
+  declined: readonly string[] = [],
+): string[] {
   let answers: AnswerMap = toAnswerMap([]);
   const write = (key: string, value: unknown, turn: number): void => {
     const item = pack.items.find((i) => i.question_key === key);
@@ -101,6 +58,8 @@ function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unk
     );
   };
   for (const [key, value] of Object.entries(settled)) write(key, value, 1);
+  // A DECLINE IS A COMPLETE ANSWER — the same record the orchestrator writes on "nahi pata".
+  for (const key of declined) answers = recordDeclined(answers, key, 1);
 
   let envelope = withAnswers(emptyProfilingEnvelope(), answers);
   const asked: string[] = [];
@@ -130,61 +89,189 @@ function walk(pack: QuestionPack, startTurn: number, settled: Record<string, unk
 /** What Phase A settles before handing over — see `settleFromLlmDraft` in the orchestrator. */
 const AFTER_PHASE_A = { primary_trade: "tandoor cook", experience_years: 4 };
 
-const TAIL = [
-  "current_city",
-  "salary_expected",
-  "preferred_locations",
-  "availability",
-  "education",
-  "shift_preference",
-];
+/** The pack the CHAT actually serves — `qp_universal@2`'s items, through the ownership filter. */
+function chatUniversal(version: number): QuestionPack {
+  const pack = universalPack(version);
+  return { ...pack, items: chatServableItems(pack.items) };
+}
+
+/** #1505: pages own salary/preferred_locations/education/shift — the chat asks neither any more. */
+const TAIL = ["current_city", "availability"];
 
 describe("the template tail, over the REAL corpus", () => {
-  it("asks exactly the SIX the owner ruled on, once Phase A has handed over", () => {
-    expect(walk(universal(2), 8, AFTER_PHASE_A)).toEqual(TAIL);
+  it("asks the TWO the chat still owns, once Phase A has handed over (#1505 supersedes the SIX)", () => {
+    expect(walk(chatUniversal(2), 8, AFTER_PHASE_A)).toEqual(TAIL);
   });
 
-  it("asks the same six whether the tail is reached early or late", () => {
+  it("asks the same two whether the tail is reached early or late", () => {
     // The turn number a tail is entered on depends on how long Phase A ran, how many silences the
     // worker had, and how many times they asked "why". None of that may change the question set.
     for (const startTurn of [4, 6, 8, 12]) {
-      expect(walk(universal(2), startTurn, AFTER_PHASE_A), `entered at turn ${startTurn}`).toEqual(
-        TAIL,
-      );
+      expect(
+        walk(chatUniversal(2), startTurn, AFTER_PHASE_A),
+        `entered at turn ${startTurn}`,
+      ).toEqual(TAIL);
     }
   });
 
   it("still asks the trade and the experience when the model never ran", () => {
     // The fallback path: nothing pre-settled, so the pack asks its own two as well. `current_city`
     // lands second rather than third because it is the only MANDATORY item besides the trade, and
-    // `min_turn: 2` is what holds it off turn one.
-    expect(walk(universal(2), 1, {})).toEqual([
+    // `min_turn: 2` is what holds it off turn one. Pages-owned items never appear here either.
+    expect(walk(chatUniversal(2), 1, {})).toEqual([
       "primary_trade",
       "current_city",
       "experience_years",
-      "salary_expected",
-      "preferred_locations",
       "availability",
-      "education",
-      "shift_preference",
     ]);
   });
 
   it("v1 STARVED the mandatory city question on a late tail — the defect v2 exists to fix", () => {
-    // Pinned as a regression rather than described in a comment. `current_city` is mandatory and
-    // carried `max_turn: 5`, so a tail entered at turn 8 closed `complete` having never asked a
-    // worker where they live. v1 is frozen and keeps the defect; v2 must not have it.
-    const late = walk(universal(1), 8, {});
+    // RAW, UNFILTERED PACKS — this pins a property of the CORPUS DATA (a mandatory item's
+    // `max_turn`), not of what the chat currently chooses to ask; filtering would test the wrong
+    // thing. Pinned as a regression rather than described in a comment. `current_city` is
+    // mandatory and carried `max_turn: 5`, so a tail entered at turn 8 closed `complete` having
+    // never asked a worker where they live. v1 is frozen and keeps the defect; v2 must not have it.
+    const late = walk(universalPack(1), 8, {});
     expect(late).not.toContain("current_city");
     expect(late).not.toContain("salary_expected");
 
-    expect(walk(universal(2), 8, {})).toContain("current_city");
-    expect(walk(universal(2), 8, {})).toContain("salary_expected");
+    expect(walk(universalPack(2), 8, {})).toContain("current_city");
+    expect(walk(universalPack(2), 8, {})).toContain("salary_expected");
   });
 
   it("drops `relocation`, which `preferred_locations` subsumes", () => {
-    expect(walk(universal(2), 1, {})).not.toContain("relocation");
+    // RAW, UNFILTERED PACKS — a retired item's presence in v1 only is a corpus-DATA fact, not a
+    // chat-ownership one.
+    expect(walk(universalPack(2), 1, {})).not.toContain("relocation");
     // v1 keeps it — a published version's question set is frozen for the sessions pinned to it.
-    expect(walk(universal(1), 1, {})).toContain("relocation");
+    expect(walk(universalPack(1), 1, {})).toContain("relocation");
+  });
+});
+
+/**
+ * FILL-GAP PHASE 1 (ADR-0042 D9 amendment): `languages` and `work_types` join the tail.
+ *
+ * The TWO questions above are history — v2 sessions stay pinned to v2, and nothing here may
+ * rewrite them. What v3 adds is a longer tail: the language LIST and the work-type multi, both
+ * ATTRIBUTE multis whose chips carry the same slug vocabularies the pages write, so the chat
+ * answer lands in `worker_attributes` through the existing projector. They are ungated
+ * (no min_turn) and they sit at the END of the raw pack, so they run AFTER availability —
+ * the explicit ordering this walk pins.
+ */
+describe("the fill-gap tail, over the REAL corpus (qp_universal@3)", () => {
+  const V3_TAIL = ["current_city", "availability", "languages", "work_types"];
+
+  it("asks FOUR once Phase A has handed over — the two new ones run after availability", () => {
+    expect(walk(chatUniversal(3), 8, AFTER_PHASE_A)).toEqual(V3_TAIL);
+  });
+
+  it("asks the same four whether the tail is reached early or late", () => {
+    for (const startTurn of [4, 6, 8, 12]) {
+      expect(
+        walk(chatUniversal(3), startTurn, AFTER_PHASE_A),
+        `entered at turn ${startTurn}`,
+      ).toEqual(V3_TAIL);
+    }
+  });
+
+  it("still drops the four pages-owned settlers — v3 flips languages/work_types and nothing else", () => {
+    const asked = walk(chatUniversal(3), 1, {});
+    for (const pagesOwned of [
+      "salary_expected",
+      "preferred_locations",
+      "education",
+      "shift_preference",
+    ]) {
+      expect(asked, `${pagesOwned} must never serve through the chat`).not.toContain(pagesOwned);
+    }
+  });
+
+  it("serves the two new questions on the model-less fallback path too", () => {
+    // Nothing pre-settled: the pack asks its own core pair first, then the city, the experience,
+    // availability, and finally the two new multis — RAW authoring order, no special casing.
+    expect(walk(chatUniversal(3), 1, {})).toEqual([
+      "primary_trade",
+      "current_city",
+      "experience_years",
+      "availability",
+      "languages",
+      "work_types",
+    ]);
+  });
+});
+
+/**
+ * LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18): eight more asks join the tail.
+ *
+ * `commute_max_km`, `willing_to_travel`, `notice_period_days`, `salary_period`, the training trio
+ * and `secondary_occupations` are appended after `work_types` in RAW authoring order. The two
+ * gated training items fire because this walk answers everything it is served; the decline case
+ * below pins the gate's other half. v2/v3 sessions stay pinned to their own files and nothing
+ * above moves — this describe only ADDS the active version's walk.
+ */
+describe("the Layer A tail, over the REAL corpus (qp_universal@4)", () => {
+  const V4_TAIL = [
+    "current_city",
+    "availability",
+    "languages",
+    "work_types",
+    "commute_max_km",
+    "willing_to_travel",
+    "notice_period_days",
+    "salary_period",
+    "training_name",
+    "training_provider",
+    "training_year",
+    "secondary_occupations",
+  ];
+
+  it("asks TWELVE once Phase A has handed over — the eight new asks run after work_types", () => {
+    expect(walk(chatUniversal(4), 8, AFTER_PHASE_A)).toEqual(V4_TAIL);
+  });
+
+  it("asks the same twelve whether the tail is reached early or late", () => {
+    for (const startTurn of [4, 6, 8, 12]) {
+      expect(walk(chatUniversal(4), startTurn, AFTER_PHASE_A), `entered at turn ${startTurn}`).toEqual(
+        V4_TAIL,
+      );
+    }
+  });
+
+  it("skips the whole training trio when the name was DECLINED — terminal, never re-asked", () => {
+    // `ask_if: answered(training_name)` reads the same answer map the engine records a decline
+    // into, and a decline is terminal: a worker with no course answers "nahi pata" ONCE and the
+    // interview moves on. The declined-terminal rule is untouched — the question is skipped
+    // because it is already settled, not because the gate guessed.
+    const asked = walk(chatUniversal(4), 1, {}, ["training_name"]);
+    for (const training of ["training_name", "training_provider", "training_year"]) {
+      expect(asked, `${training} must not be served after its decline`).not.toContain(training);
+    }
+    // The rest of the tail still runs after it.
+    expect(asked).toContain("secondary_occupations");
+  });
+
+  it("still drops the four pages-owned settlers — v4 flips the three extension facts and nothing else", () => {
+    const asked = walk(chatUniversal(4), 1, {});
+    for (const pagesOwned of [
+      "salary_expected",
+      "preferred_locations",
+      "education",
+      "shift_preference",
+    ]) {
+      expect(asked, `${pagesOwned} must never serve through the chat`).not.toContain(pagesOwned);
+    }
+  });
+
+  it("serves all eight new asks on the model-less fallback path too", () => {
+    expect(walk(chatUniversal(4), 1, {})).toEqual([
+      "primary_trade",
+      "current_city",
+      "experience_years",
+      "availability",
+      "languages",
+      "work_types",
+      ...V4_TAIL.slice(4),
+    ]);
   });
 });

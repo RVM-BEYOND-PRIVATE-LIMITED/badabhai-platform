@@ -1,4 +1,5 @@
 import type { ResumeEmployment, ResumeRoleStint } from "./resume-renderer.service";
+import { titleCaseName } from "./resume-text-case";
 
 /**
  * ZONE 4 — WORK HISTORY. The `worker_employment` rows as the sheet prints them. PURE: no I/O,
@@ -163,23 +164,28 @@ function toEmployment(
   // The condition is deliberately "exactly one stint AND it renders no dates" — a single stint
   // whose dates differ from the employment's is a real, separate fact and keeps its line.
   const inlineOnly = stints.length === 1 && stints[0]!.when === "";
+  const lines = workLines(record.roles, { polishEnabled });
   return {
     // The row id (#1353/#1354) — undefined only for the seeded/test fixtures that
     // predate it (see WorkerEmploymentRecord.id); every real DB-backed record has
     // one, since loadForResume selects `id: workerEmployment.id` unconditionally.
     id: record.id,
-    employer: record.employer,
+    // CASED AS A PROPER NOUN (owner ruling 2026-09-08). The employer is typed by hand on a phone,
+    // so `sandhar technologies pvt ltd` is ordinary input, and it prints on the line the eye runs
+    // down. Only leading lowercase letters are raised — `TVS` and `JBM` survive intact. See
+    // `resume-text-case.ts` for why this is a reshaping rather than a §8 fourth source.
+    employer: casedEmployer(record.employer),
     location_suffix: locationSuffix(record),
     // The separator is part of the value, exactly like `location_suffix`, so an absent role
     // cannot leave a stray dash on the page.
     role_inline: inlineOnly ? ` — ${stints[0]!.role}` : "",
     when: spanText(record.startYm, record.endYm, record.durationStated, asOf),
-    work: workLine(record.roles, { polishEnabled }),
+    work: lines.work,
     // THE SAME LINE FROM THE WORKER'S OWN WORDS, so a client can show what the printed text
-    // was rewritten FROM (#1354). Composed through the identical joiner rather than
-    // concatenated separately: a comparison between two differently-built strings would show
-    // differences the rewrite did not cause.
-    work_own_words: workLine(record.roles, { ownWordsOnly: true }),
+    // was rewritten FROM (#1354). Built in the SAME PASS rather than by a second walk of the
+    // roles: a comparison between two independently-selected strings would show differences the
+    // rewrite did not cause — see {@link workLines}.
+    work_own_words: lines.ownWords,
     roles: inlineOnly ? [] : stints,
   };
 }
@@ -191,9 +197,31 @@ function toEmployment(
  * The template renders this immediately after the employer name with no separator of its own,
  * which is the only shape that makes a missing value cost nothing.
  */
+/**
+ * The employer column holds one value that is NOT a company name, and it must not be re-cased.
+ *
+ * §11 #4 spells its literal: a worker with no company to name — thekedar work, a site, piece work
+ * — gets "Contract work", resolved by capture. The 2026-09-08 casing ruling is about the name of
+ * a COMPANY the worker typed; a guideline literal is neither typed by him nor his employer's
+ * name, and re-casing it would quietly edit a reviewed string into "Contract Work".
+ *
+ * AN EXACT-MATCH SET, and deliberately one entry long. It is a list of the literals this system
+ * itself writes into that column, not a heuristic about which employer names look like labels —
+ * a heuristic there would be guessing about a worker's employer, which is the thing this file
+ * spends most of its length refusing to do.
+ */
+const SYSTEM_EMPLOYER_LABELS: ReadonlySet<string> = new Set(["Contract work"]);
+
+function casedEmployer(employer: string): string {
+  return SYSTEM_EMPLOYER_LABELS.has(employer.trim()) ? employer : titleCaseName(employer);
+}
+
 function locationSuffix(record: WorkerEmploymentRecord): string {
+  // CASED AS PROPER NOUNS, on the same ruling and for the same reason as the employer name above:
+  // `gurugram, haryana` is what a hand-typed city looks like. `UAE` and `MP` are untouched,
+  // because only a LEADING LOWERCASE letter is raised — see `resume-text-case.ts`.
   const where = [record.employerCity, record.employerState]
-    .map((v) => v?.trim())
+    .map((v) => titleCaseName(v?.trim()))
     .filter((v): v is string => Boolean(v))
     .join(", ");
   return where ? ` · ${where}` : "";
@@ -337,20 +365,52 @@ export function totalEmployedYears(
   return Math.round((months / 12) * 10) / 10;
 }
 
-/** The employment's one work line — see {@link WORK_LINE_MAX_PARTS}. */
-function workLine(
+/**
+ * The employment's one work line, AND the same line from the worker's own words — see
+ * {@link WORK_LINE_MAX_PARTS}.
+ *
+ * ONE PASS RETURNING BOTH, and that is a correctness fix rather than a tidy-up. They used to be
+ * two independent walks of the same roles, each with its own dedupe set and its own two-part cap.
+ * Two stints that polished to the same English but were typed differently — or the reverse —
+ * made the two walks select DIFFERENT stints, so `work_own_words` stopped being "the same line,
+ * unrewritten" and became a different sentence about a different stint. The worker app shows
+ * those two strings side by side under "Aapke apne shabdon mein dekhein" and asks the worker to
+ * choose between them (#1354); a comparison whose halves are not about the same thing is not a
+ * choice he can make.
+ *
+ * SELECTION IS KEYED ON THE WORKER'S OWN WORDS, because that is the identity of a description —
+ * the rewrite is a presentation of it. Keying on the PRINTED text is what allowed a promotion
+ * (§11 #14) whose two stints carry the same description to print it TWICE, once in English and
+ * once in Hinglish, when the polish had landed on one stint and not the other: two different
+ * strings, so the old dedupe set saw two different facts.
+ */
+function workLines(
   roles: readonly WorkerEmploymentRoleRecord[],
-  opts: { readonly ownWordsOnly?: boolean; readonly polishEnabled?: boolean } = {},
-): string {
-  const seen = new Set<string>();
-  const parts: string[] = [];
+  opts: { readonly polishEnabled?: boolean } = {},
+): { readonly work: string; readonly ownWords: string } {
+  // PASS 1 — which stints contribute, by the identity of what the worker said.
+  const seenOwn = new Set<string>();
+  const contributing: WorkerEmploymentRoleRecord[] = [];
   for (const role of roles) {
-    // THE POLISHED LINE WHEN THERE IS ONE AND THE WORKER KEPT IT, their own words otherwise
-    // (#1350, #1354). The fallback is not a degradation to apologise for: it is what this sheet
-    // printed before the owner ruling, what it must keep printing on every path where the model
-    // did not run or was overruled by the far side's checks, and — since #1354 — what the
-    // worker themselves can choose. A refusal outranks a rewrite; nobody else is in a position
-    // to know whether a sentence about their work is true.
+    const own = role.workDone?.trim();
+    if (!own || seenOwn.has(own)) continue;
+    seenOwn.add(own);
+    contributing.push(role);
+  }
+
+  // PASS 2 — render each contributing stint in BOTH modes, together, so the two lines can never
+  // be built from different stints. The cap and the printed-text dedupe are applied to the PAIR:
+  // dropping a part drops it from both halves, which is what keeps them aligned.
+  const seenPrinted = new Set<string>();
+  const work: string[] = [];
+  const ownWords: string[] = [];
+  for (const role of contributing) {
+    // THE POLISHED LINE WHEN THERE IS ONE AND THE WORKER KEPT IT, EMPTY WHEN THE MODEL RETURNED
+    // NULL, their own words only on the two paths that are not a model answer (#1350, #1354).
+    // A null rewrite means the far side declined, rejected or failed that stint, and the sheet
+    // prints nothing for it rather than falling back to the worker's own words. A refusal still
+    // outranks a rewrite — nobody else is in a position to know whether a sentence about their
+    // work is true — and the kill switch still reverts to the worker's own words.
     // THE KILL SWITCH IS READ HERE, NOT ONLY AT THE POLISHER (#1350 item 4).
     //
     // #1350 requires a switch that makes the override "revertible in production WITHOUT A DEPLOY".
@@ -360,18 +420,33 @@ function workLine(
     //
     // DEFAULTS TO OFF, so it fails closed. A caller that forgets to pass the flag gets the
     // worker's own words, which is the answer §8 guaranteed and is never the unsafe one.
-    const usePolished =
-      opts.polishEnabled === true &&
-      !opts.ownWordsOnly &&
-      role.workDonePolished != null &&
-      role.workDonePolishDeclined !== true;
-    const text = (usePolished ? role.workDonePolished : role.workDone)?.trim();
-    if (!text || seen.has(text)) continue;
-    seen.add(text);
-    parts.push(text);
-    if (parts.length === WORK_LINE_MAX_PARTS) break;
+    const own = (role.workDone as string).trim();
+    const declined = role.workDonePolishDeclined === true;
+    const polished = (role.workDonePolished ?? "").trim();
+    let text: string;
+    if (opts.polishEnabled === true) {
+      if (declined) {
+        text = own;
+      } else if (polished) {
+        text = polished;
+      } else {
+        // THE MODEL RETURNED NULL FOR THIS STINT. Print nothing for it — never the worker's
+        // own words. Skipped from both halves so the pair stays a like-for-like comparison.
+        continue;
+      }
+    } else {
+      text = own;
+    }
+    // The same SENTENCE twice is still noise even when two stints described it differently, so
+    // the printed text is deduped too — and the own-words half drops the same part, never its
+    // own duplicate, so the pair stays a like-for-like comparison.
+    if (!text || seenPrinted.has(text)) continue;
+    seenPrinted.add(text);
+    work.push(text);
+    ownWords.push(own);
+    if (work.length === WORK_LINE_MAX_PARTS) break;
   }
-  return parts.join(" · ");
+  return { work: work.join(" · "), ownWords: ownWords.join(" · ") };
 }
 
 const MONTHS = [

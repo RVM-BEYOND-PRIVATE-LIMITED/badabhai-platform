@@ -72,6 +72,10 @@ function setup(
     emit: vi.fn((_e: { event_name: string; payload: Record<string, unknown> }) => Promise.resolve()),
   };
 
+  // Only `hashToken` is exercised from here (the accept path); the rest of the seam belongs
+  // to the invite side. Identity-ish hashing keeps an accept assertion readable.
+  const invites = { hashToken: vi.fn((raw: string) => `hash(${raw})`) };
+
   const svc = new AdminAuthService(
     config,
     admins as never,
@@ -79,6 +83,7 @@ function setup(
     sessions as never,
     mfaStore as never,
     events as never,
+    invites as never,
   );
   return { svc, admins, otp, sessions, mfaStore, events };
 }

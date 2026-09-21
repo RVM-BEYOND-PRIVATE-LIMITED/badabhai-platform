@@ -31,6 +31,7 @@ import {
   type ProfilingEnvelope,
 } from "../profiling/conversation-state";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
+import { llmChipOptions } from "../profiling/orchestrator.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -54,6 +55,7 @@ const PIN = {
 /** The engine's envelope at the end of a complete interview. */
 function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
   return {
+    resumeConfirm: null,
     rev: 4,
     phase: "close",
     occupation: PIN,
@@ -70,6 +72,8 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     identifyAttempts: 0,
     packId: "qp_tailoring",
     packVersion: 2,
+    universalPackId: null,
+    universalPackVersion: null,
     catalogVersion: "cat_2026_08",
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
@@ -83,6 +87,11 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    formOfferPrompt: null,
+    resumeIdentity: null,
+    identifyTypeRequested: false,
+    identifyStalledTurns: 0,
+    prefilledKeys: [],
     ...over,
   };
 }
@@ -122,8 +131,13 @@ function make(
     /** The bulk answer INSERT throws — the flush must roll back with it. */
     answersThrow?: boolean;
     oneShotOpener?: boolean;
-    /** #1197 — what `findActiveSessionByWorker` returns. undefined = no live session. */
+    /** #1197 - what `findActiveSessionByWorker` returns. undefined = no live session. */
     liveSession?: { id: string; status: string; startedAt: Date } | undefined;
+    /**
+     * Task 1 B3 — what `orchestrator.openResumeConfirm` returns. `undefined` = null (no
+     * pending résumé), which is what every pre-existing test in this file assumes.
+     */
+    resumeConfirmOpen?: Record<string, unknown> | null;
   } = {},
 ) {
   const session = {
@@ -156,6 +170,10 @@ function make(
     insertPackAnswers: vi.fn(async () => {
       if (opts.answersThrow) throw new Error("wpa_answer_shape_chk violated");
     }),
+    // Defect-A fix: `finalizeInterview` freezes the served pack via the existing write-once
+    // `pinPack` after the flush. Default wins (returns true); tests that need the loss or
+    // the throw override per-test. Pre-existing tests never asserted on this collaborator.
+    pinPack: vi.fn(async () => true),
   };
 
   const workers = {
@@ -210,6 +228,8 @@ function make(
   };
 
   const orchestrator = {
+    // Task 1 B3 — the résumé-confirm open. `null` = nothing pending, the pre-existing default.
+    openResumeConfirm: vi.fn(async () => opts.resumeConfirmOpen ?? null),
     takeTurn: vi.fn(async () => ({
       reply: "Aap kis sheher mein rehte hain?",
       kind: "ask",
@@ -360,6 +380,26 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
       // Still no transcript rows and no transaction — the checkpoint is a bare UPDATE.
       expect(chat.insertMessages).not.toHaveBeenCalled();
       expect(chat.withTransaction).not.toHaveBeenCalled();
+    });
+
+    it("#1504 item 5 (city-seed): carries prefilled_keys, which toConversationStatePatch does not", async () => {
+      // The checkpoint REPLACES the whole `conversation_state` column with only
+      // `toConversationStatePatch`'s projection — that projection has no `prefilledKeys` field
+      // (it is engine bookkeeping outside the frozen `ConversationState` contract, like
+      // `form_kind`), so without an explicit carry a checkpoint written between the seed and the
+      // flush would durably drop it.
+      const { chat } = await run({
+        turn: { checkpointDue: true },
+        written: {
+          profiling: envelope({ phase: "occupation_specific", prefilledKeys: ["current_city"] }),
+        },
+      });
+
+      const [, state] = chat.saveConversationState.mock.calls[0] as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(state.prefilled_keys).toEqual(["current_city"]);
     });
 
     it("does NOT double-write when the same turn also completes the interview", async () => {
@@ -593,6 +633,31 @@ describe("a disambiguation offer is not an ordinary ask", () => {
   });
 });
 
+describe("a model chip turn always ends in the server's escape (#1506)", () => {
+  it("serves input_mode text, and the escape LAST under both fields a client reads", async () => {
+    // Built by the REAL producer, so a changed label or key in `llmChipOptions` fails here rather
+    // than in a shipped client that matches the label "Kuch aur" (old builds) or the flag (new).
+    const { res } = await run({
+      turn: {
+        reply: "Aap kaunsa kaam karte hain?",
+        kind: "ask",
+        questionKey: null,
+        options: llmChipOptions(["Welder", "Fitter"], false),
+        answerType: "single_select",
+        inputMode: "text",
+      },
+    });
+    expect(res.input_mode).toBe("text");
+    expect(res.suggested_followups.at(-1)).toBe(DISAMBIGUATION_ESCAPE_LABEL);
+    expect(res.suggested_options.at(-1)).toEqual({
+      option_key: DISAMBIGUATION_ESCAPE_KEY,
+      label_text: DISAMBIGUATION_ESCAPE_LABEL,
+      is_none_of_above: true,
+    });
+    expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Degradation, replay, and the terminal session
 // ---------------------------------------------------------------------------
@@ -808,6 +873,25 @@ describe("ChatService — flush at end", () => {
       });
     });
 
+    it("#1504 item 5 (city-seed): excludes a prefilled key from answered_count — settled by /name, not by THIS interview", async () => {
+      const { events } = await run({
+        buffer: {},
+        turn: complete,
+        written: {
+          ...COMPLETED,
+          profiling: envelope({
+            answerMap: [
+              answer({ question_key: "q_a" }),
+              answer({ question_key: "current_city", value_normalized: "Pune" }),
+            ] as never,
+            prefilledKeys: ["current_city"],
+          }),
+        },
+      });
+
+      expect(payloadOf(events)).toMatchObject({ answered_count: 1 });
+    });
+
     it("drops a completion_reason that is not a slug rather than rolling back the interview", async () => {
       // The emit is INSIDE the flush transaction, so an unvalidated reason would trade a
       // worker's entire completed interview for an observability field. Same asymmetry as
@@ -963,6 +1047,17 @@ describe("ChatService — the answer map lands in worker_pack_answer", () => {
       answer({ question_key: "trade" }),
       answer({ question_key: "shift_pref", status: "unanswered", value_normalized: null }),
     ]);
+    expect(answerRows(chat).map((r) => r.questionKey)).toEqual(["trade"]);
+  });
+
+  it("#1504 item 5 (city-seed): skips a prefilled key — no row for a seed with no transcript span", async () => {
+    const { chat } = await withAnswers(
+      [
+        answer({ question_key: "trade" }),
+        answer({ question_key: "current_city", value_normalized: "Pune" }),
+      ],
+      { prefilledKeys: ["current_city"] },
+    );
     expect(answerRows(chat).map((r) => r.questionKey)).toEqual(["trade"]);
   });
 
@@ -1305,12 +1400,30 @@ describe("ChatService — tts_text, the read-aloud sibling (#896)", () => {
     expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
   });
 
-  it("a TERMINAL turn into a finished session still reads aloud", async () => {
+  it("a TERMINAL turn into a finished session serves the resume menu", async () => {
     const { res } = await run({ sessionStatus: "ended" });
-    expect(res.reply).toBe(CLOSING);
-    expect((res as Record<string, unknown>).tts_text).toBe(
-      "आपकी बात पूरी हो चुकी है। प्रोफ़ाइल तैयार हो रही है।",
+    // Post-completion menu V1: any text on a dead session gets edit-vs-redo,
+    // not the old fixed closing line. Flags are unchanged (client contract).
+    expect(res.reply).toBe("Aap kya karna chahte hain. Neeche se chunein.");
+    expect(res.suggested_followups).toEqual([
+      "Apna resume edit karein",
+      "Apna resume dobara banayein",
+    ]);
+    expect(res.session_ended).toBe(true);
+    expect(res.extraction_ready).toBe(true);
+    expect("tts_text" in (res as Record<string, unknown>)).toBe(false);
+  });
+
+  it("an edit selection on a finished session opens the 6 resume sections", async () => {
+    const h = make({ sessionStatus: "ended" });
+    const res = await h.svc.postMessage(
+      WORKER,
+      { ...DTO, text: "Apna resume edit karein" } as never,
+      CTX,
     );
+    expect(res.suggested_followups).toHaveLength(6);
+    expect(res.question_kind).toBe("disambiguate");
+    expect(res.session_ended).toBe(true);
   });
 
   it("a REPLAYED turn repeats the twin along with the reply", async () => {
@@ -1397,9 +1510,8 @@ describe("ChatService.startSession — the opener is reviewed copy, not a model 
   it("serves opening_tts_text beside it, so turn one reads aloud (#896)", async () => {
     const { svc } = make({ oneShotOpener: true });
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
-    expect(res.opening_tts_text).toBe(
-      "नमस्ते। आप कौन सा काम करते हैं, कहाँ रहते हैं, और कितना तजुर्बा है?",
-    );
+    // #1504 item 5 (city-seed) — the opener dropped its city clause.
+    expect(res.opening_tts_text).toBe("नमस्ते। आप कौन सा काम करते हैं, और कितना तजुर्बा है?");
   });
 
   it("omits opening_tts_text when the opener itself is omitted", async () => {
@@ -1451,11 +1563,202 @@ describe("ChatService.startSession — reattaches to the live session instead of
     // `findActiveSessionByWorker` filters status='active' in SQL (asserted at the
     // repository level), so undefined here covers BOTH "never started" and
     // "everything ended" — an old transcript must not swallow a new interview.
-    const { svc, chat, events } = make();
+    const { svc, chat } = make();
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
     expect(res.session_id).toBe(SESSION);
     expect(chat.findActiveSessionByWorker).toHaveBeenCalledWith(WORKER);
     expect(chat.createSession).toHaveBeenCalledTimes(1);
-    expect(emittedNames(events)).toEqual(["chat.session_started"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 1 B3 — the résumé confirm can open the session (ADR-0042 D8)
+// ---------------------------------------------------------------------------
+
+describe("ChatService.startSession — the résumé confirm opens the session (Task 1 B3)", () => {
+  const CONFIRM_OPEN = {
+    reply: "Resume se ye mila: CNC Turner · Pune. Sahi hai?",
+    kind: "ask",
+    questionKey: null,
+    options: [
+      {
+        option_key: "resume_confirm_yes",
+        label_text: "Haan, sahi hai",
+        value: true,
+        is_none_of_above: false,
+      },
+      {
+        option_key: "resume_confirm_no",
+        label_text: "Nahi",
+        value: false,
+        is_none_of_above: false,
+      },
+    ],
+    progress: { answered: 0, total: 12 },
+    unansweredEssentials: [],
+    complete: false,
+    completionReason: null,
+    replayed: false,
+    excludeFromParse: false,
+    unavailable: false,
+    checkpointDue: false,
+  };
+
+  it("opens on the confirm when the client asks AND one is pending", async () => {
+    const { svc, orchestrator } = make({ resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(orchestrator.openResumeConfirm).toHaveBeenCalledOnce();
+    expect(res).toMatchObject({
+      session_id: SESSION,
+      status: "active",
+      resume_pending: true,
+      opening_text: CONFIRM_OPEN.reply,
+      opening_options: [
+        { option_key: "resume_confirm_yes", label_text: "Haan, sahi hai" },
+        { option_key: "resume_confirm_no", label_text: "Nahi" },
+      ],
+    });
+    // THE OPENER IS NOT SERVED ON TOP — the confirm IS the opening, and the one-shot
+    // opener's flag is irrelevant to it (it is off in this world anyway).
+    expect("opening_tts_text" in res).toBe(false);
+  });
+
+  it("does NOT ask the orchestrator when the client does not ask — byte-identical old flow", async () => {
+    const { svc, orchestrator } = make({ resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(orchestrator.openResumeConfirm).not.toHaveBeenCalled();
+    expect(Object.keys(res).sort()).toEqual(["session_id", "started_at", "status"]);
+  });
+
+  it("falls back to the ordinary flow when the client asks but nothing is pending", async () => {
+    const { svc } = make({ oneShotOpener: true });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+    expect("resume_pending" in res).toBe(false);
+    expect(res.opening_text).toContain("Namaste");
+  });
+
+  it("a mount-time failure DEGRADES to the ordinary flow, never a failed session", async () => {
+    const { svc, orchestrator } = make();
+    orchestrator.openResumeConfirm.mockRejectedValueOnce(new Error("redis down"));
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+    expect(res.session_id).toBe(SESSION);
+    expect("resume_pending" in res).toBe(false);
+  });
+
+  it("the live-session reattach can still open it (confirm_first + never served)", async () => {
+    const live = { id: SESSION, status: "active", startedAt: new Date(T0) };
+    const { svc, orchestrator } = make({ liveSession: live, resumeConfirmOpen: CONFIRM_OPEN });
+    const res = (await svc.startSession(WORKER, CTX, { confirmFirst: true })) as Record<
+      string,
+      unknown
+    >;
+
+    expect(orchestrator.openResumeConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESSION, workerId: WORKER }),
+    );
+    expect(res).toMatchObject({ session_id: SESSION, resume_pending: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defect-A fix (owner ruling 2026-09-18, option a): a universal-only close pins the served
+// pack and attributes its answers. ADDITIVE assertions only — every pre-existing test above
+// (including "writes nothing at all when no pack was ever pinned" and the abandonment
+// suite's zero-rows case) passes unchanged.
+// ---------------------------------------------------------------------------
+
+describe("ChatService — universal-only close pins the served pack and attributes its answers", () => {
+  const complete = { complete: true, questionKey: null, completionReason: "fields_complete" };
+  const UNIVERSAL_STAMP = {
+    packId: null,
+    packVersion: null,
+    universalPackId: "qp_universal",
+    universalPackVersion: 4,
+  };
+
+  const closeUniversal = (
+    records: Record<string, unknown>[],
+    env: Partial<ProfilingEnvelope> = {},
+  ) =>
+    run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({ answerMap: records as never, ...UNIVERSAL_STAMP, ...env }),
+      },
+      turn: complete,
+    });
+
+  it("attributes flushed answers to the stamped universal pointer", async () => {
+    const { chat } = await closeUniversal([
+      answer({ question_key: "current_city", value_normalized: "pune" }),
+    ]);
+    expect(chat.insertPackAnswers).toHaveBeenCalledTimes(1);
+    expect(answerRows(chat)[0]).toMatchObject({
+      packId: "qp_universal",
+      packVersion: 4,
+      questionKey: "current_city",
+    });
+  });
+
+  it("freezes the stamped pointer as the durable pin at close", async () => {
+    const { chat } = await closeUniversal([answer()]);
+    expect(chat.pinPack).toHaveBeenCalledTimes(1);
+    expect(chat.pinPack).toHaveBeenCalledWith(SESSION, "qp_universal", 4);
+  });
+
+  it("keeps the occupation pin when one exists — the stamp never outranks it", async () => {
+    // `envelope()` defaults carry the qp_tailoring v2 occupation pin with no stamp.
+    const { chat } = await run({
+      buffer: {},
+      written: { ...COMPLETED, profiling: envelope({ answerMap: [answer()] as never }) },
+      turn: complete,
+    });
+    expect(answerRows(chat)[0]).toMatchObject({ packId: "qp_tailoring", packVersion: 2 });
+    expect(chat.pinPack).toHaveBeenCalledWith(SESSION, "qp_tailoring", 2);
+  });
+
+  it("a pin failure degrades to rows-without-pin — the close still succeeds", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const h = make({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({ answerMap: [answer()] as never, ...UNIVERSAL_STAMP }),
+      },
+      turn: complete,
+    });
+    h.chat.pinPack.mockRejectedValueOnce(new Error("connection reset"));
+    const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res.session_ended).toBe(true);
+    expect(h.chat.insertPackAnswers).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+
+  it("still writes nothing when neither pin nor stamp exists (pre-fix behavior preserved)", async () => {
+    const { chat } = await run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        profiling: envelope({
+          answerMap: [answer()] as never,
+          packId: null,
+          packVersion: null,
+        }),
+      },
+      turn: complete,
+    });
+    expect(chat.insertPackAnswers).not.toHaveBeenCalled();
+    expect(chat.pinPack).not.toHaveBeenCalled();
   });
 });

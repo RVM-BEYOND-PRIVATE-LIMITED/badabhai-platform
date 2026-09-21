@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
-import type { ServerConfig } from "@badabhai/config";
+import { areRealAdminInvitesEnabled, type ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
@@ -17,6 +17,13 @@ import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminInviteService } from "./admin-invite.service";
+import {
+  ADMIN_INVITE_MAILER,
+  MockAdminInviteMailer,
+  RealAdminInviteMailer,
+  type AdminInviteMailer,
+} from "./admin-invite.mailer";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminEventsService } from "./admin-events.service";
 import { AdminEventsController } from "./admin-events.controller";
@@ -186,6 +193,26 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
+    // The invite accept-link seam: mints/hashes the single-use token, renders the link, and
+    // delivers it. Shared by BOTH sides of the flow — AdminActionsService issues the token,
+    // AdminAuthService hashes a presented one — which is why it is a provider rather than a
+    // private helper on either.
+    AdminInviteService,
+    // Mailer swap, mirroring MEMBER_INVITE_MAILER: mock (no send) unless the master gate, the
+    // email provider creds AND the accept URL are all present. A blocked gate is NOT an
+    // onboarding outage here — the invite response hands the link to the inviting super_admin
+    // regardless, so mock mode simply means "share it yourself".
+    MockAdminInviteMailer,
+    RealAdminInviteMailer,
+    {
+      provide: ADMIN_INVITE_MAILER,
+      inject: [SERVER_CONFIG, MockAdminInviteMailer, RealAdminInviteMailer],
+      useFactory: (
+        config: ServerConfig,
+        mock: MockAdminInviteMailer,
+        real: RealAdminInviteMailer,
+      ): AdminInviteMailer => (areRealAdminInvitesEnabled(config) ? real : mock),
+    },
     // 0083 — the ADMIN_AI_TRACE_READ_ENABLED master switch, listed AHEAD of AdminRolesGuard in
     // AdminAiTracesController so the flag-off answer is a uniform neutral 404 for every role.
     AdminAiTraceFlagGuard,

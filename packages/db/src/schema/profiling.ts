@@ -114,8 +114,85 @@ export const workerAttributes = pgTable(
      */
     valueNumber: numeric("value_number", { precision: 14, scale: 4 }),
     valueText: text("value_text"),
+    /**
+     * {@link valueText} rephrased into professional English by the model (#1350), or null.
+     *
+     * A SECOND COLUMN BESIDE THE ANSWER, NEVER A SECOND ROW. The obvious home for a rewrite in an
+     * EAV table is another `attribute_key` — and it is the wrong one. This table is the record of
+     * WHAT THE WORKER ANSWERED: the matcher reads it ("which workers have attribute X"), the
+     * profiling events carry its keys, and `source` admits only `answer_map` or `llm_parse`.
+     * A model-composed sentence filed as an attribute would be a worker answer nobody gave,
+     * indexed and matched against as though he had. Here it is unmistakably derived data, and
+     * every reader that does not know about it is unaffected.
+     *
+     * WHY THIS COLUMN EXISTS AT ALL. Zone 4 for a fresher is his ITI training, and its one
+     * free-text segment (`iti_project_work`) printed exactly as typed — "kuch nhi banaya, bas
+     * knowledge he mujhe" on a resume an employer reads. The employment path has had a rewrite
+     * since #1350; the fresher path, whose worker is the one with the least on his page, had
+     * none. Owner report, 2026-09-09.
+     *
+     * NULL IS THE ORDINARY STATE AND THE SAFE ANSWER, exactly as for
+     * `worker_employment_role.work_done_polished`: a reader falls back to {@link valueText} and
+     * must never read null as an empty answer. CLEARED WHEN THE ANSWER CHANGES — the upsert on
+     * `wa_worker_key_uq` writes this back to null with the new text, so an edited answer is
+     * re-polished rather than carrying yesterday's rewrite of a different sentence.
+     *
+     * TEXT ANSWERS ONLY. A slug, a number and a boolean are closed vocabulary; there is nothing
+     * to rephrase and sending one to a model would be the §8 violation this whole column is
+     * carefully scoped to avoid. The CHECK below enforces it rather than trusting every writer.
+     */
+    valueTextPolished: text("value_text_polished"),
+    /**
+     * The worker LOOKED at {@link valueTextPolished} and chose his own words instead (#1485).
+     *
+     * KEPT BESIDE THE REWRITE RATHER THAN CLEARING IT, which is the whole reason this is a column
+     * and not the absence of one. A refusal expressed by NULLing `value_text_polished` is
+     * indistinguishable from "not polished yet" — exactly the state the polisher reads as work to
+     * do — so the next render would silently rewrite the sentence the worker had just refused, and
+     * nothing would report it. `worker_employment_role.work_done_polish_declined` is this column
+     * for an employment, and carries the same argument at more length.
+     *
+     * WHY A FRESHER NEEDS HIS OWN. #1354 gave a worker this choice per employment. A fresher HAS
+     * no employment: his Zone 4 is his ITI training, and its one worker-written segment
+     * (`iti_project_work`) could be rewritten by a model with no way for him to refuse. He is
+     * also the worker with the least else on his page, so that one sentence carries the most.
+     *
+     * FALSE IS THE ORDINARY STATE AND THE SAFE ONE — it means "the worker has not objected", which
+     * is what every row written before this column holds and what a reader may always assume.
+     *
+     * SURVIVES A RE-ANSWER ONLY WHEN THE ANSWER DID NOT CHANGE. The upsert on `wa_worker_key_uq`
+     * keeps this flag when `value_text` is unchanged and resets it when it is not: a refusal is
+     * about a SENTENCE, so an edited answer arrives un-refused and is re-polished, while
+     * re-submitting the same text must not quietly revoke the worker's decision. That is the same
+     * text-keyed rule `WorkerEmploymentRepository.replaceForWorker` applies across a history
+     * replace, and for the same reason.
+     *
+     * TEXT ANSWERS ONLY, on the same CHECK and the same reasoning as {@link valueTextPolished}:
+     * there is nothing to refuse on a slug, because nothing may rephrase one.
+     */
+    valueTextPolishedDeclined: boolean("value_text_polished_declined").notNull().default(false),
     /** `multi_select` answers. A JSONB array of strings; empty array is a legitimate answer. */
     valueTextList: jsonb("value_text_list").$type<string[]>(),
+    /**
+     * A STRUCTURED answer — one object, several named fields (ADR-0042 D9 / Layer A (c), 0111).
+     *
+     * WHY A NEW COLUMN RATHER THAN A KEY-PER-FIELD SCHEME. The availability answer is one fact
+     * with three parts (`status`, `available_from`, `notice_period_days`) that a form collects in
+     * one submission. Splitting it across three attribute keys would make each part independently
+     * clobberable by a re-answer and would let a row exist that says a notice period without
+     * saying from when — the "one answer, three rows" defect class the `wa_worker_key_uq` upsert
+     * exists to prevent.
+     *
+     * WHY `jsonb` AND NOT `value_text` HOLDING SERIALIZED JSON: every reader switches on
+     * `value_kind`, and a row claiming `text` while holding an object is exactly the mismatch
+     * `wa_value_present_chk` refuses for the other four kinds. `json` is a first-class kind, the
+     * shape CHECK below demands an object (never an array or a scalar), and the API's zod schema
+     * is what bounds the object's keys.
+     *
+     * NOT READ BY THE MATCHER, NOT AN EVENT PAYLOAD, NOT A PROMPT. It prints only through the
+     * deterministic builders; nothing here crosses the AI boundary.
+     */
+    valueJson: jsonb("value_json").$type<Record<string, unknown>>(),
     source: text("source").$type<ProfileValueSource>().notNull().default("answer_map"),
     /**
      * Provenance of the QUESTION, not of the worker. Nullable because a value can also arrive from
@@ -141,7 +218,7 @@ export const workerAttributes = pgTable(
     ),
     check(
       "wa_value_kind_chk",
-      sql`${t.valueKind} IN ('boolean', 'number', 'text', 'text_list')`,
+      sql`${t.valueKind} IN ('boolean', 'number', 'text', 'text_list', 'json')`,
     ),
     check("wa_source_chk", sql`${t.source} IN ('answer_map', 'llm_parse')`),
     // Exactly one value column populated, and it must be the one `value_kind` names. Without the
@@ -150,15 +227,41 @@ export const workerAttributes = pgTable(
     check(
       "wa_value_present_chk",
       sql`(
-        (${t.valueKind} = 'boolean'   AND ${t.valueBool} IS NOT NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'number'    AND ${t.valueNumber} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'text'      AND ${t.valueText} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueTextList} IS NULL) OR
-        (${t.valueKind} = 'text_list' AND ${t.valueTextList} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL)
+        (${t.valueKind} = 'boolean'   AND ${t.valueBool} IS NOT NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'number'    AND ${t.valueNumber} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'text'      AND ${t.valueText} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueTextList} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'text_list' AND ${t.valueTextList} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueJson} IS NULL) OR
+        (${t.valueKind} = 'json'      AND ${t.valueJson} IS NOT NULL AND ${t.valueBool} IS NULL AND ${t.valueNumber} IS NULL AND ${t.valueText} IS NULL AND ${t.valueTextList} IS NULL)
       )`,
     ),
     check(
       "wa_value_text_list_shape_chk",
       sql`${t.valueTextList} IS NULL OR jsonb_typeof(${t.valueTextList}) = 'array'`,
+    ),
+    // A `json` answer is an OBJECT — never an array, a scalar or `null`. The kind is for shapes
+    // that carry named fields, and a list answer already has its own kind and column; letting an
+    // array in here would create two representations of one fact. The keys themselves are bounded
+    // one layer up by the DTO's zod schema.
+    check(
+      "wa_value_json_shape_chk",
+      sql`${t.valueJson} IS NULL OR (${t.valueKind} = 'json' AND jsonb_typeof(${t.valueJson}) = 'object')`,
+    ),
+    // A rewrite only exists for a TEXT answer, and it is bounded by the same 300 characters the
+    // work-history rewrite is — the sheet gives this one line either way. See
+    // {@link workerAttributes.valueTextPolished}; the rule is enforced here rather than left to
+    // every writer, because a polish attached to a slug is the §8 violation the column is scoped
+    // to avoid and a constraint is the only place that scope cannot be forgotten.
+    check(
+      "wa_value_text_polished_chk",
+      sql`${t.valueTextPolished} IS NULL OR (${t.valueKind} = 'text' AND length(${t.valueTextPolished}) <= 300)`,
+    ),
+    // A REFUSAL ONLY EXISTS FOR A TEXT ANSWER, for the same reason the rewrite above does: a slug
+    // is closed vocabulary, nothing may rephrase one, and so there is nothing to refuse. Enforced
+    // here rather than trusted to every writer — the repository scopes its UPDATE to
+    // `value_kind = 'text'` as belt, and this is the brace that cannot be forgotten.
+    check(
+      "wa_value_text_polished_declined_chk",
+      sql`${t.valueTextPolishedDeclined} = false OR ${t.valueKind} = 'text'`,
     ),
     // Pinned together or not at all — half a pin cannot say which questions were asked.
     check(
@@ -285,7 +388,10 @@ export const profilingVoiceAnswers = pgTable(
     ),
     // A superseding row is a different row. Without this, a self-reference reads as "replaced by
     // itself" and a supersession chain becomes a cycle no reader can walk.
-    check("pva_superseded_by_self_chk", sql`${t.supersededById} IS NULL OR ${t.supersededById} <> ${t.id}`),
+    check(
+      "pva_superseded_by_self_chk",
+      sql`${t.supersededById} IS NULL OR ${t.supersededById} <> ${t.id}`,
+    ),
     // Supersession is a fact with a pointer, or neither. A stamp with no successor is unresolvable.
     check(
       "pva_superseded_pair_chk",

@@ -1,9 +1,12 @@
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
+import '../../../core/observability/crash_reporter.dart';
+import '../../../core/session/known_worker_facts_store.dart';
 import '../../../core/session/session_repository.dart';
 import '../../voice_form/domain/voice_form_models.dart'
     show VoiceChoice, VoiceQuestion, VoiceQuestionKind;
+import '../domain/form_fact_registry.dart';
 import '../domain/trade_form_models.dart';
 import '../domain/trade_form_repository.dart';
 
@@ -12,11 +15,38 @@ import '../domain/trade_form_repository.dart';
 /// is this feature's own shape, not core's) and this class owns turning it
 /// into [TradeForm]/[TradeFormStep]. Follows `FinishingRepositoryImpl`'s ctor
 /// + bearer-token shape for the two marker-screen writes.
+/// Reports a caught, NON-FATAL error to the app's observability sink.
+///
+/// The same seam `ChatRepositoryImpl` uses, and for the same reason: it makes
+/// "this failure was REPORTED, not swallowed" unit-testable without a live
+/// Firebase (which makes `recordNonFatal` a no-op in tests).
+typedef NonFatalReporter = void Function(
+  Object error,
+  StackTrace stack, {
+  required String reason,
+});
+
+/// Default [NonFatalReporter]. [reason] is a short, STATIC, PII-free key.
+void _recordNonFatal(Object error, StackTrace stack, {required String reason}) =>
+    CrashReporter.recordNonFatal(error, stack, reason: reason);
+
 class TradeFormRepositoryImpl implements TradeFormRepository {
-  TradeFormRepositoryImpl(this._api, this._session);
+  TradeFormRepositoryImpl(
+    this._api,
+    this._session, {
+    NonFatalReporter reportNonFatal = _recordNonFatal,
+    KnownWorkerFactsStore? knownFacts,
+  })  : _report = reportNonFatal,
+        _knownFacts = knownFacts;
 
   final ApiClient _api;
   final SessionRepository _session;
+  final NonFatalReporter _report;
+
+  /// What the worker already gave before this form (/name's city, chat
+  /// answers) — [dedupeTradeForm] skips those questions. Null asks everything
+  /// the form carries.
+  final KnownWorkerFactsStore? _knownFacts;
 
   String _requireToken() {
     final String? token = _session.sessionToken;
@@ -30,7 +60,14 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     try {
       final Map<String, dynamic> json =
           await _api.getTradeForm(authToken: token);
-      return _parseForm(json);
+      // ONE FACT, ASKED ONCE: every caller (the first load AND the
+      // schema_stale resync) gets the de-duplicated form, so the walk and the
+      // progress totals derived from `questionSteps` agree. See
+      // `form_fact_registry.dart` for why the server's form repeats itself.
+      final TradeForm form = _parseForm(json);
+      final Set<WorkerFact> known =
+          await _knownFacts?.knownFacts() ?? const <WorkerFact>{};
+      return dedupeTradeForm(form, knownFacts: known);
     } on ApiException catch (error) {
       // 404 — this worker was never handed a form. A DIFFERENT thing from an
       // empty form (#1341): the caller renders an honest "nothing to fill
@@ -59,17 +96,34 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         },
       );
       return _parseAnswerResult(json);
-    } on ApiException catch (error) {
+    } on ApiException catch (error, stack) {
       // 400 naming an unknown option_key means client/pack-version disagree
       // (#1341) — surfaced with the server's own message, the same pattern
       // `FinishingRepositoryImpl.saveWorkPreferences` uses for a bad city.
       if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
         throw InvalidRequestFailure(error.message);
       }
+      // #1480 — ANYTHING ELSE IS A DEAD END FOR THE WORKER, SO IT MUST NOT BE ONE FOR US.
+      //
+      // Above this line the server told the worker something he can act on. Below it he gets
+      // "kuch takneeki dikkat hai" and stops, and on 2026-09-10 that happened on EVERY
+      // question of the CNC turner form with nothing recorded anywhere — the investigation
+      // needed SSH to the box because the app kept no trace of what it saw.
+      //
+      // A 400 is deliberately NOT reported: it is the server's considered answer about this
+      // request, the worker is told what to change, and reporting it would bury the real
+      // faults under pack-version skew. Everything else — 5xx, 401, 403, a timeout — is a
+      // failure the worker cannot fix and we would otherwise never learn about.
+      //
+      // REASON IS STATIC AND PII-FREE. The status rides on the mapped `ServerFailure` and the
+      // question key is deliberately absent: it is pack vocabulary, not a worker's words, but
+      // a per-question key would fragment the Crashlytics issue into eighteen.
+      _report(mapError(error), stack, reason: 'trade_form_answer_failed');
       throw mapError(error);
     } on Failure {
       rethrow;
-    } catch (error) {
+    } catch (error, stack) {
+      _report(mapError(error), stack, reason: 'trade_form_answer_failed');
       throw mapError(error);
     }
   }
@@ -166,6 +220,10 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       kind: json['kind'] as String? ?? '',
       packId: json['pack_id'] as String? ?? '',
       packVersion: (json['pack_version'] as num?)?.toInt() ?? 0,
+      // #1472 — re-read from EVERY schema response, never cached: the form is
+      // resumable across a cold start, and a stale id files a spoken work
+      // description under the wrong conversation.
+      sessionId: json['session_id'] as String?,
       sections: rawSections
           .whereType<Map<dynamic, dynamic>>()
           .map((Map<dynamic, dynamic> s) => _parseSection(s.cast<String, dynamic>()))
@@ -201,6 +259,7 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
               ? (json['ui'] as Map)['searchable'] == true
               : false,
           answer: _parseSavedAnswer(json['answer']),
+          suggestion: _parseSuggestion(json['suggestion']),
         );
       case 'preferences':
         return const TradeFormPreferencesStep();
@@ -283,6 +342,36 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       number: (a['number'] as num?)?.toDouble(),
       boolValue: a['bool'] as bool?,
     );
+  }
+
+  /// `suggestion: null` — which is what the server sends until a résumé has
+  /// been parsed — reads as null here, and so does a malformed object. NEVER
+  /// coerced into a [TradeFormSavedAnswer]: a suggestion has no status, and
+  /// manufacturing one would put a résumé's guesses on a worker's profile as
+  /// his own claims (ruling D2, #1499).
+  ///
+  /// A missing `confidence` reads as 0 rather than dropping the suggestion: the
+  /// number is observability, not a gate, so its absence must not lose the one
+  /// thing the worker can actually use.
+  TradeFormSuggestion? _parseSuggestion(Object? raw) {
+    if (raw is! Map) return null;
+    final Map<String, dynamic> s = raw.cast<String, dynamic>();
+    final Object? rawValues = s['values'];
+    if (rawValues is! Map) return null;
+    final Map<String, dynamic> v = rawValues.cast<String, dynamic>();
+    final TradeFormSuggestion suggestion = TradeFormSuggestion(
+      optionKeys: (v['option_keys'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList() ??
+          const <String>[],
+      text: v['text'] as String?,
+      number: (v['number'] as num?)?.toDouble(),
+      boolValue: v['bool'] as bool?,
+      confidence: (s['confidence'] as num?)?.toDouble() ?? 0,
+    );
+    // Nothing to say is the same as saying nothing — one null for the renderer
+    // to branch on instead of two.
+    return suggestion.isEmpty ? null : suggestion;
   }
 
   TradeFormAnswerResult _parseAnswerResult(Map<String, dynamic> json) {

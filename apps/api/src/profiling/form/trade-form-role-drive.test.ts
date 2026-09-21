@@ -1,22 +1,18 @@
 import "reflect-metadata";
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  QuestionPackSchema,
-  type AnswerType,
-  type QuestionPack,
-  type QuestionPackItem,
-  type QuestionPackOption,
+import type {
+  AnswerType,
+  QuestionPack,
+  QuestionPackItem,
+  QuestionPackOption,
 } from "@badabhai/ai-contracts";
 import type { NewWorkerPackAnswer, WorkerPackAnswer } from "@badabhai/db";
 
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
-import { computeContentHash } from "../pack-cache.constants";
 import { descriptorForPack, ENABLED_ROLE_DESCRIPTORS } from "../roles/role-registry";
+import { packFromCorpus, UNIVERSAL_PACK_FILE } from "./corpus-pack.test-support";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { answerMapFromRows, isFormQuestionVisible } from "./form-eligibility";
 import {
@@ -26,6 +22,9 @@ import {
   type TradeFormAnswerResponse,
 } from "./trade-form.dto";
 import { TradeFormService } from "./trade-form.service";
+
+/** Marker executor the repository doubles hand to a transaction callback. */
+const FAKE_TX = Symbol("fake-tx") as unknown as never;
 
 /**
  * ═══ EVERY SHIPPED ROLE, DRIVEN THROUGH ITS OWN FORM FROM FIRST FETCH TO LAST ANSWER ═══
@@ -60,9 +59,6 @@ import { TradeFormService } from "./trade-form.service";
  * store exactly the columns `answerMapFromRows` and `questionScreen` read back.
  */
 
-// Anchored to this file rather than `process.cwd()`, like `role-corpus-parity.guard.test.ts`.
-const PACK_DIR = join(__dirname, "../../../../../packages/db/data/question-packs/packs");
-
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
 
@@ -96,51 +92,19 @@ const RENDERABLE_ANSWER_TYPES: readonly AnswerType[] = [
 ];
 
 // ── the shipped corpus, loaded the way the registry loads it ────────────────────────────────
-
-interface CorpusOption {
-  readonly option_key: string;
-  readonly label_text: string;
-  readonly value_text?: string;
-  readonly value_number?: number;
-  readonly value_bool?: boolean;
-}
-
-interface CorpusItem {
-  readonly question_key: string;
-  readonly options?: readonly CorpusOption[];
-}
-
-interface CorpusPack {
-  readonly pack_id: string;
-  readonly family_id: string;
-  readonly items: readonly CorpusItem[];
-}
+//
+// `packFromCorpus` lives in `corpus-pack.test-support.ts` now, shared with the #1503 contract test
+// and the unit suite, so the three cannot disagree about what a live request holds.
 
 /**
- * A corpus file → the `QuestionPack` a live request would hold.
+ * THE REAL UNIVERSAL PACK, served by the harness from every door that can return it (#1503).
  *
- * THE ROUND TRIP IS THE POINT, and it is reproduced rather than approximated. `seed-question-packs`
- * writes an option's three typed columns; `pack-registry.service.toOption` reads ONE contract field
- * back out of them as `valueText ?? valueNumber ?? valueBool`. That collapse is where a tier gate's
- * integer becomes the `value` this service later has to recognise as a number, so a loader that
- * carried `value_number` straight through under its own name would test a shape production never
- * sees. `display_order` is the item's index within its pack, as the seeder assigns it.
+ * This harness used to stub `loadUniversal` to `null`, and that is exactly why `f455bb36` appended
+ * eight questions to all nine forms without one assertion here noticing: every walk below ran
+ * against a form with nothing appended. With the real pack served, a regression that reads it puts
+ * its questions on screen — and "the first fetch is the whole pack" below goes red on it.
  */
-function packFromCorpus(packId: string): QuestionPack {
-  const raw = JSON.parse(readFileSync(join(PACK_DIR, `${packId}.json`), "utf8")) as CorpusPack;
-  const items = raw.items.map((item, index) => ({
-    ...item,
-    display_order: index,
-    options: (item.options ?? []).map((option) => ({
-      ...option,
-      // `??`, never a truthiness chain: `value_number: 0` is the fresher rung on every one of
-      // these ladders and `value_bool: false` is a real answer.
-      value: option.value_text ?? option.value_number ?? option.value_bool ?? null,
-    })),
-  }));
-  // Derived, exactly as `load()` derives it — the column is nullable and nothing writes it.
-  return QuestionPackSchema.parse({ ...raw, content_hash: computeContentHash(items), items });
-}
+const UNIVERSAL: QuestionPack = packFromCorpus(UNIVERSAL_PACK_FILE);
 
 interface RoleUnderTest {
   readonly kind: TradeFormKind;
@@ -213,9 +177,14 @@ function harnessFor(role: RoleUnderTest): Harness {
     loadForFamily: vi.fn(async (familyId: string) =>
       familyId === role.familyId ? role.pack : null,
     ),
+    loadUniversal: vi.fn(async () => UNIVERSAL),
+    resolveForOccupation: vi.fn(async () => UNIVERSAL),
   };
   const answers = {
     listAnswers: vi.fn(async () => [...rows.values()]),
+    // The service writes the answer row and its attribute row in ONE transaction; the double
+    // just runs the callback. See the note on the same field in `trade-form.service.test.ts`.
+    withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
     upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer) => {
       // Only the columns the readers read. `answerMapFromRows` and `questionScreen` between them
       // touch exactly these six, and storing more would invent a fidelity this double does not
@@ -252,6 +221,24 @@ function harnessFor(role: RoleUnderTest): Harness {
     // M1 — see the note in trade-form.service.test.ts. Present so the constructor arity
     // matches; this suite asserts routing, not the rebuild.
     { rebuildQuietly: vi.fn(async () => undefined) } as never,
+  
+    // ADR-0041 RI-4. A worker who uploaded nothing is the case EVERY test here is about,
+    // so this returns an empty map: the form these tests assert on must be byte-for-byte
+    // the form a worker without a résumé sees.
+    { forWorker: async () => new Map() } as never,
+    // ADR-0041 RI-4 — `contextFor`'s résumé-import fallback. No import, so every walk here
+    // reaches the form through the interview handover. NEITHER THIS SUITE NOR
+    // `trade-form.service.test.ts` EXERCISES THAT FALLBACK — both stub it exactly like this.
+    { findLatestForWorker: async () => undefined } as never,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" trigger — a spy, since this suite drives role packs
+    // end to end and asserts routing, not the review-or-omit path
+    // (`trade-form.service.test.ts` covers that).
+    { review: vi.fn(async () => null) } as never,
+    { WORK_HISTORY_POLISH_ENABLED: false } as never,
+    // Safety-net resume refresh (no resume row here → never fires) + render queue.
+    // Present so the constructor arity matches; this suite asserts routing, not the refresh.
+    { latestResume: vi.fn(async () => undefined) } as never,
+    { add: vi.fn(async () => ({})) } as never,
   );
   return { service, rows, attributes, events };
 }
@@ -344,6 +331,11 @@ function answerFor(item: QuestionPackItem, role: RoleUnderTest, tier: Tier): Tra
 
 interface WalkResult {
   readonly responses: readonly TradeFormAnswerResponse[];
+  /**
+   * How many question screens `schema()` served IMMEDIATELY AFTER each response, index-aligned
+   * with `responses` — what the rail's `total` has to equal (#1503).
+   */
+  readonly servedAfterEach: readonly number[];
   /** Every question key served on the FIRST fetch, before any gate had an answer to narrow it. */
   readonly firstFetch: readonly string[];
   readonly rounds: number;
@@ -364,6 +356,7 @@ async function driveWholeForm(
 ): Promise<WalkResult> {
   const byKey = new Map(role.pack.items.map((item) => [item.question_key, item]));
   const responses: TradeFormAnswerResponse[] = [];
+  const servedAfterEach: number[] = [];
   let firstFetch: string[] = [];
   // One round per gate answer plus a settling round. A form that needs more than this is looping.
   const maxRounds = role.pack.items.length + 2;
@@ -378,7 +371,9 @@ async function driveWholeForm(
     if (round === 0) firstFetch = served.map((screen) => screen.question.question_key);
 
     const pending = served.filter((screen) => screen.answer === null);
-    if (pending.length === 0) return { responses, firstFetch, rounds: round + 1 };
+    if (pending.length === 0) {
+      return { responses, servedAfterEach, firstFetch, rounds: round + 1 };
+    }
 
     for (const screen of pending) {
       const item = byKey.get(screen.question.question_key);
@@ -389,6 +384,7 @@ async function driveWholeForm(
       const dto = TradeFormAnswerSchema.parse(answerFor(item!, role, tier));
       const response = await harness.service.answer(WORKER, dto);
       responses.push(response);
+      servedAfterEach.push(questionScreensOf(await harness.service.schema(WORKER)).length);
       // The list this loop is iterating is now out of date. Refetch rather than carry on.
       if (response.schema_stale) break;
     }
@@ -685,6 +681,29 @@ describe("every shipped trade form, driven end to end", () => {
         expect(
           harness.events.filter((event) => event.event_name === "profile.form_completed").length,
         ).toBe(1);
+      },
+    );
+
+    it.each(CASES)(
+      "%s — the rail's total equals the question screens served, after EVERY answer (#1503)",
+      async (_kind, role) => {
+        // `f455bb36` made these two numbers range over different lists: `schema()` served the
+        // trade pack plus eight universal questions while `answer()` counted the trade pack alone,
+        // so the rail read 0/18 beside 26 screens. Both are now one `formView`; this walks both
+        // tiers and compares them after every single response, gate answers included.
+        for (const tier of ["fresher", "experienced"] as const) {
+          const harness = harnessFor(role);
+          const walk = await driveWholeForm(harness, role, tier);
+          expect(walk.responses.length, `${role.kind}/${tier}: answered nothing`).toBeGreaterThan(0);
+          expect(walk.servedAfterEach).toHaveLength(walk.responses.length);
+          walk.responses.forEach((response, index) => {
+            expect(
+              response.total,
+              `${role.kind}/${tier} after ${response.question_key}: total ${response.total} but ` +
+                `${walk.servedAfterEach[index]} question screens served`,
+            ).toBe(walk.servedAfterEach[index]);
+          });
+        }
       },
     );
 

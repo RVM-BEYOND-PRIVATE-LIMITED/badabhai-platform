@@ -55,6 +55,31 @@ const SavedAnswerSchema = z.object({
   text: z.string().nullable(),
   number: z.number().nullable(),
   bool: z.boolean().nullable(),
+  /**
+   * A worker's own typed words against a CLOSED-OPTION question ("typed custom answer,
+   * everywhere", owner ruling round 4) — replayed VERBATIM, exactly as he typed it, never the
+   * LLM-reviewed rewrite. This is the resumed-form edit surface, not the printed sheet: the
+   * worker editing his own answer must see what he actually typed, not a rewrite he has not yet
+   * had the chance to see or refuse.
+   */
+  other_text: z.string().nullable(),
+});
+
+/**
+ * A résumé's contribution to one question. Mirrors the saved-answer VALUE shape exactly, minus
+ * the one field that would make it a claim.
+ */
+const ResumeSuggestionSchema = z.object({
+  values: z.object({
+    option_keys: z.array(z.string()),
+    text: z.string().nullable(),
+    number: z.number().nullable(),
+    bool: z.boolean().nullable(),
+  }),
+  /** Closed today, and a union tomorrow: RI-5's chat surface offers the same values. */
+  source: z.literal("resume"),
+  /** The model's own number, carried through unaltered — never a floor, never a filter. */
+  confidence: z.number().min(0).max(1),
 });
 
 const ScreenSchema = z.discriminatedUnion("type", [
@@ -72,6 +97,24 @@ const ScreenSchema = z.discriminatedUnion("type", [
      */
     ui: z.object({ searchable: z.boolean() }),
     answer: SavedAnswerSchema.nullable(),
+    /**
+     * What the worker's uploaded résumé said about this question (ADR-0041 RI-4).
+     *
+     * ADDITIVE AND DEFAULTED, so a client that never reads it renders exactly today's form —
+     * that is the property that lets the server land this before the app does, and it is the
+     * same argument `schema_stale` makes one screen down.
+     *
+     * NOT AN ANSWER, AND SHAPED SO IT CANNOT BE MISTAKEN FOR ONE. `answer` carries a `status`;
+     * this does not, because a suggestion has no status — nobody has said anything yet. Ruling
+     * D2 turns on that distinction: facts render PREFILLED and capability chips render
+     * HIGHLIGHTED BUT UNTICKED, and a tick stays the worker's own claim. If this ever arrived
+     * with a status, one client bug away is a form that reports a man's résumé as his answers.
+     *
+     * A QUESTION MAY CARRY BOTH. Ruling D7 — a stored answer always wins — is expressed here
+     * rather than in code: the `answer` is served exactly as it was, and the suggestion simply
+     * sits beside it. Nothing overwrites anything.
+     */
+    suggestion: ResumeSuggestionSchema.nullable().default(null),
   }),
   /**
    * The closed-set preferences page — availability, salary band, cities, shift, languages,
@@ -129,6 +172,26 @@ export const TradeFormSchemaResponse = z.object({
   /** Pinned, so an answer written against v1 is never replayed into a v2 form. */
   pack_id: z.string(),
   pack_version: z.number().int().positive(),
+  /**
+   * The interview that handed this worker the form — the same id every row the form writes
+   * already carries as provenance (`worker_pack_answer.chat_session_id`).
+   *
+   * SERVED BECAUSE THE MIC NEEDS IT. `POST /voice/upload` takes a `session_id` and `voice_notes`
+   * requires one (NOT NULL, referencing `chat_sessions`), so the work-history page cannot record
+   * a description without one. The client must not invent or cache it: the form is resumable
+   * after a cold start, and a stale id from a previous interview would file the clip under the
+   * wrong conversation.
+   *
+   * NULLABLE: When a worker reaches the form through résumé upload (ADR-0041 RI-4) rather than
+   * an interview, there is no chat session to reference. The client treats null as "no mic"
+   * (same as a 503 from the voice endpoint), which is correct — a résumé-sourced form has no
+   * interview provenance to carry.
+   *
+   * NOT A SECRET AND NOT A CAPABILITY. It is this worker's own session, the client already holds
+   * it on the chat surface, and every voice route re-derives the worker from the bearer token —
+   * so possessing it grants nothing the token does not already grant.
+   */
+  session_id: z.string().uuid().nullable(),
   sections: z.array(SectionSchema),
 });
 export type TradeFormSchemaResponse = z.infer<typeof TradeFormSchemaResponse>;

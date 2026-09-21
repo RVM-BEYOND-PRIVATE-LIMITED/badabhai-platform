@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/api/api_client.dart' show QualificationOptionsDto;
-import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/tap_guard.dart';
+import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/util/title_case.dart';
-import '../../../../core/widgets/bb_button.dart';
-import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../domain/trade_form_models.dart';
+import 'trade_form_kit.dart';
 import 'trade_form_text_field.dart';
 
 // Copy. aap-form, no `!`, safe verbs only. Scanned by
@@ -40,6 +39,21 @@ const String _kRetry = 'Dobara koshish karein';
 const int _kYearMin = 1950;
 const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
 const String _kYearInvalidError = 'Sahi saal likhein';
+
+// A row the worker actually USED must be COMPLETE, not merely non-empty in one
+// field. A certificate with a name but no issuer or year printed an unusable
+// credential line, and an education with a year but no institute/board did the
+// same. "Used" is the model's own `isBlank`: a row with nothing entered is
+// dropped before the write and never blocked, so a worker with none is never
+// forced to invent one.
+const String _kCertNameRequiredError = 'Certificate ka naam likhein.';
+const String _kIssuerRequiredError = 'Kisne diya — likhein.';
+const String _kCertYearRequiredError = 'Kis saal mila — saal likhein.';
+const String _kEduCredentialRequiredError = 'ITI ya Diploma — chunein.';
+const String _kEduFieldRequiredError = 'Trade ya subject likhein.';
+const String _kEduCouncilRequiredError = 'Council ya board chunein.';
+const String _kEduYearRequiredError = 'Kis saal poora hua — saal likhein.';
+const String _kEduInstituteRequiredError = 'Institute ka naam likhein.';
 
 /// `EDUCATION_QUALIFICATIONS` slugs (`worker-preferences.vocabulary.ts`) that
 /// carry a real trade/stream — ITI, Diploma and Graduate name a specific
@@ -80,6 +94,9 @@ const int _kMaxSuggestionChips = 6;
 /// cubit a [TradeFormQualifications] with `certificatesTouched`/
 /// `educationsTouched` set the moment a row is added, edited, or removed,
 /// and left false if the worker never interacts with that half of the page.
+///
+/// Painted with the Master UI Kit: white kit cards per entry, kit inputs, and
+/// the closed-set credential/council lists as [SingleSelectQuestionCard]s.
 class TradeFormQualificationsPage extends StatefulWidget {
   const TradeFormQualificationsPage({
     super.key,
@@ -119,10 +136,30 @@ class TradeFormQualificationsPage extends StatefulWidget {
 class TradeFormQualificationsPageState
     extends State<TradeFormQualificationsPage> {
   /// Page 0: certificates · 1: education credential+subject · 2: education
-  /// council · 3: kis saal poora hua+institute. Fixed — this marker's
-  /// sub-sections never change count at runtime (only the REPEATED rows
-  /// within education do, tracked separately below).
-  static const int pageCount = 4;
+  /// council · 3: kis saal poora hua+institute.
+  ///
+  /// DYNAMIC, and it has to be (#1465). Pages 2 and 3 render one row PER
+  /// education entry and carry no heading and no "add" affordance of their
+  /// own — those live on page 1. So a worker who adds no education used to
+  /// walk into two completely empty screens at the very end of the form, with
+  /// a full progress bar and an "Aage badhein" button under a blank body.
+  ///
+  /// With no education there is nothing for those two pages to ask, so they
+  /// do not exist. Adding an entry on page 1 brings them back. Same shape as
+  /// `TradeFormEmploymentPageState.pageCount`, which is driven by its own
+  /// entry list for exactly the same reason.
+  static const int _pagesWithoutEducation = 2;
+  static const int _pagesWithEducation = 4;
+
+  int get pageCount =>
+      _educations.isEmpty ? _pagesWithoutEducation : _pagesWithEducation;
+
+  /// #1474 — one guard per add button. A worker who taps twice because the new
+  /// card appended BELOW the fold got two identical cards; the second tap is
+  /// now dropped. Held in State on purpose: a guard built in `build()` would
+  /// forget every tap it ever saw.
+  final TapGuard _addCertGuard = TapGuard();
+  final TapGuard _addEduGuard = TapGuard();
 
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
@@ -131,6 +168,19 @@ class TradeFormQualificationsPageState
       List<TradeFormCertificateEntry>.of(
           widget.initialQualifications?.certificates ??
               const <TradeFormCertificateEntry>[]);
+
+  /// A STABLE id per certificate card, parallel to [_certificates].
+  ///
+  /// The cards used to be keyed by POSITION. Removing card 0 of two shifted
+  /// the survivor onto key 0, so Flutter matched it to the DELETED card's
+  /// element and kept that element's controllers: the worker deleted
+  /// "FIRST-CERT" and watched it stay on screen while "SECOND-CERT" vanished
+  /// — and the surviving entry then saved under the wrong text. A key that is
+  /// tied to the entry rather than to its index cannot do that: the removed
+  /// card's element is disposed and every survivor keeps its own state.
+  late List<int> _certIds =
+      List<int>.generate(_certificates.length, (int i) => i);
+  late int _nextCertId = _certificates.length;
   late bool _certificatesTouched =
       widget.initialQualifications?.certificatesTouched ?? false;
 
@@ -153,25 +203,17 @@ class TradeFormQualificationsPageState
   /// State (which stays mounted for the marker's whole internal walk) is
   /// the same fix `TradeFormPreferencesPageState` already uses for its own
   /// (non-repeated) year/institute fields.
-  late final List<TextEditingController> _eduFieldControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.field ?? ''),
-  ];
-  late final List<TextEditingController> _eduYearControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.year?.toString() ?? ''),
-  ];
-  late final List<TextEditingController> _eduInstituteControllers =
-      <TextEditingController>[
-    for (final TradeFormEducationEntry e in _educations)
-      TextEditingController(text: e.institute ?? ''),
-  ];
-  late final List<String?> _eduYearErrors = <String?>[
-    for (final TextEditingController c in _eduYearControllers)
-      _yearErrorText(c.text),
-  ];
+  /// SEEDED IN [initState], not by a `late final` initialiser. These four are
+  /// derived from [_educations], and a lazy initialiser reads it whenever it
+  /// first happens to be touched — which for a list only some sub-pages render
+  /// can be INSIDE `_removeEducation`, after that method has already replaced
+  /// [_educations] with the shortened list. The list would then seed itself
+  /// one element short and the very next `removeAt` would throw a RangeError.
+  /// Building them up front removes the ordering hazard entirely.
+  late final List<TextEditingController> _eduFieldControllers;
+  late final List<TextEditingController> _eduYearControllers;
+  late final List<TextEditingController> _eduInstituteControllers;
+  late final List<String?> _eduYearErrors;
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -180,6 +222,22 @@ class TradeFormQualificationsPageState
   @override
   void initState() {
     super.initState();
+    _eduFieldControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.field ?? ''),
+    ];
+    _eduYearControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.year?.toString() ?? ''),
+    ];
+    _eduInstituteControllers = <TextEditingController>[
+      for (final TradeFormEducationEntry e in _educations)
+        TextEditingController(text: e.institute ?? ''),
+    ];
+    _eduYearErrors = <String?>[
+      for (final TextEditingController c in _eduYearControllers)
+        _yearErrorText(c.text),
+    ];
     _loadOptions();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -211,20 +269,85 @@ class TradeFormQualificationsPageState
   /// Checked by `_WizardScaffoldState` BEFORE calling [goToNextPage]/[save]
   /// — a red year with no way to stop "Aage badhein" was a real, reported
   /// bug (a future year showed the inline error and still let the worker
-  /// through). Page 0 (certificates) can fail on ANY card's year; the last
-  /// page (year+institute) can fail on any education row's year — every
-  /// other page is closed-set chips/free text with no year field.
+  /// through).
+  ///
+  /// EVERY FIELD ON A USED ROW, per page: a row the worker started must be
+  /// complete before the wizard moves past the page that owns those fields (a
+  /// certificate row and its three fields share page 0; education is split over
+  /// pages 1–3, so each page checks the fields it shows). A wholly-blank row is
+  /// skipped — it is dropped before the write, so a worker with no certificates
+  /// or education is never blocked. A year is also range-checked from the MODEL,
+  /// not only from the inline field callback: a value loaded from saved data
+  /// never fires that callback, and an out-of-range year would otherwise slip
+  /// through the gate it used to.
   String? currentPageError() {
-    if (_page == 0) {
-      return _certYearErrorIndices.isNotEmpty ? _kBlockedAdvanceMessage : null;
-    }
+    if (_page == 0) return _certificatesError();
+    if (_page == 1) return _educationError(_EduSection.credentialAndField);
+    if (_page == 2) return _educationError(_EduSection.council);
     if (_page == pageCount - 1) {
-      return _eduYearErrors.any((String? e) => e != null)
-          ? _kBlockedAdvanceMessage
-          : null;
+      return _educationError(_EduSection.yearAndInstitute);
     }
     return null;
   }
+
+  /// Page 0: every used certificate needs a name, an issuer and a valid year.
+  String? _certificatesError() {
+    for (int i = 0; i < _certificates.length; i++) {
+      final TradeFormCertificateEntry c = _certificates[i];
+      if (c.isBlank) continue;
+      if (c.name.trim().isEmpty) return _kCertNameRequiredError;
+      if (c.issuer == null || c.issuer!.trim().isEmpty) {
+        return _kIssuerRequiredError;
+      }
+      if (_certYearErrorIndices.contains(i)) return _kBlockedAdvanceMessage;
+      final int? year = c.year;
+      if (year == null) return _kCertYearRequiredError;
+      if (year < _kYearMin || year > DateTime.now().year) {
+        return _kBlockedAdvanceMessage;
+      }
+    }
+    return null;
+  }
+
+  /// The education page [section] owns: every used row needs the field(s) that
+  /// page shows. The trade/subject is required only when the chosen credential
+  /// actually has one (`_kFieldVisibleCredentials`), matching what the page
+  /// renders.
+  String? _educationError(_EduSection section) {
+    for (int i = 0; i < _educations.length; i++) {
+      final TradeFormEducationEntry e = _educations[i];
+      if (e.isBlank) continue;
+      if (section == _EduSection.credentialAndField) {
+        if (e.credential == null) return _kEduCredentialRequiredError;
+        if (_kFieldVisibleCredentials.contains(e.credential) &&
+            (e.field == null || e.field!.trim().isEmpty)) {
+          return _kEduFieldRequiredError;
+        }
+      } else if (section == _EduSection.council) {
+        if (e.council == null) return _kEduCouncilRequiredError;
+      } else {
+        if (_eduYearErrors[i] != null) return _kBlockedAdvanceMessage;
+        final int? year = e.year;
+        if (year == null) return _kEduYearRequiredError;
+        if (year < _kYearMin || year > DateTime.now().year) {
+          return _kBlockedAdvanceMessage;
+        }
+        if (e.institute == null || e.institute!.trim().isEmpty) {
+          return _kEduInstituteRequiredError;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// What the wizard's listen button reads on the CURRENT internal page: its
+  /// heading (and the note under it where one shows) — app copy only, never a
+  /// certificate, institute or year the worker typed.
+  String currentPageSpeech() => switch (_page) {
+        0 => '$_kCertTitle\n$_kCertSubtitle',
+        1 => '$_kEduTitle\n$_kEduSubtitle',
+        _ => _kEduTitle,
+      };
 
   void _onCertYearValidity(int index, bool hasError) {
     setState(() {
@@ -274,6 +397,7 @@ class TradeFormQualificationsPageState
         ..._certificates,
         const TradeFormCertificateEntry(name: ''),
       ];
+      _certIds = <int>[..._certIds, _nextCertId++];
       _certificatesTouched = true;
     });
   }
@@ -293,11 +417,12 @@ class TradeFormQualificationsPageState
         List<TradeFormCertificateEntry>.of(_certificates)..removeAt(index);
     setState(() {
       _certificates = next;
+      _certIds = List<int>.of(_certIds)..removeAt(index);
       _certificatesTouched = true;
-      // Cards are keyed by POSITION (`ValueKey<int>(i)`), so a removal
-      // reshuffles every later card onto a different key — each one remounts
-      // fresh and reports its own validity again. Stale indices here would
-      // otherwise wrongly keep the wizard blocked (or wrongly unblock it).
+      // Every surviving card keeps its own element (it keeps its id), so the
+      // year-validity each one reported is still ITS OWN — but the indices
+      // those were recorded under have shifted, so drop them and let the
+      // cards re-report rather than block the wizard on a stale index.
       _certYearErrorIndices.clear();
     });
   }
@@ -317,6 +442,10 @@ class TradeFormQualificationsPageState
       _eduInstituteControllers.add(TextEditingController());
       _eduYearErrors.add(null);
     });
+    // The council and year+institute pages exist now — the wizard's footer is
+    // still showing the old count, and would otherwise offer "Submit karein"
+    // on what is no longer the last page.
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   void _updateEducation(int index, TradeFormEducationEntry entry) {
@@ -329,8 +458,8 @@ class TradeFormQualificationsPageState
     });
   }
 
-  /// A credential-chip tap for row [index]. Toggles [slug] exactly like every
-  /// other single-select chip here — but a credential switching AWAY from
+  /// A credential tap for row [index]. Toggles [slug] exactly like every
+  /// other single-select list here — but a credential switching AWAY from
   /// ITI/Diploma/Graduate/12th pass also hides (see [_kFieldVisibleCredentials])
   /// and clears the trade/subject field, so a stale subject typed under the
   /// PREVIOUS credential never rides along on a save under a credential that
@@ -357,7 +486,13 @@ class TradeFormQualificationsPageState
       _eduYearControllers.removeAt(index).dispose();
       _eduInstituteControllers.removeAt(index).dispose();
       _eduYearErrors.removeAt(index);
+      // Removing the LAST education deletes pages 2 and 3 out from under a
+      // worker who may be standing on one of them. Clamp before the frame
+      // that would otherwise paint a page that no longer exists.
+      final int maxPage = pageCount - 1; // recomputed off the NEW _educations
+      if (_page > maxPage) _page = maxPage;
     });
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   @override
@@ -381,26 +516,31 @@ class TradeFormQualificationsPageState
           subtitle: _kEduSubtitle,
           section: _EduSection.credentialAndField,
         );
+      // The heading rides EVERY education sub-page, not just the first
+      // (#1469). Pages 2 and 3 render one row per education entry and nothing
+      // else, so while the options fetch is in flight — which happens on every
+      // remount, e.g. walking BACK into an already-saved marker — their whole
+      // body was a bare spinner: no text, no field, no control, under a full
+      // progress bar. On the 2G these workers actually have, that is the blank
+      // screen that was reported. A heading costs nothing and means no state
+      // of this page can ever be contextless.
       case 2:
-        return _educationPage(section: _EduSection.council);
+        return _educationPage(title: _kEduTitle, section: _EduSection.council);
       default:
-        return _educationPage(section: _EduSection.yearAndInstitute);
+        return _educationPage(
+            title: _kEduTitle, section: _EduSection.yearAndInstitute);
     }
   }
 
   Widget _certificatesPage() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(_kCertTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-        const SizedBox(height: AppSpacing.s2),
-        Text(_kCertSubtitle,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s4),
+        const TradeFormHeading(title: _kCertTitle, subtitle: _kCertSubtitle),
+        const SizedBox(height: FormFlowLayout.introToOptionsGap),
         for (int i = 0; i < _certificates.length; i++) ...<Widget>[
           _CertificateCard(
-            key: ValueKey<int>(i),
+            key: ValueKey<int>(_certIds[i]),
             entry: _certificates[i],
             suggestions: widget.suggestedCertificates,
             onChanged: (TradeFormCertificateEntry e) =>
@@ -409,42 +549,32 @@ class TradeFormQualificationsPageState
             onValidityChanged: (bool hasError) =>
                 _onCertYearValidity(i, hasError),
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
         ],
         if (_certificates.length < kTradeFormMaxCertificates)
-          BbButton(
+          TradeFormSecondaryButton(
             label: _kAddCertificate,
-            variant: BbButtonVariant.outline,
-            size: BbButtonSize.md,
-            iconLeft: Icons.add,
-            block: true,
-            onPressed: _addCertificate,
+            icon: Icons.add,
+            onPressed: _addCertGuard.wrap(_addCertificate),
           ),
       ],
     );
   }
 
   /// One of the education marker's 3 internal pages — [title]/[subtitle]
-  /// (the heading + "up to 4 entries" note) render only on the FIRST of the
-  /// three, matching how the certificates page has exactly one heading; the
-  /// other two are a continuation of the same section, not a new one.
+  /// (the heading + "up to 4 entries" note); the subtitle renders only on the
+  /// FIRST of the three, the heading on all of them (#1469).
   Widget _educationPage({
     String? title,
     String? subtitle,
     required _EduSection section,
   }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         if (title != null) ...<Widget>[
-          Text(title, style: AppTypography.display(size: AppTypography.sizeLg)),
-          const SizedBox(height: AppSpacing.s2),
-        ],
-        if (subtitle != null) ...<Widget>[
-          Text(subtitle,
-              style: AppTypography.body(
-                  size: AppTypography.sizeSm, color: AppColors.textMuted)),
-          const SizedBox(height: AppSpacing.s4),
+          TradeFormHeading(title: title, subtitle: subtitle),
+          const SizedBox(height: FormFlowLayout.introToOptionsGap),
         ],
         _educationSection(section),
       ],
@@ -453,38 +583,24 @@ class TradeFormQualificationsPageState
 
   Widget _educationSection(_EduSection section) {
     if (_optionsLoadError != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(_optionsLoadError!, style: AppTypography.body(size: AppTypography.sizeBase)),
-          const SizedBox(height: AppSpacing.s3),
-          BbButton(
-            label: _kRetry,
-            variant: BbButtonVariant.secondary,
-            size: BbButtonSize.md,
-            onPressed: _loadOptions,
-          ),
-        ],
+      return TradeFormRetryBlock(
+        message: _optionsLoadError!,
+        retryLabel: _kRetry,
+        onRetry: _loadOptions,
       );
     }
     final QualificationOptionsDto? options = _options;
-    if (options == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(AppSpacing.s6),
-          child: CircularProgressIndicator(color: AppColors.blue),
-        ),
-      );
-    }
+    if (options == null) return const TradeFormSpinner();
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (int i = 0; i < _educations.length; i++) ...<Widget>[
-          _cardShell(
+          TradeFormCard(
             onRemove: () => _removeEducation(i),
+            removeTooltip: _kRemove,
             child: _educationRow(i, options, section),
           ),
-          const SizedBox(height: AppSpacing.s3),
+          const SizedBox(height: 12),
         ],
         // The "add another" affordance lives on the FIRST education
         // sub-page only — that is where a new, blank entry actually starts
@@ -493,13 +609,10 @@ class TradeFormQualificationsPageState
         // page that cannot fill it in.
         if (section == _EduSection.credentialAndField &&
             _educations.length < kTradeFormMaxEducations)
-          BbButton(
+          TradeFormSecondaryButton(
             label: _kAddEducation,
-            variant: BbButtonVariant.outline,
-            size: BbButtonSize.md,
-            iconLeft: Icons.add,
-            block: true,
-            onPressed: _addEducation,
+            icon: Icons.add,
+            onPressed: _addEduGuard.wrap(_addEducation),
           ),
       ],
     );
@@ -513,17 +626,18 @@ class TradeFormQualificationsPageState
         final bool showField =
             _kFieldVisibleCredentials.contains(e.credential);
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _fieldLabel(_kCredentialLabel),
-            _eduSingleChips(
+            const TradeFormFieldLabel(_kCredentialLabel),
+            _eduSingleCards(
               options.educationCredential,
               e.credential,
+              Icons.school_outlined,
               (String slug) => _onCredentialSelected(i, e, slug),
             ),
             if (showField) ...<Widget>[
-              const SizedBox(height: AppSpacing.s3),
-              _fieldLabel(_kFieldLabel),
+              const SizedBox(height: 4),
+              const TradeFormFieldLabel(_kFieldLabel),
               TradeFormTextField(
                 controller: _eduFieldControllers[i],
                 hint: _kFieldHint,
@@ -537,12 +651,13 @@ class TradeFormQualificationsPageState
         );
       case _EduSection.council:
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _fieldLabel(_kCouncilLabel),
-            _eduSingleChips(
+            const TradeFormFieldLabel(_kCouncilLabel),
+            _eduSingleCards(
               options.educationCouncil,
               e.council,
+              Icons.account_balance_outlined,
               (String slug) => _updateEducation(
                   i, e.copyWith(council: e.council == slug ? null : slug)),
             ),
@@ -550,9 +665,9 @@ class TradeFormQualificationsPageState
         );
       case _EduSection.yearAndInstitute:
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            _fieldLabel(_kEduYearLabel),
+            const TradeFormFieldLabel(_kEduYearLabel),
             TradeFormTextField(
               controller: _eduYearControllers[i],
               hint: _kEduYearHint,
@@ -565,8 +680,8 @@ class TradeFormQualificationsPageState
                 _updateEducation(i, e.copyWith(year: _yearInRange(v)));
               }),
             ),
-            const SizedBox(height: AppSpacing.s3),
-            _fieldLabel(_kInstituteLabel),
+            const SizedBox(height: 14),
+            const TradeFormFieldLabel(_kInstituteLabel),
             TradeFormTextField(
               controller: _eduInstituteControllers[i],
               hint: _kInstituteHint,
@@ -581,18 +696,26 @@ class TradeFormQualificationsPageState
     }
   }
 
-  Widget _eduSingleChips(
-      Map<String, String> labels, String? selected, void Function(String) onTap) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
+  /// A single-select list that clears the pick when the selected card is
+  /// tapped again — the same toggle the chips it replaced had. [fallback] is
+  /// the list's own icon for an option the shared icon rules do not recognise
+  /// — see [tradeFormOptionIcon].
+  Widget _eduSingleCards(Map<String, String> labels, String? selected,
+      IconData fallback, void Function(String) onTap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         for (final MapEntry<String, String> entry in labels.entries)
-          BbChip(
-            label: entry.value,
-            selected: selected == entry.key,
-            icon: selected == entry.key ? Icons.check : null,
+          SingleSelectQuestionCard(
+            title: entry.value,
+            leadingIcon: tradeFormOptionIcon(
+              optionKey: entry.key,
+              label: entry.value,
+              fallback: fallback,
+            ),
+            isSelected: selected == entry.key,
             onTap: () => onTap(entry.key),
+            variant: OnboardingVariant.formFlow,
           ),
       ],
     );
@@ -641,41 +764,6 @@ String? _trimOrNull(String v) {
 String? _titleCaseOrNull(String v) {
   final String? trimmed = _trimOrNull(v);
   return trimmed == null ? null : titleCaseName(trimmed);
-}
-
-Widget _fieldLabel(String text) => Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s1),
-      child: Text(text,
-          style: AppTypography.body(
-              size: AppTypography.sizeSm, weight: FontWeight.w700)),
-    );
-
-Widget _cardShell({required Widget child, required VoidCallback onRemove}) {
-  return Container(
-    padding: const EdgeInsets.all(AppSpacing.s4),
-    decoration: BoxDecoration(
-      color: AppColors.surfaceCard,
-      borderRadius: BorderRadius.circular(AppRadii.sm),
-      border: Border.all(color: AppColors.borderSubtle),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Align(
-          alignment: Alignment.centerRight,
-          child: IconButton(
-            onPressed: onRemove,
-            icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
-            tooltip: _kRemove,
-            constraints:
-                const BoxConstraints(minWidth: AppSpacing.tap, minHeight: 32),
-            padding: EdgeInsets.zero,
-          ),
-        ),
-        child,
-      ],
-    ),
-  );
 }
 
 /// One `certificates[]` row: free-text name (with tap-to-fill suggestion
@@ -747,12 +835,13 @@ class _CertificateCardState extends State<_CertificateCard> {
   Widget build(BuildContext context) {
     final TradeFormCertificateEntry e = widget.entry;
     final List<String> suggestions = _matchingSuggestions();
-    return _cardShell(
+    return TradeFormCard(
       onRemove: widget.onRemove,
+      removeTooltip: _kRemove,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _fieldLabel(_kCertNameLabel),
+          const TradeFormFieldLabel(_kCertNameLabel),
           TradeFormTextField(
             controller: _name,
             hint: _kCertNameHint,
@@ -763,71 +852,57 @@ class _CertificateCardState extends State<_CertificateCard> {
             },
           ),
           if (suggestions.isNotEmpty) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
+            const SizedBox(height: 10),
             Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
+              spacing: 8,
+              runSpacing: 8,
               children: <Widget>[
                 for (final String s in suggestions)
-                  BbChip(
+                  TradeFormPillChip(
                     label: s,
+                    leadingIcon: tradeFormOptionIcon(
+                      optionKey: '',
+                      label: s,
+                      fallback: Icons.workspace_premium_outlined,
+                    ),
                     selected: _name.text.trim() == s,
                     onTap: () => _pickSuggestion(s),
                   ),
               ],
             ),
           ],
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _fieldLabel(_kIssuerLabel),
-                    TradeFormTextField(
-                      controller: _issuer,
-                      hint: _kIssuerHint,
-                      label: _kIssuerLabel,
-                      maxLength: 120,
-                      onChanged: (String v) =>
-                          _push(e.copyWith(issuer: _trimOrNull(v))),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _fieldLabel(_kCertYearLabel),
-                    TradeFormTextField(
-                      controller: _year,
-                      hint: _kCertYearHint,
-                      label: _kCertYearLabel,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.done,
-                      errorText: _yearError,
-                      onChanged: (String v) {
-                        final String? next = _yearErrorText(v);
-                        final bool flipped = (next != null) != (_yearError != null);
-                        setState(() {
-                          _push(e.copyWith(year: _yearInRange(v)));
-                          _yearError = next;
-                        });
-                        if (flipped) widget.onValidityChanged?.call(next != null);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          // Issuer and year stack rather than sit side by side: two kit
+          // inputs in one row do not fit a 320dp screen at large text.
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kIssuerLabel),
+          TradeFormTextField(
+            controller: _issuer,
+            hint: _kIssuerHint,
+            label: _kIssuerLabel,
+            maxLength: 120,
+            onChanged: (String v) => _push(e.copyWith(issuer: _trimOrNull(v))),
+          ),
+          const SizedBox(height: 14),
+          const TradeFormFieldLabel(_kCertYearLabel),
+          TradeFormTextField(
+            controller: _year,
+            hint: _kCertYearHint,
+            label: _kCertYearLabel,
+            keyboardType: TextInputType.number,
+            textInputAction: TextInputAction.done,
+            errorText: _yearError,
+            onChanged: (String v) {
+              final String? next = _yearErrorText(v);
+              final bool flipped = (next != null) != (_yearError != null);
+              setState(() {
+                _push(e.copyWith(year: _yearInRange(v)));
+                _yearError = next;
+              });
+              if (flipped) widget.onValidityChanged?.call(next != null);
+            },
           ),
         ],
       ),
     );
   }
 }
-

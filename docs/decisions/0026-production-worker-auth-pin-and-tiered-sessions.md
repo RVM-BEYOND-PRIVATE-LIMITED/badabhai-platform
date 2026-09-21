@@ -141,7 +141,9 @@ Payloads carry `worker_id` + opaque ids/hashes (`device_hash`, `session id`,
 2. **Devices** — `worker_devices` table + registration on OTP verify; `did` claim;
    `GET`/`DELETE /auth/devices`.
 3. **PIN** — `worker_credentials` + scrypt set/verify/reset + throttle/lockout +
-   SIM-swap PIN gate; weak-PIN denylist (`1234`/`1111`/sequences).
+   SIM-swap PIN gate; weak-PIN denylist (`1234`/`1111`/sequences). **The denylist was REMOVED
+   on 2026-09-08** by owner ruling (#1462) — the worker picks his own PIN, no strength policy
+   client or server. Only the exact-length format gate remains. See the amendment note below.
 4. **Mobile** — `flutter_secure_storage` (refresh token + device id), PIN set/unlock
    screens, splash session-resume, refresh-on-401, logout/logout-all UI. *(On-device
    secret storage = security-review trigger; new dep.)*
@@ -279,7 +281,8 @@ never placed in an event payload, which stays the two-uuid shape).
 ### Endpoints + events as built
 
 - `POST /auth/pin/set` — `WorkerAuthGuard`; worker id from the token (never a body field);
-  format + denylist (`pin-hasher.service.ts`: all-same-digit, ±1 runs, small explicit list) →
+  format gate only since #1462 (`pin-hasher.service.ts::isCorrectFormat` — exactly `PIN_LENGTH`
+  digits; the denylist and its structural rules were REMOVED, see the amendment at the end) →
   scrypt hash → `upsertPin` (clears throttle) → `worker.pin_set`. 204.
 - `POST /auth/pin/verify` — **no guard**; the device-bound **refresh token IS the credential**;
   identity + trusted device resolved server-side. Login-shape session on success
@@ -642,12 +645,13 @@ Precedent: ADR-0031 made the same 204→200 move on `/auth/account/delete/confir
   point the OTP is spent and the session minted — a consent blip must never 500 a reset that
   server-side succeeded and cost the worker a code against the daily cap.
 
-**Ordering (load-bearing).** The PIN policy gate (exact length + weak-PIN denylist) now runs
-**before** `OtpService.verify`, so a weak PIN costs a 400 and nothing else. Spending the
+**Ordering (load-bearing).** The PIN policy gate — exact length, and until 2026-09-08 also the
+weak-PIN denylist (**removed**, #1462; see the amendment at the end of this ADR) — now runs
+**before** `OtpService.verify`, so a REJECTED PIN costs a 400 and nothing else. Spending the
 single-use code and only then rejecting the PIN pushed the worker back through the rate-limited
 OTP loop to try a different one — a direct contributor to the "recurring again and again" in the
-report. It is not an oracle: the denylist is public policy about the caller's own input and says
-nothing about the phone or the code. Then OTP verify, then the PIN write, then the mint — so the
+report. It is not an oracle: the length rule is public policy about the caller's own input and
+says nothing about the phone or the code. Then OTP verify, then the PIN write, then the mint — so the
 returned `pin_set` is a fact rather than a race.
 
 **Invariants.** No schema change, no new event, no new PII at rest, no guard change (the route is
@@ -662,3 +666,35 @@ for where sessions live, what destroys them, and the CD-7 deploy gate that now p
 survived. The client must also consume the returned body for a worker to feel this change
 (Frontend Platform — #998), and the likeliest actual cause of the recurrence is filed there
 too, with the server-side counterpart in #999.
+
+---
+
+## Amendment — 2026-09-08: the weak-PIN denylist is removed (#1462)
+
+**Owner ruling.** *"The worker chooses their own PIN. No strength policy, client or server.
+`1234`, `1111`, `0000` — all must be accepted."*
+
+**What went.** `PinHasher.isWeakPin` and its `WEAK_PINS` set (`0000 1111 1234 4321 1212 2580 1004
+2000 6969`), plus the two structural rules that came with them — all-same-digit, and strictly
+ascending/descending consecutive runs. `PinService.assertPinPolicy` no longer calls anything but
+the format gate. Deleted outright rather than flagged off: a switch nobody may turn on is dead
+config, and the ruling is not conditional.
+
+**What stays.** `isCorrectFormat` — exactly `PIN_LENGTH` digits. That is a malformed-value gate,
+not a strength rule, and dropping it would let a 3-digit typo into `worker_credentials`.
+
+**Why it is not the safety it looked like.** This ADR's own first principle is
+PIN-never-authenticates-from-scratch: the PIN unlocks a session on a device the worker already
+OTP-bound, so the attacker a denylist imagines already holds the handset. Against that attacker
+the controls that bite are untouched — the slow-KDF hash, `PIN_MAX_ATTEMPTS` with exponential
+lockout (`PIN_LOCKOUT_BASE_SECONDS` × `PIN_MAX_LOCKOUT_CYCLES`), the durable force-OTP
+escalation that survives a Redis flush, device binding, and the step-up OTP on reset. What the
+denylist bought was a 400 on the first screen a low-literacy worker meets, against a value he had
+just chosen and confirmed.
+
+**Ordering is unchanged.** The gate still runs before `OtpService.verify` on the reset path
+(#994) — the set of PINs it can reject there is now just "wrong length or not digits".
+
+**Client half.** `AuthErrorCode.pinWeak` handling stays in the worker app so the flow degrades
+gracefully if a server ever rejects again; it becomes unreachable in practice. Removing the app's
+own block is Frontend's half of #1462 and is NOT in this change.

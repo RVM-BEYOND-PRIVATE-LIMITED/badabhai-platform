@@ -100,51 +100,90 @@ const TRAINING_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
 const DEFAULT_TRAINING_LABEL = "ITI workshop training";
 
 /**
- * Pack → { the tier question, the stored value that means "no work experience at all" }.
+ * The one free-text answer in this block, and the only attribute key on the whole sheet that a
+ * model may restate.
  *
- * READ OFF THE ROLE DESCRIPTOR for the same reason the three vocabularies above are: which packs
- * have a fresher rung at all, and what that rung STORES, is a fact only the role knows, and the
- * value is not portable — `qp_cad_drafting` stores 0 for "course kiya hai, kaam ka tajurba nahi"
- * while every other pack stores 0 for "1 saal se kam". See
- * {@link RoleFresherVocabulary.tenureValue}.
+ * EXPORTED SO THE RENDER WORKER AND THIS FILE CANNOT DISAGREE about which answer gets rewritten.
+ * The polisher reads this key to decide what to send; this file reads it to decide what to print.
+ * A literal in each place is the sort of pair that drifts silently — the rewrite would be
+ * computed for one key and looked up under another, and the only symptom would be a fresher's
+ * sheet that is still Hinglish for no visible reason.
  */
-const FRESHER_TENURE: Readonly<Record<string, { question: string; value: number }>> =
-  Object.fromEntries(
-    ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher?.tenureValue !== undefined).map((role) => [
-      role.packId,
-      { question: role.tenureQuestionKey, value: role.fresher!.tenureValue! },
-    ]),
-  );
+export const ITI_PROJECT_WORK_KEY = "iti_project_work";
 
 /**
- * "Fresher", when this worker's own form says he has no work experience — otherwise null.
+ * Every pack a role form actually serves.
  *
- * WHY THE SHEET NEEDS THIS AT ALL (§6.2, and it is the ratified page). The CAD draughtsman's
- * reference sheet leads "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
- * SolidWorks, Fusion 360", and the renderer could not produce the word: the tenure segment had
- * exactly two outputs, "N yrs" and "duration not stated". Pooja's status IS captured — she taps
- * `fresher_course`, stored as 0 — but nothing carried it to the headline, so the highest-volume
- * role in the programme printed "duration not stated" over the worker the role exists for.
- *
- * A STATUS LABEL, WHICH IS §8's FIRST PERMITTED SOURCE. It is a closed-vocabulary word, not a
- * derived figure and not a model's sentence, and it is emitted only for the rung whose own chip
- * says it. Every other rung yields null and the headline keeps saying "duration not stated" —
- * including `under_one`, which on four of the five packs also stores 0 and means something else
- * entirely.
- *
- * IT DOES NOT OUTRANK A STATED NUMBER. `tenurePhrase` consults it only where the segment would
- * have said "duration not stated"; a worker who also stated a total still prints his own figure.
+ * THE BOUND ON THE RULING BELOW, and the only fact about a role this file still reads. A profile
+ * written before the role forms carries no pack: it was assembled from a chat interview that put
+ * no work-history screen in front of anybody, so an empty employment list on it means "nobody
+ * collected one" rather than "he has none". Reading that as "Fresher" would relabel the entire
+ * back catalogue on the strength of a form those workers never saw.
  */
-export function fresherTenureLabel(
+const FORM_PACKS: ReadonlySet<string> = new Set(ROLE_FORM_DESCRIPTORS.map((role) => role.packId));
+
+/**
+ * "Fresher" — the tenure segment's text for a worker with no work history, or null.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * THE WORK HISTORY IS THE ONLY SOURCE OF TENURE ON THIS SHEET (owner ruling 2026-09-09b).
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * "Fix the total experience which is shown on the resume to restrict only to the work history
+ * details. The work history calculation should be the core of the experience which is displayed
+ * on the resume on top summary. If there is someone who has no work experience, no work history,
+ * then it will be considered as a fresher, and it should not become like duration not stated."
+ *
+ * THE ROLE PACK'S TIER GATE IS A PROFILING-DEPTH CONTROL AND NOTHING ELSE. `turning_experience`,
+ * `welding_experience` and their nineteen siblings decide HOW MANY QUESTIONS THE FORM ASKS — the
+ * fresher block hangs off `<= 0` and the depth questions off `>= 2` — which is why the same ruling
+ * keeps the question in the form while taking it off the page. It is not a tenure source, so this
+ * function no longer reads it, and no pack answer of any kind now reaches §6.2's tenure segment.
+ * The FIGURE is `totalEmployedYears`, summed from the worker's own dated employments in
+ * `resume-render-input.ts`; this label is only what prints when there is no history for it to sum.
+ *
+ * TWO REVISIONS DIED HERE AND BOTH MADE THE SAME MISTAKE. The first printed the gate's rungs as
+ * bands ("1–3 yrs", "7+ yrs"). The second stopped printing them but still READ one, to withhold
+ * "Fresher" from a worker whose rung claimed a year or more. The ruling rejects the premise under
+ * both — a rung is not experience — and the withheld case is the one the owner is answering
+ * directly: a man who tapped "7 saal se zyada" and then filed no work history used to read
+ * "duration not stated", and now reads "Fresher". The way he stops reading it is by filing the
+ * history he has, which is the screen this ruling points him at.
+ *
+ * WHAT THE SHEET GIVES UP BY SAYING SO, STATED PLAINLY. That man's own form claims years the page
+ * no longer shows, and §8.3's asymmetry rule is why the previous revision withheld the word. The
+ * ruling overrides it on a factual ground rather than a stylistic one: the rung is a bracket the
+ * worker tapped to size his own questionnaire, and treating it as a claim about his career was the
+ * error in the first place. "Fresher" now means exactly what it says — no work history on file.
+ *
+ * SO THE WHOLE RULE IS ONE LINE: A FORM WORKER WHOSE WORK HISTORY WAS READ AND IS EMPTY IS A
+ * FRESHER. Everybody else gets null, and the segment is composed from the sum or from §11 #3's
+ * honest unknown, exactly as before.
+ *
+ * THE DECLARED FRESHER CHIP NO LONGER OVERRIDES A FILED HISTORY, and that is the same rule holding
+ * in the other direction. `qp_cad_drafting`'s "course kiya hai, kaam ka tajurba nahi" used to print
+ * the word even beside an employment block, which is the contradiction §6.2 exists to prevent — a
+ * page reading "Fresher" three rows above two employers. Her ratified sheet is unchanged, because
+ * it has no work history: she reaches the word through the rule below, on its own terms.
+ */
+export function tenureStatusLabel(
+  /** The pack the form ran, or null for a profile no form produced. See {@link FORM_PACKS}. */
   packId: string | null,
-  attributes: WorkerAttributeValues,
+  /**
+   * True when the worker's work history was READ and is EMPTY — never when it is merely absent.
+   *
+   * THE DISTINCTION IS THE FAIL-CLOSED RULE, and it is now the ONLY thing standing between an
+   * infrastructure miss and a claim on a man's résumé. The caller loads `worker_employment` inside
+   * a try/catch that degrades to `[]`, because a dead query must cost Zone 4 rather than the whole
+   * PDF. Under a naive negation that degrade would print "Fresher" over a twelve-year turner whose
+   * employer blocks simply could not be fetched. So the caller answers "did we actually look?",
+   * and a failure answers `false`: the sheet says "duration not stated", which is what it said
+   * before the query died.
+   */
+  filedNoWorkHistory: boolean,
 ): string | null {
-  const gate = packId === null ? undefined : FRESHER_TENURE[packId];
-  if (gate === undefined) return null;
-  // STRICT EQUALITY ON A NUMBER, deliberately. `pack-registry.service.ts::toOption` resolves
-  // `value_text ?? value_number ?? value_bool`, so a numeric rung arrives as a number; a string
-  // "0" would be a different pack shape and is not silently coerced into a fresher claim.
-  return attributes[gate.question] === gate.value ? FRESHER_LABEL : null;
+  if (packId === null || !FORM_PACKS.has(packId)) return null;
+  return filedNoWorkHistory ? FRESHER_LABEL : null;
 }
 
 /**
@@ -184,6 +223,29 @@ export function buildFresherRows(
    */
   packId: string | null,
   attributes: WorkerAttributeValues,
+  /**
+   * The model's rewrite of the free-text segment, and whether it may print (#1350).
+   *
+   * STILL PURE. The rewrite is computed by the render worker and handed in, exactly as
+   * `work_done_polished` is handed to {@link buildEmploymentBlock} — this file does no I/O and
+   * calls no model, so the §8 reasoning in the header holds unchanged: every value it JOINS is a
+   * closed-vocabulary label or the worker's text, and the choice of WHICH worker text is made by
+   * the caller under the kill switch.
+   */
+  opts: {
+    readonly polished?: Readonly<Record<string, string>>;
+    readonly polishEnabled?: boolean;
+    /**
+     * Attribute keys whose rewrite the worker REFUSED (#1485) — `worker_attributes.
+     * value_text_polished_declined`, as the sparse set `loadTradeSheet` returns.
+     *
+     * ABSENT MEANS NOBODY OBJECTED, which is the ordinary case and is safe here for a reason
+     * worth stating: this function cannot print a refused rewrite it was never given. The polish
+     * arrives through `polished` and a degraded caller that has neither map prints his own words,
+     * which is the answer §8 guaranteed.
+     */
+    readonly declined?: ReadonlySet<string>;
+  } = {},
 ): ResumeExperienceLine[] {
   const workshopMachines = packId === null ? undefined : WORKSHOP_MACHINES[packId];
   const tradeTests = packId === null ? undefined : TRADE_TEST[packId];
@@ -194,15 +256,46 @@ export function buildFresherRows(
     .filter((v): v is string => Boolean(v))
     .slice(0, MAX_WORKSHOP_MACHINES);
   const tradeTest = tradeTests?.[scalar(attributes.trade_test_status) ?? ""] ?? null;
-  const project = scalar(attributes.iti_project_work);
+  // ── THE ONE SEGMENT OF THIS BLOCK THE WORKER WROTE HIMSELF ──────────────────────────────
+  //
+  // The machines and the trade-test clause above are closed-vocabulary labels, already English.
+  // This is free text, typed or dictated in answer to "ITI me kya banaya tha? Apne shabdon me
+  // bataiye" — and until the 2026-09-09 owner report it printed exactly as typed, so a fresher's
+  // entire work history read "kuch nhi banaya, bas knowledge he mujhe" to an employer.
+  //
+  // THE REWRITE WHEN THERE IS ONE AND THE SWITCH IS ON, his own words otherwise — the identical
+  // rule, and the identical fail-closed default, that `workLine` applies to an employment's
+  // description. His own words are never overwritten and are what every degrade prints.
+  const ownProject = scalar(attributes.iti_project_work);
+  // A REFUSAL OUTRANKS A REWRITE (#1485), and it is read HERE and not only at the polisher — the
+  // same two-gate shape `workLine` has for an employment, and for the same reason the kill switch
+  // is read at both ends: gating only the polisher leaves every rewrite that was ALREADY stored
+  // printing forever, so a worker who refused one would keep seeing it until somebody NULLed a
+  // column. His own words are never overwritten, so this fallback costs nothing.
+  const refused = opts.declined?.has(ITI_PROJECT_WORK_KEY) === true;
+  const polishedProject =
+    opts.polishEnabled === true && !refused
+      ? scalar(opts.polished?.[ITI_PROJECT_WORK_KEY])
+      : null;
+  const project = polishedProject ?? ownProject;
 
   // The whole block, as one entry. A fresher has one training period, not several, and giving
   // each fact its own row would spend three lines of a zone that has 24% of the page on a worker
   // whose page is already the sparsest we produce.
-  const work = [machines.join(" · "), tradeTest, project]
-    .map((v) => v?.trim())
-    .filter((v): v is string => Boolean(v))
-    .join(" · ");
+  const compose = (projectSegment: string | null): string =>
+    [machines.join(" · "), tradeTest, projectSegment]
+      .map((v) => v?.trim())
+      .filter((v): v is string => Boolean(v))
+      .join(" · ");
+
+  const work = compose(project);
+  // THE SAME LINE FROM HIS OWN WORDS (#1476), through the SAME joiner and the same filter, so the
+  // only thing that can differ between the two strings is the segment the rewrite touched. Built
+  // here rather than by a second walk for the reason `buildEmploymentBlock` gives: a comparison
+  // between two independently-composed strings shows differences the rewrite did not cause -- and
+  // the client must not take a ` · `-joined line apart to guess which span changed, because the
+  // machines are joined with that same separator.
+  const ownWork = compose(ownProject);
 
   if (work === "") return [];
   return [
@@ -215,6 +308,18 @@ export function buildFresherRows(
       // it is a block that has no duration by nature. An empty string collapses the span.
       duration: "",
       work,
+      // Omitted when nothing was rewritten, so a client can tell "he wrote this" from "this was
+      // rewritten into the same words" without a second field to mean it.
+      //
+      // THE KEY TRAVELS WITH THE COMPARISON AND ONLY WITH IT (#1485). It is what a client sends to
+      // `PUT /workers/me/answers/:attributeKey/text-source` to refuse the rewrite, and there is
+      // nothing to refuse on a line that was not rewritten — so the pair appears together or not
+      // at all, and a client never holds an address for a choice it cannot offer. Emitting it
+      // unconditionally would put a usable write target on every fresher's sheet, including those
+      // no model has touched.
+      ...(ownWork !== "" && ownWork !== work
+        ? { work_own_words: ownWork, own_words_key: ITI_PROJECT_WORK_KEY }
+        : {}),
     },
   ];
 }

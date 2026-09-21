@@ -61,6 +61,50 @@ Raised twice with the cost stated, and reaffirmed. #1350 is the written ruling.
    resume print the worker's own words. The polished column is retained, so flipping it back on
    restores the rewrites with no second model call. Absent means off, in both readers.
 
+5. **The override reached a SECOND column, and a second kind of worker.** A fresher has no
+   employment at all: his Zone 4 is his ITI training, and its one worker-written segment
+   (`iti_project_work`) printed exactly as typed — "kuch nhi banaya, bas knowledge he mujhe" on
+   the sheet an employer reads. `worker_attributes.value_text_polished` (migration `0102`,
+   additive, nullable) is `work_done_polished` for an answer, on the same terms: a second column
+   beside the answer and never a second `attribute_key`, because this table is the record of what
+   the worker ANSWERED and the matcher reads it. Owner report, 2026-09-09. **Text answers only**, by
+   CHECK — a slug is closed vocabulary and sending one to a model would be the §8 violation this
+   whole column is scoped to avoid.
+
+6. **THE WORKER CAN REFUSE, and that is the mitigation this ADR was missing.** The locks in (4) are
+   OURS and revert every rewrite at once; a refusal is HIS and reverts exactly the sentence he
+   objects to. Two flags, two routes, one rule:
+
+   | Path | Column | Route |
+   | --- | --- | --- |
+   | An employment (#1354) | `worker_employment_role.work_done_polish_declined` (`0097`) | `PUT /workers/me/employment/:employmentId/description-source` |
+   | A free-text answer (#1485) | `worker_attributes.value_text_polished_declined` (`0103`) | `PUT /workers/me/answers/:attributeKey/text-source` |
+
+   **A FLAG AND NOT A CLEARED COLUMN**, on both paths. Expressing a refusal by NULLing the polish is
+   indistinguishable from "not polished yet" — precisely the state the polisher reads as work to do —
+   so the next render would silently rewrite the sentence the worker had just refused, and nothing
+   would report it. Keeping the rewrite also means changing his mind costs no second model call.
+
+   **READ AT BOTH ENDS, exactly as the kill switch in (4) is, and for the same reason.** The polisher
+   skips a refused row (`WorkHistoryPolishService.polish`'s filter; the fresher gate in
+   `resume-render.processor.ts`) and the RENDERER refuses to print a stored rewrite
+   (`workLine` in `resume-employment-rows.ts`; `buildFresherRows` in
+   `resume-fresher-rows.ts`). Gating only the polisher would leave every already-polished row
+   printing model-composed text forever.
+
+   **THE CLIENT IS GIVEN BOTH LINES AND AN ADDRESS, never a line to take apart.** The sheet sends
+   `work_own_words` — the SAME line composed through the SAME joiner in the same pass — plus the
+   identifier the refusal names (`ResumeEmployment.id`; `ResumeExperienceLine.own_words_key`).
+   Two independently-composed strings differ in ways the rewrite did not cause, and the fresher block
+   is a ` · `-joined composite whose machines carry that same separator, so a client guessing
+   which span changed would be manufacturing exactly the plausible-but-false sentence this mitigation
+   exists to surface (#1476, #1485).
+
+   **A REFUSAL SURVIVES A RE-ANSWER OF THE SAME TEXT, and only that.** Both write paths carry the flag
+   across a rewrite of the row, keyed on the TEXT: a refusal is about a SENTENCE, so an edited answer
+   arrives un-refused and is re-polished for free, while re-submitting an unchanged answer must not
+   quietly revoke his decision.
+
 ## What replaced the guarantee
 
 The gate proved a property about bytes. What replaces it are checks on a model, and they are
@@ -98,7 +142,15 @@ traces against.
 A polished description is a claim the worker did not make in those words. The checks above narrow
 the space of bad rewrites; they do not close it, and no test can assert the absence of a plausible
 sentence. If a fabrication reaches a machine trial, the mitigations are: the raw text is retained
-for the dispute, and either lock turns the feature off for every worker without a deploy.
+for the dispute, either lock turns the feature off for every worker without a deploy, and — since
+#1354 and #1485 — **the worker himself can refuse the sentence**, per employment or per answer, and
+see what it was rewritten from before he decides.
+
+That third one is the only mitigation on this list that can act on ONE bad rewrite rather than all of
+them, and it is the only one held by the person who actually knows. It is also the weakest to rely on
+and must not be read as closing the risk: it requires him to open his resume, read a sentence in a
+language he may not read well, and recognise a claim about his own work as false. What it changes is
+that the platform is no longer the only party able to act.
 
 ## Alternatives considered
 

@@ -209,6 +209,31 @@ class AuthSessionManager extends ChangeNotifier {
 
   void clearResumeLocation() => _resumeLocation = null;
 
+  /// The onboarding step this device last saw the worker on, or null when
+  /// onboarding is finished (or never started).
+  ///
+  /// #1470 — [_resumeLocation] is memory-only, so killing the app mid-onboarding
+  /// lost the worker's place: the unlock fell back to the shell and dropped a
+  /// half-registered worker on an empty Résumé tab with no way back into the
+  /// flow. This one is read from disk in [bootstrap] and survives a cold start.
+  String? _onboardingLocation;
+  String? get onboardingLocation => _onboardingLocation;
+
+  /// Record the onboarding step the worker is on. Cheap and idempotent — the
+  /// router calls this on every redirect, so an unchanged value writes nothing.
+  void rememberOnboardingLocation(String location) {
+    if (_onboardingLocation == location) return;
+    _onboardingLocation = location;
+    unawaited(_tokenStore.writeOnboardingLocation(location));
+  }
+
+  /// Onboarding is done (or was never in progress) — forget the step.
+  void clearOnboardingLocation() {
+    if (_onboardingLocation == null) return;
+    _onboardingLocation = null;
+    unawaited(_tokenStore.clearOnboardingLocation());
+  }
+
   void _setStatus(AuthStatus next) {
     if (_status == next && _ready) return;
     _status = next;
@@ -242,6 +267,10 @@ class AuthSessionManager extends ChangeNotifier {
       // #352: read the persisted PIN flag BEFORE the status flip, so the redirect
       // that fires on notify can route locked → set-PIN (no PIN yet) vs enter-PIN.
       _pinSet = await _tokenStore.readPinSet();
+      // #1470: the onboarding step this device last saw, so the unlock can put
+      // a worker who never finished back where they were instead of on an
+      // empty Résumé tab. Read alongside the PIN flag, BEFORE the status flip.
+      _onboardingLocation = await _tokenStore.readOnboardingLocation();
     } catch (_) {
       // #355 — FAIL SOFT, never wedge the boot.
       //
@@ -261,6 +290,7 @@ class AuthSessionManager extends ChangeNotifier {
       // worker logs in again — annoying, but recoverable.
       await _discardUnreadableStore();
       _pinSet = false;
+      _onboardingLocation = null;
       _setStatus(AuthStatus.loggedOut);
       return AuthStatus.loggedOut;
     }

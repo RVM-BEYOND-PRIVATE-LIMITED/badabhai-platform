@@ -1614,3 +1614,252 @@ class JobPostingChatTurnOutput(BaseModel):
     # the frozen contract for the rephrase seam.
     ai_metadata: AICallMetadata | None = None
     pseudonymization_metadata: PseudonymizationMeta | None = None
+
+
+# --- Résumé import (ADR-0041, RI-3) -----------------------------------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts`; `tests/test_contract_parity.py`
+# reads that file and fails if the two drift.
+#
+# DELIBERATELY NOT A REUSE OF `ExperienceEntry`. That model is `extra="forbid"` and
+# carries no employer field at all, because the 2026-08-28 ruling put employer names on
+# a path that never touches the AI service. ADR-0041 D5 overrides that for ONE route,
+# and the override has to be visible in the type rather than smuggled through a model
+# whose own docstring says the opposite.
+
+
+class ResumeLine(BaseModel):
+    """One citable line of the uploaded document.
+
+    `i` is `app/resume_import/extract.Line.index` and is what the model cites. It is
+    preserved across masking drops and never renumbered, so gate 1 resolves a citation
+    by `i` and never by list position — exactly as the interview transcript does.
+    """
+
+    i: AskCount
+    text: str = Field(min_length=1)
+
+
+class ResumeParseInput(BaseModel):
+    """Parse an uploaded résumé into typed, cited fields.
+
+    NO ANSWER MAP, and that is the shape of the feature rather than an omission: this
+    call happens BEFORE the interview, so there is no recorded answer to type or to
+    disagree with. Gate 4 is therefore a no-op here by construction. Precedence between
+    a résumé suggestion and an answer the worker later gives is RI-4's staging layer
+    (ruling D7 — a stored answer always wins), not this wall's.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so the
+    résumé's text never passes through apps/api at all.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    target_fields: list[TargetField] = Field(default_factory=list)
+    #: The CLOSED trade-kind ids the model may return in `trade_association.kind`
+    #: (Task 1 B2 — the 21 `TRADE_FORM_KINDS_ALL`, supplied by apps/api, the single
+    #: source of truth). Rendered into the prompt verbatim, so bounded in count;
+    #: each entry is length-capped at render time, not here, because this list is
+    #: caller-controlled (our own server), never worker input.
+    trade_kinds: list[str] = Field(default_factory=list, max_length=32)
+    #: BOUNDED, unlike `ProfileParseInput.language`, and matching the TypeScript mirror's
+    #: `min(2).max(35)`. This is the one request field that reaches a trace attribute without
+    #: passing through the masker, so an unbounded string here would be a free-text channel
+    #: into observability. `build_resume_parse_messages` shape-checks it again before the
+    #: prompt; this bounds what can be STORED even where the prompt drops it.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class TradeAssociation(BaseModel):
+    """The model's closed-vocabulary answer to "which trade is this résumé".
+
+    `kind` is ONE id from the request's `trade_kinds`, or None when none fits.
+    A classification among caller-supplied options — never a canonical id the
+    model produced, chose or approved on its own. The gate (`resume_parse`)
+    drops anything outside `trade_kinds` to None, and apps/api narrows again
+    against `TRADE_FORM_KINDS_ALL` before persisting. Closed vocabulary, so it
+    is safe on an event, in analytics, and in the import row alike.
+    """
+
+    kind: str | None = None
+
+
+class ResumeEmployment(BaseModel):
+    """One job read off the résumé, with the line it was read from.
+
+    `employer_name` is the field ADR-0041 D5 exists to permit. Everything about it is
+    gated the same way a scalar field is — cited, type-checked, and refused outright if
+    it carries a hard identifier — so "permitted" means "permitted through the wall",
+    never "waved past it".
+    """
+
+    employer_name: str | None = None
+    role_title: str | None = None
+    start_year: int | None = Field(default=None, ge=1950, le=2100)
+    end_year: int | None = Field(default=None, ge=1950, le=2100)
+    evidence: EvidenceSpan
+
+
+class ResumeParseOutput(BaseModel):
+    """What survived both walls, plus how the text was recovered.
+
+    The extraction facts (`extraction_method`, `page_count`, `ocr_confidence`) ride on
+    the response because `worker_resume_import` stores them and apps/api never sees the
+    document — this is the only place they can come from. They are counts and a score,
+    never text.
+    """
+
+    fields: dict[str, ParsedField | None] = Field(default_factory=dict)
+    employments: list[ResumeEmployment] = Field(default_factory=list)
+    unparsed_field_ids: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+    #: The model's trade classification, narrowed by the gate to the request's
+    #: `trade_kinds` (anything else becomes None). None on every degraded path
+    #: and when the model answers none — "no judgment" and "judged none" both
+    #: read as absent downstream, and the deterministic router decides alone.
+    trade_association: TradeAssociation | None = None
+
+    extraction_method: str | None = None
+    page_count: int | None = None
+    ocr_confidence: float | None = None
+    line_count: int = 0
+
+    #: A value from `RESUME_IMPORT_FAILURES` (packages/types) when nothing usable came
+    #: back, else None. Closed vocabulary: it is shown to the worker AND counted on an
+    #: event, so an open string here would be untrusted text on a screen and a PII leak
+    #: into analytics at once.
+    failure_reason: str | None = None
+
+    ai_metadata: AICallMetadata | None = None
+
+
+# --- Résumé option mapping (RI-autofill, owner override B) --------------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts` (`ResumeOptionMapInputSchema` /
+# `ResumeOptionMapOutputSchema`). A THIRD call after `/resume/parse`, run at import
+# time for form-routed workers: which of the pack's CLOSED option ids the document
+# supports, one cited mapping per question at most.
+#
+# OWNER OVERRIDE B (2026-09-20) OF RULING D2 APPLIES TO THE CONSUMER OF THIS OUTPUT,
+# NOT TO THIS CONTRACT: the model selects among caller-supplied ids and the API writes
+# them as answers on the identity "haan" without per-fact confirmation. This contract
+# stays as strict as the parse's — closed ids, cited spans, gated output — because the
+# override widens what may be DONE with a mapping, never what counts AS one.
+#
+# PRIVACY: the request carries a storage KEY plus caller-owned pack copy, never the
+# document. The response carries closed option ids plus certified spans — no identity.
+
+
+class ResumeMapOption(BaseModel):
+    """One closed option the model may return, exactly as the pack declares it."""
+
+    option_key: str = Field(min_length=1, max_length=40)
+    label_text: str = Field(min_length=1, max_length=200)
+
+
+class ResumeMapQuestion(BaseModel):
+    """One pack question the model may answer, with its closed options."""
+
+    question_key: str = Field(min_length=1, max_length=40)
+    answer_type: Literal["single_select", "multi_select"] = "single_select"
+    options: list[ResumeMapOption] = Field(default_factory=list, max_length=32)
+
+
+class ResumeOptionMapInput(BaseModel):
+    """Map an uploaded résumé onto pack option keys.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so
+    the résumé's text never passes through apps/api at all — the same posture as
+    `ResumeParseInput` and `ResumeSummaryInput`.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    #: The pack's option questions — at most one mapping each comes back. Caller-owned
+    #: reviewed copy (never worker input), rendered into the prompt verbatim, so bounded
+    #: in count; each entry is length-capped above, not here, because this list is
+    #: caller-controlled (our own server), never worker input.
+    questions: list[ResumeMapQuestion] = Field(default_factory=list, max_length=40)
+    #: BOUNDED like `ResumeParseInput.language`: the one request field that reaches
+    #: a trace attribute without passing through the masker.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class ResumeOptionEvidence(BaseModel):
+    """The cited line a mapping was read from — provenance, same as the parse."""
+
+    message_index: AskCount
+    quote: str = Field(min_length=1)
+
+
+class ResumeOptionMapping(BaseModel):
+    """One question's closed option ids, with the line they were read from."""
+
+    question_key: str = Field(min_length=1, max_length=40)
+    option_keys: list[str] = Field(default_factory=list, max_length=32)
+    evidence: ResumeOptionEvidence
+
+
+class ResumeOptionMapOutput(BaseModel):
+    """Gated mappings. `None`/empty fields mean "no mapping" — never an error."""
+
+    mappings: list[ResumeOptionMapping] = Field(default_factory=list)
+    #: Closed vocabulary (`RESUME_IMPORT_FAILURES`), else None. Never model text.
+    failure_reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    ai_metadata: AICallMetadata | None = None
+
+
+# --- Résumé profile summary (RI-summary, backend-only slice) -----------------
+#
+# Mirrors `packages/ai-contracts/src/resume-import.ts` (`ResumeSummaryInputSchema` /
+# `ResumeSummaryOutputSchema`). A SEPARATE second LLM call after `/resume/parse`:
+# the parse reads citable values, this call reads the same document for one
+# worker-facing Hinglish line: {Job Role} + {total experience} + {short summary}.
+#
+# PRIVACY: the request carries a storage KEY, never the document. The response
+# carries no identity — only a closed-set role id and two short Hinglish strings,
+# both certified by the hard-identifier wall before they leave the pipeline.
+
+
+class ResumeSummaryInput(BaseModel):
+    """One Hinglish summary request for an already-uploaded résumé.
+
+    The service fetches and extracts the document ITSELF from `storage_key`, so
+    the résumé's text never passes through apps/api at all — the same posture as
+    `ResumeParseInput`.
+    """
+
+    schema_version: Literal["resume.v1"] = "resume.v1"
+    worker_ref: str = Field(min_length=1)
+    storage_key: str = Field(min_length=1)
+    mime: str = Field(min_length=1)
+    #: The CLOSED role ids the model may return in `role_kind` — the ENABLED form
+    #: kinds (9 today), supplied by apps/api. Rendered into the prompt verbatim,
+    #: so bounded in count; each entry is length-capped at render time.
+    role_kinds: list[str] = Field(default_factory=list, max_length=32)
+    #: BOUNDED like `ResumeParseInput.language`: the one request field that reaches
+    #: a trace attribute without passing through the masker.
+    language: str | None = Field(default=None, min_length=2, max_length=35)
+
+
+class ResumeSummaryOutput(BaseModel):
+    """One Hinglish extraction line, gated. `None` fields mean "no judgment"."""
+
+    #: One id from the request's `role_kinds`, narrowed by the gate (anything else
+    #: becomes None). None on every degraded path and when none fits — "no judgment"
+    #: and "judged none" both read as absent downstream.
+    role_kind: str | None = None
+    #: Hinglish duration, e.g. "5 saal ka tajurba" or "Fresher". Bounded, PII-free.
+    experience_text: str | None = Field(default=None, max_length=120)
+    #: Hinglish 1-2 line worker summary. Bounded, PII-free, no identifiers.
+    summary_text: str | None = Field(default=None, max_length=500)
+    #: Closed vocabulary (`RESUME_IMPORT_FAILURES`), else None. Never model text.
+    failure_reason: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    ai_metadata: AICallMetadata | None = None

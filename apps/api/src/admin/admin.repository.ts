@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, gt, ne, sql } from "drizzle-orm";
 import {
   type Database,
   adminUsers,
@@ -13,6 +13,13 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 export interface CreateAdminInput {
   role: AdminRole;
   email: string;
+  /**
+   * Keyed HMAC of the single-use accept token. The RAW token is never passed here — the
+   * service hashes it before the write, so the plaintext bearer secret has no path into the
+   * data layer at all.
+   */
+  inviteTokenHash: string;
+  inviteExpiresAt: Date;
 }
 
 /**
@@ -94,9 +101,108 @@ export class AdminRepository {
         emailEnc: this.pii.encrypt(normEmail),
         emailHash: this.pii.hmac(normEmail),
         // status omitted → DB default 'pending' (invite-then-activate).
+        inviteTokenHash: input.inviteTokenHash,
+        inviteExpiresAt: input.inviteExpiresAt,
       })
       .returning({ id: adminUsers.id });
     return { id: row!.id };
+  }
+
+  /**
+   * Re-invite an admin who is still `pending` — refresh the accept token + expiry in place.
+   *
+   * Guarded on `status = 'pending'`, so it matches NO row for an already-active or suspended
+   * admin and returns undefined; the service maps that to the same 409 a duplicate email
+   * gets. That guard is the whole point: without it, a super_admin could mint a fresh accept
+   * link for an ACTIVE admin's email and hand themselves a way to re-enrol that account's
+   * second factor. Re-inviting a pending admin is legitimate (the first link expired or never
+   * arrived); "re-inviting" an active one is an account takeover.
+   */
+  async refreshInvite(
+    emailHash: string,
+    input: { role: AdminRole; inviteTokenHash: string; inviteExpiresAt: Date },
+    tx: Database = this.db,
+  ): Promise<{ id: string } | undefined> {
+    const [row] = await tx
+      .update(adminUsers)
+      .set({
+        role: input.role,
+        inviteTokenHash: input.inviteTokenHash,
+        inviteExpiresAt: input.inviteExpiresAt,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(adminUsers.emailHash, emailHash), eq(adminUsers.status, "pending")))
+      .returning({ id: adminUsers.id });
+    return row;
+  }
+
+  /**
+   * Resolve a PENDING invite by its token HASH (never the raw token), rejecting an expired
+   * one in the same predicate so an expired link is indistinguishable from an unknown one —
+   * the caller has a single `undefined` branch and cannot accidentally build an oracle that
+   * says "this token existed but lapsed".
+   *
+   * `now` is passed in rather than read from the clock here so the expiry boundary is
+   * testable without faking time globally.
+   */
+  async findByInviteTokenHash(
+    inviteTokenHash: string,
+    now: Date,
+    tx: Database = this.db,
+  ): Promise<AdminUser | undefined> {
+    const [row] = await tx
+      .select()
+      .from(adminUsers)
+      .where(
+        and(
+          eq(adminUsers.inviteTokenHash, inviteTokenHash),
+          eq(adminUsers.status, "pending"),
+          // `gt`, not a raw sql`` template: the template interpolates a JS Date through
+          // toString() ("Fri Sep 11 2026 … (India Standard Time)"), which Postgres rejects
+          // for a timestamptz. The operator routes the value through the column's own type
+          // mapper instead.
+          gt(adminUsers.inviteExpiresAt, now),
+        ),
+      );
+    return row;
+  }
+
+  /**
+   * ACCEPT an invite: `pending` → `active`, consuming the token in the SAME statement.
+   *
+   * The token hash is matched in the WHERE clause and nulled in the SET, which makes the
+   * accept atomically single-use: two concurrent requests presenting the same link both run
+   * this UPDATE, but only one matches a row — the loser sees `undefined` and gets the same
+   * no-oracle 404 an unknown token gets. Doing it as a read-then-write would leave exactly
+   * that race open, and the thing being raced for is admin access.
+   *
+   * The expiry is re-checked here and not merely in {@link findByInviteTokenHash}, so this
+   * method is safe on its own terms rather than only in the order the service happens to
+   * call it.
+   */
+  async acceptInvite(
+    inviteTokenHash: string,
+    now: Date,
+    tx: Database = this.db,
+  ): Promise<AdminUser | undefined> {
+    const [row] = await tx
+      .update(adminUsers)
+      .set({
+        status: "active" satisfies AdminStatus,
+        inviteTokenHash: null,
+        inviteExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(adminUsers.inviteTokenHash, inviteTokenHash),
+          eq(adminUsers.status, "pending"),
+          // See findByInviteTokenHash: `gt` so the Date is bound as a real timestamptz.
+          gt(adminUsers.inviteExpiresAt, now),
+        ),
+      )
+      .returning();
+    return row;
   }
 
   /** Activate an invited admin (pending → active). Returns the updated row or undefined. */

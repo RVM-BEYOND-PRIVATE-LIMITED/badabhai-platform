@@ -871,16 +871,25 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
     const { rows } = await search({ city: CITY });
     const row = rows.find((r) => r.id === P_PREFIX);
 
-    // EXACTLY the eight worker-visible columns. `org_label`, `payer_id`, `created_by`,
-    // `status` and `location_label` are never selected (ADR-0024 — employer identity stays
-    // off the worker path), and this asserts it against what the driver actually handed back
-    // rather than against the SELECT list we wrote.
+    // EXACTLY the fifteen worker-visible columns (#1561 adds area, the experience
+    // window, description, benefits, requirements and needed_by). `org_label`,
+    // `payer_id`, `created_by`, `status` and `location_label` are never selected
+    // (ADR-0024 — employer identity stays off the worker path), and this asserts it
+    // against what the driver actually handed back rather than against the SELECT
+    // list we wrote.
     expect(Object.keys(row ?? {}).sort()).toEqual([
+      "area",
+      "benefits",
       "city",
+      "description",
       "id",
+      "maxExperienceYears",
+      "minExperienceYears",
+      "neededBy",
       "payMax",
       "payMin",
       "publishedAt",
+      "requirements",
       "shift",
       "state",
       "title",

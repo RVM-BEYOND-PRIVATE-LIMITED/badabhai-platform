@@ -37,20 +37,23 @@ void main() {
 
   Future<void> pump(WidgetTester tester, {String? initials = 'RO'}) async {
     GoogleFonts.config.allowRuntimeFetching = false;
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light(),
-      home: Scaffold(
-        body: ProfileAvatar(initials: initials, verified: false),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: ProfileAvatar(initials: initials, verified: false),
+        ),
       ),
-    ));
+    );
     await tester.pump(); // photoUrl() resolves
   }
 
   testWidgets('renders the photo when the worker has one', (
     WidgetTester tester,
   ) async {
-    when(() => photos.photoUrl())
-        .thenAnswer((_) async => 'https://signed.example/photo.jpg');
+    when(
+      () => photos.photoUrl(),
+    ).thenAnswer((_) async => 'https://signed.example/photo.jpg');
 
     await pump(tester);
 
@@ -78,14 +81,16 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  testWidgets('falls back to initials when there is no photo and a name exists',
-      (WidgetTester tester) async {
-    when(() => photos.photoUrl()).thenAnswer((_) async => null);
+  testWidgets(
+    'falls back to initials when there is no photo and a name exists',
+    (WidgetTester tester) async {
+      when(() => photos.photoUrl()).thenAnswer((_) async => null);
 
-    await pump(tester);
+      await pump(tester);
 
-    expect(find.text('RO'), findsOneWidget);
-  });
+      expect(find.text('RO'), findsOneWidget);
+    },
+  );
 
   testWidgets('a fetch FAILURE is silent — the tab never breaks', (
     WidgetTester tester,
@@ -120,8 +125,9 @@ void main() {
   testWidgets('the sheet offers REMOVE only when a photo exists', (
     WidgetTester tester,
   ) async {
-    when(() => photos.photoUrl())
-        .thenAnswer((_) async => 'https://signed.example/photo.jpg');
+    when(
+      () => photos.photoUrl(),
+    ).thenAnswer((_) async => 'https://signed.example/photo.jpg');
 
     await pump(tester);
     await tester.tap(find.bySemanticsLabel('Photo badlein'));
@@ -154,8 +160,9 @@ void main() {
   testWidgets('a failed CHANGE is surfaced honestly (unlike a failed read)', (
     WidgetTester tester,
   ) async {
-    when(() => photos.photoUrl())
-        .thenAnswer((_) async => 'https://signed.example/photo.jpg');
+    when(
+      () => photos.photoUrl(),
+    ).thenAnswer((_) async => 'https://signed.example/photo.jpg');
     // The worker ASKED for this, so silence would be wrong.
     when(() => photos.removePhoto()).thenThrow(const PhotoUnavailableFailure());
 
@@ -169,17 +176,22 @@ void main() {
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
-  testWidgets('the edit tap target is at least 44dp', (
-    WidgetTester tester,
-  ) async {
-    when(() => photos.photoUrl()).thenAnswer((_) async => null);
+  testWidgets(
+    'v3: the avatar is a 56dp disc and the edit tap target still clears the '
+    '48dp worker floor',
+    (WidgetTester tester) async {
+      when(() => photos.photoUrl()).thenAnswer((_) async => null);
 
-    await pump(tester);
+      await pump(tester);
 
-    final Size size = tester.getSize(find.bySemanticsLabel('Photo lagayein'));
-    expect(size.width, greaterThanOrEqualTo(44));
-    expect(size.height, greaterThanOrEqualTo(44));
-  });
+      // 56, not 72: the avatar now sits in the profile CARD beside the name, so a
+      // bigger disc would starve the name column at a large system font.
+      expect(tester.getSize(find.byType(ProfileAvatar)), const Size(56, 56));
+      final Size size = tester.getSize(find.bySemanticsLabel('Photo lagayein'));
+      expect(size.width, greaterThanOrEqualTo(48));
+      expect(size.height, greaterThanOrEqualTo(48));
+    },
+  );
 
   testWidgets('re-fetches when the Profile tab regains focus (B3)', (
     WidgetTester tester,

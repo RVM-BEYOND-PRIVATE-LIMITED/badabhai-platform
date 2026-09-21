@@ -6,6 +6,7 @@ import type { RequestContext } from "../common/request-context";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
+import type { AdminInviteService } from "./admin-invite.service";
 
 /**
  * ATOMICITY (must-fix H3) — proves the governed-action SoR write + the `admin.action_performed`
@@ -116,7 +117,17 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
     revokeAllForPayer: async () => 0,
   } as unknown as PayerSessionService;
 
-  const service = new AdminActionsService(actions, admins, events, sessions);
+  // Deterministic accept-link seam. Delivery is a no-op: it runs AFTER the tx commits, so
+  // like the payer-session revoke above it is deliberately outside the atomicity contract.
+  const invites = {
+    mintToken: () => "fake-raw-token",
+    hashToken: (raw: string) => `hash(${raw})`,
+    expiryFrom: (now: Date) => new Date(now.getTime() + 48 * 60 * 60 * 1000),
+    buildAcceptUrl: (raw: string) => `https://admin.test/invite/accept?token=${raw}`,
+    deliver: async () => undefined,
+  } as unknown as AdminInviteService;
+
+  const service = new AdminActionsService(actions, admins, events, sessions, invites);
   return { service, world };
 }
 

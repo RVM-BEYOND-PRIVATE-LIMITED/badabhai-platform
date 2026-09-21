@@ -8,10 +8,15 @@ endpoint is), so the 30-120s path is CHUNKED SYNC: split the stored audio into
 <30s segments on codec-frame boundaries, transcribe each segment with the same
 sync endpoint, and concatenate deterministically (``app/stt.py`` owns that).
 
-WHY PURE PYTHON (no ffmpeg): the ai-service ships with NO container image and no
-system-package story (bare uvicorn + pip requirements; CI is ``setup-python``
-only — there is no ai-service Dockerfile to add ffmpeg to), so segmentation must
-not shell out. The ADR-0029 upload seam mints ONLY
+WHY PURE PYTHON (no ffmpeg): the original reason was that this service had no
+container image and no way to install a system package at all. THAT IS NO LONGER
+TRUE — TD81 added ``apps/ai-service/Dockerfile``, and ADR-0041/RI-2 installs the
+``tesseract-ocr`` binary in it — so the reason is now a judgement rather than an
+impossibility, and it still holds: ffmpeg is a large dependency with a wide CVE
+surface, the seam mints exactly two container formats, and frame-exact
+repackaging needs no decoder. Recorded plainly because a stale "we cannot" reads
+as settled where a "we chose not to" invites the argument to be re-made on its
+merits. The ADR-0029 upload seam mints ONLY
 ``voice-notes/{workerId}/{uuid}.m4a`` (AAC-LC in an MP4 container) — the one
 format the production pipeline stores. Supported here:
 

@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  index,
   integer,
   pgTable,
   text,
@@ -10,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { voiceNotes } from "./chat";
 import { workers } from "./worker";
 
 /**
@@ -28,6 +30,18 @@ import { workers } from "./worker";
  * before any model sees a transcript. There is no field for one and nothing upstream could fill
  * it. The value arrives instead from a question the WORKER TYPES, written straight to Postgres,
  * never through the AI service — owner ruling 2026-08-28. The gateway mask is unchanged.
+ *
+ * NARROWED 2026-09-10 BY `docs/decisions/0041-resume-import-and-prefill.md` §3, AND ONLY THERE.
+ * A worker may now upload his OWN résumé, and on that one path the employer name does cross the
+ * AI service: the extracted document is sent to the model with employer names intact, behind
+ * `RESUME_PARSE_RAW_TEXT_ENABLED` (default false), for the `resume_parse` task and no other.
+ * Government identifiers, phone numbers and email addresses stay masked even there.
+ *
+ * EVERY OTHER PATH IS UNCHANGED, and that is why this note lives here and not only in the ADR.
+ * An employer name reaching this table from the interview, the trade form or the finishing form
+ * is still worker-typed and still never sees a model. So if you are reading this because you
+ * found code handing an employer name to the AI service, check WHICH ROUTE it is on before
+ * calling it a defect: exactly one is authorised, and every other one is the bug you suspected.
  */
 
 /**
@@ -126,6 +140,26 @@ export const workerEmploymentRole = pgTable(
     /** "CNC turning, Fanuc · EN8, EN31 · automotive components". The worker's own description. */
     workDone: text("work_done"),
     /**
+     * The clip the worker SPOKE this description into, when they used the mic instead of typing.
+     *
+     * EVIDENCE, NOT THE VALUE — the same rule `profiling_voice_answer` states for a spoken pack
+     * answer. {@link workDone} stays the answer of record; this only says which recording produced
+     * it. Duplicating the transcript here would create a second description free to disagree with
+     * the one the sheet prints, and §8's fabrication gate measures against exactly one string.
+     *
+     * NULL IS THE ORDINARY STATE and always will be: every row written before this shipped, and
+     * every description a worker typed. Null means "typed, or we no longer hold the clip" — never
+     * "no description", which is {@link workDone} being null.
+     *
+     * `ON DELETE SET NULL`, matching `chat_messages.voice_note_id` exactly. The retention sweep
+     * exists to purge raw audio (`voice_notes_created_at_idx`, migration 0071), and a worker's
+     * work history must outlive the recording that produced it — a cascade here would delete the
+     * job itself when the clip aged out, which is the one outcome this column must never cause.
+     */
+    workDoneVoiceNoteId: uuid("work_done_voice_note_id").references(() => voiceNotes.id, {
+      onDelete: "set null",
+    }),
+    /**
      * The same description, rephrased into professional English by the model (#1350).
      *
      * A SECOND COLUMN, NEVER AN OVERWRITE. {@link workDone} stays the worker's actual words and
@@ -171,6 +205,11 @@ export const workerEmploymentRole = pgTable(
   (t) => [
     check("wer_role_label_chk", sql`length(btrim(${t.roleLabel})) BETWEEN 1 AND 80`),
     check("wer_work_done_len_chk", sql`${t.workDone} IS NULL OR length(${t.workDone}) <= 300`),
+    // THE RETENTION SWEEP'S INDEX, for the same reason `voice_notes_created_at_idx` exists.
+    // Postgres does not index a referencing column automatically, and `ON DELETE SET NULL` must
+    // find the referencing rows on every delete — so without this, purging a day of clips
+    // sequentially scans this table once per clip. Taken now, while it is cheap.
+    index("wer_work_done_voice_note_id_idx").on(t.workDoneVoiceNoteId),
     check(
       "wer_work_done_polished_len_chk",
       sql`${t.workDonePolished} IS NULL OR length(${t.workDonePolished}) <= 300`,

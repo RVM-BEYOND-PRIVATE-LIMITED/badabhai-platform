@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_client.dart'
     show QualificationOptionsDto, WorkPrefOptionsDto;
 import '../../../../core/error/failure.dart';
+import '../../../../core/session/known_worker_facts_store.dart';
+import '../../data/trade_form_marker_store.dart';
+import '../../domain/form_fact_registry.dart';
 import '../../domain/trade_form_models.dart';
 import '../../domain/trade_form_repository.dart';
+import '../trade_form_section_walk.dart';
 
 enum TradeFormStatus {
   /// Fetching `GET /profiling/form`.
@@ -58,7 +64,25 @@ class TradeFormState extends Equatable {
     this.savedPreferences,
     this.savedEmployment,
     this.savedQualifications,
+    this.sessionId,
+    this.doneMarkers = const <TradeFormMarkerType>{},
+    this.knownFacts = const <WorkerFact>{},
   });
+
+  /// Marker pages the server already accepted a save for
+  /// ([TradeFormMarkerStore]). A forward move skips them, so [isLastStep] and
+  /// the step counter leave them out too.
+  final Set<TradeFormMarkerType> doneMarkers;
+
+  /// Facts the worker already gave on an earlier screen
+  /// ([KnownWorkerFactsStore]). The preferences page skips its sub-pages for
+  /// these.
+  final Set<WorkerFact> knownFacts;
+
+  /// The form's own profiling session (#1472), re-read from EVERY schema
+  /// response so a spoken work description is filed under the conversation
+  /// this form actually belongs to. Never cached, never the chat session.
+  final String? sessionId;
 
   final TradeFormStatus status;
   final List<TradeFormFlatStep> flatSteps;
@@ -104,8 +128,39 @@ class TradeFormState extends Equatable {
           : null;
 
   bool get isFirstStep => currentIndex <= 0;
-  bool get isLastStep => currentIndex >= flatSteps.length - 1;
   bool get isSubmitting => status == TradeFormStatus.submitting;
+
+  bool _isDoneMarker(TradeFormStep step) {
+    final TradeFormMarkerType? type = tradeFormMarkerTypeOf(step);
+    return type != null && doneMarkers.contains(type);
+  }
+
+  /// Whether step [i] counts toward "Step N of M": everything up to and
+  /// including the current step (already walked, or where
+  /// [TradeFormCubit.goBack] landed), and every step ahead except a saved
+  /// marker page, which a forward move skips.
+  bool _shows(int i) => i <= currentIndex || !_isDoneMarker(flatSteps[i].step);
+
+  /// True when nothing the walk will show is left after the current step, so
+  /// the next write finishes the form.
+  bool get isLastStep {
+    for (int i = currentIndex + 1; i < flatSteps.length; i++) {
+      if (!_isDoneMarker(flatSteps[i].step)) return false;
+    }
+    return true;
+  }
+
+  /// "Step [visiblePosition] of [visibleStepCount]", counted over the steps the
+  /// walk will actually show (see [_shows]), never over skipped marker pages.
+  int get visibleStepCount => <int>[
+        for (int i = 0; i < flatSteps.length; i++)
+          if (_shows(i)) i,
+      ].length;
+
+  int get visiblePosition => <int>[
+        for (int i = 0; i <= currentIndex && i < flatSteps.length; i++)
+          if (_shows(i)) i,
+      ].length;
 
   TradeFormState copyWith({
     TradeFormStatus? status,
@@ -118,8 +173,14 @@ class TradeFormState extends Equatable {
     Object? savedPreferences = _sentinel,
     Object? savedEmployment = _sentinel,
     Object? savedQualifications = _sentinel,
+    Object? sessionId = _sentinel,
+    Set<TradeFormMarkerType>? doneMarkers,
+    Set<WorkerFact>? knownFacts,
   }) {
     return TradeFormState(
+      doneMarkers: doneMarkers ?? this.doneMarkers,
+      knownFacts: knownFacts ?? this.knownFacts,
+      sessionId: sessionId == _sentinel ? this.sessionId : sessionId as String?,
       status: status ?? this.status,
       flatSteps: flatSteps ?? this.flatSteps,
       currentIndex: currentIndex ?? this.currentIndex,
@@ -142,6 +203,7 @@ class TradeFormState extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[
+        sessionId,
         status,
         flatSteps,
         currentIndex,
@@ -152,6 +214,8 @@ class TradeFormState extends Equatable {
         savedPreferences,
         savedEmployment,
         savedQualifications,
+        doneMarkers,
+        knownFacts,
       ];
 }
 
@@ -162,22 +226,76 @@ class TradeFormState extends Equatable {
 /// decision to make (every question is already known).
 ///
 /// RESUMABILITY. On every [load], the resume position is the first step that
-/// is either an unanswered question OR a preferences/employment MARKER
-/// screen. Marker screens carry no "already filled" signal on this contract
-/// (their own writes live behind `PUT /workers/me/work-preferences` and
-/// `PUT /workers/me/employment`, which this endpoint only points at) — so a
-/// worker who has already filled one, then progressed further, then killed
-/// the app, is shown that marker again on the next load. That re-fill is
-/// harmless (both writes are idempotent full-replaces) and NEVER loses a
-/// question answer, which is the guarantee this issue actually requires;
-/// widening it to remember marker completion would need state this contract
-/// does not expose and would be a client guess, not a server fact.
+/// is either an unanswered question OR a marker screen (preferences /
+/// employment / qualifications) not yet saved for this form. Marker screens
+/// carry no "already filled" signal on this contract and their endpoints have
+/// no read route, so the cubit records each marker in [TradeFormMarkerStore]
+/// the moment the server ACKNOWLEDGED its PUT — a server fact, not a client
+/// guess. Without that record a fresh cubit (back from step 1 then the chat
+/// card, a cold start restoring /trade-form) re-showed every marker BLANK, and
+/// a tap-through PUT empty lists over what the worker had saved.
+///
+/// A recorded marker is skipped on every FORWARD move (load, the schema_stale
+/// resync, the advance after an answer or a marker save) and stays reachable
+/// with [goBack]. Reopening one is SAFE but NOT PRE-FILLED: a fresh cubit has
+/// no read of what was saved, so the page opens blank, and it writes only what
+/// the worker changes on that visit (see [goBack]).
 class TradeFormCubit extends Cubit<TradeFormState> {
-  TradeFormCubit(this._repo) : super(const TradeFormState());
+  TradeFormCubit(
+    this._repo, {
+    TradeFormMarkerStore? markerStore,
+    KnownWorkerFactsStore? knownFacts,
+  })  : _markerStore = markerStore ?? InMemoryTradeFormMarkerStore(),
+        _knownFacts = knownFacts ?? InMemoryKnownWorkerFactsStore(),
+        super(const TradeFormState());
 
   final TradeFormRepository _repo;
+  final TradeFormMarkerStore _markerStore;
+  final KnownWorkerFactsStore _knownFacts;
 
-  Future<void> load() async {
+  /// The résumé-section walk this cubit is running, if any
+  /// (`trade_form_section_walk.dart` — the Technical Skills pilot). Null is
+  /// the full walk, exactly today's behaviour. Set by [load] and KEPT across
+  /// calls, so a retry (`load()` with no argument) and the `schema_stale`
+  /// resync stay inside the same section rather than silently widening back
+  /// to the whole form.
+  String? _sectionKey;
+
+  /// Marker types already saved for this worker.
+  Set<TradeFormMarkerType> _doneMarkers = <TradeFormMarkerType>{};
+
+  /// Re-reads the saved markers. What this cubit recorded itself is kept, so an
+  /// in-flight store write can never make a marker saved seconds ago look
+  /// unsaved on a schema_stale re-fetch.
+  Future<void> _syncDoneMarkers() async {
+    _doneMarkers = <TradeFormMarkerType>{
+      ..._doneMarkers,
+      ...await _markerStore.completedMarkers(),
+    };
+  }
+
+  bool _isDoneMarker(TradeFormStep step) {
+    final TradeFormMarkerType? type = tradeFormMarkerTypeOf(step);
+    return type != null && _doneMarkers.contains(type);
+  }
+
+  /// A snapshot for [TradeFormState.doneMarkers], never the live set.
+  Set<TradeFormMarkerType> get _doneSnapshot =>
+      <TradeFormMarkerType>{..._doneMarkers};
+
+  /// Records [marker] as saved, called only after the server accepted it.
+  /// Fire-and-forget: the store never throws, and the advance must not wait on
+  /// disk.
+  void _recordMarkerDone(TradeFormMarkerType marker) {
+    _doneMarkers.add(marker);
+    unawaited(_markerStore.markCompleted(marker));
+  }
+
+  Future<void> load({String? sectionKey}) async {
+    // A non-null argument (re)arms the section walk; null KEEPS whatever is
+    // armed — the error-state retry calls `load()` bare and must not widen a
+    // section walk back to the full form.
+    if (sectionKey != null) _sectionKey = sectionKey;
     emit(state.copyWith(status: TradeFormStatus.loading, loadError: null));
     try {
       final TradeForm? form = await _repo.loadForm();
@@ -185,7 +303,9 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;
       }
-      final List<TradeFormFlatStep> flat = _flatten(form);
+      await _syncDoneMarkers();
+      final Set<WorkerFact> known = await _knownFacts.knownFacts();
+      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
       final int total = form.questionSteps.length;
       final int answeredCount =
           form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
@@ -196,6 +316,12 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         currentIndex: resumeIndex,
         answered: answeredCount,
         total: total,
+        doneMarkers: _doneSnapshot,
+        knownFacts: known,
+        // #1472 — carried from THIS response, every time. Never cached: the
+        // form is resumable across a cold start, and a stale id would file a
+        // spoken work description under the wrong conversation.
+        sessionId: form.sessionId,
       ));
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.loadError, loadError: f.message));
@@ -213,14 +339,35 @@ class TradeFormCubit extends Cubit<TradeFormState> {
             TradeFormFlatStep(sectionTitle: section.title, step: step),
       ];
 
+  /// Narrows a flattened walk to the armed résumé section, preserving server
+  /// order. Null (no section) or a filter that would leave nothing to walk
+  /// degrades to the FULL list — see `trade_form_section_walk.dart` for why
+  /// an empty walk is never served.
+  List<TradeFormFlatStep> _applySection(List<TradeFormFlatStep> flat) {
+    final TradeFormStepFilter? filter = tradeFormSectionFilterFor(_sectionKey);
+    if (filter == null) return flat;
+    final List<TradeFormFlatStep> kept = <TradeFormFlatStep>[
+      for (final TradeFormFlatStep f in flat)
+        if (filter(f.step)) f,
+    ];
+    return kept.isEmpty ? flat : kept;
+  }
+
+  /// Where a fresh load opens: the first step still to ask or, when nothing
+  /// is left, the last step that is NOT a saved marker — normally the last
+  /// question, showing its stored answer. A saved marker page opens blank (no
+  /// read route), so landing on one would ask it again.
   int _resumeIndex(List<TradeFormFlatStep> flat) {
     final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
+    final int last =
+        flat.lastIndexWhere((TradeFormFlatStep f) => !_isDoneMarker(f.step));
+    if (last >= 0) return last;
     return flat.isEmpty ? 0 : flat.length - 1;
   }
 
-  /// The first UNANSWERED question OR marker screen at/after [from] — the
-  /// forward-scan half of resumability. [_resumeIndex] is the FRESH-LOAD
+  /// The first UNANSWERED question OR UNSAVED marker screen at/after [from] —
+  /// the forward-scan half of resumability. [_resumeIndex] is the FRESH-LOAD
   /// concept (always scans from 0); this is the shared primitive it and the
   /// mid-walk `schema_stale` resync (`_resyncAfterStaleSchema`) both use —
   /// the latter scans from wherever the worker just was, never from the top.
@@ -229,15 +376,34 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       final TradeFormStep s = flat[i].step;
       if (s is TradeFormQuestionStep) {
         if (!s.isAnswered) return i;
-      } else {
-        return i; // any marker screen — see class doc for why.
+      } else if (!_isDoneMarker(s)) {
+        return i; // a marker not saved yet — see class doc.
       }
     }
     return -1;
   }
 
+  /// Where a one-step FORWARD move from the current step lands: [from], or
+  /// past any already-saved marker screens that follow it. Unlike
+  /// [_nextStepIndex] it does not skip answered questions, so walking forward
+  /// after a [goBack] still shows them. Returns `flat.length` when nothing is
+  /// left to show.
+  int _forwardIndex(List<TradeFormFlatStep> flat, {required int from}) {
+    int i = from;
+    while (i < flat.length && _isDoneMarker(flat[i].step)) {
+      i++;
+    }
+    return i;
+  }
+
   // --- Navigation ----------------------------------------------------------
 
+  /// One step back, onto a saved marker page too. That is safe even though the
+  /// page opens blank on a fresh cubit: preferences sends only the keys touched
+  /// on this visit ([TradeFormPreferences.toJson]), an untouched employment page
+  /// skips its whole-history replace ([skipEmploymentAndAdvance]), and an
+  /// untouched qualifications page skips its write. Passing through never
+  /// erases what the server holds.
   void goBack() {
     if (state.isFirstStep) return;
     emit(state.copyWith(currentIndex: state.currentIndex - 1, submitError: null));
@@ -252,12 +418,19 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   /// this field exactly as it already is" — so advancing past, say, the
   /// employment marker never touches whatever preferences value is already
   /// banked.
-  void _advanceAfterMarkerSave({
+  ///
+  /// [marker] is recorded as saved first, so a later fresh cubit resumes past
+  /// it (see the class doc).
+  void _advanceAfterMarkerSave(
+    TradeFormMarkerType marker, {
     Object? savedPreferences = _sentinel,
     Object? savedEmployment = _sentinel,
     Object? savedQualifications = _sentinel,
   }) {
-    if (state.isLastStep) {
+    _recordMarkerDone(marker);
+    final int next =
+        _forwardIndex(state.flatSteps, from: state.currentIndex + 1);
+    if (next >= state.flatSteps.length) {
       // #1367: the write already landed — there is no next step, so this
       // MUST still emit (leaving state at `submitting` forever is the bug),
       // just with nowhere further to walk to. The screen reacts to `done`
@@ -265,6 +438,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       emit(state.copyWith(
         status: TradeFormStatus.done,
         submitError: null,
+        doneMarkers: _doneSnapshot,
         savedPreferences: savedPreferences,
         savedEmployment: savedEmployment,
         savedQualifications: savedQualifications,
@@ -273,8 +447,9 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     }
     emit(state.copyWith(
       status: TradeFormStatus.ready,
-      currentIndex: state.currentIndex + 1,
+      currentIndex: next,
       submitError: null,
+      doneMarkers: _doneSnapshot,
       savedPreferences: savedPreferences,
       savedEmployment: savedEmployment,
       savedQualifications: savedQualifications,
@@ -319,8 +494,8 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         return;
       }
 
-      final bool last = state.currentIndex >= banked.length - 1;
-      if (last) {
+      final int next = _forwardIndex(banked, from: state.currentIndex + 1);
+      if (next >= banked.length) {
         // #1375 — the last step is a question (not a marker screen), so
         // answerQuestion is the terminal write. Emit done so the screen
         // navigates to the résumé pipeline.
@@ -336,7 +511,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       emit(state.copyWith(
         status: TradeFormStatus.ready,
         flatSteps: banked,
-        currentIndex: state.currentIndex + 1,
+        currentIndex: next,
         answered: result.answered,
         total: result.total,
         submitError: null,
@@ -409,7 +584,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;
       }
-      final List<TradeFormFlatStep> flat = _flatten(form);
+      await _syncDoneMarkers();
+      // A section walk re-fetches the WHOLE form here by design (the
+      // just-answered question may gate others server-side); the armed
+      // section re-applies so the resync cannot widen the walk mid-stride.
+      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
       final int answeredIdx = flat.indexWhere((TradeFormFlatStep f) =>
           f.step is TradeFormQuestionStep &&
           (f.step as TradeFormQuestionStep).question.id == result.questionKey);
@@ -423,6 +602,8 @@ class TradeFormCubit extends Cubit<TradeFormState> {
           answered: result.answered,
           total: result.total,
           submitError: null,
+          doneMarkers: _doneSnapshot,
+          sessionId: form.sessionId, // re-read, never carried over (#1472)
         ));
         return;
       }
@@ -433,6 +614,8 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         answered: result.answered,
         total: result.total,
         submitError: null,
+        doneMarkers: _doneSnapshot,
+        sessionId: form.sessionId, // re-read, never carried over (#1472)
       ));
     } on Failure catch (f) {
       emit(state.copyWith(
@@ -465,7 +648,8 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.savePreferences(prefs);
-      _advanceAfterMarkerSave(savedPreferences: prefs);
+      _advanceAfterMarkerSave(TradeFormMarkerType.preferences,
+          savedPreferences: prefs);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -489,7 +673,8 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveEmployment(kept);
-      _advanceAfterMarkerSave(savedEmployment: kept);
+      _advanceAfterMarkerSave(TradeFormMarkerType.employment,
+          savedEmployment: kept);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -498,6 +683,17 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         submitError: 'Save nahi hua. Dobara koshish karein.',
       ));
     }
+  }
+
+  /// The employment page was passed with nothing added, edited or removed, and
+  /// nothing banked for it in this cubit: advance WITHOUT the write.
+  /// `PUT /workers/me/employment` replaces the whole history, so sending the
+  /// blank list a fresh page starts with would delete what the worker saved
+  /// earlier (in an old session, an old build, or on another phone). Counts as
+  /// saved, exactly like an untouched qualifications page.
+  void skipEmploymentAndAdvance() {
+    if (state.isSubmitting) return;
+    _advanceAfterMarkerSave(TradeFormMarkerType.employment);
   }
 
   Future<QualificationOptionsDto> loadQualificationOptions() =>
@@ -542,13 +738,17 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     );
 
     if (!toSend.hasAnyTouch) {
-      _advanceAfterMarkerSave(savedQualifications: toSend);
+      // Nothing to change IS the worker's answer to this page, and the stored
+      // lists are exactly as the server holds them — so it counts as saved.
+      _advanceAfterMarkerSave(TradeFormMarkerType.qualifications,
+          savedQualifications: toSend);
       return;
     }
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveQualifications(toSend);
-      _advanceAfterMarkerSave(savedQualifications: toSend);
+      _advanceAfterMarkerSave(TradeFormMarkerType.qualifications,
+          savedQualifications: toSend);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {

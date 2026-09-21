@@ -14,6 +14,17 @@ export interface AdminActionSuccess {
   ok: true;
   changed: boolean;
   message: string;
+  /**
+   * A one-time link the action wants the operator to copy (#1494 — the admin invite
+   * accept URL). OPTIONAL and shown once; the only producer today is `inviteAdminAction`.
+   *
+   * A BEARER SECRET. A renderer may display it and offer a copy button; it must not log
+   * it, put it in an analytics event, or persist it client-side. It cannot be retrieved
+   * again from the server.
+   */
+  acceptUrl?: string;
+  /** ISO expiry for [acceptUrl], so the operator can say how long the link is good for. */
+  acceptExpiresAt?: string;
 }
 
 export interface AdminActionFailure {

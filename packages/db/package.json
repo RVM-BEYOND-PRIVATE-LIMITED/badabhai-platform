@@ -41,6 +41,8 @@
     "db:verify:aliases": "tsx src/verify-alias-lifecycle.ts",
     "db:normalize:skill-aliases": "tsx src/normalize-skill-aliases.ts",
     "db:eval:occupation": "tsx src/eval-occupation-retrieval.ts",
+    "db:eval:resume-prefill": "tsx src/eval-resume-prefill-coverage.ts",
+    "db:eval:chat-fill": "tsx src/eval-chat-fill-coverage.ts",
     "db:seed:packs": "tsx src/seed-question-packs.ts",
     "db:verify:packs": "tsx src/verify-question-packs.ts",
     "db:verify:trainer-pack": "tsx src/verify-trainer-pack.ts",
@@ -126,7 +128,8 @@
     "db:discover:skills": "tsx src/discover-skills.ts",
     "db:export:approved-skills": "tsx src/export-approved-skills.ts",
     "db:persist:discovery-run": "tsx src/persist-discovery-run.ts",
-    "db:backfill:resulting-skill": "tsx src/backfill-resulting-skill.ts"
+    "db:backfill:resulting-skill": "tsx src/backfill-resulting-skill.ts",
+    "db:audit:form-write-path": "tsx src/audit-form-write-path.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

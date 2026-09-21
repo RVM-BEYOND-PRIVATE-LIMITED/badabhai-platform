@@ -2,14 +2,28 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { NewWorkerAttribute } from "@badabhai/db";
+import type { ZodTypeAny } from "zod";
 
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
-import type { SetMyPreferencesDto } from "./worker-preferences.dto";
+import {
+  PREFERENCE_WIRE_KEYS,
+  SetMyPreferencesSchema,
+  type PreferenceWireKey,
+  type SetMyPreferencesDto,
+  type WorkPreferenceValues,
+  type WorkPreferencesResponse,
+} from "./worker-preferences.dto";
 import { PREFERENCE_KEYS, type PreferenceKey } from "./worker-preferences.vocabulary";
+
+/** Every storage key the page owns, in declaration order. */
+const STORAGE_KEYS = Object.keys(PREFERENCE_KEYS) as PreferenceKey[];
+
+/** One stored row as `loadKeys` returns it. */
+type StoredAttribute = Awaited<ReturnType<WorkerAttributesRepository["loadKeys"]>>[number];
 
 /**
  * The post-interview finishing form's closed-set page (R6 §4).
@@ -30,9 +44,14 @@ import { PREFERENCE_KEYS, type PreferenceKey } from "./worker-preferences.vocabu
  * first reading. That column's axis is "did a model contribute", not "which surface asked" —
  * `answer_map` versus `llm_parse`, per its own definition in `packages/types`. The form is
  * deterministic worker input, exactly like a chip in the interview, so `answer_map` is the
- * accurate value. WHICH surface asked is already recorded and queryable without widening the
- * enum: a form write carries `packId: null` and `sessionId: null`, and nothing else on that
- * source does.
+ * accurate value.
+ *
+ * ⚠ WHICH SURFACE ASKED IS NOT RECOVERABLE FROM THE ROW, and this paragraph used to say it was.
+ * A write from this service carries `packId: null` and `sessionId: null`, but that pair stopped
+ * being unique to it: the trade form writes universal answers such as `shift_preference` WITH its
+ * pack id, and a résumé-import handover writes a pack with no session. A form-picked shift and an
+ * interview-extracted one can therefore look identical in the columns, and nothing — including
+ * `GET /workers/me/work-preferences` — should derive provenance from their nullness (#1504).
  */
 @Injectable()
 export class WorkerPreferencesService {
@@ -77,6 +96,13 @@ export class WorkerPreferencesService {
       if (value === null) cleared.push(key);
       else rows.push(this.row(workerId, key, { valueBool: value }));
     };
+    // A `json` answer (Layer A (c), migration 0111): one structured object in `value_json`.
+    // Same three states as every other kind — an object writes, `null` clears.
+    const object = (key: PreferenceKey, value: Record<string, unknown> | null | undefined) => {
+      if (value === undefined) return;
+      if (value === null) cleared.push(key);
+      else rows.push(this.row(workerId, key, { valueJson: value }));
+    };
     // A `numeric` column, so the value is written as a STRING. `worker-attributes.repository.ts`
     // reads it back through `Number()` for the same reason pg returns it as text: a 14,4 numeric
     // must not lose precision on the way out, and every consumer compares it as a JS number.
@@ -86,31 +112,44 @@ export class WorkerPreferencesService {
       else rows.push(this.row(workerId, key, { valueNumber: String(value) }));
     };
 
-    list("languages", dto.languages);
-    list("documents_ready", dto.documents_ready);
-    list("preferred_locations", dto.preferred_cities);
-    scalar("job_type", dto.job_type);
-    scalar("shift_preference", dto.shift);
-    flag("relocation_willingness", dto.willing_to_relocate);
-    flag("accommodation_needed", dto.accommodation_needed);
-    // R9 §3 — the credential's three missing components. Same three-state contract as everything
-    // above: absent leaves the stored value alone, null clears the row.
-    number("salary_expected_max", dto.salary_expected_max);
-    // R11 §3.1 — which credential the merged `iti_diploma` option covers. Written BESIDE
-    // `education_level`, never over it: the level is the interview's answer and stays exactly as
-    // the worker gave it.
+    // #1504 — AN OLD BUILD'S DEFAULTS ARE NOT ANSWERS (owner ruling 2026-09-15). See
+    // `touched_only` on the DTO and `untouchedLegacyDefaults` below.
+    const untouched =
+      dto.touched_only === true
+        ? new Set<PreferenceKey>()
+        : await this.untouchedLegacyDefaults(workerId, dto);
+
+    // ONE LOOP OVER THE SHARED KEY TABLE, dispatched on the storage kind the vocabulary declares.
+    // `getForWorker` walks the same table the other way, so the write and the read cannot disagree
+    // about which wire field lands in which attribute.
     //
-    // #1447 — ONE of the two client surfaces that write here stopped asking; the other did not.
-    // The trade form's "Availability & terms" marker no longer collects these, but the finishing
-    // form still sends all four to this same endpoint (`finishing_models.dart:221-227`), so these
-    // lines are live, not vestigial. Even if BOTH stopped, they would stay: the three-state
-    // contract makes an absent key leave the stored value alone, so removing the writes would not
-    // delete a byte of existing data — it would only leave this endpoint unable to repair it,
-    // while the résumé kept rendering from what is already stored (see the DTO note).
-    scalar("education_credential", dto.education_credential);
-    scalar("education_council", dto.education_council);
-    number("education_year", dto.education_year);
-    scalar("education_institute", dto.education_institute);
+    // R9 §3 / R11 §3.1 / #1447 — the `education_*` keys and `salary_expected_max` ride this loop
+    // too. ONE of the two client surfaces that write here stopped asking for the education fields;
+    // the finishing form still sends all four (`finishing_models.dart`), so they are live, not
+    // vestigial. Even if both stopped they would stay: an absent key leaves the stored value alone,
+    // so removing them would delete no data and only leave this endpoint unable to repair it.
+    // `education_credential` is written BESIDE `education_level`, never over it.
+    for (const key of STORAGE_KEYS) {
+      if (untouched.has(key)) continue;
+      const value = dto[PREFERENCE_WIRE_KEYS[key]];
+      switch (PREFERENCE_KEYS[key]) {
+        case "text_list":
+          list(key, value as readonly string[] | undefined);
+          break;
+        case "text":
+          scalar(key, value as string | null | undefined);
+          break;
+        case "boolean":
+          flag(key, value as boolean | null | undefined);
+          break;
+        case "number":
+          number(key, value as number | null | undefined);
+          break;
+        case "json":
+          object(key, value as Record<string, unknown> | null | undefined);
+          break;
+      }
+    }
 
     await this.attributes.upsertMany(rows);
     await this.attributes.deleteKeys(workerId, cleared);
@@ -124,6 +163,8 @@ export class WorkerPreferencesService {
       // COUNTS, NEVER THE ANSWERS. The individual values are closed-vocabulary labels and would
       // each be harmless, but the SET is not: languages plus preferred cities plus a worker id
       // narrows a person considerably, and an audit trail needs to know the form was answered.
+      // The counts are what was ACTUALLY written and cleared — an old-build default left alone is
+      // in neither.
       payload: {
         worker_id: workerId,
         keys_written: rows.length,
@@ -135,12 +176,103 @@ export class WorkerPreferencesService {
 
     // Counts only — never a language, a city or a document name.
     this.logger.log(
-      `preferences recorded for worker ${workerId}: ${rows.length} set, ${cleared.length} cleared`,
+      `preferences recorded for worker ${workerId}: ${rows.length} set, ${cleared.length} cleared` +
+        (untouched.size > 0 ? `, ${untouched.size} old-build default(s) left untouched` : ""),
     );
 
     await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, keys_written: rows.length, keys_cleared: cleared.length };
+  }
+
+  /**
+   * The caller's stored answers, shaped so `SetMyPreferencesSchema.parse` accepts them (#1504).
+   *
+   * THE PREFILL, SO A PAGE STOPS RENDERING DEFAULTS AS IF THEY WERE ANSWERS. Every client started
+   * this page blank, so saving it without re-ticking every chip was the erase — this read is what
+   * lets a new build start from what is stored instead.
+   *
+   * A ROUND TRIP MUST NEVER 400. A stored value can fail today's schema without anyone having done
+   * anything wrong: `preferred_locations` has a model-derived writer that is not bound by the
+   * gazetteer or the five-city cap, and a slug can leave a dictionary. Returning such a value
+   * verbatim would make a worker's unedited save a 400 that loses the whole page, so each value is
+   * validated through the PUT's OWN field schema — its output, so a city comes back canonical —
+   * and anything that fails is withheld and reported in `partial` / `dropped_count`, never
+   * silently. Withheld, not repaired: this is a read, and it writes nothing.
+   *
+   * READ-ONLY SELF-VIEW, SO NO EVENT — the spine records state changes, not reads (the
+   * `getResumeFields` precedent). The log line carries counts and never a value.
+   */
+  async getForWorker(workerId: string): Promise<WorkPreferencesResponse> {
+    const stored = new Map(
+      (await this.attributes.loadKeys(workerId, STORAGE_KEYS)).map((r) => [r.attributeKey, r]),
+    );
+
+    const values = {} as Record<PreferenceWireKey, unknown>;
+    const partial: PreferenceWireKey[] = [];
+    let droppedCount = 0;
+    // WALKS THE KEY TABLE, NOT THE ROWS. A row whose key is not one of the twelve — a trade
+    // attribute, should the repository ever return one — has no wire name and is never read.
+    for (const key of STORAGE_KEYS) {
+      const wire = PREFERENCE_WIRE_KEYS[key];
+      const row = stored.get(key);
+      if (row === undefined) {
+        values[wire] = null;
+        continue;
+      }
+      const read = readStoredValue(key, row, SetMyPreferencesSchema.shape[wire]);
+      if (read.dropped > 0) {
+        // NULL, NEVER THE SURVIVORS (M1). `read.value` can still be a non-empty list here — the
+        // cap trims from the end until it validates, and what is left is real data, just not all
+        // of it. Wiring it out unchanged would hand a client a value that LOOKS complete, and a
+        // save-without-editing round trip (the naive client both #1504 tests model) would re-send
+        // it as if it were, permanently losing the trimmed tail. `null` makes "non-null" mean
+        // "safe to re-send" by construction; `partial` / `dropped_count` still say it happened.
+        values[wire] = null;
+        partial.push(wire);
+        droppedCount += read.dropped;
+      } else {
+        values[wire] = read.value;
+      }
+    }
+
+    this.logger.log(
+      `preferences read for worker ${workerId}: ${stored.size} stored, ${droppedCount} withheld`,
+    );
+    return { values: values as WorkPreferenceValues, partial, dropped_count: droppedCount };
+  }
+
+  /**
+   * The storage keys an OLD BUILD sent at their default and that already hold a value (#1504).
+   *
+   * THE RULING, EXACTLY: with no `touched_only` signal, a list sent as `[]` and a toggle sent as
+   * `false` are what every shipped client sends for a field the worker never touched, so where a
+   * stored value exists they are left alone rather than clearing it. A NON-default value (a ticked
+   * chip, `true`, a chosen shift, a salary) is still written — it cannot be a default.
+   *
+   * ONLY WHERE A VALUE IS STORED. With nothing stored there is nothing a default could erase, so
+   * the write proceeds exactly as before and a worker's first save is unchanged.
+   *
+   * THE KIND COMES FROM THE VOCABULARY. `job_type`, `shift`, the salary and the education fields
+   * are sent by old builds only when chosen, so they have no default to mistake for an answer.
+   */
+  private async untouchedLegacyDefaults(
+    workerId: string,
+    dto: SetMyPreferencesDto,
+  ): Promise<Set<PreferenceKey>> {
+    const candidates = STORAGE_KEYS.filter((key) => {
+      const value = dto[PREFERENCE_WIRE_KEYS[key]];
+      const kind = PREFERENCE_KEYS[key];
+      return (
+        (kind === "text_list" && Array.isArray(value) && value.length === 0) ||
+        (kind === "boolean" && value === false)
+      );
+    });
+    if (candidates.length === 0) return new Set();
+    const present = new Set(
+      (await this.attributes.loadKeys(workerId, candidates)).map((r) => r.attributeKey),
+    );
+    return new Set(candidates.filter((key) => present.has(key)));
   }
 
   /**
@@ -198,7 +330,10 @@ export class WorkerPreferencesService {
     workerId: string,
     key: PreferenceKey,
     value: Partial<
-      Pick<NewWorkerAttribute, "valueText" | "valueTextList" | "valueBool" | "valueNumber">
+      Pick<
+        NewWorkerAttribute,
+        "valueText" | "valueTextList" | "valueBool" | "valueNumber" | "valueJson"
+      >
     >,
   ): NewWorkerAttribute {
     return {
@@ -213,11 +348,11 @@ export class WorkerPreferencesService {
       valueNumber: value.valueNumber ?? null,
       valueText: value.valueText ?? null,
       valueTextList: value.valueTextList ?? null,
+      valueJson: value.valueJson ?? null,
       source: "answer_map",
       questionKey: key,
-      // NULL BOTH, and this pair IS the provenance. See the class docstring: a form write is the
-      // only `answer_map` row with no pack and no session behind it, which is how "the worker
-      // said this on the finishing form" stays queryable without widening `wa_source_chk`.
+      // NULL BOTH: this service has no pack and no session behind its write. The pair is NOT a
+      // reliable "written on this form" marker any more — see the class docstring.
       packId: null,
       packVersion: null,
       sessionId: null,
@@ -250,4 +385,66 @@ export class WorkerPreferencesService {
       );
     }
   }
+}
+
+/**
+ * One stored attribute, read back through the PUT field schema it must satisfy (#1504).
+ *
+ * A LIST IS VALIDATED VALUE BY VALUE, so one retired slug costs that slug and not the list. The
+ * survivors are de-duplicated (two spellings can canonicalise to one city) and then trimmed from
+ * the END until the whole list passes, which is the only failure left once every value is valid:
+ * the cap. Every value lost either way is counted.
+ *
+ * A VALUE IN THE WRONG COLUMN IS A DROPPED VALUE. `wa_value_present_chk` ties the populated column
+ * to `value_kind`, so a row of another kind under one of these keys has nothing in the column this
+ * page reads — it reads as `null` and is reported, never guessed at.
+ */
+function readStoredValue(
+  key: PreferenceKey,
+  row: StoredAttribute,
+  schema: ZodTypeAny,
+): { value: unknown; dropped: number } {
+  switch (PREFERENCE_KEYS[key]) {
+    case "text_list": {
+      if (row.valueTextList === null) return { value: null, dropped: 1 };
+      let dropped = 0;
+      const valid: string[] = [];
+      for (const item of row.valueTextList) {
+        const parsed = schema.safeParse([item]);
+        if (parsed.success) valid.push(...(parsed.data as string[]));
+        else dropped += 1;
+      }
+      const kept = [...new Set(valid)];
+      while (kept.length > 0 && !schema.safeParse(kept).success) {
+        kept.pop();
+        dropped += 1;
+      }
+      return { value: kept, dropped };
+    }
+    case "text":
+      return scalarThrough(schema, row.valueText);
+    case "boolean":
+      return scalarThrough(schema, row.valueBool);
+    case "number":
+      return scalarThrough(schema, row.valueNumber === null ? null : Number(row.valueNumber));
+    case "json": {
+      // A stored object through its field schema — the same withhold-never-repair rule the other
+      // kinds follow. `null` here means a row of another kind under this key (there is nothing in
+      // `value_json` for it to read) or a shape today's schema refuses; both are counted.
+      if (row.valueJson === null) return { value: null, dropped: 1 };
+      const parsed = schema.safeParse(row.valueJson);
+      return parsed.success && parsed.data !== null && parsed.data !== undefined
+        ? { value: parsed.data, dropped: 0 }
+        : { value: null, dropped: 1 };
+    }
+  }
+}
+
+/** A stored scalar through its field schema: the parsed value, or `null` counted as dropped. */
+function scalarThrough(schema: ZodTypeAny, stored: unknown): { value: unknown; dropped: number } {
+  if (stored === null) return { value: null, dropped: 1 };
+  const parsed = schema.safeParse(stored);
+  return parsed.success && parsed.data !== null && parsed.data !== undefined
+    ? { value: parsed.data, dropped: 0 }
+    : { value: null, dropped: 1 };
 }

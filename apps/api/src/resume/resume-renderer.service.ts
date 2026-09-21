@@ -25,6 +25,38 @@ export interface ResumeExperienceLine {
   role: string;
   duration: string;
   work: string;
+  /**
+   * The SAME line built from the worker's own words, when a rewrite is what `work` holds (#1476).
+   *
+   * NOT A TEMPLATE SLOT -- no layout prints it, and none should. It exists so a CLIENT can show a
+   * worker what the printed sentence was rewritten from and let him refuse it, which is the same
+   * mitigation `ResumeEmployment.work_own_words` carries for an employment: no test can assert the
+   * absence of a plausible-but-false sentence, and only the worker knows whether one is true.
+   *
+   * COMPOSED THROUGH THE SAME JOINER as `work`, in the same pass -- never by a second walk. The
+   * fresher block is a ` · `-joined composite of workshop machines, the trade-test clause and his
+   * own project sentence, so two independently-built strings would differ in ways the rewrite did
+   * not cause, and the client cannot take the line apart to find the segment that changed.
+   *
+   * OMITTED when it equals `work`, so a client can tell "not rewritten" from "rewritten to the
+   * same words" -- the rule `ResumeEmployment.work_own_words` already follows.
+   */
+  work_own_words?: string;
+  /**
+   * WHAT A CLIENT SENDS BACK to refuse the rewrite in {@link work_own_words} (#1485) — the
+   * `worker_attributes.attribute_key` of the one segment a model may rewrite, which for this block
+   * is always `iti_project_work`.
+   *
+   * THE FRESHER'S ANSWER TO `ResumeEmployment.id`. That route (`PUT /workers/me/employment/
+   * :employmentId/description-source`) addresses an employment ROW, and a fresher has none: his
+   * Zone 4 is derived from his pack answers, so the addressable thing is the ANSWER. It is a
+   * closed-vocabulary question key, never worker text — see `wa_attribute_key_chk`.
+   *
+   * NOT A TEMPLATE SLOT, exactly like {@link work_own_words}, and PRESENT ONLY WITH IT: a line
+   * nothing rewrote has nothing to refuse, and shipping an address for a choice the client cannot
+   * offer would invite one to be offered.
+   */
+  own_words_key?: string;
 }
 
 export interface ResumeRenderInput {
@@ -52,6 +84,13 @@ export interface ResumeRenderInput {
   availability: string | null;
   /** `{{summary}}` — short professional summary. */
   summary: string | null;
+  /**
+   * Layer A (h) — the deterministic headline `{{headline}}` prints, when the mapper built one:
+   * "CNC Turner · 5 yrs 3 mo · Fanuc, Siemens" (role · tenure · tools). Null keeps the legacy
+   * behaviour — `canonicalRole` alone fills the slot — so every pre-existing render is
+   * byte-identical. See `resume-headline.ts` for why the segments are exactly these.
+   */
+  profileHeadline?: string | null;
   /** Repeat regions `{{#skills}}` / `{{#machines}}` / `{{#controllers}}` / … */
   skills: string[];
   machines: string[];
@@ -210,8 +249,34 @@ export interface ResumeRenderInput {
    * the same rule: never logged, never echoed into an error.
    */
   phone?: string | null;
+  /**
+   * `{{whatsapp_line}}` — "WhatsApp: +91 98765 43210", WORKER COPY ONLY.
+   *
+   * ADR-0042 D9 / Layer A (a). `buildResumeRenderInput` gates this on the audience exactly as
+   * it gates `nameDevanagari`: the employer copy passes `"employer"` and receives null, so no
+   * payer-facing sheet can print it even if a call site passed a value. Same decrypt contract
+   * as {@link phone} — decrypted server-side by the caller, never logged, never echoed.
+   *
+   * The whole line is composed in the mapper (label included) so the template can collapse it
+   * with `.wa:empty` — a label the mapper did not write would otherwise print alone.
+   */
+  whatsappLine?: string | null;
   /** `{{name_devanagari}}` — auto-transliterated. Needs a Devanagari font in the API image. */
   nameDevanagari?: string | null;
+  /**
+   * `{{location_line}}` — "Faridabad, Haryana", under the name, in the masthead's small type.
+   *
+   * THE WORKER's OWN REGISTRATION ANSWER (owner ruling 2026-09-08), composed by
+   * `buildLocationLine` and supplied by the caller off the worker row — the same contract
+   * {@link phone} has, and for the same reason: the value lives on `workers`, not in the
+   * snapshot. On BOTH audiences: a city is a matching input rather than identity (2026-07-31
+   * ruling), and the Verdict Line has printed one on both copies since the sheet shipped.
+   *
+   * DISTINCT FROM {@link location}, which is the twelve older layouts' `{{location}}` slot fed
+   * from the profile snapshot. Two sources, two meanings, and merging them would put a model's
+   * reading of a conversation in the masthead.
+   */
+  locationLine?: string | null;
   /**
    * `{{trust_badge}}` — the masthead's right-hand slot.
    *
@@ -428,7 +493,7 @@ export class ResumeRenderer {
   private static fillSlots(skeleton: string, input: ResumeRenderInput): string {
     const scalars: Record<string, string> = {
       full_name: input.displayName ?? "",
-      headline: input.canonicalRole ?? "",
+      headline: input.profileHeadline ?? input.canonicalRole ?? "",
       location: input.location ?? "",
       experience_years: input.experienceYears != null ? String(input.experienceYears) : "",
       availability: input.availability ?? "",
@@ -437,12 +502,16 @@ export class ResumeRenderer {
       // Grouped with the rupee sign in the template, not here — a bare number is what a layout
       // wants to format. Empty string collapses the line, which is what null must mean.
       expected_salary: input.expectedSalary != null ? String(input.expectedSalary) : "",
-      // --- bb_trade.v1 scalars. Absent on every other layout, where they collapse. ---
+      // --- bb_trade scalars. Absent on every other layout, where they collapse. ---
       phone: input.phone ?? "",
+      // bb_trade.v2 — worker-copy-only WhatsApp line (Layer A (a)); empty on every
+      // employer copy because the mapper never fills it there.
+      whatsapp_line: input.whatsappLine ?? "",
       // §11 #9 auto-fit. See NAME_ONE_LINE_MAX — a name past the measured one-line width drops
       // to the 18pt FLOOR rather than wrapping at 20pt, and is never truncated at any length.
       name_class: nameFitClass(input.displayName),
       name_devanagari: input.nameDevanagari ?? "",
+      location_line: input.locationLine ?? "",
       trust_badge: input.trustBadge ?? "",
       headline_line: input.headlineLine ?? "",
       subhead_line: input.subheadLine ?? "",

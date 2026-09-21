@@ -174,4 +174,75 @@ void main() {
       expect(detail.title, item.title, reason: '${item.jobId} title');
     }
   });
+  // ---- Résumé import (#1499) ----------------------------------------------
+  // These three run against `mock://local`. A missing override would attempt a
+  // real request and fail here, which is exactly the parity this file exists
+  // to prove.
+
+  test('the résumé mint is DORMANT by default, as it is on every real box',
+      () async {
+    final MockApiClient dormant = MockApiClient();
+    // `RESUME_UPLOADS_BUCKET` is unset everywhere today, so mock mode must show
+    // the 503 rather than a door that only looks open in dev builds.
+    expect(dormant.mockResumeUploadsEnabled, isFalse);
+    await expectLater(
+      dormant.createResumeUploadUrl(
+        mime: 'application/pdf',
+        authToken: 'mock',
+      ),
+      throwsA(isA<ApiException>()
+          .having((ApiException e) => e.statusCode, 'statusCode', 503)),
+    );
+  });
+
+  test('with the bucket enabled it mints, confirms and settles on CHAT',
+      () async {
+    final MockApiClient live = MockApiClient()
+      ..mockResumeUploadsEnabled = true
+      ..mockResumeImportPollsBeforeDone = 1;
+
+    final SignedUploadTicket ticket = await live.createResumeUploadUrl(
+      mime: 'application/pdf',
+      authToken: 'mock',
+    );
+    expect(ticket.storagePath, startsWith('resume-uploads/'));
+
+    final ResumeImportDto confirmed = await live.confirmResumeImport(
+      storagePath: ticket.storagePath,
+      authToken: 'mock',
+    );
+    expect(confirmed.status, ResumeImportStatus.uploaded);
+    // NULL until parsing finishes — the real contract, mirrored.
+    expect(confirmed.route, isNull);
+
+    final ResumeImportDto parsing =
+        await live.getResumeImport(importId: confirmed.importId, authToken: 'mock');
+    expect(parsing.status, ResumeImportStatus.parsing);
+    expect(parsing.route, isNull);
+
+    final ResumeImportDto done =
+        await live.getResumeImport(importId: confirmed.importId, authToken: 'mock');
+    expect(done.status, ResumeImportStatus.parsed);
+    // `chat` is the DEFAULT because it is the common outcome in production too
+    // — only 9 of 21 trades have a form at all.
+    expect(done.route, ResumeImportRoute.chat);
+  });
+
+  test('the failure branch is reachable and carries no route', () async {
+    final MockApiClient failing = MockApiClient()
+      ..mockResumeUploadsEnabled = true
+      ..mockResumeImportPollsBeforeDone = 0
+      ..mockResumeImportFailure = 'no_text_layer';
+
+    final ResumeImportDto confirmed = await failing.confirmResumeImport(
+      storagePath: 'resume-uploads/mock-worker-0001/mock-resume-0001.pdf',
+      authToken: 'mock',
+    );
+    final ResumeImportDto done = await failing
+        .getResumeImport(importId: confirmed.importId, authToken: 'mock');
+
+    expect(done.status, ResumeImportStatus.failed);
+    expect(done.hasFailed, isTrue);
+    expect(done.route, isNull);
+  });
 }

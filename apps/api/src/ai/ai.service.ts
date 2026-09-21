@@ -12,6 +12,11 @@ import {
   JobPostingChatTurnOutputSchema,
   PseudonymizationOutputSchema,
   ProfileParseOutputSchema,
+  ResumeParseOutputSchema,
+  ResumeSummaryInputSchema,
+  ResumeSummaryOutputSchema,
+  ResumeOptionMapInputSchema,
+  ResumeOptionMapOutputSchema,
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
   WorkHistoryPolishOutputSchema,
@@ -24,6 +29,12 @@ import {
   type PseudonymizationOutput,
   type ProfileParseInput,
   type ProfileParseOutput,
+  type ResumeParseInput,
+  type ResumeParseOutput,
+  type ResumeSummaryInput,
+  type ResumeSummaryOutput,
+  type ResumeOptionMapInput,
+  type ResumeOptionMapOutput,
   type JobPostingChatTurnInput,
   type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
@@ -88,6 +99,90 @@ const PROFILE_JOB_TIMEOUT_MS = 25_000;
  * because it degrades to a reply this client can read.
  */
 const PROFILING_TURN_TIMEOUT_MS = 13_000;
+
+/**
+ * The transport budget for ONE work-history polish call (#1350).
+ *
+ * THE SAME INVERSION `PROFILING_TURN_TIMEOUT_MS` DOCUMENTS, found a third time and with the
+ * widest gap yet. This call passed no `timeoutMs`, so it took `post`'s 8 s default while the far
+ * side bounds the identical route at 20 s (`profiling_extract_deadline_seconds`,
+ * `apps/ai-service/app/routers/profiling.py`). Twelve seconds of the ai-service's own budget were
+ * unreachable from here by construction: every polish that took 8-20 s was aborted client-side,
+ * and Starlette does not cancel a running handler on client disconnect — so the far side finished
+ * the rewrite, charged the spend ledger, and returned it to a closed socket.
+ *
+ * WHY THAT INVERSION IS EXPENSIVE ON THIS ROUTE IN PARTICULAR — IT PRODUCES A HALF-POLISHED
+ * SHEET. `WorkHistoryPolishService.polish` walks a worker's stints SEQUENTIALLY, each with its own
+ * `AbortController`, and a null costs only THAT stint its rewrite. So latency variance inside the
+ * 8-20 s band does not degrade a resume uniformly; it degrades it PER ENTRY. The reported defect
+ * is exactly that shape: one employer's line printed the model's English and the other printed the
+ * worker's raw Hinglish, on the same page, from the same render. The first stint in the loop is
+ * the one that pays TCP+TLS setup, provider cold start and prompt resolution, which is why the
+ * entry a worker reads FIRST is the one most likely to be missing its rewrite.
+ *
+ * 23 s = the far side's 20 s deadline plus 3 s for request serialisation, the privacy gate, prompt
+ * resolution and both HTTP hops. It is the SAME ratio `parseProfile` and `llmTurn` use. IF
+ * `profiling_extract_deadline_seconds` MOVES, THIS MOVES WITH IT — a bound that drops back below
+ * it silently restores the inversion, and the only symptom is resumes that are quietly Hinglish in
+ * places.
+ *
+ * NOBODY IS WAITING ON THIS ONE. It runs inside the resume-render BullMQ job, off the request
+ * path, which is the same shape as the extraction calls given 25 s — the "a render must not wait
+ * on it" note this replaces was a chat-shaped judgement applied to a queue job. The aggregate is
+ * bounded separately, in the polisher's own loop, so raising the per-call budget cannot turn a
+ * four-employer history into a four-times-longer render.
+ */
+const WORK_HISTORY_POLISH_TIMEOUT_MS = 23_000;
+
+/**
+ * ADR-0041 RI-3. The LONGEST transport budget in this file, and it is not covering a slow
+ * model — it is covering REAL LOCAL WORK. `/resume/parse` downloads the object, then
+ * rasterizes and OCRs a scanned PDF page by page (seconds each) BEFORE it calls anything.
+ * A budget sized like the others would abort a perfectly healthy import of a photographed
+ * résumé, which is the common case for this user base and the whole reason ruling D3
+ * accepted photographs.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE (`RESUME_PARSE_DEADLINE_SECONDS`, 90 s), deliberately and
+ * for the reason {@link parseProfile} spells out: whichever bound fires first decides what the
+ * caller learns. The ai-service's deadline degrades to a healthy 200 carrying
+ * `parse_deadline_exceeded` — named, countable, attributable — while an abort here produces a
+ * bare null the processor can only report as "unreachable". The informative failure has to be
+ * the reachable one, so the transport budget sits ABOVE the semantic one.
+ *
+ * NOBODY IS BLOCKED ON THIS ONE, and unlike the note on {@link parseProfile} that is actually
+ * true here: the import runs on a queue and the client polls `GET
+ * /profiling/resume-import/:id`. Ruling D9 is the backstop — an import that never completes
+ * costs the worker a sentence of Hinglish, never the flow.
+ */
+const RESUME_PARSE_TIMEOUT_MS = 100_000;
+
+/**
+ * RI-summary (backend-only slice). The SAME budget as the parse, and for the same
+ * reason: `/resume/summary` downloads the object and runs the same deterministic
+ * extract + OCR BEFORE its own LLM call. A second read of the same photographed
+ * résumé costs the same seconds as the first — sizing this like the chat calls
+ * would abort a healthy summary of the common case.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE, deliberately, for the reason
+ * `RESUME_PARSE_TIMEOUT_MS` states: the informative `parse_deadline_exceeded`
+ * must stay reachable. NOBODY IS BLOCKED: the import runs on a queue, the
+ * summary runs best-effort beside it, and ruling D9 drops the worker into the
+ * ordinary flow when it never completes.
+ */
+const RESUME_SUMMARY_TIMEOUT_MS = 100_000;
+
+/**
+ * RI-autofill (owner override B, 2026-09-20, of ruling D2). The SAME budget as the
+ * parse, and for the same reason: `/resume/map-options` downloads the object and
+ * runs the same deterministic extract + OCR BEFORE its own LLM call. A third read
+ * of the same photographed résumé costs the same seconds as the first two.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE, deliberately — same argument as
+ * `RESUME_PARSE_TIMEOUT_MS`. NOBODY IS BLOCKED: the import runs on a queue, the
+ * mapping stages beside the route, and ruling D9 hands over to an unfilled form
+ * when it never completes.
+ */
+const RESUME_OPTION_MAP_TIMEOUT_MS = 100_000;
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -487,6 +582,113 @@ export class AiService {
   }
 
   /**
+   * Read an uploaded résumé into typed, cited values (ADR-0041 RI-3).
+   *
+   * SENDS A KEY, NEVER THE DOCUMENT. The ai-service fetches and extracts the object itself,
+   * so the résumé is never transported here. That is a privacy property, not a division of
+   * labour: the extraction libraries live over there anyway, and shipping bytes across would
+   * widen the blast radius for nothing.
+   *
+   * WHAT DOES ARRIVE, PRECISELY. Not "no résumé text" — an earlier version of this comment
+   * said that and it was wrong. Each accepted field carries an `evidence.quote`, which IS a
+   * literal span of the document. Every one of those spans is certified by gate 6 on the far
+   * side (`_carries_identifier`) and again here (`applyResumeParseGates`), so what arrives is
+   * document text that has passed the hard-identifier wall twice — never arbitrary document
+   * text. The distinction matters because RI-4 persists this payload.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT. Every semantic failure — an unset bucket, a
+   * password, an unreadable scan, a blown deadline, an off-contract model reply — comes back
+   * as a healthy 200 carrying a `failure_reason` from the closed vocabulary, because the far
+   * side degrades rather than fails (ruling D9). So a null here is genuinely "the AI service
+   * did not answer", and the caller records `parse_unavailable` rather than blaming the
+   * worker's file.
+   *
+   * THE RESPONSE IS GATED AGAIN BEFORE ANYTHING IS PERSISTED. The six gates already ran on the
+   * far side; `resume-parse-gates.ts` runs them here too. Two walls that agree are worth more
+   * than one wall that is trusted — and on this route the far wall runs under a masking policy
+   * the owner can flip, which is exactly when a second opinion is worth having.
+   */
+  async parseResume(
+    input: ResumeParseInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeParseOutput | null> {
+    return this.post("/resume/parse", input, ResumeParseOutputSchema, RESUME_PARSE_TIMEOUT_MS, ctx);
+  }
+
+  /**
+   * Read an uploaded résumé into one Hinglish line (RI-summary, backend-only).
+   *
+   * SENDS A KEY, NEVER THE DOCUMENT — same posture as `parseResume`: the ai-service
+   * fetches and extracts the object itself. The response carries a closed-set role id
+   * plus two short Hinglish strings, both certified against the hard-identifier wall
+   * on the far side — never arbitrary document text.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT, same as the parse: every semantic failure
+   * comes back as a healthy 200 carrying a `failure_reason` from the closed vocabulary.
+   * The caller (`ResumeSummaryService`) treats null as "the AI service did not answer"
+   * and degrades — best-effort, never blocking the import, never shown in chat yet.
+   */
+  async summarizeResume(
+    input: ResumeSummaryInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeSummaryOutput | null> {
+    // Shape-check the closed role list before it nears the wire: the far side
+    // sanitises again, but a caller bug that widened this list should fail here,
+    // not as a prompt carrying an id nobody reviewed.
+    const checked = ResumeSummaryInputSchema.safeParse(input);
+    if (!checked.success) {
+      this.logger.warn(
+        `resume summary input refused locally paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+      return null;
+    }
+    return this.post(
+      "/resume/summary",
+      checked.data,
+      ResumeSummaryOutputSchema,
+      RESUME_SUMMARY_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Map an uploaded résumé onto pack option ids (RI-autofill, owner override B,
+   * 2026-09-20, of ruling D2).
+   *
+   * SENDS A KEY PLUS CALLER-OWNED PACK COPY, NEVER THE DOCUMENT — same posture as
+   * `parseResume`: the ai-service fetches and extracts the object itself. The
+   * response carries closed option ids plus certified spans — never identity, never
+   * free text the model composed.
+   *
+   * `null` MEANS UNREACHABLE AND ONLY THAT, same as the parse and summary: every
+   * semantic failure comes back as a healthy 200 carrying a `failure_reason` from
+   * the closed vocabulary. The caller stages nothing on null — the Haan hands over
+   * to an unfilled form, which is today's behaviour byte for byte.
+   */
+  async mapResumeOptions(
+    input: ResumeOptionMapInput,
+    ctx?: AiRequestContext,
+  ): Promise<ResumeOptionMapOutput | null> {
+    // Shape-check the pack copy before it nears the wire: the far side sanitises
+    // again, but a caller bug that widened the option list should fail here, not as
+    // a prompt carrying an id nobody reviewed.
+    const checked = ResumeOptionMapInputSchema.safeParse(input);
+    if (!checked.success) {
+      this.logger.warn(
+        `resume option-map input refused locally paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+      return null;
+    }
+    return this.post(
+      "/resume/map-options",
+      checked.data,
+      ResumeOptionMapOutputSchema,
+      RESUME_OPTION_MAP_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
    * ONE turn of the LLM-led interview (Phase A) — the model picks the next question about
    * domain, role, skills or experience.
    *
@@ -563,13 +765,14 @@ export class AiService {
     input: WorkHistoryPolishInput,
     ctx?: AiRequestContext,
   ): Promise<WorkHistoryPolishOutput | null> {
-    // The DEFAULT budget, not the queue-side one: this rewrites a single sentence, and a
-    // render must not wait on it the way a whole-transcript extraction legitimately does.
+    // ABOVE THE FAR SIDE'S OWN DEADLINE, so the SEMANTIC bound wins the race and a slow rewrite
+    // arrives instead of being aborted into a null that prints as Hinglish. See
+    // {@link WORK_HISTORY_POLISH_TIMEOUT_MS} for why the 8 s default was the wrong number here.
     return this.post(
       "/profiling/work-history/polish",
       input,
       WorkHistoryPolishOutputSchema,
-      undefined,
+      WORK_HISTORY_POLISH_TIMEOUT_MS,
       ctx,
     );
   }

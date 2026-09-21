@@ -33,8 +33,10 @@ class ResumeRepositoryImpl implements ResumeRepository {
     // (then 429). Reuse is now the default and generate the exception.
     if (!force) {
       try {
-        final WorkerProfileBundle bundle =
-            await _api.getWorkerProfile(workerId: workerId, authToken: token);
+        final WorkerProfileBundle bundle = await _api.getWorkerProfile(
+          workerId: workerId,
+          authToken: token,
+        );
         if (!bundle.hasProfile) {
           throw const ProfileIncompleteFailure();
         }
@@ -54,8 +56,10 @@ class ResumeRepositoryImpl implements ResumeRepository {
       // profile id WITHOUT taking the reuse branch, or the stale cached text
       // would be returned and the regenerate silently skipped (F3).
       try {
-        final WorkerProfileBundle bundle =
-            await _api.getWorkerProfile(workerId: workerId, authToken: token);
+        final WorkerProfileBundle bundle = await _api.getWorkerProfile(
+          workerId: workerId,
+          authToken: token,
+        );
         if (!bundle.hasProfile) {
           throw const ProfileIncompleteFailure();
         }
@@ -127,22 +131,32 @@ class ResumeRepositoryImpl implements ResumeRepository {
   }
 
   @override
-  Future<ResumeDocument?> loadResumeDocument() async {
+  Future<ResumeDocumentSnapshot> loadResumeDocument() async {
     final String? token = _session.sessionToken;
     // No session → nothing to fetch. Silent by contract (see the interface
     // doc): this is a best-effort UPGRADE over resume_text, never a
     // precondition for it.
-    if (token == null) return null;
+    if (token == null) return const ResumeDocumentSnapshot();
     try {
-      final ResumeDocumentResponse response =
-          await _api.getResumeDocument(authToken: token);
-      return response.document;
+      final ResumeDocumentResponse response = await _api.getResumeDocument(
+        authToken: token,
+      );
+      // `render_status` rides along from the same response — the resume tab
+      // gates its READY pill on it rather than on "there is resume text"
+      // (R6). A server that does not send it leaves it null, and null is not
+      // ready.
+      return ResumeDocumentSnapshot(
+        document: response.document,
+        renderStatus: response.renderStatus,
+        renderedAt: response.renderedAt,
+      );
     } catch (_) {
       // Swallow EVERY error — a 404 ("no resume row yet"), a network blip, or
       // any other failure must never cost the worker their resume tab. The
       // existing resume_text path (already fetched via generateResume/reuse)
-      // stays authoritative; only a clean 2xx `document` is ever drawn.
-      return null;
+      // stays authoritative; only a clean 2xx `document` is ever drawn, and
+      // an unknown render status never claims READY.
+      return const ResumeDocumentSnapshot();
     }
   }
 
@@ -158,6 +172,26 @@ class ResumeRepositoryImpl implements ResumeRepository {
     try {
       await _api.setEmploymentDescriptionSource(
         employmentId: employmentId,
+        ownWords: ownWords,
+        authToken: token,
+      );
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<void> setAnswerTextSource(
+    String attributeKey, {
+    required bool ownWords,
+  }) async {
+    final String? token = _session.sessionToken;
+    if (token == null) {
+      throw const UnauthorizedFailure();
+    }
+    try {
+      await _api.setAnswerTextSource(
+        attributeKey: attributeKey,
         ownWords: ownWords,
         authToken: token,
       );

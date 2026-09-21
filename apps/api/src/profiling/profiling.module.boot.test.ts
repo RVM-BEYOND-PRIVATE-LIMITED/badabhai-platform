@@ -1,6 +1,17 @@
 import { TradeFormController } from "./form/trade-form.controller";
+import { ResumeImportController } from "./resume-import/resume-import.controller";
+import { ResumeImportRepository } from "./resume-import/resume-import.repository";
+import { ResumeImportService } from "./resume-import/resume-import.service";
+import { ResumeParseService } from "./resume-import/resume-parse.service";
+import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
+import { ResumeSummaryService } from "./resume-import/resume-summary.service";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
+import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 
@@ -91,6 +102,39 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // RI-AUTOFILL (owner override B). `ProfilingOrchestrator` takes it as a CONSTRUCTOR
+      // dependency (the identity-Haan branch), so omitting this provider does not fail a
+      // metadata test — it fails BOOT, exactly as the entries above.
+      ResumeAutofillService,
+      // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` takes it as a
+      // CONSTRUCTOR dependency (`answer()`'s fire-and-forget review-or-omit trigger), so omitting
+      // this provider does not fail a metadata test — it fails BOOT, exactly as the entries above.
+      OtherAnswerPolishService,
+      // ADR-0041 RI-1 — the upload seam. `ResumeImportService` takes `StorageService` as a
+      // CONSTRUCTOR dependency, so a missing `StorageModule` import does not fail a metadata
+      // test either — it fails BOOT, which is the whole reason this list is pinned.
+      ResumeImportRepository,
+      ResumeImportService,
+      // ADR-0041 RI-3 — the parse leg. `ResumeParseService` takes `AiService`,
+      // `AiCostRecorder` and `EventsService` as CONSTRUCTOR dependencies, so this entry is
+      // pinned here for the same reason as the two above: a missing module import is
+      // invisible to a metadata test and fails BOOT. One new module edge has already made
+      // this app fail to boot while typecheck, lint and every unit test passed.
+      ResumeParseService,
+      // ADR-0041 RI-4 — the routing leg and the two things it needed wiring for. Same reason
+      // again, and this list has now caught it once: `ResumeRouteService` takes
+      // `PackRegistryService`, `OccupationService`, `PiiCryptoService` and `EventsService`,
+      // `ResumeSuggestionReader` is a CONSTRUCTOR dependency of `TradeFormService` (so its
+      // absence breaks the FORM, not the résumé feature), and `ResumeImportProcessor` is the
+      // only thing that ever calls the parse at all — without it the queue fills and nothing
+      // drains it, which no other test in this repository can see.
+      ResumeRouteService,
+      // RI-autofill's mapping call. `ResumeRouteService` takes it as a CONSTRUCTOR
+      // dependency (the form-route mapping leg), so omitting it fails BOOT, not a test.
+      ResumeOptionMapService,
+      ResumeSummaryService,
+      ResumeSuggestionReader,
+      ResumeImportProcessor,
     ]);
   });
 
@@ -102,9 +146,14 @@ describe("ProfilingModule wiring", () => {
     // question known up front, answered in any order, resumable across sessions. Listed here
     // for the same reason the voice form is — a declared controller that AppModule does not
     // mount serves nothing, and the assertion below is the half that proves it does.
+    // Résumé import is the FOURTH surface and a third kind again — an upload rather than an
+    // interview or a form. It shares neither the turn machinery nor the answer table, and by
+    // ruling D2 it cannot write an answer at all: a parsed value is a suggestion until the
+    // worker confirms it, and confirming goes back through the trade form like any other answer.
     expect(getMeta("controllers", ProfilingModule)).toEqual([
       ProfilingController,
       TradeFormController,
+      ResumeImportController,
     ]);
   });
 

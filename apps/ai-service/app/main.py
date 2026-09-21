@@ -42,6 +42,7 @@ from .routers import (
     profile,
     profiling,
     resume,
+    resume_import,
     skills,
     voice,
 )
@@ -235,6 +236,11 @@ app.include_router(profile.api_router)
 # profile so the two /profile* routes keep their precedence in the route table.
 app.include_router(profiling.api_router)
 app.include_router(resume.api_router)
+# ADR-0041 RI-3. Registered UNCONDITIONALLY and dormant on its bucket instead: an unset
+# RESUME_UPLOADS_BUCKET makes /resume/parse answer with failure_reason=parse_unavailable,
+# which is a diagnosable state. A route that is absent from the schema until an env var is
+# set answers 404, and a 404 is indistinguishable from a typo in the path.
+app.include_router(resume_import.api_router)
 app.include_router(voice.api_router)
 
 # R7 §1 — the SYNTHETIC-PERSONA harness, and the second of its three barriers.

@@ -5,6 +5,7 @@ import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { PinService, type VerifyPinInput } from "./pin.service";
 import { PinHasher, CURRENT_PIN_PEPPER_VERSION } from "./pin-hasher.service";
+import { PinSetSchema, PinResetConfirmSchema } from "./pin.dto";
 import {
   WorkerAccountDeletedException,
   WORKER_ACCOUNT_DELETED_CODE,
@@ -74,7 +75,7 @@ function makeRedis() {
  * A deterministic PIN hasher double standing in for the real scrypt boundary. `hash` wraps the
  * PIN in a non-identity envelope; `verify` unwraps + version-checks (fails closed on a wrong
  * version, matching the real boundary). `verify` is a vi.fn so a test can assert scrypt was /
- * was NOT consulted on a given path. The format + denylist methods delegate to the REAL
+ * was NOT consulted on a given path. The format method delegates to the REAL
  * PinHasher (the actual policy under test for setPin/resetConfirm).
  */
 function makeHasher() {
@@ -90,20 +91,21 @@ function makeHasher() {
   return {
     verify,
     hash,
-    isWeakPin: (pin: string) => realPolicy.isWeakPin(pin),
     isCorrectFormat: (pin: string) => realPolicy.isCorrectFormat(pin),
   };
 }
 
 /** A mutable in-memory `worker_credentials` row + a PinRepository double over it. */
-function makeCred(over: Partial<{
-  pinHash: string;
-  pepperVersion: number;
-  failedAttempts: number;
-  lockedUntil: Date | null;
-  lockoutCycles: number;
-  otpCycleCount: number;
-}> = {}) {
+function makeCred(
+  over: Partial<{
+    pinHash: string;
+    pepperVersion: number;
+    failedAttempts: number;
+    lockedUntil: Date | null;
+    lockoutCycles: number;
+    otpCycleCount: number;
+  }> = {},
+) {
   return {
     workerId: WORKER,
     pinHash: `pin$${GOOD_PIN}`,
@@ -215,8 +217,7 @@ function build(opts: BuildOpts = {}) {
   const events = { emit } as never;
   const hasher = makeHasher();
 
-  const credInitial =
-    opts.cred === undefined ? makeCred() : opts.cred; // undefined → default row; null → no PIN
+  const credInitial = opts.cred === undefined ? makeCred() : opts.cred; // undefined → default row; null → no PIN
   const pins = makePins(credInitial);
 
   const resolved =
@@ -345,19 +346,45 @@ describe("PinService.setPin", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("rejects EVERY denylisted PIN with 400 BEFORE hashing", async () => {
-    const denylist = [
-      "0000", "1111", "2222", "9999", // all-same
-      "1234", "2345", "6789", // ascending
-      "4321", "9876", // descending
-      "2580", "6969", // explicit
+  it("ACCEPTS every PIN the old denylist refused (#1462)", async () => {
+    // OWNER RULING 2026-09-08, and the assertion is inverted rather than deleted. Each of these
+    // used to be a 400 on the first screen a worker meets: he picked a PIN he would remember, the
+    // API refused it, and the app showed "PIN set nahi hua". The strength policy is gone —
+    // client and server — so every one of them must now write a credential row.
+    const wasDenylisted = [
+      "0000",
+      "1111",
+      "2222",
+      "9999", // all-same
+      "1234",
+      "2345",
+      "6789", // ascending
+      "4321",
+      "9876", // descending
+      "2580",
+      "6969", // the old explicit list
     ];
-    for (const pin of denylist) {
+    for (const pin of wasDenylisted) {
+      const { svc, hasher, pins, emit } = build();
+      await expect(
+        svc.setPin(WORKER, pin, ctx),
+        `expected ${pin} accepted`,
+      ).resolves.toBeUndefined();
+      expect(hasher.hash, `${pin} must hash`).toHaveBeenCalledWith(pin);
+      expect(pins.repo.upsertPin, `${pin} must be stored`).toHaveBeenCalled();
+      expect(emittedNames(emit), `${pin} must emit`).toContain("worker.pin_set");
+    }
+  });
+
+  it("still rejects a MALFORMED PIN — the format gate is not a strength rule", async () => {
+    // The half of the gate #1462 deliberately KEPT. A 3-digit typo or a non-digit is not a
+    // choice the worker made; it is a value that must never reach the credential store.
+    for (const bad of ["135", "13570", "13a7", ""]) {
       const { svc, hasher, pins } = build();
-      await expect(svc.setPin(WORKER, pin, ctx), `expected ${pin} rejected`).rejects.toBeInstanceOf(
+      await expect(svc.setPin(WORKER, bad, ctx), `expected ${bad} rejected`).rejects.toBeInstanceOf(
         BadRequestException,
       );
-      expect(hasher.hash, `${pin} must not hash`).not.toHaveBeenCalled();
+      expect(hasher.hash, `${bad} must not hash`).not.toHaveBeenCalled();
       expect(pins.repo.upsertPin).not.toHaveBeenCalled();
     }
   });
@@ -401,7 +428,10 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
   it("a correct PIN on a trusted device clears throttle, mints a session, emits pin_verified", async () => {
     const { svc, redis, pins, sessions, emit } = build();
     // Seed a stale transient throttle to prove SUCCESS clears it.
-    redis.store.set(`pin_throttle:${WORKER}:${DEVICE}`, JSON.stringify({ failed: 2, lockedUntil: null, cycle: 0 }));
+    redis.store.set(
+      `pin_throttle:${WORKER}:${DEVICE}`,
+      JSON.stringify({ failed: 2, lockedUntil: null, cycle: 0 }),
+    );
 
     const res = await svc.verifyPin(verifyInput(), ctx);
 
@@ -699,7 +729,9 @@ describe("PinService.verifyPin — throttle / lockout ladder", () => {
         // (a) The durable otp_cycle_count stays 0 on every non-final step (the #168-#2 fix); the
         // force-OTP counter is NOT touched until the final cycle.
         expect(pins.repo.incrementOtpCycle).not.toHaveBeenCalled();
-        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(0);
+        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(
+          0,
+        );
         expect(pins.state.row!.lockoutCycles).toBe(nextCycle);
 
         // (b) A SUBSEQUENT verify is NOT pre-scrypt force-OTP'd: expire the transient window and
@@ -925,7 +957,7 @@ describe("PinService.resetRequest", () => {
 });
 
 describe("PinService.resetConfirm", () => {
-  it("a valid OTP → denylist+hash the new PIN, upsert (clears throttle+otp_cycle), emit worker.pin_reset", async () => {
+  it("a valid OTP → format-gate+hash the new PIN, upsert (clears throttle+otp_cycle), emit worker.pin_reset", async () => {
     const { svc, otp, workers, pins, hasher, emit } = build({
       cred: makeCred({ otpCycleCount: 2, failedAttempts: 4 }),
     });
@@ -969,12 +1001,14 @@ describe("PinService.resetConfirm", () => {
     expect(pins.state.row!.otpCycleCount).toBe(2);
   });
 
-  it("a denylisted new PIN is rejected (400) BEFORE hashing — and now before the OTP too", async () => {
-    // The name used to say "even after a valid OTP". #994 inverted that: the gate moved
-    // AHEAD of otp.verify so a weak PIN no longer spends the worker's single-use code.
-    // Without the otp.verify assertion this test passes under either ordering.
+  it("a MALFORMED new PIN is rejected (400) BEFORE hashing — and before the OTP too", async () => {
+    // The name used to say "denylisted". #1462 removed the strength half of this gate, so the
+    // ordering property is now asserted with the only input it still refuses: a wrong-length PIN.
+    // #994's inversion is the part under test — the gate runs AHEAD of otp.verify, so a rejected
+    // PIN no longer spends the worker's single-use code. Without the otp.verify assertion this
+    // test passes under either ordering.
     const { svc, hasher, pins, otp } = build();
-    await expect(svc.resetConfirm(PHONE, "123456", "1234", ctx)).rejects.toBeInstanceOf(
+    await expect(svc.resetConfirm(PHONE, "123456", "13", ctx)).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(otp.verify).not.toHaveBeenCalled();
@@ -982,16 +1016,29 @@ describe("PinService.resetConfirm", () => {
     expect(pins.repo.upsertPin).not.toHaveBeenCalled();
   });
 
+  it("a GUESSABLE new PIN now resets successfully, OTP and all (#1462)", async () => {
+    // The end of the loop this issue is about: the client stopped blocking 1234, so the server
+    // refusing it turned a hard block into a 400 dialog — strictly worse. It must complete.
+    const { svc, otp, pins, emit } = build();
+    const res = await svc.resetConfirm(PHONE, "123456", "1234", ctx);
+    expect(otp.verify).toHaveBeenCalledWith(PHONE, "123456");
+    expect(pins.repo.upsertPin).toHaveBeenCalled();
+    expect(emittedNames(emit)).toContain("worker.pin_reset");
+    expect(res.pin_set).toBe(true);
+  });
+
   // -------------------------------------------------------------------------
   // #994 — the reset now RETURNS a session, and the PIN gate runs before the OTP burn.
   // -------------------------------------------------------------------------
 
-  it("a weak/malformed PIN is rejected BEFORE the single-use OTP is spent", async () => {
+  it("a malformed PIN is rejected BEFORE the single-use OTP is spent", async () => {
     // THE POINT: burning the OTP and only then rejecting the PIN forced the worker back
     // through the rate-limited OTP request/send loop to try a different PIN — the
     // "recurring again and again" in #994. The PIN gate is caller-input policy and can
     // answer first; it leaks nothing about the phone or the code (same 400 either way).
-    for (const bad of ["1234", "0000", "13"]) {
+    // "1234" and "0000" used to belong in this list and no longer do (#1462) — they are
+    // accepted, and the test above proves the reset completes for them.
+    for (const bad of ["13", "135700", "12a4"]) {
       const { svc, otp, workers, pins, auth } = build();
       await expect(svc.resetConfirm(PHONE, "123456", bad, ctx)).rejects.toBeInstanceOf(
         BadRequestException,
@@ -1172,6 +1219,40 @@ describe("PinService — every emitted event is PII-free (no PIN / hash / finger
           `${event.event_name}.${key} is not a scalar`,
         ).toBe(true);
       }
+    }
+  });
+});
+
+/**
+ * THE SECOND PLACE A STRENGTH RULE COULD COME BACK (#1462).
+ *
+ * `pin-hasher.service.test.ts` scans `PinHasher`'s prototype, which catches a re-added
+ * `isWeakPin` at the definition. It cannot see a rule added as a `.refine()` on the WIRE schema —
+ * a one-line change in `pin.dto.ts` that would reject `1234` with a 400 before the service is
+ * ever reached, and would look like validation rather than policy. So the DTO is asserted too:
+ * the boundary must accept every PIN the ruling names, on both endpoints that carry one.
+ */
+describe("the PIN wire schema carries no strength rule either (#1462)", () => {
+  const guessable = ["0000", "1111", "1234", "4321", "2580", "6969", "9876"];
+
+  it("PinSetSchema accepts every guessable PIN", () => {
+    for (const pin of guessable) {
+      expect(PinSetSchema.safeParse({ pin }).success, `${pin} must parse`).toBe(true);
+    }
+  });
+
+  it("PinResetConfirmSchema accepts them too", () => {
+    for (const pin of guessable) {
+      const body = { phone: "+919876543210", otp: "123456", pin };
+      expect(PinResetConfirmSchema.safeParse(body).success, `${pin} must parse`).toBe(true);
+    }
+  });
+
+  it("and still refuses a malformed one at the wire", () => {
+    // The 4-8 digit RANGE is the wire's job; the exact PIN_LENGTH is the service's. Both are
+    // format, neither is strength.
+    for (const pin of ["123", "123456789", "12a4", ""]) {
+      expect(PinSetSchema.safeParse({ pin }).success, `${pin} must not parse`).toBe(false);
     }
   });
 });

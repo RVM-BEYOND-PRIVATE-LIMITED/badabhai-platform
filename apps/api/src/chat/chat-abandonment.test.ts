@@ -35,6 +35,9 @@ function partialBuffer(over: Partial<TranscriptBuffer> = {}): TranscriptBuffer {
 const ENVELOPE_WITH_ANSWER = {
   packId: "qp_tailoring",
   packVersion: 2,
+  // #1504 item 5 (city-seed) — `toPackAnswerRows` reads this to skip a seeded-and-unconfirmed
+  // key; empty here means "nothing was seeded on this session", which is true of this fixture.
+  prefilledKeys: [],
   answerMap: [
     {
       question_key: "trade",

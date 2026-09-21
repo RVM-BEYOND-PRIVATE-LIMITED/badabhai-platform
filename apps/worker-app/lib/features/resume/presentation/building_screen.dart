@@ -3,28 +3,32 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_scroll_safe_body.dart';
-import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
 
-/// Onboarding "Resume ban raha hai…" screen (spec §5.1 / `.aw-build`).
+/// Onboarding "Resume ban raha hai…" screen (v3 spec §3.22; master Flutter UI
+/// kit screen 22).
 ///
 /// Generates the resume on mount (the real work), then enters the shell at the
 /// Resume tab — passing the generated text so the tab shows it without
 /// re-generating. A minimum display window stops the spinner from flashing.
 class BuildingScreen extends StatelessWidget {
-  const BuildingScreen({super.key});
+  const BuildingScreen({super.key, this.force = false});
+
+  /// When true, bypass the cached resume and re-generate from the server.
+  /// Used after a trade-form section walk so the overlay runs against fresh
+  /// pack answers (see resume-draft-overlay.ts).
+  final bool force;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ResumeCubit>(
-      create: (_) => locator<ResumeCubit>()..generate(),
+      create: (_) => locator<ResumeCubit>()..generate(force: force),
       child: const _BuildingView(),
     );
   }
@@ -64,6 +68,7 @@ class _BuildingViewState extends State<_BuildingView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: OnboardingColors.canvasBg,
       body: BlocConsumer<ResumeCubit, ResumeState>(
         listener: (BuildContext context, ResumeState state) {
           if (state.status == ResumeStatus.ready) _maybeEnterShell();
@@ -73,29 +78,29 @@ class _BuildingViewState extends State<_BuildingView> {
             // ResumeCubit's failed state does not carry the typed cause
             // (handled separately), so we use a cause-agnostic honest retry
             // line rather than a false "check internet".
-            return BbStatusView(
+            return _StatusLayout(
               icon: Icons.error_outline_rounded,
+              iconColor: OnboardingColors.errorRed,
+              iconBg: OnboardingColors.errorBg,
               title: 'Resume nahi ban paya.',
               subtitle: 'Thodi der baad dobara try karein.',
-              action: BbButton(
-                label: 'Dobara koshish karein',
-                onPressed: () {
-                  _navigated = false;
-                  context.read<ResumeCubit>().generate();
-                },
-              ),
+              actionLabel: 'Dobara koshish karein',
+              onAction: () {
+                _navigated = false;
+                context.read<ResumeCubit>().generate();
+              },
             );
           }
           if (state.status == ResumeStatus.noProfile) {
-            return BbStatusView(
+            return _StatusLayout(
               icon: Icons.person_off_outlined,
+              iconColor: OnboardingColors.ink600,
+              iconBg: OnboardingColors.cardIconBg,
               title: 'Profile taiyaar nahi hai.',
               subtitle:
                   'Chat mein kuch details share karein, phir dobara try karein.',
-              action: BbButton(
-                label: 'Wapas jaayein',
-                onPressed: () => context.go('/'),
-              ),
+              actionLabel: 'Wapas jaayein',
+              onAction: () => context.go('/'),
             );
           }
           return const _BuildingBody();
@@ -105,135 +110,356 @@ class _BuildingViewState extends State<_BuildingView> {
   }
 }
 
-/// Kit 05 — Resume building. A deep-blue full-bleed surface with a DETERMINATE
-/// progress bar (haldi on a translucent track), an Anek "STEP n/3" label, and a
-/// translucent checklist (✓ done / ● current). Never a bare spinner — the step
-/// count is known, so progress is shown as steps.
+/// The failed / no-profile surface in the kit: the Shift Blue header carries
+/// the state's own title + subtitle (so the header never claims "ban raha hai"
+/// on a screen where nothing is being built), a tinted icon disc sits in the
+/// scrolling body, and the single recovery action docks at the bottom.
+class _StatusLayout extends StatelessWidget {
+  const _StatusLayout({
+    required this.icon,
+    required this.iconColor,
+    required this.iconBg,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBg;
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        // No back arrow: the building screen is entered with `go`, and the
+        // recovery action below is the way out (unchanged from before).
+        ShiftBlueHeader(title: title, subtitle: subtitle),
+        Expanded(
+          child: SafeArea(
+            top: false,
+            bottom: false,
+            child: OnboardingBody(
+              fillViewport: true,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: iconBg,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 44, color: iconColor),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Center(
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: OnboardingLayout.maxContentWidth,
+                ),
+                child: PrimaryActionButton(
+                  label: actionLabel,
+                  showArrow: false,
+                  onPressed: onAction,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The state of one row in the step ticker, derived from the paced step.
+enum _StepState { done, live, pending }
+
+/// Kit screen 22 — Resume generation loading. The Shift Blue header carries the
+/// title and subtitle; below it a white progress card holds a thin safety-yellow
+/// DETERMINATE bar, a mono "STEP n/4" count, and a four-row step ticker
+/// (Done = green check, Live = small spinner, Baaki = muted with a tag). Never
+/// a bare spinner — the step count is known, so progress is shown as steps.
 ///
-/// The generation work is async (the ResumeCubit), so the three steps are a
-/// paced client-side animation across the display window — the resume-generation
-/// logic + navigation are untouched, this is only the waiting surface.
+/// The generation work is async (the ResumeCubit), so the four steps are a
+/// paced client-side animation across the display window — the
+/// resume-generation logic + navigation are untouched, this is only the waiting
+/// surface.
 class _BuildingBody extends StatelessWidget {
   const _BuildingBody();
 
-  /// Step copy paced with the progress tween — Anek, uppercase, haldi.
-  static const List<String> _stepLabels = <String>[
-    'STEP 1/3 — DETAILS CHECK HO RAHE HAIN',
-    'STEP 2/3 — SKILLS JOD RAHE HAIN',
-    'STEP 3/3 — RESUME TAIYAAR HO RAHA HAI',
-  ];
-
-  /// Checklist rows, glyph-prefixed per the current step (✓ done, ● current).
-  static const List<String> _checklist = <String>[
+  /// Ticker rows, in order. Row state follows the paced step: rows before it
+  /// are done, the row at it is live, rows after it are still pending.
+  static const List<String> _steps = <String>[
     'Details check ho gaye',
     'Trade profile ban raha hai',
     'Skills jud rahi hain',
+    'Final PDF card taiyaar karna',
   ];
 
   @override
   Widget build(BuildContext context) {
+    // Spec §3.22 puts this one screen on a full SHIFT BLUE field — the header
+    // and the body are one navy surface, with the white progress card the only
+    // thing on it. Painted here rather than on the Scaffold because the failed
+    // and no-profile views below are ordinary status screens and keep the
+    // canvas.
     return ColoredBox(
-      color: AppColors.blue,
-      child: SafeArea(
-        // Scroll instead of overflowing on a short handset at 1.3x text scale.
-        child: BbScrollSafeBody(
-          child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s7,
-            AppSpacing.gutter,
-            AppSpacing.gutter,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text('Resume ban raha hai…',
-                  style: AppTypography.display(
-                      size: AppTypography.sizeXl,
-                      weight: FontWeight.w800,
-                      color: AppColors.onBlue)),
-              const SizedBox(height: AppSpacing.s1),
-              Text(
+      color: OnboardingColors.shiftBlue,
+      child: Column(
+        children: <Widget>[
+          const ShiftBlueHeader(
+            title: 'Resume ban raha hai…',
+            subtitle:
                 'Aapki baat se ek branded, share-ready resume taiyaar kar rahe hain.',
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.onBlueMuted),
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              // Scroll instead of overflowing on a short handset at large text.
+              child: OnboardingBody(
+                padding: const EdgeInsets.all(16),
+                // The pacing tween — 0 → 0.92 so the bar never claims "done"
+                // before the cubit actually navigates away. Determinate
+                // throughout; at its end the last row is still live, not done.
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: 0.92),
+                  duration: AppMotion.slower * 6, // ~2.9s across the four steps
+                  curve: AppMotion.easeInOut,
+                  builder: (BuildContext context, double t, _) {
+                    final int step = (t * _steps.length)
+                        .clamp(0, _steps.length - 0.001)
+                        .floor();
+                    return _ProgressCard(progress: t, currentStep: step);
+                  },
+                ),
               ),
-              const SizedBox(height: AppSpacing.s6),
-              // The pacing tween — 0 → 0.92 so the bar never claims "done" before
-              // the cubit actually navigates away. Determinate throughout.
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0, end: 0.92),
-                duration: AppMotion.slower * 6, // ~2.9s across the three steps
-                curve: AppMotion.easeInOut,
-                builder: (BuildContext context, double t, _) {
-                  final int step = (t * 3).clamp(0, 2.999).floor();
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadii.xs),
-                        child: LinearProgressIndicator(
-                          value: t,
-                          minHeight: 9,
-                          backgroundColor: AppColors.onBlue.withValues(alpha: 0.15),
-                          valueColor: const AlwaysStoppedAnimation<Color>(
-                              AppColors.haldi),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s2),
-                      Text(
-                        _stepLabels[step],
-                        style: AppTypography.display(
-                          size: AppTypography.sizeXs,
-                          weight: FontWeight.w600,
-                          color: AppColors.haldi,
-                          letterSpacing: 0.4,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s5),
-                      _Checklist(currentStep: step),
-                    ],
-                  );
-                },
-              ),
-            ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The white progress card: bar + step count + the four ticker rows, under the
+/// spec's "subtle animated card scan glow".
+class _ProgressCard extends StatelessWidget {
+  const _ProgressCard({required this.progress, required this.currentStep});
+
+  final double progress;
+  final int currentStep;
+
+  _StepState _stateOf(int index) {
+    if (index < currentStep) return _StepState.done;
+    if (index == currentStep) return _StepState.live;
+    return _StepState.pending;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final int total = _BuildingBody._steps.length;
+    return Container(
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: OnboardingColors.paperWhite,
+        border: Border.all(color: OnboardingColors.borderSubtle),
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+      ),
+      child: Stack(
+        children: <Widget>[
+          Positioned.fill(child: _ScanGlow(progress: progress)),
+          Padding(padding: const EdgeInsets.all(16), child: _content(total)),
+        ],
+      ),
+    );
+  }
+
+  Widget _content(int total) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'STEP ${currentStep + 1}/$total',
+          style: OnboardingTypography.monoLabel(
+            color: OnboardingColors.shiftBlue,
           ),
         ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            backgroundColor: OnboardingColors.cardIconBg,
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              OnboardingColors.safetyYellow,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (int i = 0; i < total; i++) ...<Widget>[
+          if (i > 0)
+            const Divider(height: 1, color: OnboardingColors.borderSubtle),
+          _StepRow(label: _BuildingBody._steps[i], state: _stateOf(i)),
+        ],
+      ],
+    );
+  }
+}
+
+/// The spec's "subtle animated card scan glow": a soft safety-yellow band that
+/// travels down the card as the generation progresses.
+///
+/// Driven by the SAME pacing value the bar and the ticker read — it is not a
+/// second, independent animation and it starts no ticker of its own. A
+/// perpetual shimmer would keep a frame scheduled for as long as the screen is
+/// up (and would pump forever under `pumpAndSettle`); this simply is wherever
+/// the progress is.
+///
+/// Decoration only: no shadow (D10 — the glow is a gradient), no hit test, and
+/// nothing for a screen reader to read, since the ticker rows already say what
+/// is happening.
+class _ScanGlow extends StatelessWidget {
+  const _ScanGlow({required this.progress});
+
+  /// 0 → 1 down the card.
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: Align(
+          // Alignment runs -1 (top) → 1 (bottom).
+          alignment: Alignment(0, (progress.clamp(0.0, 1.0) * 2) - 1),
+          child: Container(
+            height: 56,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: <Color>[
+                  Color(0x00FFB32C),
+                  OnboardingColors.yellowTint20,
+                  Color(0x00FFB32C),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-/// The translucent checklist card — ✓ for completed steps, ● for the current one.
-class _Checklist extends StatelessWidget {
-  const _Checklist({required this.currentStep});
+/// One ticker row: a state indicator, the step label, and — for a pending step
+/// — the muted "Baaki" tag.
+class _StepRow extends StatelessWidget {
+  const _StepRow({required this.label, required this.state});
 
-  final int currentStep;
+  final String label;
+  final _StepState state;
 
   @override
   Widget build(BuildContext context) {
-    final String text = <String>[
-      for (int i = 0; i < _BuildingBody._checklist.length; i++)
-        '${i < currentStep ? '✓' : '●'}  ${_BuildingBody._checklist[i]}',
-    ].join('\n');
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      decoration: BoxDecoration(
-        color: AppColors.onBlue.withValues(alpha: 0.08),
-        border: Border.all(color: AppColors.onBlue.withValues(alpha: 0.18)),
-        borderRadius: BorderRadius.circular(AppRadii.sm),
-      ),
-      child: Text(
-        text,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.onBlueMuted,
-          height: 1.8,
+    final bool pending = state == _StepState.pending;
+    return MergeSemantics(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: <Widget>[
+            SizedBox(width: 24, height: 24, child: _indicator()),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: OnboardingTypography.inter(
+                  size: 14,
+                  weight: state == _StepState.live
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                  color: pending
+                      ? OnboardingColors.ink500
+                      : OnboardingColors.ink900,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            if (pending) ...<Widget>[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: OnboardingColors.chipBg,
+                  border: Border.all(color: OnboardingColors.borderSubtle),
+                  borderRadius: BorderRadius.circular(OnboardingRadii.badge),
+                ),
+                child: Text(
+                  'Baaki',
+                  style: OnboardingTypography.inter(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: OnboardingColors.ink500,
+                  ),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
+  }
+
+  Widget _indicator() {
+    switch (state) {
+      case _StepState.done:
+        return Container(
+          decoration: const BoxDecoration(
+            color: OnboardingColors.successBg,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.check_rounded,
+            size: 16,
+            color: OnboardingColors.successGreen,
+            semanticLabel: 'Ho gaya',
+          ),
+        );
+      case _StepState.live:
+        return const Padding(
+          padding: EdgeInsets.all(3),
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: OnboardingColors.shiftBlue,
+          ),
+        );
+      case _StepState.pending:
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: OnboardingColors.borderDefault,
+              width: 1.5,
+            ),
+          ),
+        );
+    }
   }
 }

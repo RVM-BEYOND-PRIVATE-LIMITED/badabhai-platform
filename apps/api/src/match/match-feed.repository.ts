@@ -14,6 +14,14 @@ export interface MatchFeedRow {
   publishedAt: Date | null;
   roleTitle: string;
   city: string | null;
+  // Worker-visible card content (#1561, migration 0116). All nullable — a posting created
+  // before the migration simply has none, and the service passes the absence through.
+  area: string | null;
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
+  description: string | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
   payMin: number | null;
   payMax: number | null;
   shift: string | null;
@@ -120,6 +128,12 @@ export class MatchFeedRepository {
       published_at: Date | null;
       role_title: string;
       city: string | null;
+      area: string | null;
+      min_experience_years: number | null;
+      max_experience_years: number | null;
+      description: string | null;
+      benefits: string[] | null;
+      requirements: string[] | null;
       pay_min: number | null;
       pay_max: number | null;
       shift: string | null;
@@ -133,6 +147,12 @@ export class MatchFeedRepository {
              jp.published_at                              AS published_at,
              jp.role_title                                AS role_title,
              jp.city                                      AS city,
+             jp.area                                      AS area,
+             jp.min_experience_years                     AS min_experience_years,
+             jp.max_experience_years                     AS max_experience_years,
+             jp.description                               AS description,
+             jp.benefits                                  AS benefits,
+             jp.requirements                              AS requirements,
              jp.pay_min                                   AS pay_min,
              jp.pay_max                                   AS pay_max,
              jp.shift                                     AS shift,
@@ -172,6 +192,12 @@ export class MatchFeedRepository {
       published_at: Date | string | null;
       role_title: string;
       city: string | null;
+      area: string | null;
+      min_experience_years: number | null;
+      max_experience_years: number | null;
+      description: string | null;
+      benefits: string[] | null;
+      requirements: string[] | null;
       pay_min: number | null;
       pay_max: number | null;
       shift: string | null;
@@ -187,6 +213,12 @@ export class MatchFeedRepository {
       publishedAt: r.published_at === null ? null : new Date(r.published_at),
       roleTitle: r.role_title,
       city: r.city,
+      area: r.area,
+      minExperienceYears: r.min_experience_years,
+      maxExperienceYears: r.max_experience_years,
+      description: r.description,
+      benefits: r.benefits,
+      requirements: r.requirements,
       payMin: r.pay_min,
       payMax: r.pay_max,
       shift: r.shift,

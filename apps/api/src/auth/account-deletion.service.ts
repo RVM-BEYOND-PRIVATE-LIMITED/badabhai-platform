@@ -2,7 +2,11 @@ import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/commo
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import { WORKER_FEEDBACK_ATTACHMENT_PREFIX } from "@badabhai/types";
+import {
+  WORKER_FEEDBACK_ATTACHMENT_PREFIX,
+  WORKER_PORTFOLIO_PREFIX,
+  WORKER_RESUME_UPLOAD_PREFIX,
+} from "@badabhai/types";
 import { conversationWorkerPrefix, uuidSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -436,6 +440,83 @@ export class AccountDeletionService {
       // "We looked and found nothing" and "we never looked" are different claims, and only the
       // first is evidence a DSAR request was honoured — the voice leg's own note.
       audit.skipped("feedback_attachment_prefix", feedbackAttachmentPrefix);
+    }
+
+    // 2d-ter. Erase the PORTFOLIO media (ADR-0042 D9 / Layer A (e), migration 0113, #1548). A
+    // work sample is a photo or a short video of the worker's own work — routinely their face,
+    // their shop floor, a customer's premises — so the media is personal data, and the cascade
+    // that erases `worker_portfolio` rows does NOT touch object storage.
+    //
+    // A PREFIX SWEEP, LOAD-BEARING FOR THE SAME REASON THE FEEDBACK LEG IS. The register step has
+    // no per-object confirm, so a media object uploaded to a minted slot whose row was never saved
+    // — or was refused by the ownership check — is referenced by no row at all. Only the prefix
+    // knows about it, which is why the mint scopes the key by worker
+    // (`portfolio/{workerId}/{uuid}.{ext}`) rather than using a flat namespace.
+    //
+    // Gated on the bucket like the photo and feedback legs (WIRED-BUT-DORMANT while unset — and
+    // while unset the mint 503s, so nothing can have been uploaded to orphan). The prefix is built
+    // from the shared constant the mint and the ownership check use: a drifted copy here would
+    // sweep nothing and report a successful erasure, which is the one failure mode a DSAR record
+    // must never have. Arming `WORKER_PORTFOLIO_BUCKET` arms this leg in the same act — that
+    // pairing is the contract the env templates and the bucket runbook state.
+    const portfolioPrefix = `${WORKER_PORTFOLIO_PREFIX}/${workerId}/`;
+    if (this.config.WORKER_PORTFOLIO_BUCKET) {
+      try {
+        const portfolioDeleted = await this.storage.deleteByPrefix(
+          portfolioPrefix,
+          this.config.WORKER_PORTFOLIO_BUCKET,
+        );
+        audit.swept("portfolio_prefix", portfolioPrefix, 1, portfolioDeleted);
+      } catch (err) {
+        audit.failed("portfolio_prefix", portfolioPrefix, 1);
+        this.logger.warn(
+          `account deletion portfolio-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    } else {
+      // "We looked and found nothing" and "we never looked" are different claims, and only the
+      // first is evidence a DSAR request was honoured — the voice leg's own note.
+      audit.skipped("portfolio_prefix", portfolioPrefix);
+    }
+
+    // 2d-bis. ADR-0041 — the résumé the worker UPLOADED.
+    //
+    // THIS LEG CARRIES MORE WEIGHT THAN THE THREE ABOVE IT, and the reason is a ruling rather
+    // than a shape. Ruling D6 retains these objects PERMANENTLY: there is no expiry sweep, no
+    // post-parse delete, and no retention job anywhere that will ever touch them. So this prefix
+    // sweep is not one erasure path among several — it is the ONLY one this bucket has, for the
+    // densest personal document on the platform (name, address, email, every employer, past
+    // salaries, sometimes a PAN).
+    //
+    // That is also why the prefix is built from the shared constant rather than a literal. A
+    // drifted copy here would not degrade DSAR coverage, it would END it: `deleteByPrefix`
+    // matches nothing, returns 0, and `audit.swept` records a successful erasure of zero
+    // objects. Silent, and in the one direction nobody investigates.
+    //
+    // Gated on the bucket like every leg above (WIRED-BUT-DORMANT while unset — and while unset
+    // the mint AND the confirm both 503, so nothing can have been uploaded to orphan).
+    const resumeUploadPrefix = `${WORKER_RESUME_UPLOAD_PREFIX}/${workerId}/`;
+    if (this.config.RESUME_UPLOADS_BUCKET) {
+      try {
+        const resumesDeleted = await this.storage.deleteByPrefix(
+          resumeUploadPrefix,
+          this.config.RESUME_UPLOADS_BUCKET,
+        );
+        audit.swept("resume_upload_prefix", resumeUploadPrefix, 1, resumesDeleted);
+      } catch (err) {
+        audit.failed("resume_upload_prefix", resumeUploadPrefix, 1);
+        this.logger.warn(
+          `account deletion résumé-upload-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    } else {
+      // "We looked and found nothing" and "we never looked" are different claims, and only the
+      // first is evidence a DSAR request was honoured.
+      audit.skipped("resume_upload_prefix", resumeUploadPrefix);
     }
 
     const conversationPrefix = conversationWorkerPrefix(workerId);

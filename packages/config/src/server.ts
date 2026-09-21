@@ -77,6 +77,24 @@ export const serverEnvSchema = z.object({
 
   // Core datastores
   DATABASE_URL: z.string().url().default("postgresql://badabhai:badabhai@localhost:5432/badabhai"),
+  // postgres.js pool size. Was hardcoded to 10 in `createDbClient`, which is not a safe
+  // constant when the target is a SHARED Supabase pooler: session mode caps TOTAL clients
+  // (15 on the current plan) across every process pointed at it — every developer's API, and
+  // the deployed services. One API instance claiming 10 is two-thirds of that budget.
+  //
+  // The failure this fixes is NOT "slow": postgres.js opens a new connection when its pool has
+  // none free, and a refusal there REJECTS THE QUERY rather than waiting for one of its own
+  // idle connections. So a write fails outright while the process holds perfectly usable idle
+  // connections. Transactional writes are hit first and hardest, because `sql.begin` must hold
+  // a connection for the whole transaction — which is why admin invite (create + event in one
+  // transaction, required for atomicity) broke while single-statement reads kept working.
+  //
+  // Keep it at or below your fair share of the pooler's limit. Deliberately NOT defaulted
+  // here: the sane value differs by environment (production owns its database and wants the
+  // full pool; a developer shares one pooler with the whole team and wants a small slice), and
+  // a single default cannot be right for both. {@link resolveDbPoolMax} applies that rule, so
+  // an unset value is a supported state rather than something every developer must configure.
+  DB_POOL_MAX: z.coerce.number().int().positive().max(100).optional(),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
 
   // Supabase (backend only). `optionalSecret`, NOT a bare `.optional()` — see its definition:
@@ -113,6 +131,15 @@ export const serverEnvSchema = z.object({
   // dormant. The photo is for the worker's OWN app + OWN resume PDF only — it must
   // NEVER reach the payer surface, the disclosure PDF, events, ai_jobs, or logs.
   WORKER_PHOTOS_BUCKET: z.string().default(""),
+  /**
+   * Layer A (e) — private Storage bucket for the worker's PORTFOLIO media (photos/videos).
+   *
+   * SAME DORMANCY CONTRACT as the photos bucket above: empty means the feature is dark and the
+   * mint route answers 503. Same Storage Mode A (service-role, backend-only) and the same
+   * server-chosen opaque key shape: `portfolio/{workerId}/{uuid}.{ext}`, never client-supplied.
+   * External LINKS need no bucket at all — they are stored as URLs on `worker_portfolio`.
+   */
+  WORKER_PORTFOLIO_BUCKET: z.string().default(""),
   // #1191 — private Storage bucket for the images a worker attaches to a FEEDBACK
   // submission. Same Storage Mode A (service-role, backend-only) and the same
   // server-chosen opaque key shape as the photos bucket above:
@@ -131,6 +158,31 @@ export const serverEnvSchema = z.object({
   // screen are different sensitivity classes and get different retention and different
   // mime allowlists; sharing one bucket would fuse those two decisions forever.
   WORKER_FEEDBACK_ATTACHMENTS_BUCKET: z.string().default(""),
+  // ADR-0041 (RI-1) — private Storage bucket for a résumé a worker UPLOADS. Storage Mode A,
+  // backend-only, server-chosen opaque key `resume-uploads/{workerId}/{uuid}.{pdf|docx|jpg|png}`.
+  //
+  // A DIFFERENT BUCKET FROM EVERY OTHER ONE, and deliberately so. This is the densest single
+  // artefact of personal data a worker owns — name, address, email, employers, past salaries,
+  // sometimes a PAN or Aadhaar — and under ruling D6 it is retained PERMANENTLY. Its mime
+  // allowlist (pdf/docx/jpeg/png) and its size cap are therefore its own decisions, and sharing
+  // a bucket with photos or feedback would fuse three different retention postures forever.
+  //
+  // EMPTY DEFAULT IS THE FEATURE'S OFF SWITCH, not a placeholder: while unset, the mint, the
+  // confirm and the parse enqueue all 503 (dormancy covers every door — the #1245 lesson, where
+  // only the mint checked the bucket and rows could still be registered for audio that had
+  // nowhere to live). Setting it arms the account-deletion prefix sweep in the same act, so
+  // there is no window where résumés exist and erasure is dormant.
+  //
+  // NOT the résumés BadaBhai generates — those live in `RESUMES_BUCKET` and are outbound. This
+  // one is inbound and is never rendered, never served to a payer, and never printed on a sheet.
+  RESUME_UPLOADS_BUCKET: z.string().default(""),
+  // ADR-0041 (RI-1) — hard ceiling on an uploaded résumé, checked against Storage object-info at
+  // confirm (the signed URL cannot constrain what the client actually PUTs). 10 MiB: a text-layer
+  // PDF is tens of KB, but D3 accepts a PHOTO of a printed sheet, and a modern phone camera JPEG
+  // is routinely 4-8 MB. Sized for that, not for the PDF. The bucket carries its own
+  // `file_size_limit` as the outer wall; this is the inner one, and both are needed — the bucket
+  // stops the bytes arriving, this stops a row being registered for an object that slipped past.
+  RESUME_UPLOAD_MAX_BYTES: positiveIntFromString(10 * 1024 * 1024),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,
@@ -162,6 +214,21 @@ export const serverEnvSchema = z.object({
   // quickly matters most: a fabrication is discovered at the machine trial, and it is the
   // employer who stops trusting BadaBhai, not the worker.
   WORK_HISTORY_POLISH_ENABLED: booleanFromString,
+  // RI-AUTOFILL (owner override B, 2026-09-20, of ruling D2) — writing the model's
+  // option mapping as the worker's form answers after his identity "haan".
+  //
+  // THIS IS THE KILL SWITCH ON A D2 OVERRIDE, not a feature toggle. D2 says a
+  // suggestion becomes an answer only when the worker confirms it per fact; B lets
+  // the one identity "haan" confirm a whole mapping at once. OFF returns the
+  // pipeline to the rule: matches stage as today, the Haan hands over to the form,
+  // and every answer on it is the worker's own tap.
+  //
+  // DEFAULT OFF, and it is a SECOND lock rather than the only one. The far side is
+  // already fail-closed — `resume_option_map` goes real only when AI_REAL_CALL_TASKS
+  // names it — so turning this on without arming that task applies nothing. Two locks
+  // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
+  // records an employer will read: stopping quickly matters most here.
+  RESUME_AUTOFILL_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a
@@ -418,7 +485,9 @@ export const serverEnvSchema = z.object({
   // NEVER enters events/ai_jobs/audit_logs/logs (§2). Dev default keeps local boot/tests
   // working; production MUST override PIN_PEPPER (assertAuthConfig fails closed otherwise).
   PIN_PEPPER: z.string().min(16).default(DEV_PIN_PEPPER),
-  // PIN shape: exactly N digits (4 by default). A weak-PIN denylist is enforced in code.
+  // PIN shape: exactly N digits (4 by default), and since #1462 that is the WHOLE policy —
+  // the weak-PIN denylist was removed on the owner ruling that a worker picks his own PIN
+  // (`1234`/`1111`/`0000` all accepted). There is deliberately no knob for it here.
   PIN_LENGTH: z.coerce.number().int().min(4).max(8).default(4),
   // Server-side throttle (durable in worker_credentials — survives a Redis flush): after
   // PIN_MAX_ATTEMPTS consecutive wrong PINs the account is locked for an EXPONENTIAL backoff
@@ -1060,6 +1129,28 @@ export const serverEnvSchema = z.object({
   // Reaching it rejects further invites (409) until a seat frees up. Config-driven, tunable
   // without a migration.
   MEMBER_INVITE_MAX_PER_ORG: z.coerce.number().int().positive().default(25),
+
+  // ADMIN invites — the accept-link onboarding for a new admin (ADR-0025 OQ-2 finally wired).
+  // The invite flow has ALWAYS created a `pending` admin row; until now nothing could turn it
+  // into an `active` one, so an invited admin could never authenticate. These three knobs
+  // carry the accept link that closes that gap.
+  //
+  // Base URL of the admin-web accept page (e.g. https://admin.badabhai.in/invite/accept). The
+  // single-use RAW token is appended as `?token=…`. Deliberately NOT defaulted to a localhost
+  // URL: a wrong base silently mints links that point at the wrong origin, and the invite
+  // response echoes the link to the inviting super_admin anyway, so an unset base degrades to
+  // a clearly-fake `mock://` link rather than a plausible-but-broken one.
+  ADMIN_INVITE_ACCEPT_URL: z.string().url().optional(),
+  // How long an accept link stays valid. Shorter than the payer org-invite TTL on purpose:
+  // this link grants ADMIN access, so a forgotten invite sitting in a mailbox is a standing
+  // privilege-escalation surface. Re-inviting the same address refreshes the token.
+  ADMIN_INVITE_TTL_HOURS: z.coerce.number().int().positive().default(48),
+  // Master gate for REAL delivery of the admin invite email, mirroring MEMBER_INVITES_ENABLE_REAL
+  // and defaulting FALSE. With it off the MOCK mailer logs an email-hash prefix and sends
+  // nothing — but the accept flow is still fully live, because the invite response returns the
+  // link to the inviting super_admin to share out-of-band. booleanFromString so a falsey
+  // string stays OFF (fail-safe to mock).
+  ADMIN_INVITES_ENABLE_REAL: booleanFromString,
 
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
@@ -1759,6 +1850,58 @@ export function realMemberInvitesBlockedReason(config: ServerConfig): string | n
 
 export function areRealMemberInvitesEnabled(config: ServerConfig): boolean {
   return realMemberInvitesBlockedReason(config) === null;
+}
+
+/** Pool size for a developer machine — a slice of a shared pooler, not the whole budget. */
+export const DEV_DB_POOL_MAX = 3;
+/** Pool size where the process owns its database connections. */
+export const PROD_DB_POOL_MAX = 10;
+
+/**
+ * The postgres.js pool size to use: an explicit DB_POOL_MAX when set, else a default chosen by
+ * environment.
+ *
+ * WHY THIS IS NOT ONE CONSTANT. Production owns its database and wants a full pool. A developer
+ * points at the SHARED Supabase pooler, whose session-mode cap (15 on the current plan) is
+ * global across every process aimed at it — every teammate's API plus the deployed services. A
+ * single dev API claiming 10 takes two-thirds of that budget, and the rest of the team then
+ * cannot open a connection at all.
+ *
+ * The failure mode this prevents is a hard error, not slowness: postgres.js opens a new
+ * connection when its pool has none free, and a refusal there REJECTS THE QUERY instead of
+ * waiting on one of its own idle connections. Holding a pool bigger than the slots actually
+ * available therefore converts a busy pooler into failed writes. Transactional writes break
+ * first, because `sql.begin` holds a connection for the whole transaction.
+ */
+export function resolveDbPoolMax(config: ServerConfig): number {
+  if (config.DB_POOL_MAX !== undefined) return config.DB_POOL_MAX;
+  return config.NODE_ENV === "production" ? PROD_DB_POOL_MAX : DEV_DB_POOL_MAX;
+}
+
+/**
+ * Guard for the "real admin invite email" path — the direct analogue of
+ * {@link realMemberInvitesBlockedReason}, and blocked for the same three reasons: the master
+ * gate is off, the shared email provider is not configured, or there is no accept URL to put
+ * in the link.
+ *
+ * Returning the REASON rather than a boolean is what makes a mock-mode surprise diagnosable:
+ * "ADMIN_INVITES_ENABLE_REAL is false" and "EMAIL provider is not configured" are different
+ * operator problems that a bare `false` would flatten into one mystery.
+ *
+ * Unlike the payer member-invite gate, a blocked reason here is NOT an onboarding outage: the
+ * invite response returns the accept link to the inviting super_admin, so admins can still be
+ * onboarded by sharing it out-of-band. This gate decides only whether an email is ALSO sent.
+ */
+export function realAdminInvitesBlockedReason(config: ServerConfig): string | null {
+  if (!config.ADMIN_INVITES_ENABLE_REAL) return "ADMIN_INVITES_ENABLE_REAL is false";
+  const emailBlocked = emailProviderBlockedReason(config);
+  if (emailBlocked) return emailBlocked;
+  if (!config.ADMIN_INVITE_ACCEPT_URL) return "ADMIN_INVITE_ACCEPT_URL is not set";
+  return null;
+}
+
+export function areRealAdminInvitesEnabled(config: ServerConfig): boolean {
+  return realAdminInvitesBlockedReason(config) === null;
 }
 
 /**

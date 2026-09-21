@@ -81,8 +81,12 @@ const SHEET_LABELS: readonly string[] = [
   "Willing to relocate",
   "Education",
   "Certificates",
+  "Training",
   "Languages spoken",
   "Documents ready",
+  // Layer A (f)/(i) — the declared secondary occupations row. The VALUES are taxonomy display
+  // labels (closed vocabulary from @badabhai/taxonomy), the label is this fixed English string.
+  "Also works as",
   "Duration not stated",
   // §6.2's TENURE STATUS, emitted by `tenurePhrase` when the role's own fresher rung was tapped.
   // A CLOSED-VOCABULARY LABEL, which is §8's first permitted source — not a figure and not a
@@ -93,6 +97,12 @@ const SHEET_LABELS: readonly string[] = [
   // reviewed dictionary a fabrication the first time one was added. The vocabulary should not
   // omit a word the renderer can emit.
   "Fresher",
+  // NO TENURE BANDS HERE, AND THAT ABSENCE IS THE RULING. A revision of 2026-09-09 briefly
+  // printed the tier gate's rungs as bands ("1–3 yrs", "7+ yrs") and listed them in this
+  // vocabulary; the owner ruled the same day that experience is not a range taken from any
+  // question — it is the sum of the work history — so the renderer emits no such string and this
+  // gate must not license one. If a band ever appears in a printed atom again, the fabrication
+  // gate going red is the correct outcome, not a missing dictionary entry.
   "Present",
 ];
 
@@ -159,6 +169,18 @@ function printedStrings(shape: (typeof SHEET_SHAPES)[number], audience: "worker"
   };
   push(input.headlineLine);
   push(input.subheadLine);
+  // LAYER A (h) — the generic headline and summary slots. They print on the classic layouts
+  // rather than on bb_trade, but they are composed from the same confirmed values as the verdict
+  // line and they are exactly the kind of composition this gate exists to hold to §8: every atom
+  // is a stated label, a licensed figure or a worker-stated city.
+  push(input.profileHeadline);
+  push(input.summary);
+  // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08). SCANNED AS CONTENT, unlike the name
+  // and the phone below: those are single caller-supplied values printed verbatim, while this is
+  // COMPOSED — two columns joined with a separator — and anything composed is exactly what this
+  // gate exists to hold to §8. `atomsOf` splits on ", ", so each half must independently resolve
+  // to something the worker stated.
+  push(input.locationLine);
   push(input.capSectionTitle);
   for (const r of [
     ...(input.capChipRows ?? []),
@@ -227,6 +249,10 @@ function workerSupplied(shape: (typeof SHEET_SHAPES)[number]): string[] {
       out.push(e.role_label, e.duration_text, e.work_done);
     }
   }
+  // The worker's own registration answer — `workers.current_city` / `current_state`, typed on the
+  // onboarding screen beside his name. A value the worker stated, which is §8's second permitted
+  // source; the renderer only joins the two halves.
+  out.push(shape.tradeSheet?.currentCity ?? undefined, shape.tradeSheet?.currentState ?? undefined);
   for (const e of shape.tradeSheet?.employments ?? []) {
     out.push(e.employer, e.employerCity ?? undefined, e.employerState ?? undefined);
     for (const r of e.roles) {
@@ -265,7 +291,15 @@ function sourced(atom: string, supplied: readonly string[]): boolean {
   if (COMPOSED_PHRASES.some((p) => p.re.test(atom))) return true;
   if (CHROME_TEXT.some((re) => re.test(atom))) return true;
   // ONE-DIRECTIONAL: `said.includes(atom)`, never the reverse. See the header note.
-  return supplied.some((said) => said.includes(atom));
+  //
+  // CASE-INSENSITIVE SINCE THE 2026-09-08 CASING RULING, and that is a widening of exactly one
+  // dimension. An employer name and a place are now printed as proper nouns — `sandhar
+  // technologies` renders as `Sandhar Technologies` — which is the pipeline RESHAPING the
+  // worker's words, the thing this fixture's own header says it may do. It is not a widening of
+  // the containment: an atom must still be a substring of something this worker actually
+  // supplied, so "Highly skilled" is refused exactly as before, in any casing.
+  const lower = atom.toLowerCase();
+  return supplied.some((said) => said.toLowerCase().includes(lower));
 }
 
 describe("§8 — every printed string has one of exactly three sources", () => {

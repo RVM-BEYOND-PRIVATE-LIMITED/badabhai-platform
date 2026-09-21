@@ -265,6 +265,18 @@ services:
       # is the employer who stops trusting BadaBhai, not the worker.
       WORK_HISTORY_POLISH_ENABLED: ${WORK_HISTORY_POLISH_ENABLED:-false}
 
+      # ---- RI-AUTOFILL (owner override B, 2026-09-20, of ruling D2) — THE KILL SWITCH.
+      #
+      # WHAT IT GOVERNS is the write half of the résumé-to-form autofill: with it on, the
+      # identity "haan" applies the staged option mapping as the worker's form answers
+      # (source 'resume', migration 0119). OFF returns the pipeline to D2: matches stage,
+      # the Haan hands over to the form, and every answer on it is the worker's own tap.
+      #
+      # THE SECOND LOCK IS `AI_REAL_CALL_TASKS` on the ai-service below, which must also
+      # name `resume_option_map`. Either one off means nothing is applied. `:-false` (not
+      # `:-`) because this bool rejects "" and the service would not boot.
+      RESUME_AUTOFILL_ENABLED: ${RESUME_AUTOFILL_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as
@@ -343,6 +355,42 @@ services:
       # anything — the same reason every other cap in this file is passed through.
       FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: ${FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR:-}
       FEEDBACK_ATTACHMENT_MAX_BYTES: ${FEEDBACK_ATTACHMENT_MAX_BYTES:-}
+      # ---- ADR-0042 D9 / LAYER A (e) PORTFOLIO MEDIA: PASS-THROUGH, NEVER REQUIRED — the same
+      # shape as the photos block (`:-` keeps the required-secret set unchanged; unset expands to
+      # empty and compose still starts clean), for the same reason it exists at all: compose
+      # forwards only the names a service's `environment:` block lists, so an operator's
+      # `export WORKER_PORTFOLIO_BUCKET=...` on the box is invisible to this container without
+      # the line below. That is the WORKER_PHOTOS_BUCKET (#794) / CHAT_LLM_INTERVIEW_ENABLED
+      # (#798) failure class, and the reason the line lands with the feature.
+      #
+      # EMPTY = DORMANT IS THE SHIPPED CONTRACT. While unset, the mint route 503s fail-closed and
+      # only the `link` portfolio kind works; nothing can be uploaded, so nothing can be orphaned.
+      # Arming needs TWO things: the private `worker-portfolio` bucket with its own
+      # `file_size_limit` (25 MiB) and `allowed_mime_types` mirroring the service's closed
+      # content-type map (infra/supabase/storage-buckets.sql), and — still missing — the
+      # account-deletion prefix sweep for `portfolio/{workerId}/`. Do not arm until that leg
+      # ships (step 0 of the portfolio runbook in infra/supabase/storage-buckets.md).
+      #
+      # api-only: portfolio media never crosses the AI boundary and never reaches a payer surface.
+      WORKER_PORTFOLIO_BUCKET: ${WORKER_PORTFOLIO_BUCKET:-}
+      # ADR-0041 (RI-1) — private bucket for a résumé a worker UPLOADS. `:-` NOT `:?`, like
+      # every other bucket here: a `${VAR:?}` in ANY service breaks `config` and `pull` for
+      # EVERY other service in the file, which nearly bricked a live deploy once already.
+      #
+      # EMPTY IS THE SAFE STATE AND IS THE DEFAULT. Empty means the mint, the confirm and the
+      # parse enqueue all 503, so the whole feature is inert and no worker can reach it.
+      # Setting it arms the upload path AND the account-deletion prefix sweep in one act —
+      # there is deliberately no ordering in which résumés can exist while erasure is dormant.
+      #
+      # NO LONGER api-only: the ai-service block declares the same name (RI-3, together with
+      # the `resume_uploads_bucket` pydantic field, which is the pairing that matters — a
+      # compose var with no field behind it, or a field with no var, is exactly how
+      # VOICE_NOTES_BUCKET went split-brain between the two services). RI-1 predicted this
+      # would land in RI-2; RI-2 shipped no config at all, so it landed one phase later.
+      RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
+      # Safe schema default (10 MiB); passed through to be TUNABLE from the box, not to arm
+      # anything. Sized for a phone photo of a printed sheet, not for a text-layer PDF.
+      RESUME_UPLOAD_MAX_BYTES: ${RESUME_UPLOAD_MAX_BYTES:-}
 
       # ---- BL-22: 12 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
       #
@@ -698,6 +746,57 @@ services:
       VOICE_NOTES_BUCKET: ${VOICE_NOTES_BUCKET:-}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+
+      # ---- ADR-0041 RESUME IMPORT. The other half of the api declaration above, landing
+      # in the same change for the reason the V8 note gives: this service fetches and
+      # extracts the uploaded document itself, so the résumé's text never passes through
+      # the api at all — and that only works if both sides agree which bucket it is in.
+      #
+      RESUME_UPLOADS_BUCKET: ${RESUME_UPLOADS_BUCKET:-}
+
+      # ---- ADR-0041 D5: THE RAW-TEXT RÉSUMÉ SWITCH — DECLARED, DEFAULT OFF (amended 2026-09-15).
+      #
+      # D5 permits the unmasked document to reach the model. Until 2026-09-15 this name was
+      # deliberately ABSENT from this file, and that absence did not mean "off until a person
+      # arms it" — it meant UNARMABLE: compose forwards only the names a service declares and
+      # no service here has `env_file:`, so a value on the box reached no container at all.
+      # The owner ruled (2026-09-15) to make it reachable, default off, and to arm it himself
+      # after a security check.
+      #
+      # ARMED ONLY FROM THE BOX'S `.env`, AND ONLY BY RE-RUNNING THE DEPLOY JOB. Compose
+      # interpolates this line from the box's `.env` because ci.yml does NOT bridge the name —
+      # measured on the production box 2026-09-11 with RESUME_UPLOADS_BUCKET, which has the same
+      # shape: set only in the box `.env`, deploy job re-run, `printenv` inside the container
+      # printed the box value. NEVER a manual `docker compose up` on the box to apply it: on
+      # 2026-09-11 exactly that bypassed the CI secret bridge, baked a wrong REDIS_URL from the
+      # box `.env` into the api container, and took production login down.
+      #
+      # NEVER ADD IT TO ci.yml's `env:`/`envs:` BRIDGE. The shell environment beats the box
+      # `.env` in compose interpolation, so a bridge would be a SECOND arming path that overrides
+      # the owner's box value — and an unset GitHub secret exports as "", which `:-` turns back
+      # into false, silently UN-arming a box the owner armed, behind a green deploy.
+      #
+      # `:-false`, NEVER `:-` AND NEVER BARE. pydantic REJECTS "" for this bool (measured), so an
+      # empty substitution would stop the ai-service booting; `:-` substitutes on unset AND empty.
+      #
+      # IT IS AN ai-service SETTING AND NOTHING ELSE — apps/api never reads it, so it is not
+      # declared on the api service. `app/config.py` is the whole story.
+      #
+      # A COMMIT CAN NEVER ARM IT. `test_the_flag_is_armed_in_no_committed_file`
+      # (apps/ai-service/tests/test_resume_parse.py) permits EXACTLY this one line, on this
+      # service, in this file: a truthy default, a literal, a bare or empty substitution, a copy
+      # on another service or in another compose file, an env file, or any mention in
+      # .github/ turns the suite RED. The scan is CASE-INSENSITIVE (security review,
+      # 2026-09-16) — `resume_parse_raw_text_enabled` arms the identical pydantic-settings
+      # field as the SCREAMING_CASE name above, so a lowercase or MixedCase second line here
+      # is a hit too, not a silent second arming path. The api-side compose guard
+      # (`real-call-posture-compose.guard.test.ts`) pins the same line and separately rejects
+      # any case-variant spelling of the key. ci.yml's `ai-service` path filter includes
+      # `docker-compose*.yml`, so a compose-only PR runs this scan, not just a PR that also
+      # touches apps/ai-service. Both scans still only read text files matching a known
+      # config-file shape (`_is_config_file` / this repo's tracked source) — they cannot see
+      # box-side state, and that boundary is unchanged from before this note.
+      RESUME_PARSE_RAW_TEXT_ENABLED: ${RESUME_PARSE_RAW_TEXT_ENABLED:-false}
 
       # ---- V8 SARVAM. The key is the arming credential and is empty until the owner sets it;
       # the per-task allowlist below still gates it (`tts_synthesis` / `stt_transcription` are

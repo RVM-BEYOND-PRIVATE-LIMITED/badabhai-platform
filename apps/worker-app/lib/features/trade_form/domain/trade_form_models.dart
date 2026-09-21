@@ -57,6 +57,76 @@ class TradeFormSavedAnswer extends Equatable {
       <Object?>[status, optionKeys, text, number, boolValue];
 }
 
+/// What the worker's UPLOADED RÉSUMÉ said about one question (#1499, ADR-0041
+/// RI-4, `GET /profiling/form` → `screens[].suggestion`).
+///
+/// ── IT IS NOT AN ANSWER, AND IT IS SHAPED SO IT CANNOT BE MISTAKEN FOR ONE ──
+///
+/// [TradeFormSavedAnswer] carries a [TradeFormAnswerStatus]; this deliberately
+/// does not, because a suggestion HAS no status — nobody has said anything yet.
+/// The server's DTO makes the same omission for the same reason, and the whole
+/// of ruling D2 turns on it. Never construct a [TradeFormSavedAnswer] from one
+/// of these.
+///
+/// ── RULING D2, WHICH IS THE ONLY RULE THAT MATTERS HERE ─────────────────────
+///
+/// FACTS RENDER PREFILLED. CAPABILITY CHIPS RENDER HIGHLIGHTED BUT UNTICKED.
+///
+/// A name, a duration, a project description read off a résumé can be dropped
+/// into a field: it is a transcription, and a wrong one is visibly wrong and
+/// easily corrected. An option key cannot, because "a pre-ticked chip puts a
+/// capability on a man's profile that he never claimed" — and he will submit
+/// the screen without reading it, because it looks done. So [optionKeys] and
+/// [boolValue] are POINTERS for the renderer, never selections. See
+/// `TradeFormQuestionBody`, which is where the distinction is enforced.
+///
+/// ── A QUESTION MAY CARRY BOTH THIS AND AN ANSWER ────────────────────────────
+///
+/// Ruling D7: the stored answer always wins, and both are shown. Nothing here
+/// overwrites anything; the suggestion simply sits beside the answer.
+class TradeFormSuggestion extends Equatable {
+  const TradeFormSuggestion({
+    required this.confidence,
+    this.optionKeys = const <String>[],
+    this.text,
+    this.number,
+    this.boolValue,
+  });
+
+  /// Option keys the résumé pointed at. HIGHLIGHTED, NEVER TICKED.
+  final List<String> optionKeys;
+
+  /// A fact read off the document — safe to prefill.
+  final String? text;
+
+  /// A fact read off the document — safe to prefill.
+  final double? number;
+
+  /// HIGHLIGHTED, NEVER TICKED: a yes/no on this form is a capability claim
+  /// ("kya aap drawing padh sakte hain"), not a transcribed fact.
+  final bool? boolValue;
+
+  /// The model's own number, carried through unaltered — never a floor and
+  /// never a filter. The server does not threshold it and neither does this
+  /// client: a low-confidence suggestion is still worth showing a worker, who
+  /// is the one qualified to say whether it is right. Held for observability
+  /// rather than for display; a percentage on screen would invite a worker to
+  /// argue with a number instead of answering a question.
+  final double confidence;
+
+  /// True when there is a FACT to prefill. Chip/boolean pointers deliberately
+  /// do not count — see ruling D2 in the class doc.
+  bool get hasPrefillableFact =>
+      (text != null && text!.trim().isNotEmpty) || number != null;
+
+  bool get isEmpty =>
+      optionKeys.isEmpty && text == null && number == null && boolValue == null;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[optionKeys, text, number, boolValue, confidence];
+}
+
 /// One entry of `sections[].screens[]`, in the SERVER'S ORDER — the client
 /// walks this list verbatim and never re-sorts it (the order is the résumé's
 /// own field order, read off the shipped trade map).
@@ -71,6 +141,7 @@ class TradeFormQuestionStep extends TradeFormStep {
     required this.question,
     required this.searchable,
     this.answer,
+    this.suggestion,
   });
 
   final VoiceQuestion question;
@@ -85,10 +156,23 @@ class TradeFormQuestionStep extends TradeFormStep {
   /// been answered.
   final TradeFormSavedAnswer? answer;
 
+  /// What an uploaded résumé said about this question (#1499), or null — which
+  /// is what every question carries until a résumé has actually been parsed,
+  /// and therefore what every question carries on every box today.
+  ///
+  /// ADDITIVE: a build that ignores this renders exactly the form it rendered
+  /// before, which is the property that let the server land the field first.
+  final TradeFormSuggestion? suggestion;
+
   bool get isAnswered => answer != null;
 
+  /// True when the résumé has something to offer on this question AND it is
+  /// worth rendering. An empty suggestion object is treated as none at all.
+  bool get hasSuggestion => suggestion != null && !suggestion!.isEmpty;
+
   @override
-  List<Object?> get props => <Object?>[question, searchable, answer];
+  List<Object?> get props =>
+      <Object?>[question, searchable, answer, suggestion];
 }
 
 /// `type: "preferences"` — a MARKER naming where the closed-set preferences
@@ -157,10 +241,23 @@ class TradeForm extends Equatable {
     required this.packId,
     required this.packVersion,
     required this.sections,
+    this.sessionId,
   });
 
   final String kind;
   final String packId;
+
+  /// The profiling session this form belongs to (`session_id`, #1472).
+  ///
+  /// SERVED BECAUSE THE MIC NEEDS IT: `POST /voice/upload` files a clip under a
+  /// session, and a spoken work description has to land in the one this form is
+  /// part of. NEVER cached and NEVER a chat session id — the form is resumable
+  /// across a cold start, so a stale id files the clip under the wrong
+  /// conversation. It is re-read from every schema response.
+  ///
+  /// Null on an older server that does not send it; the caller treats that as
+  /// "no mic", exactly like a 503.
+  final String? sessionId;
 
   /// Pinned so a client never replays an answer written against a different
   /// pack version — carried for parity with the wire contract even though
@@ -174,7 +271,8 @@ class TradeForm extends Equatable {
       .whereType<TradeFormQuestionStep>();
 
   @override
-  List<Object?> get props => <Object?>[kind, packId, packVersion, sections];
+  List<Object?> get props =>
+      <Object?>[kind, packId, packVersion, sections, sessionId];
 }
 
 /// One answer submitted via `POST /profiling/form/answer` — a discriminated
@@ -282,6 +380,13 @@ class TradeFormAnswerResult extends Equatable {
 /// `kTradeFormMaxCertificates`/`kTradeFormMaxEducations`.
 const int kTradeFormMaxPreferredCities = 5;
 
+/// Server cap (`languages`'s `.max(6)` in `worker-preferences.dto.ts`) —
+/// an editorial limit on how many print on the sheet, not the dictionary's
+/// size (16). A plain client-side bound so a seventh tick can never become
+/// a 400 on the LAST internal page (`terms`), same convention as
+/// [kTradeFormMaxPreferredCities].
+const int kTradeFormMaxLanguages = 6;
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 ///
 /// Deliberately carries NO education/credential fields any more — this
@@ -302,6 +407,7 @@ class TradeFormPreferences extends Equatable {
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
     this.salaryExpectedMax,
+    this.touched = const <String>{},
   });
 
   final Set<String> languages;
@@ -312,6 +418,14 @@ class TradeFormPreferences extends Equatable {
   final bool willingToRelocate;
   final bool accommodationNeeded;
   final int? salaryExpectedMax;
+
+  /// Wire keys of the list and yes/no fields the worker CHANGED, set by
+  /// [copyWith] (every page edit goes through it). [toJson] sends those fields
+  /// only when touched — the same idea as [TradeFormQualifications]'s touched
+  /// flags. A fresh cubit opens this page BLANK (the endpoint has no read), so
+  /// sending an untouched `[]` or `false` would erase what the worker saved
+  /// earlier; the server leaves an absent key alone.
+  final Set<String> touched;
 
   TradeFormPreferences copyWith({
     Set<String>? languages,
@@ -334,19 +448,32 @@ class TradeFormPreferences extends Equatable {
       salaryExpectedMax: salaryExpectedMax == _sentinel
           ? this.salaryExpectedMax
           : salaryExpectedMax as int?,
+      touched: <String>{
+        ...touched,
+        if (languages != null) _kPrefLanguagesKey,
+        if (documentsReady != null) _kPrefDocumentsKey,
+        if (preferredCities != null) _kPrefCitiesKey,
+        if (willingToRelocate != null) _kPrefRelocateKey,
+        if (accommodationNeeded != null) _kPrefAccommodationKey,
+      },
     );
   }
 
-  /// Wire body for `PUT /workers/me/work-preferences` — lists always present
-  /// (`[]` = "none of these"); scalars only when chosen (absent = leave the
-  /// stored value alone).
+  /// Wire body for `PUT /workers/me/work-preferences` — a list or yes/no key
+  /// only when [touched] (`[]` then means "none of these"; absent = leave the
+  /// stored value alone); scalars only when chosen (absent = leave the stored
+  /// value alone). An untouched page therefore sends `{}`, which writes nothing.
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> body = <String, dynamic>{
-      'languages': languages.toList(),
-      'documents_ready': documentsReady.toList(),
-      'preferred_cities': preferredCities,
-      'willing_to_relocate': willingToRelocate,
-      'accommodation_needed': accommodationNeeded,
+      if (touched.contains(_kPrefLanguagesKey))
+        _kPrefLanguagesKey: languages.toList(),
+      if (touched.contains(_kPrefDocumentsKey))
+        _kPrefDocumentsKey: documentsReady.toList(),
+      if (touched.contains(_kPrefCitiesKey)) _kPrefCitiesKey: preferredCities,
+      if (touched.contains(_kPrefRelocateKey))
+        _kPrefRelocateKey: willingToRelocate,
+      if (touched.contains(_kPrefAccommodationKey))
+        _kPrefAccommodationKey: accommodationNeeded,
     };
     if (jobType != null) body['job_type'] = jobType;
     if (shift != null) body['shift'] = shift;
@@ -366,8 +493,17 @@ class TradeFormPreferences extends Equatable {
         willingToRelocate,
         accommodationNeeded,
         salaryExpectedMax,
+        touched,
       ];
 }
+
+// `PUT /workers/me/work-preferences` wire keys for the fields
+// [TradeFormPreferences.touched] tracks.
+const String _kPrefLanguagesKey = 'languages';
+const String _kPrefDocumentsKey = 'documents_ready';
+const String _kPrefCitiesKey = 'preferred_cities';
+const String _kPrefRelocateKey = 'willing_to_relocate';
+const String _kPrefAccommodationKey = 'accommodation_needed';
 
 /// One row of work history for the `employment` marker screen.
 ///
@@ -382,6 +518,8 @@ class TradeFormEmploymentEntry extends Equatable {
     this.startYm,
     this.endYm,
     this.workDone,
+    this.workDoneVoiceNoteId,
+    this.stillWorking = true,
   });
 
   final String employerName;
@@ -394,7 +532,25 @@ class TradeFormEmploymentEntry extends Equatable {
 
   /// "YYYY-MM" or null. Null = CURRENT (still working here) — never "missing".
   final String? endYm;
+
+  /// Whether the worker has told us this is his CURRENT job (the "Abhi yahin
+  /// kaam kar rahe hain" switch). [endYm] null ALONE cannot express this: the
+  /// switch starts ON for a fresh card, and a worker who turns it OFF without
+  /// picking an end date must be blocked rather than saved as "still working"
+  /// (the résumé would otherwise print "Present" for a job he left). Defaults
+  /// TRUE so a loaded entry with no end reads as current, never as missing.
+  final bool stillWorking;
+
   final String? workDone;
+
+  /// The clip [workDone] was SPOKEN into, when the worker used the mic (#1472).
+  ///
+  /// PROVENANCE ONLY — the text in [workDone] is still the answer of record and
+  /// still what prints on the résumé; the transcript is a draft the worker
+  /// edits. The server REFUSES an id without text
+  /// (`work_done_voice_note_id requires work_done`), so clearing the
+  /// description must clear this too — see [toJson].
+  final String? workDoneVoiceNoteId;
 
   bool get isComplete =>
       employerName.trim().isNotEmpty && roleLabel.trim().isNotEmpty;
@@ -416,6 +572,8 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? startYm = _sentinel,
     Object? endYm = _sentinel,
     Object? workDone = _sentinel,
+    Object? workDoneVoiceNoteId = _sentinel,
+    bool? stillWorking,
   }) {
     return TradeFormEmploymentEntry(
       employerName: employerName ?? this.employerName,
@@ -429,6 +587,10 @@ class TradeFormEmploymentEntry extends Equatable {
       startYm: startYm == _sentinel ? this.startYm : startYm as String?,
       endYm: endYm == _sentinel ? this.endYm : endYm as String?,
       workDone: workDone == _sentinel ? this.workDone : workDone as String?,
+      workDoneVoiceNoteId: workDoneVoiceNoteId == _sentinel
+          ? this.workDoneVoiceNoteId
+          : workDoneVoiceNoteId as String?,
+      stillWorking: stillWorking ?? this.stillWorking,
     );
   }
 
@@ -445,6 +607,7 @@ class TradeFormEmploymentEntry extends Equatable {
       return (t == null || t.isEmpty) ? null : t;
     }
 
+    final String? work = trimOrNull(workDone);
     return <String, dynamic>{
       'employer_name': titleCaseName(employerName.trim()),
       'employer_city': trimOrNull(employerCity),
@@ -452,7 +615,14 @@ class TradeFormEmploymentEntry extends Equatable {
       'start_ym': startYm,
       'end_ym': endYm,
       'role_label': titleCaseName(roleLabel.trim()),
-      'work_done': trimOrNull(workDone),
+      'work_done': work,
+      // GATED ON THE TEXT, deliberately (#1472). The server refuses an id with
+      // no description — "work_done_voice_note_id requires work_done" — and
+      // refuses the WHOLE submission, so a worker who records a clip and then
+      // clears the box would lose their entire work history to a 400. The clip
+      // is provenance for a description; with no description it is provenance
+      // for nothing, so it is dropped here rather than sent.
+      'work_done_voice_note_id': work == null ? null : workDoneVoiceNoteId,
     };
   }
 
@@ -464,7 +634,9 @@ class TradeFormEmploymentEntry extends Equatable {
         employerState,
         startYm,
         endYm,
+        stillWorking,
         workDone,
+        workDoneVoiceNoteId,
       ];
 }
 

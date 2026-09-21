@@ -25,6 +25,17 @@ import { STAGING_COMPOSE_PATH, environmentOfFile } from "../common/testing/compo
 /** Read by both services; a name here that is declared for only one of them is the bug. */
 const SHARED_STORAGE_VARS = [
   "VOICE_NOTES_BUCKET",
+  // ADR-0041 RI-3. The api mints the signed upload and sweeps the prefix on a DSAR; the
+  // ai-service fetches the object to extract and parse it. Same two-reader shape as
+  // VOICE_NOTES_BUCKET, so it belongs under the same rule — and it is listed here in the
+  // change that gave the ai-service its `resume_uploads_bucket` field, not later, because
+  // "later" is how the voice split-brain got in.
+  //
+  // NOT listed: RESUME_PARSE_RAW_TEXT_ENABLED. It is read by the ai-service alone, so it is
+  // declared on the ai-service ONLY (default off, owner ruling 2026-09-15) and a symmetry rule
+  // would be wrong for it. Its posture is pinned in real-call-posture-compose.guard.test.ts;
+  // ADR-0041 D5's raw-input switch is armed by a person on the box, never by a commit.
+  "RESUME_UPLOADS_BUCKET",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
 ] as const;

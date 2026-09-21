@@ -516,6 +516,27 @@ export interface ProfilingEnvelope {
    */
   readonly packId: string | null;
   readonly packVersion: number | null;
+  /**
+   * The universal pack SERVED this interview, stamped every turn — owner ruling 2026-09-18
+   * (Defect A, option a: envelope-stamped universal pointer).
+   *
+   * NOT A PIN, and deliberately beside `packId` rather than in it. `packId` is the
+   * occupation-pin slot: `persistPin` fires on its nullness, `resolvePacks` loads the pinned
+   * occupation pack off it, and stamping the universal id there would both suppress the
+   * occupation pin when one resolves later and send `resolvePacks` down the pinned-pack path
+   * for a pack that was never pinned. This pointer records what the tail served; the
+   * occupation slot keeps meaning "pinned with the occupation" exactly as before.
+   *
+   * FLOATS with the served version (re-stamped every turn from the freshly resolved
+   * universal pack) rather than freezing the first: the engine already re-resolves the
+   * universal pack per turn, so freezing here would record a version the later turns did
+   * not serve. The close-time durable pin (`finalizeInterview`, via the existing write-once
+   * `pinPack`) freezes the last-stamped value; a mid-interview pack publish is recorded, not
+   * hidden. `persistPin`, `viewSettled` and the no-guessing rule are untouched — they keep
+   * reading the occupation slot, which this never writes.
+   */
+  readonly universalPackId: string | null;
+  readonly universalPackVersion: number | null;
   /** Catalogue release retrieval ran against; pins alias resolution mid-flight. */
   readonly catalogVersion: string | null;
   readonly lastTurn: LastTurn | null;
@@ -632,6 +653,127 @@ export interface ProfilingEnvelope {
    * the rest of the profile. An interview reaches stage done without a form every day.
    */
   readonly formKind: TradeFormKind | null;
+
+  /**
+   * The trade-form OFFER (Task 1 recall path; owner ruling 2026-09-16) — `null` before it is
+   * considered, `pending` while the bubble is on screen, `settled` forever after.
+   *
+   * THREE STATES, NOT TWO, mirroring {@link resumeConfirm} and for the same reason:
+   * collapsing `settled` back to `null` would re-offer the form on the turn after a worker
+   * said "nahi" — the one response that plainly means stop. `kind` is stored rather than
+   * re-derived because an accept must honour the trade the OFFER was made for, not
+   * whatever the draft would route to a turn later.
+   */
+  readonly formOfferPrompt: FormOfferPromptState | null;
+
+  /**
+   * The résumé batch-confirm offer (ADR-0041 RI-5) — `null` before it is considered at all.
+   *
+   * THREE STATES, NOT TWO, and the third is why this is an object rather than a boolean.
+   * `null` means "not looked at yet"; `pending` means the bubble is on screen and the next
+   * inbound settles it; `settled` means it has been asked and answered and must NEVER be
+   * asked again. Collapsing `settled` back to `null` would re-offer the same facts on the
+   * turn after a worker said "nahi", which is the one response that plainly means stop.
+   *
+   * IT CARRIES AN ID, NOT THE FACTS. The suggestions live encrypted on `worker_resume_import`
+   * and are re-read when the offer is served or settled. Copying them here would put a
+   * worker's trade, city and salary into the transcript buffer in clear, for no gain — the
+   * row is one indexed read away and is the single source of truth either way.
+   */
+  readonly resumeConfirm: ResumeConfirmState | null;
+
+  /**
+   * The résumé IDENTITY offer (RI-identity, "is this you?") — `null` before it is
+   * considered at all.
+   *
+   * SAME THREE STATES AS `resumeConfirm`, FOR THE SAME REASON: `null` means "not looked
+   * at yet", `pending` means the bubble is on screen, `settled` means asked and answered
+   * and never again. A SEPARATE FIELD rather than a flag on the confirm, because the two
+   * turns settle different state (identity vs staged facts) and a tap replayed against
+   * the wrong turn must not confirm something it never offered.
+   *
+   * IT CARRIES AN ID, NOT THE LINE — same rule as `resumeConfirm`: the Hinglish lives
+   * staged on `worker_resume_import` and is re-read when served or settled, never copied
+   * into the buffer in clear.
+   */
+  readonly resumeIdentity: ResumeIdentityState | null;
+
+  /**
+   * The worker tapped "Kuch aur" on a disambiguation offer and is being asked to type their trade
+   * in their own words (#1506). The next answer-bearing message is resolved ONCE and never
+   * re-offered as chips.
+   *
+   * ITS OWN FIELD RATHER THAN A RESERVED `servedQuestionKey`, for the reason `llmGateOpen` gives:
+   * every capture branch reads that key as "the pack question on screen", and a synthetic key
+   * would file the worker's trade against a question no pack owns. While this is true the capture
+   * step ignores `servedQuestionKey` altogether, so a stale key from the turn before the offer
+   * cannot swallow the answer either.
+   */
+  readonly identifyTypeRequested: boolean;
+
+  /**
+   * CONSECUTIVE turns, under a disambiguation offer or the type-your-trade prompt, that stated no
+   * trade — silence, ".", "pata nahi", a hardship line, "kyun?" (#1506 HIGH-1).
+   *
+   * ITS OWN COUNTER, NOT A REUSE OF `hardshipTurns`/`silentTurns`/`clarifyCount`, because none of
+   * those three survive to the point `identify` runs: `ProfilingOrchestrator.decide` resets all
+   * three unconditionally, on every turn that reaches the answer-recording section, before
+   * `identify.identify()` is ever called. Under an offer that reset fires on EVERY turn — the
+   * per-class re-serve guards above it all key off `reservableItem`, which is null whenever
+   * `identify` owns the message — so those three counters are always zero by the time `identify`
+   * would need them and cannot bound a repeated non-answer there.
+   *
+   * ABUSIVE TURNS DO NOT USE THIS COUNTER. `abusiveTurns` already bounds them (`MAX_ABUSIVE_TURNS`
+   * in `next-question.ts`) before `identify` is ever reached — the orchestrator's own abusive-turn
+   * branch returns early for every turn below that cap, so `identify` sees the "abusive" class at
+   * all only once the interview is already at the cap. Counting it here too would let a worker who
+   * alternates abuse and silence spend two budgets instead of one to outlast this bound.
+   *
+   * RESET the moment the offer or prompt is settled — by a tap, the escape, a resolved answer, a
+   * fresh offer replacing it, or the count itself reaching {@link MAX_IDENTIFY_STALLED_TURNS} and
+   * giving up — never carried into a different episode.
+   */
+  readonly identifyStalledTurns: number;
+
+  /**
+   * Answer-map keys settled WITHOUT the worker being asked, in THIS interview — city-seed
+   * (#1504 item 5) and, by construction, anything built the same way later.
+   *
+   * WHY THIS EXISTS AT ALL. `toPackAnswerRows` skips every key in this set (F1): a seeded value
+   * has no transcript span and no worker turn behind it, so writing a `worker_pack_answer` row
+   * for it would claim the worker was asked and answered — which is untrue and would poison the
+   * parse gate's provenance check (gate 2) the same way a fabricated citation would.
+   * `countAnswerStatuses`, `slugFieldIds`'s caller (`answered_topics`) and the admin-journey
+   * completion rule all subtract this set for the same reason: `profile.interview_completed`'s
+   * `answered_count` means "settled BY this interview session", not "settled including what
+   * `/name` already gave us" — a distinction the plan's acceptance criteria depend on.
+   *
+   * WRITTEN ONCE, AT SEED TIME, AND REMOVED ONLY BY `correctAnswer`. There is no mid-chat
+   * mechanism that drops a key from this set — an earlier draft of the design proposed one and
+   * the review that caught it found the code path it would have needed
+   * (`mayCommit`'s `correcting` escape firing inside `fillCrossQuestion`) does not exist:
+   * `fillCrossQuestion` skips an already-settled key before any correction check runs. See
+   * `worker-record-seed.ts`'s docblock for the accepted limitation this leaves.
+   */
+  readonly prefilledKeys: readonly string[];
+}
+
+/** See {@link ProfilingEnvelope.resumeConfirm}. */
+export interface ResumeConfirmState {
+  readonly importId: string;
+  readonly state: "pending" | "settled";
+}
+
+/** See {@link ProfilingEnvelope.resumeIdentity}. */
+export interface ResumeIdentityState {
+  readonly importId: string;
+  readonly state: "pending" | "settled";
+}
+
+/** See {@link ProfilingEnvelope.formOfferPrompt}. */
+export interface FormOfferPromptState {
+  readonly kind: TradeFormKind;
+  readonly state: "pending" | "settled";
 }
 
 /**
@@ -711,6 +853,8 @@ export const PROFILING_ENVELOPE_KEYS = {
   identifyAttempts: true,
   packId: true,
   packVersion: true,
+  universalPackId: true,
+  universalPackVersion: true,
   catalogVersion: true,
   lastTurn: true,
   turnLatency: true,
@@ -724,6 +868,12 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmGateOpen: true,
   llmGateAsked: true,
   formKind: true,
+  formOfferPrompt: true,
+  resumeConfirm: true,
+  resumeIdentity: true,
+  identifyTypeRequested: true,
+  identifyStalledTurns: true,
+  prefilledKeys: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -745,6 +895,8 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     identifyAttempts: 0,
     packId: null,
     packVersion: null,
+    universalPackId: null,
+    universalPackVersion: null,
     catalogVersion: null,
     lastTurn: null,
     turnLatency: emptyTurnLatency(),
@@ -761,6 +913,12 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmGateOpen: false,
     llmGateAsked: false,
     formKind: null,
+    formOfferPrompt: null,
+    resumeConfirm: null,
+    resumeIdentity: null,
+    identifyTypeRequested: false,
+    identifyStalledTurns: 0,
+    prefilledKeys: [],
   };
 }
 
@@ -828,6 +986,57 @@ function narrowOffer(value: unknown): OfferedChip[] {
     });
   }
   return chips;
+}
+
+/**
+ * The résumé confirm offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, not toward silence. A value this cannot read — written by a build
+ * that shaped it differently, or truncated — narrows to `null`, which means "not considered
+ * yet" and costs at most one extra offer. Narrowing it to `settled` instead would silently
+ * withhold a turn the worker was entitled to, and nothing anywhere would say so.
+ */
+function narrowResumeConfirm(value: unknown): ResumeConfirmState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.importId !== "string" || v.importId.length === 0) return null;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  return { importId: v.importId, state: v.state };
+}
+
+/**
+ * The résumé identity offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, same posture as `narrowResumeConfirm`: an unreadable value
+ * narrows to `null` = "not considered yet", costing at most one extra "is this you?"
+ * bubble. Narrowing it to `settled` would silently withhold a turn the worker was
+ * entitled to.
+ */
+function narrowResumeIdentity(value: unknown): ResumeIdentityState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.importId !== "string" || v.importId.length === 0) return null;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  return { importId: v.importId, state: v.state };
+}
+
+/**
+ * The trade-form offer, or `null`.
+ *
+ * FAILS TOWARD OFFERING, the same posture `narrowResumeConfirm` documents: a value this
+ * cannot read narrows to `null` = "not considered yet", which costs at most one extra
+ * offer. Narrowing it to `settled` would silently withhold the offer a worker was
+ * entitled to and nothing anywhere would say so. The KIND must be a declared trade form —
+ * an unreadable kind would let an accept complete a handover to a form that does not
+ * exist.
+ */
+function narrowFormOfferPrompt(value: unknown): FormOfferPromptState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  const kind = TRADE_FORM_KINDS.find((candidate) => candidate === v.kind);
+  if (kind === undefined) return null;
+  return { kind, state: v.state };
 }
 
 function narrowLastTurn(value: unknown): LastTurn | null {
@@ -980,6 +1189,18 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
       typeof v.packVersion === "number" && Number.isInteger(v.packVersion) && v.packVersion > 0
         ? v.packVersion
         : null,
+    // ABSENT READS AS null — the state of every envelope in flight across the deploy that
+    // adds these fields, and the state of every envelope whose interview never served a
+    // universal question. Null reads as "no universal pointer stamped", which is true of all
+    // of them; the next turn stamps it. Same narrowing as the occupation slot above, because
+    // it feeds the same durable pin (a malformed pointer must not become a pack pin).
+    universalPackId: typeof v.universalPackId === "string" ? v.universalPackId : null,
+    universalPackVersion:
+      typeof v.universalPackVersion === "number" &&
+      Number.isInteger(v.universalPackVersion) &&
+      v.universalPackVersion > 0
+        ? v.universalPackVersion
+        : null,
     catalogVersion: typeof v.catalogVersion === "string" ? v.catalogVersion : null,
     lastTurn: narrowLastTurn(v.lastTurn),
     turnLatency: narrowTurnLatency(v.turnLatency),
@@ -1017,7 +1238,44 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // engine they started on. Trusting the stored string instead would let a stale value from
     // a retired form route a live worker into a surface that no longer exists.
     formKind: TRADE_FORM_KINDS.find((candidate) => candidate === v.formKind) ?? null,
+    // ABSENT READS AS null — "never offered" — which is right for every envelope in flight
+    // across the deploy that adds this field: the offer is considered once on their next
+    // turn, exactly as for a fresh interview. An unreadable value also reads as null rather
+    // than as `settled` — withholding an offer a worker was entitled to is the worse failure
+    // (same posture as `resumeConfirm` directly below).
+    formOfferPrompt: narrowFormOfferPrompt(v.formOfferPrompt),
+    // ABSENT READS AS null — "never considered" — which is right for every envelope in flight
+    // across the deploy that adds this field. Those interviews get the offer considered once on
+    // their next turn, which is the same thing a fresh interview gets. An unreadable value also
+    // reads as null rather than as `settled`: the failure that costs a worker an offer he never
+    // saw is worse than the one that offers it once more than intended.
+    resumeConfirm: narrowResumeConfirm(v.resumeConfirm),
+    // ABSENT READS AS null — "never considered" — same deploy-safety as `resumeConfirm`
+    // directly above: in-flight interviews get the identity offer considered once on their
+    // next turn, exactly as a fresh interview does.
+    resumeIdentity: narrowResumeIdentity(v.resumeIdentity),
+    // FALSE ON ANYTHING BUT A LITERAL `true`, absent included — the state of every envelope in
+    // flight across the deploy that adds this field, none of which ever asked a worker to type
+    // their trade. The other default would read the worker's next sentence as a trade answer to a
+    // prompt that was never on screen, and spend an identify attempt on it.
+    identifyTypeRequested: v.identifyTypeRequested === true,
+    // CLAMPED AT ZERO, like every other counter here: a negative would buy extra re-serves before
+    // {@link MAX_IDENTIFY_STALLED_TURNS} closes the offer, and a v2 envelope written before this
+    // field existed has none, which zero already means.
+    identifyStalledTurns: nonNegativeInt(v.identifyStalledTurns),
+    // ABSENT READS AS `[]` — the state of every envelope in flight across the deploy that adds
+    // this field, none of which seeded anything. A missing or malformed entry is dropped rather
+    // than the whole array discarded, matching `narrowAskCounts`'s per-entry tolerance: one
+    // drifted key should cost that key's "skip the ask" behaviour, not the worker's whole
+    // interview state.
+    prefilledKeys: narrowPrefilledKeys(v.prefilledKeys),
   };
+}
+
+/** A stored `prefilledKeys` array, filtered to strings — see {@link ProfilingEnvelope.prefilledKeys}. */
+function narrowPrefilledKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
 }
 
 const LLM_STAGES: readonly LlmInterviewStage[] = ["domain", "role", "skills", "experience", "done"];
@@ -1128,6 +1386,59 @@ export function answersOf(envelope: ProfilingEnvelope): AnswerMap {
 /** Write a keyed answer map back, in the contract's stable array order. */
 export function withAnswers(envelope: ProfilingEnvelope, answers: AnswerMap): ProfilingEnvelope {
   return { ...envelope, answerMap: toAnswerArray(answers) };
+}
+
+/**
+ * Stamp the served universal pack onto the envelope (owner ruling 2026-09-18, Defect A
+ * option a). Called at every envelope-writing turn site with the freshly resolved
+ * universal pack; the occupation-pin slot (`packId`/`packVersion`) is never touched here,
+ * so `persistPin` still fires exactly when an occupation resolves and `resolvePacks` keeps
+ * loading the pinned occupation pack off the slot it has always read.
+ *
+ * IDEMPOTENT across re-serves of the same version (same values rewritten) and
+ * version-floating across a mid-interview pack publish (latest served wins — the record
+ * follows what the worker actually saw). A null pack leaves the envelope identical.
+ */
+export function stampUniversalPointer(
+  envelope: ProfilingEnvelope,
+  universal: { readonly pack_id: string; readonly version: number } | null | undefined,
+): ProfilingEnvelope {
+  if (!universal) return envelope;
+  if (
+    envelope.universalPackId === universal.pack_id &&
+    envelope.universalPackVersion === universal.version
+  ) {
+    return envelope;
+  }
+  return {
+    ...envelope,
+    universalPackId: universal.pack_id,
+    universalPackVersion: universal.version,
+  };
+}
+
+/**
+ * The pack pointer the answer rows (and the close-time durable pin) attribute to: the
+ * occupation pin when one exists, else the stamped universal pointer, else null.
+ *
+ * ORDER IS THE WHOLE RULE. A pinned occupation outranks the tail that ran after it —
+ * the pin names the pack whose questions carry the trade-specific answers — and a
+ * universal-only interview attributes to the pack that actually served it rather than to
+ * nothing. Null (neither) preserves today's "no rows without attribution" exactly.
+ */
+export function resolvePackPointer(
+  envelope: Pick<
+    ProfilingEnvelope,
+    "packId" | "packVersion" | "universalPackId" | "universalPackVersion"
+  >,
+): { packId: string; packVersion: number } | null {
+  if (envelope.packId !== null && envelope.packVersion !== null) {
+    return { packId: envelope.packId, packVersion: envelope.packVersion };
+  }
+  if (envelope.universalPackId !== null && envelope.universalPackVersion !== null) {
+    return { packId: envelope.universalPackId, packVersion: envelope.universalPackVersion };
+  }
+  return null;
 }
 
 /**

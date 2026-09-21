@@ -37,9 +37,14 @@ import { isQuestionEligible, type EvaluationContext } from "./predicate";
  * we cannot read. So a question is asked at most this many times — and the bound holds even if
  * detection is TOTALLY BLIND, which the test suite locks with a stubbed detector.
  *
- * A pack item may lower this per question via `max_asks`; it may never raise it above the ceiling.
+ * RAISED 2 → 4 (owner policy 2026-09-18, "budget is NOT a constraint; app feel is paramount").
+ * The old ceiling of 2 made every misunderstood question a one-shot: one re-phrase, then the
+ * engine moved on and the field was lost. Four asks = the question, a clarify, a re-phrase, and
+ * one last recovery — the "misunderstood questions get clarified and re-asked" rule, with the
+ * runaway guard still present for a truly blind detector. A pack item may lower this per question
+ * via `max_asks`; it may never raise it above the ceiling.
  */
-export const MAX_ASKS_PER_QUESTION = 2;
+export const MAX_ASKS_PER_QUESTION = 4;
 
 /**
  * Final backstop, counted in ENGINE ASKS — deliberately NOT in turns, because a clarify advances
@@ -47,47 +52,48 @@ export const MAX_ASKS_PER_QUESTION = 2;
  * silently delete questions from the TAIL of the interview. Engine asks only ever grow where a
  * question is actually served, so the budget is clarify-immune by construction.
  *
- * Sized with real headroom over the worst-case blind run, and the test suite pins that arithmetic
- * against the constant rather than restating the number — so the zero-margin coupling cannot
- * silently reappear when a pack grows.
+ * RAISED 28 → 48 (owner policy 2026-09-18). THIS REVERSES THE HEADROOM-0 POSTURE ON PURPOSE.
+ * Under the old ruling this number sat at the corpus's exact worst case (28) and the guard test
+ * held the headroom DOWN, because every additional ask was a drop-off opportunity on a
+ * mid-range Android between shifts. The owner has deprioritized frugality: rich, dense profiles
+ * are the goal, a misunderstood question is clarified rather than skipped, and the budget must
+ * never be the reason a field is silently cut. 48 covers, with double-digit headroom, the
+ * pre-expansion worst case (28, unchanged today) plus the Layer A elicitation expansion landing
+ * next (commute, travel, availability details, salary period, training, secondary occupations —
+ * estimated +8 served items and their mandated re-asks).
  *
- * RAISED 24 → 28 (R6 §5, owner ruling "cap lifted"), and the number is DERIVED rather than
- * round. `ask-budget.guard.test.ts` computes what the corpus needs — every question one worker
- * can be routed to, plus one retry per mandatory question — and that is **26** today:
- * `qp_cnc_turning`'s 15, `qp_universal@2`'s 8, and a re-ask each for `turning_experience`,
- * `primary_trade` and `current_city`. **The old cap of 24 could not serve that**, which is what
- * the R5 audit meant by "the margin is already spent by detection, not by pack size": a senior
- * turner needing one re-ask hit 24 exactly, and a second one silently deleted `shift_preference`
- * from the tail. The remaining 2 are reserved for the two Zone 5 credential asks proposed in
- * `docs/profiling/sample-parity-gap.md` and not yet applied.
- *
- * THE BINDING CONSTRAINT ON THIS NUMBER IS ABANDONMENT, NOT COST OR TOKENS. R5 priced a full
- * interview at ₹0.23 shipped and ₹1.99 worst-case against a ₹4 target, so spend does not decide
- * it. Every additional ask is a drop-off opportunity for a man answering in Hinglish on a
- * mid-range Android between shifts — which is why `chat.session_abandoned` now carries
- * `engine_asks`, and why the guard test also holds the headroom DOWN. The real ceiling is the
- * drop-off curve, and it is now measurable rather than arguable.
+ * THE BINDING CONSTRAINT AT THIS SIZE IS THE DERIVED {@link MAX_ENGINE_TURNS} BLIND-RUN BACKSTOP,
+ * not spend (R5 priced a full interview at ₹0.23 shipped / ₹1.99 worst case against ₹4) and not
+ * the abandon curve any more. The runaway guards below stay; infinity is still banned.
  */
-export const MAX_ENGINE_ASKS = 28;
+export const MAX_ENGINE_ASKS = 48;
 
 /**
  * Max CONSECUTIVE re-serves of one question after a worker asks back ("job milegi kya?"). The
  * question-back detector has false-positive classes, so an unbounded re-serve could loop; past
  * this the turn falls through to ordinary selection and the interview moves on.
+ *
+ * RAISED 2 → 3 (policy 2026-09-18): an unhurried interview answers a worker's second follow-up
+ * before moving on; the false-positive guard still fires on the third.
  */
-export const MAX_CONSECUTIVE_CLARIFIES = 2;
+export const MAX_CONSECUTIVE_CLARIFIES = 3;
 
 /**
  * Abusive turns before the interview closes. The message is still buffered — the audit stays
  * honest — but flagged so it never reaches the model.
+ *
+ * RAISED 3 → 5 (policy 2026-09-18): graceful de-escalation gets more room before the close-out;
+ * the close still happens, which is what keeps this a guard rather than a tolerance.
  */
-export const MAX_ABUSIVE_TURNS = 3;
+export const MAX_ABUSIVE_TURNS = 5;
 
 /**
  * Silent or one-character turns before the engine advances past the question on screen. Consumes
  * a TURN, not an ASK: a worker whose keyboard is failing has not refused to answer.
+ *
+ * RAISED 3 → 4 (policy 2026-09-18): a broken keyboard on the first three turns is not a refusal.
  */
-export const MAX_SILENT_TURNS = 3;
+export const MAX_SILENT_TURNS = 4;
 
 /**
  * Max CONSECUTIVE hardship acknowledgements before the interview moves on anyway.
@@ -97,8 +103,11 @@ export const MAX_SILENT_TURNS = 3;
  * counter, no phase. Left unbounded it is an interview that can never end, and the hardship
  * detector's patterns are the most permissive in the lexicon, so reaching this bound by accident
  * is realistic rather than theoretical.
+ *
+ * RAISED 2 → 3 (policy 2026-09-18): deflections get graceful handling, not an abrupt close-out;
+ * the third acknowledgement still hands the floor back to the interview.
  */
-export const MAX_CONSECUTIVE_HARDSHIP = 2;
+export const MAX_CONSECUTIVE_HARDSHIP = 3;
 
 /**
  * The final turn backstop, DERIVED rather than guessed.

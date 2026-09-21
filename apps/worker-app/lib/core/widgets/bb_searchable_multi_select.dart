@@ -51,6 +51,14 @@ class BbSelectOption {
 /// [selectedKeys]); this widget only ever clears the leftover search text,
 /// so a worker never lands on a fresh list still filtered by a query typed
 /// against the previous one.
+///
+/// **NO PRODUCTION CALLER TODAY.** The UI kit v3 redesign replaced its one
+/// consumer — the trade-form question screen — with that screen's own
+/// `_SearchableOptionList` + option cards, so this widget and its
+/// [suggestedKeys] are reached only from its own tests. It is kept because
+/// `trade_form_screen_test.dart` still documents the option-count threshold at
+/// which a searchable list is owed; deleting it is an owner's call, not a
+/// tidy-up.
 class BbSearchableMultiSelect extends StatefulWidget {
   const BbSearchableMultiSelect({
     super.key,
@@ -58,6 +66,7 @@ class BbSearchableMultiSelect extends StatefulWidget {
     required this.selectedKeys,
     required this.onChanged,
     this.resetKey,
+    this.suggestedKeys,
     this.searchLabel = 'Search karein',
     this.searchHint = 'Type karke dhoondein',
     this.emptyHint = 'Koi option nahi mila. Doosra shabd try karein.',
@@ -77,6 +86,14 @@ class BbSearchableMultiSelect extends StatefulWidget {
   /// Changing this clears the search query — pass something that identifies
   /// "this is a new list" (a question id, a form-step key, ...).
   final Object? resetKey;
+
+  /// #1499, ruling D2 — keys an uploaded résumé pointed at, rendered
+  /// HIGHLIGHTED BUT UNTICKED ([BbChip.suggested]) and NEVER folded into
+  /// [selectedKeys]. A hinted option is also never hidden by the search filter,
+  /// for the same reason a selected one is not: a hint the worker cannot find
+  /// is not a hint. DEFAULT NULL, and — since the kit redesign — null from
+  /// every caller: no production code feeds this any more (see the class doc).
+  final List<String>? suggestedKeys;
 
   /// Accessible name + placeholder for the search box.
   final String searchLabel;
@@ -129,8 +146,11 @@ class _BbSearchableMultiSelectState extends State<BbSearchableMultiSelect> {
   Widget build(BuildContext context) {
     final String q = _query.trim().toLowerCase();
     final Set<String> selected = widget.selectedKeys.toSet();
+    final Set<String> suggested =
+        widget.suggestedKeys?.toSet() ?? const <String>{};
     final List<BbSelectOption> visible = widget.options.where((option) {
       if (selected.contains(option.key)) return true; // never hide a pick
+      if (suggested.contains(option.key)) return true; // nor a résumé's hint
       if (q.isEmpty) return true;
       return option.label.toLowerCase().contains(q);
     }).toList();
@@ -163,6 +183,7 @@ class _BbSearchableMultiSelectState extends State<BbSearchableMultiSelect> {
                 BbChip(
                   label: option.label,
                   selected: selected.contains(option.key),
+                  suggested: suggested.contains(option.key),
                   onTap: () => _toggle(option.key),
                 ),
             ],

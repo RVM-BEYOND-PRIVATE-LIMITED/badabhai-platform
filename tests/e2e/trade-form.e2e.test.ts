@@ -1,0 +1,377 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  chatSessions,
+  createDbClient,
+  workerAttributes,
+  workerPackAnswers,
+  type DbClient,
+} from "@badabhai/db";
+import { eq } from "drizzle-orm";
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * THE TRADE FORM, END TO END — the coverage gap a live outage found.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * WHY THIS FILE EXISTS. On 2026-09-10 a worker on the CNC turner form got "Something went
+ * wrong. Please try again." on EVERY question. `apps/api/src/profiling/form/` had 149 passing
+ * tests at the time and not one of them executed a single line of SQL — every repository is
+ * `vi`-mocked — and there was no e2e suite touching `/profiling/form` at all. Fifteen e2e
+ * suites existed; the delivery mechanism for all 21 profiling roles had none.
+ *
+ * So the failure was invisible from both ends: green unit tests above it, and `/health`
+ * reporting `database: "up"` beneath it on a database that could not serve the write.
+ *
+ * ── WHAT THIS ASSERTS THAT A UNIT TEST CANNOT ────────────────────────────────────────
+ *
+ * The answer path crosses four boundaries a mock erases:
+ *   1. HTTP — the DTO, the Zod pipe, the guards, and the param decorators (`@Ctx()` is on the
+ *      POST and not on the GET, which is exactly the kind of asymmetry a mock hides).
+ *   2. Nest DI — the real graph, with the real providers wired.
+ *   3. Drizzle — the generated INSERT ... ON CONFLICT, including whether its conflict target
+ *      matches an index that actually exists.
+ *   4. Postgres — `wa_value_present_chk`, `wa_attribute_key_chk`, `wpa_answer_shape_chk`,
+ *      `wa_pack_pin_chk` and the two session FKs, none of which a fake repository enforces.
+ *
+ * ── THE TWO SHAPES, BECAUSE THEY TAKE DIFFERENT COLUMNS ──────────────────────────────
+ *
+ * A single-select stores its VALUE in `answer_text`; a multi-select stores values in
+ * `answer_option_keys`. They also project to different `value_kind`s — `text` versus
+ * `text_list` — which land in different columns under different halves of
+ * `wa_value_present_chk`. Testing one and not the other covers half the write path, and the
+ * production report named both.
+ *
+ * Opt-in, same lane as the rest of this suite:
+ *   1. docker compose up -d postgres redis
+ *   2. pnpm db:migrate && pnpm --filter @badabhai/db db:seed:packs --apply
+ *   3. TEST_LOGIN_ENABLED=true TEST_LOGIN_TOKEN=<32+ chars> pnpm --filter @badabhai/api start
+ *   4. RUN_E2E=1 TEST_LOGIN_TOKEN=<same> pnpm --filter @badabhai/e2e test
+ */
+
+const TEST_LOGIN_TOKEN = process.env.TEST_LOGIN_TOKEN ?? "";
+const RUN = process.env.RUN_E2E === "1" && TEST_LOGIN_TOKEN.length > 0;
+const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
+const DATABASE_URL =
+  process.env.E2E_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://badabhai:badabhai@localhost:5432/badabhai";
+
+/** The reserved synthetic block `AuthService.testLogin` will mint for: `+9100000#####`. */
+const PHONE = `+9100000${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+
+const PACK_ID = "qp_cnc_turning";
+
+/**
+ * The DPDP consent every profiling route is gated on (P0 auth+consent gate).
+ *
+ * A freshly minted worker has NOT consented, and `/profiling/form` answers
+ * `403 "worker has not accepted consent"` — which is the gate working, not a defect. Mirrors
+ * `phase1-onboarding.e2e.test.ts:75-76`; both must name the same version, because the gate
+ * compares against the CURRENT one and a stale constant here would 403 the whole suite.
+ */
+const CONSENT_VERSION = "2026-06-01";
+const PURPOSES = ["profiling", "resume_generation"] as const;
+
+interface Resp {
+  status: number;
+  body: any;
+}
+
+/**
+ * Call the API and RETURN the status rather than throwing on non-2xx.
+ *
+ * Deliberately unlike `phase1-onboarding`'s helper, which throws with the body. The defect this
+ * file exists for is a 5xx whose body the Flutter client could not surface, so the status and the
+ * body ARE the assertions — a helper that threw would turn "the server returned 500 saying X"
+ * into a stack trace pointing at the helper.
+ */
+interface FormQuestion {
+  question_key: string;
+  answer_type: string;
+  options: { option_key: string; label_text: string }[];
+}
+
+/**
+ * Every question in a served form, found by WALKING the response rather than pattern-matching it.
+ *
+ * The first version of this file scraped the JSON with regexes and one of them was silently
+ * unmatchable: it assumed `answer_type` followed `question_key` directly, when `prompt_text` and
+ * `why_text` sit between them (`FormQuestionSchema`). A regex that never matches makes a test
+ * skip rather than fail, which is the one failure mode a coverage test must not have.
+ *
+ * Walks blind to the section/screen nesting, so a layout change moves the questions without
+ * breaking the finder.
+ */
+function questionsIn(node: unknown, found: FormQuestion[] = []): FormQuestion[] {
+  if (Array.isArray(node)) {
+    for (const child of node) questionsIn(child, found);
+    return found;
+  }
+  if (node !== null && typeof node === "object") {
+    const o = node as Record<string, unknown>;
+    if (typeof o.question_key === "string" && Array.isArray(o.options)) {
+      found.push(o as unknown as FormQuestion);
+    }
+    for (const value of Object.values(o)) questionsIn(value, found);
+  }
+  return found;
+}
+
+async function call(
+  method: string,
+  path: string,
+  body?: unknown,
+  token?: string,
+  opts: { testLogin?: boolean } = {},
+): Promise<Resp> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  if (opts.testLogin) headers["x-test-login-token"] = TEST_LOGIN_TOKEN;
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: unknown = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+  }
+  return { status: res.status, body: parsed };
+}
+
+describe.skipIf(!RUN)("Trade form — chat handover to a saved answer", () => {
+  let client!: DbClient;
+  let workerId = "";
+  let token = "";
+
+  beforeAll(async () => {
+    client = createDbClient(DATABASE_URL);
+
+    const login = await call("POST", "/auth/test-login", { phone: PHONE }, undefined, {
+      testLogin: true,
+    });
+    expect(
+      login.status,
+      "POST /auth/test-login must be armed: TEST_LOGIN_ENABLED=true and a >=32-char " +
+        "TEST_LOGIN_TOKEN on BOTH the API process and this runner",
+    ).toBe(200);
+    workerId = login.body.worker_id as string;
+    token = login.body.access_token as string;
+
+    // CONSENT BEFORE ANYTHING ELSE. Every profiling route is behind the P0 auth+consent gate, and
+    // a minted worker has not consented — the first version of this file skipped it and got
+    // `403 "worker has not accepted consent"` on all five cases.
+    const consent = await call(
+      "POST",
+      "/consent/accept",
+      { consent_version: CONSENT_VERSION, purposes: PURPOSES },
+      token,
+    );
+    expect(consent.status, `POST /consent/accept -> ${JSON.stringify(consent.body)}`).toBe(201);
+
+    // THE HANDOVER, WRITTEN DIRECTLY. Driving the interview until the model names a CNC turner
+    // would make this suite depend on model output, which is exactly the coupling the rest of
+    // the e2e suite avoids. `contextFor` reads one thing — `conversation_state.form_kind` on the
+    // worker's latest session — so that is what is staged.
+    await client.db
+      .insert(chatSessions)
+      .values({
+        workerId,
+        conversationState: { form_kind: "cnc_turner" },
+        lastMessageAt: new Date(),
+      })
+      .returning({ id: chatSessions.id });
+  });
+
+  afterAll(async () => {
+    if (workerId) {
+      await client.db.delete(workerAttributes).where(eq(workerAttributes.workerId, workerId));
+      await client.db.delete(workerPackAnswers).where(eq(workerPackAnswers.workerId, workerId));
+      await client.db.delete(chatSessions).where(eq(chatSessions.workerId, workerId));
+    }
+    await client.sql.end({ timeout: 5 });
+  });
+
+  /**
+   * The read half. It works in production, and it is asserted here so that a failure in the
+   * write half below cannot be blamed on the handover or the pack being missing.
+   */
+  it("serves the form after a handover", async () => {
+    const res = await call("GET", "/profiling/form", undefined, token);
+    expect(res.status, `GET /profiling/form -> ${JSON.stringify(res.body)}`).toBe(200);
+    expect(res.body.kind).toBe("cnc_turner");
+    expect(res.body.pack_id).toBe(PACK_ID);
+    expect(Array.isArray(res.body.sections)).toBe(true);
+  });
+
+  it("SAVES A SINGLE-SELECT — value in answer_text, attribute value_kind 'text'", async () => {
+    const form = await call("GET", "/profiling/form", undefined, token);
+    // Taken from the SERVED pack, never a literal, so a pack revision moves this test with it
+    // instead of failing on a stale slug.
+    const single = questionsIn(form.body).find(
+      (q) => q.answer_type === "single_select" && q.options.length > 0,
+    );
+    expect(single, "the served pack must contain a single_select with options").toBeTruthy();
+    const questionKey = single!.question_key;
+    const optionKey = single!.options[0]!.option_key;
+
+    const res = await call(
+      "POST",
+      "/profiling/form/answer",
+      { question_key: questionKey, answer: { kind: "chips", option_keys: [optionKey] } },
+      token,
+    );
+
+    // THE ASSERTION THE OUTAGE NEEDED. A 500 here is the production defect; the body is printed
+    // so the failure names the cause rather than only the status.
+    expect(res.status, `POST /profiling/form/answer -> ${JSON.stringify(res.body)}`).toBe(200);
+    expect(res.body.status).toBe("answered");
+    expect(res.body.total).toBeGreaterThan(0);
+
+    // ...AND IT REACHED BOTH TABLES. A 200 with nothing written is the silent-truncation shape:
+    // the worker is told it saved and the sheet never mentions it.
+    const answers = await client.db
+      .select()
+      .from(workerPackAnswers)
+      .where(eq(workerPackAnswers.workerId, workerId));
+    const saved = answers.find((a) => a.questionKey === questionKey);
+    expect(saved, "no worker_pack_answer row was written").toBeTruthy();
+    expect(saved!.status).toBe("answered");
+    expect(saved!.source).toBe("form");
+    expect(saved!.packId).toBe(PACK_ID);
+
+    // EXACTLY ONE VALUE COLUMN, WHICHEVER IT IS — the contract `wpa_answer_shape_chk` enforces,
+    // rather than a guess at which one.
+    //
+    // THE FIRST VERSION ASSERTED `answerText` AND WAS WRONG, and the reason is worth keeping:
+    // the first single-select in this pack is the TIER GATE, whose options carry `value_number`
+    // (the #776 trap — a tier-gate option must set value_number and nothing else, or every
+    // `gte` in the pack evaluates false forever). So its answer lands in `answer_number`. Pinning
+    // a column here would make this test a statement about which question happens to come first.
+    const populated = [
+      saved!.answerText,
+      saved!.answerNumber,
+      saved!.answerBool,
+      saved!.answerOptionKeys,
+    ].filter((v) => v !== null && v !== undefined);
+    expect(populated.length, "an answered row must populate exactly one value column").toBe(1);
+    // ...but NOT the list column: that one belongs to multi-select, and storing a single-select
+    // there is the exact shape the form's own comment says it used to get wrong.
+    expect(saved!.answerOptionKeys).toBeNull();
+
+    const attrs = await client.db
+      .select()
+      .from(workerAttributes)
+      .where(eq(workerAttributes.workerId, workerId));
+    const attr = attrs.find((a) => a.attributeKey === questionKey);
+    expect(attr, "no worker_attributes row was written — the capability zone stays empty").toBeTruthy();
+    // `value_kind` NAMES the populated column and exactly one is populated — `wa_value_present_chk`
+    // in assertion form, so the row is self-consistent whichever type the question turned out to be.
+    const byKind: Record<string, unknown> = {
+      text: attr!.valueText,
+      number: attr!.valueNumber,
+      boolean: attr!.valueBool,
+      text_list: attr!.valueTextList,
+    };
+    expect(Object.keys(byKind)).toContain(attr!.valueKind);
+    expect(byKind[attr!.valueKind], `value_kind=${attr!.valueKind} but that column is empty`).not.toBeNull();
+    expect(attr!.valueKind).not.toBe("text_list");
+  });
+
+  it("SAVES A MULTI-SELECT — values in answer_option_keys, attribute value_kind 'text_list'", async () => {
+    const form = await call("GET", "/profiling/form", undefined, token);
+    // The first MULTI-select in the served pack. Its two option keys exercise the `text_list`
+    // half of `wa_value_present_chk`, which the single-select above cannot reach.
+    const multi = questionsIn(form.body).find(
+      (q) => q.answer_type === "multi_select" && q.options.length >= 2,
+    );
+    // ASSERTED, NOT SKIPPED. `qp_cnc_turning` has multi-selects, so their absence means the pack
+    // or the serving changed — and a test that quietly returns when its subject is missing is how
+    // half a write path goes uncovered while the suite stays green.
+    expect(multi, "the served pack must contain a multi_select with two options").toBeTruthy();
+    const questionKey = multi!.question_key;
+    const [first, second] = multi!.options;
+
+    const res = await call(
+      "POST",
+      "/profiling/form/answer",
+      {
+        question_key: questionKey,
+        answer: { kind: "chips", option_keys: [first!.option_key, second!.option_key] },
+      },
+      token,
+    );
+    expect(res.status, `POST /profiling/form/answer -> ${JSON.stringify(res.body)}`).toBe(200);
+
+    const attrs = await client.db
+      .select()
+      .from(workerAttributes)
+      .where(eq(workerAttributes.workerId, workerId));
+    const attr = attrs.find((a) => a.attributeKey === questionKey);
+    expect(attr, "no worker_attributes row for the multi-select").toBeTruthy();
+    expect(attr!.valueKind).toBe("text_list");
+    expect(Array.isArray(attr!.valueTextList)).toBe(true);
+    expect((attr!.valueTextList as string[]).length).toBe(2);
+  });
+
+  /**
+   * RE-ANSWERING IS A CORRECTION, NOT A SECOND ROW.
+   *
+   * Both writes are upserts, and their conflict targets are the thing a mock cannot check: if
+   * `ON CONFLICT` names columns with no matching unique index, Postgres raises 42P10 and every
+   * answer 500s — which is one of the shapes the outage could have taken.
+   */
+  it("re-answering the same question corrects the row instead of duplicating it", async () => {
+    const form = await call("GET", "/profiling/form", undefined, token);
+    const single = questionsIn(form.body).find(
+      (q) => q.answer_type === "single_select" && q.options.length > 0,
+    );
+    expect(single, "the served pack must contain a single_select with options").toBeTruthy();
+    const questionKey = single!.question_key;
+    const optionKey = single!.options[0]!.option_key;
+
+    for (let i = 0; i < 2; i++) {
+      const res = await call(
+        "POST",
+        "/profiling/form/answer",
+        { question_key: questionKey, answer: { kind: "chips", option_keys: [optionKey] } },
+        token,
+      );
+      expect(res.status, `re-answer ${i} -> ${JSON.stringify(res.body)}`).toBe(200);
+    }
+
+    const rows = (
+      await client.db
+        .select()
+        .from(workerPackAnswers)
+        .where(eq(workerPackAnswers.workerId, workerId))
+    ).filter((r) => r.questionKey === questionKey);
+    expect(rows.length, "a re-answer must correct the row, not add one").toBe(1);
+  });
+
+  /**
+   * A KEY THIS PACK DOES NOT DEFINE IS A 400 THAT SAYS SO.
+   *
+   * The client renders a 400's message verbatim and everything else as "Something went wrong",
+   * so this is the difference between a worker who can act and one who cannot. Asserted with the
+   * message non-empty, because a 400 with an empty body reaches the worker as the generic error.
+   */
+  it("rejects an unknown question_key with a NAMED 400", async () => {
+    const res = await call(
+      "POST",
+      "/profiling/form/answer",
+      { question_key: "not_a_real_question", answer: { kind: "chips", option_keys: ["x"] } },
+      token,
+    );
+    expect(res.status).toBe(400);
+    const message = JSON.stringify(res.body?.message ?? res.body ?? "");
+    expect(message.length, "a 400 with no message reaches the worker as a dead end").toBeGreaterThan(2);
+    expect(message).toContain("not_a_real_question");
+  });
+});

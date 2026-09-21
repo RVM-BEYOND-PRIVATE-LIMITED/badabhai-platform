@@ -279,6 +279,20 @@ describe("AI cost — what a finished profile costs", () => {
       "profiling_chat_turn",
       "profile_extraction",
       "profile_parse",
+      // ADR-0041 RI-3. On the SAME side of the ratio as the three above and the opposite side
+      // from `resume_generation`, despite the shared word: that one renders a sheet from a
+      // finished profile, this one reads an uploaded document to BUILD one. Counting it is
+      // what keeps the feature's own claim honest — "importing is cheaper than interviewing"
+      // is only measurable if the import's rupees are inside cost-per-profile.
+      "resume_parse",
+      // RI-summary's Hinglish line — same side as `resume_parse`. A second read of the same
+      // uploaded document to BUILD the profile. Same RI-7 argument: counted, or the comparison
+      // flatters itself with spend that was real and invisible.
+      "resume_profile_summary",
+      // RI-autofill's option mapping (owner override B) — same side again. A third read of
+      // the same document to FILL the profile's form answers; uncounted it flatters the
+      // same comparison with the same invisible spend.
+      "resume_option_map",
     ]);
     expect(asked.profilingTaskTypes).not.toContain("resume_generation");
     // …and the response says which set it used, so the split is auditable from the wire.
@@ -302,8 +316,16 @@ describe("AI cost — what a finished profile costs", () => {
      * about the response's shape changed.
      *
      * The bounds are pulled APART here so the assertion has something to be wrong about.
+     *
+     * DERIVED FROM NOW, NOT A CALENDAR DATE. A fixed `PROFILING_START` makes this a time bomb:
+     * the breach window is a rolling 30 days, so a constant dated 2026-08-18 stopped being
+     * ">60s away" from the window start on 2026-09-17 and the test went red because the calendar
+     * moved, not because the code did. Tying the fixture to the window keeps the claim — the
+     * count's bound is NOT the breach window's — true on every run date.
      */
-    const PROFILING_START = new Date("2026-08-18T12:00:00.000Z");
+    const breachWindowStart =
+      Date.now() - ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT * 24 * 60 * 60 * 1000;
+    const PROFILING_START = new Date(breachWindowStart + 5 * 24 * 60 * 60 * 1000);
     const asked = blankAsked();
     const out = await makeService({ profilingSince: PROFILING_START }, asked).summary(DTO);
 
@@ -314,8 +336,6 @@ describe("AI cost — what a finished profile costs", () => {
     expect(asked.profileCountSince).not.toEqual(out.ai_cost.accruing_since);
     // Nor the cap-breach window, which is a rolling `windowDays` back from NOW. Compared as a
     // distance rather than "is it old", so the assertion does not depend on when it is run.
-    const breachWindowStart =
-      Date.now() - ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT * 24 * 60 * 60 * 1000;
     expect(Math.abs(asked.profileCountSince!.getTime() - breachWindowStart)).toBeGreaterThan(
       60_000,
     );

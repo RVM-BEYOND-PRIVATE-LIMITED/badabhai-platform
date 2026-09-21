@@ -46,4 +46,17 @@ class LocationLookupFailure implements Exception {
 /// no server-side change.
 abstract interface class LocationLookup {
   Future<ResolvedLocation> resolveCurrent();
+
+  /// PASSIVE availability check: could [resolveCurrent] get a fix RIGHT NOW,
+  /// without showing the worker any system prompt?
+  ///
+  /// Exists for the mid-form recovery (#1462): a worker who declined the
+  /// permission and then turned it on from the notification shade or Settings
+  /// must be offered GPS again. Detecting that needs a question the OS can
+  /// answer silently — asking by calling [resolveCurrent] would re-prompt (or
+  /// spin up a fix) on every app resume, which is exactly what this avoids.
+  ///
+  /// Returns false rather than throwing: an unanswerable question is the same
+  /// as "no" for the caller, which simply leaves the manual fields alone.
+  Future<bool> isAvailable();
 }

@@ -43,6 +43,12 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     publishedAt: new Date("2026-07-30T10:00:00.000Z"),
     roleTitle: "VMC Operator",
     city: "Pune",
+    area: null,
+    minExperienceYears: null,
+    maxExperienceYears: null,
+    description: null,
+    benefits: null,
+    requirements: null,
     payMin: 18000,
     payMax: 25000,
     shift: "day",
@@ -302,20 +308,24 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     expect(serialized).not.toContain(PAYER_B);
   });
 
-  it("returns the legacy card keys and nothing more", async () => {
+  it("returns the legacy card keys plus the additive #1561 content keys, and nothing more", async () => {
     const { svc } = setup([row("a1", PAYER_A)]);
     const out = await svc.getFeed(WORKER, 5, {}, CTX);
     expect(Object.keys(out.jobs[0]!).sort()).toEqual(
       [
         "area",
+        "benefits",
         "city",
+        "description",
         "job_id",
         "matched_skill_label",
         "max_experience_years",
         "min_experience_years",
+        "needed_by",
         "pay_max",
         "pay_min",
         "rank",
+        "requirements",
         "shift",
         "title",
         "trade_key",
@@ -324,16 +334,47 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     );
   });
 
-  it("renders a missing city as the empty string and never fabricates an area/band", async () => {
+  it("renders a missing city as the empty string and passes card content through honestly", async () => {
+    const { svc } = setup([
+      row("a1", PAYER_A, {
+        city: null,
+        area: "Chakan",
+        minExperienceYears: 1,
+        maxExperienceYears: 4,
+        description: "Fanuc CNC machine operate karna.",
+        benefits: ["PF + ESI"],
+        requirements: ["Fanuc control"],
+        neededBy: "immediate",
+      }),
+    ]);
+    const out = await svc.getFeed(WORKER, 5, {}, CTX);
+
+    const card = out.jobs[0]!;
+    expect(card.city).toBe("");
+    // Straight pass-through, nulls preserved: a posting with content shows it, one
+    // without shows none. `area` is still never derived from `location_label` — that
+    // would put payer free text on a worker card.
+    expect(card.area).toBe("Chakan");
+    expect(card.min_experience_years).toBe(1);
+    expect(card.max_experience_years).toBe(4);
+    expect(card.description).toBe("Fanuc CNC machine operate karna.");
+    expect(card.benefits).toEqual(["PF + ESI"]);
+    expect(card.requirements).toEqual(["Fanuc control"]);
+    expect(card.needed_by).toBe("immediate");
+  });
+
+  it("renders honest nulls for a posting with no card content (never fabricated)", async () => {
     const { svc } = setup([row("a1", PAYER_A, { city: null })]);
     const out = await svc.getFeed(WORKER, 5, {}, CTX);
 
     const card = out.jobs[0]!;
     expect(card.city).toBe("");
-    // `area` and the experience window do not exist on `job_postings`. Deriving them
-    // from `location_label` would put payer free text on a worker card.
     expect(card.area).toBeNull();
     expect(card.min_experience_years).toBeNull();
     expect(card.max_experience_years).toBeNull();
+    expect(card.description).toBeNull();
+    expect(card.benefits).toBeNull();
+    expect(card.requirements).toBeNull();
+    expect(card.needed_by).toBeNull();
   });
 });

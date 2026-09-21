@@ -239,6 +239,12 @@ describe("listFeed — row mapping", () => {
     published_at: "2026-07-30T10:00:00.000Z",
     role_title: "VMC Operator",
     city: "Pune",
+    area: null,
+    min_experience_years: null,
+    max_experience_years: null,
+    description: null,
+    benefits: null,
+    requirements: null,
     pay_min: 18000,
     pay_max: 25000,
     shift: "day",
@@ -274,7 +280,18 @@ describe("listFeed — row mapping", () => {
   });
 
   it("carries the reach row's skill and the posting's display fields through", async () => {
-    const { repo } = makeDb([raw({ boosted: true, needed_by: "immediate" })]);
+    const { repo } = makeDb([
+      raw({
+        boosted: true,
+        needed_by: "immediate",
+        area: "Chakan",
+        min_experience_years: 1,
+        max_experience_years: 4,
+        description: "Fanuc CNC machine operate karna.",
+        benefits: ["PF + ESI"],
+        requirements: ["Fanuc control"],
+      }),
+    ]);
     const [row] = await repo.listFeed(WORKER, 10, {});
     expect(row).toEqual({
       jobPostingId: POSTING,
@@ -285,6 +302,12 @@ describe("listFeed — row mapping", () => {
       publishedAt: new Date("2026-07-30T10:00:00.000Z"),
       roleTitle: "VMC Operator",
       city: "Pune",
+      area: "Chakan",
+      minExperienceYears: 1,
+      maxExperienceYears: 4,
+      description: "Fanuc CNC machine operate karna.",
+      benefits: ["PF + ESI"],
+      requirements: ["Fanuc control"],
       payMin: 18000,
       payMax: 25000,
       shift: "day",

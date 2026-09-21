@@ -171,11 +171,24 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
             child: content,
           );
         }
-        // Hard-lock text scale to 1.0x, ignoring the OS accessibility font-size
-        // setting entirely — every size on screen is controlled only from code
-        // (explicit product decision, superseding the earlier 1.3x clamp).
+        // RESPECT the phone's accessibility font-size setting, clamped to
+        // 1.0x-2.0x (UI kit v3 ruling R1, superseding the earlier hard lock to
+        // 1.0x). The floor keeps layouts from collapsing when the OS asks for
+        // text smaller than the design size; the ceiling is the largest scale
+        // every screen is verified against (320x568 @2.0 upwards).
+        //
+        // Chrome that must stay a fixed height — navy headers, the 4-tab nav
+        // bar, docked bottom bars and pills — re-clamps itself at 1.3x via
+        // [MediaQuery.withClampedTextScaling], so body copy keeps growing to
+        // 2.0x while the frame around it does not eat the viewport.
+        final MediaQueryData media = MediaQuery.of(context);
         return MediaQuery(
-          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+          data: media.copyWith(
+            textScaler: media.textScaler.clamp(
+              minScaleFactor: 1.0,
+              maxScaleFactor: 2.0,
+            ),
+          ),
           child: content,
         );
       },

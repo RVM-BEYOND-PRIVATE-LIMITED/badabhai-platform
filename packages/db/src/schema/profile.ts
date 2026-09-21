@@ -19,7 +19,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type { ProfileStatus } from "@badabhai/types";
+import type { ProfileStatus, ProfileSource } from "@badabhai/types";
 import { jsonObject, jsonArray } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { jobDomains } from "./occupation";
@@ -44,6 +44,22 @@ export const workerProfiles = pgTable(
     // treats NULLs as DISTINCT so they never collide.
     aiJobId: uuid("ai_job_id"),
     profileStatus: text("profile_status").$type<ProfileStatus>().notNull().default("draft"),
+    // ── Task 1 flow separation: which road produced this profile ─────────────
+    //
+    // `form` = the trade-form road (a form-enabled trade, entered via the chat
+    // handover or a résumé routed to a form); `chat` = the LLM-chat road
+    // (everything else, including résumé-routed-to-chat interviews).
+    //
+    // Written ONCE, deterministically, by the extraction processor from the
+    // channel record (the session's `form_kind`, else the latest résumé
+    // import's `route`) — never by the model, and never re-derived on read.
+    // Navigation, profile screens and the resume renderer key off this instead
+    // of probing "does a form exist", which is what mixed the two roads.
+    //
+    // NULLABLE with a full backfill (migration 0107): NULL honestly means
+    // "written before the road was recorded", exactly like `taxonomy_version`
+    // above. Readers must treat NULL as unknown, never as a road.
+    source: text("source").$type<ProfileSource>(),
     canonicalTradeId: text("canonical_trade_id"),
     canonicalRoleId: text("canonical_role_id"),
     skills: jsonb("skills").$type<string[]>().notNull().default(jsonArray),
@@ -137,6 +153,14 @@ export const workerProfiles = pgTable(
   },
   (t) => [
     index("worker_profiles_worker_id_idx").on(t.workerId),
+    // Task 1: the road is a closed two-value vocabulary. NULL stays legal for
+    // pre-0107 rows ("written before the road was recorded"); every non-null
+    // value must be a known road, so a typo'd writer fails at the database,
+    // not silently downstream.
+    check(
+      "worker_profiles_source_chk",
+      sql`${t.source} IS NULL OR ${t.source} IN ('form', 'chat')`,
+    ),
     // Idempotent extraction (TD14): at most one profile per ai_job. Many NULLs
     // allowed (NULLS DISTINCT — Postgres default). See `aiJobId` above.
     uniqueIndex("worker_profiles_ai_job_id_uq").on(t.aiJobId),

@@ -127,6 +127,79 @@ describe("every enabled role agrees with the pack corpus", () => {
     }
   });
 
+  it("the tier gate's SCALE is the one the FORM branches on — the premise the depth tiers rest on", () => {
+    // OWNER RULING 2026-09-09b, made falsifiable. The rung is a PROFILING-DEPTH CONTROL and
+    // nothing else: it decides how many questions the form asks, and it reaches the résumé
+    // nowhere at all (`tenureStatusLabel` no longer takes an attribute bag). What still reads it
+    // is every `ask_if` in the pack — `gte 2` and `gte 5` open the depth tiers, `lte 0` opens the
+    // three fresher items — and those predicates can only key on the VALUE, because
+    // `worker_attributes` never stores the option_key. So the key→value pairing IS the contract,
+    // and it is pinned here rather than trusted.
+    //
+    // WHAT BREAKS IF IT DRIFTS. A pack that spells "7 saal se zyada" as 0 would serve a senior man
+    // the three ITI fresher questions and none of his own trade's depth; one that spells "1 saal
+    // se kam" as 5 would ask a fresher the setter-level questions and skip the workshop block that
+    // is his entire Zone 4. Both are invisible at runtime — the form serves either way.
+    const SCALE: Readonly<Record<string, number>> = {
+      fresher_course: 0,
+      one_to_three: 2,
+      three_to_seven: 5,
+      over_seven: 10,
+    };
+    for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+      const pack = loadPack(descriptor.packId);
+      const gate = pack.items.find((i) => i.question_key === descriptor.tenureQuestionKey);
+      const options = (gate?.options ?? []) as { option_key: string; value_number?: number }[];
+      for (const option of options) {
+        // `under_one` is the one rung whose value is NOT portable, and that is the whole trap this
+        // file exists for: 1 on the pack that has a fresher chip below it, 0 on the eight that do
+        // not. The descriptor is what says which, so the assertion reads it rather than guessing.
+        const expected =
+          option.option_key === "under_one"
+            ? (descriptor.fresher?.tenureValue ?? -1) === 0
+              ? 1
+              : 0
+            : SCALE[option.option_key];
+        expect(
+          expected,
+          `${descriptor.kind}: the gate offers an unknown rung "${option.option_key}" — no ask_if in the corpus branches on it`,
+        ).toBeDefined();
+        expect(
+          option.value_number,
+          `${descriptor.kind}: "${option.option_key}" stores ${option.value_number}, and the pack's gates compare against ${expected}`,
+        ).toBe(expected);
+      }
+    }
+  });
+
+  it("the tier gate's LOWEST rung stores 0 — the premise the fresher QUESTIONS rest on", () => {
+    // Every fresher question in the corpus (`iti_workshop_machines`, `trade_test_status`,
+    // `iti_project_work`) is gated on `<tenure gate> <= 0`, so the floor of the scale is what
+    // decides whether a fresher is asked the three items that become his entire Zone 4.
+    //
+    // NO LONGER A RÉSUMÉ PREMISE (owner ruling 2026-09-09b). This test used to say the label read
+    // the rung; it does not, and has not since `tenureStatusLabel` stopped taking an attribute
+    // bag. The word now follows from an empty work history alone. What survives is the form-side
+    // fact, which was always the stronger one.
+    //
+    // WHAT BREAKS IF THIS DRIFTS. A pack authored later whose scale starts at 1 would close the
+    // `lte 0` gate for everybody and serve its freshers nothing to fill Zone 4 with; one that
+    // starts at -1 would open it for a man with up to three years on a shop floor. Both are
+    // invisible at runtime — the form serves either way — so the scale is pinned here rather than
+    // trusted, in the same file that already pins the gate's type and mandatoriness.
+    for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+      const pack = loadPack(descriptor.packId);
+      const gate = pack.items.find((i) => i.question_key === descriptor.tenureQuestionKey);
+      const values = ((gate?.options ?? []) as { value_number?: number }[]).map(
+        (o) => o.value_number ?? Number.NaN,
+      );
+      expect(
+        Math.min(...values),
+        `${descriptor.kind}: the tier gate's lowest rung is not 0, so "Fresher" reads the wrong rung`,
+      ).toBe(0);
+    }
+  });
+
   it("no DECLARED role claims a pack that another role already owns", () => {
     // `assertRegistryIsCoherent` rejects duplicate `packId`s among descriptors. This is the other
     // direction: it also has to hold across the ROLES THAT ARE NOT YET ENABLED, because a

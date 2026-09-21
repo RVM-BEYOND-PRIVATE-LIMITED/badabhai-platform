@@ -19,6 +19,8 @@ import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.da
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_view.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 
 import '../../core/auth/fakes.dart';
 
@@ -99,7 +101,8 @@ Future<_Wired> _wire(
     {required bool seedRefresh,
     bool scriptPin = false,
     bool persistentAuth = true,
-    bool seedPinSet = true}) async {
+    bool seedPinSet = true,
+    String? seedOnboardingLocation}) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final FakeSecureStore secure = FakeSecureStore();
@@ -109,6 +112,9 @@ Future<_Wired> _wire(
     await store.writeRefreshToken('remembered-refresh');
     await store.writeWorkerId('worker-7');
     if (seedPinSet) await store.writePinSet(true);
+  }
+  if (seedOnboardingLocation != null) {
+    await store.writeOnboardingLocation(seedOnboardingLocation);
   }
   final ScriptablePinApi? pinApi = scriptPin ? ScriptablePinApi(store) : null;
   await initAuthLocator(
@@ -121,6 +127,13 @@ Future<_Wired> _wire(
 }
 
 void main() {
+  // #1466 — the unlock row now carries a BLINKING caret, and a perpetual blink
+  // keeps a frame scheduled forever, so every `pumpAndSettle` below would pump
+  // until it timed out. Freeze it, exactly as Flutter's own
+  // `EditableText.debugDeterministicCursor` exists to be frozen.
+  setUpAll(() => BbPinView.debugDeterministicCaret = true);
+  tearDownAll(() => BbPinView.debugDeterministicCaret = false);
+
   setUp(() {
     // A roomy canvas so the keypad + dots never clip under the test fallback font.
     // (Re-applied per test via tester.view.)
@@ -176,6 +189,103 @@ void main() {
         reason: 'never ask for a PIN that was never set');
   });
 
+  // #1466 — landing on set-PIN via #352 is only useful if the screen WORKS
+  // when it is reached that way. Reported as "user not able to type the PIN and
+  // not able to see the cursor or focus" on exactly this cold-start path.
+  testWidgets('the set-PIN screen reached by a cold start is focused, shows '
+      'the caret, and accepts digits', (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true, seedPinSet: false);
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN banayein'));
+
+    // The first row owns focus without the worker tapping anything, and says so.
+    final List<BbPinView> rows =
+        tester.widgetList<BbPinView>(find.byType(BbPinView)).toList();
+    expect(rows, hasLength(2));
+    expect(rows[0].focused, isTrue,
+        reason: 'the enter row must be live on arrival');
+    expect(rows[1].focused, isFalse);
+    expect(find.byKey(kPinCaretKey), findsOneWidget);
+
+    // And it actually takes digits.
+    await tester.enterText(find.byKey(kSetPinFirstFieldKey), '3927');
+    await tester.pump();
+    final List<BbPinView> after =
+        tester.widgetList<BbPinView>(find.byType(BbPinView)).toList();
+    expect(after[0].filled, 4);
+    // Four valid digits hand off to the confirm row — visibly.
+    expect(after[1].focused, isTrue);
+  });
+
+  // The owner's rule, half one: OTP REQUESTED BUT NOT VERIFIED, app killed,
+  // restart -> the app starts like a fresh user. It holds because
+  // `AuthSessionManager.requestOtp` persists NOTHING — the refresh token, the
+  // worker id and the pinSet flag are all written inside `verifyOtp` (GAP A).
+  // So an unverified attempt leaves no state to resume, and the gate sees
+  // `loggedOut`. (Half two — verified but no PIN yet -> set-PIN, never a second
+  // OTP — is the #352 test above.)
+  // #1470 — the reported flow, end to end: PIN set, worker reaches the name
+  // screen (the first step of the LLM profiling flow), fills NOTHING, kills the
+  // app. On restart he unlocked straight onto the shell, where the Résumé tab
+  // is empty and the downloaded résumé is empty, with no route back into
+  // onboarding. `resumeLocation` is memory-only, so a cold start had nothing to
+  // restore and fell through to Routes.resume.
+  testWidgets('a cold start mid-onboarding unlocks back to the ONBOARDING step, '
+      'not the shell', (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true, seedOnboardingLocation: Routes.name);
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    // Unlock exactly as the worker does.
+    for (final String d in '7416'.split('')) {
+      await tester.tap(find.descendant(
+          of: find.byType(BbPinKeypad), matching: find.text(d)));
+      await tester.pump();
+    }
+    await _pumpUntil(tester, find.text('Aapka naam?'));
+
+    // Back on the name+location step, NOT on the shell's empty Résumé tab.
+    expect(find.text('Aapka naam?'), findsOneWidget);
+  });
+
+  // The other half of the ruling: a worker who FINISHED onboarding must still
+  // land in the shell. Asserted on the manager rather than by mounting the
+  // Résumé tab, whose mock fetches spawn a cascade of pending timers that has
+  // nothing to do with routing.
+  testWidgets('a finished worker remembers no onboarding step, so the unlock '
+      'still falls through to the shell', (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true); // nothing remembered = onboarding done
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    final AuthSessionManager auth = locator<AuthSessionManager>();
+    expect(auth.onboardingLocation, isNull,
+        reason: 'a finished worker must have no step to resume');
+    expect(auth.resumeLocation, isNull,
+        reason: 'a cold start stashes nothing — this is the fallback path');
+  });
+
+  // And the step is FORGOTTEN once the worker leaves the sequence, so this can
+  // never strand a finished worker back in onboarding forever.
+  testWidgets('reaching a screen outside onboarding clears the remembered step',
+      (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true, seedOnboardingLocation: Routes.name);
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    final AuthSessionManager auth = locator<AuthSessionManager>();
+    expect(auth.onboardingLocation, Routes.name);
+
+    // Simulate finishing: the redirect clears it the moment a non-onboarding
+    // screen is reached.
+    auth.clearOnboardingLocation();
+    expect(auth.onboardingLocation, isNull);
+  });
+
   testWidgets('cold start WITHOUT a refresh token -> phone login (/login)',
       (WidgetTester tester) async {
     bigCanvas(tester);
@@ -188,6 +298,9 @@ void main() {
     await _pumpUntil(tester, find.text('Send OTP'));
     expect(find.text('Send OTP'), findsOneWidget);
     expect(find.text('PIN daalein'), findsNothing);
+    // And never the SET-PIN screen either: an unverified OTP must not skip the
+    // worker forward into choosing a PIN for an account that does not exist.
+    expect(find.text('PIN banayein'), findsNothing);
   });
 
   testWidgets(
@@ -224,9 +337,9 @@ void main() {
 
     // Straight into the shell (Resume tab). The onboarding never re-ran.
     expect(find.text('Your resume'), findsOneWidget);
-    expect(find.text('Your privacy'), findsNothing); // consent never shown
+    expect(find.text('YOUR PRIVACY'), findsNothing); // consent never shown
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -249,10 +362,10 @@ void main() {
     await _pumpUntil(tester, find.text('PIN daalein'));
 
     await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('Your privacy'));
+    await _pumpUntil(tester, find.text('YOUR PRIVACY'));
 
     // Forced to /consent (DPDP gate) — the shell is NOT reachable yet.
-    expect(find.text('Your privacy'), findsOneWidget);
+    expect(find.text('YOUR PRIVACY'), findsOneWidget);
     expect(find.text('Your resume'), findsNothing);
   });
 
@@ -275,9 +388,9 @@ void main() {
 
     // Null = unknown → no consent bounce; the proven unlock→shell flow holds.
     expect(find.text('Your resume'), findsOneWidget);
-    expect(find.text('Your privacy'), findsNothing);
+    expect(find.text('YOUR PRIVACY'), findsNothing);
 
-    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // Settle the resume profile card's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) AND the resume
     // document fetch (#1398 — showGenerated()'s awaitingDocument window,
     // documentPollMaxAttempts=1 so exactly one 300ms mock call) so no timer
@@ -339,7 +452,7 @@ void main() {
 
       // Falls back to the Resume tab exactly as before.
       expect(find.text('Your resume'), findsOneWidget);
-      // Settle the ResumePhotoHeader's fetch AND the resume document fetch
+      // Settle the resume profile card's fetch AND the resume document fetch
       // (#1398 — see the other Resume-tab-landing test's own comment above).
       await tester.pump(const Duration(milliseconds: 700));
       await tester.pump(const Duration(milliseconds: 700));

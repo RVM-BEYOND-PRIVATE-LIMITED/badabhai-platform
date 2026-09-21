@@ -16,6 +16,7 @@ import '../auth/reauth_signal.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
+import '../session/known_worker_facts_store.dart';
 import '../session/session_repository.dart';
 import '../push/push_token_service.dart';
 
@@ -50,6 +51,10 @@ import '../../features/voice/data/speech_dictation_impl.dart';
 import '../../features/voice/data/speech_reader_impl.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
 import '../../features/voice/data/voice_pipeline_impl.dart';
+import '../../features/resume_import/data/file_picker_resume_document_picker.dart';
+import '../../features/resume_import/data/resume_importer_impl.dart';
+import '../../features/resume_import/domain/resume_document_picker.dart';
+import '../../features/resume_import/domain/resume_importer.dart';
 import '../../features/voice/domain/speech_dictation.dart';
 import '../../features/voice/domain/speech_reader.dart';
 import '../../features/voice/domain/voice_note_repository.dart';
@@ -74,6 +79,7 @@ import '../../features/feedback/domain/feedback_repository.dart';
 import '../../features/finishing/data/finishing_repository_impl.dart';
 import '../../features/finishing/domain/finishing_repository.dart';
 import '../../features/finishing/presentation/cubit/finishing_cubit.dart';
+import '../../features/trade_form/data/trade_form_marker_store.dart';
 import '../../features/trade_form/data/trade_form_repository_impl.dart';
 import '../../features/trade_form/domain/trade_form_repository.dart';
 import '../../features/trade_form/presentation/cubit/trade_form_cubit.dart';
@@ -88,6 +94,12 @@ import '../../features/profile/presentation/cubit/profile_cubit.dart';
 import '../../features/profile_tab/data/profile_summary_repository_impl.dart';
 import '../../features/profile_tab/domain/profile_summary_repository.dart';
 import '../../features/profile_tab/presentation/cubit/profile_tab_cubit.dart';
+import '../../features/profile_edit/data/profile_edit_repository_impl.dart';
+import '../../features/profile_edit/domain/profile_edit_repository.dart';
+import '../../features/profile_edit/presentation/cubit/profile_edit_cubit.dart';
+import '../../features/extracted_review/data/extracted_review_repository_impl.dart';
+import '../../features/extracted_review/domain/extracted_review_repository.dart';
+import '../../features/extracted_review/presentation/cubit/extracted_review_cubit.dart';
 import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
@@ -286,7 +298,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<TradeFormRepository>(
     () => TradeFormRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+      locator<ApiClient>(),
+      locator<SessionRepository>(),
+      knownFacts: _knownWorkerFactsOrNull(),
+    ),
   );
   locator.registerLazySingleton<SwipeRepository>(
     () => SwipeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -324,6 +339,16 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<ProfileSummaryRepository>(
     () => ProfileSummaryRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // Layer A profile surfaces (ADR-0042 D9, issue #1545).
+  locator.registerLazySingleton<ProfileEditRepository>(
+    () => ProfileEditRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // Extracted-profile review + correction surface (issue #1595, §8.4).
+  locator.registerLazySingleton<ExtractedReviewRepository>(
+    () => ExtractedReviewRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
   // Single instance app-wide so the Alerts screen and the nav badge share the
@@ -425,6 +450,25 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
       api: locator<ApiClient>(),
     ),
   );
+  // #1499 / ADR-0041 RI-6 — the résumé-upload door between /name and /chat.
+  //
+  // TWO SEAMS, not one: the PICKER is a platform channel (mock mode must never
+  // open a document picker) and the IMPORTER is the four-step network dance.
+  // Splitting them is what lets a widget test drive a rejected pick without a
+  // fake network, and a cubit test drive a dormant bucket without a fake picker.
+  locator.registerLazySingleton<ResumeDocumentPicker>(
+    () => kUseMocks
+        ? MockResumeDocumentPicker()
+        : const FilePickerResumeDocumentPicker(),
+  );
+  locator.registerLazySingleton<ResumeImporter>(
+    () => kUseMocks
+        ? MockResumeImporter()
+        : ResumeImporterImpl(
+            api: locator<ApiClient>(),
+            session: locator<SessionRepository>(),
+          ),
+  );
   locator.registerLazySingleton<VoiceTranscriptResolver>(
     () => kUseMocks
         ? const MockVoiceTranscriptResolver()
@@ -487,16 +531,33 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ConsentWithdrawCubit(locator<ConsentRepository>()),
   );
   locator.registerFactory<NameCubit>(
-    () => NameCubit(locator<NameRepository>()),
+    () => NameCubit(
+      locator<NameRepository>(),
+      knownFacts: _knownWorkerFactsOrNull(),
+    ),
   );
   locator.registerFactory<FinishingCubit>(
-    () => FinishingCubit(locator<FinishingRepository>()),
+    () => FinishingCubit(
+      locator<FinishingRepository>(),
+      knownFacts: _knownWorkerFactsOrNull(),
+    ),
   );
   locator.registerFactory<TradeFormCubit>(
-    () => TradeFormCubit(locator<TradeFormRepository>()),
+    () => TradeFormCubit(
+      locator<TradeFormRepository>(),
+      // The persisted store registers in initAuthLocator (plugin-free sync
+      // graph); a widget-test graph without it gets the cubit's in-memory one.
+      markerStore: locator.isRegistered<TradeFormMarkerStore>()
+          ? locator<TradeFormMarkerStore>()
+          : null,
+      knownFacts: _knownWorkerFactsOrNull(),
+    ),
   );
   locator.registerFactory<ChatBloc>(
-    () => ChatBloc(locator<ChatRepository>()),
+    () => ChatBloc(
+      locator<ChatRepository>(),
+      knownFacts: _knownWorkerFactsOrNull(),
+    ),
   );
   locator.registerFactory<ProfileCubit>(
     () => ProfileCubit(
@@ -529,6 +590,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<ProfileTabCubit>(
     () => ProfileTabCubit(locator<ProfileSummaryRepository>()),
+  );
+  locator.registerFactory<ProfileEditCubit>(
+    () => ProfileEditCubit(locator<ProfileEditRepository>()),
+  );
+  locator.registerFactory<ExtractedReviewCubit>(
+    () => ExtractedReviewCubit(locator<ExtractedReviewRepository>()),
   );
   locator.registerFactory<NotificationsCubit>(
     () => NotificationsCubit(locator<NotificationsRepository>()),
@@ -573,6 +640,8 @@ Future<void> initAuthLocator({
   NotificationReadStore? readStore,
   JobFeedViewStore? jobFeedViewStore,
   PendingReferralStore? pendingReferral,
+  TradeFormMarkerStore? tradeFormMarkerStore,
+  KnownWorkerFactsStore? knownWorkerFactsStore,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -619,6 +688,26 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<PendingReferralStore>()) {
     locator.registerSingleton<PendingReferralStore>(
       pendingReferral ?? const SharedPrefsPendingReferralStore(),
+    );
+  }
+
+  // Trade-form marker completion (which marker pages the server already
+  // accepted a save for). Registered HERE for the same lazy-prefs reason as the
+  // referral store above; the TradeFormCubit factory falls back to an in-memory
+  // store when it is absent. Types only, never values — cleared on logout.
+  if (!locator.isRegistered<TradeFormMarkerStore>()) {
+    locator.registerSingleton<TradeFormMarkerStore>(
+      tradeFormMarkerStore ?? const SharedPrefsTradeFormMarkerStore(),
+    );
+  }
+
+  // Facts the worker already gave (/name's city, chat closing answers), so a
+  // later form does not ask them again. Same lazy-prefs registration; every
+  // reader falls back to "nothing known" when it is absent. Fact names only,
+  // never values — cleared on logout.
+  if (!locator.isRegistered<KnownWorkerFactsStore>()) {
+    locator.registerSingleton<KnownWorkerFactsStore>(
+      knownWorkerFactsStore ?? const SharedPrefsKnownWorkerFactsStore(),
     );
   }
 
@@ -673,6 +762,13 @@ Future<void> initAuthLocator({
 /// Each lookup is `isRegistered`-guarded so the synchronous, plugin-free
 /// widget-test graph (which may not register every repo) is unaffected. Must
 /// never throw — a teardown failure must not block sign-out.
+/// The persisted [KnownWorkerFactsStore] once [initAuthLocator] registered it,
+/// else null — a widget-test graph without it asks every question, as before.
+KnownWorkerFactsStore? _knownWorkerFactsOrNull() =>
+    locator.isRegistered<KnownWorkerFactsStore>()
+        ? locator<KnownWorkerFactsStore>()
+        : null;
+
 void _clearSessionScopedCaches() {
   if (locator.isRegistered<PhotoRepository>()) {
     locator<PhotoRepository>().onLogout();
@@ -691,6 +787,17 @@ void _clearSessionScopedCaches() {
   // would upload the previous worker's clips under their own session.
   if (locator.isRegistered<VoiceClipQueue>()) {
     unawaited(locator<VoiceClipQueue>().clearAll());
+  }
+  // Which trade-form marker pages were saved is per worker: on a shared phone
+  // the next worker must see their own preferences/employment pages, not skip
+  // them. The store swallows its own errors.
+  if (locator.isRegistered<TradeFormMarkerStore>()) {
+    unawaited(locator<TradeFormMarkerStore>().clearAll());
+  }
+  // Same for what the worker already told us: the next worker on a shared
+  // phone must be asked their own city, cities, salary and shift.
+  if (locator.isRegistered<KnownWorkerFactsStore>()) {
+    unawaited(locator<KnownWorkerFactsStore>().clearAll());
   }
   // Evict the previous worker's DECODED photos from Flutter's global image cache,
   // so a re-login can never repaint them from memory even before a fresh fetch.

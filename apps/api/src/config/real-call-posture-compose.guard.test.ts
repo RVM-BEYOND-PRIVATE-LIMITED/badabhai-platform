@@ -165,6 +165,58 @@ describe("docker-compose.staging.yml — the deployed real-LLM posture (#798)", 
   });
 });
 
+describe("docker-compose.staging.yml — the raw-text résumé posture (ADR-0041 D5, 2026-09-15)", () => {
+  const api = environmentOfFile(STAGING_COMPOSE_PATH, "api");
+  const aiService = environmentOfFile(STAGING_COMPOSE_PATH, "ai-service");
+  const RAW_FLAG = "RESUME_PARSE_RAW_TEXT_ENABLED";
+
+  it("parses both service environments (canary)", () => {
+    expect(api.get("AI_SERVICE_URL")).toBe("http://ai-service:8000");
+    expect(aiService.get("GEMINI_FLASH_API_KEY")).toBe("${GEMINI_FLASH_API_KEY:-}");
+  });
+
+  it("is DECLARED on the ai-service, defaulting OFF, overridable from the box", () => {
+    // THE SAME TWO DEFECTS THIS FILE IS NAMED FOR, ON A PRIVACY FLAG. Until 2026-09-15 the name
+    // was undeclared (#798 defect 2: the box had no path in), and the owner ruled it reachable,
+    // default off. A literal would be defect 1; `:-true` would arm D5's unmasked-résumé path on
+    // every box by commit; `:-` or bare would hand pydantic "" and stop the ai-service booting.
+    //
+    // The ai-service's own scan (`test_the_flag_is_armed_in_no_committed_file`) permits exactly
+    // this line and nothing else; this is the api-side wall on the same line, read through the
+    // same parser every other posture guard here uses.
+    expect(aiService.get(RAW_FLAG), `${RAW_FLAG} missing or armed on the ai-service`).toBe(
+      overridableDefault(RAW_FLAG, "false"),
+    );
+  });
+
+  it("no case-variant spelling of RESUME_PARSE_RAW_TEXT_ENABLED sits beside the exact-case key", () => {
+    // THE BLOCKER THIS TEST CLOSES (security review, 2026-09-16). `Settings` never sets
+    // `case_sensitive`, so pydantic-settings reads env vars case-insensitively by default —
+    // a committed `resume_parse_raw_text_enabled: "true"` sitting ALONGSIDE the correct line
+    // above arms the identical field, while `aiService.get(RAW_FLAG)` two tests up stays
+    // green because it only ever looks up the exact-case name and never notices a second key.
+    // Requires `compose-env.ts`'s key regex to be case-insensitive (`[A-Za-z_]`, not
+    // `[A-Z_]`) or the lowercase key is invisible to `environmentOf()` and this loop finds
+    // nothing to reject — proven red against the old regex before it was widened.
+    const variants = [...aiService.keys()].filter(
+      (key) => key !== RAW_FLAG && key.toUpperCase() === RAW_FLAG,
+    );
+    expect(
+      variants,
+      `case-variant spelling(s) of ${RAW_FLAG} found on the ai-service: ${variants.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("is NOT declared on the api — apps/api never reads it", () => {
+    // A second declaration implies a second source of truth for one decision.
+    expect(api.has(RAW_FLAG)).toBe(false);
+  });
+
+  it("is NOT declared in the DEV-LAPTOP file", () => {
+    expect(environmentOfFile(BASE_COMPOSE_PATH, "ai-service").has(RAW_FLAG)).toBe(false);
+  });
+});
+
 describe("docker-compose.yml — the DEV-LAPTOP file stays unarmed (#798)", () => {
   const aiService = environmentOfFile(BASE_COMPOSE_PATH, "ai-service");
 

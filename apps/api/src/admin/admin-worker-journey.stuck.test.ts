@@ -27,10 +27,7 @@ const UNIVERSAL_PACK = "qp_universal";
  * 606 of the corpus's 611 items are non-mandatory and 487 declare `max_asks: 1`. A test that
  * wants the re-askable shape must say `isMandatory: true` explicitly, which is the point.
  */
-function item(
-  questionKey: string,
-  overrides: Partial<StuckQuestionItem> = {},
-): StuckQuestionItem {
+function item(questionKey: string, overrides: Partial<StuckQuestionItem> = {}): StuckQuestionItem {
   return {
     questionKey,
     packId: OCCUPATION_PACK,
@@ -182,7 +179,11 @@ describe("a COMPLETED interview containing an unsettled question", () => {
           // The engine asked it, could not use the answer, and moved on — then closed.
           machine_types: "unanswered",
         },
-        items: [item("machine_types", { maxAsks: 1 }), item("trade_years"), item("salary_expected")],
+        items: [
+          item("machine_types", { maxAsks: 1 }),
+          item("trade_years"),
+          item("salary_expected"),
+        ],
       }),
     );
 
@@ -302,7 +303,10 @@ describe("`unservable` is `is_mandatory`-aware, because `selectItem` is", () => 
    */
   it("a NON-mandatory item is un-servable after ONE ask, even under max_asks: 2", () => {
     const result = deriveStuckQuestion(
-      input({ askCounts: { experience_years: 1 }, items: [item("experience_years", { maxAsks: 2 })] }),
+      input({
+        askCounts: { experience_years: 1 },
+        items: [item("experience_years", { maxAsks: 2 })],
+      }),
     );
     const c = result.candidates[0]!;
     expect(c.asks).toBe(1);
@@ -316,7 +320,10 @@ describe("`unservable` is `is_mandatory`-aware, because `selectItem` is", () => 
 
   it("a MANDATORY item at the same ask count is still servable (the 5-of-611 shape)", () => {
     const result = deriveStuckQuestion(
-      input({ askCounts: { primary_trade: 1 }, items: [mandatory("primary_trade", { maxAsks: 2 })] }),
+      input({
+        askCounts: { primary_trade: 1 },
+        items: [mandatory("primary_trade", { maxAsks: 2 })],
+      }),
     );
     const c = result.candidates[0]!;
     expect(c.asks).toBe(1);
@@ -326,7 +333,10 @@ describe("`unservable` is `is_mandatory`-aware, because `selectItem` is", () => 
 
   it("a mandatory item AT its ceiling is un-servable — the ceiling still binds pass 1", () => {
     const result = deriveStuckQuestion(
-      input({ askCounts: { primary_trade: 2 }, items: [mandatory("primary_trade", { maxAsks: 2 })] }),
+      input({
+        askCounts: { primary_trade: 2 },
+        items: [mandatory("primary_trade", { maxAsks: 2 })],
+      }),
     );
     expect(result.candidates[0]!.unservable).toBe(true);
     expect(result.candidates[0]!.exhausted).toBe(true);
@@ -343,7 +353,11 @@ describe("`unservable` is `is_mandatory`-aware, because `selectItem` is", () => 
   });
 
   it("...but an unresolved item AT the fallback ceiling is un-servable whatever it is", () => {
-    const result = deriveStuckQuestion(input({ askCounts: { orphan: 2 }, items: [] }));
+    // Ceiling raised 2 → 4 with the 2026-09-18 policy change, so "at the fallback ceiling"
+    // moved with the constant — derived below rather than restated.
+    const result = deriveStuckQuestion(
+      input({ askCounts: { orphan: MAX_ASKS_PER_QUESTION }, items: [] }),
+    );
     expect(result.candidates[0]!.unservable).toBe(true);
   });
 });
@@ -476,10 +490,7 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
         // Identical in every other respect — same asks, same ceiling, same display order —
         // so ONLY leg 1 can decide this.
         answerMapStatuses: { moved_on: "unanswered" },
-        items: [
-          item("moved_on", { displayOrder: 5 }),
-          item("on_screen", { displayOrder: 5 }),
-        ],
+        items: [item("moved_on", { displayOrder: 5 }), item("on_screen", { displayOrder: 5 })],
       }),
     );
     expect(result.stuck_question?.question_key).toBe("on_screen");
@@ -491,21 +502,18 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
       input({
         askCounts: { burned: 2, live: 1 },
         answerMapStatuses: {},
-        items: [
-          mandatory("burned", { displayOrder: 9 }),
-          mandatory("live", { displayOrder: 0 }),
-        ],
+        items: [mandatory("burned", { displayOrder: 9 }), mandatory("live", { displayOrder: 0 })],
       }),
     );
     // `burned` has the later display order AND the higher pressure; leg 2 outranks both.
     expect(result.stuck_question?.question_key).toBe("live");
   });
 
-  it("a `max_asks` of 3 would be CAPPED at the engine ceiling of 2 — the ceiling is the engine's", () => {
-    // NOT a corpus observation: no pack row declares 3 today (the distribution is 487×1 and
-    // 124×2). `qpi_max_asks_chk` PERMITS 1..3 while `askCeiling` clamps to
-    // MAX_ASKS_PER_QUESTION, so this pins the clamp for the row a future author could write —
-    // a pack cannot buy a third ask.
+  it("a pack CAN now buy a third ask — the engine ceiling (4) is above every authorable row", () => {
+    // POLICY CHANGE 2026-09-18. The old pin here said "a max_asks of 3 would be CAPPED at the
+    // engine ceiling of 2 — a pack cannot buy a third ask". The ceiling is now 4, so an author
+    // may declare 3 and get three real asks; `qpi_max_asks_chk` still permits only 1..3, which
+    // makes the engine clamp below unreachable for any valid row (pinned separately).
     const result = deriveStuckQuestion(
       input({
         askCounts: { greedy: 2 },
@@ -513,6 +521,22 @@ describe("multiple unsettled keys — the documented tie-break, one leg at a tim
       }),
     );
     expect(result.candidates[0]!.max_asks).toBe(3);
+    expect(result.candidates[0]!.ask_ceiling).toBe(3);
+    expect(result.candidates[0]!.exhausted).toBe(false);
+    expect(result.candidates[0]!.unservable).toBe(false);
+  });
+
+  it("the engine ceiling still clamps an over-declared row (defensive, above the CHECK)", () => {
+    // The DB CHECK permits 1..3, so this shape is not authorable today — but the clamp is what
+    // makes the ceiling the ENGINE's rather than the corpus's, and it must keep holding if the
+    // CHECK ever widens. A row asking for 9 gets MAX_ASKS_PER_QUESTION.
+    const result = deriveStuckQuestion(
+      input({
+        askCounts: { over: MAX_ASKS_PER_QUESTION },
+        items: [mandatory("over", { maxAsks: 9 })],
+      }),
+    );
+    expect(result.candidates[0]!.max_asks).toBe(9);
     expect(result.candidates[0]!.ask_ceiling).toBe(MAX_ASKS_PER_QUESTION);
     expect(result.candidates[0]!.exhausted).toBe(true);
   });

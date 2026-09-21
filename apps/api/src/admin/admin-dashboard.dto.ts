@@ -154,8 +154,40 @@ const PROFILING_TASK_TYPE_KEYS: Record<AiCostTaskType, boolean> = {
   profiling_chat_turn: true,
   profile_extraction: true,
   profile_parse: true,
+  // THE RESUME IMPORT PARSE (ADR-0041 RI-3) — `true`, and on the opposite side of the ratio
+  // from `resume_generation` despite the shared word in the name. That one RENDERS a sheet
+  // from a finished profile; this one READS an uploaded document to BUILD one, before the
+  // interview has even started. It is spent to produce a profile, which is exactly what this
+  // map asks.
+  //
+  // It also EARNS its place in the numerator in a way the others do not: the whole claim of
+  // the feature is that importing a résumé is cheaper than interviewing for the same facts.
+  // Classified `false`, the import's cost would vanish from cost-per-profile and that
+  // comparison would flatter itself — the spend would be real and invisible. RI-7 is the
+  // phase that has to answer whether the trade is worth it, and it needs this rupee counted.
+  resume_parse: true,
+  // RI-summary's Hinglish line — `true`, same side as `resume_parse`. A second read of the
+  // same uploaded document to BUILD the profile, before the interview has even started. Same
+  // RI-7 argument as the parse above: counted, or the résumé-vs-interview comparison flatters
+  // itself with spend that was real and invisible.
+  resume_profile_summary: true,
+  // RI-autofill's option mapping (owner override B) — `true`, same side as `resume_parse`.
+  // A third read of the same uploaded document to FILL the profile's form answers. Same
+  // RI-7 argument again: the mapping is spent to produce a profile, and uncounted it would
+  // flatter the résumé-vs-interview comparison with real, invisible spend.
+  resume_option_map: true,
   // Rendered FROM a finished profile, not spent to produce one (₹5.629 of the ₹77.4583).
   resume_generation: false,
+  // THE SAME SIDE OF THE RATIO AS `resume_generation`, AND FOR THE SAME REASON (#1350). The
+  // work-history rewrite reads a description the worker had ALREADY given — it adds nothing to
+  // the stored profile and changes no matching input; it only decides how that answer reads on
+  // the printed sheet. The interview was over before this ran.
+  //
+  // NOT ₹0 LIKE THE THREE BELOW, so this classification is load-bearing rather than a placeholder:
+  // it fires once per employment stint for every worker who files a history, and once more for a
+  // fresher's training description. Counted as profiling, it would inflate the cost-per-profile
+  // with spend that produced no profile.
+  work_history_polish: false,
   // ₹0.000000 today — the open classification in the header above.
   domain_match: false,
   stt_transcription: false,

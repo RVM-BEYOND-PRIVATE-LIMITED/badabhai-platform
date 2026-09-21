@@ -334,6 +334,9 @@ describe("what may never be dropped", () => {
     expect([...NEVER_DROPPED]).toEqual([
       "verdict_line",
       "display_name",
+      // Owner ruling 2026-09-08. A supervisor hires for ONE plant, so a sheet that does not say
+      // where the worker is cannot be acted on — the same class of fact as the two above it.
+      "location_line",
       "availability",
       "expected_salary",
       "trust_badge",
@@ -341,7 +344,7 @@ describe("what may never be dropped", () => {
       "top_qualification",
     ]);
     const steps = LADDER.map((s) => s.what.toLowerCase()).join(" | ");
-    for (const protectedKey of ["verdict", "salary", "badge", "qr"]) {
+    for (const protectedKey of ["verdict", "salary", "badge", "qr", "location"]) {
       expect(steps).not.toContain(protectedKey);
     }
   });

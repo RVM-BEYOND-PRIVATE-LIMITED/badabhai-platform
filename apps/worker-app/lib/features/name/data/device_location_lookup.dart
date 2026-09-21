@@ -12,6 +12,23 @@ class DeviceLocationLookup implements LocationLookup {
 
   final Geocoding _geocoding;
 
+  /// Silent check — [Geolocator.checkPermission] never shows a system prompt,
+  /// so this is safe to call on every app resume. Both halves must hold: the
+  /// device's location services on AND the permission already granted.
+  @override
+  Future<bool> isAvailable() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return false;
+      final LocationPermission permission = await Geolocator.checkPermission();
+      return permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
+    } catch (_) {
+      // No platform channel (widget-test host), no plugin, no answer — treat
+      // an unanswerable question as "not available" and leave manual entry be.
+      return false;
+    }
+  }
+
   @override
   Future<ResolvedLocation> resolveCurrent() async {
     if (!await Geolocator.isLocationServiceEnabled()) {

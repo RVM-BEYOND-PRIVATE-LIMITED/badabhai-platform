@@ -1,7 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { RESUME_RENDER_QUEUE, RESUME_IMPORT_PARSE_QUEUE } from "../queue/queue.constants";
 import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -9,6 +9,7 @@ import { EventsModule } from "../events/events.module";
 import { MatchModule } from "../match/match.module";
 import { OccupationModule } from "../occupation/occupation.module";
 import { ProfilesModule } from "../profiles/profiles.module";
+import { StorageModule } from "../storage/storage.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
@@ -19,9 +20,20 @@ import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
 import { ProfilingSessionService } from "./profiling-session.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { ResumeAutofillService } from "./form/resume-autofill.service";
+import { ResumeImportController } from "./resume-import/resume-import.controller";
+import { ResumeImportRepository } from "./resume-import/resume-import.repository";
+import { ResumeImportService } from "./resume-import/resume-import.service";
+import { ResumeParseService } from "./resume-import/resume-parse.service";
+import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeRouteService } from "./resume-import/resume-route.service";
+import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
+import { ResumeSummaryService } from "./resume-import/resume-summary.service";
+import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -87,17 +99,33 @@ import { TradeFormService } from "./form/trade-form.service";
     // module metadata is evaluated at require time, and only `app.module.graph.test.ts` says so
     // in under a minute.
     forwardRef(() => ProfilesModule),
-    // REGISTERED ONLY TO OBTAIN THE REDIS CLIENT — no second connection, and nothing here ever
-    // enqueues. The identical idiom `RateLimitModule` uses, and the reason the module doc above
-    // gives for not opening one: a second client would make the envelope and the transcript two
-    // keys with two TTLs, free to disagree about whether an interview exists.
+    // REGISTERED TO BORROW THE REDIS CLIENT — no second connection, and the identical idiom
+    // `RateLimitModule` uses (a second client would make the envelope and the transcript two
+    // keys with two TTLs, free to disagree about whether an interview exists).
+    // `TradeFormService` DOES enqueue onto it: the safety-net resume re-render after a
+    // capability answer (`refreshResumeAfterCapabilityEdit`). Produce-only — the processor
+    // itself lives in ResumeModule, so there is no cycle.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // ADR-0041 RI-4 — the queue that actually reads an uploaded document. Registered for real
+    // here (unlike the line above, which only borrows the Redis client): `ResumeImportService`
+    // enqueues onto it and `ResumeImportProcessor` consumes it in-process.
+    BullModule.registerQueue({ name: RESUME_IMPORT_PARSE_QUEUE }),
+    // ADR-0041 RI-1 — signed upload URLs and object-info for the private résumé-uploads
+    // bucket. A PLAIN import, not a forwardRef: `StorageModule` is a leaf that imports only
+    // `ConfigModule` and reaches nothing here, so the edge is acyclic. `VoiceModule` takes it
+    // the same way for the same reason.
+    StorageModule,
   ],
   // THREE SURFACES, and the third is a different KIND of thing. Chat and the voice form are
   // interviews reaching one turn engine; the trade form is a form -- every question known up
   // front, answered in any order, resumable across sessions -- so it shares the pack, the
   // answer table and the question shape, and shares no turn machinery at all.
-  controllers: [ProfilingController, TradeFormController],
+  // FOUR SURFACES NOW. Chat and the voice form are interviews reaching one turn engine; the
+  // trade form is a form; and résumé import is a third kind again — an UPLOAD, which shares
+  // neither the turn machinery nor the answer table. It writes only its own row, and cannot
+  // touch a worker's answers by construction (ADR-0041 D2): a parsed value is a suggestion
+  // until he confirms it, and confirming it goes through `TradeFormController` like any other.
+  controllers: [ProfilingController, TradeFormController, ResumeImportController],
   providers: [
     PackRepository,
     PackCacheService,
@@ -109,7 +137,22 @@ import { TradeFormService } from "./form/trade-form.service";
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    // RI-AUTOFILL (owner override B). Called by the orchestrator's identity-Haan branch
+    // only; `AiService`/`AiCostRecorder` come from `AiModule`, already imported above.
+    ResumeAutofillService,
+    // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` calls it from
+    // `answer()`, fire-and-forget — see `TradeFormService.triggerOtherAnswerPolish`. `AiService`
+    // and `AiCostRecorder` come from `AiModule`, already imported above.
+    OtherAnswerPolishService,
+    ResumeImportRepository,
+    ResumeImportService,
+    ResumeParseService,
+    ResumeRouteService,
+    ResumeOptionMapService,
+    ResumeSummaryService,
+    ResumeSuggestionReader,
+    ResumeImportProcessor,
   ],
-  exports: [PackRegistryService, ProfilingOrchestrator],
+  exports: [PackRegistryService, ProfilingOrchestrator, TradeFormRepository],
 })
 export class ProfilingModule {}

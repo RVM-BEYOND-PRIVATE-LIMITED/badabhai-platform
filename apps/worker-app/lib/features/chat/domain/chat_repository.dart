@@ -1,4 +1,5 @@
 import 'chat_message.dart';
+import 'chat_session_opening.dart';
 import 'chat_turn.dart';
 
 /// Chat boundary for the profiling conversation. Implementations read the
@@ -8,11 +9,25 @@ abstract interface class ChatRepository {
   /// Ensures a chat session exists (starts one if needed) and stores its id in
   /// the session. No-op when a session is already open.
   ///
-  /// Returns the server-served one-shot opener when this call actually OPENED a
-  /// session and the API supplied one; null otherwise — including on the
-  /// already-open no-op path and on the lazy re-open inside [sendMessage], where
-  /// the worker is mid-conversation and re-greeting them would be wrong.
-  Future<String?> ensureSession();
+  /// Returns the server-served opening when this call actually OPENED a session
+  /// and the API supplied one — the ordinary one-shot opener OR the résumé-confirm
+  /// first turn (#1523); null otherwise, including on the already-open no-op path
+  /// and on the lazy re-open inside [sendMessage], where the worker is
+  /// mid-conversation and re-greeting them would be wrong. A null keeps the
+  /// client's canned `kChatOpeningText` opener.
+  Future<ChatSessionOpening?> ensureSession();
+
+  /// Mint a GENUINELY NEW session, bypassing the `GET /session/latest` resume
+  /// (#1566). The post-completion menu's "Chat se resume banayein" must open a
+  /// fresh interview, and the resume-first guard in [ensureSession] would
+  /// otherwise re-attach to the just-ended session (the server reattaches to a
+  /// LIVE session only, but the client never asks). The prior session and its
+  /// transcript are preserved server-side; only the cached id is replaced.
+  ///
+  /// Returns the server-served opening when the new session supplies one (the
+  /// one-shot opener), else null — the caller then renders the canned opener,
+  /// exactly like an ordinary open.
+  Future<ChatSessionOpening?> startNewSession();
 
   /// Sends [text] and returns bada bhai's reply plus any tap-to-answer
   /// [ChatTurn.followups].

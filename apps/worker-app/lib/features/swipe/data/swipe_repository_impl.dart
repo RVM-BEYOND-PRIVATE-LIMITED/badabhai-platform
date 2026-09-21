@@ -2,6 +2,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
+import '../domain/job_detail.dart';
 import '../domain/swipe_repository.dart';
 
 class SwipeRepositoryImpl implements SwipeRepository {
@@ -60,6 +61,20 @@ class SwipeRepositoryImpl implements SwipeRepository {
         shift: shift,
         payMin: payMin,
       );
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  /// The FULL posting for one job — the same `GET /jobs/:jobId` the detail
+  /// screen reads, exposed here so a feed CARD can be enriched through the
+  /// SAME client/session seam (and the same mock in tests). Errors map like
+  /// every other call; the card treats one as "no extra facts".
+  @override
+  Future<JobDetail> jobDetail(String jobId) async {
+    final String token = _requireToken();
+    try {
+      return await _api.jobDetail(jobId, authToken: token);
     } catch (error) {
       throw mapError(error);
     }

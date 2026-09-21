@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAvailabilityRows,
+  buildLocationLine,
   buildQualificationRows,
   buildVerdictLine,
 } from "./resume-sheet-rows";
@@ -39,7 +40,7 @@ describe("the Verdict Line (§6.2)", () => {
     expect(middle.subheadLine).not.toMatch(/·\s+·/);
   });
 
-  it("collapses to null when a whole line has nothing, so the strip can hide", () => {
+  it("OMITS the headline strip when there is no role — a modifier is not a headline (Phase 4)", () => {
     const empty = buildVerdictLine({
       role: null,
       years: null,
@@ -48,9 +49,25 @@ describe("the Verdict Line (§6.2)", () => {
       availability: null,
       salary: null,
     });
-    // The years segment is never empty — an unknown is STATED — so the headline survives.
-    expect(empty.headlineLine).toBe("duration not stated");
+    // FILL-GAP PHASE 4 SUPERSEDES THE OLD PIN ("the headline survives as 'duration not stated'").
+    // §11 #3 requires an unknown TENURE to be stated where a tenure is being described; a strip
+    // with no subject is not that — it printed the bare system phrase at the top of a sheet.
+    expect(empty.headlineLine).toBeNull();
     expect(empty.subheadLine).toBeNull();
+  });
+
+  it("STILL states the unknown once a subject exists — the Phase 4 boundary", () => {
+    // The other half of the ruling, so the fix cannot be read as deleting §11 #3: with a role,
+    // an unknown tenure is still stated in words.
+    const subject = buildVerdictLine({
+      role: "Welder",
+      years: null,
+      tools: [],
+      city: null,
+      availability: null,
+      salary: null,
+    });
+    expect(subject.headlineLine).toBe("Welder · duration not stated");
   });
 
   it('renders an unknown tenure as "duration not stated" — never a guess, never "fresher"', () => {
@@ -198,5 +215,42 @@ describe("qualification rows", () => {
     });
     expect(rows).toEqual([{ label: "Languages spoken", value: "Hindi" }]);
     expect(JSON.stringify(rows)).not.toMatch(/none|not stated|n\/a/i);
+  });
+});
+
+/**
+ * THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08).
+ *
+ * WHY THE RULE IS "COLLAPSE, NEVER APOLOGISE". Both columns are independently nullable — a manual
+ * entry can supply a city without a state — so every combination below is a real row shape, and
+ * the sheet must never answer a missing half with a separator, a placeholder, or a word. An empty
+ * line under a worker's name reads as a fact he refused to give.
+ */
+describe("the masthead location line", () => {
+  it("joins the worker's registered city and state the way the sheet writes a place", () => {
+    expect(buildLocationLine({ city: "Faridabad", state: "Haryana" })).toBe("Faridabad, Haryana");
+  });
+
+  it("prints the half it has, and never a dangling separator", () => {
+    expect(buildLocationLine({ city: "Faridabad", state: null })).toBe("Faridabad");
+    expect(buildLocationLine({ city: null, state: "Haryana" })).toBe("Haryana");
+    expect(buildLocationLine({ city: "  Rajkot  ", state: "   " })).toBe("Rajkot");
+  });
+
+  it("collapses to null when the worker gave neither — never an empty line, never a placeholder", () => {
+    for (const location of [
+      { city: null, state: null },
+      { city: undefined, state: undefined },
+      { city: "", state: "" },
+      { city: "   ", state: null },
+    ]) {
+      expect(buildLocationLine(location)).toBeNull();
+    }
+  });
+
+  it("states no city it was not given — the line is a join, never a lookup", () => {
+    // §8: the renderer may reshape what the worker said and may never add to it. A state is not
+    // inferred from a city here and must never be: "Faridabad" alone prints alone.
+    expect(buildLocationLine({ city: "Faridabad", state: null })).not.toMatch(/Haryana/);
   });
 });

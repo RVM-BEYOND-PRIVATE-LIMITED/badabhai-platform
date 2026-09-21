@@ -129,11 +129,33 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<void> confirmProfile({
+  Future<String?> confirmProfile({
     required String authToken,
     required String profileId,
   }) async {
     await _delay();
+    // No road signal in mock mode: null keeps the caller on today's
+    // GET /profiling/form probe fallback, exactly as an older server would.
+    return null;
+  }
+
+  @override
+  Future<CorrectionsApplied> postProfileCorrections({
+    required String authToken,
+    required String profileId,
+    required String sessionId,
+    required List<ExtractedCorrection> corrections,
+  }) async {
+    // #1595 — canned acceptance so the review screen renders in mock mode:
+    // every entry applies, and the count ticks by the batch size. Cap and
+    // deferral states are cubit-level branches, covered by unit tests with a
+    // throwing double — the mock never needs to invent a 409.
+    await _delay();
+    return CorrectionsApplied(
+      profileId: profileId,
+      correctionsApplied: corrections.length,
+      correctionCount: corrections.length,
+    );
   }
 
   @override
@@ -287,6 +309,18 @@ class MockApiClient extends ApiClient {
   @override
   Future<void> setEmploymentDescriptionSource({
     required String employmentId,
+    required bool ownWords,
+    required String authToken,
+  }) async {
+    await _delay();
+  }
+
+  /// #1492 — the answer-level twin of the route above. A no-op for the same
+  /// reason: mock mode has no polish pipeline to re-source, so the only honest
+  /// thing to model is the round-trip latency.
+  @override
+  Future<void> setAnswerTextSource({
+    required String attributeKey,
     required bool ownWords,
     required String authToken,
   }) async {
@@ -1116,6 +1150,96 @@ class MockApiClient extends ApiClient {
       'answered': _mockTradeFormAnswers.length,
       'total': _kMockTradeFormTotalQuestions,
     };
+  }
+
+  // --- Résumé import (#1499) ------------------------------------------------
+
+  /// #1499 — DEFAULT FALSE, matching production reality exactly as
+  /// [mockHasTradeForm] does: `RESUME_UPLOADS_BUCKET` is unset on every box
+  /// today, so every processing route answers 503 and the résumé screen's
+  /// REAL behaviour is the dormant one. Mock mode must show that by default,
+  /// or the door nobody can open looks open in every dev build.
+  ///
+  /// Flip to true to exercise the upload path end-to-end.
+  bool mockResumeUploadsEnabled = false;
+
+  /// What a mock import resolves to once "parsing" finishes. Only meaningful
+  /// while [mockResumeUploadsEnabled]. `chat` is the DEFAULT because it is the
+  /// common outcome in production too — only 9 of 21 trades have a form at all.
+  ResumeImportRoute? mockResumeImportRoute = ResumeImportRoute.chat;
+
+  /// Set to a closed-set reason to make a mock import FAIL instead of parsing.
+  /// The value is never rendered (ruling D9 maps every reason to one line); it
+  /// exists so the failure branch is reachable in mock mode.
+  String? mockResumeImportFailure;
+
+  /// How many polls a mock import spends in `parsing` before it settles, so the
+  /// polling state actually renders instead of being skipped.
+  int mockResumeImportPollsBeforeDone = 2;
+
+  int _mockResumeImportPolls = 0;
+
+  ResumeImportDto _mockImport(ResumeImportStatus status) => ResumeImportDto(
+        importId: 'mock-import-0001',
+        status: status,
+        // NULL until parsing finishes — the real contract, and the one thing a
+        // client must not shortcut.
+        route: status == ResumeImportStatus.parsed ? mockResumeImportRoute : null,
+        formKind: status == ResumeImportStatus.parsed &&
+                mockResumeImportRoute == ResumeImportRoute.form
+            ? 'cnc_turner'
+            : null,
+        failureReason:
+            status == ResumeImportStatus.failed ? mockResumeImportFailure : null,
+      );
+
+  @override
+  Future<SignedUploadTicket> createResumeUploadUrl({
+    required String mime,
+    required String authToken,
+  }) async {
+    await _delay();
+    if (!mockResumeUploadsEnabled) {
+      throw ApiException(503, 'résumé uploads not enabled');
+    }
+    // Mirrors the real key shape (`resume-uploads/<workerId>/<uuid>.<ext>`)
+    // with obviously-fake sentinels. Never PUT to in mock mode — the mock
+    // uploader skips the network leg entirely.
+    return const SignedUploadTicket(
+      storagePath: 'resume-uploads/mock-worker-0001/mock-resume-0001.pdf',
+      uploadUrl: 'https://mock.local/upload/mock-resume-0001',
+      expiresInSeconds: 600,
+    );
+  }
+
+  @override
+  Future<ResumeImportDto> confirmResumeImport({
+    required String storagePath,
+    required String authToken,
+  }) async {
+    await _delay();
+    if (!mockResumeUploadsEnabled) {
+      throw ApiException(503, 'résumé uploads not enabled');
+    }
+    _mockResumeImportPolls = 0;
+    return _mockImport(ResumeImportStatus.uploaded);
+  }
+
+  @override
+  Future<ResumeImportDto> getResumeImport({
+    required String importId,
+    required String authToken,
+  }) async {
+    await _delay();
+    // NOT dormancy-gated, mirroring the real controller: the read-back route
+    // processes nothing, so it is neither purpose-gated nor bucket-gated there.
+    _mockResumeImportPolls++;
+    if (_mockResumeImportPolls <= mockResumeImportPollsBeforeDone) {
+      return _mockImport(ResumeImportStatus.parsing);
+    }
+    return _mockImport(mockResumeImportFailure != null
+        ? ResumeImportStatus.failed
+        : ResumeImportStatus.parsed);
   }
 }
 

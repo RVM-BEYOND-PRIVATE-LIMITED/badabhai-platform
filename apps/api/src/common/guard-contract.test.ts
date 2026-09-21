@@ -21,6 +21,13 @@ import { PricingController } from "../pricing/pricing.controller";
 import { AiJobsController } from "../profiles/ai-jobs.controller";
 import { WorkerAiJobsController } from "../profiles/worker-ai-jobs.controller";
 import { ProfilesController } from "../profiles/profiles.controller";
+// #1485 — this controller's own route, and the THREE worker-write siblings in `profiles` that
+// this contract has never covered. All four guard sets were read from each controller's current
+// @UseGuards, not assumed.
+import { WorkerAnswerSourceController } from "../profiles/worker-answer-source.controller";
+import { WorkerEmploymentController } from "../profiles/worker-employment.controller";
+import { WorkerPreferencesController } from "../profiles/worker-preferences.controller";
+import { WorkerQualificationsController } from "../profiles/worker-qualifications.controller";
 import { ReachController } from "../reach/reach.controller";
 import { PaceController } from "../pace/pace.controller";
 import { ResumeController } from "../resume/resume.controller";
@@ -62,6 +69,7 @@ import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
 import { PinController } from "../auth/pin.controller";
 import { ProfilingController } from "../profiling/profiling.controller";
+import { ResumeImportController } from "../profiling/resume-import/resume-import.controller";
 import { ResumeDisclosureController } from "../disclosures/resume-disclosure.controller";
 import { OccupationController } from "../occupation/occupation.controller";
 import { InterviewKitsController } from "../interview-kit/interview-kits.controller";
@@ -259,6 +267,41 @@ const CONTRACT: ControllerContract[] = [
   { name: "WorkerAiJobs", ctor: WorkerAiJobsController, routes: { get: [C, W] } },
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
+  // #1485 — the worker's say over a model's rewrite of one of his own free-text answers. A WRITE
+  // that names a row from the path, so the authz posture is the load-bearing half: the key is
+  // allow-listed by a Zod pipe, the worker comes from the token, and ownership is proved inside the
+  // UPDATE. The guards are what stop an unauthenticated caller reaching any of that.
+  {
+    name: "WorkerAnswerSource",
+    ctor: WorkerAnswerSourceController,
+    routes: { setAnswerTextSource: [C, W] },
+  },
+  // ── THREE WORKER-WRITE CONTROLLERS THIS CONTRACT DID NOT COVER ──────────────────────────
+  //
+  // Found while adding the route above, which is their direct sibling. This file calls itself "the
+  // single source of truth for which guards protect every route", and these three — every one of
+  // them a consent-gated write of the worker's own profile, one of them the #1354 mitigation route
+  // — were outside it, so dropping a @UseGuards from any of them would have been a silent green.
+  // Added here rather than filed, because the gap is four lines wide and sits under this change.
+  // #1504 — each gains a worker SELF-READ (`getMy*`), the prefill for its page. Same [C, W] as the
+  // write beside it; `getMyEmployment` returns a decrypted employer name, so its guards are the
+  // load-bearing ones. The reflection test below requires every routed method on these three
+  // classes to be listed here, so a fourth route cannot join them unpinned.
+  {
+    name: "WorkerEmployment",
+    ctor: WorkerEmploymentController,
+    routes: { getMyEmployment: [C, W], setMyEmployment: [C, W], setDescriptionSource: [C, W] },
+  },
+  {
+    name: "WorkerPreferences",
+    ctor: WorkerPreferencesController,
+    routes: { options: [C, W], getMyPreferences: [C, W], setMyPreferences: [C, W] },
+  },
+  {
+    name: "WorkerQualifications",
+    ctor: WorkerQualificationsController,
+    routes: { options: [C, W], getMyQualifications: [C, W], setMyQualifications: [C, W] },
+  },
   { name: "Reach", ctor: ReachController, routes: { applicants: [I], feed: [I] } },
   // PACE (ADR-0021) — ops-internal, guarded 2026-08-01. These were the LAST two
   // unauthenticated non-auth routes in the API: `alerts` served live supply intelligence
@@ -639,6 +682,16 @@ const CONTRACT: ControllerContract[] = [
       finalize: [C, W],
     },
   },
+  // ADR-0041 — résumé import. Worker-authed and consent-gated at the CLASS level, so all three
+  // routes inherit the pair. Note there is deliberately NO `@RequireConsentPurpose`: ruling D1
+  // put résumé upload under the existing `profiling` purpose rather than minting a tenth one,
+  // against the `voice_processing` precedent. If a later change adds a purpose decorator here,
+  // it is settling a signed ruling and belongs in an ADR, not in a controller.
+  {
+    name: "ResumeImport",
+    ctor: ResumeImportController,
+    routes: { createUploadUrl: [C, W], confirm: [C, W], get: [C, W] },
+  },
   {
     name: "ResumeDisclosure",
     ctor: ResumeDisclosureController,
@@ -728,6 +781,34 @@ describe("API authz contract — guards on every controller route", () => {
     }
   });
 
+  // #1504 — THE OTHER DIRECTION, for the controllers that serve a worker's own profile data. The
+  // check above is listed → exists; it cannot see a route that EXISTS and is not listed, which is
+  // how `ResumeController.myDocument` went two releases pinned nowhere (#1397). Reflecting the
+  // real routes closes that for these three: a new `@Get` added without a contract entry fails here.
+  describe("every routed method is in the contract (exists → listed)", () => {
+    const PATH_METADATA = "path";
+    for (const ctor of [
+      WorkerEmploymentController,
+      WorkerPreferencesController,
+      WorkerQualificationsController,
+    ] as Ctor[]) {
+      it(`${ctor.name} lists every route it serves`, () => {
+        const proto = ctor.prototype as Record<string, unknown>;
+        const routed = Object.getOwnPropertyNames(proto).filter(
+          (m) =>
+            m !== "constructor" &&
+            typeof proto[m] === "function" &&
+            Reflect.getMetadata(PATH_METADATA, proto[m] as object) !== undefined,
+        );
+        const entry = CONTRACT.find((c) => c.ctor === ctor);
+        expect(entry, `${ctor.name} has no CONTRACT entry`).toBeDefined();
+        // Non-vacuous: each of these classes routes at least a read and a write.
+        expect(routed.length).toBeGreaterThanOrEqual(2);
+        expect(routed.sort()).toEqual(Object.keys(entry!.routes).sort());
+      });
+    }
+  });
+
   // The consent-gated worker-AI controllers MUST run WorkerAuthGuard BEFORE
   // ConsentGuard (ConsentGuard reads req.worker, which WorkerAuthGuard attaches).
   // `effectiveGuards` sorts, so it can't see order — assert it here against the raw
@@ -740,6 +821,11 @@ describe("API authz contract — guards on every controller route", () => {
       // #997 — not an AI surface, but it carries the SAME class-level pair and so the same
       // ordering hazard: `ConsentGuard` reads `req.worker`, which `WorkerAuthGuard` attaches.
       { name: "WorkerFeedback", ctor: WorkerFeedbackController },
+      // ADR-0041 — the upload seam. Same class-level pair, same ordering hazard, and one more
+      // reason to pin it here: this controller registers a pointer to the densest personal
+      // document on the platform, so a `ConsentGuard` that ran before `WorkerAuthGuard` had
+      // attached `req.worker` would fail open on the one surface least able to afford it.
+      { name: "ResumeImport", ctor: ResumeImportController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

@@ -21,7 +21,18 @@ const resultSchema = z.object({ target_id: z.string(), changed: z.boolean() });
 const roleEnum = z.enum(ADMIN_ROLES);
 
 const inviteInputSchema = z.object({ email: emailSchema, role: roleEnum });
-const inviteResultSchema = z.object({ admin_id: z.string() });
+/**
+ * #1494 — the invite response now also carries the one-time accept link and its expiry.
+ *
+ * Both OPTIONAL here on purpose: an older API, or one with real email delivery configured,
+ * may legitimately return neither, and a required field would turn a working invite into a
+ * parse failure. The UI shows the link only when it is actually present.
+ */
+const inviteResultSchema = z.object({
+  admin_id: z.string(),
+  accept_url: z.string().optional(),
+  expires_at: z.string().optional(),
+});
 
 export async function inviteAdminAction(input: {
   email: string;
@@ -40,6 +51,14 @@ export async function inviteAdminAction(input: {
       ok: true,
       changed: true,
       message: `Invited ${shortId(res.admin_id)} as ${ROLE_LABELS[parsed.data.role]}.`,
+      // Returned to the CALLER so the inviting super_admin can copy it — this is how
+      // onboarding works when no email provider is configured, which is the default.
+      //
+      // It is a bearer secret: the form shows it once, and nothing logs it, persists it,
+      // or puts it in an analytics event. It cannot be fetched again — re-inviting a
+      // pending admin mints a fresh one and invalidates this.
+      acceptUrl: res.accept_url,
+      acceptExpiresAt: res.expires_at,
     };
   } catch (err) {
     return { ok: false, error: describeAdminActionError(err) };

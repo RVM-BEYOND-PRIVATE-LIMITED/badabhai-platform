@@ -79,7 +79,9 @@ function newSvc(
 
 function setup(workerExists = true) {
   const repo = {
-    findById: vi.fn(async (_id: string) => (workerExists ? { id: "w-1", fullName: null } : undefined)),
+    findById: vi.fn(async (_id: string) =>
+      workerExists ? { id: "w-1", fullName: null } : undefined,
+    ),
     updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: "w-1" })),
     updateLocation: vi.fn(async (_id: string, _patch: unknown) => ({ id: "w-1" })),
     // The name is baked onto the PDF at render time, so setFullName re-renders the
@@ -232,6 +234,8 @@ const CONFIRMED_PROFILE = {
   workerId: "w-1",
   aiJobId: "j-1",
   profileStatus: "confirmed",
+  // Task 1 — a real column now (not a sentinel): the road is projected as-is.
+  source: "chat",
   canonicalTradeId: "cnc_vmc",
   canonicalRoleId: "role_vmc_operator",
   skills: ["skill_fanuc", "skill_measuring_instruments"],
@@ -269,12 +273,23 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     const res = await svc.getProfileSummary("w-1");
     expect(res).toEqual({
       profile_status: "none",
+      source: null,
       confirmed_at: null,
       trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
       city: null,
       strength: 0,
       strength_max: 9,
-      missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
+      missing_fields: [
+        "role",
+        "trade",
+        "skills",
+        "machines",
+        "experience",
+        "salary",
+        "location",
+        "availability",
+        "photo",
+      ],
       skills: [],
       machines: [],
       experience_years: null,
@@ -291,6 +306,7 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     const res = await svc.getProfileSummary("w-1");
     expect(res).toEqual({
       profile_status: "confirmed",
+      source: "chat",
       confirmed_at: "2026-07-01T10:00:00.000Z",
       trade: {
         canonical_trade_id: "cnc_vmc",
@@ -368,11 +384,31 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
   });
 
   it("malformed/missing education fields in raw_profile ⇒ null, never a throw", async () => {
-    for (const rawProfile of [{}, { education_level: 42, education_field: "" }, null, "not-an-object"]) {
+    for (const rawProfile of [
+      {},
+      { education_level: 42, education_field: "" },
+      null,
+      "not-an-object",
+    ]) {
       const { svc } = summarySetup({ ...CONFIRMED_PROFILE, rawProfile });
       const res = await svc.getProfileSummary("w-1");
       expect(res.education_level).toBeNull();
       expect(res.education_field).toBeNull();
+    }
+  });
+
+  it("projects the road as-is, and maps unknown/pre-0107 roads to null (never a guess)", async () => {
+    const { svc } = summarySetup({ ...CONFIRMED_PROFILE, source: "form" });
+    expect((await svc.getProfileSummary("w-1")).source).toBe("form");
+
+    // A pre-0107 row carries no source key at all; a corrupt one carries garbage.
+    // Both project to null (unknown) — the mapper never invents a road.
+    for (const source of [undefined, null, "", "FORM", "trade_form", 42]) {
+      const row: Record<string, unknown> = { ...CONFIRMED_PROFILE };
+      if (source === undefined) delete row.source;
+      else row.source = source;
+      const { svc: s } = summarySetup(row);
+      expect((await s.getProfileSummary("w-1")).source).toBeNull();
     }
   });
 
@@ -658,17 +694,17 @@ describe("WorkersService.updateResumePrefs", () => {
 const WORKER_ID = "0a1b2c3d-1111-4111-8111-000000000001";
 const MINTED_KEY = `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`;
 
-function photoSetup(opts: {
-  worker?:
-    | { id: string; photoStorageKey?: string | null; resumeShowPhoto?: boolean }
-    | undefined;
-  bucket?: string;
-  info?: { contentType: string | null; sizeBytes: number | null } | null;
-  /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
-  latestResume?: { id: string; version: number } | undefined;
-  /** TD77: override to prove the re-render enqueue is best-effort. */
-  renderQueue?: { add: ReturnType<typeof vi.fn> };
-} = {}) {
+function photoSetup(
+  opts: {
+    worker?: { id: string; photoStorageKey?: string | null; resumeShowPhoto?: boolean } | undefined;
+    bucket?: string;
+    info?: { contentType: string | null; sizeBytes: number | null } | null;
+    /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
+    latestResume?: { id: string; version: number } | undefined;
+    /** TD77: override to prove the re-render enqueue is best-effort. */
+    renderQueue?: { add: ReturnType<typeof vi.fn> };
+  } = {},
+) {
   const worker =
     "worker" in opts
       ? opts.worker
@@ -709,9 +745,7 @@ describe("WorkersService.createPhotoUploadUrl (ADR-0032)", () => {
     const res = await svc.createPhotoUploadUrl(WORKER_ID);
 
     const [key, bucket] = storage.createSignedUploadUrl.mock.calls[0]!;
-    expect(key).toMatch(
-      new RegExp(`^photos/${WORKER_ID}/[0-9a-f-]{36}\\.jpg$`),
-    );
+    expect(key).toMatch(new RegExp(`^photos/${WORKER_ID}/[0-9a-f-]{36}\\.jpg$`));
     expect(bucket).toBe("worker-profile-photos");
     expect(res).toEqual({
       storage_path: key,
@@ -822,9 +856,10 @@ describe("WorkersService.confirmPhoto (ADR-0032)", () => {
       }),
     };
     const { svc, repo } = photoSetup({ renderQueue });
-    await expect(
-      svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
-    ).resolves.toEqual({ worker_id: WORKER_ID, has_photo: true });
+    await expect(svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX)).resolves.toEqual({
+      worker_id: WORKER_ID,
+      has_photo: true,
+    });
     // the pointer still persisted — the photo IS saved, only the re-render was lost
     expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, MINTED_KEY);
   });
@@ -952,5 +987,110 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
     const res = await svc.deletePhoto(WORKER_ID, CTX);
     expect(res.has_photo).toBe(false);
     expect(events.emit).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Layer A (a) / ADR-0042 D9 — the optional WhatsApp number.
+ *
+ * THE THREE PROPERTIES THAT MATTER: the plaintext never reaches the repository or the event;
+ * the event carries only the resulting state; and clearing is fail-closed on the re-render
+ * because it removes a value the worker asked to take off their sheet.
+ */
+describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
+  const WHATSAPP = "+919876543210";
+
+  function whatsappSetup(
+    worker: Record<string, unknown> | null = { id: "w-1", whatsappEnc: null },
+  ) {
+    const repo = {
+      findById: vi.fn(async (_id: string) => worker ?? undefined),
+      updateWhatsapp: vi.fn(async (_id: string, _token: string | null) => ({ id: "w-1" })),
+      latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
+    };
+    const pii = {
+      encrypt: vi.fn((_plaintext: string) => "v1.encryptedwhatsapp"),
+      decrypt: vi.fn((_token: string) => WHATSAPP),
+    };
+    const events = { emit: vi.fn(async (_e: unknown) => true) };
+    const renderQueue = mockRenderQueue();
+    const svc = newSvc(repo, pii, events, mockStorage(), mockConfig(), renderQueue);
+    return { svc, repo, pii, events, renderQueue };
+  }
+
+  it("encrypts before storing, never persists or returns the plaintext", async () => {
+    const { svc, repo, pii } = whatsappSetup();
+    const res = await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(pii.encrypt).toHaveBeenCalledWith(WHATSAPP);
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", "v1.encryptedwhatsapp");
+    expect(JSON.stringify(res)).not.toContain(WHATSAPP);
+    expect(res).toEqual({ worker_id: "w-1", has_whatsapp: true });
+  });
+
+  it("emits the resulting state only — never the number", async () => {
+    const { svc, events } = whatsappSetup();
+    await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    const emitted = events.emit.mock.calls[0]?.[0] as { event_name: string; payload: unknown };
+    expect(emitted.event_name).toBe("worker.whatsapp_recorded");
+    expect(emitted.payload).toEqual({ worker_id: "w-1", has_whatsapp: true });
+    expect(JSON.stringify(emitted)).not.toContain(WHATSAPP);
+  });
+
+  it("clears with null and re-renders fail-closed — the number must come off the PDF", async () => {
+    const { svc, repo, events, renderQueue } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.old" });
+    const res = await svc.setWhatsapp("w-1", { whatsapp: null }, CTX);
+    expect(repo.updateWhatsapp).toHaveBeenCalledWith("w-1", null);
+    expect(res.has_whatsapp).toBe(false);
+    const emitted = events.emit.mock.calls[0]?.[0] as { payload: unknown };
+    expect(emitted.payload).toEqual({ worker_id: "w-1", has_whatsapp: false });
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ failClosed: true }),
+    );
+  });
+
+  it("a same-state write is not an event and does not burn a re-render", async () => {
+    const { svc, events, renderQueue } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.same" });
+    await svc.setWhatsapp("w-1", { whatsapp: WHATSAPP }, CTX);
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("reads a stored number back decrypted", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.stored" });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: WHATSAPP,
+      has_whatsapp: true,
+    });
+    expect(pii.decrypt).toHaveBeenCalledWith("v1.stored");
+  });
+
+  it("no number on file is an absence, not an error", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: null });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: null,
+      has_whatsapp: false,
+    });
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("a decrypt failure reports unreadable-on-file, never a fabricated absence", async () => {
+    const { svc, pii } = whatsappSetup({ id: "w-1", whatsappEnc: "v1.rotated" });
+    pii.decrypt.mockImplementation(() => {
+      throw new Error("unknown kid");
+    });
+    await expect(svc.getWhatsapp("w-1")).resolves.toEqual({
+      whatsapp: null,
+      has_whatsapp: true,
+    });
+  });
+
+  it("404s a missing worker on both surfaces", async () => {
+    const { svc } = whatsappSetup(null);
+    await expect(svc.getWhatsapp("gone")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.setWhatsapp("gone", { whatsapp: null }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

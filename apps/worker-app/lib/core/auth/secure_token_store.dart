@@ -54,6 +54,7 @@ class SecureTokenStore {
   static const String _kAccessExpiresAt = 'bb_auth_access_expires_at';
   static const String _kRefreshIdemKey = 'bb_auth_refresh_idem_key';
   static const String _kRefreshIdemMintedAt = 'bb_auth_refresh_idem_minted_at';
+  static const String _kOnboardingLocation = 'bb_onboarding_location';
 
   /// Access token — MEMORY ONLY. Survives the app process but NOT a cold start;
   /// after a restart the interceptor refreshes it from the persisted refresh
@@ -99,6 +100,28 @@ class SecureTokenStore {
     await _store.delete(_kRefreshIdemKey);
     await _store.delete(_kRefreshIdemMintedAt);
   }
+
+  /// The onboarding step the worker had reached, or null once onboarding is
+  /// finished (or never started).
+  ///
+  /// #1470 — onboarding is a LINEAR sequence the worker has not finished, and
+  /// killing the app in the middle of it used to lose the place entirely: the
+  /// in-memory `resumeLocation` dies with the process, so the unlock fell back
+  /// to the shell and dropped a half-registered worker onto an empty Résumé
+  /// tab with no route back into the flow. Persisted so a cold start resumes
+  /// where the worker actually was.
+  ///
+  /// NOT a credential — a route path, no PII. It shares this store because the
+  /// store is already the single owner of "what does this device remember
+  /// about the worker", and the two are cleared together on logout.
+  Future<String?> readOnboardingLocation() =>
+      _store.read(_kOnboardingLocation);
+
+  Future<void> writeOnboardingLocation(String location) =>
+      _store.write(_kOnboardingLocation, location);
+
+  Future<void> clearOnboardingLocation() =>
+      _store.delete(_kOnboardingLocation);
 
   Future<bool> readPinSet() async => (await _store.read(_kPinSet)) == 'true';
   Future<void> writePinSet(bool value) =>
@@ -157,5 +180,8 @@ class SecureTokenStore {
     await _store.delete(_kAccessExpiresAt);
     await _store.delete(_kRefreshIdemKey);
     await _store.delete(_kRefreshIdemMintedAt);
+    // A new worker on this handset must start their own onboarding, not walk
+    // back into the previous one's half-finished flow.
+    await _store.delete(_kOnboardingLocation);
   }
 }

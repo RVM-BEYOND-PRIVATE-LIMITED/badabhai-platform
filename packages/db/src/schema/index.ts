@@ -15,27 +15,10 @@
  * backend service role only.
  */
 
-import {
-  workerConsents,
-  workerCredentials,
-  workerDevices,
-  workers,
-} from "./worker";
-import {
-  skillAliases,
-  skillRelated,
-  skills,
-  unresolvedPhrases,
-} from "./skill";
-import {
-  jobDomainAliases,
-  jobDomains,
-} from "./occupation";
-import {
-  jobDomainSkills,
-  jobPostingSkills,
-  workerProfileSkills,
-} from "./taxonomy";
+import { workerConsents, workerCredentials, workerDevices, workers } from "./worker";
+import { skillAliases, skillRelated, skills, unresolvedPhrases } from "./skill";
+import { jobDomainAliases, jobDomains, workerOccupations } from "./occupation";
+import { jobDomainSkills, jobPostingSkills, workerProfileSkills } from "./taxonomy";
 import {
   skillCandidateMatches,
   skillCandidateSources,
@@ -49,20 +32,15 @@ import {
   questionPackOptions,
   questionPacks,
 } from "./question-pack";
-import {
-  chatMessages,
-  chatSessions,
-  voiceNotes,
-} from "./chat";
-import {
-  workerPackAnswers,
-} from "./pack-answer";
-import {
-  profilingVoiceAnswers,
-  workerAttributes,
-} from "./profiling";
+import { chatMessages, chatSessions, voiceNotes } from "./chat";
+import { workerPackAnswers } from "./pack-answer";
+import { workerResumeImports } from "./resume-import";
+import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
-import { workerCertificates, workerEducations } from "./qualification";
+import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
+import { profileCorrections } from "./profile-correction";
+import { workerLanguages } from "./language";
+import { workerPortfolio } from "./portfolio";
 import {
   generatedResumes,
   profileQuestions,
@@ -71,11 +49,7 @@ import {
   workerAnswers,
   workerProfiles,
 } from "./profile";
-import {
-  applications,
-  jobPostings,
-  jobs,
-} from "./job";
+import { applications, jobPostings, jobs } from "./job";
 import {
   creditLedger,
   payerCapacity,
@@ -94,17 +68,8 @@ import {
   unlockRouting,
   unlocks,
 } from "./payer";
-import {
-  jobReach,
-  jobReachWiden,
-  matchConfig,
-  workerIndustryTenure,
-  workerSkills,
-} from "./match";
-import {
-  learnLabels,
-  learnLabelsCursor,
-} from "./learn";
+import { jobReach, jobReachWiden, matchConfig, workerIndustryTenure, workerSkills } from "./match";
+import { learnLabels, learnLabelsCursor } from "./learn";
 import {
   agencyInvites,
   agencyKyc,
@@ -143,10 +108,14 @@ export * from "./skill-discovery";
 export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
+export * from "./resume-import";
 export * from "./profiling";
 export * from "./employment";
 export * from "./qualification";
+export * from "./language";
+export * from "./portfolio";
 export * from "./profile";
+export * from "./profile-correction";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -297,6 +266,8 @@ export type QuestionPackOption = typeof questionPackOptions.$inferSelect;
 export type NewQuestionPackOption = typeof questionPackOptions.$inferInsert;
 export type WorkerPackAnswer = typeof workerPackAnswers.$inferSelect;
 export type NewWorkerPackAnswer = typeof workerPackAnswers.$inferInsert;
+export type WorkerResumeImport = typeof workerResumeImports.$inferSelect;
+export type NewWorkerResumeImport = typeof workerResumeImports.$inferInsert;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
 export type WorkerAiCostTotal = typeof workerAiCostTotals.$inferSelect;
@@ -316,6 +287,9 @@ export const schema = {
   workerConsents,
   payers,
   workerProfiles,
+  // #1311 — per-field extracted-correction audit facts (migration 0117). Present on
+  // every migrated database, so it belongs in this object as well as the `export *` above.
+  profileCorrections,
   chatSessions,
   voiceNotes,
   chatMessages,
@@ -372,6 +346,7 @@ export const schema = {
   questionPackItems,
   questionPackOptions,
   workerPackAnswers,
+  workerResumeImports,
   jobReach,
   matchConfig,
   paymentOrders,
@@ -387,6 +362,12 @@ export const schema = {
   workerEmploymentRole,
   workerCertificates,
   workerEducations,
+  workerTrainings,
+  workerLanguages,
+  workerPortfolio,
+  // Layer A (f) — the worker's declared secondary occupations (migration 0114). Present on
+  // every migrated database, so it belongs in this object as well as the `export *` above.
+  workerOccupations,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,

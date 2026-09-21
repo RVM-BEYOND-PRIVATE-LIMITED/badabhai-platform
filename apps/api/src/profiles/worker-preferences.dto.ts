@@ -3,12 +3,16 @@ import { canonicalCity } from "@badabhai/profiling-lexicon";
 
 import { credentialYearSchema } from "./credential-year";
 import {
+  AVAILABILITY_STATUSES,
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
   JOB_TYPES,
   LANGUAGES,
+  PREFERENCE_KEYS,
+  SALARY_PERIODS,
   SHIFTS,
+  WORK_TYPES,
 } from "./worker-preferences.vocabulary";
 
 /**
@@ -115,6 +119,58 @@ export const SetMyPreferencesSchema = z
     documents_ready: multiSelectAll(DOCUMENTS_READY).optional(),
     preferred_cities: preferredCities.optional(),
     job_type: z.enum(optionsOf(JOB_TYPES)).nullable().optional(),
+    /**
+     * ADR-0042 D9 / Layer A (c) — the MULTI beside `job_type`, never a replacement.
+     *
+     * PRECEDENCE IS ENCODED IN `worker-field-precedence.ts` AND NOT RE-DECIDED HERE: a non-empty
+     * `work_types` wins, `job_type` is the fallback. An EMPTY list is the worker withdrawing the
+     * multi answer (the row is cleared), which is why it is a list and not a nullable scalar.
+     *
+     * THE SAME DICTIONARY AS `job_type` (`WORK_TYPES === JOB_TYPES`), so the two can never print
+     * different English for one slug.
+     */
+    work_types: multiSelect(WORK_TYPES, 4).optional(),
+    /**
+     * The period every salary figure is quoted in — `month` (the meaning all salary keys already
+     * had, and the default for every worker who never answers this), `day` or `year`.
+     */
+    salary_period: z.enum(optionsOf(SALARY_PERIODS)).nullable().optional(),
+    /**
+     * How far the worker will travel to work, in km.
+     *
+     * BOUNDED, and generously: 500 km is already a relocation rather than a commute, and a typo
+     * printed as a distance claim is worse than no answer. NOT DERIVED FROM — and never derives —
+     * `willing_to_travel`: a distance and a willingness are two facts, and the sheet prints each
+     * one the worker gave.
+     */
+    commute_max_km: z.number().int().min(0).max(500).nullable().optional(),
+    /** Whether the worker will travel for work at all. A nullable boolean: only `true` prints. */
+    willing_to_travel: z.boolean().nullable().optional(),
+    /**
+     * ADR-0042 D9 / Layer A (c) — the FIRST structured (`json`) attribute (migration 0111).
+     *
+     * ONE OBJECT, THREE OPTIONAL PARTS, because they are one submission: a notice period without
+     * the date it runs from says nothing, and splitting them across attribute keys would let a
+     * re-answer clobber one part and leave two stale. `.strict()` bounds the keys; every key is
+     * nullable so a worker can clear one part without clearing the answer.
+     *
+     * `available_from` IS A DATE STRING, not a parsed Date: it is the worker's stated day, it
+     * prints as stated (day precision, no timezone arithmetic), and a Date in a jsonb column
+     * would round-trip through UTC and shift under IST.
+     */
+    availability: z
+      .object({
+        status: z.enum(optionsOf(AVAILABILITY_STATUSES)).nullable().optional(),
+        available_from: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "available_from must be YYYY-MM-DD")
+          .nullable()
+          .optional(),
+        notice_period_days: z.number().int().min(0).max(180).nullable().optional(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     shift: z.enum(optionsOf(SHIFTS)).nullable().optional(),
     /**
      * ONLY THE POSITIVE CLAIM IS EVER PRINTED (`buildAvailabilityRows`), so `false` here is not
@@ -210,7 +266,90 @@ export const SetMyPreferencesSchema = z
      * belongs in a change that can be reviewed as one.
      */
     education_institute: z.string().trim().min(1).max(120).nullable().optional(),
+
+    /**
+     * THE NEW-BUILD SIGNAL (#1504, owner ruling 2026-09-15). `true` means "every key in this body
+     * is one the worker actually touched", and the server applies the strict three-state contract:
+     * absent leaves the stored value alone, `[]` clears, `false` is written as `false`.
+     *
+     * ABSENT MEANS AN OLD BUILD, and an old build cannot say which keys it touched. Every shipped
+     * client sends `languages`, `documents_ready` and `preferred_cities` as `[]` and both toggles as
+     * `false` on EVERY save, touched or not (`trade_form_models.dart` `TradeFormPreferences.toJson`,
+     * `finishing_models.dart` `WorkPreferences.toUpdateBody`), so a tap-through erased three lists
+     * and flipped a stored `true` to `false`. Without this signal the service treats those
+     * default-valued keys as UNTOUCHED wherever a stored value exists. The accepted cost, ruled: an
+     * old-build worker cannot use this page to clear those answers.
+     *
+     * A LITERAL `true`, NOT A BOOLEAN. `false` would be a third spelling of "old build" that a
+     * client could send by accident and then get the lenient path while believing it asked for the
+     * strict one. There is nothing for `false` to mean, so it is a 400.
+     *
+     * NOT WRITTEN ANYWHERE. It is a request mode, not an answer — it has no attribute key, no
+     * column and no place in the event payload.
+     */
+    touched_only: z.literal(true).optional(),
   })
   .strict();
 
 export type SetMyPreferencesDto = z.infer<typeof SetMyPreferencesSchema>;
+
+/** A field of the PUT body that carries an answer — every key except the request-mode signal. */
+export type PreferenceWireKey = Exclude<keyof SetMyPreferencesDto, "touched_only">;
+
+/**
+ * STORAGE KEY → WIRE KEY, the ONE table both directions read (#1504).
+ *
+ * THREE OF TWELVE DIFFER, AND THAT IS EXACTLY WHY IT IS A TABLE. `preferred_locations` is the
+ * attribute the interview also writes, `shift_preference` is `qp_universal`'s key and
+ * `relocation_willingness` was `qp_universal@1`'s — each name is fixed by a store the form shares —
+ * while the wire names are what two Flutter models already send. A writer and a reader that each
+ * spelled the pairing out would agree today and drift the first time one of them was edited: a GET
+ * that reads `preferred_locations` into `preferred_locations` is a response the PUT rejects as an
+ * unknown key, on a `.strict()` schema, for the whole save.
+ *
+ * `satisfies` A TOTAL MAP OVER BOTH SIDES. A storage key added to `PREFERENCE_KEYS` without a wire
+ * name here is a type error, and so is a wire name the schema does not have.
+ */
+export const PREFERENCE_WIRE_KEYS = {
+  languages: "languages",
+  documents_ready: "documents_ready",
+  preferred_locations: "preferred_cities",
+  job_type: "job_type",
+  work_types: "work_types",
+  salary_period: "salary_period",
+  commute_max_km: "commute_max_km",
+  willing_to_travel: "willing_to_travel",
+  availability: "availability",
+  shift_preference: "shift",
+  relocation_willingness: "willing_to_relocate",
+  accommodation_needed: "accommodation_needed",
+  salary_expected_max: "salary_expected_max",
+  education_credential: "education_credential",
+  education_council: "education_council",
+  education_year: "education_year",
+  education_institute: "education_institute",
+} as const satisfies Record<keyof typeof PREFERENCE_KEYS, PreferenceWireKey>;
+
+/**
+ * The stored answers, in EXACTLY the PUT's field names and value shapes (#1504).
+ *
+ * `null` MEANS NO STORED ROW; `[]` MEANS A STORED "NONE OF THESE". Coalescing the first into the
+ * second would make a prefill-then-save with `touched_only: true` clear every list the worker never
+ * answered — which is the tap-through erase this endpoint exists to end, re-created on the new build.
+ */
+export type WorkPreferenceValues = {
+  [K in PreferenceWireKey]-?: Exclude<SetMyPreferencesDto[K], undefined> | null;
+};
+
+export interface WorkPreferencesResponse {
+  readonly values: WorkPreferenceValues;
+  /**
+   * Wire keys whose stored value was NOT returned in full: a list that lost one or more values, or
+   * a scalar whose stored value no longer validates and so reads as `null`. A client must not
+   * re-send such a key unless the worker edits it, because a PUT replaces the whole value and the
+   * part that was withheld would be erased.
+   */
+  readonly partial: readonly PreferenceWireKey[];
+  /** How many stored values were withheld across every key in {@link partial}. */
+  readonly dropped_count: number;
+}

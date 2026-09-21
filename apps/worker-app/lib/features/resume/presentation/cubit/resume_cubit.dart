@@ -4,9 +4,12 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart' show ResumeDocument;
+import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../../profile/domain/profile_repository.dart';
+import '../../../profile_tab/domain/profile_summary.dart';
+import '../../../profile_tab/domain/profile_summary_repository.dart';
 import '../../domain/resume_edit_repository.dart';
 import '../../domain/resume_repository.dart';
 import '../../domain/resume_safe_fields.dart';
@@ -20,6 +23,8 @@ class ResumeState extends Equatable {
     this.nightShiftReady = false,
     this.document,
     this.awaitingDocument = false,
+    this.renderStatus,
+    this.profileConfirmed,
   });
 
   final ResumeStatus status;
@@ -49,20 +54,73 @@ class ResumeState extends Equatable {
   /// left on the loader forever, even if the retry budget runs out.
   final bool awaitingDocument;
 
+  /// The PDF's REAL state as the server reports it (`'pending' | 'rendered' |
+  /// 'failed'`), or null when unknown. A RAW TOKEN — never rendered.
+  ///
+  /// The tab's READY pill reads [pdfRendered] and nothing else (ruling R6).
+  /// It used to be painted from "there is resume text", which says nothing
+  /// about whether a PDF exists — so the worker got a green success mark and
+  /// then "PDF taiyaar ho rahi hai…" on tapping Download.
+  ///
+  /// Carried through EVERY `ready` emit, including the lightweight prefs-only
+  /// reloads: a stale-but-true status beats blanking a pill the worker
+  /// already saw.
+  final String? renderStatus;
+
+  /// R7 — whether the worker's PROFILE is confirmed, from
+  /// `GET /workers/me/profile-summary`. Three-valued on purpose:
+  ///  * `false` → the DRAFT pill shows;
+  ///  * `true` → it is hidden;
+  ///  * `null` (unknown: no repository wired, or the read failed) → ALSO
+  ///    hidden.
+  ///
+  /// Unknown must never show DRAFT. The resume TEXT cannot answer this —
+  /// ai-service stamps "WORKER PROFILE (DRAFT)" on every resume it builds
+  /// (backend gap B11), so the old text-parsed pill was permanently true and
+  /// therefore told a confirmed worker their profile was a draft forever.
+  final bool? profileConfirmed;
+
+  /// True only when the server said the PDF is rendered. Fails closed:
+  /// absent / pending / failed are all "not ready".
+  bool get pdfRendered => renderStatus == 'rendered';
+
   @override
-  List<Object?> get props =>
-      <Object?>[status, resumeText, nightShiftReady, document, awaitingDocument];
+  List<Object?> get props => <Object?>[
+    status,
+    resumeText,
+    nightShiftReady,
+    document,
+    awaitingDocument,
+    renderStatus,
+    profileConfirmed,
+  ];
 }
 
 /// Drives the resume screen: a single generate-on-open action. A failure shows
 /// the app's standard retry view (rather than the original's stuck spinner).
 class ResumeCubit extends Cubit<ResumeState> {
-  ResumeCubit(this._repo, this._editRepo, this._profileRepo)
-      : super(const ResumeState());
+  ResumeCubit(
+    this._repo,
+    this._editRepo,
+    this._profileRepo, {
+    ProfileSummaryRepository? profileSummaryRepository,
+  }) : _injectedSummaryRepo = profileSummaryRepository,
+       super(const ResumeState());
 
   final ResumeRepository _repo;
   final ResumeEditRepository _editRepo;
   final ProfileRepository _profileRepo;
+
+  /// R7's source, INJECTABLE but not required.
+  ///
+  /// Not a required constructor argument on purpose: the DI registration in
+  /// `locator.dart` is owned by no screen package in this redesign, so
+  /// widening the signature there would have meant editing a file outside
+  /// this change. Left null (production), the getter below resolves it from
+  /// the locator IF it is registered — and simply goes without when it is
+  /// not, which is what keeps the partial-locator widget tests working. A
+  /// test that wants to exercise the DRAFT pill passes a fake here.
+  final ProfileSummaryRepository? _injectedSummaryRepo;
 
   /// True while a load is in flight. The tab-focus refetch and the screen's own
   /// create:-time load can both fire around a first visit, and a second
@@ -100,18 +158,20 @@ class ResumeCubit extends Cubit<ResumeState> {
       // Emit `ready` with the text IMMEDIATELY — do NOT block the first paint on
       // the night-shift pref. The resume text is the product; the night-shift flag
       // is garnish (like the photo). Gating `ready` on this extra fetch delayed the
-      // whole screen and pushed ResumePhotoHeader's mount past widget tests' fixed
+      // whole screen and pushed the profile card's mount past widget tests' fixed
       // settle window, leaking its mock timer. Load the pref in the background and
       // re-emit; an unchanged value dedupes to a no-op (Equatable).
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        nightShiftReady: state.nightShiftReady,
-        // A fresh generate — the structured document fetch below has not
-        // resolved yet. The screen shows a loader, not this text, until it
-        // does (see ResumeState.awaitingDocument's own doc).
-        awaitingDocument: true,
-      ));
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          nightShiftReady: state.nightShiftReady,
+          // A fresh generate — the structured document fetch below has not
+          // resolved yet. The screen shows a loader, not this text, until it
+          // does (see ResumeState.awaitingDocument's own doc).
+          awaitingDocument: true,
+        ),
+      );
       // B7 funnel milestone — the worker reached a generated resume. Fired from
       // generate() only (never refresh(), which is a tab-focus re-read of an
       // existing resume) and once per cubit, so it counts workers who got there
@@ -121,25 +181,32 @@ class ResumeCubit extends Cubit<ResumeState> {
         unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
       }
       // Started together so the document fetch rides alongside the night-shift
-      // fetch rather than doubling the wait — both are best-effort UPGRADES
-      // over the resume text already on screen. This is a FRESH generation
-      // (not a re-read of an existing resume), so the document is fetched
-      // WITH RETRY — see [_loadDocumentWithRetry].
+      // and profile-status fetches rather than tripling the wait — all three
+      // are best-effort UPGRADES over the resume text already on screen. This
+      // is a FRESH generation (not a re-read of an existing resume), so the
+      // document is fetched WITH RETRY — see [_loadDocumentWithRetry].
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
-      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
+      final Future<ResumeDocumentSnapshot> documentFuture =
+          _loadDocumentWithRetry();
+      final Future<bool?> confirmedFuture = _loadProfileConfirmed();
       final bool nightShiftReady = await nightShiftFuture;
-      final ResumeDocument? document = await documentFuture;
+      final ResumeDocumentSnapshot snapshot = await documentFuture;
+      final bool? confirmed = await confirmedFuture;
       if (isClosed) return;
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        nightShiftReady: nightShiftReady,
-        document: document,
-        // Settled — successfully or not (the retry budget is bounded; see
-        // _loadDocumentWithRetry's own doc). Never leaves the worker on the
-        // loader forever.
-        awaitingDocument: false,
-      ));
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          nightShiftReady: nightShiftReady,
+          document: snapshot.document,
+          renderStatus: snapshot.renderStatus,
+          profileConfirmed: confirmed,
+          // Settled — successfully or not (the retry budget is bounded; see
+          // _loadDocumentWithRetry's own doc). Never leaves the worker on the
+          // loader forever.
+          awaitingDocument: false,
+        ),
+      );
     } on ProfileIncompleteFailure catch (_) {
       if (isClosed) return;
       // #1371 — form handover skips extraction, so the profile may not exist
@@ -172,28 +239,36 @@ class ResumeCubit extends Cubit<ResumeState> {
           // population the awaitingDocument fix in the happy path below was
           // built for — so it needs the identical two-emit dance, not a
           // shortcut. See ResumeState.awaitingDocument's own doc.
-          emit(ResumeState(
-            status: ResumeStatus.ready,
-            resumeText: retryText,
-            awaitingDocument: true,
-          ));
+          emit(
+            ResumeState(
+              status: ResumeStatus.ready,
+              resumeText: retryText,
+              awaitingDocument: true,
+            ),
+          );
           if (!_resumeReadyLogged) {
             _resumeReadyLogged = true;
             unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
           }
           final Future<bool> nightShiftFuture = _loadNightShiftReady();
-          final Future<ResumeDocument?> documentFuture =
+          final Future<ResumeDocumentSnapshot> documentFuture =
               _loadDocumentWithRetry();
+          final Future<bool?> confirmedFuture = _loadProfileConfirmed();
           final bool nightShiftReady = await nightShiftFuture;
-          final ResumeDocument? document = await documentFuture;
+          final ResumeDocumentSnapshot snapshot = await documentFuture;
+          final bool? confirmed = await confirmedFuture;
           if (isClosed) return;
-          emit(ResumeState(
-            status: ResumeStatus.ready,
-            resumeText: retryText,
-            nightShiftReady: nightShiftReady,
-            document: document,
-            awaitingDocument: false,
-          ));
+          emit(
+            ResumeState(
+              status: ResumeStatus.ready,
+              resumeText: retryText,
+              nightShiftReady: nightShiftReady,
+              document: snapshot.document,
+              renderStatus: snapshot.renderStatus,
+              profileConfirmed: confirmed,
+              awaitingDocument: false,
+            ),
+          );
           return;
         }
       } catch (_) {
@@ -239,23 +314,35 @@ class ResumeCubit extends Cubit<ResumeState> {
       }
       // Same as generate(): surface the (reused) text immediately, then refresh the
       // night-shift pref in the background so the first paint isn't gated on it.
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        nightShiftReady: state.nightShiftReady,
-        document: state.document,
-      ));
+      // The render status and profile status already on screen are CARRIED, not
+      // cleared — a background re-read must not blink the worker's READY pill off.
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          nightShiftReady: state.nightShiftReady,
+          document: state.document,
+          renderStatus: state.renderStatus,
+          profileConfirmed: state.profileConfirmed,
+        ),
+      );
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
-      final Future<ResumeDocument?> documentFuture = _loadDocument();
+      final Future<ResumeDocumentSnapshot> documentFuture = _loadDocument();
+      final Future<bool?> confirmedFuture = _loadProfileConfirmed();
       final bool nightShiftReady = await nightShiftFuture;
-      final ResumeDocument? document = await documentFuture;
+      final ResumeDocumentSnapshot snapshot = await documentFuture;
+      final bool? confirmed = await confirmedFuture;
       if (isClosed) return;
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        nightShiftReady: nightShiftReady,
-        document: document,
-      ));
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          nightShiftReady: nightShiftReady,
+          document: snapshot.document,
+          renderStatus: snapshot.renderStatus,
+          profileConfirmed: confirmed,
+        ),
+      );
     } on ProfileIncompleteFailure {
       if (isClosed) return;
       if (state.status != ResumeStatus.ready) {
@@ -309,23 +396,32 @@ class ResumeCubit extends Cubit<ResumeState> {
       // for this window (awaitingDocument), never the bare text, so a
       // form-first worker's thin fallback narrative never flashes on screen
       // only to be replaced a moment later by the real structured content.
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        awaitingDocument: true,
-      ));
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          awaitingDocument: true,
+        ),
+      );
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
-      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
+      final Future<ResumeDocumentSnapshot> documentFuture =
+          _loadDocumentWithRetry();
+      final Future<bool?> confirmedFuture = _loadProfileConfirmed();
       final bool nightShiftReady = await nightShiftFuture;
-      final ResumeDocument? document = await documentFuture;
+      final ResumeDocumentSnapshot snapshot = await documentFuture;
+      final bool? confirmed = await confirmedFuture;
       if (isClosed) return;
-      emit(ResumeState(
-        status: ResumeStatus.ready,
-        resumeText: text,
-        nightShiftReady: nightShiftReady,
-        document: document,
-        awaitingDocument: false,
-      ));
+      emit(
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: text,
+          nightShiftReady: nightShiftReady,
+          document: snapshot.document,
+          renderStatus: snapshot.renderStatus,
+          profileConfirmed: confirmed,
+          awaitingDocument: false,
+        ),
+      );
     } finally {
       _loading = false;
     }
@@ -340,14 +436,19 @@ class ResumeCubit extends Cubit<ResumeState> {
     if (_isBlank(state.resumeText)) return;
     final bool nightShiftReady = await _loadNightShiftReady();
     if (isClosed) return;
-    emit(ResumeState(
-      status: ResumeStatus.ready,
-      resumeText: state.resumeText,
-      nightShiftReady: nightShiftReady,
-      // Preserved, not re-fetched: this is a lightweight prefs-only reload, and
-      // the structured document did not change under a night-shift toggle.
-      document: state.document,
-    ));
+    emit(
+      ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: state.resumeText,
+        nightShiftReady: nightShiftReady,
+        // Preserved, not re-fetched: this is a lightweight prefs-only reload, and
+        // neither the structured document nor the PDF's render state nor the
+        // profile's confirmed state changed under a night-shift toggle.
+        document: state.document,
+        renderStatus: state.renderStatus,
+        profileConfirmed: state.profileConfirmed,
+      ),
+    );
   }
 
   /// A resume body that is empty or only whitespace is not a resume — the screen
@@ -363,15 +464,47 @@ class ResumeCubit extends Cubit<ResumeState> {
     }
   }
 
-  /// #1343 — best-effort load of the structured resume document. The
-  /// repository itself never throws (see [ResumeRepository.loadResumeDocument]),
-  /// but this belt-and-suspenders catch matches [_loadNightShiftReady]: a
-  /// hiccup here must NEVER cost the worker the resume text already resolved.
-  Future<ResumeDocument?> _loadDocument() async {
+  /// R7 — the DRAFT pill's only honest source, read best-effort.
+  ///
+  /// Returns null when there is nothing to read (no repository registered) or
+  /// the read failed. Null is NOT "draft": an unknown profile status hides the
+  /// pill, because showing DRAFT on a confirmed worker's resume is the exact
+  /// bug this replaced.
+  Future<bool?> _loadProfileConfirmed() async {
+    final ProfileSummaryRepository? repo = _summaryRepo;
+    if (repo == null) return null;
+    try {
+      final ProfileSummary summary = await repo.summary();
+      // `verified` already means `confirmed_at != null || status ==
+      // 'confirmed'` (profile_summary_repository_impl.dart) — the same
+      // question, mapped once, rather than re-deriving it from the raw status
+      // token here.
+      return summary.verified;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The injected repository, else the registered one, else none. See
+  /// [_injectedSummaryRepo] for why it is resolved here rather than required.
+  ProfileSummaryRepository? get _summaryRepo {
+    final ProfileSummaryRepository? injected = _injectedSummaryRepo;
+    if (injected != null) return injected;
+    return locator.isRegistered<ProfileSummaryRepository>()
+        ? locator<ProfileSummaryRepository>()
+        : null;
+  }
+
+  /// #1343 — best-effort load of the structured resume document AND the PDF's
+  /// render state. The repository itself never throws (see
+  /// [ResumeRepository.loadResumeDocument]), but this belt-and-suspenders
+  /// catch matches [_loadNightShiftReady]: a hiccup here must NEVER cost the
+  /// worker the resume text already resolved.
+  Future<ResumeDocumentSnapshot> _loadDocument() async {
     try {
       return await _repo.loadResumeDocument();
     } catch (_) {
-      return null;
+      return const ResumeDocumentSnapshot();
     }
   }
 
@@ -385,9 +518,10 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// A CEILING to catch the common case, not a tuned value — the real
   /// number should come from measured render-job p50/p95 (see
   /// [kProfileExtractWaitBudget]'s own doc for the same caveat on the same
-  /// shape of problem). The principled fix is the server exposing
-  /// `render_status` on this response so the client polls a real signal
-  /// instead of blind-retrying a fixed count; raised as an issue.
+  /// shape of problem). The response now carries `render_status`, so a
+  /// future change can poll that real signal instead of blind-retrying a
+  /// fixed count; the retry is kept as-is here because switching the loop's
+  /// exit condition is a behaviour change, not a re-skin.
   /// Mutable (not `const`), matching the same test-seam shape as
   /// `AppTypography.bundledBrandFonts` — a widget/bloc test sets
   /// [documentPollInterval] to `Duration.zero` (restored in `tearDown`) so
@@ -396,24 +530,39 @@ class ResumeCubit extends Cubit<ResumeState> {
   static int documentPollMaxAttempts = 6;
   static Duration documentPollInterval = const Duration(seconds: 2);
 
-  /// [_loadDocument], retried on a `null` result — worst case adds ~10s
+  /// [_loadDocument], retried on a `null` document — worst case adds ~10s
   /// (5 waits × 2s) before accepting null as final. Stops the instant a
-  /// non-null document arrives. See [documentPollMaxAttempts]'s doc for why
+  /// FRESH document arrives. See [documentPollMaxAttempts]'s doc for why
   /// this exists: without it, a worker who just finished the trade form (or
   /// just changed a description source) can land on the Resume tab before
   /// the async render job has written the document at all, and see a thin
   /// generic-text fallback instead of the real trade-sheet content until
   /// their next tab-focus or app restart happens to land after the job.
-  Future<ResumeDocument?> _loadDocumentWithRetry() async {
+  ///
+  /// FRESH means non-null AND not [ResumeDocumentSnapshot.isStalePendingDocument].
+  /// A manual regenerate resets the row to `pending` with `rendered_at` null
+  /// while leaving the previous render's document in place, so stopping on
+  /// the first non-null document lands on the OLD skills after a section-walk
+  /// edit (back to step 1, change, submit). The stale shape keeps polling;
+  /// everything else behaves exactly as before (a null/absent status is
+  /// never stale, so older servers and all existing stubs are unaffected).
+  ///
+  /// Returns the LAST snapshot, not an empty one, when the budget runs out:
+  /// a worker on the legacy text path has no document by definition, and
+  /// their PDF's `render_status` still has to reach the banner.
+  Future<ResumeDocumentSnapshot> _loadDocumentWithRetry() async {
+    ResumeDocumentSnapshot snapshot = const ResumeDocumentSnapshot();
     for (int attempt = 0; attempt < documentPollMaxAttempts; attempt++) {
-      final ResumeDocument? document = await _loadDocument();
-      if (document != null) return document;
-      if (isClosed) return null;
+      snapshot = await _loadDocument();
+      if (snapshot.document != null && !snapshot.isStalePendingDocument) {
+        return snapshot;
+      }
+      if (isClosed) return snapshot;
       if (attempt < documentPollMaxAttempts - 1) {
         await Future<void>.delayed(documentPollInterval);
       }
     }
-    return null;
+    return snapshot;
   }
 
   /// Resolves a short-lived signed url for the resume PDF, or null if it could
@@ -451,19 +600,49 @@ class ResumeCubit extends Cubit<ResumeState> {
     String employmentId, {
     required bool ownWords,
   }) async {
-    await _repo.setEmploymentDescriptionSource(employmentId, ownWords: ownWords);
+    await _repo.setEmploymentDescriptionSource(
+      employmentId,
+      ownWords: ownWords,
+    );
     if (isClosed) return;
     // This write ALSO enqueues an async re-render (same
     // `RESUME_RENDER_QUEUE` the initial generate does — see
     // `worker-employment.service.ts`'s `setDescriptionSource`), so the same
     // race [_loadDocumentWithRetry] guards against applies here too.
-    final ResumeDocument? reloaded = await _loadDocumentWithRetry();
+    final ResumeDocumentSnapshot reloaded = await _loadDocumentWithRetry();
     if (isClosed) return;
-    emit(ResumeState(
-      status: state.status,
-      resumeText: state.resumeText,
-      nightShiftReady: state.nightShiftReady,
-      document: reloaded ?? state.document,
-    ));
+    emit(
+      ResumeState(
+        status: state.status,
+        resumeText: state.resumeText,
+        nightShiftReady: state.nightShiftReady,
+        document: reloaded.document ?? state.document,
+        renderStatus: reloaded.renderStatus ?? state.renderStatus,
+        profileConfirmed: state.profileConfirmed,
+      ),
+    );
+  }
+
+  /// #1492 — the answer-level twin of [setEmploymentDescriptionSource], for the
+  /// fresher's training sentence. Same enqueue-then-reload race, so the same
+  /// [_loadDocumentWithRetry] guard.
+  Future<void> setAnswerTextSource(
+    String attributeKey, {
+    required bool ownWords,
+  }) async {
+    await _repo.setAnswerTextSource(attributeKey, ownWords: ownWords);
+    if (isClosed) return;
+    final ResumeDocumentSnapshot reloaded = await _loadDocumentWithRetry();
+    if (isClosed) return;
+    emit(
+      ResumeState(
+        status: state.status,
+        resumeText: state.resumeText,
+        nightShiftReady: state.nightShiftReady,
+        document: reloaded.document ?? state.document,
+        renderStatus: reloaded.renderStatus ?? state.renderStatus,
+        profileConfirmed: state.profileConfirmed,
+      ),
+    );
   }
 }

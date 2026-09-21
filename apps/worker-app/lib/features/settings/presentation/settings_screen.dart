@@ -1,26 +1,41 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/config/build_info.dart';
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/date_label.dart';
+import '../../../core/util/push_once.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
-import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/kit/kit_card.dart';
+import '../../../core/widgets/kit/kit_content_column.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
+import '../../../core/widgets/feedback_fab.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
+
+/// Minimum clearance under the last row. The REAL clearance now comes from
+/// [FeedbackFabInset], which knows the pill's live height and this page's own
+/// bottom bar; this stays as the floor for a host that mounts no pill.
+///
+/// The pill IS shown on this screen (it is hidden only on the three tab roots),
+/// and what it must never cover is the build-id footer.
+const double _kFeedbackPillClearance = 96;
+
+/// Below this width the pending-deletion banner's action drops UNDER its text
+/// instead of sitting beside it.
+const double _kBannerStackBelowWidth = 340;
 
 /// Settings (spec §5.10). Most rows are inert for the alpha (a tap shows a
 /// "coming soon" snackbar). Account-delete is hidden for now; the DPDP
@@ -60,28 +75,15 @@ class _SettingsView extends StatelessWidget {
 
   /// Step 0 → 1: the 7-day-grace confirmation, then kick off the OTP flow.
   Future<void> _confirmDelete(BuildContext context) async {
-    final bool proceed = await showDialog<bool>(
-          context: context,
-          builder: (BuildContext dialogContext) => AlertDialog(
-            title: const Text('Account delete karein?'),
-            content: const Text(
-              'OTP verify karne ke baad aapka account 7 din mein delete ho jaata '
-              'hai. Is dauraan aap kabhi bhi cancel kar sakte hain.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Rehne dein'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                child: const Text('Delete karein'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    final bool proceed = await showBbConfirm(
+      context,
+      title: 'Account delete karein?',
+      message:
+          'OTP verify karne ke baad aapka account 7 din mein delete ho jaata '
+          'hai. Is dauraan aap kabhi bhi cancel kar sakte hain.',
+      confirmLabel: 'Delete karein',
+      destructive: true,
+    );
     if (!proceed || !context.mounted) return;
     await _startDeleteOtpFlow(context);
   }
@@ -100,159 +102,229 @@ class _SettingsView extends StatelessWidget {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
-            SnackBar(content: Text(failureReason(s.failure).reason)));
+          SnackBar(content: Text(failureReason(s.failure).reason)),
+        );
       return;
     }
 
     await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (BuildContext dialogContext) => BlocProvider<AccountDeleteCubit>.value(
-        value: cubit,
-        child: const _DeleteOtpDialog(),
-      ),
+      barrierColor: OnboardingColors.scrim,
+      builder: (BuildContext dialogContext) =>
+          BlocProvider<AccountDeleteCubit>.value(
+            value: cubit,
+            child: const DeleteOtpDialog(),
+          ),
     );
   }
 
   /// A settings group card — white paper, one hairline border, no shadow; the
   /// rows supply their own dividers (kit grouped-list idiom).
+  ///
+  /// The rows are clipped to the card's own radius, so a row's ink splash and
+  /// its bottom hairline stop at the rounded corner instead of painting into it.
   Widget _group(List<Widget> rows) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
+    return KitCard(
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+        child: Column(children: rows),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: rows),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    // Still [BbScaffold], with its own chrome switched off: the navy header has
+    // to bleed into the status bar (so `safeArea: false`) and the list owns its
+    // gutter (so `padded: false`). What it is kept FOR is the `bottomBarInset`
+    // contract — a page with no bottom bar publishes 0, which is what keeps the
+    // floating Feedback pill from floating at the height of whatever sticky CTA
+    // the screen underneath this one still has mounted.
     return BbScaffold(
-      appBar: const BbAppBar(title: 'Settings'),
       padded: false,
-      body: ListView(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.gutter,
-          vertical: AppSpacing.s4,
-        ),
+      safeArea: false,
+      body: Column(
         children: <Widget>[
-          // HIDDEN FOR NOW: the 'Bhasha' language row — hidden across the app
-          // until real localization ships (the picker only ever set `X-Locale`,
-          // with no translated strings behind it). Restore it with the splash
-          // picker.
-          _group(<Widget>[
-            // B7 kill switch. Defaults to VISIBLE (today's behaviour); lets ops
-            // pause the referral funnel without shipping a build. Hiding the
-            // entry point does NOT disable attribution — a code already captured
-            // from a deep link / install referrer is still drained after consent.
-            if (!BbRemoteConfig.instance.inviteEntryHidden)
-              BbListRow.setting(
-                icon: Icons.person_add_alt_1_outlined,
-                title: 'Dost ko invite karein',
-                subtitle: 'Referral link share karein',
-                onTap: () => context.push(Routes.invite),
-              ),
-            BbListRow.setting(
-              icon: Icons.chat,
-              title: 'WhatsApp alerts',
-              subtitle: 'Job alert · resume · reply',
-              onTap: () => _comingSoon(context),
-            ),
-            const _NotificationsToggleRow(),
-          ]),
-          const SizedBox(height: AppSpacing.s4),
-          _group(<Widget>[
-            // #464 — RESTORED. The worker's only in-app way to kick a lost or
-            // stolen handset off their account (the emit-after-close crash in
-            // DevicesCubit.load, FI-001, that got it removed is now guarded at
-            // its source — DevicesScreen / Routes.devices are reachable again).
-            BbListRow.setting(
-              icon: Icons.devices_other_outlined,
-              title: 'Aapke devices',
-              subtitle: 'Logged-in devices dekhein · hatayein',
-              onTap: () => context.push(Routes.devices),
-            ),
-            BbListRow.setting(
-              icon: Icons.verified_user_outlined,
-              title: 'Privacy & data',
-              subtitle: 'Consent · download · delete',
-              onTap: () => _comingSoon(context),
-            ),
-            const _WithdrawConsentRow(),
-          ]),
-          // Account delete hidden for now; will return after the flow is redesigned.
-          Visibility(
-            visible: false,
-            maintainState: true,
-            child: BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
-              // React only to the cancel round trip resolving (cancelling →
-              // idle/scheduled) — the OTP dialog owns its own error surface.
-              listenWhen: (AccountDeleteState prev, AccountDeleteState curr) =>
-                  prev.status == AccountDeleteStatus.cancelling &&
-                  curr.status != AccountDeleteStatus.cancelling,
-              listener: (BuildContext context, AccountDeleteState state) {
-                final ScaffoldMessengerState messenger =
-                    ScaffoldMessenger.of(context)..clearSnackBars();
-                if (state.status == AccountDeleteStatus.idle) {
-                  messenger.showSnackBar(const SnackBar(
-                      content: Text('Account delete cancel ho gaya')));
-                } else {
-                  // Cancel failed — the honest reason; the banner stays.
-                  messenger.showSnackBar(SnackBar(
-                      content: Text(failureReason(state.failure).reason)));
-                }
-              },
-              builder: (BuildContext context, AccountDeleteState state) {
-                final bool pending =
-                    state.status == AccountDeleteStatus.scheduled ||
-                        state.status == AccountDeleteStatus.cancelling;
-                if (!pending) {
-                  final bool requestInProgress = state.status ==
-                          AccountDeleteStatus.sendingOtp ||
-                      state.status == AccountDeleteStatus.otpSent ||
-                      state.status == AccountDeleteStatus.confirming;
-                  final Widget row = BbListRow.setting(
-                    icon: Icons.delete_outline,
-                    title: 'Account delete karein',
-                    subtitle: 'OTP ke baad 7 din mein',
-                    onTap: requestInProgress ? null : () => _confirmDelete(context),
-                  );
-                  if (requestInProgress) {
-                    return IgnorePointer(
-                      child: Opacity(
-                        opacity: 0.45,
-                        child: row,
-                      ),
-                    );
-                  }
-                  return row;
-                }
-                return _PendingDeletionBanner(state: state);
-              },
-            ),
+          ShiftBlueHeader(
+            title: 'Settings',
+            // A pushed utility screen: back and title on one row, no brand
+            // badge, so the list starts as high as possible.
+            compact: true,
+            onBack: () => Navigator.of(context).maybePop(),
           ),
-          const SizedBox(height: AppSpacing.s5),
-          // Version + BUILD id (#966). The build id is shown inline so a tester
-          // can READ and quote exactly which build their device runs — the only
-          // in-app way to tell a real bug from a stale APK — and a LONG-PRESS
-          // copies it to the clipboard for a bug report. `kAppBuild` is a
-          // PII-free commit SHA / build number ("dev" in a debug build).
-          GestureDetector(
-            onLongPress: () {
-              Clipboard.setData(const ClipboardData(text: kAppBuild));
-              ScaffoldMessenger.of(context)
-                ..clearSnackBars()
-                ..showSnackBar(
-                    const SnackBar(content: Text('Build id copy ho gaya')));
-            },
-            child: Text(
-              'BadaBhai · v1.0 · build $kAppBuild · Made in India',
-              textAlign: TextAlign.center,
-              style: AppTypography.body(
-                  size: AppTypography.sizeXs, color: AppColors.textFaint),
+          Expanded(
+            child: ListView(
+              // The scroll view's own padding (D7), so the column centres on a
+              // tablet while the scrollbar stays at the screen edge. `safeArea`
+              // is off, so the system inset is added here.
+              padding:
+                  KitInsets.list(
+                    MediaQuery.sizeOf(context).width,
+                    max: OnboardingLayout.maxContentWidth,
+                    gutter: 16,
+                  ).copyWith(
+                    top: 16,
+                    bottom:
+                        math.max(
+                          _kFeedbackPillClearance,
+                          FeedbackFabInset.of(context),
+                        ) +
+                        MediaQuery.paddingOf(context).bottom,
+                  ),
+              children: <Widget>[
+                // HIDDEN FOR NOW: the 'Bhasha' language row — hidden across the
+                // app until real localization ships (the picker only ever set
+                // `X-Locale`, with no translated strings behind it). Restore it
+                // with the splash picker.
+                _group(<Widget>[
+                  // B7 kill switch. Defaults to VISIBLE (today's behaviour); lets ops
+                  // pause the referral funnel without shipping a build. Hiding the
+                  // entry point does NOT disable attribution — a code already captured
+                  // from a deep link / install referrer is still drained after consent.
+                  if (!BbRemoteConfig.instance.inviteEntryHidden)
+                    BbListRow.setting(
+                      icon: Icons.person_add_alt_1_outlined,
+                      title: 'Dost ko invite karein',
+                      subtitle: 'Referral link share karein',
+                      onTap: () => context.pushOnce(Routes.invite),
+                    ),
+                  BbListRow.setting(
+                    icon: Icons.chat,
+                    title: 'WhatsApp alerts',
+                    subtitle: 'Job alert · resume · reply',
+                    onTap: () => _comingSoon(context),
+                  ),
+                  const _NotificationsToggleRow(),
+                ]),
+                const SizedBox(height: 16),
+                _group(<Widget>[
+                  // #464 — RESTORED. The worker's only in-app way to kick a lost or
+                  // stolen handset off their account (the emit-after-close crash in
+                  // DevicesCubit.load, FI-001, that got it removed is now guarded at
+                  // its source — DevicesScreen / Routes.devices are reachable again).
+                  BbListRow.setting(
+                    icon: Icons.devices_other_outlined,
+                    title: 'Aapke devices',
+                    subtitle: 'Logged-in devices dekhein · hatayein',
+                    onTap: () => context.pushOnce(Routes.devices),
+                  ),
+                  BbListRow.setting(
+                    icon: Icons.verified_user_outlined,
+                    title: 'Privacy & data',
+                    subtitle: 'Consent · download · delete',
+                    onTap: () => _comingSoon(context),
+                  ),
+                  const _WithdrawConsentRow(),
+                ]),
+                // Account delete hidden for now; will return after the flow is
+                // redesigned.
+                Visibility(
+                  visible: false,
+                  maintainState: true,
+                  child: BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
+                    // React only to the cancel round trip resolving (cancelling →
+                    // idle/scheduled) — the OTP dialog owns its own error surface.
+                    listenWhen:
+                        (AccountDeleteState prev, AccountDeleteState curr) =>
+                            prev.status == AccountDeleteStatus.cancelling &&
+                            curr.status != AccountDeleteStatus.cancelling,
+                    listener: (BuildContext context, AccountDeleteState state) {
+                      final ScaffoldMessengerState messenger =
+                          ScaffoldMessenger.of(context)..clearSnackBars();
+                      if (state.status == AccountDeleteStatus.idle) {
+                        messenger.showSnackBar(
+                          const SnackBar(
+                            content: Text('Account delete cancel ho gaya'),
+                          ),
+                        );
+                      } else {
+                        // Cancel failed — the honest reason; the banner stays.
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text(failureReason(state.failure).reason),
+                          ),
+                        );
+                      }
+                    },
+                    builder: (BuildContext context, AccountDeleteState state) {
+                      final bool pending =
+                          state.status == AccountDeleteStatus.scheduled ||
+                          state.status == AccountDeleteStatus.cancelling;
+                      if (!pending) {
+                        final bool requestInProgress =
+                            state.status == AccountDeleteStatus.sendingOtp ||
+                            state.status == AccountDeleteStatus.otpSent ||
+                            state.status == AccountDeleteStatus.confirming;
+                        final Widget row = BbListRow.setting(
+                          icon: Icons.delete_outline,
+                          title: 'Account delete karein',
+                          subtitle: 'OTP ke baad 7 din mein',
+                          danger: true,
+                          onTap: requestInProgress
+                              ? null
+                              : () => _confirmDelete(context),
+                        );
+                        if (requestInProgress) {
+                          return IgnorePointer(
+                            child: Opacity(opacity: 0.45, child: row),
+                          );
+                        }
+                        return row;
+                      }
+                      return _PendingDeletionBanner(state: state);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Version + BUILD id (#966). The build id is shown inline so a tester
+                // can READ and quote exactly which build their device runs — the only
+                // in-app way to tell a real bug from a stale APK — and a LONG-PRESS
+                // copies it to the clipboard for a bug report. `kAppBuild` is a
+                // PII-free commit SHA / build number ("dev" in a debug build).
+                GestureDetector(
+                  // The long-press target is the whole 48dp band, not the 14dp
+                  // line of 11pt text: a press-and-hold on a strip that thin is
+                  // not a control a gloved thumb can find (D6 — and the
+                  // accessibility tap-target guideline counts long-press nodes
+                  // exactly like taps).
+                  behavior: HitTestBehavior.opaque,
+                  onLongPress: () {
+                    Clipboard.setData(const ClipboardData(text: kAppBuild));
+                    ScaffoldMessenger.of(context)
+                      ..clearSnackBars()
+                      ..showSnackBar(
+                        const SnackBar(content: Text('Build id copy ho gaya')),
+                      );
+                  },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: OnboardingLayout.tapTarget,
+                    ),
+                    // heightFactor 1 so the band grows with a wrapped footer at
+                    // a large system font instead of being pinned to 48.
+                    child: Align(
+                      heightFactor: 1,
+                      child: Text(
+                        // The build flavour is a DEVELOPER token, so it is
+                        // printed only where a developer can see it. A worker
+                        // reading 'build dev' on a shipped app learns nothing
+                        // and doubts everything.
+                        kReleaseMode
+                            ? 'BadaBhai · v1.0 · Made in India'
+                            : 'BadaBhai · v1.0 · build $kAppBuild · '
+                                  'Made in India',
+                        textAlign: TextAlign.center,
+                        style: OnboardingTypography.inter(
+                          size: 11,
+                          color: OnboardingColors.ink500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -263,8 +335,9 @@ class _SettingsView extends StatelessWidget {
 
 /// The grace-window banner that replaces the delete row while a deletion is
 /// pending (ADR-0031): when the account will be deleted + the explicit
-/// "Delete cancel karein" action. Neutral brand surface with ink text,
-/// mirroring the non-danger treatment of the delete row.
+/// "Delete cancel karein" action. A soft yellow attention surface with ink text,
+/// mirroring the non-danger treatment of the delete row — nothing is deleted yet,
+/// so this is not a red alarm.
 class _PendingDeletionBanner extends StatelessWidget {
   const _PendingDeletionBanner({required this.state});
 
@@ -277,57 +350,96 @@ class _PendingDeletionBanner extends StatelessWidget {
     final String line = due == null
         ? 'Account 7 din mein delete hoga'
         : 'Account ${absoluteDateLabel(due)} ko delete hoga';
-    return Container(
-      margin: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.s4, vertical: AppSpacing.s2),
-      padding: const EdgeInsets.all(AppSpacing.s3),
-      decoration: BoxDecoration(
-        color: AppColors.brandTint,
-        borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.brand),
+
+    final Widget text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          line,
+          style: OnboardingTypography.inter(size: 14, weight: FontWeight.w600),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Aap is dauraan cancel kar sakte hain',
+          style: OnboardingTypography.inter(
+            size: 12,
+            color: OnboardingColors.ink600,
+          ),
+        ),
+      ],
+    );
+
+    final Widget action = TextButton(
+      style: TextButton.styleFrom(
+        foregroundColor: OnboardingColors.shiftBlue,
+        textStyle: OnboardingTypography.inter(
+          size: 13,
+          weight: FontWeight.w700,
+          color: OnboardingColors.shiftBlue,
+        ),
+        minimumSize: const Size(
+          OnboardingLayout.tapTarget,
+          OnboardingLayout.tapTarget,
+        ),
+        tapTargetSize: MaterialTapTargetSize.padded,
       ),
-      child: Row(
-        children: <Widget>[
-          const Icon(Icons.mediation, color: AppColors.brand),
-          const SizedBox(width: AppSpacing.s3),
-          Expanded(
-            child: Column(
+      onPressed: cancelling
+          ? null
+          : () => context.read<AccountDeleteCubit>().cancelDelete(),
+      child: cancelling
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: OnboardingColors.shiftBlue,
+              ),
+            )
+          : const Text('Delete cancel karein'),
+    );
+
+    // On a narrow handset the date line and a 48dp action cannot share a row
+    // without squeezing the date to two or three words per line.
+    final bool stack =
+        MediaQuery.sizeOf(context).width < _kBannerStackBelowWidth;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: OnboardingColors.selectedCardBg,
+        borderRadius: BorderRadius.circular(OnboardingRadii.note),
+        border: Border.all(color: OnboardingColors.safetyYellow),
+      ),
+      child: stack
+          ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  line,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    weight: FontWeight.w600,
-                    color: AppColors.ink800,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.schedule_rounded,
+                      color: OnboardingColors.safetyYellowDark,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: text),
+                  ],
                 ),
-                Text(
-                  'Aap is dauraan cancel kar sakte hain',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
-                  ),
+                Align(alignment: Alignment.centerLeft, child: action),
+              ],
+            )
+          : Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.schedule_rounded,
+                  color: OnboardingColors.safetyYellowDark,
                 ),
+                const SizedBox(width: 12),
+                Expanded(child: text),
+                const SizedBox(width: 8),
+                action,
               ],
             ),
-          ),
-          const SizedBox(width: AppSpacing.s2),
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.brand),
-            onPressed: cancelling
-                ? null
-                : () => context.read<AccountDeleteCubit>().cancelDelete(),
-            child: cancelling
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Delete cancel karein'),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -336,14 +448,20 @@ class _PendingDeletionBanner extends StatelessWidget {
 /// countdown from the resend cooldown, offers a REAL resend once it elapses,
 /// submits the OTP, surfaces the honest error (bad OTP / rate-limit), and pops
 /// once the delete is SCHEDULED (the banner behind it takes over).
-class _DeleteOtpDialog extends StatefulWidget {
-  const _DeleteOtpDialog();
+///
+/// Public only as a TEST SEAM: the delete flow that opens it is hidden behind
+/// `Visibility(visible: false)` today, so the only way to pump this dialog — and
+/// prove its content still reaches a 320dp screen with the keyboard up — is to
+/// show it directly.
+@visibleForTesting
+class DeleteOtpDialog extends StatefulWidget {
+  const DeleteOtpDialog({super.key});
 
   @override
-  State<_DeleteOtpDialog> createState() => _DeleteOtpDialogState();
+  State<DeleteOtpDialog> createState() => _DeleteOtpDialogState();
 }
 
-class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
+class _DeleteOtpDialogState extends State<DeleteOtpDialog> {
   final TextEditingController _otp = TextEditingController();
   Timer? _timer;
   int _remaining = 0;
@@ -404,16 +522,42 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
             state.status == AccountDeleteStatus.confirming || sending;
         final bool isError = state.status == AccountDeleteStatus.error;
         return AlertDialog(
-          title: const Text('OTP daalein'),
+          backgroundColor: OnboardingColors.paperWhite,
+          // Design law: separation is the scrim + fill, never a shadow.
+          elevation: 0,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(
+              Radius.circular(OnboardingRadii.card),
+            ),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          contentPadding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          title: Text(
+            'OTP daalein',
+            style: OnboardingTypography.anek(size: 18, weight: FontWeight.w800),
+          ),
+          // `scrollable: true` scrolls the TITLE together with the content, and
+          // that is the point. At 320x568 with a 2.0 system font and the keyboard
+          // up, this dialog has about 260dp of height: the PINNED title plus the
+          // two action buttons (which stack at that scale) overflowed it by 60dp
+          // on their own. Scrolling only the content could not have fixed that —
+          // the content was already free to shrink — and an OTP field the worker
+          // cannot reach dead-ends the legally-required DPDP deletion flow.
+          scrollable: true,
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              const Text(
+              Text(
                 'Aapke phone par bheja gaya OTP daalein — verify hote hi account '
                 '7 din mein delete ho jaayega.',
+                style: OnboardingTypography.inter(
+                  size: 14,
+                  height: 1.45,
+                  color: OnboardingColors.ink600,
+                ),
               ),
-              const SizedBox(height: AppSpacing.s3),
+              const SizedBox(height: 12),
               TextField(
                 controller: _otp,
                 autofocus: true,
@@ -423,7 +567,13 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                 inputFormatters: <TextInputFormatter>[
                   FilteringTextInputFormatter.digitsOnly,
                 ],
-                style: AppTypography.mono(),
+                // A code is mono (spec §1.2), so a 6 and a 5 cannot be
+                // mistaken for one another while reading it off an SMS.
+                style: OnboardingTypography.mono(
+                  size: 16,
+                  weight: FontWeight.w700,
+                  color: OnboardingColors.ink900,
+                ),
                 decoration: const InputDecoration(
                   counterText: '',
                   hintText: 'OTP',
@@ -433,14 +583,17 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                 onChanged: (_) => setState(() {}),
               ),
               if (isError) ...<Widget>[
-                const SizedBox(height: AppSpacing.s2),
+                const SizedBox(height: 8),
                 Text(
                   failureReason(state.failure).reason,
-                  style: AppTypography.body(
-                      size: AppTypography.sizeSm, color: AppColors.danger),
+                  style: OnboardingTypography.inter(
+                    size: 13,
+                    weight: FontWeight.w500,
+                    color: OnboardingColors.errorRed,
+                  ),
                 ),
               ],
-              const SizedBox(height: AppSpacing.s2),
+              const SizedBox(height: 8),
               // #361 — while the cooldown runs this is (correctly) just a
               // countdown caption; the moment it elapses it becomes a REAL
               // tappable resend. It used to swap to the plain text "Naya OTP
@@ -451,13 +604,28 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
               if (_remaining > 0)
                 Text(
                   'Dobara bhejne ke liye $_remaining second',
-                  style: AppTypography.body(
-                      size: AppTypography.sizeXs, color: AppColors.textFaint),
+                  style: OnboardingTypography.inter(
+                    size: 12,
+                    color: OnboardingColors.ink500,
+                  ),
                 )
               else
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: OnboardingColors.shiftBlue,
+                      textStyle: OnboardingTypography.inter(
+                        size: 13,
+                        weight: FontWeight.w700,
+                        color: OnboardingColors.shiftBlue,
+                      ),
+                      minimumSize: const Size(
+                        OnboardingLayout.tapTarget,
+                        OnboardingLayout.tapTarget,
+                      ),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                    ),
                     // Disabled mid-flight so a double tap can't burn two OTPs
                     // (and trip the server's rate limit against the worker).
                     onPressed: busy ? null : () => _resend(context),
@@ -465,7 +633,10 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                         ? const SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: OnboardingColors.shiftBlue,
+                            ),
                           )
                         : const Text('Dobara OTP bhejein'),
                   ),
@@ -474,15 +645,41 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
           ),
           actions: <Widget>[
             TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: OnboardingColors.ink600,
+                textStyle: OnboardingTypography.inter(
+                  size: 14,
+                  weight: FontWeight.w700,
+                  color: OnboardingColors.ink600,
+                ),
+                minimumSize: const Size(
+                  OnboardingLayout.tapTarget,
+                  OnboardingLayout.tapTarget,
+                ),
+                tapTargetSize: MaterialTapTargetSize.padded,
+              ),
               onPressed: busy ? null : () => Navigator.of(context).pop(false),
               child: const Text('Rehne dein'),
             ),
             TextButton(
-              style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+              style: TextButton.styleFrom(
+                foregroundColor: OnboardingColors.errorRed,
+                textStyle: OnboardingTypography.inter(
+                  size: 14,
+                  weight: FontWeight.w700,
+                  color: OnboardingColors.errorRed,
+                ),
+                minimumSize: const Size(
+                  OnboardingLayout.tapTarget,
+                  OnboardingLayout.tapTarget,
+                ),
+                tapTargetSize: MaterialTapTargetSize.padded,
+              ),
               onPressed: (busy || _otp.text.length < 4)
                   ? null
-                  : () =>
-                      context.read<AccountDeleteCubit>().confirmDelete(_otp.text),
+                  : () => context.read<AccountDeleteCubit>().confirmDelete(
+                      _otp.text,
+                    ),
               // #361 — spinner only for the CONFIRM round trip. `busy` also
               // covers a resend, and showing two spinners at once would read as
               // "the delete is going through" while nothing is being confirmed.
@@ -490,7 +687,10 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: OnboardingColors.errorRed,
+                      ),
                     )
                   : const Text('Delete karein'),
             ),
@@ -515,32 +715,21 @@ class _WithdrawConsentRow extends StatelessWidget {
   /// Non-dismissible confirm — a destructive, legally-meaningful action a
   /// low-literacy worker must read, not tap past. States the real consequence
   /// learned from the backend: all devices logged out + re-login + re-consent.
+  ///
+  /// The copy is the APPROVED DPDP wording and is kept verbatim.
   Future<void> _confirm(BuildContext context) async {
     final ConsentWithdrawCubit cubit = context.read<ConsentWithdrawCubit>();
-    final bool proceed = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext dialogContext) => AlertDialog(
-            title: const Text('Consent wapas lein?'),
-            content: const Text(
-              'Consent wapas lene par aapki profiling band ho jaayegi aur aap '
-              'sabhi devices se logout ho jaayenge. App dobara use karne ke liye '
-              'phir se login karke consent dena hoga.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Rehne dein'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
-                child: const Text('Consent wapas lein'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    final bool proceed = await showBbConfirm(
+      context,
+      title: 'Consent wapas lein?',
+      message:
+          'Consent wapas lene par aapki profiling band ho jaayegi aur aap '
+          'sabhi devices se logout ho jaayenge. App dobara use karne ke liye '
+          'phir se login karke consent dena hoga.',
+      confirmLabel: 'Consent wapas lein',
+      destructive: true,
+      barrierDismissible: false,
+    );
     if (!proceed) return;
     await cubit.withdraw();
   }
@@ -610,7 +799,8 @@ class _NotificationsToggleRow extends StatefulWidget {
 }
 
 class _NotificationsToggleRowState extends State<_NotificationsToggleRow> {
-  NotificationPrefsRepository get _repo => locator<NotificationPrefsRepository>();
+  NotificationPrefsRepository get _repo =>
+      locator<NotificationPrefsRepository>();
 
   // Optimistic default ON until the async load resolves — the app's baseline is
   // "notifications on", so this never briefly shows a wrong OFF.

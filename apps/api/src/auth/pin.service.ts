@@ -93,9 +93,9 @@ export class PinService {
 
   /**
    * Set (or replace) the PIN for an already-authenticated worker (the caller is behind
-   * WorkerAuthGuard, so the worker id is the token's). Validates exact PIN_LENGTH + the
-   * denylist (400 on weak/bad), hashes, upserts (which clears the whole throttle +
-   * force-OTP state), and emits `worker.pin_set`.
+   * WorkerAuthGuard, so the worker id is the token's). Validates exact PIN_LENGTH (400 on a
+   * malformed value — there is no strength rule since #1462), hashes, upserts (which clears the
+   * whole throttle + force-OTP state), and emits `worker.pin_set`.
    */
   async setPin(workerId: string, pin: string, ctx: RequestContext): Promise<void> {
     await this.writePin(workerId, pin, "worker.pin_set", ctx);
@@ -112,7 +112,7 @@ export class PinService {
 
   /**
    * Confirm a PIN reset: verify the OTP via the EXISTING OtpService.verify (throws 401/429 on
-   * a bad/expired code — same neutral behavior as login), then set the new PIN (denylist +
+   * a bad/expired code — same neutral behavior as login), then set the new PIN (format gate +
    * hash + upsert, which clears the throttle + otp_cycle_count), emit `worker.pin_reset`, and
    * MINT A FRESH LOGIN-SHAPE SESSION. The worker is resolved from the phone the verified OTP
    * proves ownership of — never a body worker_id.
@@ -128,12 +128,14 @@ export class PinService {
    * proof /auth/otp/verify mints on.
    *
    * ORDERING is load-bearing:
-   *   1. PIN POLICY (format + denylist) is checked BEFORE the OTP is consumed, so a weak PIN
-   *      costs a 400 and nothing else. Consuming the single-use OTP and THEN rejecting the PIN
-   *      forced the worker back through the rate-limited request/send loop to try again —
-   *      exactly the "recurring again and again" the issue reports. Same 400, no oracle: the
-   *      denylist is public policy about the CALLER'S OWN input and says nothing about the
-   *      phone or the code.
+   *   1. PIN POLICY is checked BEFORE the OTP is consumed, so a MALFORMED PIN costs a 400 and
+   *      nothing else. Consuming the single-use OTP and THEN rejecting the PIN forced the worker
+   *      back through the rate-limited request/send loop to try again — exactly the "recurring
+   *      again and again" the issue reports. Same 400, no oracle: the length rule is public
+   *      policy about the CALLER'S OWN input and says nothing about the phone or the code.
+   *      #1462 REMOVED THE STRENGTH HALF of this gate, which shrinks the set of PINs that can
+   *      reach step 2 and be rejected here to "wrong length or not digits" — the ordering itself
+   *      is unchanged and still load-bearing for exactly that case.
    *   2. OTP verify — a bad code throws before any credential row is touched.
    *   3. writePin BEFORE the mint, so the returned `pin_set` is true rather than a race.
    */
@@ -144,7 +146,8 @@ export class PinService {
     ctx: RequestContext,
     deviceInfo?: DeviceInfoDto,
   ): Promise<PinResetConfirmResponse> {
-    // (1) Reject a weak/malformed PIN before the one-time code is spent (see ORDERING above).
+    // (1) Reject a MALFORMED PIN before the one-time code is spent (see ORDERING above). Since
+    // #1462 that is the only thing this gate rejects — a guessable PIN is the worker's own call.
     this.assertPinPolicy(newPin);
 
     // (2) Verify the OTP — a bad code throws before we touch any credential row.
@@ -203,22 +206,40 @@ export class PinService {
   }
 
   /**
-   * The PIN policy gate — exact configured length + the weak-PIN denylist. Extracted from
-   * {@link writePin} so {@link resetConfirm} can run it BEFORE spending the OTP (#994) while
-   * writePin still runs it for every write (a caller that skips the gate cannot store a weak
-   * PIN). Idempotent and side-effect free, so running it twice on the reset path is free.
-   * The PIN itself is NEVER echoed back or logged.
+   * The PIN policy gate — EXACT CONFIGURED LENGTH, AND NOTHING ELSE.
+   *
+   * Extracted from {@link writePin} so {@link resetConfirm} can run it BEFORE spending the OTP
+   * (#994) while writePin still runs it for every write. Idempotent and side-effect free, so
+   * running it twice on the reset path is free. The PIN itself is NEVER echoed back or logged.
+   *
+   * ── THE STRENGTH POLICY WAS REMOVED, DELIBERATELY (#1462, owner ruling 2026-09-08) ────
+   *
+   * "The worker chooses their own PIN. No strength policy, client or server. 1234, 1111, 0000 —
+   * all must be accepted." This gate used to also run a denylist (`0000`/`1234`/`2580`/…) plus
+   * structural rules (all-same-digit, consecutive runs), and `PinHasher.isWeakPin` implemented
+   * them. Both are gone rather than flagged off: a switch nobody may turn on is dead config, and
+   * the ruling is not conditional.
+   *
+   * WHY IT IS NOT THE SAFETY IT LOOKED LIKE. The PIN never authenticates from scratch (ADR-0026's
+   * first principle) — it unlocks an already-established session on an already-bound device — so
+   * the attacker this denylist imagined has to hold the handset first. Against that attacker the
+   * controls that actually bite are unchanged and all still here: the slow-KDF hash
+   * (`PiiCryptoService`, scrypt), `PIN_MAX_ATTEMPTS` with exponential lockout
+   * (`PIN_LOCKOUT_BASE_SECONDS` × `PIN_MAX_LOCKOUT_CYCLES`), device binding, and the step-up OTP
+   * that gates a reset. What the denylist did buy was a 400 on the one screen a low-literacy
+   * worker meets first, on the value he had just chosen and confirmed — and a worker who cannot
+   * set a PIN he will remember is a worker who cannot use the product at all.
+   *
+   * THE FORMAT GATE STAYS, and it is not a strength rule: `isCorrectFormat` is what keeps a
+   * malformed value — a 3-digit typo, a non-digit — out of the credential store.
    */
   private assertPinPolicy(pin: string): void {
     if (!this.hasher.isCorrectFormat(pin)) {
       throw new BadRequestException(`PIN must be exactly ${this.config.PIN_LENGTH} digits`);
     }
-    if (this.hasher.isWeakPin(pin)) {
-      throw new BadRequestException("PIN is too easy to guess; choose a less common PIN");
-    }
   }
 
-  /** Shared PIN write: format + denylist gate → hash → upsert (clears throttle) → emit. */
+  /** Shared PIN write: format gate → hash → upsert (clears throttle) → emit. */
   private async writePin(
     workerId: string,
     pin: string,

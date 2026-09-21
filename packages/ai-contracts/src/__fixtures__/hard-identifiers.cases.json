@@ -1,0 +1,237 @@
+{
+  "_comment": [
+    "ADR-0041 RI-3. The hard-identifier wall exists in TWO languages — Python",
+    "(`app/pseudonymize.contains_hard_identifier`, gate 6 on the ai-service) and TypeScript",
+    "(`apps/api/src/profiling/resume-import/resume-parse-gates.ts`, the re-check before",
+    "anything is persisted). Two implementations of one privacy rule is a drift hazard, and",
+    "the usual fix — read the other language's source and compare — does not work here: the",
+    "credential-id patterns use inline case-insensitive groups and lookaheads whose syntax",
+    "differs between the two engines, so the regexes cannot be identical even when the",
+    "BEHAVIOUR is.",
+    "",
+    "So this file pins the behaviour instead, and both suites read it. A case added here",
+    "fails whichever side has not implemented it. `expected` is the class name, or null when",
+    "the value must be PERMITTED — and the permitted half is the half that matters most:",
+    "ADR-0041 D5 authorises employer names, and certifying résumé values with the full",
+    "pseudonymization gateway would reject nearly every honest value while the ruling says to",
+    "keep them. A wall that refuses the honest cases is a wall someone deletes.",
+    "",
+    "THE SEPARATOR CASES EXIST BECAUSE THE FIRST VERSION OF THIS FILE PROVED NOTHING. Every",
+    "case used a space, while the two implementations' separator sets diverged in BOTH",
+    "directions — the TS side was missing `;`, `|` and the whole Unicode set, and had added",
+    "`/` and backslash the far side does not have. The cross-language pin verified none of",
+    "the actual divergence. Found by the RI-3 security review."
+  ],
+  "cases": [
+    {
+      "text": "ABCDE1234F",
+      "expected": "pan"
+    },
+    {
+      "text": "PAN: ABCDE1234F",
+      "expected": "pan"
+    },
+    {
+      "text": "1234 5678 9012",
+      "expected": "aadhaar"
+    },
+    {
+      "text": "123456789012",
+      "expected": "aadhaar"
+    },
+    {
+      "text": "9876543210",
+      "expected": "phone"
+    },
+    {
+      "text": "Mob: 98765 43210",
+      "expected": "phone"
+    },
+    {
+      "text": "+91 9876543210",
+      "expected": "phone"
+    },
+    {
+      "text": "ramesh.kumar@example.com",
+      "expected": "email"
+    },
+    {
+      "text": "Email me at r@x.co.in",
+      "expected": "email"
+    },
+    {
+      "text": "Roll No: AB123456",
+      "expected": "credential_id"
+    },
+    {
+      "text": "Registration number 2019ME4417",
+      "expected": "credential_id"
+    },
+    {
+      "_group": "separators the two implementations disagreed about",
+      "text": "98765;43210",
+      "expected": "phone"
+    },
+    {
+      "text": "98765|43210",
+      "expected": "phone"
+    },
+    {
+      "text": "98765।43210",
+      "expected": "phone"
+    },
+    {
+      "text": "98765·43210",
+      "expected": "phone"
+    },
+    {
+      "text": "98765​43210",
+      "expected": "phone"
+    },
+    {
+      "text": "98765–43210",
+      "expected": "phone"
+    },
+    {
+      "_note": "A KNOWN, PINNED GAP ON BOTH SIDES, not a difference of opinion. `/` is absent from the gateway's separator set (an R30 residual), and widening the SHARED pattern would change what the interview masks — not something a résumé change gets to do. Recorded here so the gap is a fact somebody decided rather than one nobody noticed.",
+      "text": "98765/43210",
+      "expected": null
+    },
+    {
+      "_note": "ONLY THE INVISIBLE-STRIP CATCHES THIS. `PAN_RE` has no separator tolerance, so a zero-width space inside a PAN defeats it on both sides unless the character is removed before matching. Without this case the strip was redundant on every other case in the file and a mutation removing it passed.",
+      "text": "ABCDE​1234F",
+      "expected": "pan"
+    },
+    {
+      "text": "ramesh‌.kumar@example.com",
+      "expected": "email"
+    },
+    {
+      "_group": "the 14+ band nothing covered until the RI-3 review",
+      "text": "A/c No 50100123456789",
+      "expected": "credential_id"
+    },
+    {
+      "text": "Bank Account 123456789012345678",
+      "expected": "credential_id"
+    },
+    {
+      "text": "ESIC 31001234560000101",
+      "expected": "credential_id"
+    },
+    {
+      "text": "50100123456789",
+      "expected": "long_digit_run"
+    },
+    {
+      "text": "GSTIN 27ABCDE1234F1Z5",
+      "expected": "credential_id"
+    },
+    {
+      "text": "27ABCDE1234F1Z5",
+      "expected": "gstin"
+    },
+    {
+      "text": "Passport No: M1234567",
+      "expected": "credential_id"
+    },
+    {
+      "text": "Voter ID: ABC1234567",
+      "expected": "credential_id"
+    },
+    {
+      "text": "DOB: 12/05/1988",
+      "expected": "credential_id"
+    },
+    {
+      "text": "Date of Birth: 05-11-1990",
+      "expected": "credential_id"
+    },
+    {
+      "text": "IFSC: SBIN0001234",
+      "expected": "credential_id"
+    },
+    {
+      "text": "UAN: 101234567890",
+      "expected": "aadhaar"
+    },
+    {
+      "_group": "must be PERMITTED — ADR-0041 D5 and ordinary trade vocabulary",
+      "text": "Tata Motors Ltd",
+      "expected": null
+    },
+    {
+      "text": "Bharat Forge Limited",
+      "expected": null
+    },
+    {
+      "text": "Mahindra & Mahindra",
+      "expected": null
+    },
+    {
+      "text": "Stainless Steel",
+      "expected": null
+    },
+    {
+      "text": "Diploma Mechanical Engineering",
+      "expected": null
+    },
+    {
+      "text": "CNC Turner",
+      "expected": null
+    },
+    {
+      "text": "VMC Operator (Fanuc)",
+      "expected": null
+    },
+    {
+      "text": "Fanuc Oi-MF",
+      "expected": null
+    },
+    {
+      "text": "Pune",
+      "expected": null
+    },
+    {
+      "text": "Maharashtra",
+      "expected": null
+    },
+    {
+      "text": "25000",
+      "expected": null
+    },
+    {
+      "text": "1200000",
+      "expected": null
+    },
+    {
+      "text": "2019-2023",
+      "expected": null
+    },
+    {
+      "text": "0.02 mm tolerance",
+      "expected": null
+    },
+    {
+      "text": "ITI Fitter 2019",
+      "expected": null
+    },
+    {
+      "_note": "The digit lookahead in the cued pattern is what keeps these three permitted. Without it, `\\baccount\\b` or `\\bvoter\\b` plus the next word refuses a job title a real worker holds.",
+      "text": "Account Manager",
+      "expected": null
+    },
+    {
+      "text": "Accounts Payable Executive",
+      "expected": null
+    },
+    {
+      "text": "Senior Voter Outreach Coordinator",
+      "expected": null
+    },
+    {
+      "text": "",
+      "expected": null
+    }
+  ]
+}

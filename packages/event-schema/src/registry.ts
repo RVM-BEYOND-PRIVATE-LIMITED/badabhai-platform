@@ -32,10 +32,50 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLocationRecordedPayload,
   },
+  // ADR-0042 D9 / Layer A (a) — the optional WhatsApp number was set, replaced or cleared.
+  // Payload is the resulting state only; the number itself never leaves the workers row.
+  "worker.whatsapp_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerWhatsappRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (b) — the worker's language rows were replaced. Counts only: the
+  // languages themselves never reach the spine.
+  "worker.languages_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerLanguagesRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (e) — the worker's portfolio was replaced. Counts only: no captions,
+  // no storage keys, no URLs.
+  "worker.portfolio_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPortfolioRecordedPayload,
+  },
+  // ADR-0042 D9 / Layer A (f) - the worker's declared secondary occupations were replaced.
+  // Counts only: no role ids.
+  "worker.occupations_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerOccupationsRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",
     payload: p.WorkerEmploymentRecordedPayload,
+  },
+  // #1485 — the worker looked at a model's rewrite of one of his own free-text answers and said
+  // which one prints. `own_words` is a refusal, and it is the ONLY mitigation the section-8
+  // override in #1350 has on the fresher path: ADR-0039 records that no test can assert the absence
+  // of a plausible-but-false sentence, so what is audited here is that he was able to say so.
+  //
+  // NOT more fields on `worker.employment_recorded`, which the #1354 route reuses for the same
+  // decision about an employment. A fresher has no employment, and that payload counts them. v1.
+  "worker.answer_text_source_set": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerAnswerTextSourceSetPayload,
   },
   "worker.preferences_recorded": {
     version: 1,
@@ -240,6 +280,7 @@ export const EVENT_REGISTRY = {
   "resume.downloaded": { version: 1, domain: "resume", payload: p.ResumeDownloadedPayload },
   "resume.regenerated": { version: 1, domain: "resume", payload: p.ResumeRegeneratedPayload },
   "resume.shared": { version: 1, domain: "resume", payload: p.ResumeSharedPayload },
+  "resume.edited": { version: 1, domain: "resume", payload: p.ResumeEditedPayload },
 
   "interview_kit.render_completed": {
     version: 1,
@@ -891,6 +932,27 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileFormModeEnteredPayload,
   },
 
+  // THE OFFER, NOT THE GATE (Task 1 recall path; owner ruling 2026-09-16). The router
+  // recognised a form-enabled trade and the worker was ASKED whether to take the form —
+  // eligibility is code's, the choice is the worker's. `form_mode_entered` above still
+  // counts accepts; offered minus entered minus declined is the abandonment the offer
+  // ruling created the ability to measure. Two ids, one closed-set kind, two counts. v1.
+  "profile.form_offered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferedPayload,
+  },
+
+  // The worker declined the offer — explicitly (`declined`) or with a reply the binary
+  // reader could not read (`unclear`; treated exactly like a decline at the interview
+  // level, counted apart so the reader's miss rate stays visible rather than hiding in
+  // the decline count). Ids and closed enums only. v1.
+  "profile.form_offer_declined": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormOfferDeclinedPayload,
+  },
+
   // One physical submission arrived twice and the second copy was served from the reply cache
   // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
   // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior
@@ -983,6 +1045,58 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfileFormCompletedPayload,
+  },
+
+  // ---- Résumé import (ADR-0041, phases RI-1 / RI-3 / RI-4) ----
+  //
+  // A FOUR-STEP FUNNEL, and it is four events rather than one because each step fails for its
+  // own reasons and the gaps between them are the only diagnosis available. Upload fails on a
+  // network or a bucket; the parse fails on the document; the prefill "fails" when a worker
+  // reads a suggestion and declines it, which is not a failure at all. One merged event would
+  // average those three into a number that answers nothing.
+  //
+  // Every payload is `.strict()` and carries ids, closed-set enums and counts ONLY. The subject
+  // is the densest personal document on the platform and ruling D6 keeps it permanently, so no
+  // filename, no storage key, no extracted value, no label and no model text reaches the spine.
+  // v1 throughout.
+  "profile.resume_imported": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeImportedPayload,
+  },
+  "profile.resume_parsed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeParsedPayload,
+  },
+  "profile.resume_parse_failed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeParseFailedPayload,
+  },
+  // The one that measures ruling D2: what the WORKER agreed with, as against what the machine
+  // proposed. `offered` minus `accepted` is the parser's error rate judged by the only person
+  // qualified to judge it — and an acceptance rate near 100% is a warning, not a triumph, since
+  // it would mean workers are tapping past the screen and the suggestions have become
+  // pre-ticked in effect if not in code.
+  "profile.resume_prefill_applied": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumePrefillAppliedPayload,
+  },
+  // RI-autofill (owner override B): what the identity "haan" wrote from the staged
+  // option mappings. `applied` minus `mapped` is the mapping-to-form gap.
+  "profile.resume_autofill_applied": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeAutofillAppliedPayload,
+  },
+  // RI-identity: whether the worker recognised the staged Hinglish line as his.
+  // A "no" retires the import from the chat (batch-confirm suppressed with it).
+  "profile.resume_identity_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeIdentityAnsweredPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

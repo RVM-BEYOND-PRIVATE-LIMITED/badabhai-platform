@@ -38,6 +38,10 @@ export { parseAffirmation } from "./affirmation.js";
 
 export { canonicalCity, canonicalRegion, canonicalState } from "./gazetteer.js";
 
+export { parseCommuteKm } from "./commute.js";
+
+export { parseTrainingYear } from "./training.js";
+
 export { parseExperienceYears } from "./experience.js";
 
 export { detectSalaries, parseAmount, parseSalaryMonthly, type SalaryReading } from "./salary.js";

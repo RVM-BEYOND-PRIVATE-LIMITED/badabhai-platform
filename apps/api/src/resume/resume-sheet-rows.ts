@@ -1,4 +1,6 @@
 import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import { formatWorkerPhone } from "./resume-phone";
+import { titleCaseName } from "./resume-text-case";
 
 /**
  * The `bb_trade` sheet's composed lines and label/value rows. PURE — no I/O, no clock, no DI.
@@ -10,7 +12,10 @@ import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
  */
 
 /** Joins segments the way the design does, dropping empties WITH their separator. */
-function joinSegments(parts: readonly (string | null | undefined)[], sep = " · "): string | null {
+export function joinSegments(
+  parts: readonly (string | null | undefined)[],
+  sep = " · ",
+): string | null {
   const kept = parts.map((p) => p?.trim()).filter((p): p is string => Boolean(p));
   return kept.length > 0 ? kept.join(sep) : null;
 }
@@ -53,26 +58,44 @@ export function buildVerdictLine(facts: {
    */
   axes?: readonly string[];
   /**
-   * A CLOSED-VOCABULARY TENURE STATUS the worker's own form stated — today only "Fresher" (§6.2).
+   * A CLOSED-VOCABULARY TENURE STATUS — "Fresher", and today nothing else (§6.2).
    *
-   * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes this additive rather than a
-   * new rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
-   * absent (the ordinary case, and every caller that does not pass it) leaves the composed line
-   * byte-for-byte what it was.
+   * CONSULTED ONLY WHERE THE FIGURE IS UNKNOWN, which is what makes it additive rather than a new
+   * rule. A stated number always wins, so this can never overwrite a tenure the worker gave;
+   * absent (every caller that does not pass it) leaves the composed line byte-for-byte what it
+   * was.
    *
-   * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. `tenurePhrase` maps
+   * IT IS A LABEL, NEVER A DERIVED FIGURE, AND THAT IS THE §8 JUSTIFICATION. This function maps
    * every falsy/absent number to "duration not stated" and must keep doing so — §11 #3 requires
-   * the sheet to SAY an unknown is unknown, and §6.2 reserves "fresher" for a worker who SAID he
-   * has no experience. This parameter is how that sentence becomes reachable: the caller carries
-   * the provenance ({@link fresherTenureLabel} reads the role's own tier rung), so the word
-   * appears only for a worker whose own chip said it. Handing this function a bare 0 still yields
-   * "duration not stated" — that separate wording question is recorded, open, and untouched here.
+   * the sheet to SAY an unknown is unknown. What this parameter carries is not an inference about
+   * an unknown but the fact that there is no work history to sum, which is what "Fresher" says
+   * ({@link tenureStatusLabel} owns the provenance, and since the 2026-09-09b ruling it derives
+   * the word from the empty history alone — no pack answer reaches this segment). It is NEVER a
+   * tenure figure or a band: the figure is the sum of the worker's own dated employments and
+   * reaches this function as `years`. Handing this a bare 0 still yields "duration not stated".
    */
   tenureLabel?: string | null;
 }): { headlineLine: string | null; subheadLine: string | null } {
+  // FILL-GAP PHASE 4 — NO SUBJECT, NO STRIP. Without a role this line degrades to its modifiers
+  // ("8 yrs · Fanuc") or, for a worker with no source at all, to the bare system phrase
+  // "duration not stated" standing alone at the top of the sheet. Neither is a headline: §11 #3
+  // requires an UNKNOWN TENURE to be stated (and it still is, whenever a subject exists —
+  // "Welder · duration not stated"), not a sentence fragment about nobody. Omitting the strip is
+  // the fallback; inventing or printing a lone modifier is not.
+  const role = facts.role?.trim();
+  if (!role) {
+    return {
+      headlineLine: null,
+      subheadLine: joinSegments([
+        facts.city,
+        availabilityPhrase(facts.availability),
+        facts.salary ? `expects ${facts.salary}` : null,
+      ]),
+    };
+  }
   return {
     headlineLine: joinSegments([
-      facts.role,
+      role,
       tenurePhrase(facts.years, facts.tenureLabel ?? null),
       toolsPhrase(facts.tools),
       axesPhrase(facts.axes ?? []),
@@ -107,23 +130,28 @@ function knownYearsPhrase(years: number | null): string | null {
  * The tenure segment: the stated figure, else a stated STATUS, else the honest unknown.
  *
  * "DURATION NOT STATED" IS THE HONEST RENDERING OF AN UNKNOWN, and §11 #3 makes it mandatory:
- * never estimated, never rounded, never silently omitted. It must also never be INFERRED into
- * "fresher" — §6.2 reserves that word for a worker who SAID they have no experience, and reading
- * it out of an absent number would put a claim on the page that the worker never made and that
- * costs them the job. Omitting the segment entirely would be just as wrong: an employer reading a
- * résumé with no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
+ * never estimated, never rounded, never silently omitted. It must also never be INFERRED out of an
+ * absent number, which would put a claim on the page that the worker never made and that costs him
+ * the job. Omitting the segment entirely would be just as wrong: an employer reading a résumé with
+ * no tenure on it assumes the worst, so the sheet says plainly that nobody asked.
  *
- * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It is the word made REACHABLE for the worker
- * who did say it — the caller carries the provenance from the role's own tier rung — and it
- * changes nothing about inference: this function still cannot tell a fresher from a blank, and
- * still says so when the caller passes nothing.
+ * WHO IT IS STILL FOR, AFTER THE 2026-09-09b RULING NARROWED IT TO TWO WORKERS. A worker the role
+ * forms never asked — a legacy chat profile with no pack — and a worker who HAS a work history
+ * whose dates he could not give. A form worker who filed no work history is no longer one of them:
+ * printing "nobody asked" over a man with nothing to ask about is not §11 #3 being honest, it is
+ * §11 #3 being wrong about its own subject.
+ *
+ * WHAT `tenureLabel` CHANGES, AND WHAT IT DOES NOT. It carries the one fact that is not a figure —
+ * that there is no work history for the sum to find — and it changes nothing about inference: this
+ * function still cannot tell a fresher from a blank, and still says so when the caller passes
+ * nothing.
  *
  * THE ORDER IS THE POINT. A number the worker gave outranks everything — a fresher who has since
  * stated six months prints "6 mo", not "Fresher". Only where there is no figure at all does the
  * status label get its turn, and only where there is neither does §11 #3's text print, unchanged
  * and for exactly the case it was written for.
  */
-function tenurePhrase(years: number | null, tenureLabel: string | null): string {
+export function tenurePhrase(years: number | null, tenureLabel: string | null): string {
   const figure = knownYearsPhrase(years);
   if (figure !== null) return figure;
   // An EMPTY label is treated as no label, not as an empty segment: `joinSegments` drops empties
@@ -159,7 +187,7 @@ function axesPhrase(axes: readonly string[]): string | null {
 }
 
 /** Up to three, guideline §4.3 (controllers max 3). More than three stops being scannable. */
-function toolsPhrase(tools: string[]): string | null {
+export function toolsPhrase(tools: readonly string[]): string | null {
   const kept = tools
     .map((t) => t.trim())
     .filter(Boolean)
@@ -178,6 +206,68 @@ function availabilityPhrase(availability: string | null): string | null {
   const value = availability?.trim();
   if (!value) return null;
   return /^immediate/i.test(value) ? "available immediately" : `available in ${value}`;
+}
+
+/**
+ * THE MASTHEAD's LOCATION LINE — "Faridabad, Haryana" — printed under the worker's name, or null.
+ *
+ * WHY IT EXISTS (owner ruling 2026-09-08). "In all the 21 profiles, that is form-based profiling,
+ * there is nowhere that the current location of the candidate is asked but we do ask that while
+ * registering — show the current location just below the Full Name." The gap is real and it is
+ * structural: the trade form runs no extraction, so `worker_profiles.location_preference
+ * .current_city` is never written for a form-first worker (PARKED.md P-018) and the Verdict
+ * Line's city segment — the sheet's only location until now — collapsed for every one of them. A
+ * résumé with no place on it is unusable to a supervisor hiring for a specific plant.
+ *
+ * THE SOURCE IS THE WORKER's OWN FIRST-PARTY ANSWER, `workers.current_city` / `current_state`,
+ * typed on the onboarding screen beside his name (#1428) and read off the row by the caller. It
+ * is not derived, not inferred and never a model's reading of a conversation — §8's second
+ * permitted source, a value the worker stated.
+ *
+ * NOT PII, AND THAT IS AN OWNER RULING RATHER THAN A JUDGEMENT MADE HERE (2026-07-31, the Master
+ * Context DEAD LIST): "cities as PII (→ a 20-point matching input; never redact)". A state is
+ * coarser still. The columns hold plaintext for that reason, the Verdict Line has printed a city
+ * on both audiences since the sheet shipped, and this line is therefore audience-blind like every
+ * other trade fact — it is neither identity nor negotiating position. An ADDRESS remains
+ * prohibited on every template, and these two columns are documented as never holding one.
+ *
+ * A COMPOSITION OF TWO STATED VALUES, joined by the separator the design already uses for a place
+ * ("Rohtak, Haryana" on the employer rows). Each half is independently nullable, so a worker who
+ * gave only one still gets a line and never a dangling comma; a worker who gave neither gets no
+ * line at all rather than an empty one under his name.
+ *
+ * IT DOES NOT TOUCH THE VERDICT LINE. §6.2's subhead keeps composing its own city from the
+ * profile snapshot — a different source with a different meaning (where he is looking for work,
+ * as the interview recorded it) — so nothing ratified moves. The two agree for most workers and
+ * the masthead is simply the one that can speak for the form-first majority.
+ */
+export function buildLocationLine(location: {
+  city: string | null | undefined;
+  state: string | null | undefined;
+}): string | null {
+  // CASED AS PROPER NOUNS (owner ruling 2026-09-08), by the same helper and for the same reason
+  // Zone 4's employer line uses it: this is hand-typed on a phone on the first onboarding screen,
+  // so `faridabad` is ordinary input, and it prints directly under the worker's name. Only a
+  // LEADING lowercase letter is raised, so a state abbreviation the worker typed in capitals
+  // survives — see `resume-text-case.ts`.
+  return joinSegments([titleCaseName(location.city), titleCaseName(location.state)], ", ");
+}
+
+/**
+ * The worker-copy WhatsApp line, e.g. "WhatsApp: +91 98765 43210" — or null.
+ *
+ * ADR-0042 D9 / Layer A (a). ONE STRING, LABEL INCLUDED, and that is load-bearing: the
+ * template collapses the line with `.wa:empty`, which can only match if the element's whole
+ * content is the slot. A label written in the template would survive an absent number and
+ * print "WhatsApp" alone under the masthead.
+ *
+ * The number arrives already DECRYPTED (caller contract, see `TradeSheetContext.whatsapp`)
+ * and is formatted by the same helper the phone line uses, so both numbers on the sheet share
+ * one formatting and one degrade-to-unformatted rule. Never logged, never echoed.
+ */
+export function composeWhatsappLine(whatsapp: string | null | undefined): string | null {
+  const formatted = formatWorkerPhone(whatsapp);
+  return formatted === null ? null : `WhatsApp: ${formatted}`;
 }
 
 /**
@@ -303,6 +393,12 @@ export function buildAvailabilityRows(facts: {
   shift: string | null;
   /** §4.4 — many listings advertise food and accommodation, so it is a real matching signal. */
   accommodationNeeded?: boolean;
+  /**
+   * Layer A (f)/(i) — the worker's declared SECONDARY occupations, as taxonomy display labels.
+   * A capability fact, not a preference: it says what else the worker will take work AS. Empty
+   * (every worker who never opened the page) prints no row.
+   */
+  occupations?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Available from", facts.availability);
@@ -323,6 +419,7 @@ export function buildAvailabilityRows(facts: {
   );
   push(rows, "Shift", facts.shift);
   push(rows, "Accommodation", facts.accommodationNeeded ? "Required" : null);
+  push(rows, "Also works as", joinSegments(facts.occupations ?? []));
   return rows;
 }
 
@@ -340,10 +437,16 @@ export function buildQualificationRows(facts: {
   education: readonly string[];
   certifications: readonly string[];
   languages: readonly string[];
+  /**
+   * Layer A (d) — the courses the worker attended. Carried by `qualificationFactsFrom` since
+   * 0112 but printed by nothing; Layer A (i) gives it the row it was captured for.
+   */
+  trainings?: readonly string[];
 }): ResumeFactRow[] {
   const rows: ResumeFactRow[] = [];
   push(rows, "Education", joinSegments([facts.educationHeadline, ...facts.education]));
   push(rows, "Certificates", joinSegments(facts.certifications));
+  push(rows, "Training", joinSegments(facts.trainings ?? []));
   push(rows, "Languages spoken", joinSegments(facts.languages));
   return rows;
 }

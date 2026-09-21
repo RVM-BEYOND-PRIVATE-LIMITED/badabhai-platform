@@ -35,10 +35,31 @@ void main() {
       // The exact pubspec `fonts:` family names — no google_fonts variant
       // suffix ("Baloo2_regular"), which is what proves the fetch path is out
       // of the picture rather than merely cached.
-      expect(AppTypography.display().fontFamily, 'Anek');
-      expect(AppTypography.body().fontFamily, 'Roboto');
-      expect(AppTypography.eyebrow().fontFamily, 'Roboto');
+      //
+      // These used to read 'Anek' and 'Roboto'. NEITHER is a family this app
+      // bundles, so Flutter resolved both to the platform font: every heading
+      // and button outside the onboarding kit rendered in system sans while the
+      // code claimed Anek. The names now match the real bundled faces.
+      expect(AppTypography.display().fontFamily, 'Anek Latin');
+      expect(AppTypography.body().fontFamily, 'Inter');
+      expect(AppTypography.eyebrow().fontFamily, 'Inter');
     });
+
+    test(
+      'each family declares its bundled fallback, so nothing renders tofu',
+      () {
+        // Anek Latin and Inter are subset to Latin; a Devanagari glyph has to
+        // fall through to a face that carries it.
+        expect(
+          AppTypography.display().fontFamilyFallback,
+          containsAllInOrder(<String>['Baloo 2', 'Noto Sans Devanagari']),
+        );
+        expect(
+          AppTypography.body().fontFamilyFallback,
+          containsAllInOrder(<String>['Mukta', 'Noto Sans Devanagari']),
+        );
+      },
+    );
 
     test('bars google_fonts from fetching at runtime', () {
       GoogleFonts.config.allowRuntimeFetching = true;
@@ -66,21 +87,33 @@ void main() {
       expect(s.letterSpacing, -0.3);
     });
 
-    test('textTheme() is entirely bundled — no slot escapes to google_fonts',
-        () {
-      final TextTheme t = AppTypography.textTheme();
-      final List<TextStyle?> slots = <TextStyle?>[
-        t.displayLarge, t.displayMedium, t.displaySmall,
-        t.headlineLarge, t.headlineMedium, t.headlineSmall,
-        t.titleLarge, t.titleMedium, t.titleSmall,
-        t.bodyLarge, t.bodyMedium, t.bodySmall,
-        t.labelLarge, t.labelMedium, t.labelSmall,
-      ];
+    test(
+      'textTheme() is entirely bundled — no slot escapes to google_fonts',
+      () {
+        final TextTheme t = AppTypography.textTheme();
+        final List<TextStyle?> slots = <TextStyle?>[
+          t.displayLarge,
+          t.displayMedium,
+          t.displaySmall,
+          t.headlineLarge,
+          t.headlineMedium,
+          t.headlineSmall,
+          t.titleLarge,
+          t.titleMedium,
+          t.titleSmall,
+          t.bodyLarge,
+          t.bodyMedium,
+          t.bodySmall,
+          t.labelLarge,
+          t.labelMedium,
+          t.labelSmall,
+        ];
 
-      for (final TextStyle? s in slots) {
-        expect(s!.fontFamily, anyOf('Anek', 'Roboto'));
-      }
-    });
+        for (final TextStyle? s in slots) {
+          expect(s!.fontFamily, anyOf('Anek Latin', 'Inter'));
+        }
+      },
+    );
   });
 
   // The LEGACY google_fonts path (only reached if someone flips the flag back to
@@ -91,15 +124,20 @@ void main() {
   group('bundledBrandFonts = false (legacy google_fonts path)', () {
     setUp(() => AppTypography.bundledBrandFonts = false);
 
-    testWidgets('routes through the google_fonts families',
-        (WidgetTester tester) async {
-      expect(AppTypography.display().fontFamily, isNot('Anek'));
+    testWidgets('routes through the google_fonts families', (
+      WidgetTester tester,
+    ) async {
+      expect(AppTypography.display().fontFamily, isNot('Anek Latin'));
       expect(AppTypography.display().fontFamilyFallback, contains('AnekLatin'));
-      expect(AppTypography.body().fontFamilyFallback, contains('Noto Sans Devanagari'));
+      expect(
+        AppTypography.body().fontFamilyFallback,
+        contains('Noto Sans Devanagari'),
+      );
     });
 
-    testWidgets('STILL bars runtime fetching (crash fix — never the network)',
-        (WidgetTester tester) async {
+    testWidgets('STILL bars runtime fetching (crash fix — never the network)', (
+      WidgetTester tester,
+    ) async {
       GoogleFonts.config.allowRuntimeFetching = true;
 
       AppTypography.display();

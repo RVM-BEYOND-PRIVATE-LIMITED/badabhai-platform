@@ -637,3 +637,166 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
         if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):
             kept.append(label)
     return kept
+
+
+# ---------------------------------------------------------------------------
+# HARD IDENTIFIERS — the floor that no ruling has moved
+# ---------------------------------------------------------------------------
+
+#: The identifier classes that may never reach a stored value, an event, a log or the
+#: résumé sheet — whatever a ruling permits into a PROMPT.
+#:
+#: WHY THIS EXISTS, AND WHY IT IS NOT `pseudonymize`. ADR-0041 D5 sends an uploaded
+#: résumé to the model FULLY UNMASKED, and §3.3 spells out the consequence: the model
+#: can now return a real name, phone or PAN inside a parsed VALUE. Gate 6 in
+#: `profiling/parse_gates.py` is what stops such a value being stored — so on that route
+#: gate 6 stops being a formality and becomes the thing that decides what is persisted.
+#:
+#: It cannot use the full gateway to do it. `pseudonymize` masks employer names, person
+#: names and money amounts as well, and D5 EXPLICITLY authorises employer names into
+#: `employer_name_enc`. Worse, `_EMPLOYER_RE` over-fires on ordinary trade vocabulary —
+#: "Stainless Steel" and "Diploma Mechanical Engineering" both come back as
+#: `[EMPLOYER_1]` (see `certified_clean_skill_labels`, which exists to rescue exactly
+#: that). Certifying résumé values with the full gateway would therefore reject nearly
+#: every honest value while the ruling says to keep them.
+#:
+#: So this is a NARROWING of gate 6 for one route, not a disabling of it: the identity
+#: classes a signed ruling moved are permitted, and the classes it did not move are
+#: refused. Nothing here is affected by `RESUME_PARSE_RAW_TEXT_ENABLED` — that flag
+#: governs what reaches the MODEL, and this governs what reaches the DATABASE. Two
+#: different questions, and collapsing them into one masker is the single most likely
+#: way to turn the raw-input flag into a silent PII leak.
+HARD_IDENTIFIER_CLASSES: tuple[str, ...] = (
+    "pan",
+    "aadhaar",
+    "phone",
+    "email",
+    "credential_id",
+    # ADDED AFTER A SECURITY REVIEW MEASURED THE FIRST DRAFT WRONG. That draft's docstring
+    # claimed "_PHONE_RE still catches 9-13 digit runs, and Aadhaar has its own shape, so no
+    # identifier escapes through that exclusion - only amounts pass." Measured false:
+    # `_PHONE_RE` is bounded ABOVE at 13 digits by construction, and the residual-digit net
+    # that used to catch everything longer is the thing this function deliberately excludes.
+    # So a bank account (9-18 digits) and an ESIC number (17) walked straight through.
+    "long_digit_run",
+    # A GSTIN embeds a PAN with no word boundary either side, so `_PAN_RE` misses it.
+    "gstin",
+)
+
+
+#: FOURTEEN OR MORE, which is the floor that cannot collide with money. The D-1 carve-out
+#: exists because a salary is 7-8 digits, and `SALARY_INR_PER_MONTH_MAX` is six. Nothing a
+#: worker earns is 14 digits, and a bank account, an ESIC number and a PF number all are.
+#: Separators are tolerated for the same reason `_PHONE_RE` tolerates them: an identifier
+#: split on a dot or a slash is still an identifier.
+#: FOURTEEN OR MORE, which is the floor that cannot collide with money. The D-1 carve-out
+#: exists because a salary is 7-8 digits, and `SALARY_INR_PER_MONTH_MAX` is six figures.
+#: Nothing a worker earns is 14 digits; a bank account (9-18), an ESIC number (17) and a PF
+#: number all are. Separators are tolerated for the same reason `_PHONE_RE` tolerates them:
+#: an identifier split on a dot or a slash is still an identifier.
+_LONG_DIGIT_RUN_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]*\d){13,}(?!\d)")
+
+#: A GSTIN is `27ABCDE1234F1Z5` — two state digits, a PAN, then three more characters. The
+#: PAN sits INSIDE a longer alphanumeric run, so `_PAN_RE`'s word boundaries never match it.
+_GSTIN_RE = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b")
+
+#: Zero-width and invisible characters, REMOVED BEFORE MATCHING rather than tolerated as
+#: separators. `_PHONE_SEPARATORS` already lists them, but that only ever helped the patterns
+#: built from it — stripping helps PAN, Aadhaar and email too, and `ABCDE<ZWJ>1234F` was never
+#: a legitimate value. The TypeScript wall strips the same set, so the shared fixture keeps
+#: pinning one behaviour rather than two that happen to agree on the cases written down.
+_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\ufeff]")
+
+#: Identifiers this route must refuse that the interview's `_CREDENTIAL_ID_RE` does not name.
+#:
+#: KEPT SEPARATE from that pattern rather than merged into it. Widening the shared one would
+#: change what the INTERVIEW masks, and this is a résumé-only narrowing of gate 6 — not a
+#: change to the gateway every other route depends on.
+#:
+#: CUE-BASED, NOT SHAPE-BASED, because these shapes are ambiguous in a way Aadhaar and PAN are
+#: not. A passport number `M1234567` is indistinguishable from a part number; a date of birth
+#: `12/05/1988` is indistinguishable from the date range `01/2019-03/2023` that a résumé prints
+#: on every line of its work history. The cue is what separates them.
+#:
+#: THE VALUE MUST CONTAIN A DIGIT — the lookahead, copied from `_CREDENTIAL_ID_RE` and load
+#: bearing for the same reason. Without it `\baccount\b` plus the next word refuses
+#: "Account Manager", which is a job title a real worker holds. Bounded at 24 characters so
+#: the lookahead's work stays bounded per character rather than per input.
+#: `re.IGNORECASE` OVER THE WHOLE PATTERN, not an inline `(?i:...)` around the cue alone.
+#: The first version scoped the flag to the cue and then required a LOWERCASE connector, so
+#: "Passport No: M1234567" and "Voter ID: ABC1234567" — the two forms a real résumé actually
+#: prints — both slipped through while their lowercase equivalents were caught. A flag that
+#: covers half an expression measures as coverage and is not.
+_RESUME_CUED_ID_RE = re.compile(
+    r"\b(?:passport|voter|gstin|uan|esic|provident\s+fund|ifsc|"
+    r"a/c|account|dob|date\s+of\s+birth)\b"
+    r"\s*(?:no\.?|number|num|id|#)?\s*[:\-]?\s*"
+    r"(?=[A-Za-z0-9/\-]{0,24}\d)"
+    r"[A-Za-z0-9][A-Za-z0-9/\-]{4,}",
+    re.IGNORECASE,
+)
+
+
+def contains_hard_identifier(text: str) -> str | None:
+    """Which class of hard identifier appears in ``text``, or ``None``. Never raises.
+
+    DELIBERATELY EXCLUDES the residual-digit net at SEVEN, which the full gateway applies.
+    A salary is seven or eight digits and is a legitimate résumé value — a fact the D-1
+    money carve-out above already had to establish once, after that net blocked workers who
+    typed an annual figure.
+
+    THE FIRST DRAFT STOPPED THERE AND WAS WRONG. It reasoned that `_PHONE_RE` covers 9-13
+    digits and Aadhaar has its own
+    shape, so no identifier escapes through that exclusion — only amounts pass.
+
+    A PERSON NAME IS KNOWINGLY NOT IN THIS SET. RULED 2026-09-11 (Prakash), and ADR-0041
+    section 3.3 now says so in those words rather than the opposite.
+    Phone and PAN are covered here; a name is not, so `role_label = "Ramesh Kumar - CNC
+    Turner"` passes, and that is the recorded, signed posture rather than a gap nobody saw.
+
+    The obvious fix — certify with the full gateway and permit only employer-and-amount masks
+    — was MEASURED before being rejected, and it does neither of the things it appears to:
+
+        pseudonymize("Ramesh Kumar")            -> "Ramesh Kumar"      (unchanged)
+        pseudonymize("My name is Ramesh Kumar") -> "My name is [PERSON_1]"
+        pseudonymize("1200000")                 -> "[AMOUNT_1]"
+
+    The gateway's name detection is CUE-based (`_NAME_CUE_RE`, `_LEADING_NAME_RE`), and a
+    résumé prints a bare name with no cue in front of it. So that route would refuse a
+    worker's stated salary while still admitting the name it was supposed to catch. The
+    gazetteer that would have caught a bare name is recorded as measured-dead (R32: 487
+    probes, 348 leaks).
+
+    So there is no reliable person-name detector in this codebase to narrow to, and shipping
+    one that misses the common case while breaking salaries would be worse than the gap. The
+    two honest options were put to the owner — amend 3.3, or gate the launch on building a
+    detector — and 2026-09-11 ruled the first: the name a worker sees is his own, on his own
+    record, going to a model that already receives the whole document under D5.
+
+    DO NOT "FIX" THIS by pointing gate 6 at the full gateway without re-running the
+    measurement above. If a real name detector is ever built, HERE is where it gets wired in
+    — one new class in this function — and nothing else has to change.
+
+    Order is cheapest-first and the classes do overlap (a 12-digit Aadhaar also matches
+    the phone net); the first match names it, and which label wins never changes the
+    decision, only the counter it lands in.
+    """
+    try:
+        text = _INVISIBLE_RE.sub("", text)
+        if _PAN_RE.search(text):
+            return "pan"
+        if _AADHAAR_RE.search(text):
+            return "aadhaar"
+        if _PHONE_RE.search(text):
+            return "phone"
+        if _EMAIL_RE.search(text):
+            return "email"
+        if _CREDENTIAL_ID_RE.search(text) or _RESUME_CUED_ID_RE.search(text):
+            return "credential_id"
+        if _GSTIN_RE.search(text):
+            return "gstin"
+        if _LONG_DIGIT_RUN_RE.search(text):
+            return "long_digit_run"
+    except Exception:  # pragma: no cover - defensive; a scanner error must fail CLOSED
+        return "scanner_error"
+    return None

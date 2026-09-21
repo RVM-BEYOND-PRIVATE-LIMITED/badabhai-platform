@@ -7,8 +7,13 @@ import type { NewWorkerPackAnswer, WorkerPackAnswer } from "@badabhai/db";
 
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { CNC_TURNER } from "../roles/cnc-turner.role";
+import { packFromCorpus, rawCorpusPack, UNIVERSAL_PACK_FILE } from "./corpus-pack.test-support";
+import { LEGACY_FORM_UNIVERSAL_KEYS } from "./legacy-universal-answer";
 import { TradeFormSchemaResponse } from "./trade-form.dto";
 import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.service";
+
+/** Marker executor the repository doubles hand to a transaction callback. */
+const FAKE_TX = Symbol("fake-tx") as unknown as never;
 
 /**
  * ═══ THE TRADE FORM ═══
@@ -29,6 +34,7 @@ import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.serv
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
+const RESUME = "33333333-3333-4333-8333-333333333333";
 
 let order = 0;
 function item(partial: Partial<QuestionPackItem> & { question_key: string }): QuestionPackItem {
@@ -90,8 +96,27 @@ const PACK: QuestionPack = {
   ],
 };
 
+/**
+ * THE REAL UNIVERSAL PACK, served by default (#1503).
+ *
+ * This double used to return `null`, and that one line is why `f455bb36` appended eight questions
+ * to every form without a single test here noticing: there was nothing to append. Serving the real
+ * pack means a regression that reads it has something to put on screen.
+ */
+const UNIVERSAL: QuestionPack = packFromCorpus(UNIVERSAL_PACK_FILE);
+
 function makeService(
-  opts: { formKind?: unknown; saved?: WorkerPackAnswer[]; pack?: QuestionPack | null } = {},
+  opts: {
+    formKind?: unknown;
+    saved?: WorkerPackAnswer[];
+    pack?: QuestionPack | null;
+    /** What every universal-loading door returns. Defaults to the real `qp_universal@2`. */
+    universal?: QuestionPack | null;
+    /** ADR-0041 RI-4 — what a résumé staged for this worker, keyed by question key. */
+    suggestions?: ReadonlyMap<string, unknown>;
+    /** An already-generated resume row id: set when the test is about a post-completion edit. */
+    resumeId?: string;
+  } = {},
 ) {
   const written: NewWorkerPackAnswer[] = [];
   const chat = {
@@ -101,17 +126,28 @@ function makeService(
         opts.formKind === undefined ? { form_kind: "cnc_turner" } : { form_kind: opts.formKind },
     })),
   };
-  const packs = { loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)) };
+  const universal = opts.universal === undefined ? UNIVERSAL : opts.universal;
+  const packs = {
+    loadForFamily: vi.fn(async () => (opts.pack === undefined ? PACK : opts.pack)),
+    loadUniversal: vi.fn(async () => universal),
+    resolveForOccupation: vi.fn(async () => universal),
+  };
   const answers = {
     listAnswers: vi.fn(async () => opts.saved ?? []),
-    upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer) => {
+    // ONE ANSWER IS TWO ROWS, so the service wraps both writes in one transaction. The double
+    // runs `cb` directly with a marker executor: there is no database here, so "atomic" is not a
+    // property this fake can hold — what it CAN hold is that both writes are attempted inside
+    // the callback, which the assertions on `written` and `upsertMany` already check.
+    withTransaction: vi.fn(async <T,>(cb: (tx: unknown) => Promise<T>) => cb(FAKE_TX)),
+    // `_tx` is captured, not used: the enrolment assertion below reads it off `mock.calls`.
+    upsertAnswer: vi.fn(async (row: NewWorkerPackAnswer, _tx?: unknown) => {
       written.push(row);
     }),
   };
   // THE SHEET'S OWN SOURCE. Captured so the tests can assert that a form answer reaches
   // `worker_attributes` and not only `worker_pack_answer` — the capability zone reads the former,
   // and the handover switches off the extraction job that used to be its only writer.
-  const upsertMany = vi.fn(async (_rows: unknown[]) => 0);
+  const upsertMany = vi.fn(async (_rows: unknown[], _tx?: unknown) => 0);
   // The completion half of the form funnel. Captured rather than stubbed to a no-op so the tests
   // can assert BOTH directions: that finishing the form emits exactly once, and that answering a
   // question mid-form emits nothing.
@@ -121,6 +157,20 @@ function makeService(
     return {};
   });
   const rebuildQuietly = vi.fn(async () => undefined);
+  // "TYPED CUSTOM ANSWER, EVERYWHERE" — the review-or-omit call `answer()` fires,
+  // fire-and-forget, whenever `recordFor` marks a value as an "other" answer. A spy, not the
+  // real service: these tests assert that the TRIGGER fires with the right arguments, not the
+  // AI/fail-closed contract itself, which `other-answer-polish.service.test.ts` already covers.
+  const review = vi.fn(async () => "reviewed" as string | null);
+  const otherAnswerPolish = { review };
+  const config = { WORK_HISTORY_POLISH_ENABLED: true };
+  // The safety-net resume refresh: no resume row by default (first-timer), so the
+  // re-render never fires unless a test opts in via `resumeId`. The queue double
+  // captures `add` calls so the enqueue tests can assert them.
+  const latestResume = vi.fn(async (_workerId: string) =>
+    opts.resumeId === undefined ? undefined : { id: opts.resumeId },
+  );
+  const renderQueueAdd = vi.fn(async (_name: string, _data: unknown, _opts: unknown) => ({}));
   const service = new TradeFormService(
     chat as never,
     packs as never,
@@ -132,8 +182,33 @@ function makeService(
     // from the matching layer is that it is called with the worker id. `rebuildQuietly` is
     // contractually never-throwing, which is why the form can await it without a try/catch.
     { rebuildQuietly } as never,
+    // ADR-0041 RI-4. THE DEFAULT IS AN EMPTY MAP, and that is the point: a worker who uploaded
+    // nothing is the case every other test in this file is about, and the form they assert on
+    // must be byte-for-byte the form he sees today.
+    { forWorker: async () => opts.suggestions ?? new Map() } as never,
+    // ADR-0041 RI-4 — `contextFor`'s résumé-import fallback. No import, so every test here
+    // reaches the form through the interview handover. NEITHER THIS SUITE NOR THE ROLE-DRIVE SUITE
+    // EXERCISES THAT FALLBACK — both stub it exactly like this — so its branch is unit-untested.
+    { findLatestForWorker: async () => undefined } as never,
+    otherAnswerPolish as never,
+    config as never,
+    { latestResume } as never,
+    { add: renderQueueAdd } as never,
   );
-  return { service, written, packs, chat, upsertMany, emitted, emit };
+  return {
+    service,
+    written,
+    packs,
+    chat,
+    upsertMany,
+    emitted,
+    emit,
+    answers,
+    rebuildQuietly,
+    review,
+    latestResume,
+    renderQueueAdd,
+  };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -151,6 +226,15 @@ describe("TradeFormService", () => {
   vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
 
   describe("the schema", () => {
+    // THE MIC ON THE WORK-HISTORY PAGE DEPENDS ON THIS FIELD. `POST /voice/upload` takes a
+    // `session_id` and `voice_notes.session_id` is NOT NULL, so a form that does not serve one
+    // cannot record a spoken work description at all. Pinned so it is not dropped as unused.
+    it("serves the interview's session id, so the work-history mic has one to file a clip under", async () => {
+      const { service } = await makeService();
+      const schema = await service.schema(WORKER);
+      expect(schema.session_id).toBe(SESSION);
+    });
+
     it("asks the capability rows in the SHEET's array order, not the pack's and not by rank", async () => {
       const { service } = await makeService();
       const schema = await service.schema(WORKER);
@@ -204,6 +288,33 @@ describe("TradeFormService", () => {
       );
       expect(machine).toMatchObject({
         answer: { status: "answered", option_keys: ["k2", "k3"] },
+      });
+    });
+
+    // HONEST STATE, PROVED RATHER THAN ASSERTED IN A COMMENT: even once a rewrite exists,
+    // `other_text` on the resumed-form edit surface stays the worker's RAW typed words. The
+    // `SavedAnswerSchema.other_text` docblock says this is deliberate — the worker editing his
+    // own answer must see what he actually typed, not a rewrite he has not yet had the chance to
+    // see or refuse — and this test is what would go red the moment someone points this field at
+    // `answerOtherTextPolished` without that product decision being made.
+    it("still replays the RAW typed 'other' text on the edit surface, even once a reviewed rewrite exists", async () => {
+      const { service } = await makeService({
+        saved: [
+          answered({
+            questionKey: "turning_machine",
+            answerOptionKeys: null,
+            answerOtherText: "ek purana Batliboi lathe",
+            answerOtherTextPolished: "Batliboi lathe",
+          } as Partial<WorkerPackAnswer>),
+        ],
+      });
+      const schema = await service.schema(WORKER);
+      const screens = schema.sections.flatMap((s) => s.screens);
+      const machine = screens.find(
+        (s) => s.type === "question" && s.question.question_key === "turning_machine",
+      );
+      expect(machine).toMatchObject({
+        answer: { status: "answered", other_text: "ek purana Batliboi lathe" },
       });
     });
 
@@ -348,6 +459,83 @@ describe("TradeFormService", () => {
       });
     });
 
+    it("refreshes an already-generated resume after a capability answer — the Bada Bhai edit loop", async () => {
+      // THE SAFETY NET THIS EXISTS FOR. A section-walk edit writes fresh attributes, but the
+      // building-screen regenerate only runs when the worker finishes inside the app. An
+      // abandoned walk (or a failed generate) would otherwise leave the new attributes in the
+      // database with the OLD document + READY pill on screen, forever. The forced re-render
+      // rebuilds the sheet from the live attributes at run time: LLM-free, no version bump,
+      // no daily-cap spend.
+      const { service, renderQueueAdd, latestResume } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(latestResume).toHaveBeenCalledWith(WORKER);
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+      expect(renderQueueAdd).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME, workerId: WORKER, force: true }),
+        expect.objectContaining({
+          jobId: `trade-form-rerender:${WORKER}`,
+          delay: 60_000,
+          removeOnComplete: true,
+        }),
+      );
+    });
+
+    it("does NOT refresh when there is no resume yet — the first generate owns version 1", async () => {
+      // First run through the form: nothing to re-render, and the building screen's generate
+      // (with its overlay) is what mints the row. An eager enqueue here would render a row
+      // that does not exist yet — or worse, race the generate.
+      const { service, renderQueueAdd } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("does NOT refresh on the legacy-universal shim — it writes no attributes", async () => {
+      // The shim returns before the capability write, so the hook is never reached even with
+      // a resume on file. Same discipline as the preferences page owning shift (#1503).
+      const { service, renderQueueAdd, upsertMany } = await makeService({ resumeId: RESUME });
+      await service.answer(WORKER, {
+        question_key: "shift_preference",
+        answer: { kind: "chips", option_keys: ["night"] },
+      });
+      expect(upsertMany).not.toHaveBeenCalled();
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
+    it("still saves the answer when the refresh enqueue fails — fail open, always", async () => {
+      // The answer above already committed; a Redis blip must not fail it, and the worker
+      // must never be asked to re-tap a saved answer.
+      const { service, renderQueueAdd, written } = await makeService({ resumeId: RESUME });
+      renderQueueAdd.mockRejectedValueOnce(new Error("redis down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it("still saves the answer when the resume lookup fails — fail open, always", async () => {
+      const { service, renderQueueAdd, latestResume, written } = await makeService({
+        resumeId: RESUME,
+      });
+      latestResume.mockRejectedValueOnce(new Error("db down"));
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(result.status).toBe("answered");
+      expect(written[0]).toMatchObject({ questionKey: "turning_machine", status: "answered" });
+      expect(renderQueueAdd).not.toHaveBeenCalled();
+    });
+
     it("de-duplicates repeated option keys", async () => {
       const { service, written } = await makeService();
       await service.answer(WORKER, {
@@ -419,14 +607,85 @@ describe("TradeFormService", () => {
       ).rejects.toThrow(/not a yes\/no question/);
     });
 
-    it("rejects free text for a select question", async () => {
-      const { service } = await makeService();
-      await expect(
-        service.answer(WORKER, {
-          question_key: "turning_machine",
-          answer: { kind: "text", text: "CNC lathe" },
-        }),
-      ).rejects.toThrow(/does not take free text/);
+    // "Typed custom answer, everywhere" (owner ruling, round 4): a worker who types free text
+    // against a closed-option question is not turned away. This REPLACES the old assertion that
+    // this 400'd (`/does not take free text/`) — the old behaviour was exactly the silent-drop-
+    // by-rejection the ruling forbids: the worker typed a real answer and the form refused it.
+    it("captures free text on a select question as an 'other' answer, never a 400 and never a typed column", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      expect(written[0]).toMatchObject({ status: "answered" });
+      // NEVER a typed column — an "other" answer must not be readable as settled vocabulary by
+      // a tier gate or a `worker_attributes` projection. See `pack-answer-row.ts`.
+      expect(written[0]?.answerText).toBeUndefined();
+      expect(written[0]?.answerOptionKeys).toBeUndefined();
+      expect(written[0]?.answerOtherText).toBe("CNC lathe");
+    });
+
+    // INTEGRATION-SHAPED: exercises the real `answer()` flow end to end (through `recordFor`,
+    // `packAnswerRowFor`, the transaction, and the trigger below it) and asserts the review-or-
+    // omit path was actually invoked with the answer just saved — not a unit test of
+    // `OtherAnswerPolishService` in isolation, which `other-answer-polish.service.test.ts`
+    // already covers. This is the test that would have caught the dead-code finding: it fails
+    // red the moment `triggerOtherAnswerPolish`'s call site is removed or never wired.
+    it("hands a typed 'other' answer to the review-or-omit path, fire-and-forget", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "CNC lathe" },
+      });
+      expect(response.status).toBe("answered");
+      // CALLED SYNCHRONOUSLY WITHIN `answer()`, even though never awaited — a mocked async
+      // function records its call the instant it is invoked, before its own promise settles, so
+      // this assertion needs no `await`/flush to see the call `answer()`'s return already implies.
+      expect(review).toHaveBeenCalledTimes(1);
+      expect(review).toHaveBeenCalledWith(
+        WORKER,
+        "qp_cnc_turning",
+        "turning_machine",
+        "CNC lathe",
+        // The question's own prompt text — this pack's `item()` helper defaults it to
+        // `${question_key}?`.
+        "turning_machine?",
+        expect.objectContaining({ correlationId: undefined, requestId: undefined }),
+        expect.objectContaining({ WORK_HISTORY_POLISH_ENABLED: true }),
+        // A FRESH TRIGGER, ALWAYS — `upsertAnswer` clears any prior polish/decline on every
+        // write, so this is the only state `triggerOtherAnswerPolish` can honestly pass.
+        { polished: null, declined: false },
+      );
+    });
+
+    it("never triggers the review-or-omit path for a settled (non-'other') answer", async () => {
+      const { service, review } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "trade_test_status",
+        answer: { kind: "boolean", value: true },
+      });
+      expect(review).not.toHaveBeenCalled();
+    });
+
+    it("never triggers the review-or-omit path when the typed 'other' text is empty (declined, not stored)", async () => {
+      const { service, review } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(review).not.toHaveBeenCalled();
+    });
+
+    it("declines (rather than 400s or silently drops) empty typed text on a select question", async () => {
+      const { service, written } = await makeService();
+      const response = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "text", text: "   " },
+      });
+      expect(response.status).toBe("declined");
+      expect(written[0]).toMatchObject({ status: "declined" });
     });
 
     it("rejects a question key this pack does not define, rather than dropping it", async () => {
@@ -799,5 +1058,483 @@ describe("TradeFormService", () => {
       });
       expect(written).toHaveLength(1);
     });
+  });
+/**
+   * ═══ ONE ANSWER IS TWO ROWS, AND THEY COMMIT TOGETHER ═══
+   *
+   * These two writes were separate autocommits, and the failure was silent AND unrecoverable:
+   * when the attribute write failed, the `worker_pack_answer` row still committed — so
+   * `answeredCount` counted the question, the rail advanced, the worker was told it saved, and
+   * `worker_attributes` (what the printed sheet and the matcher read) had nothing. Retrying could
+   * not repair it either, because `upsertAnswer` is idempotent and succeeds again every time.
+   *
+   * WHAT A MOCK CAN AND CANNOT PROVE. Atomicity is a database property and there is no database
+   * here — the real proof is `tests/e2e/trade-form.e2e.test.ts`, which runs this against Postgres.
+   * What IS provable here is enrolment: both writes receive the SAME executor the transaction
+   * handed out, rather than each opening its own. That is the thing the code change actually
+   * makes true, and it is what would regress if someone dropped a `tx` argument.
+   */
+  describe("the two writes are one unit of work", () => {
+    it("enrols BOTH writes in the same transaction", async () => {
+      const { service, answers, upsertMany } = await makeService();
+
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+
+      expect(answers.withTransaction).toHaveBeenCalledTimes(1);
+      // The executor the transaction handed out, and the one each write actually used.
+      const answerTx = answers.upsertAnswer.mock.calls[0]![1];
+      const attributeTx = upsertMany.mock.calls[0]![1];
+      expect(answerTx, "upsertAnswer ran outside the transaction").toBe(FAKE_TX);
+      expect(attributeTx, "upsertMany ran outside the transaction").toBe(FAKE_TX);
+      expect(answerTx).toBe(attributeTx);
+    });
+
+    it("does not open a transaction per write", async () => {
+      const { service, answers } = await makeService();
+
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      await service.answer(WORKER, {
+        question_key: "controller_brand",
+        answer: { kind: "chips", option_keys: ["k2"] },
+      });
+
+      // One per ANSWER, not one per row written.
+      expect(answers.withTransaction).toHaveBeenCalledTimes(2);
+    });
+  });
+/**
+ * ═══ MUTUALLY EXCLUSIVE QUESTIONS NEVER REACH A WORKER TOGETHER (#1413 §3) ═══
+ *
+ * `qp_cad_drafting` asks a draughtsman with experience which sectors he has DRAWN for, and a
+ * fresher which he STUDIED. The two are complements on one gate — `drafting_experience >= 2`
+ * against `<= 1` — so exactly one is ever his question.
+ *
+ * #1413 reported that both are visible on the first fetch, and that is TRUE OF THE PAYLOAD:
+ * `form-eligibility`'s rule is that an UNRESOLVED gate shows the question, deliberately, so the
+ * form is never shorter than the truth. What stops the worker seeing both is a chain of three
+ * separate changes that no test held together:
+ *
+ *   1. #1377/#1378 — `orderBySheet` hoists every mandatory item and the tenure gate to the FRONT,
+ *      so `drafting_experience` is asked before the pair it gates.
+ *   2. `schema_stale` — answering a key that appears in any `ask_if`/`skip_if` tells the client
+ *      the screen list it holds is now stale (`gateKeysOf`).
+ *   3. #1382 — the client re-fetches on that flag rather than walking its stale list.
+ *
+ * Break any one and the worker is asked both, or asked the wrong one. These assert the two links
+ * this service owns; the third is the Flutter cubit's `_resyncAfterStaleSchema`.
+ */
+describe("#1413 §3 — the drafting-sector pair", () => {
+  const DRAFTING: QuestionPack = {
+    ...PACK,
+    pack_id: "qp_cad_drafting",
+    family_id: "fam_cad_drafting",
+    items: [
+      // Deliberately LAST in the pack's own order, so a service that did not hoist it would
+      // serve it after the two questions it governs — the exact defect #1377 fixed.
+      item({
+        question_key: "cad_software",
+        answer_type: "multi_select",
+        options: options(4),
+      }),
+      item({
+        question_key: "sector_drawn",
+        answer_type: "multi_select",
+        options: options(4),
+        ask_if: { op: "gte", left: { field: "drafting_experience" }, right: { const: 2 } },
+      }),
+      item({
+        question_key: "sector_studied",
+        answer_type: "multi_select",
+        options: options(4),
+        ask_if: { op: "lte", left: { field: "drafting_experience" }, right: { const: 1 } },
+      }),
+      item({
+        question_key: "drafting_experience",
+        answer_type: "single_select",
+        is_mandatory: true,
+        options: [
+          { option_key: "k0", label_text: "Fresher", value: 0, implies_skill_id: null, is_none_of_above: false },
+          { option_key: "k5", label_text: "5 saal", value: 5, implies_skill_id: null, is_none_of_above: false },
+        ],
+      }),
+    ] as QuestionPackItem[],
+  };
+
+  const keysOf = (schema: { sections: { screens: unknown[] }[] }) =>
+    schema.sections
+      .flatMap((s) => s.screens)
+      .filter((s): s is { question: { question_key: string } } =>
+        typeof s === "object" && s !== null && "question" in s)
+      .map((s) => s.question.question_key);
+
+  it("asks the GATE before either question it gates", async () => {
+    const { service } = await makeService({ pack: DRAFTING });
+    const keys = keysOf(await service.schema(WORKER));
+    // The pack lists it last; the form must not.
+    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_drawn"));
+    expect(keys.indexOf("drafting_experience")).toBeLessThan(keys.indexOf("sector_studied"));
+    expect(keys[0]).toBe("drafting_experience");
+  });
+
+  it("EXACTLY ONE of the pair survives once the gate is answered", async () => {
+    for (const [rung, expected, gone] of [
+      [5, "sector_drawn", "sector_studied"],
+      [0, "sector_studied", "sector_drawn"],
+    ] as const) {
+      const { service } = await makeService({
+        pack: DRAFTING,
+        saved: [
+          answered({
+            questionKey: "drafting_experience",
+            answerOptionKeys: null,
+            answerNumber: rung,
+          }),
+        ],
+      });
+      const keys = keysOf(await service.schema(WORKER));
+      expect(keys, `rung ${rung} must keep ${expected}`).toContain(expected);
+      expect(keys, `rung ${rung} must drop ${gone}`).not.toContain(gone);
+    }
+  });
+
+  it("shows BOTH while the gate is unanswered — the deliberate fail-open", async () => {
+    // NOT A BUG, and pinned so it is not "fixed" into a silent drop. An unresolved gate shows the
+    // question so the form is never SHORTER than the truth; the ordering and staleness rules
+    // above are what stop a worker reaching them. Removing this would hide a fresher's own
+    // question from him whenever the gate write failed.
+    const { service } = await makeService({ pack: DRAFTING });
+    const keys = keysOf(await service.schema(WORKER));
+    expect(keys).toContain("sector_drawn");
+    expect(keys).toContain("sector_studied");
+  });
+});
+});
+
+/**
+ * ═══ #1503 — THE UNIVERSAL APPEND IS GONE, AND AN APP HOLDING IT IS NOT STRANDED ═══
+ *
+ * `f455bb36` served all eight `qp_universal@2` questions on every trade form. The owner ruling of
+ * 2026-09-15 puts those facts on the pages that own them, so the form serves its trade pack and
+ * nothing else — and an app still holding the old schema must be able to POST the screen it is
+ * showing without a 400 stranding the worker there.
+ */
+describe("#1503 — the trade form without the universal append", () => {
+  const LEGACY = new Set(rawCorpusPack(UNIVERSAL_PACK_FILE).items.map((entry) => entry.question_key));
+
+  /** Every question in PACK settled, so a completion WOULD fire on any answer that evaluated it. */
+  const everythingSettled = () =>
+    PACK.items.map((entry) =>
+      answered({
+        questionKey: entry.question_key,
+        answerOptionKeys: null,
+        answerText: "v0",
+      }),
+    );
+
+  const logSpy = () => vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+
+  it("VACUITY — the universal pack the double serves really has eight questions to append", () => {
+    expect(UNIVERSAL.items).toHaveLength(8);
+    expect(LEGACY.size).toBe(8);
+  });
+
+  it("serves no universal question, although the universal pack loads", async () => {
+    const { service } = makeService();
+    const served = (await service.schema(WORKER)).sections
+      .flatMap((section) => section.screens)
+      .flatMap((screen) => (screen.type === "question" ? [screen.question.question_key] : []));
+    expect(served.filter((key) => LEGACY.has(key))).toEqual([]);
+    expect([...served].sort()).toEqual(PACK.items.map((entry) => entry.question_key).sort());
+  });
+
+  it("the frozen legacy list is EXACTLY the eight keys that deploy served, as a literal", () => {
+    expect(Object.isFrozen(LEGACY_FORM_UNIVERSAL_KEYS)).toBe(true);
+    expect([...LEGACY_FORM_UNIVERSAL_KEYS].sort()).toEqual([...LEGACY].sort());
+  });
+
+  describe("the legacy-key shim", () => {
+    it("answers 200 with schema_stale, and stores the row where that deploy stored it", async () => {
+      const { service, written } = makeService();
+      const result = await service.answer(WORKER, {
+        question_key: "availability",
+        answer: { kind: "chips", option_keys: ["immediate"] },
+      });
+
+      expect(result).toEqual({
+        question_key: "availability",
+        status: "answered",
+        answered: 0,
+        total: PACK.items.length,
+        schema_stale: true,
+      });
+      expect(written).toHaveLength(1);
+      // UNDER THE TRADE PACK, not an invented `qp_universal` location nothing reads.
+      expect(written[0]).toMatchObject({
+        workerId: WORKER,
+        packId: "qp_cnc_turning",
+        packVersion: 1,
+        questionKey: "availability",
+        answerText: "immediate",
+        status: "answered",
+        source: "form",
+        chatSessionId: SESSION,
+      });
+    });
+
+    it("writes NO worker_attributes row — the preferences page owns shift", async () => {
+      // `shift_preference` is the one universal item with `target_kind: attribute`, so the normal
+      // path WOULD write it; that write racing the page's is the overwrite #1503 reported.
+      const { service, upsertMany, written, answers } = makeService();
+      await service.answer(WORKER, {
+        question_key: "shift_preference",
+        answer: { kind: "chips", option_keys: ["night"] },
+      });
+      expect(written[0]).toMatchObject({ questionKey: "shift_preference", answerText: "night" });
+      expect(upsertMany).not.toHaveBeenCalled();
+      expect(answers.withTransaction).not.toHaveBeenCalled();
+    });
+
+    it("runs NO completion evaluation, even on a form every question of which is settled", async () => {
+      // THE DISCRIMINATING HALF FIRST: the same settled rows DO complete the form on a real answer,
+      // so an empty `emitted` below is the shim skipping the check, not the fixture being unable to
+      // satisfy it.
+      const control = makeService({ saved: everythingSettled() });
+      await control.service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(control.emitted.map((event) => event.event_name)).toEqual(["profile.form_completed"]);
+
+      const { service, emitted, rebuildQuietly } = makeService({ saved: everythingSettled() });
+      const result = await service.answer(WORKER, {
+        question_key: "current_city",
+        answer: { kind: "text", text: "Pune" },
+      });
+      expect(emitted).toEqual([]);
+      expect(rebuildQuietly).not.toHaveBeenCalled();
+      // Counted over what the form asks — the shim's own row is in neither number.
+      expect(result).toMatchObject({ answered: PACK.items.length, total: PACK.items.length });
+    });
+
+    it("logs the key slug and counts, never the value", async () => {
+      const log = logSpy();
+      const { service } = makeService();
+      await service.answer(WORKER, {
+        question_key: "current_city",
+        answer: { kind: "text", text: "Pimpri Chinchwad" },
+      });
+      const lines = log.mock.calls.map((call) => String(call[0]));
+      const line = lines.find((entry) => entry.includes("legacy universal form key accepted"));
+      log.mockRestore();
+
+      expect(line).toBeDefined();
+      expect(line).toContain("key=current_city");
+      expect(line).toContain("pack=qp_cnc_turning");
+      expect(lines.join("\n")).not.toContain("Pimpri");
+    });
+
+    it("400s a universal key that deploy NEVER served, even when the live pack defines it", async () => {
+      // A ninth question the universal pack gains later reached no trade form, so no client holds
+      // it. A shim that derived its list from `loadUniversal()` would accept this.
+      const ninth = item({ question_key: "notice_period", answer_type: "text" });
+      const { service, written } = makeService({
+        universal: { ...UNIVERSAL, items: [...UNIVERSAL.items, ninth] },
+      });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "notice_period",
+          answer: { kind: "text", text: "15 din" },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+    });
+
+    it("400s, logged, when the universal pack does not load — there is no type to validate against", async () => {
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const { service, written } = makeService({ universal: null });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "experience_years",
+          answer: { kind: "text", text: "6" },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+      expect(warn.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+        "experience_years",
+      );
+      warn.mockRestore();
+    });
+
+    it("400s when the universal pack no longer defines the key", async () => {
+      const { service, written } = makeService({
+        universal: {
+          ...UNIVERSAL,
+          items: UNIVERSAL.items.filter((entry) => entry.question_key !== "education"),
+        },
+      });
+      await expect(
+        service.answer(WORKER, {
+          question_key: "education",
+          answer: { kind: "chips", option_keys: ["tenth"] },
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(written).toEqual([]);
+    });
+  });
+
+  describe("numbers", () => {
+    /** PACK with one number-typed trade question. No enabled pack has one today; this is a guard. */
+    const NUMBERED: QuestionPack = {
+      ...PACK,
+      items: [...PACK.items, item({ question_key: "parts_per_shift", answer_type: "number" })],
+    };
+
+    it.each([
+      ["6", 6],
+      ["15,000", 15000],
+      ["₹25,000", 25000],
+      ["1,00,000", 100000],
+    ])("a trade number question stores %j as %d", async (text, expected) => {
+      const { service, written } = makeService({ pack: NUMBERED });
+      await service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } });
+      expect(written[0]).toMatchObject({ answerNumber: expected, status: "answered" });
+    });
+
+    it.each(["pata nahi", "5 se 7 saal", "2 saal 6 mahine", "15k", "6 saal nahi"])(
+      "a trade number question 400s %j rather than storing a false number",
+      async (text) => {
+        const { service, written } = makeService({ pack: NUMBERED });
+        await expect(
+          service.answer(WORKER, { question_key: "parts_per_shift", answer: { kind: "text", text } }),
+        ).rejects.toThrow(/parts_per_shift takes a number/);
+        expect(written).toEqual([]);
+      },
+    );
+
+    it.each([
+      ["experience_years", "6", 6],
+      ["salary_expected", "15,000", 15000],
+      ["salary_expected", "₹25,000", 25000],
+      ["salary_expected", "1,00,000", 100000],
+    ])("the shim stores %s %j as %d", async (key, text, expected) => {
+      const { service, written } = makeService();
+      await service.answer(WORKER, { question_key: key, answer: { kind: "text", text } });
+      expect(written[0]).toMatchObject({ answerNumber: expected, status: "answered" });
+    });
+
+    it.each(["pata nahi", "5 se 7 saal", "2 saal 6 mahine", "15k", "6 saal nahi"])(
+      "the shim DECLINES %j — never 0, 57, 26, 15 or 6",
+      async (text) => {
+        const { service, written } = makeService();
+        const result = await service.answer(WORKER, {
+          question_key: "experience_years",
+          answer: { kind: "text", text },
+        });
+        expect(result).toMatchObject({ status: "declined", schema_stale: true });
+        expect(written[0]).toMatchObject({ questionKey: "experience_years", status: "declined" });
+        expect(written[0]!.answerNumber ?? null).toBeNull();
+      },
+    );
+  });
+});
+
+describe("ADR-0041 RI-4 — what the worker's résumé suggested, beside the question it is about", () => {
+  const suggestion = (text: string) => ({
+    values: { option_keys: [], text, number: null, bool: null },
+    source: "resume" as const,
+    confidence: 0.88,
+  });
+
+  it("a worker who uploaded NOTHING sees every question with `suggestion: null`", async () => {
+    // THE INVARIANT THE WHOLE FEATURE SHIPS UNDER. The no-résumé path is the one that ships
+    // today, and it must stay byte for byte what it was — an additive field that is always
+    // present and always null is exactly that.
+    const { service } = makeService();
+    const schema = await service.schema(WORKER);
+    const questions = schema.sections
+      .flatMap((section) => section.screens)
+      .filter((screen) => screen.type === "question");
+
+    expect(questions.length).toBeGreaterThan(0); // vacuity: there ARE questions to check
+    for (const screen of questions) {
+      expect(screen).toHaveProperty("suggestion", null);
+    }
+  });
+
+  it("a staged suggestion reaches the question it targets, and only that one", async () => {
+    const { service } = makeService({
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    });
+    const schema = await service.schema(WORKER);
+    const questions = schema.sections
+      .flatMap((section) => section.screens)
+      .filter((screen) => screen.type === "question");
+
+    const targeted = questions.find((screen) => screen.question.question_key === "turning_machine");
+    expect(targeted?.suggestion?.values.text).toBe("CNC Lathe");
+    // Every OTHER question is untouched — a suggestion is not a form-wide banner.
+    for (const screen of questions) {
+      if (screen.question.question_key !== "turning_machine") {
+        expect(screen.suggestion).toBeNull();
+      }
+    }
+  });
+
+  it("a STORED ANSWER is served BYTE FOR BYTE what it would be with no résumé (ruling D7)", async () => {
+    // D7 says a stored answer always wins, and the way that is expressed here is that nothing
+    // overwrites anything. Asserting a hard-coded option list would pin the FIXTURE; asserting
+    // the answer is identical with and without a suggestion pins the RULE — if a suggestion
+    // ever altered a served answer by any byte, this fails and nothing else would.
+    const saved = [answered({ questionKey: "turning_machine", answerOptionKeys: ["k1"] })];
+    const withoutResume = await makeService({ saved }).service.schema(WORKER);
+    const withResume = await makeService({
+      saved,
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    }).service.schema(WORKER);
+
+    type Screen = Awaited<ReturnType<TradeFormService["schema"]>>["sections"][number]["screens"][number];
+    type QuestionScreen = Extract<Screen, { type: "question" }>;
+    const answerFor = (schema: Awaited<ReturnType<TradeFormService["schema"]>>) =>
+      schema.sections
+        .flatMap((section) => section.screens)
+        .find(
+          (candidate): candidate is QuestionScreen =>
+            candidate.type === "question" && candidate.question.question_key === "turning_machine",
+        );
+
+    const plain = answerFor(withoutResume);
+    const suggested = answerFor(withResume);
+
+    expect(plain?.answer).not.toBeNull(); // vacuity: there IS a stored answer to preserve
+    expect(suggested?.answer).toEqual(plain?.answer);
+    // And the suggestion sits BESIDE it rather than instead of it — the worker sees both and
+    // settles the disagreement himself, which is the only place it can honestly be settled.
+    expect(suggested?.suggestion?.values.text).toBe("CNC Lathe");
+    expect(plain?.suggestion).toBeNull();
+  });
+
+  it("a suggestion carries NO status — it is not an answer and cannot be read as one", async () => {
+    // Ruling D2. A capability chip arrives highlighted and UNTICKED; a suggestion that arrived
+    // shaped like a SavedAnswer is one client bug away from being rendered as settled.
+    const { service } = makeService({
+      suggestions: new Map([["turning_machine", suggestion("CNC Lathe")]]),
+    });
+    const schema = await service.schema(WORKER);
+    const screen = schema.sections
+      .flatMap((section) => section.screens)
+      .find(
+        (candidate): candidate is Extract<typeof candidate, { type: "question" }> =>
+          candidate.type === "question" && candidate.question.question_key === "turning_machine",
+      );
+
+    expect(screen?.suggestion).not.toBeNull();
+    expect(screen?.suggestion).not.toHaveProperty("status");
+    expect(Object.keys(screen!.suggestion!).sort()).toEqual(["confidence", "source", "values"]);
   });
 });

@@ -31,6 +31,7 @@ import {
 } from "../profiling/answer-map-projector";
 import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
+import { TRADE_FORM_KINDS_ALL, type ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
@@ -46,6 +47,8 @@ import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
+import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
+import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
@@ -127,6 +130,22 @@ class LlmUnavailableError extends Error {
 /** Narrow an arbitrary `error_code` to a transient LLM outage, or null. */
 function outageCodeOf(code: string | null | undefined): string | null {
   return code != null && LLM_OUTAGE_CODES.has(code) ? code : null;
+}
+
+/**
+ * Task 1 — the closed road vocabulary, as a set for the derivation below.
+ * Built from `TRADE_FORM_KINDS_ALL` (all 21 declared kinds), not the
+ * enabled-only subset: the handover is `form_kind`'s sole writer today, but
+ * the road question is "was this worker handed a form", not "is that form
+ * switched on right now".
+ */
+const FORM_KINDS: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
+
+/** `conversation_state.form_kind`, narrowed to a declared trade-form kind or null. */
+function conversationFormKind(state: unknown): string | null {
+  if (typeof state !== "object" || state === null) return null;
+  const kind = (state as Record<string, unknown>).form_kind;
+  return typeof kind === "string" && FORM_KINDS.has(kind) ? kind : null;
 }
 
 /**
@@ -238,6 +257,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // The destination for the 77% of the pack corpus that is `attribute`-kind. `ProfilesModule`
     // provides it; it needs only DATABASE, which is a global module.
     private readonly workerAttributes: WorkerAttributesRepository,
+    // Layer A elicitation — the chat's training/secondary-occupation answers land in their own
+    // normalized tables (`worker_training`, `worker_occupation`), not in `worker_attributes`,
+    // because those pages already own those stores. Insert-only-when-empty; see the service.
+    private readonly chatTableWrites: ChatTableWritesService,
+    // Task 1 — the résumé-import road record. `ProfilesModule` already provides
+    // this repository (employment suggestions), so this adds an injection and
+    // no module edge.
+    private readonly resumeImports: ResumeImportRepository,
     // #738 — the emitter this class used to OWN as a private method. Moving it out is the
     // point: while it was private here, the transcription path could not reach it, so STT
     // spend was emitted by nobody even though `aiTaskType` already listed it. `AiModule` is
@@ -252,6 +279,46 @@ export class ProfileExtractionProcessor extends WorkerHost {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {
     super();
+  }
+
+  /**
+   * Task 1 — which road produced this profile, derived deterministically from
+   * the channel record. NEVER from the model: both signals are code-written
+   * (the handover is `form_kind`'s sole writer; the import router is the
+   * `route` column's sole writer), so a hallucinating model cannot move a
+   * worker between roads.
+   *
+   * `form` when the worker is on the trade-form road — this session carries a
+   * handover `form_kind`, or their latest résumé import was routed to a form
+   * (the no-session upload road). `chat` otherwise, including the no-session
+   * voice-form path (conversational, not the trade form) and a session whose
+   * state cannot be read.
+   *
+   * Form answers cannot exist without one of the two signals (the form 404s
+   * otherwise), so no third signal — e.g. scanning pack answers — is needed.
+   * Both reads are worker-scoped and indexed; a throw retries the job before
+   * any AI spend (this is resolved at the top of `process` deliberately).
+   */
+  private async resolveProfileSource(
+    workerId: string,
+    sessionId: string | null,
+  ): Promise<ProfileSource> {
+    if (sessionId) {
+      // DEGRADE, NEVER FAIL — the same posture as the transcript read below: a
+      // session row that cannot be read costs the form_kind signal, not the
+      // worker's profile. The import check underneath still runs.
+      try {
+        const session = await this.chat.findSession(sessionId);
+        if (session && conversationFormKind(session.conversationState) !== null) return "form";
+      } catch {
+        this.logger.warn(
+          `profile source falling back to import check: session ${sessionId} unreadable`,
+        );
+      }
+    }
+    const latest = await this.resumeImports.findLatestForWorker(workerId);
+    if (latest?.route === "form") return "form";
+    return "chat";
   }
 
   async process(job: Job<ProfileExtractionJobData>): Promise<{ profile_id: string }> {
@@ -269,6 +336,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
     try {
       await this.aiJobs.markRunning(aiJobId);
+
+      // Task 1 — resolve the road BEFORE any AI spend. The derivation reads two
+      // indexed rows (session, latest import); resolving it here rather than at
+      // the `profiles.create` below means a transient read failure retries
+      // before money is spent, not after. The records it reads are durable and
+      // do not move during this job, so early and late resolve identically.
+      const profileSource = await this.resolveProfileSource(workerId, sessionId);
 
       // Both shapes of the same conversation, deliberately. `transcript` is the
       // flat both-directions blob the model reads (and the rollback lever — drop
@@ -389,6 +463,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // existing row instead of orphaning a duplicate (TD14).
         aiJobId,
         profileStatus,
+        // Task 1 — the road, resolved above from the channel record. First write
+        // wins on a TD14 retry, which is correct: the derivation is deterministic
+        // over durable records, so a retry computes the same value.
+        source: profileSource,
         canonicalTradeId: profile.canonical_trade_id,
         canonicalRoleId: profile.canonical_role_id,
         skills: profile.skills,
@@ -456,6 +534,19 @@ export class ProfileExtractionProcessor extends WorkerHost {
       if (attributeRows.length > 0) {
         this.logger.log(
           `worker_attributes upserted job=${aiJobId} rows=${attributesWritten}/${attributeRows.length}`,
+        );
+      }
+
+      // Layer A elicitation — training and secondary occupations have their OWN tables, and the
+      // chat's answers land there for the same reason the pages read them from there: one store
+      // per fact. Insert-only-when-empty, so a form-written list is never edited. Same
+      // "allowed to throw, converges on retry" envelope as `upsertMany` above; the repositories
+      // are idempotent on redelivery.
+      const tableWrites = await this.chatTableWrites.applyFromChatAttributes(workerId, attributes);
+      if (tableWrites.trainingWritten || tableWrites.occupationsWritten > 0) {
+        this.logger.log(
+          `chat table writes job=${aiJobId} training=${tableWrites.trainingWritten} ` +
+            `occupations=${tableWrites.occupationsWritten}`,
         );
       }
 
@@ -766,6 +857,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // "make the profile anyway" escape hatch); there is no interview record to read.
     const state = job.sessionId === null ? null : await this.conversationState(job.sessionId);
     const answerMap = state === null ? [] : narrowAnswerRecords(state.answer_map);
+    // #1504 item 5 (city-seed). Keys `conversation_state.prefilled_keys` names — seeded, never
+    // asked. `answerMap` (FULL, including these) still feeds the parse call's request, gate 4
+    // (agreement) and `projectProfile` below; only the PARSE REQUEST's copy excludes them, one
+    // line down.
+    const prefilledKeys: readonly string[] =
+      state !== null && Array.isArray(state.prefilled_keys)
+        ? state.prefilled_keys.filter((key): key is string => typeof key === "string")
+        : [];
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
@@ -852,6 +951,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
     });
 
     const occupation = readOccupationPin(state?.occupation);
+    // #1504 item 5 (city-seed). EXCLUDES `prefilledKeys` from the PARSE CALL's own copy — a
+    // seeded record has no transcript span, so sending it to the model would invent a citation
+    // for a value nobody said, which is exactly what gate 2 (citation) exists to catch on the
+    // way back. Gate 4 (agreement) and `projectProfile` below still see the FULL `answerMap`, so
+    // a model that contradicts the seeded city is still vetoed.
+    const answerMapForParse = answerMap.filter(
+      (record) => !prefilledKeys.includes(record.question_key),
+    );
     // Hoisted so the 0083 trace can record WHAT WAS ASKED, not only what came back.
     const parseRequest = {
       schema_version: "oie.v1" as const,
@@ -859,7 +966,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // never crosses it — the same discipline `/profile/extract` already used.
       worker_ref: job.workerId,
       occupation,
-      answer_map: answerMap,
+      answer_map: answerMapForParse,
       transcript: lines,
       target_fields: targets,
     };
@@ -944,11 +1051,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the profile. Null is the whole degraded set — down, 429, deadline, mock posture, blocked,
     // malformed — and the profile that comes out is exactly the one the answer map alone
     // produces, which is already a usable profile.
-    const interview = await this.interviewOverlay(
-      job,
-      lines,
-      occupation,
-    );
+    const interview = await this.interviewOverlay(job, lines, occupation);
 
     const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
     this.logger.log(
@@ -1050,6 +1153,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     occupation: unknown;
     pack_id: unknown;
     pack_version: unknown;
+    // #1504 item 5 (city-seed). `unknown`, narrowed by the caller — same convention as every
+    // other field here.
+    prefilled_keys: unknown;
   } | null> {
     try {
       const session = await this.chat.findSession(sessionId);
@@ -1064,6 +1170,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         occupation: unknown;
         pack_id: unknown;
         pack_version: unknown;
+        prefilled_keys: unknown;
       };
     } catch (err) {
       // A read failure must not fail the extraction — it degrades to the legacy path, which is

@@ -21,6 +21,8 @@ import { WorkersRepository } from "./workers.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
 import type {
   ConfirmPhotoDto,
+  MyWhatsappResponse,
+  SetMyWhatsappDto,
   WorkerProfileSummary,
   WorkerResumeFields,
   UpdateResumePrefsDto,
@@ -148,6 +150,80 @@ export class WorkersService {
   }
 
   /**
+   * Set, replace or clear the worker's optional WhatsApp number (PUT /workers/me/whatsapp).
+   *
+   * ADR-0042 D9 / Layer A (a). The number is PII at the same level as `phone_e164`:
+   * encrypted BEFORE it touches the database, never logged, never returned by this method,
+   * and never carried in the event. The response and the spine see the RESULTING STATE only.
+   *
+   * NO-OP GUARD ON CLEAR: clearing a number that is not on file still writes (the UPDATE is
+   * idempotent) but must not emit a second state-change event nor burn a re-render — the
+   * `deletePhoto`/`updateResumePrefs` before-vs-after pattern.
+   *
+   * `failClosed: true` ONLY WHEN CLEARING, mirroring the photo: a failed re-render after a set
+   * merely leaves a number off a PDF for one cycle; after a clear it must not keep serving
+   * the number the worker just removed. The employer copy never carries either way —
+   * `ResumeAudience` gates the line structurally.
+   */
+  async setWhatsapp(
+    workerId: string,
+    dto: SetMyWhatsappDto,
+    ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_whatsapp: boolean }> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    const hadWhatsapp = typeof worker.whatsappEnc === "string" && worker.whatsappEnc.length > 0;
+    const encrypted = dto.whatsapp === null ? null : this.pii.encrypt(dto.whatsapp);
+    await this.workers.updateWhatsapp(workerId, encrypted);
+
+    const hasWhatsapp = dto.whatsapp !== null;
+    if (hadWhatsapp !== hasWhatsapp) {
+      // PII-FREE: the RESULTING STATE, never the number or any derivative of it.
+      await this.events.emit({
+        event_name: "worker.whatsapp_recorded",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId, has_whatsapp: hasWhatsapp },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      this.logger.log(
+        `whatsapp ${hasWhatsapp ? "recorded" : "cleared"} for worker ${workerId}`, // never the number
+      );
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: !hasWhatsapp });
+    }
+
+    return { worker_id: workerId, has_whatsapp: hasWhatsapp };
+  }
+
+  /**
+   * The worker's OWN WhatsApp number, decrypted (GET /workers/me/whatsapp).
+   *
+   * SELF-READ ONLY — the route is worker-authed and the value is the caller's own; no other
+   * surface may read it (the résumé render worker decrypts it itself for the worker copy,
+   * and the employer copy never receives it). No event: a read is not a state change (§1).
+   *
+   * A DECRYPT FAILURE IS NOT AN ABSENCE: `whatsapp` comes back null while `has_whatsapp`
+   * stays true, so a client never offers to "replace" a number that merely failed to read
+   * after a key rotation. Neither the token nor the error detail reaches the log.
+   */
+  async getWhatsapp(workerId: string): Promise<MyWhatsappResponse> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+    const token = worker.whatsappEnc;
+    if (!token) return { whatsapp: null, has_whatsapp: false };
+    try {
+      return { whatsapp: this.pii.decrypt(token), has_whatsapp: true };
+    } catch {
+      this.logger.warn(
+        `could not decrypt whatsapp for worker ${workerId}; reporting it as unreadable`,
+      );
+      return { whatsapp: null, has_whatsapp: true };
+    }
+  }
+
+  /**
    * Record the worker's coarse home location from the first onboarding screen (#1428).
    *
    * PLAINTEXT ON PURPOSE — see the column note in `schema/worker.ts`. Owner ruling 2026-07-31 puts
@@ -171,7 +247,8 @@ export class WorkersService {
     ctx: RequestContext,
   ): Promise<void> {
     const patch: { currentCity?: string; currentState?: string } = {};
-    if (location.city !== undefined) patch.currentCity = canonicalCity(location.city)?.value ?? location.city;
+    if (location.city !== undefined)
+      patch.currentCity = canonicalCity(location.city)?.value ?? location.city;
     if (location.state !== undefined) {
       patch.currentState = canonicalState(location.state)?.value ?? location.state;
     }
@@ -253,7 +330,9 @@ export class WorkersService {
         fullName = this.pii.decrypt(worker.fullName);
       } catch {
         // Degrade name-less; never log the ciphertext/key/plaintext (§2).
-        this.logger.warn(`could not decrypt full_name for worker ${workerId}; name-less resume fields`);
+        this.logger.warn(
+          `could not decrypt full_name for worker ${workerId}; name-less resume fields`,
+        );
       }
     }
 
@@ -335,7 +414,8 @@ export class WorkersService {
       throw new BadRequestException("uploaded object not found; upload before confirming");
     }
     const mimeOk = info.contentType !== null && PHOTO_ALLOWED_MIME.has(info.contentType);
-    const sizeOk = info.sizeBytes !== null && info.sizeBytes > 0 && info.sizeBytes <= PHOTO_MAX_BYTES;
+    const sizeOk =
+      info.sizeBytes !== null && info.sizeBytes > 0 && info.sizeBytes <= PHOTO_MAX_BYTES;
     if (!mimeOk || !sizeOk) {
       // Best-effort removal of the out-of-policy object — never leave PII bytes
       // behind a dangling unreferenced key. Failure to clean up must not mask the

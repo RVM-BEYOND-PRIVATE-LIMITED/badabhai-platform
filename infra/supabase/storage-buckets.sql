@@ -137,6 +137,94 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- worker-portfolio — the worker's work samples (ADR-0042 D9 / Layer A (e); migration 0113).
+-- A portfolio item is either a media object the worker uploaded (a photo or a short clip of
+-- their own work — routinely their face, their shop floor, or a customer's premises) or an
+-- external link. The media bucket MUST be PRIVATE: the only write path is a short-TTL signed
+-- UPLOAD url minted by the backend over a SERVER-chosen opaque key
+-- `portfolio/{workerId}/{uuid}.{ext}` (worker-portfolio.service.ts `createUploadUrl`; the
+-- PUT /workers/me/portfolio register step re-validates that exact shape against the SESSION
+-- worker, so one worker cannot claim another's object) and the only read path is a short-TTL
+-- signed GET for the worker's OWN media (`getForWorker`). NEVER payer-readable, NEVER
+-- world-readable. LINKS need no bucket at all — they are URLs on the `worker_portfolio` row.
+--
+-- `allowed_mime_types` MIRRORS THE SERVER'S CLOSED CONTENT-TYPE MAP EXACTLY
+-- (`EXTENSION_BY_CONTENT_TYPE` + `contentTypeMatchesKind` in worker-portfolio.service.ts):
+-- photo = jpeg/png/webp, video = mp4/quicktime. It is a SECURITY control, same as the feedback
+-- bucket's: the signed upload url cannot constrain what the client PUTs, and the register step
+-- performs no per-object `getObjectInfo`, so THIS LIST is what stops a worker storing markup
+-- (`text/html`) that a later surface would render on the storage origin. Adding a type to one
+-- side without the other is drift — the service refuses an unmapped content type at mint, so
+-- keep the two lists in step.
+--
+-- Size cap: 25 MiB (26214400). One ceiling for both kinds: a phone-shot photo is well under it
+-- and a short proof-of-work clip fits comfortably. THE BUCKET IS WHERE THE CEILING IS ENFORCED
+-- — Supabase refuses the PUT itself, before any of our code runs, and (as with feedback) no
+-- confirm step measures the stored object afterwards.
+--
+-- DSAR: `AccountDeletionService` sweeps `portfolio/{workerId}/` against this bucket exactly as it
+-- sweeps photos and feedback attachments (#1548). Arming `WORKER_PORTFOLIO_BUCKET` therefore arms
+-- the upload path AND the prefix sweep in the same act — there is deliberately no window in which
+-- media can exist while erasure is dormant.
+--
+-- NOTE: `supabase/config.toml` does not declare this bucket for the local stack — the same
+-- known gap as the voice/photos/feedback buckets.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('worker-portfolio', 'worker-portfolio', false, 26214400,
+        array['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- worker-resume-uploads — the resume a worker HANDS US (ADR-0041). This is the densest single
+-- artefact of personal data anyone on this platform owns: name, address, email, every employer
+-- they have worked for, dates, past salaries, and not rarely a PAN or Aadhaar number. PRIVATE
+-- is not a posture here, it is the whole control.
+--
+-- NOT `worker-resumes`, AND THE NAMES ARE ONE CHARACTER APART ON PURPOSE-ADJACENT, SO READ THIS.
+-- `worker-resumes` holds the PDFs BadaBhai GENERATES and serves to payers under the disclosure
+-- spine. This bucket holds the INBOUND document, which is never rendered, never disclosed,
+-- never printed on a sheet, and never reaches a payer surface by any route. Pointing either
+-- feature at the other bucket would put an unmasked third-party document behind a payer-facing
+-- signed URL, so the two are separated at the bucket rather than by a code path.
+--
+-- Write path: a short-TTL signed UPLOAD url minted by the backend over a SERVER-chosen opaque
+-- key `resume-uploads/{workerId}/{uuid}.{pdf|docx|jpg|png}` (resume-import.service.ts
+-- `createUploadUrl`), whose confirm step re-validates that exact shape against the SESSION
+-- worker, so one worker cannot register another's object. Read path: the ai-service downloads
+-- the object server-side to extract text. There is NO client read path at all -- a worker never
+-- fetches his own uploaded file back, so no signed GET is ever minted for this bucket.
+--
+-- MIME: four types, because ruling D3 accepts what workers actually have. `application/pdf` and
+-- the DOCX type cover a cybercafe export; `image/jpeg` and `image/png` cover a photograph of a
+-- printed sheet, which for this user base is the common case rather than the fallback. The
+-- allowlist is a SECURITY control and not hygiene: it is what stops a worker storing markup
+-- that some later admin preview would render on the storage origin.
+--
+-- Size cap: 10 MiB, matching RESUME_UPLOAD_MAX_BYTES. THE BUCKET IS THE OUTER WALL -- Supabase
+-- refuses the PUT before any of our code runs. Unlike the feedback bucket, the config value
+-- here IS also read at confirm, against Storage object-info: the signed URL cannot constrain
+-- what the client actually PUTs, so the object is measured after the fact and an out-of-policy
+-- one is deleted rather than registered. Sized for a phone photo (4-8 MB is ordinary), not for
+-- the text-layer PDF it will usually be.
+--
+-- DSAR, AND IT MATTERS MORE HERE THAN ANYWHERE ELSE ON THIS PAGE. Ruling D6 retains these
+-- objects PERMANENTLY -- there is no expiry sweep and no post-parse delete. That makes
+-- `AccountDeletionService`'s `resume-uploads/{workerId}/` prefix sweep the ONLY erasure path
+-- this bucket has, which is precisely why the key is worker-scoped instead of flat. A key shape
+-- that did not lead with the worker id would strand every resume ever uploaded.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('worker-resume-uploads', 'worker-resume-uploads', false, 10485760,
+        array['application/pdf',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              'image/jpeg',
+              'image/png'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- RETIRED: `worker-conversations` — DO NOT PROVISION.
 --
 -- ADR-0003 planned this bucket as an archival mirror of each finished interview. It was

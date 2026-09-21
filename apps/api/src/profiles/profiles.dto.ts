@@ -26,3 +26,14 @@ export interface ConfirmProfileInput {
   worker_id: string;
   profile_id: string;
 }
+
+/**
+ * Task 1 B4 (ADR-0042 D8) — where the app goes after confirming, decided by the profile's
+ * `source` (the road), never by the client's "does a form exist?" probe.
+ *
+ *  - `trade_form`    — the form road: open the trade form (its own 404 fallback still applies).
+ *  - `chat_complete` — the chat road: go straight to resume building; NEVER the form.
+ *  - `null`          — the road is unknown (a profile written before migration 0107): the
+ *                      client keeps its own probe, which is exactly today's behaviour.
+ */
+export type ProfileConfirmNext = "trade_form" | "chat_complete";

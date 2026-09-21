@@ -298,3 +298,271 @@ consequence, accepted: an env still running an empty allowlist drops to mock unt
 `AI_REAL_CALL_TASKS` is set — set `AI_REAL_CALL_TASKS=profile_extraction` in prod
 **before** the deploy carrying this change. See the production release runbook
 ("AI real calls went LIVE") for the deployed-vs-repo split.
+
+### 2026-09-08 — Résumé: "Fresher" for a worker with no work history, the registered location under the name, and proper-noun casing
+Three owner rulings on the `bb_trade` sheet. The first two are about what a **form-first** worker's
+page says about him when the pipeline has nothing to say; the third is about how what he typed is
+printed.
+
+**1. "Fresher" instead of "duration not stated."** The tenure segment had two outputs: a stated
+figure, or §11 #3's honest unknown. §6.2's status word was reachable only through a role that
+DECLARES a fresher rung (`RoleFresherVocabulary.tenureValue`), which is `qp_cad_drafting` and
+nothing else — so on the other twenty roles every genuine fresher printed "duration not stated"
+over the top of his own résumé. The ruling: *"In resume for Freshers (someone not added work
+experience) 'duration not stated' is written, I want 'Fresher' mentioned there."*
+Implemented as a SECOND, NARROWER route in `fresherTenureLabel`: the role's own tenure gate
+answered at its lowest rung (stored 0 — the same value every pack's fresher questions are gated
+on, `ask_if <tenure> <= 0`), **and** no `worker_employment` rows. A stated figure still wins
+outright, so the eleven-month man that the earlier refusal was written to protect keeps his
+experience the moment he records any of it — which is what makes this a bounded exception to §11
+#3's "never inferred" rather than a repeal of it. The premise that rung 0 is the lowest rung is
+pinned per role in `role-corpus-parity.guard.test.ts`.
+
+**2. The worker's registered city and state print under his name.** *"In all the 21 profiles, that
+is form-based profiling, there is nowhere that the current location of the candidate is asked but
+we do ask that while registering — show the current location just below the Full Name in small
+letter."* The gap was structural: the trade form runs no extraction, so
+`location_preference.current_city` is never written for a form-first worker (P-018) and the Verdict
+Line's city segment — the sheet's only location — collapsed for all of them. A résumé with no place
+on it cannot be acted on by a supervisor hiring for one plant. Source is
+`workers.current_city` / `current_state`, the first-party answer typed at onboarding (#1428), on
+BOTH audiences: a city is on the never-redact list (2026-07-31, *"cities as PII → a 20-point
+matching input"*) and the Verdict Line has printed one on the payer copy since the sheet shipped.
+The three things the employer copy withholds stay exactly three.
+*Not merged with the Verdict Line's city, deliberately:* that segment is the model's reading of a
+conversation and keeps composing from the snapshot. Two sources, two lines; a chat-extracted
+profile can therefore print its city twice, which is the accepted cost of leaving §6.2's ratified
+line untouched.
+
+**3. Company names and places print as proper nouns.** *"Work history where company name is there I
+want the first letter of each word in company letter to be capital. Also the location's first letter
+should be capital."* Employer names and cities are typed by hand on a phone, so `sandhar
+technologies pvt ltd` and `gurugram` are ordinary input, and printed verbatim they read as
+carelessness by the worker on the one document he hands across a gate. `titleCaseName`
+(`resume-text-case.ts`) raises a lowercase letter in a leading position and **never lowercases
+anything** — which is what keeps `TVS`, `JBM` and `L&T` from becoming `Tvs`, `Jbm` and `L&t`, a
+worse error than the one being fixed. Applied to the employer name, its city/state suffix and the
+new masthead line; NOT to role labels (`cnc turner` → `Cnc Turner` is a misspelt trade) or to the
+worker's own words, which are verbatim by contract. The §11 #4 literal "Contract work" is exempt —
+it is a guideline label, not a company the worker named. §8 is unaffected: the source and the word
+are unchanged, and the fabrication gate's containment is now case-insensitive to say so.
+
+**What the location line costs the page, measured.** The line model charges it 4.99 mm against a
+4.89 mm body line (9 pt × 1.32 + 0.8 mm margin), i.e. one line, under-counting by 2% of a line. On
+the fourteen-shape matrix that flips three synthetic stress sheets from one page to two —
+`shape-11-worker`, and the payer copies of 5 and 6, whose "employers beyond three" collapse used to
+reach exactly 41.19 lines and now cannot buy the page. The ratified corpus measures 24–37 lines and
+is unaffected. That outcome is the 2026-09-03 ruling working as written (spill rather than shed a
+ratified row), and it is asserted rather than described, in `sheet-shape-matrix.test.ts`.
+
+**The residual risk on ruling 1, recorded because it should not have to be rediscovered.** A
+form-first worker has no surface on which to state months: the universal `experience_years` ask
+never runs for him, the finishing form has no experience key, and the work-history screen is the one
+this rule reads as empty. So "under a year, nothing filed" is the whole of what the system knows
+about him, and an eleven-month operator prints as `Fresher` beside a genuine pass-out. The ruling
+was taken against the alternative he gets today — `duration not stated`, which in this market reads
+as something withheld. The follow-up that would end the inference is a **corpus** change, not a
+renderer one: give the eight non-drafting packs a real bottom rung ("koi tajurba nahi" beside "1
+saal se kam", the shape `qp_cad_drafting` already has) and declare it as `fresher.tenureValue`.
+Route 1 then covers every role and route 2 can be deleted.
+
+### 2026-09-08 — The worker picks his own PIN: no strength policy, client or server (#1462)
+*"The worker chooses their own PIN. No strength policy, client or server. `1234`, `1111`, `0000` —
+all must be accepted."* The API's weak-PIN denylist (`PinHasher.isWeakPin` + `WEAK_PINS`, plus the
+all-same-digit and consecutive-run rules) is **deleted**, not flagged off — a switch nobody may turn
+on is dead config. `PinService.assertPinPolicy` now enforces the exact-length format gate and
+nothing else; that gate stays because a 3-digit typo is a malformed value, not a choice.
+
+**Why it is safe to drop.** ADR-0026's first principle is PIN-never-authenticates-from-scratch — the
+PIN unlocks a session on a device the worker already OTP-bound — so the attacker a denylist imagines
+already holds the handset. Everything that actually bites him is untouched: the slow-KDF hash,
+`PIN_MAX_ATTEMPTS` + exponential lockout, the durable force-OTP escalation that survives a Redis
+flush, device binding, and the step-up OTP on reset.
+
+**The two halves, and where each one actually is.** #1462 was raised by Frontend, who has removed
+the app-side block **in their own tree** — it is NOT on `main`. As `main` stands,
+`bb_set_pin_form.dart` still calls `_blockWeakPin()`, which clears the field and never invokes
+`onConfirmed`, so `1234` cannot be submitted from the shipped app at all. **This API change is
+therefore a no-op for the shipped client until Frontend's half lands** — and the moment it lands
+without this one, a worker who types `1234` gets past the client and hits a server 400 surfaced as
+"PIN set nahi hua", a dead end where there used to be an explanation. That is the sequencing the
+issue is about, and it is why the API half should not wait. Recorded as an amendment on
+[ADR-0026](../decisions/0026-production-worker-auth-pin-and-tiered-sessions.md); the worker-app half
+(`weak_pin.dart` and the set-PIN block) is Frontend's and is not in the API change.
+
+**Residual risk, measured and accepted — see R25 in [risks-register.md](./risks-register.md).** The
+security gate put a number on it: against the one attacker who reaches the PIN screen (unlocked
+handset, bound refresh token, SIM removed or SMS unreachable), 25 guesses against the public top-25
+PIN list is ~25-30% success versus ~0.25% uniform. Accepted, because that same attacker holding the
+handset *with* its SIM has a deterministic bypass through `/auth/pin/reset/request` → OTP →
+`reset/confirm`, and one who can read `flutter_secure_storage` skips the PIN entirely via
+`POST /auth/token/refresh`.
+
+### 2026-09-09 — The tenure segment prints the rung the worker tapped, not "duration not stated"
+Follow-up to the 2026-09-08 "Fresher" ruling, taken on a **rendered sheet**: a CNC turner who had
+filed no work history still read `CNC turner · duration not stated · Siemens`. The owner: *"I made a
+resume now, and I didn't mention work history — 'duration not stated' showing instead of 'Fresher'.
+Fix that."*
+
+**Why the first ruling did not cover him.** It made "Fresher" reachable only for the pack's LOWEST
+tier rung. That sheet showed neither the `>= 2` depth answers nor the `<= 0` fresher answers, so his
+gate was either unanswered or at a higher rung — and in both cases the label withheld and §11 #3's
+text printed over a man the form HAD asked.
+
+**The rule now.** The tier gate is the only tenure question a form-first worker is ever asked (the
+universal `experience_years` ask never runs for him), so every rung of it prints, as the band that
+chip names: `0 → Fresher` (when no work history was filed) / `Under 1 yr` (when one was), `1 → Under
+1 yr`, `2 → 1–3 yrs`, `5 → 3–7 yrs`, `10 → 7+ yrs`. A worker who answered nothing and filed nothing
+reads "Fresher" — the owner's own definition. A stated figure still outranks every band.
+
+**Why it is not simply "no work history → Fresher", which is what was asked.** Read literally, that
+puts "Fresher" on a man who tapped *"7 saal se zyada"* and skipped the work-history screen — deleting
+seven years of his own stated experience from his own résumé, §8.3 broken in the direction that
+costs him the job. Printing his rung answers the complaint (nobody who answered should meet
+"duration not stated") without ever contradicting him. Asserted as its own test.
+
+**§11 #3 is narrowed, not repealed.** "Duration not stated" is now for the workers it was written
+for: a legacy chat profile with no pack — nobody asked — and a worker who HAS a work history whose
+dates he could not give. Printing "nobody asked" over an answer was not §11 #3 being honest; it was
+§11 #3 being wrong about its own subject.
+
+**A range, never a point figure.** `resume-employment-rows.ts` forbids reading this gate as a NUMBER
+of years ("10 yrs" for *"7 saal se zyada"*). "7+ yrs" respects that exactly: it is the chip, printed
+as the closed-vocabulary label it is, and it never reaches `experienceYears`, which stays sourced
+only from a number the worker gave. The value→band scale is pinned per role in
+`role-corpus-parity.guard.test.ts`, so a pack authored later that numbers its rungs differently goes
+red in CI instead of printing the wrong band on a résumé.
+
+### 2026-09-09 (later) — Total experience is the SUM of the work history, and the bands are withdrawn
+**Supersedes the entry above it**, which was wrong about where the figure comes from. The owner, on
+reading it: *"This is not how experience is calculated, it is not a range taken from any question.
+It is calculated from the work history that is filled by the individual and the total calculated
+from the work history itself"* — 1 yr 2 mo + 10 mo + 2 yrs is 4 years.
+
+**What was measured before changing anything**, on that exact example as three dated employments:
+
+| path | headline |
+| --- | --- |
+| `totalEmployedYears` (raw) | `4` — the arithmetic was always right |
+| container branch (chat interview) | `CNC Turner · 4 yrs · turning` |
+| **legacy branch (form-first)** | **`CNC Turner · duration not stated`** |
+
+**That is the whole defect.** `employedYears` was computed above the branch and handed to
+`fromResumeProfile` alone; the legacy return composed `years: draft.experience.total_years` and
+never consulted the sum. A form-first worker takes the legacy branch by construction — the trade
+form runs no extraction, so there is no container — which made the twenty-one-role population
+exactly the population whose filled-in work history was discarded. Both branches now read
+`renderedTotalYears(stated, employedYears)`, so they cannot disagree about one worker's tenure, and
+a stated total still outranks the sum (R8 §1 and the under-representation gate are untouched).
+
+**The bands are gone.** The earlier entry's `1–3 yrs` / `7+ yrs`, read off the pack's tier gate, are
+exactly the range-from-a-question the ruling rejects. The rung is now read for ONE purpose and it is
+negative: it withholds "Fresher" from a worker whose own form claims a year or more, so the sheet
+neither calls a self-declared seven-year man a fresher nor invents a figure for him. Nothing derived
+from that question reaches the page, and the four band strings are out of the fabrication gate's
+vocabulary — if one ever appears in a printed atom again, the gate going red is the correct outcome.
+
+**"Fresher" survives, and now it is simply true.** No work history means nothing for the sum to
+find. It is bounded to pack workers (a legacy chat profile was never asked), withheld from a worker
+who claims a year or more, and withheld when the work-history read FAILED rather than came back
+empty — an infrastructure miss must not put the word on a man's résumé.
+
+**One cost is pinned rather than fixed: a partially-dated history voids the whole total.**
+`totalEmployedYears` is all-or-nothing by design ("a total that quietly omits the employments whose
+dates the worker could not give is a false total"), so two dated jobs plus one undated print
+"duration not stated" and lose 2 yrs 10 mo of real, dated experience. That is now asserted in
+`resume-fresher-rows.test.ts` so it is a decision somebody makes on purpose rather than a behaviour
+that drifts. **Open for the owner**, and it will recur at the form layer.
+
+**Coordination:** the separate work-experience question (`<role>_experience`, the mandatory first
+item of each `qp_*` pack) was under review for deletion in a parallel session — **ruled the next
+day, and it stays** (see 2026-09-09b below). That session had measured that deleting the gate item
+*shows* the 87 items currently gated on it rather than hiding them, taking a turner's form from 11
+to 17 screens, which is the opposite of the intent; the owner's ruling keeps the question for
+exactly that reason and takes it off the résumé instead.
+
+### 2026-09-09b — The tier gate leaves the résumé entirely; no work history means Fresher, full stop
+**Closes the question the entry above left open**, and does it by rejecting the premise both earlier
+entries shared. Shown the four rungs of `qp_cnc_turning`'s gate, the owner: *"This is a different
+metric. It is for setting the number of questions in the profiling — I don't want to remove it. What
+I want instead is to fix the total experience shown on the resume to restrict only to the work
+history details. The work history calculation should be the core of the experience displayed on the
+resume top summary. If there is someone who has no work experience, no work history, then it will be
+considered as a fresher, and it should not become like duration not stated or some other text."*
+
+**Two rulings in one, and they pull apart cleanly.**
+
+1. **The tier gate stays in the form, and it is a profiling-depth control.** `turning_experience`
+   and its twenty siblings size the questionnaire: `lte 0` opens the three fresher items that become
+   a pass-out's whole Zone 4, `gte 2` and `gte 5` open the depth tiers a setter answers. That is
+   what it is for, it is mandatory and asked first on every enabled pack, and it is not going
+   anywhere.
+2. **It reaches the sheet nowhere at all.** `tenureStatusLabel` no longer takes an attribute bag —
+   the withhold rule is deleted, not narrowed — so the rung cannot be read because it cannot be
+   passed. §6.2's tenure segment is now composed from the work-history sum, or from the one word
+   for a worker who has no history, or from §11 #3's honest unknown. No pack answer enters it.
+
+**What this reverses, stated plainly.** The entry above withheld "Fresher" from a worker whose rung
+claimed a year or more, on §8.3: the sheet must not call a self-declared seven-year man a fresher.
+The owner overrules that on a factual ground rather than a stylistic one — a bracket a worker taps
+to size his own questionnaire was never a claim about his career, so there is nothing being
+contradicted. He now reads "Fresher", and the way he stops reading it is by filing the work history
+he has. That is a real trade-off and it is kept visible in its own test rather than buried.
+
+**The declared fresher chip loses its override too**, which is the same rule holding in the other
+direction. `qp_cad_drafting`'s *"course kiya hai, kaam ka tajurba nahi"* used to print the word
+UNCONDITIONALLY, including beside an employment block — a page reading "Fresher" three rows above
+two employers, which is the contradiction §6.2 exists to prevent. Her ratified sheet is unchanged:
+it carries no work history, so she reaches the word through the general rule.
+
+**What is left is one line.** A worker whose form pack is one a role actually serves, and whose work
+history was READ and is EMPTY, is a Fresher. Everyone else gets no label. The two bounds survive
+untouched, and both are fail-closed: a profile with no role pack is a legacy chat profile nobody
+handed a form to, and a work-history read that THREW is not an empty one — an infrastructure miss
+must never put a claim on a man's résumé.
+
+**Unchanged by this ruling**, and worth saying because it is the obvious next question: a STATED
+total still outranks the sum (`renderedTotalYears`). That figure is the universal `experience_years`
+ask — the worker's own sentence about his own career, in a free-form duration — not a bracket, and
+it never runs for a pure form-first worker anyway, which is why the sum is what fills his headline.
+The partially-dated cost pinned in the entry above is also still open and still all-or-nothing.
+
+### 2026-09-15 — Blank-save protection for old app builds; worker self-read GETs (#1504)
+
+**Ruling (Prakash, 2026-09-15; see the owner-rulings comment on #1503–#1506).** The owning pages
+(Preferences, Qualifications, Work History, finishing) own shift, preferred city, salary and
+education. Jobs prefill Work History and are saved only when the worker saves. **The server treats an
+old build's default-valued save as NO CHANGE**, and accepts the cost that an old-build worker cannot
+clear those answers. The marker "saved" flag needs no new table.
+
+**What shipped (backend only, additive):**
+
+- `GET /workers/me/work-preferences`, `GET /workers/me/employment` and `GET /workers/me/qualifications`
+  are `[WorkerAuthGuard, ConsentGuard]`, `Cache-Control: no-store`, take the worker from the session
+  only, emit no event and log counts only. Each response uses the PUT's own field names, so a GET
+  parses back into its PUT. A stored value that no longer validates is withheld and reported
+  (`partial` / `dropped_count`), never returned.
+- The employment GET decrypts `employer_name` for the owner only, on the `getResumeFields`
+  own-session precedent. A row that will not decrypt is withheld and counted as `unreadable_count`.
+- `PUT me/work-preferences`: new optional `touched_only: true`. Without it (an old build), a `[]` list
+  or `false` toggle over a stored value is left untouched. With it, the strict three-state contract
+  applies.
+- `PUT me/employment`: new optional `expected_existing_count`, checked inside the replace transaction
+  before the delete (a mismatch is a 409 with nothing written). Undecryptable rows are carried across
+  a replace, never deleted. Without the count (an old build), `[]` over stored rows is a no-op.
+
+**Deferred:** the marker `saved` flag on `GET /profiling/form` (it is `apps/api/src/profiling`, which is
+mid-rewrite in another PR). Mobile adoption is Rishi's; the contract is in the PR description.
+
+### 2026-09-18 - salary_period typed-text misses stand; chips are the capture path (option b, no code)
+
+Measured live on `qp_universal@4` (session `f7005018-…`): a typed "mahine ke hisaab
+se" misses the `month` chip (`matchOptions` is substring over label needles; "Mahine
+ka" is not contained), and non-mandatory single-selects are ask-once by engine design
+(`selectItem` branches 2/3 require `askCount === 0`), so the question settles
+unanswered with no retry. Same shape as the frozen `availability` / `work_types`
+misses. **Accepted as-is:** no pack change (`is_mandatory` would re-ask but also
+re-prioritise, re-budget and re-surface the question — a product call, not a fix),
+no matcher change (corpus-wide blast radius). Chip-tapping workers capture exactly;
+typed variants remain a known fill gap for the programme's fill-rate tracking, not a
+defect to patch around.

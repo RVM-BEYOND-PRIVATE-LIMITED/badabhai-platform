@@ -1,19 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_spacing.dart';
-import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_button.dart';
+import '../../../core/theme/onboarding_theme.dart';
+import '../../../core/util/push_once.dart';
+import '../../../core/widgets/kit/phone_number_field.dart';
+import '../../../core/widgets/onboarding/onboarding_body.dart';
+import '../../../core/widgets/onboarding/primary_action_button.dart';
+import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import 'cubit/phone_login_cubit.dart';
 import 'otp_verify_screen.dart';
 
+/// TalkBack's name for the number box. The hint disappears behind the typed
+/// digits, so without this the field announces as an unnamed edit box.
+const String kPhoneFieldSemanticLabel = 'Mobile number';
+
+/// Phone login — v3 **screen 2**: the Shift Blue header, a `MOBILE NUMBER`
+/// label over the kit's 54dp [PhoneNumberField] (fixed `+91`, hairline divider,
+/// mono digits), the "Verified & Secure Platform" trust line, and the yellow
+/// "Send OTP" CTA.
 class PhoneLoginScreen extends StatelessWidget {
   const PhoneLoginScreen({super.key});
 
@@ -34,11 +43,16 @@ class _PhoneLoginView extends StatefulWidget {
 }
 
 class _PhoneLoginViewState extends State<_PhoneLoginView> {
-  /// Holds ONLY the 10 national digits. `+91` is fixed chrome (a prefixText), not
-  /// editable content: seeding it into the controller let the worker backspace it
-  /// away, and the raw field text went to requestOtp() verbatim — so a phone that
-  /// had lost its `+91` was sent as-is and the OTP simply never arrived.
+  /// Holds ONLY the 10 national digits. `+91` is fixed chrome drawn beside the
+  /// field, not editable content: seeding it into the controller let the worker
+  /// backspace it away, and the raw field text went to requestOtp() verbatim —
+  /// so a phone that had lost its `+91` was sent as-is and the OTP simply never
+  /// arrived.
   final TextEditingController _controller = TextEditingController();
+
+  /// Drives the field's focus ring — [PhoneNumberField] listens to this node
+  /// itself, so the ring repaints without this screen rebuilding.
+  final FocusNode _focusNode = FocusNode();
 
   /// Enables the CTA only once the number can actually be dialled.
   bool get _isComplete => _controller.text.length == kNationalNumberDigits;
@@ -56,7 +70,19 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
   void dispose() {
     _controller.removeListener(_onChanged);
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Back from login. The splash hands over with `go`, so there is usually
+  /// nothing to pop — fall back to the welcome screen rather than a dead arrow.
+  void _back(BuildContext context) {
+    final NavigatorState nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+      return;
+    }
+    GoRouter.maybeOf(context)?.go(Routes.splash);
   }
 
   @override
@@ -65,14 +91,10 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, PhoneLoginState state) {
         if (state.status == PhoneLoginStatus.success) {
-          // go_router push (the app is on MaterialApp.router — ADR-0023). The
-          // submitted phone rides as typed `extra`; the OTP route reads it via
-          // `s.extra`. (Was a stale Navigator-1.0 pushNamed that would throw
-          // "Could not find a generator for route" under go_router.)
-          // #336 — carry the server's resend cooldown across, so the OTP
-          // screen opens with the countdown already running instead of an
-          // armed button the server will reject.
-          context.push(
+          // go_router push (ADR-0023). The submitted phone rides as typed
+          // `extra`. #336 — the server's resend cooldown travels with it, so
+          // the OTP screen opens with the countdown already running.
+          context.pushOnce(
             Routes.otpVerify,
             extra: OtpVerifyArgs(phone: state.phone, resendIn: state.resendIn),
           );
@@ -92,84 +114,67 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
         }
       },
       builder: (BuildContext context, PhoneLoginState state) {
-        // Kit 02 (top half): full-bleed blue header + a dense, labelled body.
-        // Not [BbScaffold] — the header must bleed to the status bar.
         return Scaffold(
+          backgroundColor: OnboardingColors.canvasBg,
           body: Column(
             children: <Widget>[
-              const BbBlueHeader(
+              ShiftBlueHeader(
                 title: 'Enter your phone number',
                 subtitle: 'We send a one-time code to log you in.',
+                onBack: () => _back(context),
               ),
               Expanded(
                 child: SafeArea(
                   top: false,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.gutter,
-                      AppSpacing.s6,
-                      AppSpacing.gutter,
-                      AppSpacing.s6,
-                    ),
+                  child: OnboardingBody(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text('MOBILE NUMBER',
-                            style:
-                                AppTypography.eyebrow(color: AppColors.textMuted)),
-                        const SizedBox(height: AppSpacing.s2),
-                        TextField(
-                          controller: _controller,
-                          keyboardType: TextInputType.phone,
-                          style: AppTypography.mono(size: AppTypography.sizeLg),
-                          // Digits only, capped at 10: the field cannot hold a
-                          // country code, spaces, or punctuation, so there is
-                          // nothing to strip and nothing malformed to send.
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(
-                                kNationalNumberDigits),
-                          ],
-                          decoration: InputDecoration(
-                            // Fixed chrome — rendered by the field, not stored in
-                            // the controller, so it cannot be selected or
-                            // backspaced away.
-                            prefixText: '$kIndiaDialCode ',
-                            prefixStyle:
-                                AppTypography.mono(size: AppTypography.sizeLg),
-                            hintText: 'XXXXXXXXXX',
-                          ),
+                        Text(
+                          'MOBILE NUMBER',
+                          style: OnboardingTypography.fieldMicroLabel(),
                         ),
-                        const SizedBox(height: AppSpacing.s4),
+                        const SizedBox(height: 8),
+                        PhoneNumberField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          semanticLabel: kPhoneFieldSemanticLabel,
+                        ),
+                        const SizedBox(height: 18),
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: <Widget>[
-                            const Icon(Icons.lock_outline,
-                                size: 18, color: AppColors.textMuted),
-                            const SizedBox(width: AppSpacing.s2),
-                            Expanded(
+                            const Icon(
+                              Icons.verified_user_outlined,
+                              size: 16,
+                              color: OnboardingColors.successGreen,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
                               child: Text(
-                                'Your number stays private. We never show it to anyone.',
-                                style: AppTypography.body(
-                                  size: AppTypography.sizeSm,
-                                  color: AppColors.textMuted,
+                                'Verified & Secure Platform',
+                                style: OnboardingTypography.inter(
+                                  size: 12,
+                                  weight: FontWeight.w500,
+                                  color: OnboardingColors.ink600,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: AppSpacing.s7),
-                        BbButton(
-                          label:
-                              state.isSubmitting ? 'Sending OTP…' : 'Send OTP',
-                          block: true,
-                          loading: state.isSubmitting,
-                          // Disabled until 10 digits — the cubit/manager contract
-                          // is E.164, and a half-typed number can only ever fail.
+                        const SizedBox(height: 28),
+                        PrimaryActionButton(
+                          label: 'Send OTP',
+                          showArrow: false,
+                          isLoading: state.isSubmitting,
+                          // Disabled until 10 digits — the cubit/manager
+                          // contract is E.164, and a half-typed number can
+                          // only ever fail.
                           onPressed: state.isSubmitting || !_isComplete
                               ? null
-                              : () => context
-                                  .read<PhoneLoginCubit>()
-                                  .submit(toE164(_controller.text)),
+                              : () => context.read<PhoneLoginCubit>().submit(
+                                  toE164(_controller.text),
+                                ),
                         ),
                       ],
                     ),

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/session/known_worker_facts_store.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/data/trade_form_repository_impl.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
@@ -9,6 +10,8 @@ import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+
+import 'trade_form_universal_fixture.dart';
 
 SessionRepository _session() => SessionRepository()
   ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
@@ -111,6 +114,59 @@ Map<String, dynamic> _formJson() => <String, dynamic>{
     };
 
 void main() {
+  group('TradeFormRepositoryImpl.loadForm — one fact, asked once', () {
+    test(
+        'the universal questions the deployed API appends are gone from the '
+        'parsed form, except availability (city known from /name)', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async =>
+            http.Response(jsonEncode(universalAppendedFormJson()), 200)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        api,
+        _session(),
+        knownFacts: InMemoryKnownWorkerFactsStore(
+            <WorkerFact>[WorkerFact.currentCity]),
+      );
+
+      final TradeForm form = (await repo.loadForm())!;
+
+      final List<String> keys = form.questionSteps
+          .map((TradeFormQuestionStep q) => q.question.id)
+          .toList();
+      expect(keys, <String>[
+        'turning_experience',
+        'turning_machine',
+        'availability',
+        'iti_project_work',
+      ]);
+
+      // Without a recorded city (the worker skipped it on /name) the current
+      // city question stays: nothing else in the flow asks it.
+      final TradeForm unknownCity =
+          (await TradeFormRepositoryImpl(api, _session()).loadForm())!;
+      expect(
+          unknownCity.questionSteps
+              .map((TradeFormQuestionStep q) => q.question.id),
+          contains('current_city'));
+      for (final String key in kUniversalQuestionKeys) {
+        if (key == 'availability') continue;
+        expect(keys, isNot(contains(key)), reason: '$key is asked elsewhere');
+      }
+      // The markers that own those facts, and the form's identity, survive.
+      expect(form.sections.map((TradeFormSection s) => s.id), <String>[
+        'capability',
+        'terms',
+        'work_history',
+        'qualifications',
+      ]);
+      expect(form.sections[1].screens.single, isA<TradeFormPreferencesStep>());
+      expect(form.sections[3].screens.last, isA<TradeFormQualificationsStep>());
+      expect(form.sessionId, '8f7c2a8e-3b7e-4c61-9a57-2f1d0b6c9e11');
+    });
+  });
+
   group('TradeFormRepositoryImpl.loadForm', () {
     test('parses every screen type + the answered/unanswered distinction',
         () async {
@@ -539,6 +595,70 @@ void main() {
           contains('issuer'),
         )),
       );
+    });
+  });
+
+  /// #1480 — A DEAD END FOR THE WORKER MUST NOT BE ONE FOR US.
+  ///
+  /// On 2026-09-10 every question of the CNC turner form failed with "Something went wrong"
+  /// and the app kept no trace of what it had seen, so the investigation needed SSH to the
+  /// box. These pin the two halves of the rule: an unactionable failure is REPORTED, and a
+  /// 400 — which the worker is told how to fix — is deliberately not.
+  group('TradeFormRepositoryImpl.submitAnswer — observability (#1480)', () {
+    ApiClient apiReturning(int status, String body) => ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async => http.Response(body, status)),
+        );
+
+    test('a 5xx is REPORTED as a non-fatal, carrying the status', () async {
+      final List<String> reasons = <String>[];
+      final List<Object> errors = <Object>[];
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        apiReturning(500, ''),
+        _session(),
+        reportNonFatal: (Object e, StackTrace s, {required String reason}) {
+          errors.add(e);
+          reasons.add(reason);
+        },
+      );
+
+      await expectLater(
+        repo.submitAnswer(
+          questionKey: 'turning_machine',
+          answer: const TradeFormAnswer.chips(<String>['cnc_lathe']),
+        ),
+        throwsA(isA<ServerFailure>()),
+      );
+
+      expect(reasons, <String>['trade_form_answer_failed']);
+      // The STATUS rides on the reported failure — the one fact the outage lacked.
+      expect((errors.single as ServerFailure).statusCode, 500);
+    });
+
+    test('a 400 is NOT reported — the worker is told what to change', () async {
+      final List<String> reasons = <String>[];
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(
+        apiReturning(
+          400,
+          jsonEncode(<String, dynamic>{
+            'error': <String, dynamic>{'message': 'unknown option keys: xyz'}
+          }),
+        ),
+        _session(),
+        reportNonFatal: (Object e, StackTrace s, {required String reason}) =>
+            reasons.add(reason),
+      );
+
+      await expectLater(
+        repo.submitAnswer(
+          questionKey: 'turning_machine',
+          answer: const TradeFormAnswer.chips(<String>['xyz']),
+        ),
+        throwsA(isA<InvalidRequestFailure>()),
+      );
+
+      // Reporting pack-version skew would bury the real faults under it.
+      expect(reasons, isEmpty);
     });
   });
 }

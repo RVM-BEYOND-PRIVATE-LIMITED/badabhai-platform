@@ -58,11 +58,14 @@ function setup(opts: { polished?: string | null; throws?: boolean; saveThrows?: 
   const savePolishedDescriptions = vi.fn(async (_m: ReadonlyMap<string, string>) => {
     if (opts.saveThrows) throw new Error("db down");
   });
+  const saveAttributePolish = vi.fn(async () => true);
   const svc = new WorkHistoryPolishService(
     { polishWorkHistory } as never,
     { savePolishedDescriptions } as never,
+    { saveAttributePolish } as never,
+    { record: vi.fn(async () => undefined) } as never,
   );
-  return { svc, polishWorkHistory, savePolishedDescriptions };
+  return { svc, polishWorkHistory, savePolishedDescriptions, saveAttributePolish };
 }
 
 const ON = { WORK_HISTORY_POLISH_ENABLED: true } as never;

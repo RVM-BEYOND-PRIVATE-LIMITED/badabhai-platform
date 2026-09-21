@@ -41,6 +41,7 @@
 import {
   EDUCATION_COUNCILS,
   EDUCATION_QUALIFICATIONS,
+  LANGUAGES,
   labelFor,
 } from "../profiles/worker-preferences.vocabulary";
 
@@ -48,6 +49,24 @@ import {
 export interface WorkerCertificateRecord {
   readonly name: string;
   readonly issuer: string | null;
+  readonly year: number | null;
+  /**
+   * Layer A (d) — PRESENT ON THE ROW, NEVER PRINTED HERE.
+   *
+   * The licence number (ciphertext, decrypted only by the worker-self GET) and the expiry date
+   * are structurally outside every composition in this file. They are declared so the repository's
+   * row type and this one agree, and a test asserts that a record carrying both composes the same
+   * line as a record without them — so no future edit to `certificateLine` can leak them by
+   * accident.
+   */
+  readonly licenceNumberEnc?: string | null;
+  readonly licenceExpiry?: string | null;
+}
+
+/** One `worker_training` row (migration 0112, Layer A (d)). PII-free: a course, not identity. */
+export interface WorkerTrainingRecord {
+  readonly name: string;
+  readonly provider: string | null;
   readonly year: number | null;
 }
 
@@ -70,6 +89,27 @@ export interface WorkerEducationRecord {
 /** The sheet's own separators, named once so neither composition can drift from the other. */
 const CREDENTIAL_SEP = " — ";
 const SEGMENT_SEP = " · ";
+
+/**
+ * One `worker_language` row (migration 0110). The three abilities are the worker's own ticks,
+ * each independently true; the slug is a `LANGUAGES` key, never a label.
+ */
+export interface WorkerLanguageRecord {
+  readonly language: string;
+  readonly canSpeak: boolean;
+  readonly canRead: boolean;
+  readonly canWrite: boolean;
+}
+
+/**
+ * THE THREE ABILITY WORDS, AND THEY ARE CLOSED VOCABULARY.
+ *
+ * §8's fabrication gate: every character of a composed line is the worker's own value or a
+ * reviewed label. "speaks" is the printed form of a boolean the worker ticked, exactly as
+ * `EDUCATION_COUNCILS` prints "NCVT". Never derived, never a proficiency level the worker did
+ * not state — the row cannot claim "fluent" because nothing collects it.
+ */
+const ABILITY_WORDS = { speak: "speaks", read: "reads", write: "writes" } as const;
 
 function join(parts: readonly (string | null | undefined)[], sep: string): string | null {
   const kept = parts.map((p) => p?.trim()).filter((p): p is string => Boolean(p));
@@ -149,6 +189,58 @@ export function certificateFacts(records: readonly WorkerCertificateRecord[]): s
 }
 
 /**
+ * One training as the sheet prints it: "3-month CNC Operator Course (Govt. ITI, 2019)".
+ *
+ * DELEGATES TO {@link certificateLine}, DELIBERATELY: the grammar is identical (name, then a
+ * conditional parenthetical holding provider and year) and the two compositions exist in one
+ * function so they cannot drift a comma apart. `provider` maps onto the `issuer` segment.
+ *
+ * ONLY THE THREE PRINTABLE FIELDS. The record type carries no licence fields at all — a training
+ * has no number and no expiry (Layer A (d)); those belong to the certificate that is a licence.
+ */
+export function trainingLine(record: WorkerTrainingRecord): string | null {
+  return certificateLine({ name: record.name, issuer: record.provider, year: record.year });
+}
+
+/** Every training the worker attended, in their own order. */
+export function trainingFacts(records: readonly WorkerTrainingRecord[]): string[] {
+  return records.map(trainingLine).filter((line): line is string => line !== null);
+}
+
+/**
+ * One language row as the sheet prints it, e.g. "Hindi (speaks, reads, writes)".
+ *
+ * AN UNKNOWN SLUG IS DROPPED, not printed raw — `labelFor`'s safety property, and the same rule
+ * `educationLine` follows. The DTO validates against `LANGUAGES`, so an unknown can only arrive
+ * from a row written by hand or left behind by a retired option.
+ *
+ * THE ABILITIES ARE ALWAYS PRINTED WHEN THE ROW EXISTS. Suppressing "speaks, reads, writes" for
+ * the full case would make the common row shorter but leave "reads, writes" ambiguous about the
+ * other two — and the distinction is a real hiring signal (a worker who reads English manuals
+ * but does not speak it). The row only exists because the worker ticked something
+ * (`wl_ability_chk`), so the empty parenthetical the caller must not print is unreachable
+ * through the API; a hand-written row that ticks nothing is dropped here rather than printed as
+ * "Hindi".
+ */
+export function languageLine(record: WorkerLanguageRecord): string | null {
+  const label = labelFor(LANGUAGES, record.language);
+  if (label === null) return null;
+  const abilities = (
+    [
+      record.canSpeak ? ABILITY_WORDS.speak : null,
+      record.canRead ? ABILITY_WORDS.read : null,
+      record.canWrite ? ABILITY_WORDS.write : null,
+    ] as (string | null)[]
+  ).filter((word): word is string => word !== null);
+  return abilities.length === 0 ? null : `${label} (${abilities.join(", ")})`;
+}
+
+/** Every language the worker declared, in their own order, ready for the Languages row. */
+export function languageFacts(records: readonly WorkerLanguageRecord[]): string[] {
+  return records.map(languageLine).filter((line): line is string => line !== null);
+}
+
+/**
  * The stored rows as the `qualification` block `buildResumeRenderInput` takes — or `undefined`
  * when the worker has none.
  *
@@ -175,14 +267,43 @@ export function certificateFacts(records: readonly WorkerCertificateRecord[]): s
 export function qualificationFactsFrom(loaded: {
   readonly certificates: readonly WorkerCertificateRecord[];
   readonly educations: readonly WorkerEducationRecord[];
+  /**
+   * Migration 0110 — optional so every existing caller (and test) compiles unchanged. An absent
+   * list means "this surface has nothing to say about languages" and the mapper's `??` falls
+   * back to the `languages` attribute exactly as it does today.
+   */
+  readonly languages?: readonly WorkerLanguageRecord[];
+  /** Migration 0112 / Layer A (d) — the worker's courses. Same optional-override contract. */
+  readonly trainings?: readonly WorkerTrainingRecord[];
 }):
-  | { educationHeadline: string | null; education: string[]; certifications: string[] }
+  | {
+      educationHeadline: string | null;
+      education: string[];
+      certifications: string[];
+      languages?: string[];
+      trainings?: string[];
+    }
   | undefined {
-  if (loaded.certificates.length === 0 && loaded.educations.length === 0) return undefined;
+  const languageLines = languageFacts(loaded.languages ?? []);
+  const trainingLines = trainingFacts(loaded.trainings ?? []);
+  if (
+    loaded.certificates.length === 0 &&
+    loaded.educations.length === 0 &&
+    languageLines.length === 0 &&
+    trainingLines.length === 0
+  )
+    return undefined;
   const education = educationFacts(loaded.educations);
   return {
     educationHeadline: education.headline,
     education: education.rest,
     certifications: certificateFacts(loaded.certificates),
+    // `undefined`, NEVER `[]`, for the same reason `educationHeadline` is null: the mapper
+    // resolves `tradeSheet?.qualification?.languages ?? preferences.languages`, and an empty
+    // array is an ASSERTION ("this worker speaks no language") that would suppress the attribute
+    // list the finishing form still writes. Undefined means "nothing to say" and lets it through.
+    languages: languageLines.length > 0 ? languageLines : undefined,
+    // Training lines follow the same per-field rule: present rows win, absent says nothing.
+    trainings: trainingLines.length > 0 ? trainingLines : undefined,
   };
 }

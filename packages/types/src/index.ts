@@ -15,6 +15,16 @@ export type WorkerStatus = (typeof WORKER_STATUSES)[number];
 export const PROFILE_STATUSES = ["draft", "extracting", "extracted", "confirmed"] as const;
 export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 
+// ---- Profile source (Task 1 flow separation) ----
+// Which road produced the profile: the trade-form road (`form`, one of the
+// form-enabled trades, entered via chat handover or résumé-route=form) or the
+// LLM-chat road (`chat`, everything else). Written by deterministic code at
+// extraction time from the channel record (session form_kind / import route) —
+// never by the model — and read by navigation, profile screens and the resume
+// renderer so the two roads stop sharing one flow.
+export const PROFILE_SOURCES = ["form", "chat"] as const;
+export type ProfileSource = (typeof PROFILE_SOURCES)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",
@@ -209,7 +219,7 @@ export type ProfileValueSource = (typeof PROFILE_VALUE_SOURCES)[number];
  * and a `city` are both one string to Postgres, and only `multi_select` genuinely needs a list.
  * Keeping the two vocabularies separate is what stops a new answer type from forcing a migration.
  */
-export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list"] as const;
+export const ATTRIBUTE_VALUE_KINDS = ["boolean", "number", "text", "text_list", "json"] as const;
 export type AttributeValueKind = (typeof ATTRIBUTE_VALUE_KINDS)[number];
 
 // ---- AI jobs ----
@@ -364,6 +374,38 @@ export const WORKER_FEEDBACK_ATTACHMENT_PATH_MAX = 512;
 export const WORKER_FEEDBACK_ATTACHMENT_PREFIX = "feedback-attachments";
 
 /**
+ * The object-key PREFIX every uploaded résumé lives under in the private uploads bucket:
+ * `resume-uploads/<workerId>/<uuid>.<pdf|docx|jpg|png>` (ADR-0041).
+ *
+ * ONE CONSTANT BECAUSE THREE PLACES MUST AGREE, and one of the three is an erasure. The mint
+ * builds the key from it, the confirm route's ownership regex re-derives the same shape from
+ * it, and `AccountDeletionService` sweeps the prefix built from it.
+ *
+ * The first two drifting apart is the IDOR the feedback constant above describes. The THIRD is
+ * worse, and it is the reason this is a constant rather than three literals: a sweep prefix that
+ * no longer matches the mint deletes nothing and reports a successful erasure. Ruling D6 retains
+ * these objects permanently, so that sweep is the ONLY erasure path this feature has — a drifted
+ * copy would not degrade DSAR coverage, it would end it, silently, while still logging success.
+ */
+export const WORKER_RESUME_UPLOAD_PREFIX = "resume-uploads";
+
+/**
+ * The object-key PREFIX every portfolio media object lives under in the private portfolio bucket:
+ * `portfolio/<workerId>/<uuid>.<jpg|png|webp|mp4|mov>` (ADR-0042 D9 / Layer A (e), migration 0113).
+ *
+ * ONE CONSTANT BECAUSE THREE PLACES MUST AGREE, and one of the three is an erasure. The mint
+ * (`WorkerPortfolioService.createUploadUrl`) builds the key from it, the register step's ownership
+ * check (`portfolioKeyBelongsTo`) re-derives the same shape from it, and
+ * `AccountDeletionService` sweeps the prefix built from it.
+ *
+ * The first two drifting apart is the IDOR the feedback constant above describes. The THIRD is
+ * the reason this is a constant rather than three literals: a sweep prefix that no longer matches
+ * the mint deletes nothing and reports a successful erasure. Until #1548 landed this sweep did not
+ * exist at all, which is why the bucket was documented as do-not-arm until it did.
+ */
+export const WORKER_PORTFOLIO_PREFIX = "portfolio";
+
+/**
  * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
  *
  * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────
@@ -442,9 +484,15 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/jobs/detail/:id", // Routes.jobDetail + '/<jobId>'
   "/resume", // Routes.resume
   "/resume/edit", // Routes.resumeEdit
+  // Extracted-profile review + correction surface (worker-app #1595, §8.4).
+  "/resume/review", // Routes.extractedReview
+  "/resume-upload", // Routes.resumeUpload
   "/bada-bhai", // Routes.badaBhai
   "/profile", // Routes.profile
   "/profile/applied", // Routes.appliedJobs
+  // Layer A profile surfaces (ADR-0042 D9, issue #1545) — the Profile-edit
+  // screen pushed from the Profile tab.
+  "/profile/edit", // Routes.profileEdit
   "/profile/kit", // Routes.kit
   "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
   "/profile/settings", // Routes.settings
@@ -544,6 +592,91 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
+
+// ---- Résumé import (ADR-0041) ----
+//
+// THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other
+// need the same closed sets: `packages/db` writes them into CHECK constraints, and
+// `packages/event-schema` puts them on the event spine as `z.enum(...)`. Declared twice, they
+// would drift the first time one gained a value — and the symptom would be an event the registry
+// refuses for a row the database happily stored.
+//
+// Frozen for the same reason `TRADE_FORM_KINDS_ALL` is: a consumer that pushed onto one of these
+// would widen at runtime the set of values allowed onto the spine.
+
+/**
+ * Where an import is in its life.
+ *
+ * `failed` and `discarded` are kept apart deliberately. `failed` is OURS — we could not read the
+ * document, and ruling D9 says we tell the worker so plainly and carry on. `discarded` is HIS — he
+ * changed his mind or replaced the file. Collapsing them would make "how often does our parser let
+ * a worker down" unanswerable, which is the one number RI-7 exists to move.
+ */
+export const RESUME_IMPORT_STATUSES = Object.freeze([
+  "uploaded",
+  "parsing",
+  "parsed",
+  "failed",
+  "discarded",
+] as const);
+export type ResumeImportStatusName = (typeof RESUME_IMPORT_STATUSES)[number];
+
+/**
+ * How the text was recovered. Null until a parse has actually run.
+ *
+ * `ocr` is local Tesseract inside the ai-service container, never a cloud vision call — the
+ * distinction is the whole reason ruling D3 could accept photographs without adding a
+ * sub-processor or sending an unmaskable image across the AI boundary.
+ */
+export const RESUME_EXTRACTION_METHODS = Object.freeze(["pdf_text", "docx", "ocr"] as const);
+export type ResumeExtractionMethodName = (typeof RESUME_EXTRACTION_METHODS)[number];
+
+/**
+ * Which surface the worker was sent to afterwards — the output of `routeToTradeForm()`.
+ *
+ * Only 9 of 21 declared roles have a form at all, so "how often did an import actually reach one"
+ * is a real question about whether this feature earns its keep, and it is unanswerable unless the
+ * decision is recorded at the time it is made.
+ */
+export const RESUME_IMPORT_ROUTES = Object.freeze(["form", "chat"] as const);
+export type ResumeImportRouteName = (typeof RESUME_IMPORT_ROUTES)[number];
+
+/**
+ * Why a parse produced nothing usable. A CLOSED list, and it never carries model text.
+ *
+ * The reason is both shown to the worker (D9) and counted on the event, so an open string here
+ * would be an untrusted value on a screen AND a PII leak into analytics at once. Same discipline
+ * as `PARSE_NOTES` in the ai-service: a fixed vocabulary, and whatever the model says about its
+ * own failure is discarded unread.
+ */
+export const RESUME_IMPORT_FAILURES = Object.freeze([
+  "no_text_layer",
+  "ocr_below_floor",
+  "unsupported_document",
+  "encrypted_document",
+  "empty_document",
+  "parse_unavailable",
+  "parse_deadline_exceeded",
+  "parse_output_invalid",
+] as const);
+export type ResumeImportFailureName = (typeof RESUME_IMPORT_FAILURES)[number];
+
+/**
+ * The document types ruling D3 accepts, as MIME strings.
+ *
+ * FOUR, because this is what workers actually have. PDF and DOCX cover a cybercafe export; JPEG
+ * and PNG cover a photograph of a printed sheet, which for this user base is the common case
+ * rather than the fallback. The list is duplicated in `infra/supabase/storage-buckets.sql` as the
+ * bucket's `allowed_mime_types` — deliberately, because that copy is the OUTER wall that refuses
+ * the PUT before any of our code runs, and this one is the inner check against object-info.
+ */
+export const RESUME_UPLOAD_MIME_TYPES = Object.freeze([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg",
+  "image/png",
+] as const);
+export type ResumeUploadMimeName = (typeof RESUME_UPLOAD_MIME_TYPES)[number];
 
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;

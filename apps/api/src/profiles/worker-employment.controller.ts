@@ -1,4 +1,14 @@
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Put, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  UseGuards,
+} from "@nestjs/common";
 
 import {
   WorkerAuthGuard,
@@ -11,6 +21,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
   SetDescriptionSourceSchema,
   SetMyEmploymentSchema,
+  type MyEmploymentResponse,
   type SetDescriptionSourceDto,
   type SetMyEmploymentDto,
 } from "./worker-employment.dto";
@@ -30,6 +41,26 @@ import { WorkerEmploymentService } from "./worker-employment.service";
 @Controller("workers")
 export class WorkerEmploymentController {
   constructor(private readonly employment: WorkerEmploymentService) {}
+
+  /**
+   * The caller's own work history, for their edit page (#1504).
+   *
+   * THE ONE WORKER READ THAT DECRYPTS AN EMPLOYER NAME, on the own-session precedent
+   * `GET me/resume-fields` set for the full name: the worker id comes ONLY from the session, so
+   * there is no shape of this route that reads another worker's history, and `no-store` keeps the
+   * plaintext out of any cache between the server and the phone. No event — a read changes nothing.
+   *
+   * The rows carry `employment_id` and `description_source`, which are NOT PUT fields: a client
+   * projects each row to the PUT shape (see `projectEmploymentForPut`) rather than echoing it.
+   */
+  @Get("me/employment")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyEmployment(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<MyEmploymentResponse> {
+    return this.employment.getForWorker(worker.id);
+  }
 
   /**
    * Replace the caller's work history. Consent-gated like every other worker write.

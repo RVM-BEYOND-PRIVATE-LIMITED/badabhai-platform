@@ -7,6 +7,7 @@ import type { PayerSessionService } from "../payers/payer-session.service";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
+import type { AdminInviteService } from "./admin-invite.service";
 
 const CTX: RequestContext = {
   requestId: "req-1",
@@ -72,6 +73,8 @@ interface Mocks {
   };
   admins: {
     create: ReturnType<typeof vi.fn>;
+    refreshInvite: ReturnType<typeof vi.fn>;
+    emailHash: ReturnType<typeof vi.fn>;
     updateRole: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
     setMfaSecret: ReturnType<typeof vi.fn>;
@@ -81,6 +84,14 @@ interface Mocks {
     withTransaction: ReturnType<typeof vi.fn>;
   };
   events: { emit: ReturnType<typeof vi.fn> };
+  /** The accept-link seam, stubbed deterministically so an invite assertion can name values. */
+  invites: {
+    mintToken: ReturnType<typeof vi.fn>;
+    hashToken: ReturnType<typeof vi.fn>;
+    expiryFrom: ReturnType<typeof vi.fn>;
+    buildAcceptUrl: ReturnType<typeof vi.fn>;
+    deliver: ReturnType<typeof vi.fn>;
+  };
   service: AdminActionsService;
 }
 
@@ -113,18 +124,32 @@ function make(): Mocks {
     findById: vi.fn(),
     countActiveSuperAdmins: vi.fn(async () => 2),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
+    // Re-invite path: default undefined = "no PENDING row matched", so a duplicate email
+    // conflicts unless a test opts into the refresh by resolving a row.
+    refreshInvite: vi.fn(async () => undefined),
+    emailHash: vi.fn((email: string) => `hash(${email})`),
   };
   const events = { emit: vi.fn(async () => undefined) };
   // ADR-0037 — suspension revokes every live payer session. Spied so tests can assert
   // revocation happened (and did NOT happen on the idempotent no-op path).
   const sessions = { revokeAllForPayer: vi.fn(async () => 2) };
+  // The accept-link seam. Token minting is stubbed to a FIXED value so an invite assertion
+  // can name the exact hash/URL it expects instead of matching a random 43-char string.
+  const invites = {
+    mintToken: vi.fn(() => "fake-raw-token"),
+    hashToken: vi.fn((raw: string) => `hash(${raw})`),
+    expiryFrom: vi.fn((now: Date) => new Date(now.getTime() + 48 * 60 * 60 * 1000)),
+    buildAcceptUrl: vi.fn((raw: string) => `https://admin.test/invite/accept?token=${raw}`),
+    deliver: vi.fn(async () => undefined),
+  };
   const service = new AdminActionsService(
     actions as unknown as AdminActionsRepository,
     admins as unknown as AdminRepository,
     events as unknown as EventsService,
     sessions as unknown as PayerSessionService,
+    invites as unknown as AdminInviteService,
   );
-  return { actions, admins, events, sessions, service };
+  return { actions, admins, events, sessions, invites, service };
 }
 
 /** The emit params the service passed to EventsService.emit (camelCase tracing ids). */
@@ -683,12 +708,83 @@ describe("inviteAdmin", () => {
       CTX,
     );
 
-    // The email (PII) + role go to admin_users (encrypted) — NOT the event/response value-set.
+    // The email (PII) + role go to admin_users (encrypted) — NOT the event value-set. The row
+    // also carries the HASHED accept token: the repository is handed `hashToken(raw)`, never
+    // the raw token itself, so the bearer secret has no path into the data layer.
     expect(m.admins.create).toHaveBeenCalledWith(
-      { role: "ops_admin", email: "ops@badabhai.in" },
+      {
+        role: "ops_admin",
+        email: "ops@badabhai.in",
+        inviteTokenHash: "hash(fake-raw-token)",
+        inviteExpiresAt: expect.any(Date),
+      },
       FAKE_TX,
     );
-    expect(res).toEqual({ admin_id: TARGET_ADMIN_ID });
+    // The RESPONSE now carries the accept link — the owner-decided path that makes onboarding
+    // work with no email provider configured. It is the one place the raw token surfaces
+    // besides the email body, and the route is super_admin-only for exactly that reason.
+    expect(res.admin_id).toBe(TARGET_ADMIN_ID);
+    expect(res.accept_url).toBe(
+      "https://admin.test/invite/accept?token=fake-raw-token",
+    );
+    expect(res.expires_at).toEqual(expect.any(String));
+    // Delivery is attempted with the same link (best-effort; a send failure must not fail
+    // the request, since the invite is already committed).
+    expect(m.invites.deliver).toHaveBeenCalledWith(
+      "ops@badabhai.in",
+      "https://admin.test/invite/accept?token=fake-raw-token",
+      TARGET_ADMIN_ID,
+    );
+    assertValueFreeAction(soleEmit(m.events), {
+      actionCode: "admin_invited",
+      subjectType: "admin_session",
+      targetId: TARGET_ADMIN_ID,
+    });
+  });
+
+  it("the RAW accept token never reaches the event spine (it is a bearer secret)", async () => {
+    m.admins.create.mockResolvedValue({ id: TARGET_ADMIN_ID });
+
+    await m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "ops_admin" }, CTX);
+
+    // Serialize the whole emitted event and scan it: neither the token nor the link may appear
+    // anywhere in it, under any key.
+    const emitted = JSON.stringify(soleEmit(m.events));
+    expect(emitted).not.toContain("fake-raw-token");
+    expect(emitted).not.toContain("invite/accept");
+    expect(emitted).not.toContain("ops@badabhai.in");
+  });
+
+  it("delivery runs AFTER the row + event are committed (a send can never rollback an invite)", async () => {
+    m.admins.create.mockResolvedValue({ id: TARGET_ADMIN_ID });
+
+    await m.service.inviteAdmin(ADMIN_ID, { email: "ops@badabhai.in", role: "ops_admin" }, CTX);
+
+    // Ordering is the contract: the transaction (create + emit) closes before the mailer is
+    // touched, so an outbound failure cannot undo an invite that already exists. The swallow
+    // itself belongs to AdminInviteService.deliver and is asserted in its own test.
+    const txOrder = m.admins.withTransaction.mock.invocationCallOrder[0]!;
+    const deliverOrder = m.invites.deliver.mock.invocationCallOrder[0]!;
+    expect(deliverOrder).toBeGreaterThan(txOrder);
+  });
+
+  it("re-inviting a PENDING admin refreshes the token instead of conflicting", async () => {
+    m.admins.create.mockRejectedValue(Object.assign(new Error("dup"), { code: "23505" }));
+    m.admins.refreshInvite.mockResolvedValue({ id: TARGET_ADMIN_ID });
+
+    const res = await m.service.inviteAdmin(
+      ADMIN_ID,
+      { email: "ops@badabhai.in", role: "ops_admin" },
+      CTX,
+    );
+
+    expect(m.admins.refreshInvite).toHaveBeenCalledWith(
+      "hash(ops@badabhai.in)",
+      { role: "ops_admin", inviteTokenHash: "hash(fake-raw-token)", inviteExpiresAt: expect.any(Date) },
+      FAKE_TX,
+    );
+    expect(res.admin_id).toBe(TARGET_ADMIN_ID);
+    // A refresh is still an invite: it emits the same audited action.
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "admin_invited",
       subjectType: "admin_session",

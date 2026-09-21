@@ -1,24 +1,32 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
-import '../theme/app_typography.dart';
+import '../theme/onboarding_theme.dart';
 import 'bb_toggle.dart';
 
 /// Colour tone for a [BbListRow.notification] leading tile.
 ///
-///  - [green]   — go / success (a new job, an applied confirmation).
-///  - [saffron] — haldi warmth (reminders, kit-style nudges).
-///  - [brand]   — vermilion brand moments.
+/// The NAMES are historical (they predate v3) but the tones are now assigned by
+/// what the notification MEANS, not by decoration:
+///
+///  - [green]   — a good outcome the worker can act on (profile ready, an
+///                application sent): success tint + green glyph.
+///  - [saffron] — a SECURITY event (a new device, a PIN change): the error tint
+///                + red glyph, because it is the one kind of alert a worker must
+///                not scroll past.
+///  - [brand]   — an informational nudge (a resume is ready to view, a voice
+///                note is waiting): the informational blue tint + navy glyph.
+///                This replaces a yellow glyph on a yellow tint, which failed
+///                contrast outright.
 enum BbNotiTone { green, saffron, brand }
 
-/// The BadaBhai list row family — one widget, four named constructors that
-/// cover the design system's `.aw-srow` (settings), `.aw-noti` (notification),
-/// `.aw-status-row` (status) and `.aw-kitrow` (interview-kit) patterns.
+/// The BadaBhai list row family — one widget, five named constructors that
+/// cover the settings row, the notification row, the status line and the
+/// interview-kit row.
 ///
-/// All four share a leading tile → middle title/subtitle → optional trailing
+/// All share a leading tile → middle title/subtitle → optional trailing
 /// layout, kept DRY through a single private builder. Every tappable row clears
-/// the 48px [AppSpacing.tap] minimum touch target.
+/// the 48px [OnboardingLayout.tapTarget] minimum touch target.
 class BbListRow extends StatelessWidget {
   const BbListRow._({
     super.key,
@@ -28,10 +36,7 @@ class BbListRow extends StatelessWidget {
     this.trailing,
     this.onTap,
     this.showBorder = true,
-    this.padding = const EdgeInsets.symmetric(
-      horizontal: AppSpacing.s4,
-      vertical: AppSpacing.s3,
-    ),
+    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
   });
 
   final Widget leading;
@@ -42,8 +47,8 @@ class BbListRow extends StatelessWidget {
   final bool showBorder;
   final EdgeInsetsGeometry padding;
 
-  /// `.aw-srow` — a settings row: muted square icon tile, title + optional
-  /// subtitle, chevron, hairline bottom border. `danger` paints it crimson.
+  /// A settings row: muted square icon tile, title + optional subtitle,
+  /// chevron, hairline bottom border. `danger` paints it crimson.
   factory BbListRow.setting({
     Key? key,
     required IconData icon,
@@ -57,38 +62,23 @@ class BbListRow extends StatelessWidget {
       onTap: onTap,
       leading: _IconTile(
         icon: icon,
-        size: 38,
-        radius: AppRadii.sm,
-        background: danger ? AppColors.dangerTint : AppColors.surfaceSunken,
-        iconColor: danger ? AppColors.danger : AppColors.textSecondary,
+        background: danger
+            ? OnboardingColors.errorBg
+            : OnboardingColors.pillMutedBg,
+        iconColor: danger ? OnboardingColors.errorRed : OnboardingColors.ink600,
       ),
-      title: Text(
+      title: _title(
         title,
-        style: AppTypography.body(
-          size: AppTypography.sizeBase,
-          weight: FontWeight.w600,
-          color: danger ? AppColors.danger : AppColors.textPrimary,
-        ),
+        color: danger ? OnboardingColors.errorRed : OnboardingColors.ink900,
       ),
-      subtitle: subtitle == null
-          ? null
-          : Text(
-              subtitle,
-              style: AppTypography.body(
-                size: AppTypography.sizeXs,
-                color: AppColors.textMuted,
-              ),
-            ),
-      trailing: const Icon(
-        Icons.chevron_right,
-        color: AppColors.textFaint,
-      ),
+      subtitle: subtitle == null ? null : _subtitle(subtitle),
+      trailing: const _Chevron(),
     );
   }
 
-  /// A settings row whose trailing affordance is a [BbToggle] slide switch (not a
-  /// chevron). Tapping anywhere on the row flips it, same as the switch. Used for
-  /// on/off preferences (e.g. Notifications).
+  /// A settings row whose trailing affordance is a [BbToggle] slide switch (not
+  /// a chevron). Tapping anywhere on the row flips it, same as the switch. Used
+  /// for on/off preferences (e.g. Notifications).
   factory BbListRow.toggle({
     Key? key,
     required IconData icon,
@@ -103,28 +93,11 @@ class BbListRow extends StatelessWidget {
       onTap: enabled ? () => onChanged(!value) : null,
       leading: _IconTile(
         icon: icon,
-        size: 38,
-        radius: AppRadii.sm,
-        background: AppColors.surfaceSunken,
-        iconColor: AppColors.textSecondary,
+        background: OnboardingColors.pillMutedBg,
+        iconColor: OnboardingColors.ink600,
       ),
-      title: Text(
-        title,
-        style: AppTypography.body(
-          size: AppTypography.sizeBase,
-          weight: FontWeight.w600,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      subtitle: subtitle == null
-          ? null
-          : Text(
-              subtitle,
-              style: AppTypography.body(
-                size: AppTypography.sizeXs,
-                color: AppColors.textMuted,
-              ),
-            ),
+      title: _title(title),
+      subtitle: subtitle == null ? null : _subtitle(subtitle),
       trailing: BbToggle(
         value: value,
         onChanged: enabled ? onChanged : (_) {},
@@ -133,8 +106,8 @@ class BbListRow extends StatelessWidget {
     );
   }
 
-  /// `.aw-noti` — a notification row: tone-coloured square icon tile, title +
-  /// subtitle, and a faint time stamp trailing.
+  /// A notification row: tone-coloured square icon tile, title + subtitle, and
+  /// a faint time stamp trailing.
   factory BbListRow.notification({
     Key? key,
     required IconData icon,
@@ -144,46 +117,37 @@ class BbListRow extends StatelessWidget {
     required String time,
   }) {
     final (Color background, Color iconColor) = switch (tone) {
-      BbNotiTone.green => (AppColors.successTint, AppColors.success),
-      BbNotiTone.saffron => (AppColors.saffron100, AppColors.saffron700),
-      BbNotiTone.brand => (AppColors.brandTint, AppColors.brand),
+      BbNotiTone.green => (
+        OnboardingColors.successBg,
+        OnboardingColors.successGreen,
+      ),
+      BbNotiTone.saffron => (
+        OnboardingColors.errorBg,
+        OnboardingColors.errorRed,
+      ),
+      BbNotiTone.brand => (OnboardingColors.infoBg, OnboardingColors.shiftBlue),
     };
     return BbListRow._(
       key: key,
       leading: _IconTile(
         icon: icon,
-        size: 40,
-        radius: AppRadii.md,
         background: background,
         iconColor: iconColor,
       ),
-      title: Text(
-        title,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          weight: FontWeight.w700,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: AppTypography.body(
-          size: AppTypography.sizeXs,
-          color: AppColors.textSecondary,
-        ),
-      ),
+      title: _title(title),
+      subtitle: _subtitle(subtitle),
       trailing: Text(
         time,
-        style: AppTypography.body(
-          size: AppTypography.size2xs,
-          color: AppColors.textFaint,
+        style: OnboardingTypography.inter(
+          size: 11,
+          color: OnboardingColors.ink500,
         ),
       ),
     );
   }
 
-  /// `.aw-status-row` — a status line: circular tone icon, bold label + muted
-  /// state. No border (the composing screen supplies its own dividers).
+  /// A status line: circular tone icon, bold label + muted state. No border
+  /// (the composing screen supplies its own dividers).
   factory BbListRow.status({
     Key? key,
     required IconData icon,
@@ -191,43 +155,26 @@ class BbListRow extends StatelessWidget {
     required String label,
     required String state,
   }) {
-    final Color background =
-        green ? AppColors.successTint : AppColors.saffron100;
-    final Color iconColor = green ? AppColors.success : AppColors.saffron700;
     return BbListRow._(
       key: key,
       showBorder: false,
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.s4,
-        vertical: AppSpacing.s3,
-      ),
       leading: _IconTile(
         icon: icon,
-        size: 40,
         radius: AppRadii.pill,
-        background: background,
-        iconColor: iconColor,
+        background: green
+            ? OnboardingColors.successBg
+            : OnboardingColors.infoBg,
+        iconColor: green
+            ? OnboardingColors.successGreen
+            : OnboardingColors.shiftBlue,
       ),
-      title: Text(
-        label,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          weight: FontWeight.w700,
-          color: AppColors.textPrimary,
-        ),
-      ),
-      subtitle: Text(
-        state,
-        style: AppTypography.body(
-          size: AppTypography.sizeXs,
-          color: AppColors.textMuted,
-        ),
-      ),
+      title: _title(label),
+      subtitle: _subtitle(state),
     );
   }
 
-  /// `.aw-kitrow` — an interview-kit row: large saffron square tile (colours
-  /// overridable), Baloo 2 title + muted subtitle, chevron, tappable.
+  /// An interview-kit row: a square tile (colours overridable), an Anek title +
+  /// muted subtitle, chevron, tappable.
   factory BbListRow.kit({
     Key? key,
     required IconData icon,
@@ -244,31 +191,41 @@ class BbListRow extends StatelessWidget {
       padding: const EdgeInsets.all(15),
       leading: _IconTile(
         icon: icon,
-        size: 46,
-        radius: AppRadii.md,
-        background: iconBg ?? AppColors.saffron100,
-        iconColor: iconColor ?? AppColors.saffron700,
+        size: 44,
+        background: iconBg ?? OnboardingColors.pillMutedBg,
+        iconColor: iconColor ?? OnboardingColors.shiftBlue,
       ),
       title: Text(
         title,
-        style: AppTypography.display(
-          size: AppTypography.sizeBase,
-          weight: FontWeight.w700,
-        ),
+        style: OnboardingTypography.anek(size: 15, weight: FontWeight.w700),
       ),
-      subtitle: Text(
-        subtitle,
-        style: AppTypography.body(
-          size: AppTypography.sizeSm,
-          color: AppColors.textMuted,
-        ),
-      ),
-      trailing: const Icon(
-        Icons.chevron_right,
-        color: AppColors.textFaint,
-      ),
+      subtitle: _subtitle(subtitle),
+      trailing: const _Chevron(),
     );
   }
+
+  static Widget _title(String text, {Color color = OnboardingColors.ink900}) =>
+      // A single long word gets ONE step of shrink rather than a mid-word
+      // break: at the 2.0 ceiling 'Notifications' came out as 'Notificati /
+      // ons', which reads as a rendering fault to a worker who is sounding the
+      // word out. scaleDown is inert at every size where the word fits.
+      FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: OnboardingTypography.inter(
+            size: 14,
+            weight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      );
+
+  static Widget _subtitle(String text) => Text(
+    text,
+    style: OnboardingTypography.inter(size: 12, color: OnboardingColors.ink600),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +234,7 @@ class BbListRow extends StatelessWidget {
       child: Row(
         children: <Widget>[
           leading,
-          const SizedBox(width: AppSpacing.s3),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -285,14 +242,14 @@ class BbListRow extends StatelessWidget {
               children: <Widget>[
                 title,
                 if (subtitle != null) ...<Widget>[
-                  const SizedBox(height: AppSpacing.s1 / 2),
+                  const SizedBox(height: 2),
                   subtitle!,
                 ],
               ],
             ),
           ),
           if (trailing != null) ...<Widget>[
-            const SizedBox(width: AppSpacing.s3),
+            const SizedBox(width: 12),
             trailing!,
           ],
         ],
@@ -300,7 +257,7 @@ class BbListRow extends StatelessWidget {
     );
 
     final Widget bounded = ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+      constraints: const BoxConstraints(minHeight: OnboardingLayout.tapTarget),
       child: Center(child: row),
     );
 
@@ -308,7 +265,7 @@ class BbListRow extends StatelessWidget {
         ? DecoratedBox(
             decoration: const BoxDecoration(
               border: Border(
-                bottom: BorderSide(color: AppColors.divider),
+                bottom: BorderSide(color: OnboardingColors.borderSubtle),
               ),
             ),
             child: bounded,
@@ -325,32 +282,48 @@ class BbListRow extends StatelessWidget {
   }
 }
 
+/// The row's trailing chevron.
+class _Chevron extends StatelessWidget {
+  const _Chevron();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Icon(
+      Icons.chevron_right_rounded,
+      color: OnboardingColors.ink500,
+    );
+  }
+}
+
 /// Square (or circular, at [AppRadii.pill]) icon tile shared by every row.
+///
+/// Deliberately ONE Container: the notifications screen test reads the tile's
+/// fill off the Icon's nearest Container ancestor.
 class _IconTile extends StatelessWidget {
   const _IconTile({
     required this.icon,
-    required this.size,
-    required this.radius,
     required this.background,
     required this.iconColor,
+    this.size = 40,
+    this.radius = 8,
   });
 
   final IconData icon;
-  final double size;
-  final double radius;
   final Color background;
   final Color iconColor;
+  final double size;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: size,
       height: size,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(radius),
       ),
-      alignment: Alignment.center,
       child: Icon(icon, color: iconColor, size: size * 0.5),
     );
   }

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { uuidSchema } from "@badabhai/validators";
+
+import type { EmploymentSuggestion } from "./employment-suggestions";
 
 /**
  * The post-interview work-history form (R4 Q1, ruled: "Option A, simplified").
@@ -56,11 +59,31 @@ const EmploymentRoleSchema = z
     /** Null means CURRENT for this stint — the worker still holds this title. */
     end_ym: yearMonth.nullable().default(null),
     work_done: z.string().trim().min(1).max(300).nullable().default(null),
+    /**
+     * The clip this stint's {@link work_done} was SPOKEN into, when the worker used the mic.
+     *
+     * OPTIONAL AND ADDITIVE. Every shipped client omits it and keeps working unchanged — the same
+     * widening discipline `roles` was added under. Absent means "typed", which is what every row
+     * written before this shipped means too.
+     *
+     * The text is still sent in `work_done` and is still the answer of record: the client puts the
+     * transcript in the box, the worker edits it if the ASR misheard, and what they submit is what
+     * the sheet prints. This id only records where the first draft came from — which is why it may
+     * accompany an EDITED description without lying.
+     */
+    work_done_voice_note_id: uuidSchema.nullable().default(null),
   })
   .strict()
   .refine((r) => r.end_ym === null || r.start_ym === null || r.end_ym >= r.start_ym, {
     message: "end_ym must not precede start_ym",
     path: ["end_ym"],
+  })
+  // A CLIP WITHOUT A DESCRIPTION IS NOT AN ANSWER. The transcript is what the worker submits; a
+  // recording whose text was cleared says the worker rejected it, and keeping the id would leave
+  // provenance pointing at a description that is not there.
+  .refine((r) => r.work_done !== null || r.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id requires work_done",
+    path: ["work_done_voice_note_id"],
   });
 
 const EmploymentEntrySchema = z
@@ -86,6 +109,8 @@ const EmploymentEntrySchema = z
      */
     role_label: z.string().trim().min(1).max(80).optional(),
     work_done: z.string().trim().min(1).max(300).nullable().default(null),
+    /** The shorthand's clip. See {@link EmploymentRoleSchema.work_done_voice_note_id}. */
+    work_done_voice_note_id: uuidSchema.nullable().default(null),
     /** Two or more titles at one employer — a promotion. See {@link EmploymentRoleSchema}. */
     roles: z.array(EmploymentRoleSchema).min(1).max(ROLES_PER_EMPLOYMENT_MAX).optional(),
   })
@@ -109,6 +134,15 @@ const EmploymentEntrySchema = z
   .refine((e) => e.roles === undefined || e.work_done === null, {
     message: "work_done belongs on each role when roles is used",
     path: ["work_done"],
+  })
+  // The clip travels with the description it produced, so it obeys the same two rules.
+  .refine((e) => e.roles === undefined || e.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id belongs on each role when roles is used",
+    path: ["work_done_voice_note_id"],
+  })
+  .refine((e) => e.work_done !== null || e.work_done_voice_note_id === null, {
+    message: "work_done_voice_note_id requires work_done",
+    path: ["work_done_voice_note_id"],
   });
 
 export const SetMyEmploymentSchema = z
@@ -116,10 +150,128 @@ export const SetMyEmploymentSchema = z
     // A worker with no history sends `[]`, which CLEARS the block. That is a legitimate edit,
     // not a no-op, so it is accepted rather than rejected as empty.
     employments: z.array(EmploymentEntrySchema).max(4),
+    /**
+     * HOW MANY ROWS THE CLIENT BELIEVES IT IS REPLACING (#1504) — `employments.length +
+     * unreadable_count` from the `GET` it prefilled from. OPTIONAL AND ADDITIVE.
+     *
+     * CHECKED INSIDE THE REPLACE TRANSACTION, against the rows that transaction just read, and a
+     * mismatch is a 409 with nothing written and no event. A separate count before the write would
+     * be a check another save could slip between; the transaction's own read cannot be.
+     *
+     * ITS PRESENCE IS ALSO THE NEW-BUILD SIGNAL. A body WITHOUT it is an old build, and an old
+     * build sends `[]` for a page the worker never touched — so an empty list from an old build is
+     * a no-op wherever rows exist (owner ruling 2026-09-15). With it, `[]` clears, as it always
+     * has. The bound is not a cap on history: undecryptable rows survive a replace (see the
+     * repository), so the stored count can legitimately exceed four.
+     */
+    expected_existing_count: z.number().int().min(0).max(64).optional(),
   })
   .strict();
 
 export type SetMyEmploymentDto = z.infer<typeof SetMyEmploymentSchema>;
+
+/** Which text prints as one stint's work line, as the worker last left it (#1354). */
+export type DescriptionSource = "own_words" | "polished";
+
+/** One stint as `GET /workers/me/employment` returns it (#1504). */
+export interface EmploymentRoleView {
+  readonly role_label: string;
+  readonly start_ym: string | null;
+  readonly end_ym: string | null;
+  readonly work_done: string | null;
+  readonly work_done_voice_note_id: string | null;
+  /**
+   * NOT A PUT FIELD. `own_words` when the worker refused the rewrite, `polished` when a rewrite
+   * exists and prints, `null` when there is none. It is read-only context for the page; the choice
+   * itself is changed through `PUT me/employment/:employmentId/description-source`.
+   */
+  readonly description_source: DescriptionSource | null;
+}
+
+/** One employment as `GET /workers/me/employment` returns it (#1504). */
+export interface EmploymentView {
+  /** NOT A PUT FIELD — it addresses the description-source route. Strip it before a PUT. */
+  readonly employment_id: string;
+  readonly employer_name: string;
+  readonly employer_city: string | null;
+  readonly employer_state: string | null;
+  readonly start_ym: string | null;
+  readonly end_ym: string | null;
+  readonly roles: readonly EmploymentRoleView[];
+}
+
+export interface MyEmploymentResponse {
+  readonly employments: readonly EmploymentView[];
+  /**
+   * Stored rows whose employer name would not decrypt, withheld from `employments`. They are NOT
+   * erased by a replace — the repository carries them across — and they ARE counted by
+   * `expected_existing_count`, so a client sends `employments.length + unreadable_count`.
+   */
+  readonly unreadable_count: number;
+  /**
+   * Jobs the worker never confirmed — from an uploaded résumé, from the chat interview's Phase A,
+   * or both — offered beside his stored history (the ruling: "résumé-parsed jobs AND
+   * chat-described jobs prefill Work History rows; saved only when the worker saves").
+   *
+   * BOTH SOURCES CAN BE PRESENT AT ONCE, AND NEITHER IS DROPPED FOR THE OTHER. A worker who both
+   * uploaded a résumé and described a different job in chat sees two distinct entries, tagged by
+   * `source`, rather than this route silently preferring one — the same "offer both, let the
+   * worker choose" posture the résumé-import plan already states for a stored answer versus a
+   * résumé's value.
+   *
+   * NOT A PUT FIELD. A suggestion becomes a real row only when the worker edits `employments[]`
+   * himself and submits `PUT /workers/me/employment` — this array is never read by that route.
+   */
+  readonly employment_suggestions: readonly EmploymentSuggestion[];
+}
+
+/**
+ * THE PROJECTION RULE FROM A GET ROW BACK TO A PUT ENTRY (#1504), stated as code so it can be tested.
+ *
+ * `EmploymentEntrySchema` is `.strict()` and demands EXACTLY ONE of the single-role shorthand or
+ * `roles[]`, so a GET row cannot be echoed back and a client has to choose. The rule that preserves
+ * everything stored:
+ *
+ *   ONE stint whose dates EQUAL the employment's  → the shorthand (`role_label`, `work_done`,
+ *                                                   `work_done_voice_note_id` at employment level).
+ *                                                   That is exactly the row the shorthand writes.
+ *   anything else                                  → `roles[]`, each stint with its own dates, and
+ *                                                   no employment-level `work_done`.
+ *
+ * A single stint with DIFFERENT dates must go through `roles[]`: the shorthand gives its one role
+ * the employment's dates, so choosing it would silently widen the stint to the whole tenure.
+ * `employment_id` and `description_source` are dropped — neither is a PUT field.
+ *
+ * This is the contract the mobile client implements; the server never calls it on a request.
+ */
+export function projectEmploymentForPut(view: EmploymentView): Record<string, unknown> {
+  const base = {
+    employer_name: view.employer_name,
+    employer_city: view.employer_city,
+    employer_state: view.employer_state,
+    start_ym: view.start_ym,
+    end_ym: view.end_ym,
+  };
+  const only = view.roles.length === 1 ? view.roles[0]! : null;
+  if (only !== null && only.start_ym === view.start_ym && only.end_ym === view.end_ym) {
+    return {
+      ...base,
+      role_label: only.role_label,
+      work_done: only.work_done,
+      work_done_voice_note_id: only.work_done_voice_note_id,
+    };
+  }
+  return {
+    ...base,
+    roles: view.roles.map((r) => ({
+      role_label: r.role_label,
+      start_ym: r.start_ym,
+      end_ym: r.end_ym,
+      work_done: r.work_done,
+      work_done_voice_note_id: r.work_done_voice_note_id,
+    })),
+  };
+}
 
 /**
  * Which text prints as this employment's work line (#1354).

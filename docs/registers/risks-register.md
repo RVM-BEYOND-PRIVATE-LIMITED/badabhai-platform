@@ -116,7 +116,7 @@ masker for the word-split phone case needs tuning against measured ASR output, w
 not exist yet, and writing one from reasoning alone would repeat that failure. Revisit before
 public-launch scale (same horizon as R32), not merely before the next deploy.
 
-Signed: ******\_\_\_\_****** Date: ****\_\_\_\_****
+Signed: **\*\***\_\_\_\_**\*\*** Date: \***\*\_\_\_\_\*\***
 
 Until then the honest-negative tests stay green, the compose guard test keeps the committed
 default at `false`, and this register says **Open with a live acceptance from 2026-08-01
@@ -152,8 +152,8 @@ natural un-cued forms leak anyway. **But see (2) before assuming the upstream mi
 The Surat/Sanand residual above was a **side effect** of a bug fix: the set was what it was, and
 deferring to it happened to release two names. `#1409` changes the character of that acceptance,
 so it is re-recorded rather than inherited. `kota` and `neemrana` were added to the gazetteer
-because the platform already assumed them — `job_search_screen.dart` ships the hint *"jaise Kota,
-Rajasthan"* while the write path answered `unrecognised city: Kota`, and two **ratified résumé
+because the platform already assumed them — `job_search_screen.dart` ships the hint _"jaise Kota,
+Rajasthan"_ while the write path answered `unrecognised city: Kota`, and two **ratified résumé
 shapes** print `Neemrana` as a preferred location the same path rejects.
 
 **The delta, per city, measured rather than asserted:**
@@ -179,9 +179,28 @@ those is an **open owner ruling**, and it should be made before any bulk additio
 `Salem` are the highest-frequency collisions and additionally corrupt data, since a hit writes a
 wrong `current_city` and fabricates `relocation_willingness`.
 
+#### 2026-09-18 — bulk addition for #1560 (every state gets suggestions)
+
+#1560 is the bulk addition the paragraph above gated: 44 cities added (82 canonical tokens, 80
+distinct values) so all 36 administrative states/UTs have at least one suggestion. The work-history
+picker filtered this gazetteer by state and 23 states had zero cities.
+
+**The open ruling above is honoured, not overridden.** `Daman` and `Tirupati` — two of the nine
+named collisions — are deliberately NOT added: Bihar is covered by Patna/Muzaffarpur, Andhra Pradesh
+by Visakhapatnam/Vijayawada/Guntur, and the Dadra UT by Silvassa/Diu. `Gaya` is likewise omitted for
+a measured corpus reason (Hindi verb, fires on 4 parity rows). No member of the nine enters the set.
+
+**Delta of what did enter.** No new single-word member equals a common Indian given name. The
+closest substrings do not collide because the carve-out is whole-token: `Vijayawada` contains `Vijay`
+and `Jamshedpur` contains `Jamshed`, but `Vijay,` and `Jamshed,` do not match the longer token, and
+the leading heuristic only defers on the full match. `Port Blair` is multi-word and the heuristic
+cannot span a space, so it is a survivor either way. Corpus re-run clean (548 rows, no new firing
+where `canonicalCity` must stay null). The property test over the carve-out union goes more green by
+construction — this entry is the gate, as before.
+
 **No test can catch a bad addition here, and one asserts the opposite.**
 `tests/test_pseudonymize.py`'s property test over the whole carve-out union asserts that no member
-is masked in the leading position — so every city added makes it *more* green. This register entry
+is masked in the leading position — so every city added makes it _more_ green. This register entry
 and the PR body are the only places the argument exists.
 
 ### (2) `redactKnownName` covers extraction ONLY, not the armed chat turn
@@ -214,3 +233,72 @@ before `AI_ENABLE_REAL_CALLS`.
 **Recommendation, for whenever R32 is next opened:** apply `redactKnownName` in
 `LlmTurnService.take` to `message_text` and every history leg. It is the same shipped helper, on
 the sibling path, and it would make the comment true rather than making it go away.
+
+---
+
+## R25 addendum — 2026-09-08: PIN entropy is now entirely worker-chosen (#1462)
+
+Owner ruling: _"The worker chooses their own PIN. No strength policy, client or server. `1234`,
+`1111`, `0000` — all must be accepted."_ The server-side weak-PIN denylist (`PinHasher.isWeakPin`
+
+- `WEAK_PINS`, the all-same-digit rule and the consecutive-run rule) is removed;
+  `PinService.assertPinPolicy` keeps only the exact-length format gate. Recorded here because R25
+  clause (a) credits "PIN hashed … device-bound … server-throttled" as the mitigation set, and one
+  of the things quietly standing behind it has now been withdrawn.
+
+**The number, measured rather than asserted.** Against the only attacker who reaches the PIN
+screen — an unlocked handset that already holds a bound refresh token, with the SIM removed or SMS
+otherwise unreachable — the throttle ladder allows **25 guesses** before the durable force-OTP latch
+closes (`PIN_MAX_ATTEMPTS = 5` × `PIN_MAX_LOCKOUT_CYCLES = 5`, ~15 minutes of wall clock). 25
+guesses against a uniform 4-digit PIN is ~0.25%; 25 guesses spent on the public top-25 list against
+a real population is roughly **25-30%**. In that slice the removal is close to a 100× increase in
+per-victim success probability.
+
+**Why it is accepted.** The same attacker holding the handset **with** its SIM does not need to
+guess at all: `POST /auth/pin/reset/request` is unguarded and takes only the phone, the OTP lands on
+the SIM in his hand, and `reset/confirm` writes a new PIN and mints a fresh session — ~100% success
+regardless of PIN strength. An attacker who can read `flutter_secure_storage` skips the PIN entirely
+via `POST /auth/token/refresh`, where the refresh token in the body is the whole credential. The
+denylist therefore only ever protected one narrow slice, and the blast radius inside it is the
+worker's own profile and résumé on his own device — the worker app carries no payment surface
+(CLAUDE.md §12).
+
+**What must not move without re-review.** These stop being defence-in-depth and become
+load-bearing for the ruling above:
+
+1. `PinService.verifyPin` resolves identity **only** from the device-bound refresh token. Adding a
+   `worker_id` or `phone` field to `PinVerifySchema` would turn the PIN into a remotely
+   brute-forceable from-scratch authenticator across the whole worker base. Treat as Critical.
+2. The durable force-OTP gate reads `worker_credentials`, not Redis. Making it Redis-only restores
+   "flush = unlimited guesses".
+3. `readThrottle` rehydrates the ladder from the durable mirror on a Redis miss **and** on error.
+4. `PIN_MAX_ATTEMPTS` × `PIN_MAX_LOCKOUT_CYCLES` — these two numbers **are** the 25-guess ceiling.
+   Security constants, not tunables.
+5. `assertPinPolicy` stays inside `writePin`, so no future caller can reach `upsertPin` around the
+   format gate.
+6. scrypt + a mandatory production `PIN_PEPPER` (`assertAuthConfig` fail-closed), and
+   `PinHasher.verify` failing closed on an unknown pepper version.
+
+**Pre-existing, and separately wrong: R25 clause (c)** says _"OTP on existing account from new
+device still requires account PIN (SIM-swap gate)"_. ADR-0026 §217-225 records that as built there
+is no post-OTP PIN gate — the SIM-swap defence is the trusted-device requirement on
+`/auth/pin/verify`. Found during the #1462 security review, left for whoever next opens R25; it is a
+claim about shipped auth behaviour, not a side effect of this change.
+
+## 2026-09-15 — Old-build blank-save protection: accepted residuals (#1504)
+
+The server now treats an old build's default-valued save as no change (owner ruling 2026-09-15).
+These residuals were accepted with that ruling. They are recorded so nobody rediscovers them as bugs:
+
+1. **An old-build worker cannot clear** stored languages, documents or preferred cities, or turn a
+   stored relocation/accommodation `true` off, from those builds. The server cannot tell a real "none"
+   from an untouched page. The same applies to clearing a whole work history (`[]` without
+   `expected_existing_count`). Closes when the build is retired.
+2. **Undecryptable employment rows are carried, not deleted**, so they persist until key recovery or
+   DSAR erasure. They render nowhere. New rows are numbered after them, so `sort_order` can exceed 3.
+3. **Own-session egress of the decrypted employer name** (`GET /workers/me/employment`) follows the
+   `getResumeFields` precedent: no-store, never logged, never evented, never sent to AI. The same
+   constraints bind any future change to that route.
+4. **Consent-withdrawn workers get a 403 on their own saved answers** (ConsentGuard on the GETs). This
+   matches every other `/workers/me/*` route. A DSAR self-view is a separate question and is not
+   settled here.

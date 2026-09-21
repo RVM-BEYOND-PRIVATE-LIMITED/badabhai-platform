@@ -1,6 +1,7 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
+import { titleCaseRoleLabel } from "./resume-text-case";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
@@ -13,15 +14,18 @@ import {
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
-import { buildFresherRows, fresherTenureLabel } from "./resume-fresher-rows";
+import { buildFresherRows, tenureStatusLabel } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
+import { buildProfileHeadline, buildProfileSummary } from "./resume-headline";
 import {
   bareAvailability,
   bareAvailabilityLabel,
   buildAvailabilityRows,
   buildDocumentRows,
   buildQualificationRows,
+  buildLocationLine,
   buildVerdictLine,
+  composeWhatsappLine,
   formatSalaryBand,
 } from "./resume-sheet-rows";
 
@@ -91,11 +95,22 @@ export interface TradeSheetContext {
   /**
    * The worker's number, DECRYPTED BY THE CALLER — exactly the contract `displayName` has, and
    * for exactly the same reason: the ciphertext lives on the worker row, the key lives in the
-   * PII service, and this function is pure. It prints on BOTH audiences by owner ruling
-   * 2026-08-28; a sheet handed over at a factory gate is useless without a number, and the
-   * payer copy is only ever produced after an unlock. Never logged, never echoed into an error.
+   * PII service, and this function is pure. It prints on BOTH audiences: the 2026-08-28
+   * ruling said so but the disclosure never passed it (so the employer copy silently
+   * carried no number), and the owner ruling of 2026-09-18 reverses the withholding —
+   * the disclosure decrypts and passes it post-unlock. A sheet handed over at a factory
+   * gate is useless without a number, and the payer copy is only ever produced after an
+   * unlock. Never logged, never echoed into an error.
    */
   readonly phone?: string | null;
+  /**
+   * The worker's optional WhatsApp number, DECRYPTED BY THE CALLER — same contract as
+   * {@link phone} and the same degrade: a rotated token costs the line, never the PDF.
+   *
+   * WORKER COPY ONLY (ADR-0042 D9 / Layer A (a)). The audience gate lives in this function,
+   * not at the call site, so an employer-facing disclosure cannot print it.
+   */
+  readonly whatsapp?: string | null;
   /**
    * The name in Devanagari. AUDIENCE-GATED INSIDE THIS FUNCTION, not at the call site.
    *
@@ -109,6 +124,34 @@ export interface TradeSheetContext {
   readonly trustBadge?: string | null;
 
   /**
+   * THE WORKER's REGISTERED CITY AND STATE — `workers.current_city` / `current_state`, read off
+   * the row by the caller (owner ruling 2026-09-08). Composed into the masthead's location line.
+   *
+   * SAME CALLER CONTRACT AS `phone` AND `employments`, for a different reason: these columns are
+   * not encrypted — a city is a matching input rather than identity (2026-07-31 ruling) — but
+   * they live on `workers`, and this function is pure and sees only the profile snapshot. The
+   * snapshot cannot answer the question at all for the workers this exists for: the trade form
+   * runs no extraction, so `location_preference.current_city` is never written for any of them.
+   *
+   * NOT AUDIENCE-GATED, and deliberately unlike the name and the photo. The Verdict Line has
+   * composed a city on both copies since the sheet shipped; withholding the same fact from the
+   * masthead would be a distinction with no rule behind it. Both halves independently nullable —
+   * a manual entry can supply one without the other, and the line collapses when it has neither.
+   */
+  readonly currentCity?: string | null;
+  readonly currentState?: string | null;
+
+  /**
+   * Layer A (f)/(i) — the worker's declared SECONDARY occupations, as taxonomy display labels.
+   *
+   * SAME CALLER CONTRACT AS `currentCity`: the rows live in `worker_occupation`, the caller loads
+   * them and resolves the labels, this function stays pure. NOT audience-gated — the declared
+   * trades are what the worker said he can do, and the payer copy is where that matters most.
+   * Empty (the ordinary case) prints no row.
+   */
+  readonly occupations?: readonly string[];
+
+  /**
    * ZONE 4 — the two-level work history, employer names already DECRYPTED by the caller.
    *
    * SAME CONTRACT AS `phone`, and for the same reason: the ciphertext is on the row, the key is
@@ -117,6 +160,20 @@ export interface TradeSheetContext {
    * empty section.
    */
   readonly employments?: readonly WorkerEmploymentRecord[];
+  /**
+   * TRUE WHEN THE WORK-HISTORY READ FAILED — i.e. `employments` is empty because nobody looked.
+   *
+   * WITHOUT IT THE TWO CASES ARE THE SAME `[]`. Both callers wrap that read in a try/catch that
+   * degrades to an empty array, deliberately: a dead query must cost Zone 4 and never the whole
+   * PDF. But "this worker filed no jobs" and "we could not read his jobs" mean opposite things to
+   * the tenure segment since the 2026-09-08 ruling, and conflating them lets a database timeout
+   * print "Fresher" over a twelve-year turner. See `tenureStatusLabel`.
+   *
+   * IT CHANGES NOTHING ELSE ON THE SHEET. Zone 4 already renders from `employments`, so a failed
+   * read collapses the history exactly as it does today; this flag is read by the tenure segment
+   * alone, and absent (every existing caller) means "the array is trustworthy".
+   */
+  readonly employmentsUnavailable?: boolean;
   /**
    * The render clock, for closing an open-ended employment ("Jan 2023 – Present · 3 yrs 8 mo").
    *
@@ -141,6 +198,39 @@ export interface TradeSheetContext {
    * restores the polished text from the column that was retained.
    */
   readonly polishEnabled?: boolean;
+
+  /**
+   * The model's rewrite of a worker-typed TEXT attribute, keyed by attribute key (#1350,
+   * extended to the fresher block on the 2026-09-09 owner report).
+   *
+   * SPARSE, AND FALLBACK IS ABSENCE. A key appears only when a rewrite exists and the worker's
+   * own answer is always still in `attributes` — so every degrade, including this map simply not
+   * being passed, prints what the sheet printed before, which is what the worker typed.
+   *
+   * READ ONLY UNDER {@link polishEnabled}, exactly like `work_done_polished`. The kill switch has
+   * to revert text that is ALREADY stored, or it is not a kill switch (#1350 item 4).
+   *
+   * ONE KEY USES IT TODAY — `iti_project_work`. It is the only free-text item in any enabled role
+   * pack; every other worker-typed value that reaches this sheet is a proper noun (an employer, a
+   * city, an institute, a certificate) or a job title, and a model may not restate any of those:
+   * rephrasing a company renames his employer, and rephrasing "operator" can promote him.
+   */
+  readonly polishedAttributes?: Readonly<Record<string, string>>;
+
+  /**
+   * Attribute keys whose rewrite the WORKER REFUSED (#1485) —
+   * `worker_attributes.value_text_polished_declined`, as `loadTradeSheet` returns it.
+   *
+   * THE MITIGATION, NOT A SETTING. {@link polishEnabled} is ours and reverts every rewrite at once;
+   * this is his, and reverts exactly the sentence he objected to. ADR-0039 records that no test can
+   * assert the absence of a plausible-but-false rewrite — only the worker can, and on the fresher
+   * path this set is how he does.
+   *
+   * SPARSE, AND ABSENT MEANS NOBODY OBJECTED. A key appears only when the answer is yes, so a
+   * degraded caller passing neither this nor {@link polishedAttributes} prints what the worker
+   * typed — the conservative answer, and the one the sheet printed before #1350.
+   */
+  readonly declinedAttributes?: ReadonlySet<string>;
 
   /**
    * ZONE 5 — Qualification, documents and languages.
@@ -188,6 +278,13 @@ export interface ResumeQualificationFacts {
   readonly certifications?: readonly string[];
   readonly languages?: readonly string[];
   /**
+   * Migration 0112 / Layer A (d) — courses the worker attended, composed deterministically.
+   *
+   * CARRIED ON THE FACTS, PRINTED BY THE LAYER A RENDERER. The existing sheet has no training
+   * row, so this is data-ready-not-yet-rendered; nothing on the current templates reads it.
+   */
+  readonly trainings?: readonly string[];
+  /**
    * Documents the worker SAYS they hold. Self-declared, rendered as a tick row.
    *
    * §5.1 ranks this ninth of eleven because it removes the most common walk-in failure before
@@ -208,7 +305,9 @@ type TradeCapabilitySlots = Pick<
   | "employments"
   | "employmentsMore"
   | "phone"
+  | "whatsappLine"
   | "nameDevanagari"
+  | "locationLine"
   | "trustBadge"
   | "qrDataUri"
   | "qrCaption"
@@ -334,17 +433,71 @@ function buildUndegraded(
   // with them.
   const fresherRows = hasEmployments
     ? []
-    : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
+    : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes, {
+        // The rewrite of the ONE free-text answer in this block, under the same kill switch and
+        // the same `?? false` fail-closed default the employment block above uses. A fresher's
+        // training description is his entire Zone 4; before this it printed exactly as typed.
+        polished: tradeSheet?.polishedAttributes,
+        polishEnabled: tradeSheet?.polishEnabled ?? false,
+        declined: tradeSheet?.declinedAttributes,
+      });
   // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
-  // `preferences` are: both mapper paths compose the Verdict Line, and a fresher whose interview
+  // `preferences` are: both mapper paths compose the Verdict Line, and a worker whose interview
   // happened to produce a résumé container must not get a different headline from one whose did
-  // not. Null for every role that declares no fresher rung, which is four of the five shipped.
+  // not.
   //
-  // NOT GATED ON `hasEmployments`. A worker who taps "course kiya hai, kaam ka tajurba nahi" and
-  // then files an employment row has contradicted himself; the tenure segment resolves that the
-  // way §8.3 requires — see `tenurePhrase`, where a stated figure wins outright — rather than by
-  // this line deciding which of his two answers to believe.
-  const tenureLabel = fresherTenureLabel(tradeSheet?.packId ?? null, vettedAttributes);
+  // IT IS ONE WORD FOR ONE WORKER, and never a figure (owner ruling 2026-09-09). Total experience
+  // is `employedYears` — the sum of the work history the worker filled in — so the only thing
+  // left for a LABEL to say is that there is no work history to sum, which is what "Fresher"
+  // means. A revision earlier the same day read the tier gate's rungs and printed them as bands;
+  // the ruling rejected that outright ("it is not a range taken from any question"), and the rung
+  // now does one thing only, negatively: it withholds the word from a worker whose own form
+  // claims a year or more, so the sheet neither calls him a fresher nor invents a figure for him.
+  //
+  // "NO WORK HISTORY" MEANS ZONE 4 WILL PRINT NONE OF ITS THREE SHAPES, not merely that
+  // `worker_employment` is empty. Zone 4 renders EITHER the two-level employment blocks OR the
+  // flat `resume_profile.experiences` list — the shape this file itself calls "the shape every
+  // profile in the database actually has today" — and reading only the first would print
+  // "Fresher" in the headline of a sheet whose Work history section lists the worker's own jobs
+  // three rows below it, on one page. That contradiction is the exact thing this gate exists to
+  // prevent, so it is computed from both sources. (The fresher TRAINING block is deliberately not
+  // counted: it is what a fresher's Zone 4 holds, not a work history.)
+  //
+  // READ OFF `draft.resume_profile` ABOVE THE BRANCH, which is safe in one direction that
+  // matters: a container carrying experiences is a container that carries values, so it is the
+  // container branch that runs, and this is the list that branch prints.
+  //
+  // AND A FAILED WORK-HISTORY READ IS NOT AN EMPTY ONE. Both callers degrade that read to `[]`
+  // so a dead query costs Zone 4 rather than the whole PDF; taking that `[]` as "he filed
+  // nothing" would let an infrastructure miss print "Fresher" over a man with twelve years of
+  // employer blocks he simply could not be shown. `employmentsUnavailable` is how the caller says
+  // it did not look, and the sheet then says "duration not stated" — exactly what it said before
+  // the query died, and never a claim the failure invented.
+  // THE TOTAL THE WORKER'S OWN WORK HISTORY ADDS UP TO (owner ruling 2026-09-09).
+  //
+  // "It is calculated from the work history that is filled by the individual and the total
+  // calculated from the work history itself" — 1 yr 2 mo + 10 mo + 2 yrs is 4 years, and that is
+  // the whole definition of total experience.
+  //
+  // HOISTED ABOVE THE BRANCH, WHICH IS THE FIX. It was computed here and handed to
+  // `fromResumeProfile` ALONE, so the sum reached the résumé-container path and nothing else —
+  // while the legacy return below composed `years: draft.experience.total_years` and never
+  // consulted it. A form-first worker takes the legacy branch by construction (the trade form
+  // runs no extraction, so there is no container), which made the twenty-one-role population
+  // exactly the population whose filled-in work history was discarded: three fully dated jobs and
+  // a headline reading "duration not stated". Measured on the owner's own example, both paths,
+  // before and after.
+  const employedYears = totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null);
+  const filedNoWorkHistory =
+    !hasEmployments &&
+    (draft.resume_profile?.experiences.length ?? 0) === 0 &&
+    tradeSheet?.employmentsUnavailable !== true;
+  // AND THE LABEL FOR THE MAN THE SUM FINDS NOTHING FOR (owner ruling 2026-09-09b). It takes the
+  // pack — to bound the rule to workers a form actually asked — and whether the history was READ
+  // and empty. It no longer takes his answers: the tier gate sizes his questionnaire and says
+  // nothing about his career, so "restrict only to the work history details" is enforced here by
+  // giving the label nothing else to read. See `tenureStatusLabel`.
+  const tenureLabel = tenureStatusLabel(tradeSheet?.packId ?? null, filedNoWorkHistory);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -362,10 +515,33 @@ function buildUndegraded(
     // FORMATTED HERE, INSIDE THE MAPPER, so no call site can print an unformatted number and
     // no fixture can show a grouping the product does not produce (R10 §2.4).
     phone: formatWorkerPhone(tradeSheet?.phone),
+    // ADR-0042 D9 / Layer A (a) — WORKER COPY ONLY, gated here exactly like `nameDevanagari`
+    // below: a payer-facing disclosure must never carry the worker's second number, and the
+    // rule lives in the mapper rather than at the call site so it cannot be forgotten.
+    whatsappLine: audience === "worker" ? composeWhatsappLine(tradeSheet?.whatsapp ?? null) : null,
     // §11 #17 — LATIN ONLY ON THE EMPLOYER ARTIFACT. Structural, like the photo: a caller
     // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
     // lives here rather than at the call site.
     nameDevanagari: audience === "worker" ? (tradeSheet?.nameDevanagari ?? null) : null,
+    // THE MASTHEAD's LOCATION LINE (owner ruling 2026-09-08), composed HERE and above the branch
+    // for the same reason the capability block is: both mapper paths carry it, and a slot set on
+    // only one of them goes missing for exactly the workers nobody renders in a test. The
+    // composition itself — which half prints, and the separator — lives in `buildLocationLine`,
+    // beside every other line this sheet composes.
+    //
+    // EACH HALF THROUGH `cleanScalar`, exactly as the container path screens `rp.current_city`.
+    // The write-side DTO bounds these to 80 characters and refuses control characters and an
+    // all-digits string — but it deliberately does NOT resolve them against the gazetteer, because
+    // this is the first screen of onboarding and a worker in Patna may not be turned away over the
+    // name of the place he lives. So the column holds free text a worker typed, it is rendered
+    // from storage on every download, and it reaches the EMPLOYER copy. That is the exact shape
+    // `cleanScalar` exists for (#831): a 7+ digit run or an email drops its half and the line
+    // prints the other one, or collapses. A read-path backstop is the only thing rows written
+    // before any future write-side screen will ever see.
+    locationLine: buildLocationLine({
+      city: cleanScalar(tradeSheet?.currentCity ?? null),
+      state: cleanScalar(tradeSheet?.currentState ?? null),
+    }),
     trustBadge: tradeSheet?.trustBadge ?? null,
     qrDataUri: tradeSheet?.qrDataUri ?? null,
     qrCaption: tradeSheet?.qrCaption ?? null,
@@ -446,7 +622,7 @@ function buildUndegraded(
       tenureLabel,
       tradeSheet?.qualification,
       hasEmployments,
-      totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null),
+      employedYears,
       {
         educationHeadline,
         // R15 §1 — THE FIVE STARVED SLOTS, AND THE POPULATION IS WHY THEY WENT FIRST.
@@ -488,6 +664,8 @@ function buildUndegraded(
       draft.experience.total_years,
       tradeSheet?.workerSaid ?? [],
       fresherRows,
+      // Layer A (f)/(i) — the declared secondary occupations, off the context the caller built.
+      tradeSheet?.occupations ?? [],
     );
   }
 
@@ -502,6 +680,13 @@ function buildUndegraded(
   const legacySkills = mergeSkillsWithLabels(
     draft.skills.map(labelForTaxonomyId),
     draft.skill_labels.map(labelForTaxonomyId),
+  );
+  // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
+  // so the strip and the generic slots cannot name different tools.
+  const legacyHeadlineTools = headlineToolsOrFallback(
+    capability.headlineTools,
+    legacyMachines,
+    legacySkills,
   );
   const legacyAvailability = bareAvailability(draft.availability);
   // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
@@ -530,7 +715,12 @@ function buildUndegraded(
     // layout whose top 22% exists to carry exactly that line.
     ...buildVerdictLine({
       role: legacyRole,
-      years: draft.experience.total_years,
+      // THE WORK-HISTORY SUM REACHES THIS BRANCH AT LAST — see `employedYears` above. Same
+      // expression the container path uses, so the two cannot disagree about a worker's tenure:
+      // a stated total still outranks the sum (R8 §1, and the under-representation gate), and
+      // where he stated none — which is every form-first worker, because the universal
+      // `experience_years` ask never runs for him — the sum of his own dated jobs is the answer.
+      years: renderedTotalYears(draft.experience.total_years, employedYears),
       // R16 §2 — Q17, RULED. ONE EXPRESSION, BOTH BRANCHES.
       //
       // These read `… : legacyMachines` on one branch and `… : skillChips` on the other, so with
@@ -547,7 +737,7 @@ function buildUndegraded(
       // THE REASON THE DIVERGENCE EXISTED IS GONE. The container branch had no machines list
       // until R15 §1 gave it one; `draftQualification.machines` is the same draft column the
       // legacy branch reads, so this is now literally the same fact on both sides.
-      tools: headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills),
+      tools: legacyHeadlineTools,
       city: legacyCity,
       availability: legacyAvailability,
       // §6.2 — see `tenureLabel`'s definition above the branch. THE LEGACY PATH IS THE ONE THAT
@@ -613,6 +803,7 @@ function buildUndegraded(
       // opened the finishing form got the fact in his availability line and no Shift row, on
       // the branch most existing profiles take.
       shift: preferences.shiftLine ?? humanizeShift(draft.shift),
+      occupations: tradeSheet?.occupations ?? [],
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),
@@ -629,6 +820,10 @@ function buildUndegraded(
       certifications:
         tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
       languages: tradeSheet?.qualification?.languages ?? preferences.languages,
+      // Layer A (i): 0112 carried trainings through the qualification facts and nothing printed
+      // them; the row now exists. `?? []` here is right rather than the per-field `??` used
+      // above: the draft has no training field at all, so "the surface has none" means no row.
+      trainings: tradeSheet?.qualification?.trainings ?? [],
     }),
     // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
     // container has nothing to put in them: no work history exists outside Phase C, and the
@@ -694,7 +889,21 @@ function buildUndegraded(
     //
     // A free-text label, never a taxonomy id, so it can only ever reach the printed headline —
     // matching and ranking still read the canonical ids, which stay null.
-    canonicalRole: trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label,
+    // #1434 — ONLY THE LAST BRANCH IS CASED, and that asymmetry is the point. The first two are
+    // reviewed vocabulary that is already correct ("VMC Operator", "CNC Turner"); the third is the
+    // model's own free text and is the only one that ever printed "CNC turner". See
+    // `titleCaseRoleLabel` for why this is not `titleCaseName`.
+    canonicalRole:
+      trade?.display_name ??
+      resolveId(draft.canonical_role_id) ??
+      titleCaseRoleLabel(draft.role_label),
+    // Layer A (h) — the richer `{{headline}}`, same segments and helpers as the Verdict Line.
+    profileHeadline: buildProfileHeadline({
+      role: legacyRole ?? draft.domain_label,
+      years: renderedTotalYears(draft.experience.total_years, employedYears),
+      tenureLabel,
+      tools: legacyHeadlineTools,
+    }),
     // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
     // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
     // the split the current city was prepended to that list, so for every profile
@@ -704,7 +913,10 @@ function buildUndegraded(
       draft.location_preference.current_city ??
       draft.location_preference.preferred_cities[0] ??
       null,
-    experienceYears: draft.experience.total_years,
+    // ONE TOTAL ON THIS BRANCH TOO. The Verdict Line above and this slot are two renderings of
+    // one fact, and computing them from different expressions is how a sheet ends up saying
+    // "4 yrs" at the top and nothing three lines down.
+    experienceYears: renderedTotalYears(draft.experience.total_years, employedYears),
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
     // default renders this line byte-for-byte as it does today; see `humanizeAvailability`.
@@ -714,7 +926,19 @@ function buildUndegraded(
       nightShiftReady,
       preferences.shiftLabel,
     ),
-    summary: buildSummary(draft, trade),
+    // Layer A (h) — three sources, in precedence order: the worker's OWN summary, then the
+    // ratified trade copy (only where a trade exists), then the deterministic strip
+    // (role · tenure · tools · city). Every leg is confirmed data; none is an LLM composition.
+    summary:
+      draft.experience.summary ??
+      (trade ? buildSummary(draft, trade) : null) ??
+      buildProfileSummary({
+        role: legacyRole ?? draft.domain_label,
+        years: renderedTotalYears(draft.experience.total_years, employedYears),
+        tenureLabel,
+        tools: legacyHeadlineTools,
+        city: legacyCity,
+      }),
     // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
     // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
     // The snapshot labels were extraction-clamped and are pseudonymize-gated by the
@@ -868,16 +1092,29 @@ function fromResumeProfile(
    * bag, which this function does not have, and both branches need the identical rows.
    */
   fresherRows: readonly ResumeExperienceLine[],
+  /**
+   * Layer A (f)/(i) — the declared secondary occupations, as taxonomy display labels. PASSED IN
+   * like `headlineTools`: the rows live in `worker_occupation`, the caller resolves the labels,
+   * and this function stays pure. Empty prints no row.
+   */
+  occupations: readonly string[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
-  // as their own fields and again by `summaryFor` — and certifying at each read site is how the
-  // two drift: a summary built from the raw value would reprint exactly what the fields below
-  // just suppressed. One pass, and every consumer below reads the cleaned value.
+  // as their own fields and again by the Layer A (h) headline/summary builders — and certifying
+  // at each read site is how the two drift: a summary built from the raw value would reprint
+  // exactly what the fields below just suppressed. One pass, and every consumer below reads the
+  // cleaned value.
   //
   // `experiences` needs no pass of its own: `_certified()` in the ai-service has always dropped
   // an entry whose role/duration/work carries blocked text, so stored entries are already
   // covered. It is the SCALARS that were never gated.
-  const roleLabel = cleanScalar(rp.role_label);
+  // CASED AT THE SOURCE, for the same reason the certification above is (#1434). The container's
+  // `role_label` is the same model free text as the legacy branch's, and all three consumers below
+  // are display surfaces — the Verdict Line's `role`, `canonicalRole`, and the Layer A (h)
+  // headline/summary. Casing at
+  // one of them and not the others is how "CNC turner" would survive on the sheet it was reported
+  // on while disappearing from the one beside it.
+  const roleLabel = titleCaseRoleLabel(cleanScalar(rp.role_label));
   const domainLabel = cleanScalar(rp.domain_label);
 
   // THE BAND (R10 R-1). The container carries one figure — `ResumeProfileSchema.expected_salary`
@@ -908,6 +1145,9 @@ function fromResumeProfile(
     education: qualification?.education ?? [...draftQualification.education],
     certifications: qualification?.certifications ?? [...draftQualification.certifications],
     languages: qualification?.languages ?? preferences.languages,
+    // Layer A (i): the 0112 courses, now printed. `?? []` — the draft has no training field, so
+    // "the surface has none" means the row collapses, and an explicitly empty list stays empty.
+    trainings: qualification?.trainings ?? [],
   };
 
   // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
@@ -942,6 +1182,15 @@ function fromResumeProfile(
   });
   const ownWords = ownWordsSelection.phrases;
 
+  // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
+  // so the strip at the top of the sheet and the `{{headline}}`/`{{summary}}` slots can never
+  // name different tools. See the legacy branch for the precedence's own history.
+  const headlineToolsResolved = headlineToolsOrFallback(
+    headlineTools,
+    [...draftQualification.machines],
+    skillChips,
+  );
+
   return {
     ...capabilitySlots,
     ownWords,
@@ -955,7 +1204,7 @@ function fromResumeProfile(
       role: roleLabel,
       years: totalYears,
       // R16 §2 — the SAME expression the legacy branch uses. See the note there.
-      tools: headlineToolsOrFallback(headlineTools, [...draftQualification.machines], skillChips),
+      tools: headlineToolsResolved,
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
@@ -983,6 +1232,7 @@ function fromResumeProfile(
       // write and a container-path worker can have one without `rp.shift` being set.
       shift:
         preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)) ?? draftQualification.shift,
+      occupations,
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),
@@ -1000,6 +1250,16 @@ function fromResumeProfile(
     // there is no canonical id on this path and inventing one would put an unvalidated value
     // where the match engine trusts absolutely.
     canonicalRole: roleLabel,
+    // Layer A (h) — the richer `{{headline}}`: role · tenure · tools, the same segments the
+    // Verdict Line composes with the same helpers, from confirmed fields only. The renderer
+    // prefers this slot and falls back to `canonicalRole`, so an old snapshot without the
+    // inputs renders exactly as before.
+    profileHeadline: buildProfileHeadline({
+      role: roleLabel ?? domainLabel,
+      years: totalYears,
+      tenureLabel,
+      tools: headlineToolsResolved,
+    }),
     trade: domainLabel,
     // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
     // `preferred_locations` gets its own line rather than being conflated into this one.
@@ -1026,7 +1286,14 @@ function fromResumeProfile(
       preferences.shiftLabel,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
-    summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
+    // Layer A (h) — the deterministic strip: role · tenure · tools · city.
+    summary: buildProfileSummary({
+      role: roleLabel ?? domainLabel,
+      years: totalYears,
+      tenureLabel,
+      tools: headlineToolsResolved,
+      city: cleanScalar(rp.current_city),
+    }),
     // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy
     // resolution, because nothing here is a `skill_*` id — `toExtractionOutput` never writes
     // canonical ids on this path, and running `labelForTaxonomyId` over free text would be a
@@ -1169,16 +1436,15 @@ function cleanScalar(value: string | null): string | null {
  * stated total nor a datable job is a genuine unknown and §11 #3 requires the sheet to say so.
  * What is gone is the case where he stated it plainly and the sheet said nobody asked.
  *
- * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
- * decision made here — `tenurePhrase` maps a bare 0 to the unknown text, pinned by a test whose
- * comment reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
- * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ * A STATED ZERO STILL YIELDS NO FIGURE, and that is a live question rather than a decision made
+ * here — `tenurePhrase` maps a bare 0 to no number, pinned by a test. Whether it should mean
+ * "fresher" is a wording ruling; recorded in the gap table, not taken.
  *
- * STILL OPEN, AND NARROWED RATHER THAN ANSWERED. `buildVerdictLine.tenureLabel` now lets a worker
- * whose ROLE FORM carried a fresher rung print "Fresher" — a closed-vocabulary status label with
- * provenance, not a reading of a bare number. This function still receives `number | null` and
- * still cannot tell a stated zero from an absent answer, so the ruling above is exactly where it
- * was: untouched, and asserted untouched in `resume-sheet-rows.test.ts`.
+ * ANSWERED IN PRACTICE, THOUGH NOT IN THIS FUNCTION, BY THE 2026-09-09 RULING. That worker has
+ * filed no work history — there is nothing for `employedYears` to sum — so the sheet prints
+ * "Fresher", a closed-vocabulary word for the absence rather than a reading of his bare zero.
+ * This function still receives `number | null` and still cannot tell a stated zero from an absent
+ * answer, so the ruling above is exactly where it was.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
   const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
@@ -1213,47 +1479,19 @@ function monthsAsText(months: number | null): string {
 }
 
 /**
- * The summary for an LLM-led profile: role, tenure, trade — each clause only when its value
- * exists, and null when none do.
+ * The trade's ratified summary copy (NO LLM):
+ *  1. the trade's experienced template filled with profile facts; else
+ *  2. the trade's fresher phrase; else
+ *  3. null — the caller falls through to Layer A (h)'s deterministic strip.
  *
- * NOT FABRICATION (§11). Every clause restates something the worker said and the model
- * recorded; nothing is inferred or filled with a plausible default. A profile with neither a
- * role nor a trade gets no summary rather than a sentence about a worker we know nothing of.
- */
-function summaryFor(rp: {
-  role_label: string | null;
-  domain_label: string | null;
-  /** The SETTLED total (see `renderedTotalYears`), never re-derived — one sheet, one number. */
-  years: number | null;
-}): string | null {
-  const role = rp.role_label?.trim();
-  const domain = rp.domain_label?.trim();
-  if (!role && !domain) return null;
-  const head = role ?? domain!;
-  const years = rp.years;
-  const tenure =
-    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
-  // The trade only earns its own clause when it says something the role does not already —
-  // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context =
-    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
-  return `${head}${tenure}${context}.`;
-}
-
-/**
- * Deterministic resume summary (NO LLM):
- *  1. the worker's OWN summary, if present; else
- *  2. the trade's experienced template filled with profile facts; else
- *  3. the trade's fresher phrase; else
- *  4. the LLM-led path's own labels, if the model captured any; else
- *  5. null (nothing known → nothing fabricated).
+ * The worker's OWN summary outranks this and is handled at the call site; it used to be checked
+ * here first, which was fine while this was the only composer, but the caller now chains three
+ * sources and a hidden first leg would have made the chain unreadable.
  */
 function buildSummary(
   draft: ReturnType<typeof DraftProfileSchema.parse>,
-  trade: TradeContent | undefined,
+  trade: TradeContent,
 ): string | null {
-  if (draft.experience.summary) return draft.experience.summary;
-  if (!trade) return summaryFromLabels(draft);
   const years = draft.experience.total_years;
   if (years && years > 0) {
     const primaryMachine = draft.machines[0]
@@ -1265,36 +1503,6 @@ function buildSummary(
       .replace(/\{\{\s*primary_machine\s*\}\}/g, primaryMachine);
   }
   return trade.fresher_phrases[0] ?? null;
-}
-
-/**
- * Leg 4 — the summary an LLM-led profile can build when the taxonomy knows nothing about it.
- *
- * `resolveTradeContent` keys off the canonical ids, and `toExtractionOutput` hardcodes BOTH to
- * null on this path, so `trade` is undefined for every OIE-path profile and this function used
- * to `return null` outright. `{{summary}}` was blank on every LLM-led resume — alongside the
- * blank `{{headline}}` — even when the model had named the role and the trade in plain language.
- *
- * NOT FABRICATION, and the distinction is the whole point (§11). Every clause here is a value
- * the worker said and the model recorded; nothing is inferred, averaged, or filled with a
- * plausible default. A field that is null contributes NO clause rather than a hedge — which is
- * why this returns null when the model captured nothing, instead of a sentence about a worker
- * it knows nothing about.
- */
-function summaryFromLabels(draft: ReturnType<typeof DraftProfileSchema.parse>): string | null {
-  const role = draft.role_label?.trim();
-  const domain = draft.domain_label?.trim();
-  if (!role && !domain) return null;
-
-  const years = draft.experience.total_years;
-  const head = role ?? domain!;
-  // The domain only earns its own clause when it says something the role does not already —
-  // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context =
-    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
-  const tenure =
-    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
-  return `${head}${tenure}${context}.`;
 }
 
 /** Null-safe id → display name (keeps `null` as `null` for optional fields). */
@@ -1412,8 +1620,8 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  * taiyaar" says one thing twice. Every OTHER shift value survives, because each says something
  * the toggle does not: `day` is what they work now, `any` includes days too, `rotational` is a
  * pattern. "Day shift · Night shift ke liye taiyaar" is not a contradiction — it is the whole
- * signal, and dropping either half would lose a real answer. Same rule as `summaryFor`'s trade
- * clause and `mergeSkillsWithLabels`: keep both sources, drop only the true duplicate.
+ * signal, and dropping either half would lose a real answer. Same rule as the Layer A (h)
+ * builder's clauses and `mergeSkillsWithLabels`: keep both sources, drop only the true duplicate.
  */
 function humanizeAvailability(
   status: string | null,

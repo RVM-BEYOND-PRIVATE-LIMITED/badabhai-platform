@@ -109,6 +109,7 @@ const LOCKED_TABLES = [
   "question_pack_item", // 0069: the question — prompt copy + ask_if/skip_if AST; RLS+FORCE+REVOKE in migration 0069
   "question_pack_option", // 0069: the chips — label_text IS the worker's answer of record; RLS+FORCE+REVOKE in migration 0069
   // ── OIE Phase 8 cutover (migration 0073) ────────────────────────────────────
+  "worker_resume_import", // 0103: ADR-0041 — the résumé a worker uploaded and the STAGED suggestions read out of it. `suggestions_enc` is AES-256-GCM over a payload carrying employer names, role titles and prose lifted from his own document, so a readable default here would leak a whole work history per row; retention is PERMANENT by ruling D6, which makes the worker_id cascade (plus the storage prefix sweep) the only erasure path there is; RLS+FORCE+REVOKE in migration 0103
   "worker_pack_answer", // 0073: the durable typed record of what a worker said, one row per (worker, pack, question_key) — WORKER-AUTHORED answer values, not reference data; RLS+FORCE+REVOKE in migration 0073
   // ── Voice profiling form (migration 0071) ───────────────────────────────────
   "worker_attributes", // 0071: the settled value of an `attribute`-kind answer (77% of the pack corpus had no destination before this) — trade facts keyed by an opaque worker_id, same class as worker_profiles; RLS+FORCE+REVOKE in migration 0071
@@ -123,6 +124,24 @@ const LOCKED_TABLES = [
   // client role and a worker's credential history. Deny-by-default, FORCE, no policy.
   "worker_certificate",
   "worker_education",
+  // 0112: the courses a worker attended (ADR-0042 D9 / Layer A (d)) — name, provider, year,
+  // worker order. Deny-by-default, FORCE, no policy.
+  "worker_training",
+  // 0113: the worker's work samples (ADR-0042 D9 / Layer A (e)) — a storage key for photo/video
+  // or a URL for a link. Deny-by-default, FORCE, no policy.
+  "worker_portfolio",
+  // 0114: the worker's declared SECONDARY occupations (ADR-0042 D9 / Layer A (f)) — closed
+  // `role_*` ids in the worker's order; the supply path derives extra match skills from them.
+  // Deny-by-default, FORCE, no policy.
+  "worker_occupation",
+  // 0117: per-field extracted-correction audit facts (#1311 backend half) — opaque
+  // profile/session ids + closed field enum + timestamp, no corrected values (those live
+  // in the authored stores). Deny-by-default, FORCE, no policy.
+  "profile_correction",
+  // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
+  // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
+  // FORCE, no policy.
+  "worker_language",
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
   // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
   // Listed late, and that is the finding rather than the fix: 0076 created these three

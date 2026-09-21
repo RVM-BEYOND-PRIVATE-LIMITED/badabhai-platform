@@ -14,6 +14,7 @@ import type {
   QuestionPackItem,
   QuestionPackOption,
 } from "@badabhai/ai-contracts";
+import type { ChatSession, WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -28,11 +29,19 @@ import {
   type TurnResult,
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { narrowAnswerRecords } from "./conversation-state";
 import { isSettled } from "./answer-map";
+import { otherAnswerTextOf } from "./pack-answer-row";
 import { clipId } from "./reply-closure";
 import { ttsField } from "./question-tts-text";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesService } from "../profiles/profiles.service";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import {
+  buildSessionFillView,
+  storedFactsFromAttributeRows,
+  STORED_FACT_ATTRIBUTE_KEYS,
+} from "./facts/session-fill-view";
 import type {
   FinalizeProfilingResponse,
   ProfilingAnswerDto,
@@ -91,6 +100,9 @@ export class ProfilingSessionService {
     // The fourth trigger (#700). ProfilesModule imports ProfilingModule for the projector, so
     // this needs a forwardRef back — the cycle is real and is one interview, two concerns.
     @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
+    // Fill-gap Phase 3. Read-only, and the ONE store the finishing form's pages write for the
+    // attribute-backed facts — the cross-road half of the settled-vs-missing view.
+    private readonly attributes: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -348,15 +360,29 @@ export class ProfilingSessionService {
     const flushed = await this.chat.listPackAnswers(sessionId);
     const rows =
       flushed.length > 0
-        ? flushed.map((row) => ({
-            question_key: row.questionKey,
-            prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
-            status: row.status as "answered" | "declined" | "unanswered",
-            display_value: this.displayValueOf(
-              row.answerBool ?? row.answerNumber ?? row.answerText ?? row.answerOptionKeys,
-              row.status,
-            ),
-          }))
+        ? [
+            ...flushed.map((row) => ({
+              question_key: row.questionKey,
+              prompt_text: prompts.get(row.questionKey) ?? row.questionKey,
+              status: row.status as "answered" | "declined" | "unanswered",
+              display_value: this.displayValueOf(
+                row.answerBool ??
+                  row.answerNumber ??
+                  row.answerText ??
+                  row.answerOptionKeys ??
+                  row.answerOtherText,
+                row.status,
+              ),
+            })),
+            // #1504 item 5 (city-seed), mandatory fix. A seeded key NEVER gets a
+            // `worker_pack_answer` row (`toPackAnswerRows` skips `prefilledKeys` deliberately —
+            // see `chat.service.ts`), so `flushed` alone would silently drop it from a review
+            // shown AFTER the session ended, even though the worker's profile carries it. A
+            // PURE DISPLAY-VALUE MERGE, never a written row: read straight off
+            // `chat_sessions.conversation_state`, which `finalizeInterview` already persisted
+            // `prefilled_keys` and `answer_map` into before the Redis buffer was dropped.
+            ...(await this.reviewPrefilledRows(session, flushed, prompts)),
+          ]
         : // `envelope.answerMap` rather than `answersOf`, because the review is a LIST and the
           // array is the contract's stable order. Keying it first would hand the screen whatever
           // order the object happened to hold, which for a worker reading their answers back is
@@ -377,6 +403,48 @@ export class ProfilingSessionService {
       session_id: sessionId,
       complete: view?.buffer.completedAt !== undefined || session.status !== "active",
       rows,
+      fill: await this.buildFill(workerId, sessionId),
+    };
+  }
+
+  /**
+   * The settled-vs-missing view for this session's pinned packs (fill-gap Phase 3).
+   *
+   * WHY `viewSettled` AND NOT THE LIVE `view` ABOVE. The review screen exists for the moment
+   * AFTER the last question — and that is exactly when the Redis envelope is gone, so the live
+   * view returns null and a fill built from it would be permanently empty at the moment it is
+   * for. `viewSettled` reads the DURABLE half (`chat_sessions.pack_id` + `conversation_state`),
+   * which is the same source `correct()` already trusts post-flush.
+   *
+   * A SESSION WITH NO PIN HAS NO VIEW (the no-occupation fallback path), and that is reported as
+   * empty rather than guessed: the same limitation `correct()` surfaces as a 409. Additive read;
+   * nothing here writes, and a failure to build it fails the request rather than silently telling
+   * a surface "nothing is settled", which would re-ask a worker everything.
+   */
+  private async buildFill(
+    workerId: string,
+    sessionId: string,
+  ): Promise<ProfilingReviewResponse["fill"]> {
+    const settledView = await this.orchestrator.viewSettled(sessionId, new Date());
+    if (!settledView || settledView.items.length === 0) return { entries: [], settled: [] };
+
+    const stored = storedFactsFromAttributeRows(
+      await this.attributes.loadKeys(workerId, STORED_FACT_ATTRIBUTE_KEYS),
+    );
+
+    // CAMEL CASE → WIRE: the pure module works in the registry's vocabulary; the response is the
+    // snake_case contract the app already consumes for every other profiling field.
+    const view = buildSessionFillView(settledView.items, settledView.answers, stored);
+    return {
+      entries: view.entries.map((entry) => ({
+        fact: entry.fact,
+        question_key: entry.questionKey,
+        status: entry.status,
+        source: entry.source,
+        dropped_by_projector: entry.droppedByProjector,
+        is_core: entry.isCore,
+      })),
+      settled: [...view.settled],
     };
   }
 
@@ -712,6 +780,61 @@ export class ProfilingSessionService {
   }
 
   /**
+   * The review row(s) a FLUSHED session's `worker_pack_answer` rows cannot show, because
+   * `toPackAnswerRows` deliberately never wrote one for a city-seed key (#1504 item 5, mandatory
+   * fix #2).
+   *
+   * A PURE DISPLAY-VALUE MERGE. Nothing here writes a row anywhere — it reads
+   * `chat_sessions.conversation_state`, which `finalizeInterview`/`abandonInterview` already
+   * persisted `prefilled_keys` and `answer_map` into before the Redis envelope was dropped, and
+   * renders whatever `prefilledKeys` names that `flushed` does not already cover. A key that WAS
+   * later corrected (`correctAnswer` removes it from `prefilled_keys` and inserts a real
+   * `worker_pack_answer` row) is already in `flushed` and is excluded here by the same key check,
+   * so a corrected answer is never shown twice.
+   */
+  private async reviewPrefilledRows(
+    session: Pick<ChatSession, "conversationState">,
+    flushed: readonly Pick<WorkerPackAnswer, "questionKey">[],
+    prompts: ReadonlyMap<string, string>,
+  ): Promise<
+    Array<{
+      question_key: string;
+      prompt_text: string;
+      status: "answered" | "declined" | "unanswered";
+      display_value: string | null;
+    }>
+  > {
+    const state = (session.conversationState ?? {}) as Record<string, unknown>;
+    const prefilledKeys = Array.isArray(state.prefilled_keys)
+      ? state.prefilled_keys.filter((key): key is string => typeof key === "string")
+      : [];
+    if (prefilledKeys.length === 0) return [];
+
+    const flushedKeys = new Set(flushed.map((row) => row.questionKey));
+    const missing = prefilledKeys.filter((key) => !flushedKeys.has(key));
+    if (missing.length === 0) return [];
+
+    const answerMap = narrowAnswerRecords(state.answer_map);
+    const byKey = new Map(answerMap.map((record) => [record.question_key, record]));
+
+    return missing.flatMap((key) => {
+      const record = byKey.get(key);
+      if (!record || record.status === "superseded") return [];
+      return [
+        {
+          question_key: record.question_key,
+          prompt_text: prompts.get(record.question_key) ?? record.question_key,
+          status: record.status as "answered" | "declined" | "unanswered",
+          display_value: this.displayValueOf(
+            record.value_normalized ?? record.value_raw,
+            record.status,
+          ),
+        },
+      ];
+    });
+  }
+
+  /**
    * The rendered value for one review row, or null when the worker declined or never answered.
    *
    * ONE FUNCTION FOR BOTH SOURCES. The flushed row and the live envelope hold the same values in
@@ -722,6 +845,12 @@ export class ProfilingSessionService {
   private displayValueOf(value: unknown, status: string): string | null {
     if (status !== "answered") return null;
     if (value === null || value === undefined) return null;
+    // The mid-interview envelope path carries the "other" marker object directly
+    // (`OtherAnswerValue`), never a bare string — unwrap it before the generic branches below
+    // would otherwise stringify it to "[object Object]". This is the worker's OWN review of his
+    // own words, verbatim and pre-LLM-review — never printed on a sheet from here.
+    const other = otherAnswerTextOf(value);
+    if (other !== null) return other;
     if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
     if (typeof value === "boolean") return value ? "Haan" : "Nahi";
     // `numeric` columns arrive as strings from postgres-js; `String()` is a no-op on those and

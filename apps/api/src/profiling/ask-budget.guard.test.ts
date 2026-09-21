@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { MAX_ASKS_PER_QUESTION, MAX_ENGINE_ASKS } from "./next-question";
+import { MAX_ASKS_PER_QUESTION, MAX_ENGINE_ASKS, MAX_ENGINE_TURNS } from "./next-question";
 import { evaluatePredicate } from "./predicate";
 
 /**
@@ -107,9 +107,7 @@ function asksFor(items: readonly PackItem[]): number {
  */
 function tierValues(occupation: Pack): number[] {
   const gated = occupation.items.filter((i) => i.ask_if);
-  const fields = new Set(
-    gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean),
-  );
+  const fields = new Set(gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean));
   if (fields.size !== 1) return [];
   const gate = occupation.items.find((i) => i.target_field === [...fields][0]);
   const values = (gate?.options ?? [])
@@ -167,9 +165,7 @@ function worstCaseAsks(occupation: Pack, tail: Pack): number {
 /** The single field every gate in this pack reads. */
 function gateFieldOf(occupation: Pack): string {
   const gated = occupation.items.filter((i) => i.ask_if);
-  const fields = new Set(
-    gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean),
-  );
+  const fields = new Set(gated.flatMap((i) => [...fieldsOf(i.ask_if)]).filter(Boolean));
   return [...fields][0] ?? "";
 }
 
@@ -204,19 +200,38 @@ describe("the ask budget, checked where a pack is authored rather than where it 
     // this one turns red the moment any pack adds or removes a question, which is the authoring
     // signal that did not exist. Update it in the same commit as the pack, on purpose.
     //
-    // 26 = qp_cnc_turning's 15 + qp_universal@2's 8 + one retry each for the three mandatory
+    // 36 = qp_cnc_turning's 15 + qp_universal@4's 18 + one retry each for the three mandatory
     // questions (turning_experience, primary_trade, current_city).
+    //
+    // THE WALK MOVED 28 → 36 WITH THE LAYER A ELICITATION (ADR-0042 §9 amendment, 2026-09-18).
+    // v3's exact pin was 28 (15 + 10 + 3) with the old cap of 28 — the headroom-zero posture the
+    // owner policy reversed. v4 adds the eight elicitation asks; no new mandatory question was
+    // authored, so the retry term is unchanged and the whole delta is items.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(worst).toBe(26);
+    expect(worst).toBe(36);
   });
 
-  it("keeps the headroom small enough to be a decision rather than a default", () => {
-    // An inflated cap is not free: every ask it permits is a drop-off opportunity for a man
-    // answering in Hinglish on a mid-range Android between shifts. The cap should sit just above
-    // what the corpus needs, with room for the specific asks that are actually proposed — today
-    // that is the two Zone 5 credential questions in docs/profiling/sample-parity-gap.md.
+  it("keeps a POLICY headroom now — the runaway backstop moved to MAX_ENGINE_TURNS", () => {
+    // POLICY CHANGE 2026-09-18 ("budget is NOT a constraint; app feel is paramount"). The old
+    // assertion here held the headroom DOWN (`<= 2`) because every additional ask was a
+    // drop-off opportunity. That posture is reversed: the cap sits generously above the corpus
+    // so a misunderstood question is clarified rather than silently cut, and frugality is no
+    // longer the deciding value.
+    //
+    // THE COMPARISON, STATED SO THE MOVE IS AUDITABLE:
+    //   before: cap 28, worst-case walk 28 (qp_cnc_turning 15 + qp_universal@3 10 + 3 mandatory
+    //           re-asks), headroom 0 — the cap WAS the corpus.
+    //   after:  cap 48, worst-case walk 36 (qp_cnc_turning 15 + qp_universal@4's 18 + 3 mandatory
+    //           re-asks; the Layer A elicitation landed — this number MOVED, as promised),
+    //           headroom 12.
+    // The `expect(worst).toBe(36)` above still pins the walk itself; this pins the posture.
     const worst = Math.max(...occupations.map((p) => worstCaseAsks(p, tail)));
-    expect(MAX_ENGINE_ASKS - worst).toBeLessThanOrEqual(2);
+    expect(MAX_ENGINE_ASKS - worst).toBe(12);
+
+    // THE RUNAWAY GUARD DID NOT GO AWAY, IT MOVED. A blind run (every ask + every recovery
+    // channel) must still terminate well inside a session worth of turns; infinity is banned.
+    expect(MAX_ENGINE_TURNS).toBeGreaterThan(MAX_ENGINE_ASKS);
+    expect(MAX_ENGINE_TURNS).toBeLessThan(1_000);
   });
 
   it("every pack fits the budget, not merely the largest one", () => {

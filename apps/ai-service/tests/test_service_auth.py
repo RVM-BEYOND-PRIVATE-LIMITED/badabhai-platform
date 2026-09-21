@@ -215,6 +215,23 @@ class TestServiceAuthEnabled:
         # two above and is gated identically. It is also the one route in this service licensed
         # to COMPOSE printed text -- section 8 is overridden for that field by owner ruling -- so
         # if this line ever needs deleting, read ADR-0039 before deleting the route.
+        #
+        # 14 -> 15 with ADR-0041 RI-3: POST /resume/parse, which READS an uploaded resume
+        # (as opposed to /resume/generate, which writes one). It is the most sensitive entry
+        # point in this list: D5 permits the document to reach the model UNMASKED behind
+        # RESUME_PARSE_RAW_TEXT_ENABLED, so an ungated route here would accept a document
+        # from anyone and parse it under that posture.
+        #
+        # 15 -> 16 with RI-summary (backend-only slice): POST /resume/summary, the SECOND
+        # read of the same document for one Hinglish line. Same sensitivity as the parse
+        # above — same bucket, same D5 posture, same worker text — so gated identically.
+        # Backend-only in this slice means the trace is the verification surface, but the
+        # gate is what keeps that trace from being reachable by anyone.
+        #
+        # 16 -> 17 with RI-autofill (owner override B): POST /resume/map-options, the THIRD
+        # read of the same document, this time against the pack's closed options. Same
+        # sensitivity again — same bucket, same D5 posture — so gated identically. The
+        # override widens what the API may DO with the mappings, never who may ask for one.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -227,6 +244,9 @@ class TestServiceAuthEnabled:
             "/profiling/work-history/polish",
             "/pseudonymize",
             "/resume/generate",
+            "/resume/map-options",
+            "/resume/parse",
+            "/resume/summary",
             "/skills/canonicalize",
             "/skills/retag-plan",
             "/voice/transcribe",

@@ -800,18 +800,12 @@ const RUNTIME_ALLOWED: Readonly<Record<string, RuntimeAllowed>> = {
     reason: "the quote selection exists only on the container",
     falsifiedBy: "the legacy branch gains a source of the worker's own sentences to quote",
   },
-  // TWO COMPOSERS, BY DESIGN — `buildSummary(draft, trade)` reads the taxonomy's trade content,
-  // `summaryFor` reads the model's labels, and neither branch can run the other's.
-  //
-  // WORTH A LOOK ANYWAY, and recorded here rather than in a doc: the legacy composer drops the
-  // ROLE. It renders "CNC machining with 8 years of experience." where the container renders
-  // "CNC Operator with 8 years of experience in CNC machining." — so on the branch most existing
-  // profiles take, the résumé's opening sentence never names the job the worker does. That is a
-  // content question rather than a parity one, which is why it is a row and not a fix.
-  summary: {
-    reason: "composed by two different functions; the legacy one omits the role (reported)",
-    falsifiedBy: "`buildSummary` and `summaryFor` are unified, or the legacy one names the role",
-  },
+  // THE `summary` ROW IS GONE, AND ITS REMOVAL IS LAYER A (h) LANDING. It recorded a real
+  // difference for two years: `buildSummary(draft, trade)` read the taxonomy's trade copy,
+  // `summaryFor` read the model's labels, and the legacy composer dropped the role. Both branches
+  // now chain the worker's own summary -> the ratified trade copy (where a trade exists) -> the
+  // shared deterministic strip (`resume-headline.ts`), so one worker produces one summary
+  // whichever shape carried him. The staleness guard below is what demanded this edit.
 };
 
 describe("R15 §1 — the two branches render the SAME worker the same way, in either direction", () => {
@@ -841,7 +835,16 @@ describe("R15 §1 — the two branches render the SAME worker the same way, in e
       container.ownWordsRejected,
       "container must NOT have taken the legacy path",
     ).toBeInstanceOf(Array);
-    expect(legacy.summary, "the two summary composers must not agree").not.toBe(container.summary);
+    // LAYER A (h) MADE THE SUMMARY A SHARED BUILDER, and this assertion is the receipt. It used
+    // to require the two composers to DIFFER (the legacy one dropped the role; the container's
+    // was a sentence). Both now compose role · tenure · tools · city through the same helpers
+    // from the same facts, so one worker's summary is identical whichever branch built it —
+    // which is strictly better than the stated difference the allowlist row used to record.
+    expect(
+      legacy.summary,
+      "the shared summary builder must produce one string for one worker",
+    ).toBe(container.summary);
+    expect(legacy.summary).toContain("8 yrs");
     expect(legacy.headlineLine, "the fixture must actually render").toContain("8 yrs");
     expect(container.headlineLine, "the fixture must actually render").toContain("8 yrs");
     // And the diff must be capable of reporting something: these keys are read below.
