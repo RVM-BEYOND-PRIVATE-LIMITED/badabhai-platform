@@ -749,7 +749,7 @@ the notification path C-1 needs, and it is half-built already.
 
 **What is built.** The event is registered — `"profile.viewed": { version: 1, domain:
 "profile", payload: p.ProfileViewedPayload }`
-([packages/event-schema/src/registry.ts:517](packages/event-schema/src/registry.ts)). The
+([packages/event-schema/src/registry.ts:522](packages/event-schema/src/registry.ts)). The
 worker-facing notification template is written, faceless, and bilingual
 ([apps/api/src/notifications/notifications.dto.ts:165-172](apps/api/src/notifications/notifications.dto.ts)),
 with a comment explaining why the copy names nobody: *"the worker learns their profile was
@@ -771,7 +771,7 @@ told that a paying stranger holds his routed contact.
       viewer_payer_id: uuidSchema,
       job_id: uuidSchema,          // ← required
     });
-    packages/event-schema/src/payloads.ts:2145-2149
+    packages/event-schema/src/payloads.ts:2169-2173
 
 `unlocks.job_id` is nullable by design — *"Optional job context (per-profile granularity, so
 nullable)"* ([packages/db/src/schema/payer.ts:235-236](packages/db/src/schema/payer.ts)) — and
@@ -784,7 +784,7 @@ case, which is the whole of E2's flow.
   (a) **Emit only when `job_id` is non-null.** Compiles, and silently skips precisely the
       workers found by search. This is the option that will look reasonable at 11pm.
   (b) **Loosen `job_id` to nullable in the payload.** CLAUDE.md §3 forbids mutating an event
-      schema, and `registry.ts:517` pins `version: 1`. The practical risk really is nil —
+      schema, and `registry.ts:522` pins `version: 1`. The practical risk really is nil —
       zero producers, zero consumers — but that is an argument for the owner to weigh, not a
       licence to skip the versioning question.
   (c) **Mint a distinct event for the unlock notification**, with its own template. Costs more
@@ -847,3 +847,85 @@ after. That is a build with an owner ruling in front of it, not a script.
 signing, enumerate every verdict, signature and answer line **from the remote blob on `main`**,
 not the working tree, and report which are filled and which stay blank. It is a human check.
 Recording that it is a human check is the point of this entry.
+
+---
+
+## P-021 · The second reveal of an unlock 500s, which is both a crash and a status-code oracle
+
+**Found:** 2026-09-07, phase E0, measuring the relay path before building on it.
+**Owner ruling:** none yet — surfaced, not fixed. E0 is barred from writing to `unlocks` /
+`unlock_routing` outside `UnlockService` (`docs/agent/phases/E0_BUILD.md`, NEVER DO), so this is
+reported rather than repaired.
+
+**The defect.** `UnlocksRepository.createRouting` is a plain insert with no `onConflict`
+(`apps/api/src/unlocks/unlocks.repository.ts:294-303`), and the reveal path always passes
+`fresh.routingTokenRef` (`apps/api/src/unlocks/unlocks.service.ts:424`). That token is minted
+ONCE per grant (`:255`) and the idempotent grant path never re-mints it (`:192-198`).
+`unlock_routing` carries `uniqueIndex("unlock_routing_routing_token_uq")`
+(`packages/db/src/schema/payer.ts:367`).
+
+`UNLOCK_MAX_ATTEMPTS_PER_UNLOCK` defaults to **3** (`packages/config/src/server.ts:1151`). So
+reveals 2 and 3 — which the cap explicitly permits — attempt a duplicate `routing_token`,
+violate the unique index, and throw. Reveal is `try { … } finally { padToTarget }` with **no
+catch** (`:318`, `:447`), so the violation escapes as a 500.
+
+**Why it is worse than a crash.** The whole unlock surface is built so every denial returns one
+neutral body at a constant status (`apps/api/src/unlocks/unlock-response.ts:1-23`, `:38-41`). A
+500 on the second reveal is a **different observable** from the neutral 200 — so a payer who
+reveals twice learns something about server state that the no-oracle property exists to
+withhold. The effort spent making a leak a compile error is undone by an unhandled constraint
+violation.
+
+**Nothing exercises it.** No test in the repository reveals the same unlock twice. The cap is
+configured to allow it, the schema forbids it, and no check notices the disagreement.
+
+**A consequence worth recording for E0.** Because reveal 2 fails, `unlock_routing` holds **at
+most one row per unlock** today. Any relay resolution written against it inherits that
+assumption silently — and the assumption is enforced by a bug, not by a constraint anyone chose.
+If P-021 is fixed by making `createRouting` idempotent, the row count per unlock stays 1; if it
+is fixed by re-minting the token per reveal, a handle-keyed resolution suddenly has multiple
+candidate rows and needs an explicit "latest" rule. **The fix direction changes E0's design**,
+which is why this is parked rather than left to be discovered mid-build.
+
+---
+
+## P-022 · `guard.mjs` blocks ordinary JavaScript because a secret-extension pattern is anchored on a word boundary
+
+**Found:** 2026-09-07, phase E0, reading a workflow result file.
+**Owner ruling:** none yet — surfaced, not fixed. The hook is a security control; loosening its
+pattern is not a builder's call.
+
+**What happened.** A `node -e` command that looked up a plain object property was blocked:
+
+    node -e "... const c = r.find(x => x[PROP] === 'consent'); ..."   // where PROP was the literal property name k-e-y
+
+    → [guard] BLOCKED: command references a secret file (read/copy/redirect blocked)
+
+**Why.** `.claude/hooks/guard.mjs:65-66` defines `NON_ENV_SECRET` as an alternation of secret
+file extensions, each anchored with a trailing `\b`, and `touchesSecretFile`
+(`.claude/hooks/guard.mjs:109-113`) tests it against the WHOLE command string. In a property
+access written `obj.<that word> === "x"`, the dot-plus-extension substring is followed by a
+space — a word boundary — so the pattern matches and the guard concludes the command reads a
+private-key file.
+
+**Why this is the file's own documented hazard, one regex up.** The block immediately above it
+(`:82-98`, `ENV_TOKEN`) exists because of exactly this mistake: *"Do NOT go back to
+segment-matching with a trailing `\b`. Two bugs came from it… `\b` ends the token at the first
+char outside `[a-z0-9_]`."* That lesson was applied to the `.env` family and **not** to
+`NON_ENV_SECRET`, which still anchors every extension the same way.
+
+**Blast radius is ordinary work, not exotic work.** The affected word is among the most common
+property names in JavaScript, and three of the other extensions in the same alternation have the
+identical shape. Any command containing that property access followed by a space, comma,
+semicolon or paren is blocked with a message naming secret files — which reads as a true
+positive and invites the wrong diagnosis. **This entry could not be committed by heredoc for
+that reason**: the text describing the bug tripped it. It fails SAFE (blocks, never allows), so
+it is a friction defect, not a hole.
+
+**The narrow fix, if the owner wants one.** Require a path-ish context — a preceding
+`[\w./\\-]` and a following delimiter — so a real `id_rsa`-style filename still matches and a
+bare property access does not. Do NOT simply drop the `\b`: that would match longer words
+beginning with the same letters and over-block further. Per P-016's lesson, whatever replaces it
+must be probed with BOTH a command that must be blocked and a command that must be permitted —
+an over-broad guard passes every "does it catch X" test and is only found when it blocks
+legitimate work.
