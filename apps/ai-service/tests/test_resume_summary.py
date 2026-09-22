@@ -16,9 +16,11 @@ safe:
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 
 from app.config import Settings
-from app.contracts import AICallMetadata, ResumeSummaryInput
+from app.contracts import AICallMetadata, ResumeSummaryInput, ResumeSummaryOutput
 from app.resume_import.extract import ExtractionResult, Line
 from app.resume_import.resume_summary import (
     RESUME_SUMMARY_TASK_TYPE,
@@ -84,6 +86,61 @@ class RecordingRouter:
         return self.reply, self._meta
 
 
+def run_summary(
+    *,
+    reply: str,
+    monkeypatch,
+    texts: list[str] | None = None,
+    role_kinds: list[str] | None = None,
+    **settings_overrides,
+):
+    """Drive the WHOLE pipeline with storage and extraction stubbed, the router recording.
+
+    THROUGH `summarize_resume`, NEVER THROUGH `gate_summary_for_test` — and this helper
+    exists so that is the cheap option rather than the expensive one. That asymmetry is
+    exactly how the bounds defect shipped green: `test_overlong_strings_degrade_not_truncate`
+    called the gate directly and passed, while the pipeline beside it did the opposite —
+    the contract validated the two Hinglish strings BEFORE the gate could drop them, so an
+    over-long summary returned `parse_output_invalid` and took the role with it. A gate
+    test proves what the gate does. Only a pipeline test proves the gate is reached.
+    """
+    import app.resume_import.resume_summary as mod
+
+    async def fake_download(*args, **kwargs):  # noqa: ARG001
+        return b"%PDF-1.4 stub"
+
+    monkeypatch.setattr(mod, "download_object", fake_download)
+    monkeypatch.setattr(
+        mod, "extract", lambda data, mime=None: extraction(*(texts or ["CNC Turner, 5 saal"]))
+    )
+    router = RecordingRouter(reply)
+    body = ResumeSummaryInput(
+        worker_ref="w1",
+        storage_key="resume-uploads/w1/abc.pdf",
+        mime="application/pdf",
+        role_kinds=role_kinds if role_kinds is not None else ["cnc_turner", "welder"],
+    )
+    out = _run(
+        summarize_resume(
+            body,
+            settings=settings(**settings_overrides),
+            router=router,  # type: ignore[arg-type]
+        )
+    )
+    return out, router
+
+
+def summary_reply(**over) -> str:
+    """A well-formed reply with one thing changed. `None` here means the model sent null."""
+    body = {
+        "role_kind": "cnc_turner",
+        "experience_text": "10+ saal ka tajurba",
+        "summary_text": "CNC lathe par kaam, Pune mein",
+    }
+    body.update(over)
+    return json.dumps(body)
+
+
 def test_system_prompt_is_hinglish_roman_and_closed_list():
     assert "HINGLISH ONLY" in RESUME_SUMMARY_SYSTEM_PROMPT
     assert "ROMAN SCRIPT ONLY" in RESUME_SUMMARY_SYSTEM_PROMPT
@@ -147,36 +204,8 @@ def test_overlong_strings_degrade_not_truncate():
 
 
 def test_pipeline_calls_the_summary_task_not_the_parse_task(monkeypatch):
-    import app.resume_import.resume_summary as mod
-
-    monkeypatch.setattr(
-        mod, "extract", lambda data, mime=None: extraction("CNC Turner, 5 saal")
-    )
-    monkeypatch.setattr(
-        mod, "download_object", lambda *a, **k: _run(_noop_bytes())
-    )
-
-    async def _noop_bytes():
-        return b"%PDF-1.4 fake"
-
-    # download_object is async in the pipeline; patch with an async stub instead.
-    async def _fake_download(*a, **k):
-        return b"%PDF-1.4 fake"
-
-    monkeypatch.setattr(mod, "download_object", _fake_download)
-
-    router = RecordingRouter(
-        reply='{"role_kind": "cnc_turner", "experience_text": "5 saal ka tajurba", '
-        '"summary_text": "CNC lathe par kaam"}'
-    )
-    body = ResumeSummaryInput(
-        worker_ref="w1",
-        storage_key="resume-uploads/w1/abc.pdf",
-        mime="application/pdf",
-        role_kinds=["cnc_turner", "welder"],
-    )
-    out = _run(
-        summarize_resume(body, settings=settings(), router=router)  # type: ignore[arg-type]
+    out, router = run_summary(
+        reply=summary_reply(experience_text="5 saal ka tajurba"), monkeypatch=monkeypatch
     )
     assert router.task_types == [RESUME_SUMMARY_TASK_TYPE]
     assert out.role_kind == "cnc_turner"
@@ -185,24 +214,133 @@ def test_pipeline_calls_the_summary_task_not_the_parse_task(monkeypatch):
 
 
 def test_pipeline_degrades_on_unreadable_model_output(monkeypatch):
-    import app.resume_import.resume_summary as mod
-
-    async def _fake_download(*a, **k):
-        return b"%PDF-1.4 fake"
-
-    monkeypatch.setattr(mod, "download_object", _fake_download)
-    monkeypatch.setattr(
-        mod, "extract", lambda data, mime=None: extraction("CNC Turner, 5 saal")
-    )
-    router = RecordingRouter(reply="not json at all")
-    body = ResumeSummaryInput(
-        worker_ref="w1",
-        storage_key="resume-uploads/w1/abc.pdf",
-        mime="application/pdf",
-        role_kinds=["cnc_turner"],
-    )
-    out = _run(
-        summarize_resume(body, settings=settings(), router=router)  # type: ignore[arg-type]
-    )
+    out, _ = run_summary(reply="not json at all", monkeypatch=monkeypatch)
     assert out.role_kind is None
     assert out.failure_reason == "parse_output_invalid"
+
+
+# ===========================================================================
+# THE BOUNDS, THROUGH THE PIPELINE — where the gate test could not see them
+# ===========================================================================
+#
+# `_MAX_EXPERIENCE_CHARS` / `_MAX_SUMMARY_CHARS` are mirrored from the contract so the
+# gate can drop an over-long string to null. The contract carried the SAME bounds and was
+# validated first, so it failed the whole reply before the gate ran: `role_kind` and the
+# other, perfectly good, Hinglish string were discarded with it and the response said
+# `parse_output_invalid`. Downstream that is an import row marked `failed`, no summary,
+# and no "Kya ye aap hi hain?" turn for the worker.
+#
+# It never showed up because a dense English CV invites a 500+ character Hinglish summary
+# and the short app-generated documents the feature was built on do not.
+
+
+def test_an_overlong_summary_costs_only_the_summary(monkeypatch):
+    out, _ = run_summary(reply=summary_reply(summary_text="y" * 501), monkeypatch=monkeypatch)
+    assert out.failure_reason is None, "one over-long string must not fail the whole reply"
+    assert out.role_kind == "cnc_turner"
+    assert out.experience_text == "10+ saal ka tajurba"
+    assert out.summary_text is None
+    assert "fields_rejected" in out.notes
+
+
+def test_an_overlong_experience_costs_only_the_experience(monkeypatch):
+    out, _ = run_summary(reply=summary_reply(experience_text="x" * 121), monkeypatch=monkeypatch)
+    assert out.failure_reason is None
+    assert out.role_kind == "cnc_turner"
+    assert out.experience_text is None
+    assert out.summary_text == "CNC lathe par kaam, Pune mein"
+    assert "fields_rejected" in out.notes
+
+
+def test_an_overlong_string_is_dropped_whole_and_never_truncated(monkeypatch):
+    """The rule the bounds exist to serve, asserted where it now actually runs.
+
+    A truncation can cut a word and read as a different claim — "10 saal ka tajurba
+    supervisor ke roop mein" clipped mid-word is a sentence the résumé never made. So the
+    field is null, and it is not a 500-character prefix of anything.
+    """
+    out, _ = run_summary(reply=summary_reply(summary_text="y" * 900), monkeypatch=monkeypatch)
+    assert out.summary_text is None
+
+
+def test_a_string_exactly_on_the_bound_still_survives(monkeypatch):
+    """VACUITY GUARD. Dropping everything would satisfy the two tests above and would be
+    a worse bug than the one they cover — so the boundary case must arrive intact."""
+    out, _ = run_summary(
+        reply=summary_reply(experience_text="x" * 120, summary_text="y" * 500),
+        monkeypatch=monkeypatch,
+    )
+    assert out.experience_text == "x" * 120
+    assert out.summary_text == "y" * 500
+    assert "fields_rejected" not in out.notes
+
+
+def test_a_non_string_hinglish_field_costs_only_itself(monkeypatch):
+    """The two strings reach the gate as `object`, so a shape the contract would have
+    refused outright is now one field's loss. `_gate_hinglish` refuses a non-string
+    whole; it has always said so, and now it is the code that decides it."""
+    out, _ = run_summary(reply=summary_reply(experience_text=12), monkeypatch=monkeypatch)
+    assert out.failure_reason is None
+    assert out.role_kind == "cnc_turner"
+    assert out.experience_text is None
+    assert out.summary_text == "CNC lathe par kaam, Pune mein"
+
+
+def test_the_pipeline_and_the_gate_now_answer_the_same_thing(monkeypatch):
+    """THE DEFECT CLASS ITSELF, pinned: the helper and the pipeline disagreed.
+
+    `gate_summary_for_test` said ('cnc_turner', '10+ saal ka tajurba', None) while
+    `summarize_resume` said (None, None, None) with `parse_output_invalid`. Whichever
+    way a future edit moves the bounds, these two must move together or this goes red.
+    """
+    long_summary = "y" * 501
+    out, _ = run_summary(reply=summary_reply(summary_text=long_summary), monkeypatch=monkeypatch)
+    assert (out.role_kind, out.experience_text, out.summary_text) == gate_summary_for_test(
+        "cnc_turner", "10+ saal ka tajurba", long_summary, ["cnc_turner", "welder"]
+    )
+
+
+def test_an_identifier_in_one_string_still_costs_only_that_string(monkeypatch):
+    """The PII wall is the other half of the gate and it was never unreachable — but it
+    now runs on the same raw value the bounds do, so this pins that the reorder did not
+    move it. A phone number in the summary is refused whole; the role survives."""
+    out, _ = run_summary(
+        reply=summary_reply(summary_text="CNC lathe par kaam, call 9876543210"),
+        monkeypatch=monkeypatch,
+    )
+    assert out.summary_text is None
+    assert out.role_kind == "cnc_turner"
+    assert "fields_rejected" in out.notes
+
+
+def test_the_gate_bounds_still_match_the_contract_exactly():
+    """THE COUPLING THE FIX CREATED, pinned before it can bite.
+
+    The gate now decides the bounds and `_response` builds the contract object afterwards
+    — so a gate bound RAISED above the contract's would let an over-long string reach
+    `ResumeSummaryOutput(...)` and turn "never raises" into a 500. Lowered, it would be a
+    silent quality cut nobody asked for. `app/contracts.py` is the wire contract and is
+    mirrored in `packages/ai-contracts` (Zod); this service's copy may not drift from it
+    in either direction, and moving one means moving all three.
+    """
+    from app.resume_import.resume_summary import _MAX_EXPERIENCE_CHARS, _MAX_SUMMARY_CHARS
+
+    def contract_max(name: str) -> int:
+        (constraint,) = ResumeSummaryOutput.model_fields[name].metadata
+        return constraint.max_length
+
+    assert _MAX_EXPERIENCE_CHARS == contract_max("experience_text")
+    assert _MAX_SUMMARY_CHARS == contract_max("summary_text")
+
+
+def test_the_overlong_string_does_not_reach_a_log(monkeypatch, caplog):
+    """A pydantic error quotes the input it rejected. Moving the bounds out of the
+    contract removed that risk here rather than relocating it — nothing about the refused
+    string may reach a log line, and least of all the string."""
+    secret = "Ramesh Kumar 9876543210 " + "y" * 501
+    with caplog.at_level(logging.DEBUG):
+        out, _ = run_summary(reply=summary_reply(summary_text=secret), monkeypatch=monkeypatch)
+    assert out.summary_text is None
+    emitted = "\n".join(r.getMessage() + repr(getattr(r, "extra", "")) for r in caplog.records)
+    for fragment in ("Ramesh", "9876543210", "yyyy"):
+        assert fragment not in emitted

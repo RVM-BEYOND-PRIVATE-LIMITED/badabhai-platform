@@ -58,6 +58,22 @@ RESUME_SUMMARY_NOTES = frozenset(
 
 #: Contract bounds, mirrored from `app/contracts.py` so the gate can degrade to
 #: null BEFORE validation rather than failing the whole output after it.
+#:
+#: THAT SENTENCE DESCRIBED AN INTENT THE CODE DID NOT IMPLEMENT, and it shipped.
+#: `_read_summary_output` validated the WHOLE reply first, and `ResumeSummaryOutput`
+#: carries these same two bounds — so a 501-character `summary_text` failed the
+#: contract before this gate could see it, the pipeline answered
+#: `parse_output_invalid`, and a perfectly good `role_kind` and `experience_text`
+#: went out with it. A dense English CV invites a long Hinglish summary; the short
+#: app-generated documents this was built on never did, which is why it took a real
+#: 2-page CV to surface. The two strings are now lifted out of the reply BEFORE
+#: validation (`_Draft`) and reach `_gate_hinglish` as raw objects, so an over-long
+#: field costs only itself.
+#:
+#: The numbers live here and are read by `_gate_hinglish` alone. `app/contracts.py`
+#: keeps the same two because it is the WIRE contract (mirrored in
+#: `packages/ai-contracts`) and bounds what may leave the service; this copy bounds
+#: what the gate will accept from a model. Neither may be relaxed to suit the other.
 _MAX_EXPERIENCE_CHARS = 120
 _MAX_SUMMARY_CHARS = 500
 
@@ -69,6 +85,23 @@ class _Stage:
     notes: list[str] = field(default_factory=list)
     extraction: ExtractionResult | None = None
     meta: AICallMetadata | None = None
+
+
+@dataclass(frozen=True)
+class _Draft:
+    """One model reply, split at the line the contract can no longer be trusted to hold.
+
+    `output` is the part `ResumeSummaryOutput` validates strictly. The two Hinglish
+    strings are deliberately NOT in it: they are lifted out before validation and
+    carried here as raw objects, because the contract bounds them at exactly the
+    lengths `_gate_hinglish` bounds them at — so validating them here would make a
+    length the gate is meant to ABSORB fatal to the whole reply instead. See the
+    `_MAX_*` note above for the defect this split exists to prevent.
+    """
+
+    output: ResumeSummaryOutput
+    experience_raw: object = None
+    summary_raw: object = None
 
 
 def _response(
@@ -193,15 +226,25 @@ async def summarize_resume(
     # THREE CHECKS, each fail-to-null (never repair):
     #   1. MEMBERSHIP — `role_kind` must name a supplied kind, exactly.
     #   2. BOUNDS — over-long strings are dropped, not truncated (a truncation
-    #      could cut a word and read as a different claim).
+    #      could cut a word and read as a different claim). Applied to the RAW
+    #      value step 5 lifted out of the reply, which is what makes the drop
+    #      per-field rather than fatal — the thing the bounds only claimed to do.
     #   3. PII — blocked OR altered by `resume_value_certifier` is refused whole.
-    role_kind = _narrow_role_kind(draft.role_kind, body.role_kinds)
-    experience_text = _gate_hinglish(draft.experience_text, _MAX_EXPERIENCE_CHARS)
-    summary_text = _gate_hinglish(draft.summary_text, _MAX_SUMMARY_CHARS)
+    #
+    # The two strings arrive typed as `object`, not `str | None`, and that is the
+    # point: a model that returns a number or an array for one of them now costs
+    # that field alone. `_gate_hinglish` already refuses a non-string whole.
+    role_kind = _narrow_role_kind(draft.output.role_kind, body.role_kinds)
+    experience_text = _gate_hinglish(draft.experience_raw, _MAX_EXPERIENCE_CHARS)
+    summary_text = _gate_hinglish(draft.summary_raw, _MAX_SUMMARY_CHARS)
+    # COMPARED AGAINST WHAT THE MODEL ACTUALLY SENT, now that the raw value is in
+    # hand: "it said something and the gate refused it" is the only thing worth
+    # counting, and before this it could only be asked of an already-validated
+    # value — which is to say, never of the over-long one.
     if (
-        (draft.role_kind is not None and role_kind is None)
-        or (draft.experience_text is not None and experience_text is None)
-        or (draft.summary_text is not None and summary_text is None)
+        (draft.output.role_kind is not None and role_kind is None)
+        or (draft.experience_raw is not None and experience_text is None)
+        or (draft.summary_raw is not None and summary_text is None)
     ):
         stage.notes.append("fields_rejected")
         logger.info("resume_summary.fields_rejected", extra={"extra": {"rejected": 1}})
@@ -247,12 +290,23 @@ def _gate_hinglish(raw: object, max_chars: int) -> str | None:
     return text
 
 
-def _read_summary_output(content: str) -> ResumeSummaryOutput | None:
-    """The model's response as a contract object, or None if it is not one.
+def _read_summary_output(content: str) -> _Draft | None:
+    """The model's response as a gateable draft, or None if it is not one.
 
     Never raises and never repairs. A body this service cannot validate is a body it has
     no way to gate, and the fail-closed reading of an ungateable overlay is "there was no
     overlay".
+
+    `experience_text` and `summary_text` are POPPED BEFORE strict validation — the same
+    move `resume_parse._read_resume_output` makes on `trade_association`, for the same
+    reason. Those two keys carry contract bounds that `_gate_hinglish` is supposed to
+    absorb per-field, and validating them here made one over-long string fatal to the
+    whole reply.
+
+    WHAT IS STILL FATAL, deliberately: a reply that is not a JSON object, or a remaining
+    key that will not validate. `role_kind` keeps its existing strictness; the gate
+    narrows it on membership, but a reply whose shape this service cannot recognise is
+    still one it has no way to gate.
     """
     try:
         raw = json.loads(coerce_json_text(content))
@@ -261,13 +315,19 @@ def _read_summary_output(content: str) -> ResumeSummaryOutput | None:
             "resume_summary.output_unreadable", extra={"extra": {"error": type(exc).__name__}}
         )
         return None
+    experience_raw: object = None
+    summary_raw: object = None
+    if isinstance(raw, dict):
+        experience_raw = raw.pop("experience_text", None)
+        summary_raw = raw.pop("summary_text", None)
     try:
-        return ResumeSummaryOutput.model_validate(raw)
+        parsed = ResumeSummaryOutput.model_validate(raw)
     except Exception as exc:  # noqa: BLE001 — a malformed overlay never costs the import
         logger.warning(
             "resume_summary.output_unreadable", extra={"extra": {"error": type(exc).__name__}}
         )
         return None
+    return _Draft(output=parsed, experience_raw=experience_raw, summary_raw=summary_raw)
 
 
 def gate_summary_for_test(

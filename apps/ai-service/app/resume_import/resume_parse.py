@@ -24,6 +24,14 @@ DEGRADES, NEVER FAILS (ruling D9). Every branch below returns a valid `ResumePar
 carrying a `failure_reason` from the closed vocabulary. There is no path that costs a
 worker their onboarding — the worst case is that the import contributes nothing and they
 answer the ordinary Hinglish questions.
+
+AND IT DEGRADES ENTRY BY ENTRY, which used to be true only of the GATES. One strict
+contract validation over the whole model reply ran before them, so a single malformed
+employment row — `end_year: "Present"` on an open-ended stint, which a real 2-page CV
+produces every time — returned `parse_output_invalid` and discarded every cited field
+beside it. Shape is now validated per entry in `_read_resume_output`; that is the posture
+`apply_parse_gates` already took after one 401-digit integer cost a worker their whole
+interview, and the posture `mask_resume_lines` takes for a line it cannot mask.
 """
 
 from __future__ import annotations
@@ -81,6 +89,22 @@ class _Stage:
     notes: list[str] = field(default_factory=list)
     extraction: ExtractionResult | None = None
     meta: AICallMetadata | None = None
+
+
+@dataclass(frozen=True)
+class _Draft:
+    """One model reply, narrowed to what this service can actually gate.
+
+    `output` is the validated top level. The `fields` and `employments` inside it have
+    been validated ENTRY BY ENTRY rather than as one tree, and the two counts say how
+    many entries the SHAPE check had to drop before a gate ever ran. They are carried
+    here rather than logged where they are found so the pipeline stays the only place
+    that writes a note — and so the drop is reported as a count, never as the entry.
+    """
+
+    output: ResumeParseOutput
+    fields_dropped: int = 0
+    employments_dropped: int = 0
 
 
 def _response(
@@ -231,6 +255,27 @@ async def parse_resume(
     if draft is None:
         return _response(stage, body.target_fields, failure_reason="parse_output_invalid")
 
+    # SHAPE DAMAGE IS PER-ENTRY, AND THIS IS WHERE IT IS COUNTED. `_read_resume_output`
+    # drops a field key or an employment row it cannot validate instead of failing the
+    # whole reply. It is reported under the SAME two notes the gates use, because from
+    # outside this service "the model sent a row we could not read" and "the row failed a
+    # gate" are one outcome — the row is not in the response, and inventing a third note
+    # would widen a closed vocabulary to describe an internal distinction. The LOG events
+    # are separate, so an operator can still tell a prompt/shape problem (fix the prompt)
+    # from a gate refusal (working as designed).
+    if draft.fields_dropped:
+        stage.notes.append("fields_rejected")
+        logger.info(
+            "resume_import.fields_unreadable",
+            extra={"extra": {"rejected": draft.fields_dropped}},
+        )
+    if draft.employments_dropped:
+        stage.notes.append("employments_rejected")
+        logger.info(
+            "resume_import.employments_unreadable",
+            extra={"extra": {"rejected": draft.employments_dropped}},
+        )
+
     # ---- 6. GATE ------------------------------------------------------------
     # THE LINES AS A TRANSCRIPT, every one `role="worker"`.
     #
@@ -250,7 +295,7 @@ async def parse_resume(
     # wall's contract honest — and makes it obvious that `employments` is NOT covered by
     # this call and needs `gate_employments` below.
     gated = parse_gates.apply_parse_gates(
-        ProfileParseOutput(fields=draft.fields),
+        ProfileParseOutput(fields=draft.output.fields),
         answer_map=[],  # No interview has happened yet — gate 4 is a no-op by construction.
         transcript=transcript,
         target_fields=body.target_fields,
@@ -291,7 +336,7 @@ async def parse_resume(
             extra={"extra": parse_gates.count_by_gate(gated.rejections)},
         )
 
-    employments, employment_rejections = gate_employments(draft.employments, transcript)
+    employments, employment_rejections = gate_employments(draft.output.employments, transcript)
     if employment_rejections:
         stage.notes.append("employments_rejected")
         logger.info(
@@ -304,7 +349,7 @@ async def parse_resume(
         body.target_fields,
         fields=certified,
         employments=employments,
-        trade_kind=draft.trade_association.kind if draft.trade_association else None,
+        trade_kind=draft.output.trade_association.kind if draft.output.trade_association else None,
     )
 
 
@@ -327,8 +372,8 @@ def _narrow_trade_kind(raw: object, allowed: list[str]) -> str | None:
     return cleaned if cleaned in allowed else None
 
 
-def _read_resume_output(content: str, trade_kinds: list[str]) -> ResumeParseOutput | None:
-    """The model's response as a contract object, or None if it is not one.
+def _read_resume_output(content: str, trade_kinds: list[str]) -> _Draft | None:
+    """The model's response as a gateable draft, or None if it is not one.
 
     Never raises and never repairs. A body this service cannot validate is a body it has
     no way to gate, and the fail-closed reading of an ungateable overlay is "there was no
@@ -336,7 +381,25 @@ def _read_resume_output(content: str, trade_kinds: list[str]) -> ResumeParseOutp
 
     `trade_association` is popped and narrowed BEFORE strict validation, so a mangled
     additive key degrades to "no judgment" instead of failing the whole parse (which
-    would discard the cited fields with it). The fields keep their existing strictness.
+    would discard the cited fields with it).
+
+    `fields` AND `employments` NOW GET THE SAME TREATMENT, ENTRY BY ENTRY — and they did
+    not when this shipped. One strict `model_validate` over the whole tree meant a single
+    malformed entry destroyed everything beside it, and a real 2-page CV produces
+    malformed entries constantly: `end_year: "Present"` for an open-ended stint,
+    `confidence: 95` for a percentage, `message_index: "4"` as a string against a strict
+    int, an omitted `evidence`, a `normalization` or `source` outside the literal. Each of
+    those returned `parse_output_invalid` ⇒ the import row failed ⇒ the processor skipped
+    the summary ⇒ the worker never got the identity turn, for one bad row out of three.
+
+    WHAT IS STILL FATAL, deliberately: a reply that is not a JSON object, a `fields` that
+    is not an object, an `employments` that is not an array, or a top level that will not
+    validate. That is not per-entry damage — it is a reply whose SHAPE this service does
+    not recognise, and it has no way to gate one of those.
+
+    THIS IS SHAPE VALIDATION AND NOTHING ELSE. Every entry that survives it goes through
+    the six gates exactly as before; nothing here certifies, resolves a citation, or
+    admits a value.
     """
     try:
         raw = json.loads(coerce_json_text(content))
@@ -348,8 +411,21 @@ def _read_resume_output(content: str, trade_kinds: list[str]) -> ResumeParseOutp
         )
         return None
     kind: str | None = None
+    fields: dict[str, ParsedField | None] | None = None
+    employments: list[ResumeEmployment] | None = None
+    fields_dropped = 0
+    employments_dropped = 0
     if isinstance(raw, dict):
         kind = _narrow_trade_kind(raw.pop("trade_association", None), trade_kinds)
+        # POPPED ONLY WHEN THE CONTAINER ITSELF IS THE RIGHT SHAPE. Anything else — a
+        # `fields` that is a list, an `employments` that is a string, either of them null
+        # — is LEFT IN `raw` on purpose, so the strict validation below still refuses the
+        # whole reply. Per-entry damage is survivable; a container that is not a container
+        # is the model having ignored the response schema.
+        if isinstance(raw.get("fields"), dict):
+            fields, fields_dropped = _narrow_fields(raw.pop("fields"))
+        if isinstance(raw.get("employments"), list):
+            employments, employments_dropped = _narrow_employments(raw.pop("employments"))
     try:
         parsed = ResumeParseOutput.model_validate(raw)
     except Exception as exc:  # noqa: BLE001 — a malformed overlay never costs the import
@@ -360,7 +436,69 @@ def _read_resume_output(content: str, trade_kinds: list[str]) -> ResumeParseOutp
         )
         return None
     parsed.trade_association = TradeAssociation(kind=kind)
-    return parsed
+    if fields is not None:
+        parsed.fields = fields
+    if employments is not None:
+        parsed.employments = employments
+    return _Draft(
+        output=parsed,
+        fields_dropped=fields_dropped,
+        employments_dropped=employments_dropped,
+    )
+
+
+def _narrow_fields(raw: dict[str, Any]) -> tuple[dict[str, ParsedField | None], int]:
+    """`fields` validated one key at a time, so a key that will not validate costs itself.
+
+    A NULL VALUE IS KEPT AS NULL, not dropped: the contract declares `ParsedField | None`
+    and `apply_parse_gates` reads a null as "I looked and found nothing citable" — an
+    honest answer, not damage, and counting it as a rejection would put a note on a clean
+    parse.
+
+    NOTHING IS REPAIRED. A `confidence` that came back as 95 is not rescaled to 0.95 and a
+    missing `evidence` is not invented — the entry is dropped whole. Repairing a citation
+    would mean recording a span nobody can point at in the document, which is the one
+    thing this design exists to make impossible.
+    """
+    kept: dict[str, ParsedField | None] = {}
+    dropped = 0
+    for field_id, value in raw.items():
+        if value is None:
+            kept[field_id] = None
+            continue
+        try:
+            kept[field_id] = ParsedField.model_validate(value)
+        except Exception:  # noqa: BLE001 — one unreadable field never costs the parse
+            # COUNTED, AND NOT EVEN BY KEY. `field_id` is model output, and a pydantic
+            # error message quotes the input it rejected — which here is a value and the
+            # résumé span cited for it. The total reaches a log line at the caller.
+            dropped += 1
+    return kept, dropped
+
+
+def _narrow_employments(raw: list[Any]) -> tuple[list[ResumeEmployment], int]:
+    """`employments` validated one row at a time — the SHAPE half of `gate_employments`.
+
+    The CV that found this had three stints, all with en-dash year ranges and one
+    open-ended: "2021 – Present". `end_year: "Present"` is not an int, and under one
+    strict validation of the whole tree that single row took the other two employments
+    and every cited field down with it.
+
+    A row that survives here has proved only that it has the right shape. It still goes
+    through every gate in `gate_employments` — provenance, role, year ordering, gate 6 —
+    completely unchanged. Dropping a row for being unreadable can only ever REMOVE a row,
+    never admit one.
+    """
+    kept: list[ResumeEmployment] = []
+    dropped = 0
+    for entry in raw:
+        try:
+            kept.append(ResumeEmployment.model_validate(entry))
+        except Exception:  # noqa: BLE001 — one unreadable row never costs the parse
+            # Counted only: a pydantic error message quotes the input it rejected, and for
+            # a row that is an employer name and the résumé line it was read from.
+            dropped += 1
+    return kept, dropped
 
 
 def gate_employments(
