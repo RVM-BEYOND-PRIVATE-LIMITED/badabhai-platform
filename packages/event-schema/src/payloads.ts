@@ -1328,6 +1328,20 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "pay_band",
   "shift",
   "needed_by",
+  // #1646/#1648 (ADDITIVE enum members, same precedent as "skills" and the ADR-0036 block
+  // above). Widening the KEY enum is backward-compatible in the only sense that matters
+  // here: every payload ever emitted still validates, no reader is told a key it has seen
+  // before means something new, and the payload still carries only WHICH field changed.
+  // These are the worker-visible card fields the create/update routes gained.
+  //
+  // `experience` is ONE key for min_experience_years + max_experience_years, exactly as
+  // `pay_band` is one key for pay_min + pay_max: the window is a single editorial act, and
+  // splitting it would let a reader infer which END of the range a payer moved.
+  "area",
+  "experience",
+  "pay_type",
+  "benefits",
+  "requirements",
 ] as const;
 
 /**
@@ -2269,6 +2283,9 @@ export const JOB_CHANGED_FIELDS = [
   "shift",
   "benefits",
   "requirements",
+  // #1648 — ADDITIVE, same precedent. The agency job gained a pay-type claim; the KEY says
+  // the poster changed what the band MEANS, never what it says.
+  "pay_type",
 ] as const;
 
 /**

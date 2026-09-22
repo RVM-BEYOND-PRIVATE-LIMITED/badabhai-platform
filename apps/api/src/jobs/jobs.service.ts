@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type { JobNeededBy, JobShift, TradeKey } from "@badabhai/db";
+import type { JobNeededBy, JobPayType, JobShift, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkerSkillsRepository } from "../match/worker-skills.repository";
@@ -65,6 +65,16 @@ export interface WorkerVisibleJob {
   area: string | null;
   pay_min: number | null;
   pay_max: number | null;
+  /**
+   * WHAT THE PAY BAND MEANS (#1648): `in_hand` | `gross` | `ctc`, or NULL.
+   *
+   * "Kitna haath me aayega" is the single most-asked question by a worker, and until now
+   * nothing in the platform stated net-vs-gross — the card printed "TAKE HOME PAY" over a
+   * band no poster had ever labelled. NULL means the poster did not state it, and the card
+   * then renders the band with NO pay-type pill. It is never defaulted and never inferred:
+   * a guessed answer to that question is worse than no answer.
+   */
+  pay_type: JobPayType | null;
   min_experience_years: number | null;
   max_experience_years: number | null;
   needed_by: JobNeededBy | null;
@@ -136,6 +146,7 @@ export class JobsService {
       area: row.area,
       pay_min: row.payMin,
       pay_max: row.payMax,
+      pay_type: row.payType,
       min_experience_years: row.minExperienceYears,
       max_experience_years: row.maxExperienceYears,
       needed_by: row.neededBy,

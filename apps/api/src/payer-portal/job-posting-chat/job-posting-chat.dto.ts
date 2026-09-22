@@ -165,13 +165,23 @@ export type PublishJobPostingChatDto = z.infer<typeof PublishJobPostingChatSchem
 /**
  * Draft fields the interview collects that the CREATE path has nowhere to put.
  *
- * `PayerCreateJobPostingSchema` accepts org_label/role_title/location_label/
- * description/vacancy_band/skills, and `job_postings` has no column for pay, shift,
- * benefits or requirements (those live on the separate `jobs` entity, ADR-0024).
- * Rather than drop them silently — or, worse, splice them into the payer's own
- * description text — they stay on the session draft (durable, resumable, auditable)
- * and are reported back BY NAME so the client can tell the payer what did not make it
- * onto the posting. KEYS only; the values are never echoed here.
+ * EMPTY IN PRACTICE SINCE #1650, AND THE LIST IS KEPT ANYWAY. The premise above was that
+ * `job_postings` had no column for pay/shift/benefits/requirements and
+ * `PayerCreateJobPostingSchema` accepted only six fields — so the most GUIDED path in the
+ * product produced the THINNEST posting: a payer answered every question and the worker
+ * card still showed no pay, no shift, no benefits and no requirements. #1645 and #1646
+ * closed both halves of that (the columns were always there; the create schema was the
+ * gap), so `publish` now maps the whole draft and this list reports nothing.
+ *
+ * THE MEMBERS STAY, and that is a contract decision rather than dead code. `unmapped_fields`
+ * is a shipped response key with two client teams reading it; narrowing the enum to
+ * nothing is not expressible in Zod and emptying the KEY would break them for no gain.
+ * They remain the honest vocabulary for "the interview collected this and the posting
+ * could not take it" — which is a state a future question-bank topic can re-enter the
+ * moment it collects something with no column, and the reporting path is then already
+ * built rather than rediscovered.
+ *
+ * KEYS only; the values are never echoed here.
  */
 export const UNMAPPED_DRAFT_FIELDS = [
   "pay_min",

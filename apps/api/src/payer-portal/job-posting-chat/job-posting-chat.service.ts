@@ -484,6 +484,26 @@ export class JobPostingChatService {
       });
     }
 
+    // THE WHOLE DRAFT, NOT SIX FIELDS OF IT (#1650). This mapped org_label, role_title,
+    // location_label, description, vacancy_band and skills — and reported pay, shift,
+    // benefits and requirements back as `unmapped_fields`. The result was that the most
+    // GUIDED posting path in the product produced the THINNEST posting: the payer answered
+    // every question the interview asked and the worker card still showed no pay band, no
+    // shift, no benefits and no requirements. The columns were always there; the create
+    // schema was the gap, and #1645/#1646 closed it.
+    //
+    // EVERY FIELD IS STILL OMITTED WHEN THE DRAFT HAS NONE rather than sent as null. The
+    // create DTO's fields are `.optional()`, not `.nullable()`, so a null would be a 400 —
+    // and "the payer never answered this" must publish a posting without the field, not a
+    // rejected publish. The empty-array guards on `benefits`/`requirements` carry the same
+    // meaning: an interview that collected no chips leaves the column NULL (honest
+    // absence), it does not store an empty list.
+    //
+    // NOT SENT, because the interview does not collect them: `area`, the experience window,
+    // `needed_by`, `pay_type` (#1648), and `match_skill_ids`. The last one matters most — a
+    // chat-published posting is a DRAFT with no match skills, so it reaches nobody until the
+    // payer picks them on the publish step. That is the existing flow, not a regression, but
+    // it is the reason this path alone does not make a posting live. See #1653.
     const candidate = {
       org_label: await this.resolveOrgLabel(payerId),
       role_title: draft.role_title ?? undefined,
@@ -494,6 +514,10 @@ export class JobPostingChatService {
       // value here to send even if the schema would accept one.
       ...(draft.vacancy_band ? { vacancy_band: draft.vacancy_band } : {}),
       ...(draft.skills.length ? { skills: draft.skills } : {}),
+      // #1650 — the five the create path used to have nowhere to put. ONE source, shared
+      // with `unmappedFields` below, so the gap report can never claim a field is mapped
+      // when this object does not carry it.
+      ...JobPostingChatService.contentFieldsFrom(draft),
     };
 
     const validated = PayerCreateJobPostingSchema.safeParse(candidate);
@@ -628,10 +652,43 @@ export class JobPostingChatService {
   }
 
   /**
-   * Which collected fields the posting cannot store (see `UNMAPPED_DRAFT_FIELDS`).
+   * THE DRAFT'S CONTENT FIELDS, in create-DTO shape — the single source `publish` spreads
+   * and `unmappedFields` measures (#1650).
+   *
+   * OMITTED, NEVER NULL. The create DTO's fields are `.optional()`, not `.nullable()`, so
+   * sending `null` for an unanswered question would 400 the publish — and "the payer never
+   * told us the shift" must produce a posting without a shift, not a refused publish. The
+   * empty-array guards carry the same meaning: an interview that collected no benefit chips
+   * leaves the column NULL (honest absence) rather than storing an empty list.
+   */
+  private static contentFieldsFrom(draft: JobPostingDraft): Record<string, unknown> {
+    return {
+      ...(draft.pay_min !== null ? { pay_min: draft.pay_min } : {}),
+      ...(draft.pay_max !== null ? { pay_max: draft.pay_max } : {}),
+      ...(draft.shift !== null ? { shift: draft.shift } : {}),
+      ...(draft.benefits.length ? { benefits: draft.benefits } : {}),
+      ...(draft.requirements.length ? { requirements: draft.requirements } : {}),
+    };
+  }
+
+  /**
+   * Which collected fields the posting could not store (see `UNMAPPED_DRAFT_FIELDS`).
+   *
+   * MEASURED AGAINST WHAT `publish` ACTUALLY SENDS, not asserted. A field is unmapped when
+   * the draft holds a value for it and `contentFieldsFrom` — the very object the create
+   * call is built from — has no key for it. That makes this report incapable of claiming a
+   * field made it onto the posting when it did not, which is the failure the old
+   * hard-coded list had: it named five fields as unmappable and went on naming them after
+   * the columns to hold them existed.
+   *
+   * It returns [] for every draft today, because all five now map. It is still computed,
+   * so a future question-bank topic whose value has no column is REPORTED rather than
+   * dropped in silence.
+   *
    * KEYS only — the values stay on the session draft and are never echoed.
    */
   private static unmappedFields(draft: JobPostingDraft): UnmappedDraftField[] {
+    const sent = JobPostingChatService.contentFieldsFrom(draft);
     const present: Record<UnmappedDraftField, boolean> = {
       pay_min: draft.pay_min !== null,
       pay_max: draft.pay_max !== null,
@@ -639,7 +696,7 @@ export class JobPostingChatService {
       benefits: draft.benefits.length > 0,
       requirements: draft.requirements.length > 0,
     };
-    return UNMAPPED_DRAFT_FIELDS.filter((f) => present[f]);
+    return UNMAPPED_DRAFT_FIELDS.filter((f) => present[f] && !(f in sent));
   }
 
   /**

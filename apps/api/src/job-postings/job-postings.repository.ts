@@ -1,6 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
-import { type Database, jobPostings, type JobPosting, type NewJobPosting } from "@badabhai/db";
+import {
+  type Database,
+  jobPostings,
+  type JobPosting,
+  type JobPayType,
+  type NewJobPosting,
+} from "@badabhai/db";
 import type { JobPostingStatus, JobPostingVerificationStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
@@ -43,9 +49,29 @@ interface JobPostingApi {
   // from a client on a write.
   match_skill_ids: string[];
   reach_skill_ids: string[];
+  /**
+   * The related skills the poster asked to DROP (#1645). Returned so the payer portal can
+   * prefill an edit with the choice that was actually stored — the RESOLVED effect of
+   * those unticks is `reach_skill_ids` above, which the server owns.
+   */
+  unticked_related_ids: string[];
   city: string | null;
+  /**
+   * The worker-visible card content (#1646). Every one of these was write-only or
+   * unwritable before this batch: the columns existed (0054/0116), the feed projected
+   * them, and NO route could set them — so they were real only for seeded rows. They are
+   * returned here so the payer app can prefill an edit instead of starting blank and
+   * overwriting what is stored.
+   */
+  area: string | null;
+  min_experience_years: number | null;
+  max_experience_years: number | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
   pay_min: number | null;
   pay_max: number | null;
+  /** What the band MEANS (#1648). NULL = the poster did not state it. Never inferred. */
+  pay_type: JobPayType | null;
   shift: string | null;
   needed_by: string | null;
   published_at: Date | null;
@@ -75,9 +101,19 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     job_domain_id: row.jobDomainId,
     match_skill_ids: Array.isArray(row.matchSkillIds) ? row.matchSkillIds : [],
     reach_skill_ids: Array.isArray(row.reachSkillIds) ? row.reachSkillIds : [],
+    unticked_related_ids: Array.isArray(row.untickedRelatedIds) ? row.untickedRelatedIds : [],
     city: row.city,
+    area: row.area,
+    min_experience_years: row.minExperienceYears,
+    max_experience_years: row.maxExperienceYears,
+    // jsonb with NO default (unlike the skill arrays) — NULL is honest absence and is
+    // preserved as NULL rather than flattened to [], so "no benefits stated" and "an
+    // empty benefits list" stay distinguishable to the client.
+    benefits: row.benefits,
+    requirements: row.requirements,
     pay_min: row.payMin,
     pay_max: row.payMax,
+    pay_type: row.payType,
     shift: row.shift,
     needed_by: row.neededBy,
     published_at: row.publishedAt,
@@ -116,6 +152,20 @@ export type JobPostingUpdate = Partial<
     | "payMax"
     | "shift"
     | "neededBy"
+    // ── #1645 / #1646 / #1648 ─────────────────────────────────────────────────
+    // `untickedRelatedIds` IS patchable here and `matchSkillIds`/`reachSkillIds` still
+    // are not, which is the distinction that matters: the unticks are the poster's raw
+    // REQUEST (safe to store verbatim — `resolveReachSet` decides which of them are
+    // honoured), while the two skill sets are the RESOLVED result that only
+    // `PublishReachService` may write. Letting a generic PATCH set those would be the
+    // exact hole Policy 10 closes.
+    | "untickedRelatedIds"
+    | "area"
+    | "minExperienceYears"
+    | "maxExperienceYears"
+    | "benefits"
+    | "requirements"
+    | "payType"
   >
 > & { updatedAt: Date };
 

@@ -216,10 +216,13 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `POST /payer/job-postings`
 - **Auth:** `PayerAuthGuard` (Bearer). Role: employer (primary); session-scoped.
-- **Body:** `{ org_label: string, role_title: string (1–200), location_label?: string, description?: string (1–2000, PII-screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
-- **Response:** `{ id, payerId, createdBy, orgLabel, roleTitle, locationLabel, description, vacancyBand, status: 'draft', createdAt, updatedAt, closedAt: null }`.
+- **Body:** `{ org_label: string, role_title: string (1–200), location_label?: string, description?: string (1–2000, PII-screened), vacancy_band?: '1'|'2-5'|'6-10'|'11-25'|'25+' | vacancies?: positive int, city?: string (1–80), area?: string (1–120), pay_min?: int, pay_max?: int, pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int, max_experience_years?: int, shift?: 'day'|'night'|'rotational', needed_by?: 'immediate'|'soon'|'flexible', benefits?: string[] (≤12 × ≤80 chars, PII-screened), requirements?: string[] (same caps), match_skill_ids?: 'mskill_*'[], unticked_related_ids?: 'mskill_*'[] }` — **exactly one** of `vacancy_band` / `vacancies`. No `payer_id`/`created_by` (session-stamped).
+- **Response:** the full posting row, including `city`, `area`, `payMin`, `payMax`, `payType`, `minExperienceYears`, `maxExperienceYears`, `shift`, `neededBy`, `benefits`, `requirements`, `matchSkillIds`, `reachSkillIds`, `untickedRelatedIds`, `status: 'draft'`, `createdAt`, `updatedAt`, `closedAt: null`.
 - **Events:** `job_posting.created` (actor `payer`; payload keys only — `vacancy_band`, `status`, `has_location`, `has_description`).
 - **Mobile gotchas:** Send `vacancies` as a **raw integer**; the backend derives the band. `org_label` is the session org (the web portal resolves it from `GET /payer/me`); never collect raw company PII. Free-through-launch — **no price/quota in the body**. `201`.
+- **#1645 (2026-09-22) — the create used to accept only the first six keys and answer `201` anyway.** Everything else was stripped silently by Zod. Because `match_skill_ids` was among the dropped fields the row's reach set stayed empty, publish skipped materialization, `job_reach` got no rows, and **the posting reached no worker at all** while the company saw a success state. The payer app worked around it with an immediate follow-up `PATCH`; **that workaround can now be deleted.**
+- `pay_type` (#1648) states what the ₹ band MEANS. **Omit it rather than guess** — `NULL` renders the band with no pay-type pill, and there is no server-side default.
+- `unticked_related_ids` is now **persisted on the draft** (migration 0121), so unticks chosen on the create form survive to publish. `reach_skill_ids` remains server-resolved and is never accepted from a client (Policy 10).
 
 #### `GET /payer/job-postings`
 - **Auth:** `PayerAuthGuard` (Bearer).
@@ -233,9 +236,10 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 
 #### `PATCH /payer/job-postings/:id`
 - **Auth:** `PayerAuthGuard` (Bearer).
-- **Body:** `{ role_title?, location_label?, description?, vacancy_band? | vacancies?, status?: 'open' }` — at least one field; `status` may only be `'open'` (publish draft→open). No `org_label`/`payer_id`.
+- **Body:** every field `POST` accepts (see above), all optional, plus `status?: 'open'` — at least one field; `status` may only be `'open'` (publish draft→open). No `org_label`/`payer_id`.
 - **Response:** updated posting row.
-- **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys).
+- **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys). Keys added 2026-09-22: `area`, `experience` (ONE key for both ends of the window, as `pay_band` is one key for `pay_min`+`pay_max`), `pay_type`, `benefits`, `requirements`. Additive enum widening — every shipped payload still validates, no version bump.
+- **Ordering is re-checked against the STORED row**, so a one-sided edit (`pay_max` alone) that would invert the band or the experience window is a `400`.
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
 
 #### `POST /payer/job-postings/:id/close`
@@ -345,10 +349,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 > All `/payer/agency/*` routes require `PayerAuthGuard` **+ `PayerRoleGuard` role=`agent`**. A non-agent gets `403` (or no-oracle `404`). `payer_id` is session-derived; never in body. Responses are faceless camelCase views with **no `payer_id`**.
 
 #### `POST /payer/agency/jobs`
-- **Body:** `{ trade_key: enum, title: string (1–200, no PII), city: string (1–120), area?: string (1–120), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible' }`.
-- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, minExperienceYears, maxExperienceYears, neededBy, applicantsReceived, createdAt, updatedAt }`.
+- **Body:** `{ trade_key: enum, title: string (1–200, no PII), city: string (1–120), area?: string (1–120), pay_min?: int (0–10M), pay_max?: int (0–10M, ≥pay_min), pay_type?: 'in_hand'|'gross'|'ctc', min_experience_years?: int (0–60), max_experience_years?: int (0–60, ≥min_exp), needed_by?: 'immediate'|'soon'|'flexible', description?: string (1–2000, PII-screened), shift?: 'day'|'night'|'rotational', benefits?: string[] (≤12 × ≤80, PII-screened), requirements?: string[] (same caps) }`.
+- **Response:** `AgencyJobView { id, status: 'open', tradeKey, title, city, area, payMin, payMax, payType, minExperienceYears, maxExperienceYears, neededBy, description, shift, benefits, requirements, applicantsReceived, createdAt, updatedAt }`.
 - **Events:** `job.created` (PII-free: opaque IDs + coarse bands).
 - **Mobile gotchas:** Starts `open` (no draft). Pay is whole INR (no paise). `201`.
+- **#1647 (2026-09-22) — `description`, `shift`, `benefits` and `requirements` are now RETURNED.** They were accepted and stored by `POST`/`PATCH` and projected by nothing, so a payer could not see what they had posted and the edit screen had to start those inputs empty with an overwrite warning. **That warning can now be removed** — the view prefills.
+- `pay_type` (#1648) states what the ₹ band means; omit it rather than guess. `NULL` renders no pay-type pill.
 
 #### `GET /payer/agency/jobs`
 - **Response:** `AgencyJobView[]`, newest-first. No pagination.
