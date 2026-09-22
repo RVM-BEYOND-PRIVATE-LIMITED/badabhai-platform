@@ -17,12 +17,14 @@ import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import { MatchSkillsService } from "../match/match-skills.service";
+import { clearedSet } from "../common/clearable-fields";
 import {
   JobPostingsRepository,
   type JobPostingApi,
   type JobPostingUpdate,
 } from "./job-postings.repository";
 import type {
+  ClearablePostingField,
   CreateJobPostingDto,
   ListJobPostingsQueryDto,
   PayerCreateJobPostingDto,
@@ -701,6 +703,33 @@ export class JobPostingsService {
     const patch: JobPostingUpdate = { updatedAt: new Date() };
     const changedFields: PreparedUpdate["changedFields"] = [];
 
+    // #1652 — which fields this request asked to UNSET. A cleared field takes the `null`
+    // arm below instead of the value arm; the DTO has already rejected any name that is
+    // both set and cleared, so the two arms can never both fire for one field.
+    const cleared = clearedSet(dto.clear);
+
+    /**
+     * Apply ONE nullable column from either arm, and report the change key.
+     *
+     * `next` is computed as: cleared -> null, supplied -> the value, neither -> leave it
+     * alone. The comparison against `currentValue` is what keeps a no-op a no-op —
+     * clearing a field that is ALREADY null is not a change, so it does not write, does
+     * not event, and does not on its own rescue a request from "no effective changes".
+     */
+    const applyNullable = <K extends keyof JobPostingUpdate>(
+      name: ClearablePostingField,
+      patchKey: K,
+      supplied: JobPostingUpdate[K] | undefined,
+      currentValue: JobPostingUpdate[K] | null,
+      changedKey: PreparedUpdate["changedFields"][number],
+    ): boolean => {
+      const next = cleared.has(name) ? (null as JobPostingUpdate[K]) : supplied;
+      if (next === undefined || next === currentValue) return false;
+      patch[patchKey] = next;
+      if (!changedFields.includes(changedKey)) changedFields.push(changedKey);
+      return true;
+    };
+
     if (dto.org_label !== undefined && dto.org_label !== current.org_label) {
       patch.orgLabel = dto.org_label;
       changedFields.push("org_label");
@@ -709,14 +738,8 @@ export class JobPostingsService {
       patch.roleTitle = dto.role_title;
       changedFields.push("role_title");
     }
-    if (dto.location_label !== undefined && dto.location_label !== current.location_label) {
-      patch.locationLabel = dto.location_label;
-      changedFields.push("location_label");
-    }
-    if (dto.description !== undefined && dto.description !== current.description) {
-      patch.description = dto.description;
-      changedFields.push("description");
-    }
+    applyNullable("location_label", "locationLabel", dto.location_label, current.location_label, "location_label");
+    applyNullable("description", "description", dto.description, current.description, "description");
 
     // Resolve the requested band from EITHER the raw `vacancies` count (intake only —
     // derived then discarded, never stored/evented) OR the pre-chosen band.
@@ -752,59 +775,48 @@ export class JobPostingsService {
     // `match_skill_ids` / `unticked_related_ids` are DELIBERATELY not patched here:
     // they go through `PublishReachService`, which resolves the reach set server-side.
     // Their presence is only RECORDED on the changed-field list.
-    if (dto.city !== undefined && dto.city !== current.city) {
-      patch.city = dto.city;
-      changedFields.push("city");
-    }
-    if (
-      (dto.pay_min !== undefined && dto.pay_min !== current.pay_min) ||
-      (dto.pay_max !== undefined && dto.pay_max !== current.pay_max)
-    ) {
-      if (dto.pay_min !== undefined) patch.payMin = dto.pay_min;
-      if (dto.pay_max !== undefined) patch.payMax = dto.pay_max;
-      changedFields.push("pay_band");
-    }
-    if (dto.shift !== undefined && dto.shift !== current.shift) {
-      patch.shift = dto.shift;
-      changedFields.push("shift");
-    }
-    if (dto.needed_by !== undefined && dto.needed_by !== current.needed_by) {
-      patch.neededBy = dto.needed_by;
-      changedFields.push("needed_by");
-    }
+    applyNullable("city", "city", dto.city, current.city, "city");
+    // ONE key for the band, so a reader cannot infer WHICH end moved. Both ends route
+    // through the helper independently, which is what makes "clear only pay_min and keep
+    // pay_max" expressible — a legal one-sided band the card already renders.
+    applyNullable("pay_min", "payMin", dto.pay_min, current.pay_min, "pay_band");
+    applyNullable("pay_max", "payMax", dto.pay_max, current.pay_max, "pay_band");
+    applyNullable("shift", "shift", dto.shift, current.shift, "shift");
+    applyNullable("needed_by", "neededBy", dto.needed_by, current.needed_by, "needed_by");
 
     // ── The worker-visible card content (#1646 / #1648) ───────────────────────
     // Same keys-only discipline as everything above: the changed-field list records
     // WHICH field moved, never the screened free text that moved into it.
-    if (dto.area !== undefined && dto.area !== current.area) {
-      patch.area = dto.area;
-      changedFields.push("area");
-    }
-    if (dto.pay_type !== undefined && dto.pay_type !== current.pay_type) {
-      patch.payType = dto.pay_type;
-      changedFields.push("pay_type");
-    }
-    // ONE key for the whole window, mirroring `pay_band` for pay_min+pay_max: the window
-    // is a single editorial act and splitting it would tell a reader which END moved.
-    if (
-      (dto.min_experience_years !== undefined &&
-        dto.min_experience_years !== current.min_experience_years) ||
-      (dto.max_experience_years !== undefined &&
-        dto.max_experience_years !== current.max_experience_years)
-    ) {
-      if (dto.min_experience_years !== undefined) {
-        patch.minExperienceYears = dto.min_experience_years;
+    applyNullable("area", "area", dto.area, current.area, "area");
+    applyNullable("pay_type", "payType", dto.pay_type, current.pay_type, "pay_type");
+    // ONE key for the whole window, mirroring `pay_band`: the window is a single editorial
+    // act and splitting it would tell a reader which END moved. Each end still routes
+    // independently, so half the window can be cleared.
+    applyNullable("min_experience_years", "minExperienceYears", dto.min_experience_years, current.min_experience_years, "experience");
+    applyNullable("max_experience_years", "maxExperienceYears", dto.max_experience_years, current.max_experience_years, "experience");
+
+    // The two jsonb lists are compared as LISTS, not by identity, so they cannot use the
+    // scalar helper. #1652: clearing one stores NULL ("never stated"), which is a DIFFERENT
+    // value from the `[]` the payer app already sends ("stated: none") — both columns have
+    // no DB default precisely so that distinction survives.
+    if (cleared.has("benefits")) {
+      if (current.benefits !== null) {
+        patch.benefits = null;
+        changedFields.push("benefits");
       }
-      if (dto.max_experience_years !== undefined) {
-        patch.maxExperienceYears = dto.max_experience_years;
-      }
-      changedFields.push("experience");
-    }
-    if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
+    } else if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
       patch.benefits = [...dto.benefits];
       changedFields.push("benefits");
     }
-    if (dto.requirements !== undefined && !sameStringList(dto.requirements, current.requirements)) {
+    if (cleared.has("requirements")) {
+      if (current.requirements !== null) {
+        patch.requirements = null;
+        changedFields.push("requirements");
+      }
+    } else if (
+      dto.requirements !== undefined &&
+      !sameStringList(dto.requirements, current.requirements)
+    ) {
       patch.requirements = [...dto.requirements];
       changedFields.push("requirements");
     }
@@ -848,13 +860,25 @@ export class JobPostingsService {
     // compare two values that arrived TOGETHER; a one-sided edit (`pay_max` alone) has to
     // be checked against what is stored, and this is the only place that can see it.
     // Mirrors `AgencyService.updateJob`, which has had this check since ADR-0022.
-    const nextPayMin = patch.payMin ?? current.pay_min;
-    const nextPayMax = patch.payMax ?? current.pay_max;
+    //
+    // `in patch` AND NOT `??` — this is the bug #1652 would otherwise have introduced.
+    // A CLEARED field sits in the patch as an explicit `null`, and `patch.payMin ??
+    // current.pay_min` treats that null as "not supplied" and falls through to the STORED
+    // value. The check would then validate the row the payer is erasing rather than the
+    // row they are creating, and "clear pay_min, keep pay_max" — the exact one-sided band
+    // the issue asks for — would be judged against a pay_min that is about to disappear.
+    const resulting = <K extends keyof JobPostingUpdate>(
+      key: K,
+      stored: number | null,
+    ): number | null => (key in patch ? ((patch[key] ?? null) as number | null) : stored);
+
+    const nextPayMin = resulting("payMin", current.pay_min);
+    const nextPayMax = resulting("payMax", current.pay_max);
     if (nextPayMin != null && nextPayMax != null && nextPayMax < nextPayMin) {
       throw new BadRequestException("pay_max must be >= pay_min");
     }
-    const nextExpMin = patch.minExperienceYears ?? current.min_experience_years;
-    const nextExpMax = patch.maxExperienceYears ?? current.max_experience_years;
+    const nextExpMin = resulting("minExperienceYears", current.min_experience_years);
+    const nextExpMax = resulting("maxExperienceYears", current.max_experience_years);
     if (nextExpMin != null && nextExpMax != null && nextExpMax < nextExpMin) {
       throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }

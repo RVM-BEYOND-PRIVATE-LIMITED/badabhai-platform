@@ -21,7 +21,13 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { readOwnedById, assertOwnedRows } from "../payers/payer-scope";
 import { AgencyJobsRepository, type AgencyJobUpdate } from "./agency-jobs.repository";
 import { AgencyInvitesRepository, type AgencyInviteStageCounts } from "./agency-invites.repository";
-import type { CreateAgencyJobDto, InviteContextDto, UpdateAgencyJobDto } from "./agency.dto";
+import type {
+  ClearableAgencyJobField,
+  CreateAgencyJobDto,
+  InviteContextDto,
+  UpdateAgencyJobDto,
+} from "./agency.dto";
+import { clearedSet } from "../common/clearable-fields";
 
 /** Faceless projection of an owned job — ids / status / counts / coarse bands ONLY. */
 export interface AgencyJobView {
@@ -259,6 +265,24 @@ export class AgencyService {
     const patch: AgencyJobUpdate = { updatedAt: new Date() };
     const changedFields: PayloadInputOf<"job.updated">["changed_fields"] = [];
 
+    // #1652 — which fields this request asked to UNSET. The DTO has already rejected any
+    // name that is both set and cleared, so the two arms below can never both fire.
+    const cleared = clearedSet(dto.clear);
+
+    /** Apply ONE nullable column from either arm. Clearing an already-null field is a no-op. */
+    const applyNullable = <K extends keyof AgencyJobUpdate>(
+      name: ClearableAgencyJobField,
+      patchKey: K,
+      supplied: AgencyJobUpdate[K] | undefined,
+      currentValue: AgencyJobUpdate[K] | null,
+      changedKey: PayloadInputOf<"job.updated">["changed_fields"][number],
+    ): void => {
+      const next = cleared.has(name) ? (null as AgencyJobUpdate[K]) : supplied;
+      if (next === undefined || next === currentValue) return;
+      patch[patchKey] = next;
+      if (!changedFields.includes(changedKey)) changedFields.push(changedKey);
+    };
+
     if (dto.trade_key !== undefined && dto.trade_key !== current.tradeKey) {
       patch.tradeKey = dto.trade_key;
       changedFields.push("trade_key");
@@ -271,56 +295,61 @@ export class AgencyService {
       patch.city = dto.city;
       changedFields.push("city");
     }
-    if (dto.area !== undefined && dto.area !== current.area) {
-      patch.area = dto.area;
-      changedFields.push("area");
-    }
-    if (dto.pay_min !== undefined && dto.pay_min !== current.payMin) {
-      patch.payMin = dto.pay_min;
-      changedFields.push("pay_min");
-    }
-    if (dto.pay_max !== undefined && dto.pay_max !== current.payMax) {
-      patch.payMax = dto.pay_max;
-      changedFields.push("pay_max");
-    }
-    if (
-      dto.min_experience_years !== undefined &&
-      dto.min_experience_years !== current.minExperienceYears
-    ) {
-      patch.minExperienceYears = dto.min_experience_years;
-      changedFields.push("min_experience_years");
-    }
-    if (
-      dto.max_experience_years !== undefined &&
-      dto.max_experience_years !== current.maxExperienceYears
-    ) {
-      patch.maxExperienceYears = dto.max_experience_years;
-      changedFields.push("max_experience_years");
-    }
-    if (dto.needed_by !== undefined && dto.needed_by !== current.neededBy) {
-      patch.neededBy = dto.needed_by;
-      changedFields.push("needed_by");
-    }
+    applyNullable("area", "area", dto.area, current.area, "area");
+    // The agency contract keeps SEPARATE keys per end (unlike `job_postings`, which folds
+    // both into `pay_band`/`experience`). That is the shipped shape here and widening it is
+    // not this issue's job; each end still clears independently.
+    applyNullable("pay_min", "payMin", dto.pay_min, current.payMin, "pay_min");
+    applyNullable("pay_max", "payMax", dto.pay_max, current.payMax, "pay_max");
+    applyNullable(
+      "min_experience_years",
+      "minExperienceYears",
+      dto.min_experience_years,
+      current.minExperienceYears,
+      "min_experience_years",
+    );
+    applyNullable(
+      "max_experience_years",
+      "maxExperienceYears",
+      dto.max_experience_years,
+      current.maxExperienceYears,
+      "max_experience_years",
+    );
+    applyNullable("needed_by", "neededBy", dto.needed_by, current.neededBy, "needed_by");
     // #1648 — the KEY says the poster changed what the band MEANS, never what it says.
-    if (dto.pay_type !== undefined && dto.pay_type !== current.payType) {
-      patch.payType = dto.pay_type;
-      changedFields.push("pay_type");
-    }
+    applyNullable("pay_type", "payType", dto.pay_type, current.payType, "pay_type");
     // Worker-visible content (ADR-0024 final addendum). changed_fields carries the
     // KEYS only — the screened free text itself NEVER enters the event payload.
-    if (dto.description !== undefined && dto.description !== current.description) {
-      patch.description = dto.description;
-      changedFields.push("description");
-    }
-    if (dto.shift !== undefined && dto.shift !== current.shift) {
-      patch.shift = dto.shift;
-      changedFields.push("shift");
-    }
-    if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
+    applyNullable(
+      "description",
+      "description",
+      dto.description,
+      current.description,
+      "description",
+    );
+    applyNullable("shift", "shift", dto.shift, current.shift, "shift");
+
+    // The two jsonb lists compare as LISTS, so they cannot use the scalar helper. Clearing
+    // one stores NULL ("never stated"), a DIFFERENT value from the `[]` the payer app
+    // already sends ("stated: none").
+    if (cleared.has("benefits")) {
+      if (current.benefits !== null) {
+        patch.benefits = null;
+        changedFields.push("benefits");
+      }
+    } else if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
       patch.benefits = dto.benefits;
       changedFields.push("benefits");
     }
-    if (dto.requirements !== undefined && !sameStringList(dto.requirements, current.requirements)) {
+    if (cleared.has("requirements")) {
+      if (current.requirements !== null) {
+        patch.requirements = null;
+        changedFields.push("requirements");
+      }
+    } else if (
+      dto.requirements !== undefined &&
+      !sameStringList(dto.requirements, current.requirements)
+    ) {
       patch.requirements = dto.requirements;
       changedFields.push("requirements");
     }
@@ -330,13 +359,24 @@ export class AgencyService {
     }
 
     // Cross-field ordering check against the RESULTING row (handles one-sided edits).
-    const nextPayMin = patch.payMin ?? current.payMin;
-    const nextPayMax = patch.payMax ?? current.payMax;
+    //
+    // `in patch` AND NOT `??` (#1652). A CLEARED field sits in the patch as an explicit
+    // `null`, and `patch.payMin ?? current.payMin` reads that null as "not supplied" and
+    // falls through to the STORED value — validating the row the payer is ERASING instead
+    // of the row they are creating. "Clear pay_min, keep pay_max" would then be judged
+    // against a pay_min that is about to disappear.
+    const resulting = <K extends keyof AgencyJobUpdate>(
+      key: K,
+      stored: number | null,
+    ): number | null => (key in patch ? ((patch[key] ?? null) as number | null) : stored);
+
+    const nextPayMin = resulting("payMin", current.payMin);
+    const nextPayMax = resulting("payMax", current.payMax);
     if (nextPayMin != null && nextPayMax != null && nextPayMax < nextPayMin) {
       throw new BadRequestException("pay_max must be >= pay_min");
     }
-    const nextExpMin = patch.minExperienceYears ?? current.minExperienceYears;
-    const nextExpMax = patch.maxExperienceYears ?? current.maxExperienceYears;
+    const nextExpMin = resulting("minExperienceYears", current.minExperienceYears);
+    const nextExpMax = resulting("maxExperienceYears", current.maxExperienceYears);
     if (nextExpMin != null && nextExpMax != null && nextExpMax < nextExpMin) {
       throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }

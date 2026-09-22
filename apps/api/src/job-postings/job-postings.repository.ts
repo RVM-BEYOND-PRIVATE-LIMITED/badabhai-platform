@@ -4,7 +4,9 @@ import {
   type Database,
   jobPostings,
   type JobPosting,
+  type JobNeededBy,
   type JobPayType,
+  type JobShift,
   type NewJobPosting,
 } from "@badabhai/db";
 import type { JobPostingStatus, JobPostingVerificationStatus } from "@badabhai/types";
@@ -72,8 +74,12 @@ interface JobPostingApi {
   pay_max: number | null;
   /** What the band MEANS (#1648). NULL = the poster did not state it. Never inferred. */
   pay_type: JobPayType | null;
-  shift: string | null;
-  needed_by: string | null;
+  // TYPED AS THE REAL ENUMS, not `string` (#1652). The column already carries
+  // `$type<JobShift>()`/`$type<JobNeededBy>()`; widening them to `string` on the way out
+  // meant the clear path could hand a plain string back into a patch that wants the enum,
+  // and tsc could not tell. The projection now says what the column says.
+  shift: JobShift | null;
+  needed_by: JobNeededBy | null;
   published_at: Date | null;
   /** Boost window end. Null = not boosted. A time, so a boost expires with no sweep. */
   boosted_until: Date | null;

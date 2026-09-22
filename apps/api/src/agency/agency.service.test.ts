@@ -739,3 +739,96 @@ describe("#1647 — the agency job view returns the content it accepts", () => {
     expect(JSON.stringify(view)).not.toContain(PAYER_A);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// #1652 — the agency contract had the same value-or-absent shape, so an agency job's
+// pay band, shift or description could be overwritten but never removed.
+// ---------------------------------------------------------------------------
+describe("#1652 — clearing an agency job field", () => {
+  const POPULATED = {
+    area: "Pimpri-Chinchwad",
+    payMin: 18000,
+    payMax: 25000,
+    payType: "in_hand" as const,
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    neededBy: "immediate" as const,
+    description: "Machining shop floor role on the day line.",
+    shift: "night" as const,
+    benefits: ["PF + ESI"],
+    requirements: ["Fanuc control"],
+  };
+
+  it("writes NULL for every cleared field", async () => {
+    const { svc, jobsRepo } = make({ ownedJob: jobRow(POPULATED) });
+    await svc.updateJob(
+      PAYER_A,
+      JOB_ID,
+      { clear: ["shift", "description", "pay_type", "needed_by"] } as never,
+      CTX,
+    );
+    expect(jobsRepo.updateOwned.mock.calls[0]![2]).toMatchObject({
+      shift: null,
+      description: null,
+      payType: null,
+      neededBy: null,
+    });
+  });
+
+  it("VACUITY GUARD: those fields were genuinely set beforehand", () => {
+    expect(POPULATED.shift).not.toBeNull();
+    expect(POPULATED.description).not.toBeNull();
+    expect(POPULATED.payType).not.toBeNull();
+    expect(POPULATED.neededBy).not.toBeNull();
+  });
+
+  it("reports cleared fields as changed KEYS, never values", async () => {
+    const { svc, emit } = make({ ownedJob: jobRow(POPULATED) });
+    await svc.updateJob(PAYER_A, JOB_ID, { clear: ["area", "shift"] } as never, CTX);
+    const payload = firstEmit(emit).payload;
+    expect([...(payload.changed_fields as string[])].sort()).toEqual(["area", "shift"].sort());
+    assertNoPiiStrings(payload);
+  });
+
+  it("clearing pay_min while SETTING a lower pay_max is legal", async () => {
+    // Stored band 18000-25000. Under the pre-#1652 `??` check the cleared null fell
+    // through to 18000 and this was rejected — the check validated the row being ERASED.
+    const { svc, jobsRepo } = make({ ownedJob: jobRow(POPULATED) });
+    await svc.updateJob(PAYER_A, JOB_ID, { pay_max: 9000, clear: ["pay_min"] } as never, CTX);
+    expect(jobsRepo.updateOwned.mock.calls[0]![2]).toMatchObject({ payMin: null, payMax: 9000 });
+  });
+
+  it("still rejects an inverted band it did NOT clear", async () => {
+    const { svc, jobsRepo } = make({ ownedJob: jobRow(POPULATED) });
+    await expect(
+      svc.updateJob(PAYER_A, JOB_ID, { pay_max: 9000 } as never, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsRepo.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("clearing an already-null field is not a change", async () => {
+    const { svc, jobsRepo } = make({ ownedJob: jobRow() }); // shift null in the fixture
+    await expect(
+      svc.updateJob(PAYER_A, JOB_ID, { clear: ["shift"] } as never, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsRepo.updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("CANNOT clear a NOT NULL column — city/title/trade_key have no name in the set", () => {
+    // The safety property of the closed list. `jobs.city` is NOT NULL, so "city" is absent
+    // from the agency set — even though `job_postings.city` IS nullable and its own set
+    // DOES include it. Same word, different table, different answer.
+    for (const name of ["city", "title", "trade_key", "status"]) {
+      expect(UpdateAgencyJobSchema.safeParse({ clear: [name] }).success, name).toBe(false);
+    }
+    // …and a genuinely nullable one is accepted, so the loop above is not vacuous.
+    expect(UpdateAgencyJobSchema.safeParse({ clear: ["area"] }).success).toBe(true);
+  });
+
+  it("rejects a field that is both SET and CLEARED", () => {
+    const r = UpdateAgencyJobSchema.safeParse({ shift: "day", clear: ["shift"] });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r.error?.issues)).toContain("both set and cleared");
+  });
+});

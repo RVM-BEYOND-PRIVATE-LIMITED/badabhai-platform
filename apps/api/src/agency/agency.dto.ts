@@ -6,6 +6,7 @@ import {
   looksLikeOrgName,
   looksLikeUrl,
 } from "@badabhai/validators";
+import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
 import {
   areaSchema,
   benefitsSchema,
@@ -137,6 +138,31 @@ export const CreateAgencyJobSchema = z
 export type CreateAgencyJobDto = z.infer<typeof CreateAgencyJobSchema>;
 
 /**
+ * THE AGENCY JOB FIELDS A PATCH MAY UNSET (#1652).
+ *
+ * SHORTER THAN THE POSTING LIST BY EXACTLY THREE NAMES, and the difference is not an
+ * oversight: `jobs.trade_key`, `jobs.title` and `jobs.city` are **NOT NULL**, so they have
+ * no name here and `clear` can never reach them. `job_postings.city` IS nullable and its
+ * own list does include `city` — the same word, a different table, a different answer.
+ * That is the whole reason each contract passes its own closed set rather than sharing one.
+ */
+const CLEARABLE_AGENCY_JOB_FIELDS = [
+  "area",
+  "pay_min",
+  "pay_max",
+  "pay_type",
+  "min_experience_years",
+  "max_experience_years",
+  "needed_by",
+  "description",
+  "shift",
+  "benefits",
+  "requirements",
+] as const;
+export type ClearableAgencyJobField = (typeof CLEARABLE_AGENCY_JOB_FIELDS)[number];
+export { CLEARABLE_AGENCY_JOB_FIELDS };
+
+/**
  * Edit an OWNED job. All fields optional; at least one must be present. `status` is NOT
  * editable here (close/pause are dedicated endpoints). Pay/experience ordering is checked
  * only when BOTH ends of a range are supplied in the same patch (a one-sided edit is
@@ -159,9 +185,16 @@ export const UpdateAgencyJobSchema = z
     shift: shift.optional(),
     benefits: benefits.optional(),
     requirements: requirements.optional(),
+    // #1652 — the fields a payer may UNSET. See `clearFieldSchema`.
+    clear: clearFieldSchema(CLEARABLE_AGENCY_JOB_FIELDS),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",
+  })
+  // SET and CLEAR of the same field is a client bug, not a precedence puzzle.
+  .refine((o) => contradictoryClears(o as Record<string, unknown>, o.clear).length === 0, {
+    message: "a field cannot be both set and cleared in one request",
+    path: ["clear"],
   })
   .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
   .refine(experienceWindowOrdered, {

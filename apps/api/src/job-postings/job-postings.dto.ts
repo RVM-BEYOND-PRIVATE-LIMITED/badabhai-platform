@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { uuidSchema, looksLikePii } from "@badabhai/validators";
 import { VACANCY_BANDS } from "@badabhai/types";
+import { clearFieldSchema, contradictoryClears } from "../common/clearable-fields";
 import {
   areaSchema,
   benefitsSchema,
@@ -138,6 +139,44 @@ const matchSkillFields = {
   unticked_related_ids: z.array(matchSkillId).max(200).optional(),
 } as const;
 
+/**
+ * THE POSTING FIELDS A PATCH MAY UNSET (#1652).
+ *
+ * EVERY NAME HERE IS A NULLABLE COLUMN on `job_postings`, and that is the whole safety
+ * property: `clear` can never reach a NOT NULL column because a NOT NULL column has no name
+ * in this list. Note `city` IS here — `job_postings.city` is nullable — while the agency
+ * contract's own list deliberately omits it, because `jobs.city` is NOT NULL. Same word,
+ * different table, different answer.
+ *
+ * `benefits` / `requirements` are included even though an explicit `[]` already "clears"
+ * them, because the two are NOT the same value: `[]` is "the poster stated no benefits" and
+ * NULL is "the poster never said". Both jsonb columns have no DB default precisely so that
+ * distinction survives, and the client renders them differently.
+ *
+ * DELIBERATELY ABSENT: `org_label`, `role_title`, `vacancy_band` and `status` (NOT NULL — a
+ * posting with no role or no vacancy band is not a posting), and `match_skill_ids` /
+ * `reach_skill_ids` / `unticked_related_ids`. The skill sets are NOT NULL `[]`-defaulted and
+ * the reach set is server-resolved: emptying the posted skills is expressible as a normal
+ * edit, and letting `clear` touch the RESOLVED set would be the Policy 10 hole again.
+ */
+const CLEARABLE_POSTING_FIELDS = [
+  "location_label",
+  "description",
+  "city",
+  "area",
+  "pay_min",
+  "pay_max",
+  "pay_type",
+  "min_experience_years",
+  "max_experience_years",
+  "shift",
+  "needed_by",
+  "benefits",
+  "requirements",
+] as const;
+export type ClearablePostingField = (typeof CLEARABLE_POSTING_FIELDS)[number];
+export { CLEARABLE_POSTING_FIELDS };
+
 export const CreateJobPostingSchema = z
   .object({
     created_by: uuidSchema,
@@ -225,9 +264,21 @@ export const UpdateJobPostingSchema = z
     // create and update paths IS the bug this batch closes.
     ...postingContentFields,
     ...matchSkillFields,
+
+    // #1652 — the fields a payer may UNSET. See `clearFieldSchema` for why this is a list
+    // rather than an accepted `null`, and why a body that both sets and clears the same
+    // field is a 400 rather than a precedence rule.
+    clear: clearFieldSchema(CLEARABLE_POSTING_FIELDS),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",
+  })
+  // #1652 — SET and CLEAR of the same field is a client bug, not a precedence puzzle.
+  // Resolving it with a rule would mean one of the two things the payer asked for silently
+  // did not happen; the 400 names the FIELD, never the value.
+  .refine((o) => contradictoryClears(o as Record<string, unknown>, o.clear).length === 0, {
+    message: "a field cannot be both set and cleared in one request",
+    path: ["clear"],
   })
   .refine((o) => !(o.vacancy_band !== undefined && o.vacancies !== undefined), {
     message: "provide at most one of vacancy_band or vacancies",

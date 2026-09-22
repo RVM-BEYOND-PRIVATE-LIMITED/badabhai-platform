@@ -240,6 +240,12 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Response:** updated posting row.
 - **Events:** `job_posting.updated` (changed-field **keys** only; publish surfaces as `status` in keys). Keys added 2026-09-22: `area`, `experience` (ONE key for both ends of the window, as `pay_band` is one key for `pay_min`+`pay_max`), `pay_type`, `benefits`, `requirements`. Additive enum widening — every shipped payload still validates, no version bump.
 - **Ordering is re-checked against the STORED row**, so a one-sided edit (`pay_max` alone) that would invert the band or the experience window is a `400`.
+- **#1652 (2026-09-22) — `clear: [...]` unsets a field.** The contract used to be value-or-absent, so a payer could overwrite a wrong pay band or shift but never REMOVE it, and the stale wage stayed on the worker card. Send `{ "clear": ["pay_min", "shift"] }` to store NULL. Clearable: `location_label`, `description`, `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`.
+  - **A field that is both set and cleared is a `400`**, naming the field — not a precedence rule. Resolving it silently would mean one of the two things you asked for did not happen.
+  - **Clearing one end of a band is legal** (`clear: ["pay_min"]` keeps `pay_max`). The ordering re-check runs against the RESULT, so it does not compare against the value you are erasing.
+  - **`clear: ["benefits"]` stores NULL, `benefits: []` stores an empty list.** Different values: "never stated" vs "stated: none". The client renders them differently.
+  - Clearing a field that is already NULL is not a change; if nothing else changed you get the usual `400 no effective changes`.
+  - `org_label` / `role_title` / `vacancy_band` / `status` and the skill sets are **not clearable** — the closed set is what keeps `clear` away from a NOT NULL column or the server-resolved reach set.
 - **Mobile gotchas:** Lifecycle: `draft→open` publish only; `closed` is terminal (editing a closed posting → `400`/conflict). No-op edits rejected. Closing is a **separate** endpoint.
 
 #### `POST /payer/job-postings/:id/close`
@@ -363,7 +369,10 @@ Conventions: request fields use the casing the endpoint expects (auth/unlock/pos
 - **Response:** `AgencyJobView`, or neutral `404` (unknown/not-owned).
 
 #### `PATCH /payer/agency/jobs/:jobId`
-- **Body:** any subset of the create fields (≥1 required). Ordering re-validated against the **result** row (handles one-sided edits).
+- **Body:** any subset of the create fields (≥1 required), plus `clear?: string[]`. Ordering re-validated against the **result** row (handles one-sided edits).
+- **#1652 — `clear: [...]` unsets a field.** Clearable here: `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`, `max_experience_years`, `needed_by`, `description`, `shift`, `benefits`, `requirements`.
+  - **`city`, `title` and `trade_key` are NOT clearable on this contract** — they are `NOT NULL` on `jobs`. Note `city` IS clearable on `/payer/job-postings` because `job_postings.city` is nullable: same word, different table, different answer.
+  - Same rules as the posting contract: set-and-clear of one field is a `400`, clearing one end of a band is legal, `clear: ["benefits"]` stores NULL while `benefits: []` stores an empty list, and clearing an already-NULL field is not a change.
 - **Response:** updated `AgencyJobView`.
 - **Events:** `job.updated` (`changed_fields` = keys only).
 - **Mobile gotchas:** Editing a **closed** job → `400` (terminal). Status is not edited here (use close/pause).

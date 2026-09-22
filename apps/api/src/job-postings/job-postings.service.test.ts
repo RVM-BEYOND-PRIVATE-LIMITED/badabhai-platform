@@ -1327,3 +1327,154 @@ describe("#1646/#1648 — the update path reports the new fields as changed KEYS
     expect(d.emit.mock.calls[0]![0].payload.changed_fields).toContain("benefits");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// #1652 — a PATCH could SET a field but never UNSET one. Every key was
+// `<type>.optional()` and the service applied a key only when `!== undefined`, so a payer
+// who set a pay band, a shift or a city by mistake could only overwrite it with a
+// different wrong value. On the worker card that left a wage the employer no longer stood
+// behind on screen indefinitely.
+//
+// Owner ruling (2026-09-22): a `clear: [...]` LIST, not an accepted `null`.
+// ---------------------------------------------------------------------------
+describe("#1652 — clearing a posting field", () => {
+  /** A posting with every clearable field actually SET, so a clear has something to remove. */
+  function populated() {
+    const current = row({ status: "open" });
+    const d = make(current);
+    const full = {
+      ...toApi(current),
+      city: "Pune",
+      area: "Chakan",
+      pay_min: 18000,
+      pay_max: 25000,
+      pay_type: "in_hand" as const,
+      min_experience_years: 2,
+      max_experience_years: 5,
+      shift: "night" as const,
+      needed_by: "immediate" as const,
+      benefits: ["PF + ESI"],
+      requirements: ["Fanuc control"],
+      description: DESC,
+      location_label: LOCATION,
+    };
+    d.findById.mockResolvedValue(full);
+    d.update.mockResolvedValue(full);
+    return { d, full };
+  }
+
+  it("writes NULL for every cleared field", async () => {
+    const { d } = populated();
+    await d.svc.update(
+      POSTING_ID,
+      { clear: ["city", "shift", "pay_type", "description", "needed_by"] } as never,
+      CTX as never,
+    );
+    expect(d.update.mock.calls[0]![1]).toMatchObject({
+      city: null,
+      shift: null,
+      payType: null,
+      description: null,
+      neededBy: null,
+    });
+  });
+
+  it("VACUITY GUARD: the fields it cleared were genuinely set beforehand", async () => {
+    // A NULL in the patch proves nothing if the row was already NULL — the assertion
+    // above would pass against an empty posting for the wrong reason.
+    const { full } = populated();
+    expect(full.city).not.toBeNull();
+    expect(full.shift).not.toBeNull();
+    expect(full.pay_type).not.toBeNull();
+    expect(full.description).not.toBeNull();
+    expect(full.needed_by).not.toBeNull();
+  });
+
+  it("reports the cleared fields on changed_fields, by KEY", async () => {
+    const { d } = populated();
+    await d.svc.update(POSTING_ID, { clear: ["city", "area", "shift"] } as never, CTX as never);
+    const arg = d.emit.mock.calls[0]![0];
+    expect([...arg.payload.changed_fields].sort()).toEqual(["area", "city", "shift"].sort());
+    assertNoFreeText(arg.payload);
+  });
+
+  it("clearing ONE end of the pay band is legal and keeps the other end", async () => {
+    // THE CASE THE ISSUE ASKS FOR, and the one the `??` ordering check would have broken:
+    // a cleared field sits in the patch as an explicit null, and `patch.payMin ??
+    // current.pay_min` would read it as "not supplied" and validate against the pay_min
+    // that is about to disappear.
+    const { d } = populated();
+    await d.svc.update(POSTING_ID, { clear: ["pay_min"] } as never, CTX as never);
+    const patch = d.update.mock.calls[0]![1] as Record<string, unknown>;
+    expect(patch.payMin).toBeNull();
+    expect("payMax" in patch).toBe(false); // untouched, still 25000
+    expect(d.emit.mock.calls[0]![0].payload.changed_fields).toContain("pay_band");
+  });
+
+  it("clearing pay_min while SETTING a lower pay_max is still legal", async () => {
+    // Stored band is 18000-25000. Clearing the floor and lowering the ceiling to 9000 is
+    // fine — there is no floor left to violate. Under the old `??` this would have been
+    // compared against 18000 and rejected.
+    const { d } = populated();
+    await d.svc.update(POSTING_ID, { pay_max: 9000, clear: ["pay_min"] } as never, CTX as never);
+    expect(d.update.mock.calls[0]![1]).toMatchObject({ payMin: null, payMax: 9000 });
+  });
+
+  it("still rejects an edit that would invert a band it did NOT clear", async () => {
+    // The mutation-proof for the test above: the ordering check must still BITE.
+    const { d } = populated();
+    await expect(
+      d.svc.update(POSTING_ID, { pay_max: 9000 } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+  });
+
+  it("clearing a field that is ALREADY null is not a change", async () => {
+    const d = make(row({ status: "open" })); // fixture has city/shift null
+    await expect(
+      d.svc.update(POSTING_ID, { clear: ["city"] } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("clearing benefits stores NULL, which is NOT the same as an empty list", async () => {
+    // `[]` = "the poster stated no benefits"; NULL = "the poster never said". Both columns
+    // have no DB default precisely so the client can tell them apart.
+    const { d } = populated();
+    await d.svc.update(POSTING_ID, { clear: ["benefits"] } as never, CTX as never);
+    expect(d.update.mock.calls[0]![1]).toMatchObject({ benefits: null });
+
+    const d2 = populated().d;
+    await d2.svc.update(POSTING_ID, { benefits: [] } as never, CTX as never);
+    expect(d2.update.mock.calls[0]![1]).toMatchObject({ benefits: [] });
+  });
+});
+
+describe("#1652 — the clear CONTRACT", () => {
+  it("rejects a field that is both SET and CLEARED", () => {
+    const r = UpdateJobPostingSchema.safeParse({ pay_min: 5000, clear: ["pay_min"] });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r.error?.issues)).toContain("both set and cleared");
+  });
+
+  it("allows setting one field while clearing a DIFFERENT one", () => {
+    expect(UpdateJobPostingSchema.safeParse({ pay_min: 5000, clear: ["shift"] }).success).toBe(true);
+  });
+
+  it("rejects a name that is not a clearable column", () => {
+    // Closed set, never a free string: `clear` must be unable to reach a NOT NULL column.
+    for (const name of ["org_label", "role_title", "vacancy_band", "status", "reach_skill_ids"]) {
+      expect(UpdateJobPostingSchema.safeParse({ clear: [name] }).success, name).toBe(false);
+    }
+  });
+
+  it("rejects an EMPTY clear list (it expresses nothing)", () => {
+    expect(UpdateJobPostingSchema.safeParse({ clear: [] }).success).toBe(false);
+  });
+
+  it("accepts `clear` as the ONLY key — clearing IS an edit", () => {
+    expect(UpdateJobPostingSchema.safeParse({ clear: ["shift"] }).success).toBe(true);
+  });
+});

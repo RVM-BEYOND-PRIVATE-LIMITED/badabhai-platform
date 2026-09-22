@@ -500,10 +500,21 @@ export class JobPostingChatService {
     // absence), it does not store an empty list.
     //
     // NOT SENT, because the interview does not collect them: `area`, the experience window,
-    // `needed_by`, `pay_type` (#1648), and `match_skill_ids`. The last one matters most — a
-    // chat-published posting is a DRAFT with no match skills, so it reaches nobody until the
-    // payer picks them on the publish step. That is the existing flow, not a regression, but
-    // it is the reason this path alone does not make a posting live. See #1659.
+    // `needed_by` and `pay_type` (#1648).
+    //
+    // AND `match_skill_ids`, WHICH IS A RULED SPLIT AND NOT A GAP (#1659, owner ruling
+    // 2026-09-22). The chat owns CONTENT; the publish step owns the closed-set skill pick,
+    // because a `mskill_*` selection is a form control and not a conversation — offering
+    // taxonomy chips mid-interview puts a picker inside a dialogue, and canonicalizing the
+    // chat's free-text `skills` into match ids would need a second canonicalizer aimed at a
+    // vocabulary the ADR-0030 one does not target, then still have to be confirmed rather
+    // than applied (invariant #4).
+    //
+    // The consequence is deliberate and worth stating plainly: a chat-published posting is
+    // a DRAFT that reaches NOBODY until the payer picks skills on the publish step. That is
+    // where the picker lives, so the flow is whole — but this path alone never makes a
+    // posting live, and any future change that publishes straight from the chat has to
+    // solve the skill pick first or it recreates #1645 by a different road.
     const candidate = {
       org_label: await this.resolveOrgLabel(payerId),
       role_title: draft.role_title ?? undefined,
