@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-
-
 # ---------------------------------------------------------------------------
 # #1658 - a pseudonymization placeholder must never be stored as a fact
 #

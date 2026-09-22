@@ -410,6 +410,6 @@ def test_truncation_is_not_retried():
 
 
 def test_truncation_is_categorised_as_output_truncated():
-    from app.ai.error_taxonomy import OUTPUT_TRUNCATED, _TRANSPORT
+    from app.ai.error_taxonomy import _TRANSPORT, OUTPUT_TRUNCATED
 
     assert _TRANSPORT[REASON_MAX_TOKENS_TRUNCATED] == OUTPUT_TRUNCATED
