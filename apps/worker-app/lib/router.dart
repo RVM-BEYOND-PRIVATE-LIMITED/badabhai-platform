@@ -82,6 +82,12 @@ class Routes {
   /// Referral invite (A3) — pushed full-screen from Profile / Settings.
   static const String invite = '/invite';
   static const String chatProfiling = '/chat';
+
+  /// The `extra` the résumé-upload screen hands [chatProfiling] when the worker
+  /// arrived from a REAL import that said nothing on the way (#1660). The chat
+  /// then checks whether an identity turn was staged and, if none was, says the
+  /// one honest line. In-memory only — a deep link carries no extra.
+  static const String chatFromResumeImport = 'resume_import';
   static const String voiceNote = '/voice';
 
   /// The profiling *preview/confirm* (distinct from the Profile tab at /profile).
@@ -493,7 +499,15 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.chatProfiling,
-        builder: (_, __) => const ChatProfilingScreen(),
+        // `extra` is [Routes.chatFromResumeImport] when the worker arrived
+        // straight from a résumé import that said nothing on the way (#1660) —
+        // the chat then checks whether an identity turn was staged and, if none
+        // was, says the one honest line. A deep link or a restored route
+        // carries no extra and behaves exactly as before.
+        builder: (BuildContext context, GoRouterState state) =>
+            ChatProfilingScreen(
+          fromResumeImport: state.extra == Routes.chatFromResumeImport,
+        ),
       ),
       GoRoute(
         path: Routes.voiceNote,

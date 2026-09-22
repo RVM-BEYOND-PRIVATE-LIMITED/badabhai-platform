@@ -112,10 +112,17 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
     // `go`, NOT `push` — onboarding is a one-way sequence and each completed
     // step REPLACES the last (the #381 rationale `NameScreen` records: a
     // pushed step stays alive underneath and system back walks into it).
-    context.go(switch (state.destination!) {
-      ResumeUploadDestination.tradeForm => Routes.tradeForm,
-      ResumeUploadDestination.chat => Routes.chatProfiling,
-    });
+    context.go(
+      switch (state.destination!) {
+        ResumeUploadDestination.tradeForm => Routes.tradeForm,
+        ResumeUploadDestination.chat => Routes.chatProfiling,
+      },
+      // #1660 — tell the chat this arrival came from a real import that said
+      // nothing on the way, so it can say the one honest line if no identity
+      // turn was staged. Absent for every other arrival (the no-résumé door, a
+      // closed upload door, or a notice already shown here).
+      extra: state.cameFromImport ? Routes.chatFromResumeImport : null,
+    );
   }
 
   @override

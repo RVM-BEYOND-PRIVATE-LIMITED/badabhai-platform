@@ -79,6 +79,7 @@ class ResumeUploadState extends Equatable {
     this.status = ResumeUploadStatus.doors,
     this.destination,
     this.notice,
+    this.cameFromImport = false,
   });
 
   final ResumeUploadStatus status;
@@ -91,6 +92,15 @@ class ResumeUploadState extends Equatable {
   /// explanation, because there is a useful thing for him to do from there.
   final ResumeUploadNotice? notice;
 
+  /// #1660 — this state came from a REAL import that routed to the chat and
+  /// said nothing on the way. The chat screen then checks whether an identity
+  /// turn was actually staged (`resume_pending`) and says the one honest line
+  /// when none was, so an import that extracted nothing is never silent.
+  ///
+  /// False for the "Mere paas resume nahi hai" door (nothing was uploaded), for
+  /// a closed upload door, and whenever a notice was already shown here.
+  final bool cameFromImport;
+
   bool get isBusy =>
       status == ResumeUploadStatus.picking ||
       status == ResumeUploadStatus.working;
@@ -98,7 +108,8 @@ class ResumeUploadState extends Equatable {
   bool get isDone => status == ResumeUploadStatus.done;
 
   @override
-  List<Object?> get props => <Object?>[status, destination, notice];
+  List<Object?> get props =>
+      <Object?>[status, destination, notice, cameFromImport];
 }
 
 /// Drives the résumé-upload door (#1499).
@@ -164,6 +175,7 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
       ResumeImportRoutedToForm() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
+          cameFromImport: true,
         ),
       // #1660 — an import that learned NOTHING is a clean success on the wire
       // and a silent one for the worker: no identity bubble is staged, so the
@@ -173,10 +185,19 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
           notice: ResumeUploadNotice.readButNoDetails,
+          // The server SAID it learned nothing, so the line is already said
+          // here and the chat must not say it a second time.
+          cameFromImport: false,
         ),
+      // #1660 — a plain chat-routed success. We cannot yet tell from the import
+      // read whether it extracted anything (that field is backend #1656), so
+      // the chat itself finishes the job: it knows whether an identity turn was
+      // staged, and says the line when none was. [cameFromImport] is what
+      // separates this from a worker who never uploaded anything.
       ResumeImportRoutedToChat() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
+          cameFromImport: true,
         ),
       ResumeImportUnavailable() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
