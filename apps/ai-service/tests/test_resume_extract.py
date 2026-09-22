@@ -964,6 +964,8 @@ def test_the_semantic_symbols_are_left_alone():
         0x00A7,  # SECTION
         0x2022,  # BULLET
         0x00B7,  # MIDDLE DOT
+        0x2192,  # RIGHTWARDS ARROW              engineering reports, not résumés - but
+        0x2500,  # BOX DRAWINGS LIGHT HORIZONTAL the fold must not reach them either
     ):
         line = f"x {chr(cp)} y"
         assert extract_mod._normalize_block(line) == [line], (
@@ -992,58 +994,12 @@ def test_translate_table_has_no_overlap():
 
 
 # ---------------------------------------------------------------------------
-# #1657, the other half - WHAT THE FOLD MUST NEVER REACH.
+# #1657, the rest of the corpus - every measured line, both scripts, and the real door.
 #
-# The fold above is the cheap half. These are the characters where folding would be a
-# silent correctness loss rather than a gate-1 miss, and they had no guard: every test
-# above this line stays green if somebody sweeps the rest of the symbol block into
-# `_DASH_CODEPOINTS` tomorrow.
+# The two guards above say what the fold must never REACH. These say it reaches
+# everything it should, on the lines it was actually measured on, and through `extract()`
+# rather than only through the helper.
 # ---------------------------------------------------------------------------
-
-_PLUS_MINUS = chr(0x00B1)
-_RUPEE = chr(0x20B9)
-
-
-def test_the_tolerance_and_salary_marks_survive_byte_for_byte():
-    """THE REGRESSION THAT WOULD QUIETLY DESTROY TOLERANCE AND SALARY EXTRACTION.
-
-    U+00B1 and U+20B9 are not typography, they are the fact. "±0.01 mm" is a CNC
-    capability claim and the difference between a tolerance and a dimension; "₹35,000" is
-    what makes an amount a salary rather than a part number, a quantity or a year - it is
-    the whole basis of `salary_expected` in `inr_per_month`.
-
-    Both lines below are real corpus lines.
-    """
-    tolerance = f"Tolerance held {_PLUS_MINUS}0.01 mm or finer"
-    salary = f"Salary expected {_RUPEE}35,000 / month"
-    assert extract_mod._normalize_block(tolerance) == [tolerance]
-    assert extract_mod._normalize_block(salary) == [salary]
-
-
-def test_the_semantic_symbols_are_left_alone():
-    # Each of these carries meaning no ASCII stand-in preserves. BULLET and MIDDLE DOT are
-    # in the list for a different reason - they are the corpus's two most common non-ASCII
-    # characters and still need NO fold, because a model quoting a bulleted line quotes the
-    # text AFTER the marker, so the substring match never compares the marker at all.
-    for cp in (
-        0x00B1,  # PLUS-MINUS         tolerance
-        0x20B9,  # INDIAN RUPEE SIGN  salary
-        0x00D7,  # MULTIPLICATION     a 500 x 300 bed
-        0x00F7,  # DIVISION
-        0x00B0,  # DEGREE             an angle, a temperature
-        0x2265,  # GREATER-OR-EQUAL
-        0x2264,  # LESS-OR-EQUAL
-        0x2248,  # ALMOST EQUAL
-        0x00A7,  # SECTION
-        0x2022,  # BULLET
-        0x00B7,  # MIDDLE DOT
-        0x2192,  # RIGHTWARDS ARROW
-        0x2500,  # BOX DRAWINGS LIGHT HORIZONTAL
-    ):
-        line = f"x {chr(cp)} y"
-        assert extract_mod._normalize_block(line) == [line], (
-            f"U+{cp:04X} was folded and must not be"
-        )
 
 
 def test_letters_digits_casing_and_devanagari_are_untouched():
