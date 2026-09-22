@@ -160,7 +160,16 @@ class _JobDetailViewState extends State<_JobDetailView> {
     // (that label belongs to the worker's own asking figure on the resume).
     final String? pay = formatPayBandFull(d.payMin, d.payMax);
     if (pay != null) {
-      blocks.add(KitSalaryBox(label: 'Salary', value: pay));
+      // The poster's own pay-type wording joins the label when they stated it
+      // (#1648) — "Salary — IN-HAND". Unstated stays the bare 'Salary': the
+      // screen never tells a man a band is his take-home on no evidence.
+      final String? payType = payTypeLabel(d.payType);
+      blocks.add(
+        KitSalaryBox(
+          label: payType == null ? 'Salary' : 'Salary — $payType',
+          value: pay,
+        ),
+      );
     }
 
     final List<Widget> facts = _factChips(d);

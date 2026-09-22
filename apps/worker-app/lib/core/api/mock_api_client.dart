@@ -1402,6 +1402,12 @@ This is mock data for UI development — it contains no real worker information.
 /// and item 4 states neither — the honest nulls whose card rows must HIDE.
 /// KEEP IN PARITY with [_cannedJobDetails] (a test asserts the shared fields
 /// match, like the real feed and detail routes reading the same jobs row).
+/// A mock posting date [daysAgo] days before the run date, so the feed's
+/// recency line is exercised in mock mode without pinning a calendar date that
+/// would age into "10 months old" the week after it was written.
+DateTime _mockPostedAt(int daysAgo) =>
+    DateTime.now().subtract(Duration(days: daysAgo));
+
 final List<FeedItem> _cannedFeed = <FeedItem>[
   FeedItem(
     jobId: 'mock-job-0001',
@@ -1415,6 +1421,24 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     payMax: 26000,
     shift: 'day',
     rank: 1,
+    // #1648 — the poster stated what the band means. The other rows leave it
+    // NULL on purpose: that is the common case, and their cards must show the
+    // band with no pay-type pill.
+    payType: 'in_hand',
+    // #1649 — a REAL posting date, so the header's "aaj N naye jobs" line has
+    // something true to count in mock mode. Relative to the run date: this row
+    // is today's, 0002 is two days old, 0003 is ten, and 0004 states none.
+    postedAt: _mockPostedAt(0),
+    // Card content the REAL feed sends (#1561) — kept identical to
+    // [_cannedJobDetails] for this id, exactly as the two real routes read the
+    // same row.
+    neededBy: 'immediate',
+    description:
+        'CNC lathe par production ka kaam. Drawing padh kar job set karna, '
+        'tool offset lagana aur first piece check karna hoga. Naye log bhi '
+        'apply kar sakte hain — training milegi.',
+    requirements: <String>['Fanuc control', 'ITI / Diploma', 'Drawing reading'],
+    benefits: <String>['PF + ESI', 'Overtime pay', 'Canteen'],
   ),
   FeedItem(
     jobId: 'mock-job-0002',
@@ -1428,6 +1452,14 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     payMax: 32000,
     shift: 'rotational',
     rank: 2,
+    payType: 'gross',
+    postedAt: _mockPostedAt(2),
+    neededBy: 'soon',
+    description:
+        'VMC machine par setting aur programming ka kaam. Fixture lagana, '
+        'program prove-out karna aur quality maintain karna hoga.',
+    requirements: <String>['VMC setting', 'Siemens control', 'GD&T basics'],
+    benefits: <String>['PF + ESI', 'Bus facility'],
   ),
   FeedItem(
     jobId: 'mock-job-0003',
@@ -1441,6 +1473,13 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     payMax: null,
     shift: 'night',
     rank: 3,
+    postedAt: _mockPostedAt(10),
+    neededBy: 'flexible',
+    description:
+        'MIG welding ka experience chahiye. Structure fabrication ka kaam '
+        'hai — safety gear diya jayega.',
+    requirements: <String>['MIG welding'],
+    // benefits deliberately absent — the chip group must HIDE, not render empty.
   ),
   FeedItem(
     jobId: 'mock-job-0004',
@@ -1586,6 +1625,7 @@ const Map<String, JobDetail> _cannedJobDetails = <String, JobDetail>{
     maxExperienceYears: 2,
     neededBy: 'immediate',
     shift: 'day',
+    payType: 'in_hand',
     description:
         'CNC lathe par production ka kaam. Drawing padh kar job set karna, '
         'tool offset lagana aur first piece check karna hoga. Naye log bhi '
@@ -1605,6 +1645,7 @@ const Map<String, JobDetail> _cannedJobDetails = <String, JobDetail>{
     maxExperienceYears: 5,
     neededBy: 'soon',
     shift: 'rotational',
+    payType: 'gross',
     description:
         'VMC machine par setting aur programming ka kaam. Fixture lagana, '
         'program prove-out karna aur quality maintain karna hoga.',

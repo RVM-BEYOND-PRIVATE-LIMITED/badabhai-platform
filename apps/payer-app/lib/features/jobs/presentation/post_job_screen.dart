@@ -16,6 +16,7 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
+import 'widgets/job_content_input.dart';
 import 'widgets/match_skill_picker.dart';
 
 /// Availability of the Matching-V1 demand-skill picker, resolved once at load.
@@ -33,16 +34,20 @@ enum _MatchV1 { loading, available, unavailable }
 ///
 ///  - COMPANY: `POST /payer/job-postings` (201 draft; publish it later from
 ///    My-jobs) accepts `org_label`, `role_title`, optional `location_label`,
-///    optional free-text `description`, and EXACTLY ONE of
-///    `vacancy_band | vacancies`. It has NO trade/pay/experience/skills columns,
-///    so #357 folds those payer-entered details into `description` — see
+///    free-text `description`, EXACTLY ONE of `vacancy_band | vacancies`, and —
+///    since #1646/#1648 — the worker-visible content columns: `city`, `area`,
+///    `pay_min`/`pay_max`/`pay_type`, `min_experience_years`/
+///    `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`.
+///    It still has NO trade column, so only the trade (and the V1-off free-text
+///    skills) is folded into `description` — see
 ///    [_PostJobScreenState._companyDescription]. Nothing is prefilled: every
 ///    free-text input starts empty (#357).
 ///  - AGENCY: sends the faceless demand attributes the agent route accepts —
 ///    `trade_key`, `title`, `city`, optional `area`, `pay_min`/`pay_max`,
-///    `min_experience_years`/`max_experience_years`, `needed_by` — to
-///    `POST /payer/agency/jobs` (201 → live `open`; refetch My-jobs). Unlike the
-///    company route, agency DOES accept trade/pay/experience as typed columns.
+///    `pay_type`, `min_experience_years`/`max_experience_years`, `needed_by`,
+///    plus the worker-visible `description`/`shift`/`benefits`/`requirements` —
+///    to `POST /payer/agency/jobs` (201 → live `open`; refetch My-jobs). Unlike
+///    the company route, agency DOES take the trade as a typed column.
 ///    NEVER an employer name or worker identity (no such field on this contract).
 class PostJobScreen extends StatefulWidget {
   const PostJobScreen({super.key, required this.onBack});
@@ -65,17 +70,34 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   // --- Coarse pay / experience bands — used by BOTH branches ----------------
   // The session role is locked at login, so only one branch is ever mounted and
-  // these four controllers are shared. Agency sends them as typed columns;
-  // company folds them into `description` (#357 — they used to be two free-text
-  // fields, '₹22k–28k' / '3+ yrs', that were rendered and then silently dropped).
+  // these four controllers are shared. BOTH routes now take them as typed
+  // columns (#1646 added the company ones) — #357 had folded the company's into
+  // `description` because the create schema had nowhere else to put them.
   final TextEditingController _payMin = TextEditingController();
   final TextEditingController _payMax = TextEditingController();
   final TextEditingController _expMin = TextEditingController();
   final TextEditingController _expMax = TextEditingController();
 
-  // --- Agency-only inputs (`POST /payer/agency/jobs`) ------------------------
+  // --- Agency-only input (`POST /payer/agency/jobs`) -------------------------
   final TextEditingController _city = TextEditingController();
+
+  // COARSE locality bucket ("Chakan"), shared by both branches (#1646 gave the
+  // company create an `area` column too). NEVER an address, and never derived
+  // from the company form's free-text Location — the server keeps that wall on
+  // purpose, so the payer types this one himself.
   final TextEditingController _area = TextEditingController();
+
+  // --- Worker-visible content (BOTH branches now) ---------------------------
+  // `description` / `shift` / `benefits` / `requirements` — the fields the
+  // WORKER's job card renders verbatim. The agency create always accepted them;
+  // #1646 gave the company create `benefits`/`requirements` as real columns too
+  // (its description is still composed — see [_companyDescription]). Shift
+  // reuses the shared [_shift]; one branch is ever mounted, like the pay bands.
+  // #357: nothing is prefilled, an untouched input sends nothing, and a chip is
+  // only ever a phrase the payer typed.
+  final TextEditingController _description = TextEditingController();
+  final List<String> _benefits = <String>[];
+  final List<String> _requirements = <String>[];
 
   static const List<String> _trades = <String>[
     'CNC Setter',
@@ -93,6 +115,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// Mirrored here so the chip row cannot outgrow what the contract allows.
   static const int _maxSkills = 10;
   static const int _maxSkillChars = 80;
+
 
   /// Company trade — null until the payer picks one (#357: a default of
   /// 'CNC Setter' would put a trade the payer never chose into `description`).
@@ -130,10 +153,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
   int _reachSeq = 0;
   Timer? _reachDebounce;
 
-  /// Coarse structured demand attributes (V1 company path). Null = "not set",
-  /// so we never fabricate a shift/timing the payer did not choose (#357).
+  /// Coarse structured demand attributes. Null = "not set", so we never
+  /// fabricate a shift/timing the payer did not choose (#357).
   String? _shift;
   String? _companyNeededBy;
+
+  /// What the ₹ band MEANS — `in_hand|gross|ctc` (#1648), shared by both
+  /// branches. Null is the ONLY honest default: the platform never guesses
+  /// net-vs-gross, so an unpicked pay type sends nothing and the worker's card
+  /// shows the band with no pay-type pill.
+  String? _payType;
 
   bool get _isAgency =>
       locator<AppSessionCubit>().state?.isAgency ?? false;
@@ -164,6 +193,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     _location.dispose();
     _city.dispose();
     _area.dispose();
+    _description.dispose();
     _payMin.dispose();
     _payMax.dispose();
     _expMin.dispose();
@@ -304,50 +334,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
     return int.tryParse(t);
   }
 
-  /// Whole-rupee formatter with thousands grouping — "₹22,000". The grouping is
-  /// load-bearing beyond the DS money rule (#357): it breaks the digit run, so a
-  /// formatted amount can never trip the server's `looksLikePii` phone heuristic
-  /// (>=7 consecutive digits) when it rides inside `description`.
-  static String _formatInr(int value) {
-    final String digits = value.abs().toString();
-    final StringBuffer out = StringBuffer('₹');
-    for (int i = 0; i < digits.length; i++) {
-      if (i != 0 && (digits.length - i) % 3 == 0) out.write(',');
-      out.write(digits[i]);
-    }
-    return out.toString();
-  }
-
-  /// "₹22,000–₹28,000" | "₹22,000+" | "up to ₹28,000" | null when neither end is
-  /// set. Mirrors `AgencyJobView.payRangeLabel` so both branches read alike.
-  static String? _payLabel(int? lo, int? hi) {
-    if (lo == null && hi == null) return null;
-    if (lo != null && hi != null) return '${_formatInr(lo)}–${_formatInr(hi)}';
-    if (lo != null) return '${_formatInr(lo)}+';
-    return 'up to ${_formatInr(hi!)}';
-  }
-
-  /// "2–6 yrs" | "2+ yrs" | "up to 6 yrs" | null when neither end is set.
-  static String? _expLabel(int? lo, int? hi) {
-    if (lo == null && hi == null) return null;
-    if (lo != null && hi != null) return '$lo–$hi yrs';
-    if (lo != null) return '$lo+ yrs';
-    return 'up to $hi yrs';
-  }
-
-  // #357 — client mirror of the server's `looksLikePii` (packages/validators):
-  // email shape, or >=7 consecutive digits once common phone separators are
-  // stripped. Skill phrases are payer free text that rides the wire inside the
-  // PII-screened `description`, so we fail closed AT ENTRY with an honest
-  // message rather than let the server 400 the whole post (CLAUDE.md §2).
-  static final RegExp _emailLike = RegExp(r'[^\s@]+@[^\s@]+\.[^\s@]+');
-  static final RegExp _phoneSeparators = RegExp(r'[\s().+-]');
-  static final RegExp _phoneDigitRun = RegExp(r'\d{7,}');
-
-  static bool _looksLikePii(String s) =>
-      _emailLike.hasMatch(s) ||
-      _phoneDigitRun.hasMatch(s.replaceAll(_phoneSeparators, ''));
-
   /// Shared min/max ordering check for the coarse bands — returns an honest
   /// message, or null when the bands are fine. The server 400s these too.
   String? _bandOrderError(int? payMin, int? payMax, int? expMin, int? expMax) {
@@ -360,23 +346,29 @@ class _PostJobScreenState extends State<PostJobScreen> {
     return null;
   }
 
-  /// #357 — the company create contract has NO trade/pay/experience/skills
-  /// columns; its one free-text field is `description`. These inputs used to be
-  /// rendered and then silently discarded, so a payer who carefully set a salary
-  /// and five skills posted a job carrying none of it. We now fold exactly what
-  /// the payer entered into a labelled description block, so it actually lands
-  /// on the posting. Nothing is invented: an untouched form sends NO description
-  /// (null), never a filler string.
+  /// FOLD ONLY WHAT HAS NO COLUMN. `description` is the company posting's one
+  /// free-text field, and #357 used it to carry every input the create route had
+  /// no column for — trade, the pay band, the experience window and the
+  /// free-text skills — because those were rendered and then silently discarded.
+  ///
+  /// #1646/#1648 gave the route REAL columns for the pay band, its pay type and
+  /// the experience window, and they are now sent as such. Folding them here as
+  /// well would print the same numbers twice on the worker's card: once as its
+  /// own pay/experience chips, once inside the description blob. So the fold is
+  /// down to the two things that STILL have no column of their own:
+  ///
+  ///  - the trade (no `trade_key` on the company contract — that is the agency
+  ///    route's field), and
+  ///  - the free-text "Key skills" of the V1-off fallback path (`skills` is
+  ///    canonicalized server-side and never shown back verbatim; [_skills] is
+  ///    only ever non-empty when the demand-skill picker is unavailable).
+  ///
+  /// Nothing is invented: an untouched form sends NO description (null), never a
+  /// filler string.
   String? _companyDescription() {
     final List<String> lines = <String>[];
     final String? trade = _trade;
     if (trade != null) lines.add('Trade: $trade');
-    final String? pay =
-        _payLabel(_intOrNull(_payMin.text), _intOrNull(_payMax.text));
-    if (pay != null) lines.add('Monthly pay: $pay');
-    final String? exp =
-        _expLabel(_intOrNull(_expMin.text), _intOrNull(_expMax.text));
-    if (exp != null) lines.add('Experience: $exp');
     if (_skills.isNotEmpty) lines.add('Key skills: ${_skills.join(', ')}');
     return lines.isEmpty ? null : lines.join('\n');
   }
@@ -433,7 +425,37 @@ class _PostJobScreenState extends State<PostJobScreen> {
     setState(() => _submitting = true);
     try {
       final String location = _location.text.trim();
-      await locator<PayerApiClient>().createCompanyJob(
+      // The structured display/match half of the posting. Computed ONCE so the
+      // create and the repair PATCH below can never disagree.
+      //
+      // NOT gated on Matching V1: city / pay / shift / needed_by are the
+      // posting's WORKER-VISIBLE display columns (migration 0054) and the PATCH
+      // accepts them whether or not the match routes are on. Gating them meant a
+      // `MATCH_V1_ENABLED=false` server stored no pay and no shift at all, so
+      // every company job showed a worker a card with no wage and no timing.
+      // Only the match SKILL ids below are V1-conditional.
+      final String? city = location.isNotEmpty ? location : null;
+      final String areaText = _area.text.trim();
+      final String? area = areaText.isEmpty ? null : areaText;
+      final int? payMin = _intOrNull(_payMin.text);
+      final int? payMax = _intOrNull(_payMax.text);
+      final String? payType = _payType;
+      final int? expMin = _intOrNull(_expMin.text);
+      final int? expMax = _intOrNull(_expMax.text);
+      final String? shift = _shift;
+      final String? neededBy = _companyNeededBy;
+      // Copied, not aliased: the repair below re-sends these and the payer can
+      // still be editing the form while the create is in flight.
+      final List<String> benefits = List<String>.of(_benefits);
+      final List<String> requirements = List<String>.of(_requirements);
+      final List<String> matchSkillIds = v1
+          ? _pickedSkillIds.toList(growable: false)
+          : const <String>[];
+      final List<String> untickedRelatedIds = v1
+          ? _untickedRelatedIds.toList(growable: false)
+          : const <String>[];
+
+      final JobPosting draft = await locator<PayerApiClient>().createCompanyJob(
         orgLabel: org,
         roleTitle: title,
         locationLabel: location.isEmpty ? null : location,
@@ -442,26 +464,56 @@ class _PostJobScreenState extends State<PostJobScreen> {
         vacancyBand: _band,
         // Matching V1 (additive) — only sent when the picker is live, so a
         // V1-off server never receives fields it does not understand.
-        matchSkillIds: v1 && _pickedSkillIds.isNotEmpty
-            ? _pickedSkillIds.toList(growable: false)
-            : null,
-        untickedRelatedIds: v1 && _untickedRelatedIds.isNotEmpty
-            ? _untickedRelatedIds.toList(growable: false)
-            : null,
-        // City reuses the existing location field; pay reuses the existing
-        // coarse bands — now sent as structured match inputs, not just folded
-        // into the free-text description.
-        city: v1 && location.isNotEmpty ? location : null,
-        payMin: v1 ? _intOrNull(_payMin.text) : null,
-        payMax: v1 ? _intOrNull(_payMax.text) : null,
-        shift: v1 ? _shift : null,
-        neededBy: v1 ? _companyNeededBy : null,
+        matchSkillIds: matchSkillIds.isEmpty ? null : matchSkillIds,
+        untickedRelatedIds:
+            untickedRelatedIds.isEmpty ? null : untickedRelatedIds,
+        // City reuses the existing location field; area is its own coarse
+        // bucket (never derived from the location label). Pay, pay type and the
+        // experience window are sent as the structured columns they now are —
+        // they are no longer folded into the free-text description.
+        city: city,
+        area: area,
+        payMin: payMin,
+        payMax: payMax,
+        payType: payType,
+        minExperienceYears: expMin,
+        maxExperienceYears: expMax,
+        shift: shift,
+        neededBy: neededBy,
+        // Untouched lists send NOTHING (there is nothing stored to clear).
+        benefits: benefits.isEmpty ? null : benefits,
+        requirements: requirements.isEmpty ? null : requirements,
+      );
+
+      // …and land whatever the create route dropped (see [_landDisplayFields]).
+      final bool landed = await _landDisplayFields(
+        draft,
+        city: city,
+        area: area,
+        payMin: payMin,
+        payMax: payMax,
+        payType: payType,
+        minExperienceYears: expMin,
+        maxExperienceYears: expMax,
+        shift: shift,
+        neededBy: neededBy,
+        benefits: benefits,
+        requirements: requirements,
+        matchSkillIds: matchSkillIds,
+        untickedRelatedIds: untickedRelatedIds,
       );
       if (!mounted) return;
       showBbToast(
         context,
         title: 'Job posted',
-        message: 'Saved as a draft — publish it from My jobs.',
+        // Never a silent partial save: if the draft exists but its pay/shift/
+        // skills did not land, say so and point at the edit screen that can fix
+        // it. The draft is KEPT — posting again would duplicate it.
+        message: landed
+            ? 'Saved as a draft — publish it from My jobs.'
+            : 'Draft saved, but the pay, shift and skills details did not. '
+                'Open it from My jobs and edit to add them.',
+        icon: landed ? Icons.check_circle : Icons.info_outline,
       );
       widget.onBack();
     } catch (error) {
@@ -471,17 +523,133 @@ class _PostJobScreenState extends State<PostJobScreen> {
     }
   }
 
-  /// Name the real reason where we know it: a 400 on this route means the server
-  /// rejected the details themselves (most often contact details in the folded
-  /// description), which "check your connection" would misdescribe.
+  /// OLD-SERVER FALLBACK — land whatever the create route DROPPED.
+  ///
+  /// `POST /payer/job-postings` used to validate against a
+  /// `PayerCreateJobPostingSchema` that accepted ONLY org/role/location/
+  /// description/vacancy/skills: Zod SILENTLY STRIPPED `city`, `area`, the pay
+  /// band and its `pay_type`, the experience window, `shift`, `needed_by`,
+  /// `benefits`, `requirements`, `match_skill_ids` and `unticked_related_ids`.
+  /// So a payer who set a wage, a shift and five demand skills got a posting
+  /// carrying NONE of it — and with no `match_skill_ids` the posting
+  /// materialised NO reach, which means it reached NO worker at all (#1645).
+  ///
+  /// FIXED UPSTREAM in #1653: both create schemas now spread the same content +
+  /// match blocks the PATCH does, so a current server persists everything on the
+  /// 201 and this method finds nothing missing and makes NO second call. It is
+  /// kept because an OLDER deployment (and the local API checkouts running
+  /// behind `origin/main`) still strips them, and a posting that silently
+  /// reaches nobody is the worst failure this app has.
+  ///
+  /// Driven off the RETURNED draft, never off a hard-coded assumption about the
+  /// server's version: we patch exactly the fields the draft came back WITHOUT.
+  /// Returns true when everything the payer entered is stored (the create kept
+  /// it, or the PATCH landed it), false when the PATCH failed — the caller then
+  /// tells the payer instead of pretending. The draft is never deleted on
+  /// failure: it is a real posting, and create is not idempotent, so a retry
+  /// would leave a duplicate behind.
+  Future<bool> _landDisplayFields(
+    JobPosting draft, {
+    required String? city,
+    required String? area,
+    required int? payMin,
+    required int? payMax,
+    required String? payType,
+    required int? minExperienceYears,
+    required int? maxExperienceYears,
+    required String? shift,
+    required String? neededBy,
+    required List<String> benefits,
+    required List<String> requirements,
+    required List<String> matchSkillIds,
+    required List<String> untickedRelatedIds,
+  }) async {
+    final bool missingCity = city != null && draft.city == null;
+    final bool missingArea = area != null && draft.area == null;
+    final bool missingPayMin = payMin != null && draft.payMin == null;
+    final bool missingPayMax = payMax != null && draft.payMax == null;
+    final bool missingPayType = payType != null && draft.payType == null;
+    final bool missingExpMin =
+        minExperienceYears != null && draft.minExperienceYears == null;
+    final bool missingExpMax =
+        maxExperienceYears != null && draft.maxExperienceYears == null;
+    final bool missingShift = shift != null && draft.shift == null;
+    final bool missingNeededBy = neededBy != null && draft.neededBy == null;
+    // A chip list counts as dropped only when we SENT one and the draft came
+    // back with nothing stated. `[]` on the draft would mean the server stored
+    // an empty list, which a create never does from this form.
+    final bool missingBenefits =
+        benefits.isNotEmpty && (draft.benefits?.isEmpty ?? true);
+    final bool missingRequirements =
+        requirements.isNotEmpty && (draft.requirements?.isEmpty ?? true);
+    final bool missingSkills =
+        matchSkillIds.isNotEmpty && draft.matchSkillIds.isEmpty;
+    final bool missingAnything = missingCity ||
+        missingArea ||
+        missingPayMin ||
+        missingPayMax ||
+        missingPayType ||
+        missingExpMin ||
+        missingExpMax ||
+        missingShift ||
+        missingNeededBy ||
+        missingBenefits ||
+        missingRequirements ||
+        missingSkills;
+    if (!missingAnything) return true;
+
+    // No id on the create response → there is nothing to PATCH against, and we
+    // never guess one. Report honestly instead.
+    final String? id = draft.id;
+    if (id == null || id.isEmpty) return false;
+
+    try {
+      await locator<PayerApiClient>().updateJob(
+        id,
+        city: missingCity ? city : null,
+        area: missingArea ? area : null,
+        payMin: missingPayMin ? payMin : null,
+        payMax: missingPayMax ? payMax : null,
+        payType: missingPayType ? payType : null,
+        minExperienceYears: missingExpMin ? minExperienceYears : null,
+        maxExperienceYears: missingExpMax ? maxExperienceYears : null,
+        shift: missingShift ? shift : null,
+        neededBy: missingNeededBy ? neededBy : null,
+        // Only ever a NON-EMPTY list here: an empty one would be sent as the
+        // contract's "clear" instruction, which is not what a create dropping a
+        // field means.
+        benefits: missingBenefits ? benefits : null,
+        requirements: missingRequirements ? requirements : null,
+        // Reach is resolved server-side FROM these; the unticks only mean
+        // anything alongside the picked skills, so they ride the same condition
+        // (and only when the V1 picker was live, which is what a non-empty
+        // [matchSkillIds] already encodes).
+        matchSkillIds: missingSkills ? matchSkillIds : null,
+        untickedRelatedIds: missingSkills && untickedRelatedIds.isNotEmpty
+            ? untickedRelatedIds
+            : null,
+      );
+      return true;
+    } catch (_) {
+      // Swallowed ON PURPOSE: the create SUCCEEDED, so this is a partial save,
+      // not a failed post. The caller surfaces it as such.
+      return false;
+    }
+  }
+
+  /// Name the real reason where we know it: a 400 on either route means the
+  /// server rejected the DETAILS themselves, which "check your connection" would
+  /// misdescribe. The worker-visible free text is screened fail-closed on three
+  /// things — contact details, a company name, and links — so the message names
+  /// all three instead of only the first.
   void _showPostFailure(Object error) {
     final bool rejected = error is PayerApiException && error.isBadRequest;
     showBbToast(
       context,
       title: 'Could not post',
       message: rejected
-          ? 'The server rejected these details. Remove any phone number or '
-              'email address from the job details.'
+          ? 'The server rejected these details. Take out any phone number, '
+              'email address, company name or link.'
           : 'Something went wrong. Please try again.',
       icon: Icons.info_outline,
     );
@@ -521,6 +689,20 @@ class _PostJobScreenState extends State<PostJobScreen> {
       return;
     }
 
+    // Worker-visible free text: screened before the call so one bad line does not
+    // 400 the whole post (the chips are already screened at entry).
+    final String description = _description.text.trim();
+    final String? descriptionError = postingDescriptionError(description);
+    if (descriptionError != null) {
+      showBbToast(
+        context,
+        title: 'Check the description',
+        message: descriptionError,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
       final String area = _area.text.trim();
@@ -531,9 +713,19 @@ class _PostJobScreenState extends State<PostJobScreen> {
         area: area.isEmpty ? null : area,
         payMin: payMin,
         payMax: payMax,
+        // Unpicked → nothing sent: the card then shows the band with no
+        // pay-type pill rather than a guessed "in-hand" (#1648).
+        payType: _payType,
         minExperienceYears: expMin,
         maxExperienceYears: expMax,
         neededBy: _neededBy,
+        // The worker-visible half of the card. Untouched inputs send NOTHING
+        // (null / omitted), never a filler string or a placeholder chip.
+        description: description.isEmpty ? null : description,
+        shift: _shift,
+        benefits: _benefits.isEmpty ? null : List<String>.of(_benefits),
+        requirements:
+            _requirements.isEmpty ? null : List<String>.of(_requirements),
       );
       if (!mounted) return;
       showBbToast(
@@ -552,33 +744,56 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// #357 — '+ Add skill' used to insert the literal placeholder 'Skill N', so
   /// the chip row was decorative. It now prompts for the real phrase, bounded to
   /// the server's `skillsInput` limits and screened for contact details.
-  Future<void> _addSkill() async {
-    final String? entered = await showDialog<String>(
-      context: context,
-      builder: (BuildContext _) => const _AddSkillDialog(),
-    );
+  Future<void> _addSkill() => _addPhrase(
+        into: _skills,
+        noun: 'skill',
+        maxChars: _maxSkillChars,
+        dialogTitle: 'Add a skill',
+        hint: 'e.g. Fanuc, VMC setting',
+        fieldKey: const Key('add-skill-field'),
+      );
 
-    if (!mounted || entered == null || entered.isEmpty) return;
-    if (entered.length > _maxSkillChars) {
-      showBbToast(
-        context,
-        title: 'Too long',
-        message: 'Keep a skill under $_maxSkillChars characters.',
-        icon: Icons.info_outline,
+  /// One worker-visible benefit chip (agency `benefits[]`, <=80 chars each).
+  Future<void> _addBenefit() => _addPhrase(
+        into: _benefits,
+        noun: 'benefit',
+        maxChars: JobContentLimits.listItemChars,
+        dialogTitle: 'Add a benefit',
+        hint: 'e.g. PF + ESI, canteen',
+        fieldKey: const Key('add-benefit-field'),
       );
-      return;
-    }
-    if (_looksLikePii(entered)) {
-      showBbToast(
-        context,
-        title: 'Not a skill',
-        message: 'Leave phone numbers and email addresses out of a posting.',
-        icon: Icons.info_outline,
+
+  /// One worker-visible requirement chip (agency `requirements[]`, <=80 each).
+  Future<void> _addRequirement() => _addPhrase(
+        into: _requirements,
+        noun: 'requirement',
+        maxChars: JobContentLimits.listItemChars,
+        dialogTitle: 'Add a requirement',
+        hint: 'e.g. Fanuc control, ITI fitter',
+        fieldKey: const Key('add-requirement-field'),
       );
-      return;
-    }
-    if (_skills.contains(entered)) return;
-    setState(() => _skills.add(entered));
+
+  /// Prompt for a phrase (shared rules: cap + PII screen live in
+  /// [promptForPostingPhrase]) and append it to [into] when it is accepted and
+  /// new. A refused or cancelled prompt changes nothing.
+  Future<void> _addPhrase({
+    required List<String> into,
+    required String noun,
+    required int maxChars,
+    required String dialogTitle,
+    required String hint,
+    required Key fieldKey,
+  }) async {
+    final String? phrase = await promptForPostingPhrase(
+      context,
+      noun: noun,
+      maxChars: maxChars,
+      title: dialogTitle,
+      hint: hint,
+      fieldKey: fieldKey,
+    );
+    if (!mounted || phrase == null || into.contains(phrase)) return;
+    setState(() => into.add(phrase));
   }
 
   @override
@@ -703,6 +918,25 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ],
       );
 
+  /// The pay-type selector, shared by both branches (`pay_type`, #1648) — what
+  /// the ₹ band the payer just typed actually MEANS to the worker. Offered
+  /// straight under the band for that reason.
+  Widget _payTypeField() => _chipField<String?>(
+        label: 'Pay type',
+        value: _payType,
+        options: const <String?>[null, ...kJobPayTypes],
+        labelOf: _payTypeLabel,
+        onSelected: (String? v) => setState(() => _payType = v),
+      );
+
+  /// `in_hand|gross|ctc` → display labels; null = "Not stated".
+  ///
+  /// NOT the Needed-by card's "Not set": two different unset states on one form
+  /// must read differently. An unpicked pay type sends NOTHING, so the worker's
+  /// card shows the band with no pay-type pill — the platform never guesses
+  /// net-vs-gross, and "kitna haath me aayega" is the worker's first question.
+  static String _payTypeLabel(String? v) => jobPayTypeLabel(v) ?? 'Not stated';
+
   /// COMPANY posting inputs. #357: every input here now reaches
   /// `POST /payer/job-postings` — org/title/location/vacancy band as their own
   /// columns, and trade + pay + experience + skills folded into the free-text
@@ -735,10 +969,28 @@ class _PostJobScreenState extends State<PostJobScreen> {
             onChanged: (String? v) => setState(() => _trade = v),
           ),
           const SizedBox(height: AppSpacing.s4),
-          BbField(
-            label: 'Location',
-            controller: _location,
-            hint: 'optional',
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: BbField(
+                  label: 'Location',
+                  controller: _location,
+                  hint: 'optional',
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                // COARSE locality bucket, typed by the payer — deliberately NOT
+                // derived from Location: the server keeps `area` and the
+                // free-text `location_label` apart on purpose.
+                child: BbField(
+                  label: 'Area (optional)',
+                  controller: _area,
+                  hint: 'e.g. Chakan',
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: AppSpacing.s4),
           _chipField<String>(
@@ -750,9 +1002,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
         ]),
         const SizedBox(height: AppSpacing.s4),
-        // Whole rupees, not free text: the entered band is formatted with
-        // thousands grouping (DS money rule) before it rides `description`.
-        _sectionCard('Pay & experience', <Widget>[
+        // Whole rupees, not free text — and sent as the posting's own pay
+        // columns (#1646), no longer folded into the description.
+        _sectionCard('Pay, experience & timing', <Widget>[
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -778,6 +1030,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.s4),
+          _payTypeField(),
+          const SizedBox(height: AppSpacing.s4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -802,11 +1056,64 @@ class _PostJobScreenState extends State<PostJobScreen> {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.s4),
+          // Shift + needed-by are worker-visible DISPLAY columns, not match
+          // inputs, so they live here and are offered whether or not Matching
+          // V1 is on. Null stays "Any shift" / "Not specified": an unpicked
+          // value sends nothing, so the worker's card never claims a timing the
+          // payer did not choose.
+          _chipField<String?>(
+            label: 'Shift',
+            value: _shift,
+            options: const <String?>[null, 'day', 'night', 'rotational'],
+            labelOf: _shiftLabel,
+            onSelected: (String? v) => setState(() => _shift = v),
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          _chipField<String?>(
+            label: 'Needed by',
+            value: _companyNeededBy,
+            options: const <String?>[null, 'immediate', 'soon', 'flexible'],
+            labelOf: _companyNeededByLabel,
+            onSelected: (String? v) => setState(() => _companyNeededBy = v),
+          ),
         ]),
         const SizedBox(height: AppSpacing.s4),
         // Matching V1: the demand-skill picker + reach meter when the route is
         // live; the free-text skills flow otherwise (see [_companySkillsSection]).
         _sectionCard('Skills & matching', _companySkillsSection()),
+        const SizedBox(height: AppSpacing.s4),
+        // The worker-visible chips. #1646 gave the company posting the same
+        // `benefits`/`requirements` columns the agency route had, so these reach
+        // the job card verbatim instead of having nowhere to go. Same caps and
+        // the same entry screen as the agency form (one shared widget).
+        _sectionCard('What workers see', <Widget>[
+          Text(
+            'Shown on the job card exactly as you type it. Leave out company '
+            'names, phone numbers and links.',
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textMuted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          _chipListField(
+            label: 'Benefits (optional)',
+            values: _benefits,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add benefit',
+            onAdd: _addBenefit,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          _chipListField(
+            label: 'Requirements (optional)',
+            values: _requirements,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add requirement',
+            onAdd: _addRequirement,
+          ),
+        ]),
         const SizedBox(height: AppSpacing.s4),
         Container(
           padding: const EdgeInsets.all(AppSpacing.s3),
@@ -868,8 +1175,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// The COMPANY skills area, branched on Matching-V1 availability:
   ///  - [_MatchV1.loading]     — a small placeholder while `fetchMatchSkills()`
   ///    resolves (Post is held disabled meanwhile).
-  ///  - [_MatchV1.available]   — the closed-taxonomy picker + live reach meter,
-  ///    plus the structured Shift / Needed-by selects.
+  ///  - [_MatchV1.available]   — the closed-taxonomy picker + live reach meter.
+  ///    (Shift / Needed-by are NOT here: they are display columns, offered on
+  ///    the Pay & timing card regardless of V1.)
   ///  - [_MatchV1.unavailable] — the pre-existing free-text "Key skills" flow,
   ///    so posting still works when the route is off (`MATCH_V1_ENABLED` false).
   List<Widget> _companySkillsSection() {
@@ -891,22 +1199,6 @@ class _PostJobScreenState extends State<PostJobScreen> {
             maxSkills: _maxSkillsPerPosting,
             onToggleSkill: _onToggleSkill,
             onToggleRelated: _onToggleRelated,
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _chipField<String?>(
-            label: 'Shift',
-            value: _shift,
-            options: const <String?>[null, 'day', 'night', 'rotational'],
-            labelOf: _shiftLabel,
-            onSelected: (String? v) => setState(() => _shift = v),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          _chipField<String?>(
-            label: 'Needed by',
-            value: _companyNeededBy,
-            options: const <String?>[null, 'immediate', 'soon', 'flexible'],
-            labelOf: _companyNeededByLabel,
-            onSelected: (String? v) => setState(() => _companyNeededBy = v),
           ),
         ];
     }
@@ -945,37 +1237,32 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// The V1-off fallback — the pre-existing free-text "Key skills" chips. These
   /// ride the create call folded into `description` (see [_companyDescription]).
   List<Widget> _freeTextSkills() => <Widget>[
-        Text(
-          'Key skills',
-          style: AppTypography.body(
-            size: AppTypography.sizeSm,
-            weight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: AppSpacing.chipGap,
-          runSpacing: AppSpacing.chipGap,
-          children: <Widget>[
-            for (final String skill in _skills)
-              BbChip(
-                label: skill,
-                selected: true,
-                icon: Icons.close,
-                onTap: () => setState(() => _skills.remove(skill)),
-              ),
-            // Hidden at the server's cap rather than letting the payer add a
-            // phrase the contract would reject.
-            if (_skills.length < _maxSkills)
-              BbChip(
-                label: '+ Add skill',
-                // ignore: discarded_futures — fire-and-forget dialog, like the
-                // other sheet openers on this surface.
-                onTap: _addSkill,
-              ),
-          ],
+        _chipListField(
+          label: 'Key skills',
+          values: _skills,
+          maxItems: _maxSkills,
+          addLabel: '+ Add skill',
+          onAdd: _addSkill,
         ),
       ];
+
+  /// One payer-typed chip list, bound to this screen's state (the widget itself
+  /// is shared with the edit screens — see [JobChipListField]).
+  Widget _chipListField({
+    required String label,
+    required List<String> values,
+    required int maxItems,
+    required String addLabel,
+    required Future<void> Function() onAdd,
+  }) =>
+      JobChipListField(
+        label: label,
+        values: values,
+        maxItems: maxItems,
+        addLabel: addLabel,
+        onAdd: onAdd,
+        onRemove: (String value) => setState(() => values.remove(value)),
+      );
 
   /// "day/night/rotational" → display labels; null = the honest "Any" default.
   static String _shiftLabel(String? v) {
@@ -1001,13 +1288,18 @@ class _PostJobScreenState extends State<PostJobScreen> {
       case 'flexible':
         return 'Flexible';
       default:
-        return 'Not specified';
+        // NOT the Trade select's "Not specified": two different unset states on
+        // one form must read differently, and an unset timing sends no
+        // `needed_by` at all rather than a fabricated "flexible".
+        return 'Not set';
     }
   }
 
   /// AGENCY posting inputs — every field here IS sent to `POST /payer/agency/
   /// jobs` (trade_key/title/city + optional coarse area/pay/experience bands +
-  /// needed_by). No org/employer name — that is not a demand attribute.
+  /// needed_by + the worker-visible description/shift/benefits/requirements).
+  /// No org/employer name — that is not a demand attribute, and the server
+  /// rejects one typed into any free-text field.
   List<Widget> _agencyFields() => <Widget>[
         _sectionCard('Job details', <Widget>[
           _chipField<String>(
@@ -1043,7 +1335,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
         ]),
         const SizedBox(height: AppSpacing.s4),
-        _sectionCard('Pay & experience', <Widget>[
+        _sectionCard('Pay, experience & timing', <Widget>[
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -1068,6 +1360,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
               ),
             ],
           ),
+          const SizedBox(height: AppSpacing.s4),
+          _payTypeField(),
           const SizedBox(height: AppSpacing.s4),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1103,6 +1397,49 @@ class _PostJobScreenState extends State<PostJobScreen> {
             labelOf: agencyNeededByLabel,
             onSelected: (String v) => setState(() => _neededBy = v),
           ),
+          const SizedBox(height: AppSpacing.s4),
+          // Null stays "Any shift" — an unpicked shift sends nothing, so the
+          // worker's card never claims a shift the payer did not choose.
+          _chipField<String?>(
+            label: 'Shift',
+            value: _shift,
+            options: const <String?>[null, 'day', 'night', 'rotational'],
+            labelOf: _shiftLabel,
+            onSelected: (String? v) => setState(() => _shift = v),
+          ),
+        ]),
+        const SizedBox(height: AppSpacing.s4),
+        // The worker-visible content block. Everything here is rendered VERBATIM
+        // on the worker's job card, so the copy says so and the inputs are
+        // screened at entry (contact details / company names / links are 400s).
+        _sectionCard('What workers see', <Widget>[
+          Text(
+            'Shown on the job card exactly as you type it. Leave out company '
+            'names, phone numbers and links.',
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textMuted,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          JobDescriptionField(controller: _description),
+          const SizedBox(height: AppSpacing.s4),
+          _chipListField(
+            label: 'Benefits (optional)',
+            values: _benefits,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add benefit',
+            onAdd: _addBenefit,
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          _chipListField(
+            label: 'Requirements (optional)',
+            values: _requirements,
+            maxItems: JobContentLimits.listItems,
+            addLabel: '+ Add requirement',
+            onAdd: _addRequirement,
+          ),
         ]),
         const SizedBox(height: AppSpacing.s4),
         Container(
@@ -1132,54 +1469,4 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
         ),
       ];
-}
-
-/// #357 — the '+ Add skill' prompt. A widget (not an inline `AlertDialog`) so it
-/// OWNS its [TextEditingController]: disposing one alongside the awaited
-/// `showDialog` future tears it down while the route is still animating out, and
-/// the still-mounted [TextField] then throws "used after being disposed".
-/// Pops the trimmed phrase, or null on cancel.
-class _AddSkillDialog extends StatefulWidget {
-  const _AddSkillDialog();
-
-  @override
-  State<_AddSkillDialog> createState() => _AddSkillDialogState();
-}
-
-class _AddSkillDialogState extends State<_AddSkillDialog> {
-  final TextEditingController _field = TextEditingController();
-
-  @override
-  void dispose() {
-    _field.dispose();
-    super.dispose();
-  }
-
-  void _submit() => Navigator.of(context).pop(_field.text.trim());
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: AppColors.surfaceCard,
-      title: Text(
-        'Add a skill',
-        style: AppTypography.display(
-          size: AppTypography.sizeMd,
-          weight: FontWeight.w800,
-        ),
-      ),
-      content: BbField(
-        controller: _field,
-        hint: 'e.g. Fanuc, VMC setting',
-        fieldKey: const Key('add-skill-field'),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        TextButton(onPressed: _submit, child: const Text('Add')),
-      ],
-    );
-  }
 }

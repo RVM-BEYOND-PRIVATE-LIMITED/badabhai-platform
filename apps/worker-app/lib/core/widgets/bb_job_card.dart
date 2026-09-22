@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../theme/onboarding_theme.dart';
-import 'bb_tag.dart';
 import 'kit/kit_callout.dart';
 import 'kit/kit_info_chip.dart';
 import 'kit/kit_salary_box.dart';
@@ -12,7 +11,6 @@ class BbJobCardData {
   const BbJobCardData({
     required this.title,
     this.company,
-    this.verified = false,
     this.payBand,
     required this.place,
     this.trade,
@@ -22,9 +20,9 @@ class BbJobCardData {
     this.benefits = const <String>[],
     this.neededBy,
     this.description,
+    this.payNote,
     this.spotsLeft,
     this.matchNote,
-    this.hot = false,
     this.metaRight,
   });
 
@@ -62,9 +60,6 @@ class BbJobCardData {
   /// the place on the list row.
   final String? experience;
 
-  /// Only ever shown for a REAL employer; never a badge on an invented name.
-  final bool verified;
-
   /// Requirement tags (the posting's `requirements`) — rendered as chips on both
   /// layouts. Empty hides the group; nothing is invented.
   final List<String> tags;
@@ -81,6 +76,16 @@ class BbJobCardData {
   /// clipped paragraph — the job-detail screen owns the full read.
   final String? description;
 
+  /// What the pay band actually MEANS, exactly as the poster stated it (e.g.
+  /// "IN-HAND" / "CTC"), shown as the small pill inside the salary box.
+  ///
+  /// NULL everywhere today and that is deliberate: no posting route, API field
+  /// or DB column states net-vs-gross anywhere in the platform (there is no
+  /// `pay_type` / `in_hand` column), so the pill stays HIDDEN rather than
+  /// telling a man a band is his take-home when nobody said so. Wire it the day
+  /// a poster can state it.
+  final String? payNote;
+
   /// Remaining spots — retained on the model; surface it via [metaRight] if a
   /// screen wants it on the card.
   final int? spotsLeft;
@@ -96,10 +101,6 @@ class BbJobCardData {
   /// NULL is the honest default: on the legacy feed, and whenever the server
   /// did not name the matched skill, the card says nothing instead of guessing.
   final String? matchNote;
-
-  /// Featured / urgent: draws the 4px safety-yellow left rail and a [BbHotTag].
-  /// EARNED, never uniform — set only for a genuinely featured posting.
-  final bool hot;
 
   /// Muted right-hand meta on the salary row, shown when [BbJobCard.onApply] is
   /// not wired (e.g. "General shift", "Sirf 4 seat baaki"). When null the card
@@ -139,12 +140,16 @@ const String kJobCardApplySemanticLabel = 'Apply karein';
 enum BbJobCardLayout { list, deck }
 
 /// The job card (UI kit v3 §4 card): white paper, a 1px
-/// [OnboardingColors.borderDefault] hairline, radius 16, elevation 0. A
-/// featured/urgent posting ([BbJobCardData.hot]) earns a 4px safety-yellow LEFT
-/// RAIL and a [BbHotTag]; nothing else does.
+/// [OnboardingColors.borderDefault] hairline, radius 16, elevation 0.
 ///
-/// Layout: title, then "company · location" behind a pin (with an optional
-/// verified tick), then a bottom row of the salary (Roboto Mono green, `/mah`
+/// NO TRUST OR URGENCY CLAIM IS DRAWN HERE. The verified tick, the yellow
+/// "featured" rail and the HOT tag were removed with the #1651 ruling (2026-09-22,
+/// recorded in ADR-0024): the alpha makes no trust claim to a worker, and
+/// `verification_status` is deliberately never projected onto a worker read. Do
+/// not reintroduce either without a new ruling.
+///
+/// Layout: title, then "company · location" behind a pin, then a bottom row of
+/// the salary (Roboto Mono green, `/mah`
 /// muted) on the left and either a green Anek `APPLY →` action ([onApply]) or a
 /// muted [BbJobCardData.metaRight] on the right. Designed for a VERTICAL LIST
 /// feed.
@@ -209,18 +214,9 @@ class BbJobCard extends StatelessWidget {
       child: ClipRRect(
         borderRadius: radius,
         child: DecoratedBox(
-          // Yellow left rail on featured/urgent cards ONLY — earned, never
-          // uniform.
-          decoration: BoxDecoration(
-            border: data.hot
-                ? const Border(
-                    left: BorderSide(
-                      color: OnboardingColors.safetyYellow,
-                      width: 4,
-                    ),
-                  )
-                : null,
-          ),
+          // No rail: a "featured" card would be an urgency claim with no source
+          // behind it (#1651).
+          decoration: const BoxDecoration(),
           child: Padding(
             padding: EdgeInsets.all(isDeck ? 20 : 16),
             child: isDeck
@@ -253,7 +249,7 @@ class BbJobCard extends StatelessWidget {
   }
 }
 
-/// Title (left, flexes) + optional [BbHotTag] (right).
+/// Title (left, flexes) and the facts under it.
 class _HeaderRow extends StatelessWidget {
   const _HeaderRow({required this.data, required this.onTitleTap});
 
@@ -304,7 +300,6 @@ class _HeaderRow extends StatelessWidget {
             ],
           ),
         ),
-        if (data.hot) ...<Widget>[const SizedBox(width: 8), const BbHotTag()],
       ],
     );
   }
@@ -323,8 +318,8 @@ class _HeaderRow extends StatelessWidget {
   );
 }
 
-/// "company · location" behind a pin, with an optional verified tick. On the
-/// real feed [BbJobCardData.company] is null, so only the location shows.
+/// "company · location" behind a pin. On the real feed
+/// [BbJobCardData.company] is null, so only the location shows.
 class _SubtitleRow extends StatelessWidget {
   const _SubtitleRow({required this.data});
 
@@ -350,14 +345,6 @@ class _SubtitleRow extends StatelessWidget {
             style: OnboardingTypography.bodyMuted(),
           ),
         ),
-        if (data.verified) ...<Widget>[
-          const SizedBox(width: 3),
-          const Icon(
-            Icons.verified,
-            size: 14,
-            color: OnboardingColors.shiftBlue,
-          ),
-        ],
       ],
     );
   }
@@ -880,10 +867,6 @@ class _DeckBody extends StatelessWidget {
                   ? _title()
                   : _TitleButton(onTap: onTitleTap!, title: _title()),
             ),
-            if (data.hot) ...<Widget>[
-              const SizedBox(width: 8),
-              const BbHotTag(),
-            ],
           ],
         ),
         if (data.showsTrade) ...<Widget>[

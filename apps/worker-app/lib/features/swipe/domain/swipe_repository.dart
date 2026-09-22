@@ -12,10 +12,11 @@ abstract interface class SwipeRepository {
     int? payMin,
   });
 
-  /// The FULL worker-visible posting (`GET /jobs/:jobId`) — carries the real
-  /// fields the feed card lacks (needed-by, description, requirements,
-  /// benefits, and the posting's own pay/shift/experience). Used to ENRICH a
-  /// feed card; a failure is non-fatal to the card (it keeps its feed facts).
+  /// The FULL worker-visible posting (`GET /jobs/:jobId`) — the same columns
+  /// the feed row now carries (needed-by, description, requirements, benefits,
+  /// pay/shift/experience), read fresh and in full. Used to ENRICH a feed card;
+  /// a failure is non-fatal, because the card already renders the feed's own
+  /// copy of those facts.
   Future<JobDetail> jobDetail(String jobId);
 
   Future<void> applyToJob(String jobId, {int? rank});

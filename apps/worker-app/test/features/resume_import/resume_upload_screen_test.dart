@@ -402,6 +402,118 @@ void main() {
       expect(_where(router), Routes.chatProfiling);
     });
 
+    // #1660 — a `parsed` + `route: chat` import that extracted NOTHING is a
+    // clean success by every field on the wire. No identity turn is staged, so
+    // the chat opens on the ordinary first question: without a line here the
+    // worker spends his data and is told nothing at all.
+    testWidgets('an import that learned nothing says so, and still continues', (
+      WidgetTester tester,
+    ) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(
+          const ResumeImportRoutedToChat(learnedNothing: true),
+        ),
+      );
+
+      await tester.tap(find.text(_kDoorUpload));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('Resume dekh liya'), findsWidgets);
+      // It did not fail to READ the document, so the unreadable line is wrong.
+      expect(
+        find.textContaining('Resume se jaankari nahi mil paayi'),
+        findsNothing,
+      );
+      expect(_where(router), Routes.chatProfiling);
+    });
+
+    testWidgets('a productive import still says nothing at all', (
+      WidgetTester tester,
+    ) async {
+      // The ordinary success: the chat opens on the identity turn, which is a
+      // better statement than any notice — so the screen stays quiet.
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportRoutedToChat()),
+      );
+
+      await tester.tap(find.text(_kDoorUpload));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('Resume dekh liya'), findsNothing);
+      expect(
+        find.textContaining('Resume se jaankari nahi mil paayi'),
+        findsNothing,
+      );
+      expect(_where(router), Routes.chatProfiling);
+    });
+
+    // #1661 (after the #1654 option-C ruling): `parse_output_invalid` and
+    // `parse_deadline_exceeded` are failures where the document WAS read and
+    // only our model's reply was malformed, so the server may still stage the
+    // identity turn off that text and the chat can open on "Resume se ye mila:
+    // … Kya ye aap hi hain?". The upload screen must therefore never say we
+    // could not read it — that is the contradiction this issue exists to stop.
+    for (final String reason in <String>[
+      'parse_output_invalid',
+      'parse_deadline_exceeded',
+    ]) {
+      testWidgets('a $reason failure never claims the résumé was unreadable', (
+        WidgetTester tester,
+      ) async {
+        final GoRouter router = await _pump(
+          tester,
+          picker: _FakePicker(_picked()),
+          importer: _FakeImporter(ResumeImportFailed(reason: reason)),
+        );
+
+        await tester.tap(find.text(_kDoorUpload));
+        await tester.pump();
+        await tester.pump();
+
+        expect(
+          find.textContaining('Resume dekh liya'),
+          findsWidgets,
+          reason: 'it states what really happened: read, but no details built',
+        );
+        // The contradicting line must be nowhere on the screen.
+        expect(
+          find.textContaining('Resume se jaankari nahi mil paayi'),
+          findsNothing,
+        );
+        // Still a CONTINUE, never a dead end (ruling D9).
+        expect(_where(router), Routes.chatProfiling);
+      });
+    }
+
+    testWidgets('a document-level failure still says the one honest line', (
+      WidgetTester tester,
+    ) async {
+      final GoRouter router = await _pump(
+        tester,
+        picker: _FakePicker(_picked()),
+        importer: _FakeImporter(const ResumeImportFailed(
+          reason: 'no_text_layer',
+        )),
+      );
+
+      await tester.tap(find.text(_kDoorUpload));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.textContaining('Resume se jaankari nahi mil paayi'),
+        findsWidgets,
+      );
+      expect(find.textContaining('Resume dekh liya'), findsNothing);
+      expect(_where(router), Routes.chatProfiling);
+    });
+
     testWidgets('NO server failure_reason ever reaches the screen', (
       WidgetTester tester,
     ) async {

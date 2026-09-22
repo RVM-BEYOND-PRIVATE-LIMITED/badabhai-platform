@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
+import 'package:badabhai_worker_app/core/util/trade_key_label.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/job_filter.dart';
 
 FeedItem _job(
@@ -347,6 +348,71 @@ void main() {
     test('a selection that matches nothing yields an empty list', () {
       final List<FeedItem> onlyWelder = <FeedItem>[_feed[2]];
       expect(applyJobFilters(onlyWelder, _sel(trades: <String>{'CNC'})), isEmpty);
+    });
+  });
+
+  group('availableTrades', () {
+    test('offers only the families the queue really contains', () {
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator'),
+        _job('v1', 'vmc_setter', 'VMC Setter'),
+      ];
+      // No welder / fitter / QC row ⇒ no dead-end chip for them.
+      expect(availableTrades(jobs), <String>['CNC', 'VMC']);
+    });
+
+    test('empty queue yields no options (never a hardcoded vocabulary)', () {
+      expect(availableTrades(const <FeedItem>[]), isEmpty);
+    });
+
+    test('a trade no family covers is offered by its own humanised label', () {
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator'),
+        _job('p1', 'painter', 'Spray Painter'),
+      ];
+      final List<String> options = availableTrades(jobs);
+      expect(options.first, 'CNC');
+      // 'painter' matches no family keyword, so it still reaches the sheet.
+      expect(options, contains(tradeKeyLabel('painter')));
+    });
+
+    test('a V1 matched-skill label is used, never the mskill_* id', () {
+      final FeedItem v1 = FeedItem(
+        jobId: 'p1',
+        tradeKey: 'mskill_lathe_turning',
+        title: 'Turner',
+        city: 'Pune',
+        area: null,
+        rank: 1,
+        matchedSkillLabel: 'Lathe turning',
+      );
+      final List<String> options = availableTrades(<FeedItem>[v1]);
+      expect(options, <String>['Lathe turning']);
+      expect(options.any((String o) => o.contains('mskill_')), isFalse);
+    });
+
+    test('every derived option matches at least one loaded job', () {
+      final List<FeedItem> jobs = <FeedItem>[
+        _job('c1', 'cnc_operator', 'CNC Operator'),
+        _job('f1', 'fitter', 'Fitter'),
+        _job('p1', 'painter', 'Spray Painter'),
+      ];
+      for (final String option in availableTrades(jobs)) {
+        expect(
+          jobs.any((FeedItem j) => jobMatchesTrades(j, <String>{option})),
+          isTrue,
+          reason: 'offered "$option" matches nothing in the queue',
+        );
+      }
+    });
+
+    test('an already-selected label survives its jobs draining away', () {
+      // The worker filtered to CNC and applied to every CNC job: the chip must
+      // still be there to switch the filter back off.
+      expect(
+        availableTrades(const <FeedItem>[], selected: <String>{'CNC'}),
+        <String>['CNC'],
+      );
     });
   });
 

@@ -31,6 +31,7 @@ class JobDetail extends Equatable {
     this.tradeKey,
     this.payMin,
     this.payMax,
+    this.payType,
     this.minExperienceYears,
     this.maxExperienceYears,
     this.neededBy,
@@ -58,6 +59,7 @@ class JobDetail extends Equatable {
       tradeKey: json['trade_key'] as String?,
       payMin: (json['pay_min'] as num?)?.toInt(),
       payMax: (json['pay_max'] as num?)?.toInt(),
+      payType: json['pay_type'] as String?,
       minExperienceYears: (json['min_experience_years'] as num?)?.toInt(),
       maxExperienceYears: (json['max_experience_years'] as num?)?.toInt(),
       neededBy: json['needed_by'] as String?,
@@ -99,6 +101,11 @@ class JobDetail extends Equatable {
   /// may be null (one-sided band); both null = employer stated no pay.
   final int? payMin;
   final int? payMax;
+
+  /// What the band MEANS as the poster stated it — the raw wire enum
+  /// ('in_hand' | 'gross' | 'ctc'), or null when unstated (#1648). Display
+  /// mapping is `payTypeLabel`; the screen shows nothing when it is null.
+  final String? payType;
 
   /// Experience window in YEAR COUNTS, passed through honestly, nulls
   /// included: null min = "no floor", null max = "open-ended". Never coerce a
@@ -179,6 +186,7 @@ class JobDetail extends Equatable {
         tradeKey,
         payMin,
         payMax,
+        payType,
         minExperienceYears,
         maxExperienceYears,
         neededBy,

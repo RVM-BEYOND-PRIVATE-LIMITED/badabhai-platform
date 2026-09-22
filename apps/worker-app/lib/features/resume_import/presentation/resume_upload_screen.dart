@@ -80,6 +80,12 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
     ResumeUploadNotice.couldNotRead =>
       'Resume se jaankari nahi mil paayi. Hum Hinglish mein baat karke aage '
           'badhte hain.',
+    // #1661 — the document WAS read; only our own reading of it did not come
+    // out clean. It must not say "padh nahi paaye", because the chat may open
+    // on "Resume se ye mila: … Kya ye aap hi hain?" a second later.
+    ResumeUploadNotice.readButNoDetails =>
+      'Resume dekh liya, lekin poori jaankari nahi ban paayi. Hum baat karke '
+          'aage badhte hain.',
     ResumeUploadNotice.unsupportedType =>
       'Sirf PDF, DOCX, JPG ya PNG file chalegi.',
     ResumeUploadNotice.tooLarge => 'File 10 MB se chhoti honi chahiye.',

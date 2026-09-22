@@ -75,6 +75,12 @@ class FeedItem extends Equatable {
     this.shift,
     this.viaRelated = false,
     this.matchedSkillLabel,
+    this.description,
+    this.benefits = const <String>[],
+    this.requirements = const <String>[],
+    this.neededBy,
+    this.payType,
+    this.postedAt,
   });
 
   final String jobId;
@@ -124,6 +130,40 @@ class FeedItem extends Equatable {
   /// reason for why the job is being shown.
   final String? matchedSkillLabel;
 
+  /// Worker-visible card content the feed ALREADY sends (#1561, migration 0116):
+  /// the posting's own `description` / `benefits` / `requirements` /
+  /// `needed_by`, verbatim. BOTH feed sources project them —
+  /// `ApplicationsService.getFeed` for the legacy `jobs` read and
+  /// `MatchFeedService` for the V1 `job_postings` read — so a card shows these
+  /// real facts on its FIRST frame instead of waiting for a per-card
+  /// `GET /jobs/:id` to land.
+  ///
+  /// Honest absence: a null [description] / an empty list means the poster left
+  /// the field blank (or the row predates the migration). Nothing is invented
+  /// and no placeholder chip is rendered.
+  final String? description;
+  final List<String> benefits;
+  final List<String> requirements;
+
+  /// Coarse timing enum as the RAW wire string ('immediate' | 'soon' |
+  /// 'flexible'), or null when unstated. Display mapping lives in
+  /// core/util/job_display.dart — never shown raw (#1027).
+  final String? neededBy;
+
+  /// What the pay band MEANS as the POSTER stated it — the raw wire enum
+  /// ('in_hand' | 'gross' | 'ctc'), or null when they did not state it (#1648).
+  /// Null is the common case and it must stay honest: the card then shows the
+  /// band with no pay-type pill rather than calling it take-home pay.
+  /// `payTypeLabel` in core/util/job_display.dart owns the display mapping.
+  final String? payType;
+
+  /// When the posting went live — `job_postings.published_at` on the V1 feed,
+  /// `jobs.created_at` on the legacy one (#1649). Null is honest absence.
+  ///
+  /// The ONLY thing that can make a "naye jobs (aaj)" count true; before the
+  /// server sent it the header was claiming a recency it had no field for.
+  final DateTime? postedAt;
+
   factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
         jobId: json['job_id'] as String,
         tradeKey: json['trade_key'] as String? ?? '',
@@ -140,7 +180,34 @@ class FeedItem extends Equatable {
         // Absent (legacy feed) reads as false / null — never as "related".
         viaRelated: json['via_related'] as bool? ?? false,
         matchedSkillLabel: json['matched_skill_label'] as String?,
+        // Card content (#1561). An absent key / explicit null reads as
+        // null / empty, so an older server renders exactly what it did before.
+        description: json['description'] as String?,
+        benefits: _stringList(json['benefits']),
+        requirements: _stringList(json['requirements']),
+        neededBy: json['needed_by'] as String?,
+        payType: json['pay_type'] as String?,
+        postedAt: _utcDate(json['posted_at']),
       );
+
+  /// One ISO-8601 wire timestamp → a local [DateTime], or null. A malformed or
+  /// absent value reads as "unknown", never as "now" — a fabricated recency is
+  /// exactly what the honest-count rule exists to prevent.
+  static DateTime? _utcDate(dynamic raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    return DateTime.tryParse(raw)?.toLocal();
+  }
+
+  /// One wire list → a clean `List<String>`: a non-list (or absent) value reads
+  /// as empty, and blank entries are dropped rather than becoming empty chips.
+  static List<String> _stringList(dynamic raw) {
+    if (raw is! List<dynamic>) return const <String>[];
+    return raw
+        .whereType<String>()
+        .map((String value) => value.trim())
+        .where((String value) => value.isNotEmpty)
+        .toList(growable: false);
+  }
 
   @override
   List<Object?> get props => <Object?>[
@@ -157,6 +224,12 @@ class FeedItem extends Equatable {
         rank,
         viaRelated,
         matchedSkillLabel,
+        description,
+        benefits,
+        requirements,
+        neededBy,
+        payType,
+        postedAt,
       ];
 }
 
@@ -2696,6 +2769,8 @@ class ResumeImportDto extends Equatable {
     this.route,
     this.formKind,
     this.failureReason,
+    this.yieldedNothing,
+    this.fieldsExtracted,
   });
 
   final String importId;
@@ -2707,6 +2782,30 @@ class ResumeImportDto extends Equatable {
   /// form at all, so null here is the ordinary case rather than an error.
   final String? formKind;
   final String? failureReason;
+
+  /// #1660 — did this import extract ANYTHING?
+  ///
+  /// A `parsed` + `route: chat` + `failure_reason: null` row is a clean success
+  /// by every other field on the wire, and is exactly what a spend cap, a
+  /// citation-gated document or a résumé carrying none of the eight target
+  /// fields also produces. Without this the client cannot tell a productive
+  /// import from one that learned nothing, so the worker lands in the ordinary
+  /// interview with NOTHING said — the silence ruling D9 forbids.
+  ///
+  /// TWO SHAPES ARE ACCEPTED because the read is still gaining the field
+  /// (backend #1656): an explicit `yielded_nothing` boolean, or the
+  /// `fields_extracted` count the `profile.resume_parsed` event already carries.
+  /// BOTH ABSENT → null → today's behaviour exactly, so an older server (and
+  /// the build in front of this one) is unaffected.
+  final bool? yieldedNothing;
+  final int? fieldsExtracted;
+
+  /// True only when the server SAID so, one way or the other. Null-safe by
+  /// design: an unknown extraction count is never read as "nothing", because
+  /// telling a worker his résumé gave us nothing when it may have given us
+  /// everything is its own lie.
+  bool get learnedNothing =>
+      yieldedNothing == true || (fieldsExtracted != null && fieldsExtracted == 0);
 
   /// True once the server will never change this row again — the only point at
   /// which polling may stop.
@@ -2725,11 +2824,20 @@ class ResumeImportDto extends Equatable {
         route: _resumeImportRoute(json['route'] as String?),
         formKind: json['form_kind'] as String?,
         failureReason: json['failure_reason'] as String?,
+        yieldedNothing: json['yielded_nothing'] as bool?,
+        fieldsExtracted: (json['fields_extracted'] as num?)?.toInt(),
       );
 
   @override
-  List<Object?> get props =>
-      <Object?>[importId, status, route, formKind, failureReason];
+  List<Object?> get props => <Object?>[
+        importId,
+        status,
+        route,
+        formKind,
+        failureReason,
+        yieldedNothing,
+        fieldsExtracted,
+      ];
 }
 
 ResumeImportStatus _resumeImportStatus(String? raw) => switch (raw) {

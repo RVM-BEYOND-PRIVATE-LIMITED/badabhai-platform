@@ -231,10 +231,16 @@ class MockPayerApiClient implements PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     if ((vacancyBand == null) == (vacancies == null)) {
       throw ArgumentError(
@@ -242,11 +248,35 @@ class MockPayerApiClient implements PayerApiClient {
       );
     }
     _jobSeq += 1;
+    // FAITHFUL TO THE PUBLISHED ROUTE: `PayerCreateJobPostingSchema` now spreads
+    // the worker-visible content + match blocks (#1653), so a create PERSISTS
+    // city/area/pay band + type/experience/shift/needed_by/benefits/
+    // requirements/match_skill_ids and echoes them back on the 201. It used to
+    // strip every one of them, which is what the post flow's repair PATCH
+    // exists for — that repair is now driven off THIS returned draft and makes
+    // no second call, exactly as it will against the fixed server.
+    //
+    // An EMPTY chip list is echoed as NULL, mirroring the route: the create
+    // omits an empty list, so the row is left with nothing stated.
     return JobPosting(
       id: 'mock-job-$_jobSeq',
       title: roleTitle,
       band: vacancyBand ?? '$vacancies',
       locationLabel: locationLabel,
+      description: description,
+      city: city,
+      area: area,
+      payMin: payMin,
+      payMax: payMax,
+      payType: payType,
+      minExperienceYears: minExperienceYears,
+      maxExperienceYears: maxExperienceYears,
+      benefits: benefits != null && benefits.isNotEmpty ? benefits : null,
+      requirements:
+          requirements != null && requirements.isNotEmpty ? requirements : null,
+      shift: shift,
+      neededBy: neededBy,
+      matchSkillIds: matchSkillIds ?? const <String>[],
       createdAt: '2026-07-08T00:00:00Z',
       status: JobStatus.review,
       filled: 0,
@@ -276,12 +306,52 @@ class MockPayerApiClient implements PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
-  }) async =>
-      _cannedJob(id, wireStatus: status ?? 'draft');
+    List<String>? benefits,
+    List<String>? requirements,
+  }) async {
+    // The real PATCH accepts every key above and returns the UPDATED row, so the
+    // mock echoes the patch back over the canned row (a null field is left at
+    // its stored value, exactly like the server's per-field compare — and an
+    // explicitly EMPTY chip list overwrites with `[]`, which is how a clear
+    // reads on the wire).
+    final JobPosting current = _cannedJob(id, wireStatus: status ?? 'draft');
+    return JobPosting(
+      id: current.id,
+      title: roleTitle ?? current.title,
+      band: vacancyBand ?? current.band,
+      locationLabel: locationLabel ?? current.locationLabel,
+      description: description ?? current.description,
+      city: city ?? current.city,
+      area: area ?? current.area,
+      payMin: payMin ?? current.payMin,
+      payMax: payMax ?? current.payMax,
+      payType: payType ?? current.payType,
+      minExperienceYears: minExperienceYears ?? current.minExperienceYears,
+      maxExperienceYears: maxExperienceYears ?? current.maxExperienceYears,
+      benefits: benefits ?? current.benefits,
+      requirements: requirements ?? current.requirements,
+      shift: shift ?? current.shift,
+      neededBy: neededBy ?? current.neededBy,
+      matchSkillIds: matchSkillIds ?? current.matchSkillIds,
+      createdAt: current.createdAt,
+      status: current.status,
+      filled: current.filled,
+      quota: current.quota,
+      applicants: current.applicants,
+      unlocks: current.unlocks,
+      verified: current.verified,
+      boosted: current.boosted,
+      wireStatus: current.wireStatus,
+    );
+  }
 
   @override
   Future<JobPosting> closeJob(String id) async =>
@@ -649,11 +719,23 @@ class MockPayerApiClient implements PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     _agencySeq += 1;
+    // The worker-visible four used to be kept in a SIDE TABLE here, because
+    // `AgencyService.toJobView` accepted them and never read them back. #1647
+    // made the view return them, so they live on the row like every other
+    // field — a mock that still hid them would now be the thing lying.
+    //
+    // An EMPTY chip list is stored as NULL, mirroring the route: the create
+    // omits an empty list, so nothing is stated on the new row.
     final AgencyJobView job = AgencyJobView(
       id: 'mock-agency-$_agencySeq',
       status: 'open',
@@ -663,9 +745,15 @@ class MockPayerApiClient implements PayerApiClient {
       area: area,
       payMin: payMin,
       payMax: payMax,
+      payType: payType,
       minExperienceYears: minExperienceYears,
       maxExperienceYears: maxExperienceYears,
       neededBy: neededBy,
+      description: description,
+      shift: shift,
+      benefits: benefits != null && benefits.isNotEmpty ? benefits : null,
+      requirements:
+          requirements != null && requirements.isNotEmpty ? requirements : null,
       applicantsReceived: 0,
       createdAt: '2026-07-08T00:00:00Z',
       updatedAt: '2026-07-08T00:00:00Z',
@@ -695,9 +783,14 @@ class MockPayerApiClient implements PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     if (tradeKey == null &&
         title == null &&
@@ -705,11 +798,18 @@ class MockPayerApiClient implements PayerApiClient {
         area == null &&
         payMin == null &&
         payMax == null &&
+        payType == null &&
         minExperienceYears == null &&
         maxExperienceYears == null &&
-        neededBy == null) {
+        neededBy == null &&
+        description == null &&
+        shift == null &&
+        benefits == null &&
+        requirements == null) {
       throw ArgumentError('updateAgencyJob needs at least one field');
     }
+    // Same replace-semantics as the server: a passed value overwrites, a null
+    // leaves the stored one alone, and an explicitly EMPTY list clears.
     return _mutate(
       id,
       (AgencyJobView j) => AgencyJobView(
@@ -721,9 +821,14 @@ class MockPayerApiClient implements PayerApiClient {
         area: area ?? j.area,
         payMin: payMin ?? j.payMin,
         payMax: payMax ?? j.payMax,
+        payType: payType ?? j.payType,
         minExperienceYears: minExperienceYears ?? j.minExperienceYears,
         maxExperienceYears: maxExperienceYears ?? j.maxExperienceYears,
         neededBy: neededBy ?? j.neededBy,
+        description: description ?? j.description,
+        shift: shift ?? j.shift,
+        benefits: benefits ?? j.benefits,
+        requirements: requirements ?? j.requirements,
         applicantsReceived: j.applicantsReceived,
         createdAt: j.createdAt,
         updatedAt: '2026-07-08T00:00:00Z',
@@ -1324,3 +1429,4 @@ class _MockChatSession {
     );
   }
 }
+

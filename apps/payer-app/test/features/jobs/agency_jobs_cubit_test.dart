@@ -45,9 +45,14 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     updated.add(id);
     lastUpdatedTitle = title;

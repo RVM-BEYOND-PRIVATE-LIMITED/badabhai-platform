@@ -38,6 +38,12 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
   /// [AgencyJobView] carries is typed + prefillable, so the edit form is
   /// complete (trade / title / city / area / pay & experience bands / timing).
   /// The screen sends ≥1 field; refetches on success so the card updates.
+  ///
+  /// [description]/[shift]/[benefits]/[requirements] are the WORKER-VISIBLE
+  /// content the route also accepts, and the job view RETURNS them since #1647,
+  /// so the screen prefills them and passes null for anything the payer did not
+  /// touch; an explicitly EMPTY list is passed through (it clears the chips
+  /// server-side). [payType] says what the ₹ band means (#1648).
   Future<JobActionResult> editJob(
     String id, {
     String? tradeKey,
@@ -46,9 +52,14 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) =>
       _lifecycle(
         () => _api.updateAgencyJob(
@@ -59,9 +70,14 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
           area: area,
           payMin: payMin,
           payMax: payMax,
+          payType: payType,
           minExperienceYears: minExperienceYears,
           maxExperienceYears: maxExperienceYears,
           neededBy: neededBy,
+          description: description,
+          shift: shift,
+          benefits: benefits,
+          requirements: requirements,
         ),
         okMessage: 'Job updated.',
       );
