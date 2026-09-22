@@ -301,13 +301,100 @@ _DELETE_CODEPOINTS: Final = tuple(
     if codepoint != 0x0A and codepoint not in _SPACE_CODEPOINTS + _BREAK_CODEPOINTS
 )
 
+# ---------------------------------------------------------------------------
+# The typographic fold (#1657) — and the list of what it deliberately LEAVES ALONE,
+# which is the half that can do damage.
+# ---------------------------------------------------------------------------
+#
+# THE GATE WAS RIGHT; THE INPUT WAS THE PROBLEM. `parse_gates._quote_appears_in` asks
+# whether the model's quote is a literal substring of the line it cites, whitespace
+# aside, and that literalness is the entire reason a fabricated value is structurally
+# impossible. Nothing below touches it, or should.
+#
+# But this module hands the model whatever typography the document happened to be written
+# with, and a résumé exported from Word, Google Docs or an HTML-to-PDF pipeline is full of
+# characters no model reliably echoes. Measured over 37 real résumé PDFs: EN DASH in 19 of
+# them, EM DASH in 23 — and they cluster on exactly the lines the parse most needs, the
+# employment headers carrying a year range and the education rows:
+#
+#     'CNC Turner / CNC Setter | 2017 <U+2013> 2021'
+#     'ITI <U+2013> Turner Trade'
+#
+# Asked to quote that character for character, a model returns '2017 - 2021'. That is an
+# HONEST citation of a real line and gate 1 dropped it — one field at a time, until a
+# perfectly good CV parsed to almost nothing. A BadaBhai-generated résumé never showed
+# this, because WeasyPrint renders our own database strings and those are near-pure ASCII:
+# an app-generated document extracted fine while a Word one silently lost field after
+# field, which is precisely the shape of bug nobody goes looking for.
+#
+# WHY THIS DOES NOT WIDEN THE GATE BY ONE CHARACTER. The fold happens HERE, in the single
+# `str.translate` pass below, BEFORE `_number` assigns indices — so the text the model is
+# given and the corpus the gate checks against are the same `lines` object. Both sides see
+# the folded string, so the comparison stays exactly as literal as it was and the corpus
+# simply stops containing characters nobody can round-trip. Folding at COMPARISON time was
+# the dangerous version of this fix: it would have meant normalizing the model's quote
+# too, widening what counts as a match for every route that shares those gates — including
+# the interview, which never had this problem.
+#
+# MEASURED, NOT ASSUMED. The NFKC pass in `_normalize_block` already folds U+00A0 to a
+# space and U+2026 to "...", and leaves EVERY dash and EVERY curly quote untouched. That
+# is why this table is needed at all.
+
+# The dash family → ASCII HYPHEN-MINUS.
+#
+# U+2011 NON-BREAKING HYPHEN is deliberately ABSENT rather than an oversight: NFKC runs
+# first and hands it on as U+2010 (still not ASCII, which is why U+2010 is listed), so
+# covering U+2010 covers it. Listing both would leave the next reader unable to tell which
+# pass was doing the work.
+#
+# U+2212 MINUS SIGN is included although it did NOT appear anywhere in the 37-document
+# corpus. It is the identical failure mode — a model types ASCII for it every time — and
+# the fold is lossless: U+002D is named HYPHEN-MINUS and already IS the plain-text minus,
+# so a negative tolerance reads the same after folding as before.
+_DASH_CODEPOINTS: Final = (0x2010, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)
+
+# The curly quote families → ASCII, both directions of both, including the low-9 and
+# high-reversed-9 forms Word emits when autocorrect guesses the direction wrong.
+_SINGLE_QUOTE_CODEPOINTS: Final = (0x2018, 0x2019, 0x201A, 0x201B)
+_DOUBLE_QUOTE_CODEPOINTS: Final = (0x201C, 0x201D, 0x201E, 0x201F)
+
+# WHAT IS DELIBERATELY IN NO TUPLE ABOVE. A fold is lossy, and for these characters the
+# character IS the fact — these two most of all, because they are the two facts this
+# platform cares most about:
+#
+#   ± (U+00B1)  "Tolerance held ±0.01 mm or finer" — a CNC capability claim, and the
+#               difference between a tolerance and a dimension. Fold or drop it and the
+#               line stops saying what the worker can actually hold.
+#   ₹ (U+20B9)  "Salary expected ₹35,000 / month" — target field `salary_expected`, unit
+#               inr_per_month. The currency mark is how the amount is known to be a salary
+#               and not a part number, a quantity or a year.
+#
+# Left alone for the same reason, none having an ASCII stand-in that preserves the
+# meaning: × ÷ ° ≥ ≤ ≈ § (U+00D7, U+00F7, U+00B0, U+2265, U+2264, U+2248, U+00A7), and
+# every arrow and box-drawing character.
+#
+# • (U+2022) and · (U+00B7) are the corpus's most common non-ASCII characters and still
+# need NO fold, which is worth stating so nobody adds one: a model quoting a bulleted line
+# quotes the text AFTER the marker, so the substring match succeeds without the marker
+# ever being compared.
+#
+# And nothing here touches a letter, a digit, or any Devanagari code point. `ocr_languages`
+# is `eng+hin` and a résumé routinely carries both scripts.
+
 # ONE table, ONE pass. Built in this order so a code point can never be listed as both
 # deleted and replaced without the later entry winning silently — the comprehension
-# above removes the overlap at the source instead.
+# above removes the overlap at the source instead. #1657 added three more source tuples,
+# which is enough moving parts that the ordering convention now has a test rather than
+# only this paragraph; see `test_the_translate_table_has_no_overlapping_source`. The new
+# ranges are free by inspection too: `_DELETE_CODEPOINTS` stops at U+200F and
+# `_SPACE_CODEPOINTS` at U+200A, so U+2010..U+201F and U+2212 collide with nothing.
 _TRANSLATE_TABLE: Final = {
     **dict.fromkeys(_DELETE_CODEPOINTS),
     **dict.fromkeys(_SPACE_CODEPOINTS, " "),
     **dict.fromkeys(_BREAK_CODEPOINTS, "\n"),
+    **dict.fromkeys(_DASH_CODEPOINTS, "-"),
+    **dict.fromkeys(_SINGLE_QUOTE_CODEPOINTS, "'"),
+    **dict.fromkeys(_DOUBLE_QUOTE_CODEPOINTS, '"'),
 }
 
 _RUNS_RE = re.compile(r" {2,}")
@@ -320,6 +407,10 @@ def _normalize_block(raw: str) -> list[str]:
     # so a quote of ours matches a quote of the worker's. It is applied BEFORE the
     # lines are stored, so the model still quotes exactly what it was given.
     text = unicodedata.normalize("NFKC", text)
+    # The one translate pass: deletes, spaces, breaks, and the #1657 typographic fold —
+    # ORDER MATTERS between these two lines, because the fold's dash entry exists to catch
+    # what NFKC leaves behind (U+2011 arrives here as U+2010). Both run before `_number`,
+    # so the model's input and the provenance corpus stay the same object.
     text = text.translate(_TRANSLATE_TABLE)
     out: list[str] = []
     for piece in text.split("\n"):

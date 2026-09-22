@@ -857,3 +857,168 @@ def test_real_tesseract_reads_a_scanned_pdf_through_the_rasterizer():
     assert result.method == "ocr"
     assert result.page_count == 1
     assert "CNC" in result.text.upper()
+
+
+# ===========================================================================
+# The typographic fold (#1657) — and the characters it must never reach
+#
+# Gate 1 is character-literal apart from whitespace, and that strictness is what makes a
+# fabricated value structurally impossible. The gate was right; the INPUT was the problem.
+# A Word / Google-Docs / HTML-to-PDF résumé is full of typography no model echoes, and
+# over 37 real résumé PDFs the EN DASH sat on exactly the lines the parse most needs.
+#
+# CODE POINTS, NEVER THE LITERAL CHARACTERS, the same doctrine as the module under test
+# and for the same reason: an en dash and a hyphen are indistinguishable in every editor,
+# diff and review that would ever look at this file, so one bad encoding round-trip turns
+# an assertion here into a tautology about mojibake and nobody sees it happen.
+# ===========================================================================
+
+EN_DASH = chr(0x2013)
+EM_DASH = chr(0x2014)
+PLUS_MINUS = chr(0x00B1)
+RUPEE = chr(0x20B9)
+
+# Real lines from the corpus, written as the ASCII a model can actually produce. Each test
+# input is derived from these by putting the en dash BACK, so the fixture and the
+# expectation cannot drift apart in a later edit.
+CORPUS_LINES = (
+    "Senior CNC Turner / Principal Machinist | 2021 - Present",
+    "CNC Turner / CNC Setter | 2017 - 2021",
+    "CNC Machine Operator | 2014 - 2017",
+    "ITI - Turner Trade",
+    "Rajasthan Technical Education Board - Assumed",
+    "RBSE - Rajasthan Board of Secondary Education",
+)
+
+
+def test_an_en_dash_and_an_em_dash_both_come_out_as_ascii_hyphens():
+    line = f"Fitter {EN_DASH} Grade A {EM_DASH} Pune"
+    assert extract_mod._normalize_block(line) == ["Fitter - Grade A - Pune"]
+
+
+@pytest.mark.parametrize("expected", CORPUS_LINES)
+def test_the_real_corpus_lines_round_trip_to_ascii(expected):
+    document_line = expected.replace(" - ", f" {EN_DASH} ")
+    # The vacuity check, first: a fixture that never held an en dash makes the real
+    # assertion below unfalsifiable.
+    assert EN_DASH in document_line
+    assert extract_mod._normalize_block(document_line) == [expected]
+
+
+def test_every_dash_in_the_family_folds_including_the_one_nfkc_hands_on():
+    # U+2011 NON-BREAKING HYPHEN is deliberately NOT in `_DASH_CODEPOINTS` and must fold
+    # anyway, because NFKC runs first and turns it into U+2010. If that ever stops being
+    # true it fails here rather than in production, on a worker's résumé, silently.
+    for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212):
+        assert extract_mod._normalize_block(f"2017 {chr(cp)} 2021") == ["2017 - 2021"], (
+            f"U+{cp:04X} did not fold"
+        )
+
+
+def test_both_curly_quote_families_fold_to_ascii():
+    open_single, close_single = chr(0x2018), chr(0x2019)
+    open_double, close_double = chr(0x201C), chr(0x201D)
+    assert extract_mod._normalize_block(f"{open_single}lathe{close_single}") == ["'lathe'"]
+    assert extract_mod._normalize_block(f"worker{close_single}s tools") == ["worker's tools"]
+    assert extract_mod._normalize_block(f"{open_double}CNC{close_double}") == ['"CNC"']
+    # The low-9 and high-reversed-9 forms, which Word emits when autocorrect guesses the
+    # direction wrong — the same character to a reader, a gate-1 failure to us.
+    for cp in (0x201A, 0x201B):
+        assert extract_mod._normalize_block(f"{chr(cp)}lathe") == ["'lathe"], f"U+{cp:04X}"
+    for cp in (0x201E, 0x201F):
+        assert extract_mod._normalize_block(f"{chr(cp)}CNC") == ['"CNC'], f"U+{cp:04X}"
+
+
+def test_the_tolerance_and_salary_marks_survive_byte_for_byte():
+    """THE REGRESSION THAT WOULD QUIETLY DESTROY TOLERANCE AND SALARY EXTRACTION.
+
+    U+00B1 and U+20B9 are not typography, they are the fact. "±0.01 mm" is a CNC
+    capability claim and the difference between a tolerance and a dimension; "₹35,000" is
+    what makes an amount a salary rather than a part number, a quantity or a year — it is
+    the whole basis of `salary_expected` in `inr_per_month`.
+
+    Both lines are real corpus lines. A fold that reached either of these characters, or a
+    later "tidy up the symbols while we're here" pass, would leave every other test in
+    this section perfectly green.
+    """
+    tolerance = f"Tolerance held {PLUS_MINUS}0.01 mm or finer"
+    salary = f"Salary expected {RUPEE}35,000 / month"
+    assert extract_mod._normalize_block(tolerance) == [tolerance]
+    assert extract_mod._normalize_block(salary) == [salary]
+
+
+def test_the_semantic_symbols_are_left_alone():
+    # Each of these carries meaning no ASCII stand-in preserves. BULLET and MIDDLE DOT are
+    # in the list for a different reason — they are the corpus's two most common non-ASCII
+    # characters and still need NO fold, because a model quoting a bulleted line quotes
+    # the text AFTER the marker, so the substring match never compares the marker at all.
+    for cp in (
+        0x00B1,  # PLUS-MINUS         tolerance
+        0x20B9,  # INDIAN RUPEE SIGN  salary
+        0x00D7,  # MULTIPLICATION     a 500 x 300 bed
+        0x00F7,  # DIVISION
+        0x00B0,  # DEGREE             an angle, a temperature
+        0x2265,  # GREATER-OR-EQUAL
+        0x2264,  # LESS-OR-EQUAL
+        0x2248,  # ALMOST EQUAL
+        0x00A7,  # SECTION
+        0x2022,  # BULLET
+        0x00B7,  # MIDDLE DOT
+        0x2192,  # RIGHTWARDS ARROW
+        0x2500,  # BOX DRAWINGS LIGHT HORIZONTAL
+    ):
+        line = f"x {chr(cp)} y"
+        assert extract_mod._normalize_block(line) == [line], (
+            f"U+{cp:04X} was folded and must not be"
+        )
+
+
+def test_letters_digits_casing_and_devanagari_are_untouched():
+    # The vacuity guard for the whole section: a fold that mangled ordinary text would
+    # satisfy every assertion above. `ocr_languages` is `eng+hin` and a résumé routinely
+    # carries both scripts, so a fold reaching a letter would corrupt the very text it
+    # exists to make quotable.
+    devanagari = "".join(chr(cp) for cp in (0x092B, 0x093F, 0x091F, 0x0930))  # "fitter"
+    for line in (
+        "CNC Turner",
+        "Apex Auto Components Pvt Ltd",
+        "ITI - Turner Trade",
+        "2017-2021",
+        devanagari,
+        f"{devanagari} 8 saal",
+    ):
+        assert extract_mod._normalize_block(line) == [line]
+
+
+def test_the_translate_table_has_no_overlapping_source():
+    """The module promises a code point can never be listed as both deleted and replaced
+    with the later entry winning silently. That was an ordering convention held up by a
+    comment; #1657 added three more source tuples, which is enough moving parts to need a
+    test instead."""
+    groups = {
+        "delete": extract_mod._DELETE_CODEPOINTS,
+        "space": extract_mod._SPACE_CODEPOINTS,
+        "break": extract_mod._BREAK_CODEPOINTS,
+        "dash": extract_mod._DASH_CODEPOINTS,
+        "single_quote": extract_mod._SINGLE_QUOTE_CODEPOINTS,
+        "double_quote": extract_mod._DOUBLE_QUOTE_CODEPOINTS,
+    }
+    seen: dict[int, str] = {}
+    for name, codepoints in groups.items():
+        for cp in codepoints:
+            assert cp not in seen, f"U+{cp:04X} is in both {seen[cp]} and {name}"
+            seen[cp] = name
+    # And the table is EXACTLY that union, so nothing can be bolted on outside a named
+    # tuple and escape the overlap check above.
+    assert len(extract_mod._TRANSLATE_TABLE) == len(seen)
+
+
+def test_the_fold_happens_on_the_real_extract_route_not_only_in_the_helper():
+    """Through the door, on a DOCX — `build_pdf` encodes latin-1 and cannot carry an en
+    dash, which is itself a reminder that this whole class of character only arrives from
+    real authoring tools."""
+    source = f"CNC Turner / CNC Setter | 2017 {EN_DASH} 2021"
+    result = extract(build_docx([source, "Apex Auto Components"]), mime=DOCX_MIME)
+    assert result.degraded_reason is None, result.degraded_reason
+    assert result.lines[0].text == "CNC Turner / CNC Setter | 2017 - 2021"
+    assert EN_DASH not in result.text
