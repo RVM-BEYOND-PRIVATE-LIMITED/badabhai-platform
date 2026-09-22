@@ -503,7 +503,7 @@ export class JobPostingChatService {
     // `needed_by`, `pay_type` (#1648), and `match_skill_ids`. The last one matters most — a
     // chat-published posting is a DRAFT with no match skills, so it reaches nobody until the
     // payer picks them on the publish step. That is the existing flow, not a regression, but
-    // it is the reason this path alone does not make a posting live. See #1653.
+    // it is the reason this path alone does not make a posting live. See #1659.
     const candidate = {
       org_label: await this.resolveOrgLabel(payerId),
       role_title: draft.role_title ?? undefined,
