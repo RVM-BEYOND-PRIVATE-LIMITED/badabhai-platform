@@ -183,6 +183,14 @@ const String kChatNudgeContinueLabel = 'Baat jaari rakhein';
 /// Nudge-sheet escape hatch — the worker is never trapped.
 const String kChatNudgeProceedLabel = 'Phir bhi profile banaiye';
 
+/// The `extra` the résumé-upload screen hands [Routes.chatProfiling] when the
+/// worker arrived from a REAL import that said nothing on the way (#1660).
+///
+/// It lives HERE, not in `Routes`: it is a navigation ARGUMENT, and the
+/// screen-template contract test reads every `static const String` in
+/// `router.dart` as a declared route the feedback table must know.
+const String kChatFromResumeImport = 'resume_import';
+
 class ChatProfilingScreen extends StatelessWidget {
   const ChatProfilingScreen({super.key, this.fromResumeImport = false});
 

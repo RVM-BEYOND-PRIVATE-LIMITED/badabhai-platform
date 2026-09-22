@@ -7,6 +7,8 @@ import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
+import '../../chat/presentation/chat_profiling_screen.dart'
+    show kChatFromResumeImport;
 import '../domain/resume_document_picker.dart';
 import '../domain/resume_importer.dart';
 import 'cubit/resume_upload_cubit.dart';
@@ -121,7 +123,7 @@ class _ResumeUploadScreenState extends State<ResumeUploadScreen> {
       // nothing on the way, so it can say the one honest line if no identity
       // turn was staged. Absent for every other arrival (the no-résumé door, a
       // closed upload door, or a notice already shown here).
-      extra: state.cameFromImport ? Routes.chatFromResumeImport : null,
+      extra: state.cameFromImport ? kChatFromResumeImport : null,
     );
   }
 
