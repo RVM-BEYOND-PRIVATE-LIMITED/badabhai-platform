@@ -28,6 +28,7 @@ from .errors import (
     REASON_HTTP_429,
     REASON_HTTP_ERROR,
     REASON_MAX_TOKENS_NO_PARTS,
+    REASON_MAX_TOKENS_TRUNCATED,
     REASON_MISSING_KEY,
     REASON_NO_CANDIDATES,
     REASON_NO_TEXT_CONTENT,
@@ -80,6 +81,8 @@ _TRANSPORT: dict[str, str] = {
     REASON_NO_CANDIDATES: INVALID_OUTPUT,
     REASON_NO_TEXT_CONTENT: INVALID_OUTPUT,
     REASON_MAX_TOKENS_NO_PARTS: OUTPUT_TRUNCATED,
+    # #1656 - same category, same reasoning: the budget will not move on a retry.
+    REASON_MAX_TOKENS_TRUNCATED: OUTPUT_TRUNCATED,
     # A missing credential is a deployment mistake, not a provider incident. It is
     # the one transport reason that will NEVER clear on a retry or a fallback.
     REASON_MISSING_KEY: AUTHENTICATION_ERROR,

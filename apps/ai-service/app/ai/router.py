@@ -36,7 +36,12 @@ from ..config import Settings
 from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, error_taxonomy, providers, trace_metadata
-from .errors import REASON_HTTP_429, REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
+from .errors import (
+    REASON_HTTP_429,
+    REASON_MAX_TOKENS_NO_PARTS,
+    REASON_MAX_TOKENS_TRUNCATED,
+    LlmTransportError,
+)
 from .langfuse_tracing import (
     LLM_CALL,
     LangfuseTracer,
@@ -74,6 +79,10 @@ Message = dict[str, str]
 _NO_RETRY_REASONS: frozenset[str] = frozenset(
     {
         REASON_MAX_TOKENS_NO_PARTS,
+        # #1656 - a truncated reply is the SAME non-answer on every attempt, because
+        # the budget that truncated it does not move between attempts. Retrying spends
+        # again for an identical half-object.
+        REASON_MAX_TOKENS_TRUNCATED,
         REASON_HTTP_429,
     }
 )
