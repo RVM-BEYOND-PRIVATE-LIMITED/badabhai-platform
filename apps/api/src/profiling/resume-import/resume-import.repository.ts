@@ -177,6 +177,14 @@ export class ResumeImportRepository {
    * back and the caller stages nothing. Never touches `status`, `route` or any CHECK-bound
    * sibling, so this write cannot disturb the settle's atomicity from either side.
    *
+   * UNCHANGED BY THE D9 AMENDMENT (#1654), deliberately. Staging a line for an import that
+   * is about to FAIL does not need `failed` added here: the processor runs the summary
+   * BEFORE `settleFailure`, so the row is still `parsing` at the write, exactly as on the
+   * parsed path. `failed` stays out because this guard is what stops a line landing on a
+   * row that has left the flow, and a terminal row is precisely such a row — the one case
+   * it would newly admit is a redelivery backfill we do not perform (a redelivery gets
+   * `already_settled` and never reaches the summary at all).
+   *
    * PLAIN STRINGS AT THIS BOUNDARY (like `formKind`): the service narrowed the kind and
    * the far side certified the Hinglish; the CHECK enforces the rest.
    */

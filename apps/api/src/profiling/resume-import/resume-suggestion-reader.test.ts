@@ -147,6 +147,37 @@ describe("ResumeSuggestionReader.identityForChat — the staged Hinglish line", 
     expect(line?.summaryText).toBe("CNC cylindrical grinder par kaam");
   });
 
+  it("serves the line off a FAILED row — the parse was ours to get wrong, not his (#1654)", async () => {
+    // Ruling D9 amendment: `parse_output_invalid` / `parse_deadline_exceeded` mean the
+    // document read fine and only our model reply did not, so the summary that ran before
+    // the row was settled still stands. The row is terminal and `failed`; the line is his.
+    const { reader } = setup(row({ status: "failed", failureReason: "parse_output_invalid" }), () => "{}");
+    await expect(reader.identityForChat(WORKER)).resolves.toEqual({
+      importId: IMPORT,
+      roleKind: "cnc_grinding",
+      experienceText: "2 saal 7 mahine ka tajurba",
+      summaryText: "CNC cylindrical grinder par kaam",
+    });
+  });
+
+  it("null for a FAILED row with no staged columns — the document-level failures, by construction", async () => {
+    // THE CLOSED REASON SET IS NOT RE-STATED IN THE READER, on purpose. A row that failed on
+    // `no_text_layer` never had the summary called for it, so its three identity columns are
+    // null and this check does the gating on its own — which is why widening the status test
+    // above is safe.
+    const { reader } = setup(
+      row({
+        status: "failed",
+        failureReason: "no_text_layer",
+        identityRoleKind: null,
+        identityExperienceText: null,
+        identitySummaryText: null,
+      }),
+      () => "{}",
+    );
+    await expect(reader.identityForChat(WORKER)).resolves.toBeNull();
+  });
+
   it("null when nothing was staged, when the import is not parsed, or when it is gone", async () => {
     const { reader: empty } = setup(
       row({
@@ -158,8 +189,14 @@ describe("ResumeSuggestionReader.identityForChat — the staged Hinglish line", 
     );
     await expect(empty.identityForChat(WORKER)).resolves.toBeNull();
 
+    // STILL IN FLIGHT. `parsing` rows genuinely can carry a staged line — that is when the
+    // summary writes it — and are still excluded: the client has not finished polling and is
+    // nowhere near the chat, so the offer would be spent against a turn nobody saw.
     const { reader: parsing } = setup(row({ status: "parsing" }), () => "{}");
     await expect(parsing.identityForChat(WORKER)).resolves.toBeNull();
+
+    const { reader: discarded } = setup(row({ status: "discarded" }), () => "{}");
+    await expect(discarded.identityForChat(WORKER)).resolves.toBeNull();
 
     const { reader: gone } = setup(undefined, () => "{}");
     await expect(gone.identityForChat(WORKER)).resolves.toBeNull();

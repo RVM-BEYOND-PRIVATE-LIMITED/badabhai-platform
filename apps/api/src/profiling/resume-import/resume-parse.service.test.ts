@@ -214,10 +214,14 @@ describe("ResumeParseService", () => {
     ["null", null],
     ["outside the closed set", "html"],
   ])(
-    "a SUCCESS whose extraction method is %s is recorded as `parse_output_invalid`, not cast",
+    "a SUCCESS whose extraction method is %s is `parse_output_invalid`, DEFERRED not cast",
     async (_label, method) => {
       // The contract types the method as an open nullable string; the column's CHECK and the
       // parsed event's non-null enum both refuse what a cast let through. The spend still counts.
+      //
+      // DEFERRED SINCE #1654: `parse_output_invalid` is one of the two reasons where the
+      // document read fine and only our reply did not, so this service writes NOTHING and the
+      // caller settles it after the identity summary has staged. The draft says so.
       const { svc, imports, events, aiCost } = setup({
         out: parseOutput({
           extraction_method: method,
@@ -226,16 +230,50 @@ describe("ResumeParseService", () => {
       });
       const result = await svc.parse(WORKER, IMPORT, CTX);
 
-      expect(result).toEqual({ status: "failed", importId: IMPORT, reason: "parse_output_invalid" });
+      expect(result).toEqual({
+        status: "failed",
+        importId: IMPORT,
+        reason: "parse_output_invalid",
+        extractionMethod: null,
+        settled: false,
+      });
+      expect(imports.markFailed).not.toHaveBeenCalled();
+      expect(imports.withTransaction).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+      expect(aiCost.record).toHaveBeenCalledOnce();
+
+      // …and `settleFailure` runs the identical transaction, with the same guard, the same
+      // reason and the same idempotency key — it only runs it LATER.
+      await svc.settleFailure(WORKER, result as never, CTX);
+
       expect(imports.markFailed).toHaveBeenCalledWith(IMPORT, "parse_output_invalid", null, TX);
       expect(events.emit).toHaveBeenCalledOnce();
+      expect(events.emit.mock.calls[0]![0].idempotencyKey).toBe(
+        `profile.resume_parse_failed:${IMPORT}`,
+      );
       expect(events.emit.mock.calls[0]![0].payload).toMatchObject({
         reason: "parse_output_invalid",
         extraction_method: null,
       });
-      expect(aiCost.record).toHaveBeenCalledOnce();
     },
   );
+
+  it("`settleFailure` writes nothing for a draft this service already settled", async () => {
+    // The processor only calls it on `settled: false`. This is the second guard: a draft that
+    // says it is settled must never produce a second `profile.resume_parse_failed`.
+    const { svc, imports, events } = setup({
+      out: parseOutput({ failure_reason: "no_text_layer", extraction_method: "pdf_text" }),
+    });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+    expect(result).toMatchObject({ status: "failed", settled: true });
+    events.emit.mockClear();
+    imports.markFailed.mockClear();
+
+    await expect(svc.settleFailure(WORKER, result as never, CTX)).resolves.toBe(false);
+
+    expect(imports.markFailed).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
 
   it("a far-side failure naming a method outside the set records null, never the stray string", async () => {
     const { svc, imports, events } = setup({

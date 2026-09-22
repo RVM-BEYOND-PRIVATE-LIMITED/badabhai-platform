@@ -38,6 +38,17 @@ import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
  * and because ruling D9 makes failure the ordinary case rather than the exceptional one. It
  * is the feature's quality metric, not an error log: a meaningful share of imports will be
  * `ocr_below_floor`, and that is the number RI-7 exists to move.
+ *
+ * EXCEPT FOR TWO REASONS, WHERE THE SETTLE IS HANDED BACK TO THE CALLER (D9 amendment
+ * 2026-09-22, #1654). {@link RESUME_SUMMARY_SURVIVING_FAILURES} names them. For those, `parse`
+ * returns a `failed` draft with `settled: false` and writes NOTHING; the processor stages the
+ * identity summary and then calls {@link settleFailure}, which runs the identical transaction
+ * this service would have run. The reason is an ordering the client can observe: `markFailed`
+ * makes the row TERMINAL, and the worker-app's poll returns on the first terminal read and
+ * navigates straight into the chat. Settling before the summary had staged its line therefore
+ * raced the bubble off the screen every time. The parsed path never had this problem because
+ * the summary stages while the row is still `parsing` and `settleParsed` follows it; this makes
+ * the failed path match.
  */
 @Injectable()
 export class ResumeParseService {
@@ -179,16 +190,36 @@ export class ResumeParseService {
   }
 
   /**
-   * Record the failure and count it — together, and only if this call is the one that settled.
+   * Settle a failure this service deliberately left unsettled (D9 amendment, #1654).
    *
-   * ONE TRANSACTION, BECAUSE THE EVENT IS THE METRIC. A `failed` row without its event is a
-   * failure the funnel never counted; an event without the row is one counted twice on the next
-   * delivery. `markFailed` is guarded `WHERE status = 'parsing'`, and its boolean is what
-   * entitles this call to emit: a row that had already left `parsing` gets no second event.
+   * THE SAME TRANSACTION `fail` RUNS, called from the other side of the identity summary.
+   * Same `markFailed`, same `WHERE status = 'parsing'` guard, same single transaction, same
+   * `profile.resume_parse_failed:<importId>` idempotency key — this method exists to MOVE that
+   * write in time, never to weaken it. A draft that already carries `settled: true` is not
+   * this method's business and gets no second write.
    *
-   * THE IDEMPOTENCY KEY IS A SECOND, INDEPENDENT GUARD. The status guard stops a duplicate at the
-   * row; the key stops one at the events table (`ON CONFLICT DO NOTHING`). Either alone would
-   * hold today. Both mean a later edit that loosens one does not silently double-count.
+   * THE RETURN IS "DID THIS CALL RECORD IT", for the same reason `markFailed`'s is: a
+   * redelivery, or a row erased mid-flight, gets `false` and emits nothing. The caller may
+   * ignore it — the processor does — because there is nothing left for it to decide.
+   */
+  async settleFailure(
+    workerId: string,
+    draft: FailedDraft,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    if (draft.settled) return false;
+    return this.recordFailure(draft.importId, workerId, draft.reason, draft.extractionMethod, ctx);
+  }
+
+  /**
+   * Turn a failure into a draft, recording it NOW unless the summary must run first.
+   *
+   * TWO REASONS ARE DEFERRED and the rest are not — see {@link RESUME_SUMMARY_SURVIVING_FAILURES}
+   * for which and why. Deferring costs a window: if the process dies between here and
+   * {@link settleFailure} the row stays `parsing`, and the redelivery finds it past `uploaded`,
+   * returns `already_settled` and does NOT read the document again. That is the identical
+   * fail-closed trade the parsed path already makes (ADR-0041 §7) — the row waits for a sweep
+   * rather than a second charge — and it is why the window was acceptable to open.
    *
    * A `false` from the guard is reported as `already_settled`, not as `failed` — this call did
    * not record a failure, and saying so would be a claim about a row it did not write.
@@ -200,7 +231,38 @@ export class ResumeParseService {
     extractionMethod: ResumeExtractionMethodName | null,
     ctx: RequestContext,
   ): Promise<ParsedDraft> {
-    const recorded = await this.imports.withTransaction(async (tx) => {
+    if (RESUME_SUMMARY_SURVIVING_FAILURES.has(reason)) {
+      return { status: "failed", importId, reason, extractionMethod, settled: false };
+    }
+    const recorded = await this.recordFailure(importId, workerId, reason, extractionMethod, ctx);
+    if (!recorded) return { status: "already_settled", importStatus: "settled_elsewhere" };
+    return { status: "failed", importId, reason, extractionMethod, settled: true };
+  }
+
+  /**
+   * Record the failure and count it — together, and only if this call is the one that settled.
+   *
+   * ONE TRANSACTION, BECAUSE THE EVENT IS THE METRIC. A `failed` row without its event is a
+   * failure the funnel never counted; an event without the row is one counted twice on the next
+   * delivery. `markFailed` is guarded `WHERE status = 'parsing'`, and its boolean is what
+   * entitles this call to emit: a row that had already left `parsing` gets no second event.
+   *
+   * THE IDEMPOTENCY KEY IS A SECOND, INDEPENDENT GUARD. The status guard stops a duplicate at the
+   * row; the key stops one at the events table (`ON CONFLICT DO NOTHING`). Either alone would
+   * hold today. Both mean a later edit that loosens one does not silently double-count.
+   *
+   * THE ONLY WRITER OF `failed`, reached from both the immediate path ({@link fail}) and the
+   * deferred one ({@link settleFailure}). A second copy of this transaction is how one of the
+   * two would one day emit without the row, or write the row without the event.
+   */
+  private async recordFailure(
+    importId: string,
+    workerId: string,
+    reason: ResumeImportFailureName,
+    extractionMethod: ResumeExtractionMethodName | null,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    return this.imports.withTransaction(async (tx) => {
       if (!(await this.imports.markFailed(importId, reason, extractionMethod, tx))) return false;
       await this.events.emit({
         event_name: "profile.resume_parse_failed",
@@ -221,10 +283,34 @@ export class ResumeParseService {
       });
       return true;
     });
-    if (!recorded) return { status: "already_settled", importStatus: "settled_elsewhere" };
-    return { status: "failed", importId, reason };
   }
 }
+
+/**
+ * The failure reasons the "Kya ye aap hi hain?" identity summary SURVIVES (ruling D9
+ * amendment, owner, 2026-09-22, #1654).
+ *
+ * OURS, NOT THE DOCUMENT'S — that is the whole rule. On these two the extraction SUCCEEDED
+ * and only our own model reply was unusable: `parse_output_invalid` is a reply that failed
+ * its contract (or named no extraction method), `parse_deadline_exceeded` is a reply that
+ * never arrived in time. The summary pipeline therefore stands on exactly the text a clean
+ * parse would have stood on, and a worker whose document we read perfectly well should not
+ * lose his first bubble to our own defect.
+ *
+ * CLOSED, AND IT STAYS CLOSED even though the other six would be harmless. The summary runs
+ * its OWN `extract()` over the same document, so `no_text_layer`, `encrypted_document`,
+ * `empty_document`, `unsupported_document`, `ocr_below_floor` and `parse_unavailable` all
+ * degrade inside it and stage nothing anyway — the set is not what makes them silent. It is
+ * what stops us paying a storage fetch and a model call to REDISCOVER that they are silent,
+ * on the majority path. Do not "simplify" this away.
+ *
+ * DEFERRAL IS THE OTHER HALF. A reason in this set makes `parse` return `settled: false` and
+ * write nothing, so the summary can stage while the row is still `parsing`; see the class
+ * docblock for the race that forced it.
+ */
+export const RESUME_SUMMARY_SURVIVING_FAILURES: ReadonlySet<ResumeImportFailureName> = new Set<
+  ResumeImportFailureName
+>(["parse_output_invalid", "parse_deadline_exceeded"]);
 
 /**
  * The contract's open string, narrowed to the closed set — or null.
@@ -270,14 +356,19 @@ function narrowTradeKind(kind: string | null | undefined): TradeFormKindName | n
 export type ParsedDraft =
   | { status: "not_found" }
   | { status: "already_settled"; importStatus: string }
-  | { status: "failed"; importId: string; reason: ResumeImportFailureName }
+  | FailedDraft
   | {
       status: "parsed";
       importId: string;
       /**
-       * The row's own storage key + closed-set mime, carried so the RI-summary second
+       * The row's own storage key + closed-set mime, carried so the RI-autofill option-map
        * call can re-read the same document without a second lookup. Validated by the
        * confirm path long before the parse ran — never client input at this point.
+       *
+       * THE RI-SUMMARY CALL NO LONGER READS THESE (#1654). It fetches the row itself — it
+       * always did, to check for an already-staged line — and now sources the key and the
+       * mime from that same read, because the `failed` draft it must also serve could never
+       * have carried them. `ResumeOptionMapService.map` is what keeps them here.
        */
       storageKey: string;
       mime: string;
@@ -294,3 +385,24 @@ export type ParsedDraft =
       pageCount: number | null;
       ocrConfidence: number | null;
     };
+
+/**
+ * A parse that produced nothing usable, and whether THIS service already recorded it.
+ *
+ * `settled: true` — the row is `failed` and `profile.resume_parse_failed` is emitted. Nothing
+ * is owed.
+ *
+ * `settled: false` — the row is still `parsing` and NO event exists yet. The caller owes it a
+ * {@link ResumeParseService.settleFailure}, and is expected to stage the identity summary
+ * first; that ordering is the point of the deferral (#1654) and the reason the two fields
+ * below travel with the draft — `settleFailure` needs the reason AND the extraction method to
+ * write the same row `fail` would have written.
+ */
+export interface FailedDraft {
+  status: "failed";
+  importId: string;
+  reason: ResumeImportFailureName;
+  /** Nullable BECAUSE the commonest failures happen before a method is chosen. */
+  extractionMethod: ResumeExtractionMethodName | null;
+  settled: boolean;
+}

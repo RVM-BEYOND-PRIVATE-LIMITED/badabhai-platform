@@ -64,7 +64,7 @@ Nine, taken 2026-09-10. The reasoning attached to each is the reasoning that was
 | **D6** | **The uploaded file is retained permanently.**                                                                                                      |
 | **D7** | **A stored answer always wins.** A résumé value that disagrees is offered, never applied.                                                           |
 | **D8** | **Sign-up only** in v1 — no upload from the profile tab.                                                                                            |
-| **D9** | **An unreadable file is said so plainly**, and the worker continues in Hinglish.                                                                    |
+| **D9** | **An unreadable file is said so plainly**, and the worker continues in Hinglish. **Amended 2026-09-22 (#1654):** the identity summary survives a parse failure that was OURS — see §10.           |
 
 **D1 — why not a tenth purpose.** The `voice_processing` precedent
 ([packages/types/src/index.ts:56-74](../../packages/types/src/index.ts)) minted a separate purpose
@@ -450,6 +450,77 @@ That exhaustiveness is held over alias **names**, not per kind: `trade`, `experi
 never produce a `worker_attributes` row, so they are registered only under `target_field` /
 `worker_column`, and a reader of the registry must not assume every fact settles under
 `attribute_key`.
+
+## 10. Amendment 2026-09-22 — D9: the identity line survives OUR failure, not the document's (#1654)
+
+**Owner ruling (2026-09-22), option C on #1654.** The "Kya ye aap hi hain?" identity summary must
+survive a failed parse **only when the failure was ours, not the document's**. The closed set is
+exactly two `worker_resume_import.failure_reason` values:
+
+| Reason | Why it is OURS |
+| --- | --- |
+| `parse_output_invalid` | The document was read. The model's reply failed its contract — or named an extraction method outside the closed set. |
+| `parse_deadline_exceeded` | The document was read. The reply never arrived in time. |
+
+On both, extraction SUCCEEDED and only our own model reply was unusable, so the summary pipeline
+stands on **exactly the text a clean parse would have stood on**. A worker whose CV we read
+perfectly well no longer loses his first bubble to our defect.
+
+**The other six stay silent, and are silent twice over.** `no_text_layer`, `encrypted_document`,
+`empty_document`, `unsupported_document`, `ocr_below_floor` and `parse_unavailable` are not
+filtered out by anything except the set above — and they would still stage nothing if they were,
+because the summary pipeline runs its **own** `extract()` over the same object and degrades inside
+it. The closed set is therefore not what makes them silent; it is what stops us paying a storage
+fetch and a second model call to rediscover that they are. Recorded here because the next reader
+will otherwise try to simplify the set away.
+
+**What moved: the failure settle, not the failure.** `ResumeParseService.fail()` ran `markFailed`
+(status `failed`) and emitted `profile.resume_parse_failed` in one transaction and only then
+returned the draft — so the row was already **terminal** before the summary was even considered.
+The worker-app's `_pollToTerminal` returns on `hasFailed`, the cubit emits `done`, the screen
+navigates to the chat and its first turn calls `identityForChat` — all while the summary's LLM
+call is still in flight. Widening the gate alone would have shipped a bubble that never rendered.
+
+For those two reasons only, `parse()` now returns `{ status: "failed", …, settled: false }` and
+writes **nothing**; `ResumeImportProcessor` stages the summary while the row is still `parsing`
+and then calls `ResumeParseService.settleFailure()`, which runs the **identical** transaction —
+same `markFailed`, same `WHERE status = 'parsing'` guard, same
+`profile.resume_parse_failed:<importId>` idempotency key. That is the same order the parsed path
+has always had (`settleParsed` follows the summary), and it is the order the client can observe.
+
+**What did NOT move.**
+
+- Still exactly **one** `profile.resume_parse_failed` per import, still in one transaction with
+  the row, still guarded on `parsing`, still keyed the same way. No new event, no event version.
+- A redelivery still finds a row past `uploaded`, answers `already_settled`, and **never re-reads
+  the document or re-bills** — it does not reach the summary or the settle at all.
+- The summary stays **best-effort**: a throw inside it is caught, logged PII-free and ignored, and
+  the settle is deliberately outside that catch. A worker never loses his failure record to it.
+- `saveIdentitySummary`'s `status IN ('parsing','parsed')` guard is **unchanged** — the row is
+  still `parsing` when the line stages, so `failed` was not added to it.
+- No schema change, no migration, no change to `GET /profiling/resume-import/:importId`.
+  `identityPrompt`, `RESUME_IDENTITY_OPTIONS` and `readIdentityReply` are reviewed copy and are
+  untouched.
+- **The Haan handover has no failed-import branch, on purpose.** A failed row never settled a
+  route, so `routeForImport` yields `route: null`, no form handover is built, the
+  identity-answered event is still recorded, and the worker falls through to ordinary selection
+  in the same bubble. No crash, no stranded route — the tap simply has no visible consequence,
+  and no consolation path was invented.
+
+**The deferral's cost, stated rather than implied.** A process that dies between the parse and
+`settleFailure` leaves the row `parsing` with no event, exactly as a throw on the parsed path
+already does. The redelivery does not re-bill; the row waits for a sweep (§7). The window widens
+by one summary call and by no new behaviour.
+
+**Reader change.** `ResumeSuggestionReader.identityForChat` now serves a `failed` row as well as a
+`parsed` one. It does **not** repeat the closed reason set: a document-level failure never had the
+summary called for it, so its three identity columns are null and the existing staged-columns
+check does the real gating. `uploaded`, `parsing` and `discarded` stay excluded — a `parsing` row
+genuinely can carry a staged line, and serving it would spend the offer on a client still polling.
+
+**The client half is #1661 and must ship alongside.** The worker app must reach the chat on a
+`failed` import instead of treating it as a dead end; until it does, this server change is
+correct and invisible.
 
 ---
 

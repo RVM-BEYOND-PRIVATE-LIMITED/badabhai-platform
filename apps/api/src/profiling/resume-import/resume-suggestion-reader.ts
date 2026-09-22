@@ -1,4 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { ResumeImportStatusName } from "@badabhai/types";
 
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import type { EmploymentSuggestion } from "../../profiles/employment-suggestions";
@@ -6,6 +7,21 @@ import { ResumeImportRepository } from "./resume-import.repository";
 import type { ResumeSuggestion } from "./resume-suggestions";
 
 export type { ResumeSuggestion };
+
+/**
+ * The import states whose staged identity line may be served to the chat (#1654).
+ *
+ * THE OUTCOME STATES, BOTH OF THEM. `parsed` is the ordinary one. `failed` is the D9
+ * amendment: two failure reasons are ours rather than the document's, and the summary that
+ * ran before the row was settled stands on exactly the text a clean parse would have used.
+ *
+ * `uploaded` AND `parsing` ARE EXCLUDED and that is not cosmetic — the summary stages WHILE
+ * the row is `parsing`, so a row in that state can genuinely carry a line. Serving it would
+ * offer the bubble to a client that has not finished polling and is still on the upload
+ * screen, and the offer would be spent against a turn nobody saw. `discarded` left the flow.
+ */
+const IDENTITY_SERVABLE_STATUSES: ReadonlySet<ResumeImportStatusName> =
+  new Set<ResumeImportStatusName>(["parsed", "failed"]);
 
 /**
  * What a worker's most recent résumé suggested, decrypted for one request and then forgotten
@@ -84,9 +100,21 @@ export class ResumeSuggestionReader {
    *
    * TWO CONDITIONS, and deliberately NOT the three `pendingForChat` carries:
    *
-   *   - `status === "parsed"` — same as there: an import still being read has nothing to
-   *     show, and a FAILED one has nothing to show ever.
+   *   - the import has REACHED AN OUTCOME — `parsed` or `failed`. An `uploaded` or `parsing`
+   *     row is still in flight and the client has not left the upload screen; a `discarded`
+   *     one left the flow.
    *   - at least one staged identity column non-null — a judgment of nothing is no bubble.
+   *
+   * `failed` IS SERVED, AND THE STAGED COLUMNS DO THE REAL GATING (ruling D9 amendment,
+   * owner, 2026-09-22, #1654). A worker whose document we read perfectly well, and whose
+   * import then failed on OUR model reply (`parse_output_invalid`, `parse_deadline_exceeded`),
+   * still gets his line: the summary pipeline stood on exactly the text a clean parse would
+   * have stood on. A worker whose DOCUMENT failed — no text layer, encrypted, empty,
+   * unsupported, below the OCR floor — cannot reach this branch with anything to show,
+   * because `ResumeImportProcessor` never calls the summary for those reasons and nothing
+   * else writes those three columns. The closed reason set is NOT repeated here on purpose:
+   * two copies of it would be two chances to disagree, and the emptiness of the columns is
+   * the stronger statement — it holds even if the set is later widened.
    *
    * NO ROUTE CONDITION, unlike `pendingForChat`'s `route === "chat"`. That gate exists
    * because staged FACTS settle on the form for form-routed workers; the identity question
@@ -105,7 +133,7 @@ export class ResumeSuggestionReader {
   } | null> {
     try {
       const row = await this.imports.findLatestForWorker(workerId);
-      if (!row || row.status !== "parsed") return null;
+      if (!row || !IDENTITY_SERVABLE_STATUSES.has(row.status)) return null;
       if (
         row.identityRoleKind === null &&
         row.identityExperienceText === null &&
@@ -137,6 +165,13 @@ export class ResumeSuggestionReader {
    * to the form the import already settled — otherwise the "yes" would strand the route
    * the router decided. Route and form kind only: no storage key, no mime, no document,
    * no suggestions — the narrowest read that can answer "which form, if any".
+   *
+   * A FAILED IMPORT ANSWERS `route: null`, AND THAT IS THE RULED BEHAVIOUR (#1654). The D9
+   * amendment lets the identity turn appear over a failed import, so "Haan" can now be tapped
+   * on one — and a failed row never settled a route, so `routeForImport` yields no handover,
+   * the identity-answered event is still recorded, and the worker falls through to ordinary
+   * selection in the same bubble. No crash, no stranded route, and NO consolation path: the
+   * owner ruled that the tap simply has no visible consequence. Do not invent one here.
    */
   async routeForImport(
     workerId: string,
