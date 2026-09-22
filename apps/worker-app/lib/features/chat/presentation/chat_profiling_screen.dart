@@ -183,20 +183,39 @@ const String kChatNudgeContinueLabel = 'Baat jaari rakhein';
 /// Nudge-sheet escape hatch — the worker is never trapped.
 const String kChatNudgeProceedLabel = 'Phir bhi profile banaiye';
 
+/// The `extra` the résumé-upload screen hands [Routes.chatProfiling] when the
+/// worker arrived from a REAL import that said nothing on the way (#1660).
+///
+/// It lives HERE, not in `Routes`: it is a navigation ARGUMENT, and the
+/// screen-template contract test reads every `static const String` in
+/// `router.dart` as a declared route the feedback table must know.
+const String kChatFromResumeImport = 'resume_import';
+
 class ChatProfilingScreen extends StatelessWidget {
-  const ChatProfilingScreen({super.key});
+  const ChatProfilingScreen({super.key, this.fromResumeImport = false});
+
+  /// #1660 — this arrival came from an import that routed to the chat.
+  ///
+  /// The import read cannot yet say whether anything was EXTRACTED (backend
+  /// #1656), but the session open can: a staged identity turn arrives as
+  /// `resume_pending`. No pending turn after an import means the document
+  /// yielded nothing, and the worker is owed one honest line rather than being
+  /// dropped into the ordinary interview as if he had never uploaded anything.
+  final bool fromResumeImport;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ChatBloc>(
       create: (_) => locator<ChatBloc>()..add(const ChatStarted()),
-      child: const _ChatView(),
+      child: _ChatView(fromResumeImport: fromResumeImport),
     );
   }
 }
 
 class _ChatView extends StatefulWidget {
-  const _ChatView();
+  const _ChatView({this.fromResumeImport = false});
+
+  final bool fromResumeImport;
 
   @override
   State<_ChatView> createState() => _ChatViewState();
@@ -223,6 +242,11 @@ class _ChatViewState extends State<_ChatView> {
   /// True while the trade-form handover is being opened (#1340) — same
   /// same-frame double-tap guard as [_openingPreview]; see [_openTradeForm].
   bool _openingTradeForm = false;
+
+  /// #1660 — the "your résumé gave us nothing" line has been said once for this
+  /// arrival. One-shot: it explains what just happened, it is not a banner that
+  /// follows the worker through the conversation.
+  bool _emptyImportSaid = false;
 
   /// An option/chip tap is dispatched and the reply has not arrived yet.
   ///
@@ -564,6 +588,38 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// Decide how to react to a freshly-appended message.
+  /// #1660 — an import that yielded NOTHING must not be silent.
+  ///
+  /// The import read cannot say how much was extracted (that field is backend
+  /// #1656), but the session open can: a staged identity summary arrives as
+  /// `resume_pending` and the chat opens on "Resume se ye mila: … Kya ye aap hi
+  /// hain?". If the worker got here straight from an import and NO such turn
+  /// was staged, the document gave us nothing — and he is owed one honest line
+  /// rather than the ordinary first question as though he had never uploaded.
+  ///
+  /// Said ONCE, only after the session has actually opened, and never for an
+  /// arrival that did not come from an import (the no-résumé door, a tab
+  /// return, a deep link). It stays a CONTINUE — the interview carries on
+  /// underneath (ruling D9) — and it is a client-side explanation, never a
+  /// fabricated assistant turn in the transcript.
+  void _maybeSayEmptyImport(ChatState state) {
+    if (!widget.fromResumeImport || _emptyImportSaid) return;
+    if (state.initializing || state.messages.isEmpty) return;
+    _emptyImportSaid = true;
+    if (state.resumePending) return; // the identity turn speaks for itself
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Resume dekh liya, lekin poori jaankari nahi ban paayi. Hum baat '
+            'karke aage badhte hain.',
+          ),
+          duration: Duration(seconds: 6),
+        ),
+      );
+  }
+
   void _onMessagesChanged(List<ChatMessage> messages) {
     if (messages.isEmpty) return;
     final bool ownMessage = messages.last.fromWorker;
@@ -1167,8 +1223,10 @@ class _ChatViewState extends State<_ChatView> {
         // flipping). The second condition carries the one-tap-per-turn latch.
         listenWhen: (ChatState prev, ChatState curr) =>
             curr.messages.length > prev.messages.length ||
-            curr.sending != prev.sending,
+            curr.sending != prev.sending ||
+            curr.initializing != prev.initializing,
         listener: (BuildContext context, ChatState state) {
+          _maybeSayEmptyImport(state);
           // Release on the SETTLE EDGE (sending true → false), never on the
           // way in: the bloc clears followups and sets sending as soon as the
           // worker sends, so anything keyed on those unlatches while the turn
