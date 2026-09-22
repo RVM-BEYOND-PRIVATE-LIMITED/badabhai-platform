@@ -552,16 +552,31 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// just the opener. A worker who has already sent a message (the same-instance
   /// live path, or a fast-typist race during the hydration await) must never
   /// have their bubbles replaced; and on a fresh mount a non-empty [history] is
-  /// exactly the re-lock case this fixes. The canned/served opener is never
-  /// itself stored server-side (rendered-only), so this cannot duplicate it.
+  /// exactly the re-lock case this fixes.
+  ///
+  /// A STORED OPENER IS NEVER RE-PREPENDED (#1641). The résumé identity and
+  /// batch-confirm openings (#1609/#1523) ARE written to the transcript by
+  /// `openTurn` — a re-entry must redraw them — so this redraw would render the
+  /// SAME bubble twice: once from `opening_text`, once from the transcript.
+  /// When [history] already opens with the bubble at index 0, the served copy
+  /// replaces that row instead of preceding it (it may carry the read-aloud
+  /// twin). Only the render-only openers — the canned greeting and the
+  /// flag-gated one-shot opener, neither of which is ever stored server-side —
+  /// are still prepended.
   List<ChatMessage>? _historyRedraw(List<ChatMessage> history) {
     if (history.isEmpty) return null;
     final List<ChatMessage> base = state.messages;
     if (base.any((ChatMessage m) => m.fromWorker)) return null;
-    final List<ChatMessage> opening = base.isNotEmpty && !base.first.fromWorker
-        ? <ChatMessage>[base.first]
-        : const <ChatMessage>[];
-    return <ChatMessage>[...opening, ...history];
+    // `base.first` is the opener: the guard above proves no worker message can
+    // precede it, and `base.isEmpty` (nothing to redraw ahead of) returns the
+    // transcript untouched — today's behavior.
+    if (base.isEmpty || base.first.fromWorker) return <ChatMessage>[...history];
+    final bool storedOpener =
+        !history.first.fromWorker && history.first.text == base.first.text;
+    return <ChatMessage>[
+      base.first,
+      if (storedOpener) ...history.skip(1) else ...history,
+    ];
   }
 
   Future<void> _onMessageSent(
