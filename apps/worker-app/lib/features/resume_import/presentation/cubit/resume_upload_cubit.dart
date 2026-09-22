@@ -29,19 +29,43 @@ enum ResumeUploadDestination { chat, tradeForm }
 
 /// The one honest line shown when something did not work.
 ///
-/// A CLOSED CLIENT VOCABULARY, and note what is NOT in it: the server's
-/// `failure_reason`. `no_text_layer`, `ocr_below_floor` and
-/// `parse_output_invalid` are machine causes; they mean the same single thing
-/// to a worker, and ruling D9 asks for that one thing said plainly rather than
-/// for eight ways of saying it.
+/// A CLOSED CLIENT VOCABULARY: the server's `failure_reason` is never shown.
+/// `no_text_layer`, `ocr_below_floor`, `encrypted_document` and the rest are
+/// machine causes that mean the same single thing to a worker, and ruling D9
+/// asks for that one thing said plainly rather than for eight ways of saying it.
+///
+/// ONE DISTINCTION IS NOW REAL, though (#1661, after the #1654 option-C ruling
+/// of 2026-09-22), and it is why this vocabulary has two failure buckets
+/// instead of one: `parse_output_invalid` and `parse_deadline_exceeded` are
+/// cases where the document WAS read and only our own model reply was
+/// malformed. The server may still stage the identity summary off that same
+/// text, so the chat can open on "Resume se ye mila: … Kya ye aap hi hain?".
+/// Saying "we could not read it" a second before that bubble is the app
+/// contradicting itself — so those two get [readButNoDetails], whose line makes
+/// no claim about readability and sits truthfully in front of either chat
+/// opening. The premise that every failure "means the same single thing" no
+/// longer holds; nothing else about D9 changes.
 enum ResumeUploadNotice {
   /// The upload door is switched off server-side. The state on every box today.
   uploadsUnavailable,
 
-  /// The document was read but nothing usable came out of it — OR the upload
-  /// itself did not complete. One line for both, on purpose: from where the
-  /// worker sits they are the same event.
+  /// We could not read the document at all — no text layer, an encrypted or
+  /// empty file, OCR below the floor — or the upload itself did not complete.
+  /// One line for all of them, on purpose: from where the worker sits they are
+  /// the same event.
   couldNotRead,
+
+  /// We DID read the document; what we could not do is turn it into details.
+  /// Two ways to get here, and they are the same sentence to a worker:
+  ///
+  ///  - the parse FAILED on our side only (`parse_output_invalid` /
+  ///    `parse_deadline_exceeded`), where the chat may still quote the document
+  ///    back to him one screen later — so this line must never claim the file
+  ///    was unreadable (#1661);
+  ///  - the parse SUCCEEDED and extracted nothing (#1660), where no identity
+  ///    turn is staged at all and this line is the only thing standing between
+  ///    him and total silence.
+  readButNoDetails,
 
   /// The chosen file is not a PDF, DOCX, JPEG or PNG.
   unsupportedType,
@@ -141,6 +165,15 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
         ),
+      // #1660 — an import that learned NOTHING is a clean success on the wire
+      // and a silent one for the worker: no identity bubble is staged, so the
+      // chat opens on the ordinary first question. He is told the one honest
+      // line on the way through — still a continue, never a dead end (D9).
+      ResumeImportRoutedToChat(learnedNothing: true) => const ResumeUploadState(
+          status: ResumeUploadStatus.done,
+          destination: ResumeUploadDestination.chat,
+          notice: ResumeUploadNotice.readButNoDetails,
+        ),
       ResumeImportRoutedToChat() => const ResumeUploadState(
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
@@ -149,6 +182,14 @@ class ResumeUploadCubit extends Cubit<ResumeUploadState> {
           status: ResumeUploadStatus.done,
           destination: ResumeUploadDestination.chat,
           notice: ResumeUploadNotice.uploadsUnavailable,
+        ),
+      // #1661 — a document we READ but could not turn into details must not be
+      // announced as unreadable: the identity turn may quote that very document
+      // one screen later. Everything else keeps today's single line.
+      ResumeImportFailed(documentWasRead: true) => const ResumeUploadState(
+          status: ResumeUploadStatus.done,
+          destination: ResumeUploadDestination.chat,
+          notice: ResumeUploadNotice.readButNoDetails,
         ),
       ResumeImportFailed() => const ResumeUploadState(
           status: ResumeUploadStatus.done,

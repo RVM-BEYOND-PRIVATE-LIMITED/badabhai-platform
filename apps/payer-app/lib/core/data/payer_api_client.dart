@@ -41,10 +41,28 @@ abstract class PayerApiClient {
   /// EXACTLY ONE of [vacancyBand] (`'1'|'2-5'|'6-10'|'11-25'|'25+'`) or
   /// [vacancies] (an int) — passing both/neither throws [ArgumentError].
   ///
-  /// Match V1 (additive, all optional): [matchSkillIds] (+ [untickedRelatedIds]
-  /// excluded from reach), [city], [payMin]/[payMax], [shift], [neededBy] — each
-  /// only added to the body when non-null (snake_case: `match_skill_ids`,
-  /// `unticked_related_ids`, `city`, `pay_min`, `pay_max`, `shift`, `needed_by`).
+  /// WORKER-VISIBLE CONTENT + Match V1 (additive, all optional): [matchSkillIds]
+  /// (+ [untickedRelatedIds] excluded from reach), [city], [area],
+  /// [payMin]/[payMax], [payType], [minExperienceYears]/[maxExperienceYears],
+  /// [shift], [neededBy], [benefits], [requirements] — each only added to the
+  /// body when supplied (snake_case: `match_skill_ids`, `unticked_related_ids`,
+  /// `city`, `area`, `pay_min`, `pay_max`, `pay_type`, `min_experience_years`,
+  /// `max_experience_years`, `shift`, `needed_by`, `benefits`, `requirements`).
+  ///
+  /// [area] is a COARSE locality bucket ("Chakan"), never an address and never
+  /// derived from [locationLabel]. [payType] is `in_hand|gross|ctc` and is NEVER
+  /// defaulted — omitting it stores NULL and the worker's card shows the band
+  /// with no pay-type pill. An empty [benefits]/[requirements] list is OMITTED on
+  /// a create (there is nothing stored to clear); the PATCH is where `[]` means
+  /// "clear".
+  ///
+  /// CONTRACT HISTORY — `PayerCreateJobPostingSchema` used to accept only
+  /// `org_label`/`role_title`/`location_label`/`description`/`vacancy_band|
+  /// vacancies`/`skills` and Zod SILENTLY STRIPPED everything else. #1653 spread
+  /// the same content + match blocks into the create and the update schemas, so
+  /// all of the above now persist on the create. An OLDER deployment still
+  /// strips them, which is why the post flow checks the RETURNED draft and
+  /// repairs what is missing with an [updateJob].
   Future<JobPosting> createCompanyJob({
     required String orgLabel,
     required String roleTitle,
@@ -55,10 +73,16 @@ abstract class PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    List<String>? benefits,
+    List<String>? requirements,
   });
 
   /// One owned posting (`GET /payer/job-postings/:id`). A neutral 404 (unknown or
@@ -69,9 +93,15 @@ abstract class PayerApiClient {
   /// [status] may only be `'open'` (publish a draft). 400 no-op / 409 closed or
   /// illegal transition surface as [PayerApiException].
   ///
-  /// Match V1 (additive, all optional): [matchSkillIds]/[untickedRelatedIds],
-  /// [city], [payMin]/[payMax], [shift], [neededBy] — each only added to the
-  /// PATCH body when non-null (same snake_case keys as [createCompanyJob]).
+  /// Worker-visible content + Match V1 (additive, all optional):
+  /// [matchSkillIds]/[untickedRelatedIds], [city], [area], [payMin]/[payMax],
+  /// [payType], [minExperienceYears]/[maxExperienceYears], [shift], [neededBy],
+  /// [benefits], [requirements] — each only added to the PATCH body when
+  /// supplied (same snake_case keys as [createCompanyJob]).
+  ///
+  /// LIST SEMANTICS (deliberate asymmetry with the create): a null
+  /// [benefits]/[requirements] is OMITTED (the stored chips survive); an
+  /// EXPLICITLY EMPTY list IS sent and CLEARS them server-side.
   Future<JobPosting> updateJob(
     String id, {
     String? orgLabel,
@@ -84,10 +114,16 @@ abstract class PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    List<String>? benefits,
+    List<String>? requirements,
   });
 
   /// Close an owned posting (`POST /payer/job-postings/:id/close`). 409 when it
@@ -255,6 +291,19 @@ abstract class PayerApiClient {
   /// starts `open`). Only [tradeKey]/[title]/[city] are required; the rest are
   /// optional coarse bands. A 400 (bad band ordering / invalid trade) surfaces
   /// as [PayerApiException].
+  ///
+  /// WORKER-VISIBLE CONTENT (ADR-0024 final addendum): [description], [shift],
+  /// [benefits] and [requirements] are shown VERBATIM on the worker's job card,
+  /// and the route accepts all four. Server caps mirrored by the callers:
+  /// description <=2000 chars, each benefit/requirement <=80 chars, <=12 items
+  /// per list, [shift] is `day|night|rotational`. Every free-text surface is
+  /// screened fail-closed server-side (contact details / company name / links →
+  /// 400), so the form screens them at ENTRY too. An empty/blank value is
+  /// OMITTED from the create body — never sent as a filler.
+  ///
+  /// [payType] (`in_hand|gross|ctc`, #1648) says what the ₹ band MEANS. Optional
+  /// and NEVER defaulted: omitting it stores NULL and the worker's card shows
+  /// the band with no pay-type pill.
   Future<AgencyJobView> createAgencyJob({
     required String tradeKey,
     required String title,
@@ -262,9 +311,14 @@ abstract class PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   });
 
   /// The agency's own job postings (`GET /payer/agency/jobs` — a BARE array
@@ -277,6 +331,15 @@ abstract class PayerApiClient {
 
   /// Patch an owned agency job (`PATCH /payer/agency/jobs/:id`). Pass ≥1 field
   /// (else [ArgumentError]). 400/404 surface as [PayerApiException].
+  ///
+  /// Worker-visible content ([description]/[shift]/[benefits]/[requirements]) is
+  /// patchable on the same terms as the create — see [createAgencyJob] for the
+  /// caps. LIST SEMANTICS: a null list is OMITTED (leaves the stored chips
+  /// alone); an EXPLICITLY EMPTY list IS sent and CLEARS them server-side.
+  ///
+  /// READ-BACK (#1647): `AgencyService.toJobView` now returns
+  /// description/shift/benefits/requirements/payType, so an edit form PREFILLS
+  /// them from the row — the old "we cannot show what is saved" caveat is gone.
   Future<AgencyJobView> updateAgencyJob(
     String id, {
     String? tradeKey,
@@ -285,9 +348,14 @@ abstract class PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   });
 
   /// Close an owned agency job (`POST /payer/agency/jobs/:id/close`). 404

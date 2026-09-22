@@ -160,6 +160,57 @@ void main() {
       expect(body.containsKey('needed_by'), isFalse);
     });
 
+    test('worker-visible content rides the body under its snake keys', () async {
+      // description / shift / benefits / requirements are accepted by the route
+      // and rendered VERBATIM on the worker's job card. The app used to send
+      // none of them, so the card reached the worker with no description, no
+      // shift and no benefit/requirement chips.
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs': _json(_row(id: _jobId), 201),
+      });
+
+      await h.api.createAgencyJob(
+        tradeKey: 'cnc_operator',
+        title: 'CNC Operator',
+        city: 'Pune',
+        description: '  Turning job work on Fanuc controls.  ',
+        shift: 'night',
+        benefits: const <String>['PF + ESI'],
+        requirements: const <String>['Fanuc control'],
+      );
+
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body['description'], 'Turning job work on Fanuc controls.');
+      expect(body['shift'], 'night');
+      expect(body['benefits'], <String>['PF + ESI']);
+      expect(body['requirements'], <String>['Fanuc control']);
+    });
+
+    test('blank content is OMITTED on create — never a filler value', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs': _json(_row(id: _jobId), 201),
+      });
+
+      // A blank description would be a 400 (`min(1)`), and an empty list on a
+      // create says nothing the absent key does not.
+      await h.api.createAgencyJob(
+        tradeKey: 'cnc_operator',
+        title: 'CNC Operator',
+        city: 'Pune',
+        description: '   ',
+        benefits: const <String>[],
+        requirements: const <String>[],
+      );
+
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body.containsKey('description'), isFalse);
+      expect(body.containsKey('shift'), isFalse);
+      expect(body.containsKey('benefits'), isFalse);
+      expect(body.containsKey('requirements'), isFalse);
+    });
+
     test('400 (bad band ordering / invalid trade) → PayerApiException',
         () async {
       final h = _harness(<String, http.Response>{
@@ -272,6 +323,30 @@ void main() {
       final empty = _harness(<String, http.Response>{});
       expect(() => empty.api.updateAgencyJob(_jobId), throwsArgumentError);
       expect(empty.router.seen, isEmpty);
+    });
+
+    test('an EXPLICITLY empty chip list is sent (it clears); null is omitted',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'PATCH /payer/agency/jobs/$_jobId': _json(_row(id: _jobId)),
+      });
+
+      // `[]` is the ONLY way to clear stored benefits server-side, so it must
+      // survive to the wire — while an untouched (null) list stays out of the
+      // body so the stored chips are left alone.
+      await h.api.updateAgencyJob(
+        _jobId,
+        benefits: const <String>[],
+        shift: 'day',
+      );
+
+      final Map<String, dynamic> body =
+          jsonDecode(h.router.seen.single.body) as Map<String, dynamic>;
+      expect(body.containsKey('benefits'), isTrue);
+      expect(body['benefits'], isEmpty);
+      expect(body['shift'], 'day');
+      expect(body.containsKey('requirements'), isFalse);
+      expect(body.containsKey('description'), isFalse);
     });
   });
 

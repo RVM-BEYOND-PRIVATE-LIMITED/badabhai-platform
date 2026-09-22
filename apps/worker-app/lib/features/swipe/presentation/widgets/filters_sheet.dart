@@ -175,11 +175,16 @@ class FiltersSheet extends StatefulWidget {
 }
 
 class _FiltersSheetState extends State<FiltersSheet> {
-  /// Trade options are a fixed vocabulary — DERIVED from the keyword map that
-  /// gives a label its meaning ([kTradeFilterKeywords]), in the same order, so
-  /// the sheet can never offer a label nothing knows how to match. (Unlike
-  /// cities, these are not derived from the queue.)
-  static final List<String> _trades = kTradeFilterKeywords.keys.toList();
+  /// Trade options DERIVED from the loaded queue's own labels — the same rule as
+  /// [_cities]. It used to be a hardcoded 5-family vocabulary
+  /// (`kTradeFilterKeywords.keys`), which offered "QC" to a worker whose feed
+  /// held no QC job and offered nothing at all for a trade the feed did hold.
+  /// The already-selected labels are unioned in so an active filter keeps a chip
+  /// to switch it off with.
+  late final List<String> _trades = availableTrades(
+    widget.jobs,
+    selected: widget.initial.trades,
+  );
 
   late Set<String> _selectedTrades;
   late Set<String> _selectedCities;
@@ -258,19 +263,22 @@ class _FiltersSheetState extends State<FiltersSheet> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> groups = <Widget>[
-      ..._group(
-        'Trade',
-        <JobFilterOption>[
-          for (final String trade in _trades)
-            JobFilterOption(
-              dim: JobFilterDim.trade,
-              value: trade,
-              label: trade,
-            ),
-        ],
-        isSelected: (JobFilterOption o) => _selectedTrades.contains(o.value),
-        onTap: (JobFilterOption o) => _toggle(_selectedTrades, o.value),
-      ),
+      // Omitted entirely (not rendered empty) when the queue yields no trade
+      // labels — an empty group reads as a broken filter, same rule as City.
+      if (_trades.isNotEmpty)
+        ..._group(
+          'Trade',
+          <JobFilterOption>[
+            for (final String trade in _trades)
+              JobFilterOption(
+                dim: JobFilterDim.trade,
+                value: trade,
+                label: trade,
+              ),
+          ],
+          isSelected: (JobFilterOption o) => _selectedTrades.contains(o.value),
+          onTap: (JobFilterOption o) => _toggle(_selectedTrades, o.value),
+        ),
       // TODO(location): re-add a location/distance filter when the location
       // feature lands. Removed for the alpha because the feed is LIBERAL (no
       // location filter) — a distance chip filtered nothing and misled the

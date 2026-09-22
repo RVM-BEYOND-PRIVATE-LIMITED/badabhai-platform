@@ -232,6 +232,58 @@ void main() {
       );
     });
 
+    test('a posting row parses its worker-visible display fields', () async {
+      // `JobPostingApi` returns these on every payer list/get/patch row. The app
+      // parsed none of them, so the company edit form had nothing to prefill and
+      // the post flow could not tell what the create route had dropped.
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings/$_jobId': _json(<String, dynamic>{
+          'id': _jobId,
+          'role_title': 'CNC Setter',
+          'vacancy_band': '2-5',
+          'status': 'open',
+          'description': 'Turning job work on Fanuc controls.',
+          'city': 'Pune',
+          'pay_min': 22000,
+          'pay_max': 28000,
+          'shift': 'day',
+          'needed_by': 'immediate',
+          'match_skill_ids': <String>['mskill_cnc_operate'],
+        }),
+      });
+
+      final JobPosting? job = await h.api.getJob(_jobId);
+      expect(job, isNotNull);
+      expect(job!.description, 'Turning job work on Fanuc controls.');
+      expect(job.city, 'Pune');
+      expect(job.payMin, 22000);
+      expect(job.payMax, 28000);
+      expect(job.shift, 'day');
+      expect(job.neededBy, 'immediate');
+      expect(job.matchSkillIds, <String>['mskill_cnc_operate']);
+    });
+
+    test('an absent display field parses to null, never a fabricated value',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings/$_jobId': _json(<String, dynamic>{
+          'id': _jobId,
+          'role_title': 'CNC Setter',
+          'vacancy_band': '2-5',
+          'status': 'draft',
+        }),
+      });
+
+      final JobPosting job = (await h.api.getJob(_jobId))!;
+      expect(job.description, isNull);
+      expect(job.city, isNull);
+      expect(job.payMin, isNull);
+      expect(job.shift, isNull);
+      expect(job.neededBy, isNull);
+      // Empty means "materialises no reach" — it must not read as "unknown".
+      expect(job.matchSkillIds, isEmpty);
+    });
+
     test('updateJob publish → PATCH status:open', () async {
       final h = _harness(<String, http.Response>{
         'PATCH /payer/job-postings/$_jobId': _json(<String, dynamic>{

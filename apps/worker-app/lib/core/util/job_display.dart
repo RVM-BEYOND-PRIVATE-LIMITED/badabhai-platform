@@ -34,6 +34,23 @@ String? neededByLabel(String? neededBy) {
   };
 }
 
+/// What the pay band MEANS, as the poster stated it (`pay_type`, #1648):
+/// 'in_hand' → 'IN-HAND', 'gross' → 'GROSS', 'ctc' → 'CTC'; anything else —
+/// including the very common NULL — → null, and the card then shows the band
+/// with NO pay-type pill.
+///
+/// This is the whole reason the card stopped printing a fixed "IN-HAND" label:
+/// until a poster could state it, every band was being described as take-home
+/// pay on no evidence at all. An unrecognised value is never echoed (#1027).
+String? payTypeLabel(String? payType) {
+  return switch (payType) {
+    'in_hand' => 'IN-HAND',
+    'gross' => 'GROSS',
+    'ctc' => 'CTC',
+    _ => null,
+  };
+}
+
 /// The job's experience window as one honest line, matching the Filters
 /// sheet's "N-M yrs" band vocabulary (see kExperienceBandLabels in
 /// features/swipe/domain/job_filter.dart):

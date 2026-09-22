@@ -69,17 +69,34 @@ class JobsCubit extends Cubit<JobsState> {
         conflictMessage: 'Already closed.',
       );
 
-  /// Edit an existing posting's content (`PATCH /payer/job-postings/:id`). Only
-  /// the fields the edit form can safely PREFILL are editable — role title,
-  /// location, vacancy band (the company row exposes no description/org to read
-  /// back, so those are never sent from an edit to avoid clobbering them). Pass
-  /// only changed fields; the screen guarantees ≥1 so the server never 400s a
-  /// no-op. Refetches the list on success so the card reflects the new content.
+  /// Edit an existing posting's content (`PATCH /payer/job-postings/:id`) —
+  /// role title, location, vacancy band, plus the WORKER-VISIBLE display fields
+  /// the payer row really carries back and the PATCH schema really accepts
+  /// ([city], [area], [payMin]/[payMax], [payType], the experience window,
+  /// [shift], [neededBy], [description], [benefits], [requirements]). Pass only
+  /// changed fields; the screen guarantees ≥1 so the server never 400s a no-op,
+  /// and it sends nothing it could not prefill (a null leaves the stored value
+  /// alone rather than clobbering it with a blank). A chip list is the one
+  /// exception: an explicitly EMPTY list IS sent, because `[]` is how the
+  /// contract clears one. Refetches on success so the card reflects the new
+  /// content.
   Future<JobActionResult> editJob(
     String id, {
     String? roleTitle,
     String? locationLabel,
     String? vacancyBand,
+    String? city,
+    String? area,
+    int? payMin,
+    int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
+    String? shift,
+    String? neededBy,
+    String? description,
+    List<String>? benefits,
+    List<String>? requirements,
   }) =>
       _lifecycle(
         () => _api.updateJob(
@@ -87,6 +104,18 @@ class JobsCubit extends Cubit<JobsState> {
           roleTitle: roleTitle,
           locationLabel: locationLabel,
           vacancyBand: vacancyBand,
+          city: city,
+          area: area,
+          payMin: payMin,
+          payMax: payMax,
+          payType: payType,
+          minExperienceYears: minExperienceYears,
+          maxExperienceYears: maxExperienceYears,
+          shift: shift,
+          neededBy: neededBy,
+          description: description,
+          benefits: benefits,
+          requirements: requirements,
         ),
         okMessage: 'Job updated.',
         conflictMessage: "This job can't be edited now.",

@@ -93,7 +93,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Filter jobs'), findsOneWidget);
-      expect(find.text('Welder'), findsOneWidget); // a trade chip
+      // Trade chips are DERIVED from this queue: CNC and VMC are in it, so they
+      // are offered — Welder/Fitter/QC are not, and a chip that could only
+      // filter the deck to empty is no longer offered at all.
+      expect(find.text('CNC'), findsOneWidget);
+      expect(find.text('VMC'), findsOneWidget);
+      expect(find.text('Welder'), findsNothing);
+      expect(find.text('QC'), findsNothing);
 
       // Default = nothing selected → "show all": the REAL count is the whole
       // loaded queue (3), NOT a mock figure, and no chip is pre-selected.
@@ -247,20 +253,26 @@ void main() {
     },
   );
 
-  testWidgets('the City group is omitted entirely when the queue has no jobs', (
-    WidgetTester tester,
-  ) async {
-    _tallSurface(tester);
-    // No queue ⇒ no derivable cities ⇒ no empty section that reads as broken.
-    await _mountSheet(tester, <FeedItem>[]);
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'the queue-DERIVED groups (Trade + City) are omitted entirely when the '
+    'queue has no jobs',
+    (WidgetTester tester) async {
+      _tallSurface(tester);
+      // No queue ⇒ nothing to derive ⇒ no empty section that reads as broken.
+      // Trade joins City here: its options come from the queue's own labels now,
+      // so an empty queue can offer no honest trade chip either.
+      await _mountSheet(tester, <FeedItem>[]);
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('CITY'), findsNothing);
-    expect(find.text('TRADE'), findsOneWidget); // the fixed groups still render
-    expect(find.text('EXPERIENCE'), findsOneWidget);
-    expect(find.text('Show 0 jobs'), findsOneWidget);
-  });
+      expect(find.text('CITY'), findsNothing);
+      expect(find.text('TRADE'), findsNothing);
+      // The dimensions that are CONTRACT values, not queue data, still render:
+      // the experience bands, the shift enum and the pay floors.
+      expect(find.text('EXPERIENCE'), findsOneWidget);
+      expect(find.text('Show 0 jobs'), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Experience bands filter by window overlap; a job with NO experience data '

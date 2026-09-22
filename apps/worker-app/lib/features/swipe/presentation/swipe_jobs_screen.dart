@@ -122,39 +122,12 @@ class _FeedViewState extends State<_FeedView> {
 
 
 
-  /// The FULL posting (`GET /jobs/:jobId`) for each job whose detail we have
-  /// already fetched, keyed by id. `GET /feed` carries only the coarse card
-  /// fields; the richer REAL fields (needed-by, description, requirements,
-  /// benefits) live on the detail route, so a card is enriched the moment its
-  /// detail lands and keeps showing its feed facts until then. Nothing is
-  /// invented — a job with no detail simply shows fewer facts.
-  final Map<String, JobDetail> _details = <String, JobDetail>{};
-
-  /// Ids whose detail fetch is in flight, so a rebuild never fires it twice.
-  final Set<String> _detailInFlight = <String>{};
-
-  /// Fetches one job's full posting ONCE (through [SwipeBloc], so it uses the
-  /// SAME client/session seam the feed does) and caches it, then rebuilds the
-  /// card with the extra fields. Non-blocking: the card already shows its real
-  /// feed facts while the detail is in flight.
-  void _scheduleDetail(SwipeBloc bloc, String jobId) {
-    if (_details.containsKey(jobId) || _detailInFlight.contains(jobId)) return;
-    _detailInFlight.add(jobId);
-    unawaited(() async {
-      try {
-        final JobDetail detail = await bloc.jobDetail(jobId);
-        if (!mounted) return;
-        setState(() {
-          _details[jobId] = detail;
-          _detailInFlight.remove(jobId);
-        });
-      } catch (_) {
-        // A slow/failed detail is not an error the worker must see: the card
-        // already shows the real feed facts. Allow a later retry.
-        _detailInFlight.remove(jobId);
-      }
-    }());
-  }
+  // NO PER-CARD DETAIL FETCH. `GET /feed` itself carries the posting's
+  // description / benefits / requirements / needed_by (#1561, both feed
+  // sources), so every card renders its real facts on the first frame. This
+  // screen used to fire a `GET /jobs/:jobId` per visible card — up to 50 extra
+  // requests for a feed a worker may never scroll — purely to read the same
+  // columns. The detail route is still the job-detail SCREEN's source.
 
   @override
   void initState() {
@@ -297,11 +270,19 @@ class _FeedViewState extends State<_FeedView> {
   /// and the white search bar (taps through to the job-search route).
   ///
   /// The count is [SwipeState.visibleQueue] — what is actually on screen. It
-  /// stays HIDDEN while nothing is loaded: "0 naye jobs" is a claim about a
-  /// queue nobody has seen yet. Feedback lives on the job card's docked
-  /// button (and the app-wide floating pill), not in this header.
+  /// stays HIDDEN while nothing is loaded: "0 jobs" is a claim about a queue
+  /// nobody has seen yet. Feedback lives on the job card's docked button (and
+  /// the app-wide floating pill), not in this header.
+  ///
+  /// "Aaj N naye jobs" is printed ONLY for jobs the feed says were posted
+  /// TODAY (`posted_at`, #1649), counted on the worker's own local date. With
+  /// no such job — or on a server that does not send the field — it falls back
+  /// to the fact we do have: how many jobs are in front of him right now. The
+  /// line used to say "Aaj … naye" for every queue, including one made of
+  /// months-old seeded rows.
   Widget _design1Header(BuildContext context, SwipeState state) {
     final int count = state.visibleQueue.length;
+    final int postedToday = _postedTodayCount(state.visibleQueue);
     final double top = MediaQuery.paddingOf(context).top;
     final List<JobFilterOption> active = activeJobFilters(_filters);
     final String? query = active.isEmpty ? null : active.first.chipLabel;
@@ -339,7 +320,9 @@ class _FeedViewState extends State<_FeedView> {
                         ),
                         if (count > 0)
                           Text(
-                            'Aaj $count naye jobs',
+                            postedToday > 0
+                                ? 'Aaj $postedToday naye jobs'
+                                : '$count jobs aapke liye',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: OnboardingTypography.inter(
@@ -471,11 +454,8 @@ class _FeedViewState extends State<_FeedView> {
         itemCount: jobs.length,
         itemBuilder: (BuildContext context, int index) {
           final FeedItem item = jobs[index];
-          // A list row is visible as it is built, so fetch its full posting
-          // then — and render it enriched once the detail lands.
-          _scheduleDetail(bloc, item.jobId);
           return BbJobCard(
-            data: _cardData(item, _details[item.jobId]),
+            data: _cardData(item),
             // The title opens the FULL posting (an accessible ≥48px button,
             // #362); the green "APPLY →" applies to THIS job.
             onTitleTap: () => _openDetail(context, bloc, item),
@@ -499,20 +479,8 @@ class _FeedViewState extends State<_FeedView> {
     final SwipeBloc bloc = context.read<SwipeBloc>();
     final List<FeedItem> jobs = state.visibleQueue;
 
-    // Enrich only what the deck can actually show: the front card, the one
-    // peeking behind it, and one spare while a fetch is in flight. Fetching all
-    // queued jobs would be dozens of requests for cards never seen.
-    for (int i = 0; i < jobs.length && i < 3; i++) {
-      _scheduleDetail(bloc, jobs[i].jobId);
-    }
-
-    String? payFullFor(FeedItem job) {
-      final JobDetail? detail = _details[job.jobId];
-      return formatPayBandFull(
-        detail?.payMin ?? job.payMin,
-        detail?.payMax ?? job.payMax,
-      );
-    }
+    String? payFullFor(FeedItem job) =>
+        formatPayBandFull(job.payMin, job.payMax);
 
     return Padding(
       // Vertical only — [JobDeck] owns its own side gutter, so the card and the
@@ -530,7 +498,7 @@ class _FeedViewState extends State<_FeedView> {
             for (final FeedItem item in jobs)
               JobDeckItem(
                 id: item.jobId,
-                data: _cardData(item, _details[item.jobId]),
+                data: _cardData(item),
                 payFull: payFullFor(item),
               ),
           ],
@@ -888,15 +856,29 @@ class _ActiveFilterChip extends StatelessWidget {
   }
 }
 
-/// Maps a REAL [FeedItem] — optionally ENRICHED with the job's FULL posting
-/// (`GET /jobs/:jobId`, [detail]) — to the card.
+/// How many of [jobs] the server says were posted TODAY, on the WORKER'S local
+/// date (#1649).
 ///
-/// `GET /feed` carries the coarse card facts (title, trade/skill, place, pay,
-/// shift, experience window, match reason); the full posting carries those that
-/// the feed does not: `needed_by`, `description`, `requirements`, `benefits`,
-/// and (on a real posting) the pay/shift/experience values the V1 feed leaves
-/// null. When [detail] is present it WINS for a field it states, with the feed
-/// value as the fallback — both are REAL API data, nothing is invented.
+/// A job with no `posted_at` is NOT counted: an unknown date is unknown, never
+/// "today". Zero means the header says nothing about recency at all.
+int _postedTodayCount(List<FeedItem> jobs) {
+  final DateTime now = DateTime.now();
+  return jobs.where((FeedItem job) {
+    final DateTime? posted = job.postedAt;
+    if (posted == null) return false;
+    return posted.year == now.year &&
+        posted.month == now.month &&
+        posted.day == now.day;
+  }).length;
+}
+
+/// Maps a REAL [FeedItem] to the card.
+///
+/// ONE SOURCE: `GET /feed` carries every fact both layouts draw — title,
+/// trade/skill, place, pay band, shift, experience window, `needed_by`,
+/// `description`, `benefits`, `requirements` and the match reason (#1561). The
+/// screen no longer refetches `GET /jobs/:jobId` per card to read the same
+/// columns; the job-detail SCREEN owns that route.
 ///
 /// Still NEVER set here: company (employer identity is hidden entirely —
 /// nothing employer-shaped, PII per CLAUDE.md §2) and `hot` (no real "featured"
@@ -906,33 +888,31 @@ class _ActiveFilterChip extends StatelessWidget {
 /// The list card wires an inline "APPLY →", so its right-hand meta slot renders
 /// the action rather than the shift; the shift still surfaces on the deck card
 /// and in full on the job detail screen.
-BbJobCardData _cardData(FeedItem item, [JobDetail? detail]) {
-  final int? payMin = detail?.payMin ?? item.payMin;
-  final int? payMax = detail?.payMax ?? item.payMax;
-  final String? shift = detail?.shift ?? item.shift;
-  final int? minExp = detail?.minExperienceYears ?? item.minExperienceYears;
-  final int? maxExp = detail?.maxExperienceYears ?? item.maxExperienceYears;
-  final String feedPlace = (item.area == null || item.area!.isEmpty)
+BbJobCardData _cardData(FeedItem item) {
+  final String place = (item.area == null || item.area!.isEmpty)
       ? item.city
       : '${item.area}, ${item.city}';
-  final String title = (detail?.title.isNotEmpty ?? false)
-      ? detail!.title
-      : item.title;
 
   return BbJobCardData(
-    title: title,
+    title: item.title,
     trade: _feedTrade(item),
-    // The full posting's place (area + city) when it has one, else the feed's.
-    place: detail?.place ?? feedPlace,
-    payBand: formatPayBandCompact(payMin, payMax),
-    shift: shiftLabel(shift),
-    experience: experienceLabel(minExp, maxExp),
-    // Real full-postings facts — absent until the detail lands, and then only
-    // the ones the posting actually states.
-    neededBy: neededByLabel(detail?.neededBy),
-    description: detail?.description,
-    tags: detail?.requirements ?? const <String>[],
-    benefits: detail?.benefits ?? const <String>[],
+    place: place,
+    payBand: formatPayBandCompact(item.payMin, item.payMax),
+    shift: shiftLabel(item.shift),
+    experience: experienceLabel(
+      item.minExperienceYears,
+      item.maxExperienceYears,
+    ),
+    // Real posting content, verbatim off the feed row. Only what the posting
+    // actually states is shown — an unstated field stays absent, never a
+    // placeholder chip.
+    neededBy: neededByLabel(item.neededBy),
+    description: item.description,
+    tags: item.requirements,
+    benefits: item.benefits,
+    // The poster's own pay-type wording (#1648). Null — the common case — hides
+    // the pill, so the band is never described as take-home on no evidence.
+    payNote: payTypeLabel(item.payType),
     matchNote: matchNoteFor(item),
   );
 }

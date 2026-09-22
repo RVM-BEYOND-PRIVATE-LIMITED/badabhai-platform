@@ -37,7 +37,13 @@ library;
 import 'package:equatable/equatable.dart';
 
 import '../../../core/api/api_models.dart';
+import '../../../core/util/trade_key_label.dart';
 
+/// FAMILY-KEYWORD MAP for the trade dimension. It no longer decides WHICH
+/// options the sheet offers — [availableTrades] derives those from the loaded
+/// queue, exactly as the City group already did — it decides what a family
+/// label MEANS when one is selected.
+///
 /// Maps a Filters-sheet trade label to the keyword(s) that identify a matching
 /// [FeedItem] (substring, case-insensitive, against `tradeKey`/`title`). Labels
 /// whose tokens already prefix the trade key (CNC/VMC/Welder/Fitter) match
@@ -125,7 +131,9 @@ class FilterSelection extends Equatable {
     this.payMin,
   });
 
-  /// Labels from [kTradeFilterKeywords]. Empty = no trade filter.
+  /// A coarse family label from [kTradeFilterKeywords], or a trade/skill label
+  /// the loaded queue itself carries (see [availableTrades]). Empty = no trade
+  /// filter.
   final Set<String> trades;
 
   /// City names as they appear on the loaded queue (see [availableCities]).
@@ -199,8 +207,13 @@ class FilterSelection extends Equatable {
 /// EMPTY selection means "no trade filter" → every job matches.
 bool jobMatchesTrades(FeedItem job, Set<String> selectedTrades) {
   if (selectedTrades.isEmpty) return true;
+  final String own = _normalizeTrade(feedTradeLabel(job));
   final String haystack = '${job.tradeKey} ${job.title}'.toLowerCase();
   for (final String trade in selectedTrades) {
+    // A chip [availableTrades] derived from THIS job carries the job's own
+    // label, so compare that first (and on the same normalisation the option
+    // list keys on) — an offered chip always matches at least its own job.
+    if (own.isNotEmpty && _normalizeTrade(trade) == own) return true;
     final List<String> keywords =
         kTradeFilterKeywords[trade] ?? <String>[trade.toLowerCase()];
     for (final String keyword in keywords) {
@@ -208,6 +221,75 @@ bool jobMatchesTrades(FeedItem job, Set<String> selectedTrades) {
     }
   }
   return false;
+}
+
+String _normalizeTrade(String value) => value.trim().toLowerCase();
+
+/// One job's own humanised trade/skill label, or '' when it has none.
+///
+/// The server's matched-skill LABEL wins when it names one (under Matching V1
+/// `tradeKey` is an `mskill_*` id, which must never reach a screen — #1027);
+/// the legacy `trade_key` is humanised otherwise. Same rule the card's trade
+/// line uses, so a chip reads like the line it filters on.
+String feedTradeLabel(FeedItem job) {
+  final String? matched = job.matchedSkillLabel?.trim();
+  if (matched != null && matched.isNotEmpty) return matched;
+  return tradeKeyLabel(job.tradeKey);
+}
+
+/// Trade options DERIVED from the loaded queue — never a fixed vocabulary.
+///
+/// TWO passes, in this order, so the chips stay coarse AND complete:
+///
+///  1. every FAMILY in [kTradeFilterKeywords] (CNC / VMC / Welder / Fitter / QC,
+///     in that order) that ACTUALLY matches a job in the queue. A family chip is
+///     what a man scanning the sheet reads fast, and one chip catches "CNC
+///     Operator", "CNC Machinist" and "CNC Turner" together.
+///  2. the job's OWN label for every job no offered family matches — so a trade
+///     the families never anticipated (or a V1 matched-skill label) stays
+///     filterable instead of being silently unreachable.
+///
+/// A family matching nothing is DROPPED: offering "QC" to a worker whose feed
+/// holds no QC job is a dead-end chip that filters the deck to empty. The
+/// already-[selected] labels are unioned in so an active filter always keeps a
+/// chip to switch it off with, even once its jobs drain from the queue.
+/// Mirrors [availableCities] — the options are what the feed really contains.
+List<String> availableTrades(
+  List<FeedItem> jobs, {
+  Set<String> selected = const <String>{},
+}) {
+  final List<String> options = <String>[];
+  final Set<String> seen = <String>{};
+
+  void add(String label) {
+    final String trimmed = label.trim();
+    if (trimmed.isEmpty) return;
+    if (seen.add(_normalizeTrade(trimmed))) options.add(trimmed);
+  }
+
+  for (final String family in kTradeFilterKeywords.keys) {
+    if (jobs.any((FeedItem job) => jobMatchesTrades(job, <String>{family}))) {
+      add(family);
+    }
+  }
+
+  // Whatever the offered families do not cover, by its own label.
+  final Set<String> families = <String>{...options};
+  final List<String> uncovered = <String>[];
+  for (final FeedItem job in jobs) {
+    if (families.isNotEmpty && jobMatchesTrades(job, families)) continue;
+    final String label = feedTradeLabel(job).trim();
+    if (label.isNotEmpty) uncovered.add(label);
+  }
+  uncovered.sort(
+    (String a, String b) => _normalizeTrade(a).compareTo(_normalizeTrade(b)),
+  );
+  uncovered.forEach(add);
+
+  for (final String label in selected) {
+    add(label);
+  }
+  return options;
 }
 
 /// True if [job]'s city EXACTLY equals any of [selectedCities], compared

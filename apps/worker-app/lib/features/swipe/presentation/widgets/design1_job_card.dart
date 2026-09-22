@@ -13,17 +13,27 @@ import 'job_deck.dart' show kSkipSemanticLabel;
 ///
 ///  - [payFull] is `formatPayBandFull` (₹16,000 – ₹26,000), the design's
 ///    grouped figure. Null hides the whole salary box.
-///  - `verified` / `hot` gate the claim pills + payroll strip, so an
-///    unverified feed never prints "Verified" (the no-unbacked-claims rule).
 ///  - shift / experience / neededBy / tags / benefits render as the
 ///    "Duty & Suvidhayein" chips; empty hides the section.
 ///  - [next] is the REAL next job in the queue (or null); its teaser
 ///    advances the pager via [onNextTap] — no backend decision is recorded.
 ///
-/// Static chrome labels ("TAKE HOME PAY", "IN-HAND", "Duty & Suvidhayein",
-/// "Direct Company Payroll • Zero Fees", "AAPKE LIYE AUR OPTIONS",
-/// "Feedback", "Apply", "Dekhein", "Sab dekhein") are the design pattern
-/// itself, not per-job data.
+/// Static chrome labels ("MAHINE KI SALARY", "Duty & Suvidhayein",
+/// "AAPKE LIYE AUR OPTIONS", "Feedback", "Apply", "Dekhein", "Sab dekhein")
+/// are the design pattern itself, not per-job data.
+///
+/// NO TRUST OR URGENCY CLAIM IS DRAWN. The "VERIFIED FACTORY" pill, the
+/// "Urgent Hiring" pill and the "Direct Company Payroll • Zero Fees" strip were
+/// removed with the #1651 ruling (2026-09-22, ADR-0024 addendum): the alpha
+/// makes no trust claim to a worker, and `verification_status` is deliberately
+/// never projected onto a worker-facing read. Do not reintroduce them without a
+/// new ruling.
+///
+/// The salary box used to print "TAKE HOME PAY" + an "IN-HAND" pill as fixed
+/// chrome. Nothing in the platform states net-vs-gross (no `pay_type` /
+/// `in_hand` column exists on any route), so the box now names only what the
+/// data really is — a MONTHLY BAND — and the pill renders only from
+/// [BbJobCardData.payNote], i.e. only once a poster can state it.
 class Design1JobCard extends StatelessWidget {
   const Design1JobCard({
     super.key,
@@ -66,11 +76,7 @@ class Design1JobCard extends StatelessWidget {
   static const Color _salaryBg = Color(0xFFFFFBEB);
   static const Color _salaryBorder = Color(0xFFF59E0B);
   static const Color _payInk = Color(0xFF9A3412);
-  static const Color _urgentBg = Color(0xFFFEF3C7);
-  static const Color _urgentInk = Color(0xFF92400E);
   static const Color _dutyGreyBg = Color(0xFFF1F5F9);
-  static const Color _payrollBg = Color(0xFFECFDF5);
-  static const Color _payrollInk = Color(0xFF047857);
 
   @override
   Widget build(BuildContext context) {
@@ -86,19 +92,14 @@ class Design1JobCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            _PillRow(data: data),
             _TitleRow(data: data, onTitleTap: onTitleTap),
             const SizedBox(height: 2),
             _PlaceRow(place: data.place),
             if (payFull != null) ...<Widget>[
               const SizedBox(height: 12),
-              _SalaryBox(payFull: payFull!),
+              _SalaryBox(payFull: payFull!, payNote: data.payNote),
             ],
             _DutySection(data: data),
-            if (data.verified) ...<Widget>[
-              const SizedBox(height: 12),
-              const _PayrollStrip(),
-            ],
             if (data.matchNote != null) ...<Widget>[
               const SizedBox(height: 12),
               _MatchLine(text: data.matchNote!),
@@ -124,82 +125,6 @@ class Design1JobCard extends StatelessWidget {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Top pills: green VERIFIED FACTORY (left) + yellow Urgent Hiring (right).
-/// Hidden entirely when neither flag is backed — never an unearned claim.
-class _PillRow extends StatelessWidget {
-  const _PillRow({required this.data});
-
-  final BbJobCardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!data.verified && !data.hot) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        children: <Widget>[
-          if (data.verified)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: OnboardingColors.successBg,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(
-                    Icons.check_circle,
-                    size: 13,
-                    color: OnboardingColors.successGreen,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'VERIFIED FACTORY',
-                    style: OnboardingTypography.inter(
-                      size: 10,
-                      weight: FontWeight.w800,
-                      letterSpacing: 0.4,
-                      color: OnboardingColors.successGreen,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          const Spacer(),
-          if (data.hot)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: Design1JobCard._urgentBg,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(
-                    Icons.bolt_rounded,
-                    size: 13,
-                    color: Design1JobCard._urgentInk,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Urgent Hiring',
-                    style: OnboardingTypography.inter(
-                      size: 11,
-                      weight: FontWeight.w700,
-                      color: Design1JobCard._urgentInk,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -293,13 +218,17 @@ class _PlaceRow extends StatelessWidget {
   }
 }
 
-/// The take-home pay box: label + IN-HAND pill on top, grouped figure
+/// The monthly-salary box: label + optional pay-type pill on top, grouped figure
 /// below. No fixed-base split is rendered — the wire carries no such
 /// breakdown, so a second line would be invented.
 class _SalaryBox extends StatelessWidget {
-  const _SalaryBox({required this.payFull});
+  const _SalaryBox({required this.payFull, this.payNote});
 
   final String payFull;
+
+  /// The poster's own pay-type wording ("IN-HAND" / "CTC"). Null hides the
+  /// pill — the card never asserts a pay semantics nobody stated.
+  final String? payNote;
 
   @override
   Widget build(BuildContext context) {
@@ -319,7 +248,7 @@ class _SalaryBox extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  'TAKE HOME PAY',
+                  'MAHINE KI SALARY',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: OnboardingTypography.inter(
@@ -330,28 +259,29 @@ class _SalaryBox extends StatelessWidget {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 3,
-                ),
-                decoration: BoxDecoration(
-                  color: OnboardingColors.paperWhite,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Design1JobCard._salaryBorder,
+              if (payNote != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: OnboardingColors.paperWhite,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Design1JobCard._salaryBorder,
+                    ),
+                  ),
+                  child: Text(
+                    payNote!,
+                    style: OnboardingTypography.inter(
+                      size: 10,
+                      weight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                      color: Design1JobCard._payInk,
+                    ),
                   ),
                 ),
-                child: Text(
-                  'IN-HAND',
-                  style: OnboardingTypography.inter(
-                    size: 10,
-                    weight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                    color: Design1JobCard._payInk,
-                  ),
-                ),
-              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -407,10 +337,13 @@ class _DutySection extends StatelessWidget {
           icon: Icons.build_outlined,
           bg: Design1JobCard._salaryBg,
         ),
+      // A benefit is what the POSTER claims, not something the platform checked
+      // — so the chip carries a neutral "perk" glyph. It used to carry
+      // `Icons.verified_outlined`, a rosette that read as "we verified this".
       for (final String benefit in data.benefits)
         _DutyChip(
           label: benefit,
-          icon: Icons.verified_outlined,
+          icon: Icons.card_giftcard_outlined,
           bg: OnboardingColors.infoBg,
         ),
     ];
@@ -477,74 +410,6 @@ class _DutyChip extends StatelessWidget {
   }
 }
 
-/// Green trust strip. Rendered ONLY when `verified` is true (the caller
-/// gates it) — the "Verified" pill is an earned claim, never chrome.
-class _PayrollStrip extends StatelessWidget {
-  const _PayrollStrip();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Design1JobCard._payrollBg,
-        borderRadius: BorderRadius.circular(OnboardingRadii.row),
-      ),
-      child: Row(
-        children: <Widget>[
-          const Icon(
-            Icons.check_circle,
-            size: 18,
-            color: OnboardingColors.successGreen,
-          ),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Direct Company Payroll • Zero Fees',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: OnboardingTypography.bodyFamily,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Design1JobCard._payrollInk,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: OnboardingColors.paperWhite,
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(
-                  Icons.check_rounded,
-                  size: 13,
-                  color: OnboardingColors.successGreen,
-                ),
-                SizedBox(width: 3),
-                Text(
-                  'Verified',
-                  style: TextStyle(
-                    fontFamily: OnboardingTypography.bodyFamily,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: OnboardingColors.successGreen,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _MatchLine extends StatelessWidget {
   const _MatchLine({required this.text});

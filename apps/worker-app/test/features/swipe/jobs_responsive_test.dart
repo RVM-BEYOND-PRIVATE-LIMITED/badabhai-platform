@@ -419,7 +419,7 @@ void main() {
     await tester.pumpWidget(kitTestApp(_feedScreen(jobs: _jobs(3))));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('Aaj 3 naye jobs'), findsOneWidget);
+    expect(find.text('3 jobs aapke liye'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await locator.reset();
@@ -427,9 +427,9 @@ void main() {
 
     await tester.pumpWidget(kitTestApp(_feedScreen(pending: true)));
     await tester.pump();
-    // Nothing is loaded, so there is no count to print — "0 naye jobs" would be
-    // a claim about a queue nobody has seen.
-    expect(find.textContaining('naye jobs'), findsNothing);
+    // Nothing is loaded, so there is no count to print — "0 jobs" would be a
+    // claim about a queue nobody has seen.
+    expect(find.textContaining('jobs aapke liye'), findsNothing);
   });
 
   // ── Active filter chips ───────────────────────────────────────────────────

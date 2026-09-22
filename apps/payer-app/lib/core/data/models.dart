@@ -97,6 +97,19 @@ class JobPosting extends Equatable {
     this.createdAt,
     this.wireStatus,
     this.disclosuresCount = 0,
+    this.description,
+    this.city,
+    this.area,
+    this.payMin,
+    this.payMax,
+    this.payType,
+    this.minExperienceYears,
+    this.maxExperienceYears,
+    this.benefits,
+    this.requirements,
+    this.shift,
+    this.neededBy,
+    this.matchSkillIds = const <String>[],
   });
 
   final String title;
@@ -132,6 +145,61 @@ class JobPosting extends Equatable {
   /// engagement count. 0 in the mock and for a posting with no downloads.
   final int disclosuresCount;
 
+  // --- The WORKER-VISIBLE display fields the payer row really carries --------
+  // `GET /payer/job-postings(/:id)` returns the full posting row — city, area,
+  // the ₹ band + its pay_type, the experience window, shift, needed_by,
+  // description, benefits/requirements and match_skill_ids (see
+  // `toJobPostingApi`) — but the app used to parse none of them, so the company
+  // edit form had nothing to prefill and told the payer they were "not editable
+  // here". Parsed here so the edit screen can show what is stored instead of
+  // guessing, and so the post flow can tell which of them the create route
+  // actually persisted (#1653 made create accept the whole set; an OLDER
+  // deployment still strips some, which is what the post flow repairs).
+
+  /// Free-text posting description (`description`), or null when unset.
+  final String? description;
+
+  /// Coarse city bucket (`city`) — never an address. Null when unset.
+  final String? city;
+
+  /// Coarse locality bucket (`area`, e.g. "Chakan") — never an address, and
+  /// never derived from [locationLabel] (the server keeps that wall on purpose).
+  /// Null when unset.
+  final String? area;
+
+  /// Monthly ₹ band ends (`pay_min`/`pay_max`, whole rupees). Null when unset.
+  final int? payMin;
+  final int? payMax;
+
+  /// What the ₹ band MEANS — `in_hand | gross | ctc` (`pay_type`, #1648), or
+  /// null when the poster did not say. NEVER defaulted: a guessed net-vs-gross
+  /// is worse for the worker than no claim at all, so a null renders no pill.
+  final String? payType;
+
+  /// Experience window in years (`min_experience_years`/`max_experience_years`).
+  /// Null when unset.
+  final int? minExperienceYears;
+  final int? maxExperienceYears;
+
+  /// Worker-visible chips shown VERBATIM (`benefits`/`requirements`).
+  ///
+  /// NULL vs EMPTY is load-bearing and deliberately preserved: the column is
+  /// jsonb with NO default, so `null` = "nothing stated" and `[]` = "an empty
+  /// list was stored". The edit form needs that difference to tell an untouched
+  /// list from one the payer cleared.
+  final List<String>? benefits;
+  final List<String>? requirements;
+
+  /// `day | night | rotational` (`shift`), or null when unset.
+  final String? shift;
+
+  /// `immediate | soon | flexible` (`needed_by`), or null when unset.
+  final String? neededBy;
+
+  /// The closed-set demand skills the posting asks for (`match_skill_ids`).
+  /// EMPTY means the posting materialises no reach — it can match no worker.
+  final List<String> matchSkillIds;
+
   double get progress => quota == 0 ? 0 : filled / quota;
   int get pct => (progress * 100).round();
 
@@ -151,6 +219,19 @@ class JobPosting extends Equatable {
         createdAt,
         wireStatus,
         disclosuresCount,
+        description,
+        city,
+        area,
+        payMin,
+        payMax,
+        payType,
+        minExperienceYears,
+        maxExperienceYears,
+        benefits,
+        requirements,
+        shift,
+        neededBy,
+        matchSkillIds,
       ];
 }
 
@@ -604,6 +685,25 @@ String agencyNeededByLabel(String? value) => switch (value) {
       _ => '—',
     };
 
+/// WHAT THE PAY BAND MEANS (`pay_type`, #1648) — the closed enum BOTH demand
+/// routes accept (`payTypeSchema`: company `job_postings` and agency `jobs`).
+///
+/// There is NO default here either: a posting that omits it stores NULL and the
+/// worker's card shows the band with no pay-type pill. "Kitna haath me aayega"
+/// is the worker's first question and a guessed answer is worse than none, so
+/// the app never fills one in.
+const List<String> kJobPayTypes = <String>['in_hand', 'gross', 'ctc'];
+
+/// Display label for a `pay_type` — the raw enum is NEVER rendered. Null (not
+/// stated) is the caller's to word: an edit form and a read-only card mean
+/// different things by it, so this returns null and each surface says its own.
+String? jobPayTypeLabel(String? value) => switch (value) {
+      'in_hand' => 'In-hand',
+      'gross' => 'Gross',
+      'ctc' => 'CTC',
+      _ => null,
+    };
+
 /// Compact whole-rupee formatter (western thousands grouping — wages sit well
 /// under a lakh so this matches Indian grouping for the band). "₹22,000".
 String _formatInr(int value) {
@@ -633,9 +733,14 @@ class AgencyJobView extends Equatable {
     this.area,
     this.payMin,
     this.payMax,
+    this.payType,
     this.minExperienceYears,
     this.maxExperienceYears,
     this.neededBy,
+    this.description,
+    this.shift,
+    this.benefits,
+    this.requirements,
     this.createdAt,
     this.updatedAt,
   });
@@ -651,9 +756,17 @@ class AgencyJobView extends Equatable {
         area: row['area'] as String?,
         payMin: (row['payMin'] as num?)?.toInt(),
         payMax: (row['payMax'] as num?)?.toInt(),
+        payType: row['payType'] as String?,
         minExperienceYears: (row['minExperienceYears'] as num?)?.toInt(),
         maxExperienceYears: (row['maxExperienceYears'] as num?)?.toInt(),
         neededBy: row['neededBy'] as String?,
+        // #1647 — the write-only four, now readable. An ABSENT key stays null
+        // (an older deployment simply does not return them); only a real `[]`
+        // becomes an empty list, so "unstated" and "cleared" stay distinct.
+        description: row['description'] as String?,
+        shift: row['shift'] as String?,
+        benefits: _optionalStringList(row['benefits']),
+        requirements: _optionalStringList(row['requirements']),
         applicantsReceived: (row['applicantsReceived'] as num?)?.toInt() ?? 0,
         createdAt: row['createdAt'] as String?,
         updatedAt: row['updatedAt'] as String?,
@@ -671,9 +784,23 @@ class AgencyJobView extends Equatable {
   final String? area;
   final int? payMin;
   final int? payMax;
+
+  /// What the ₹ band means — `in_hand | gross | ctc`, or null when unstated
+  /// (#1648). Never defaulted; see [kJobPayTypes].
+  final String? payType;
   final int? minExperienceYears;
   final int? maxExperienceYears;
   final String? neededBy;
+
+  // --- The WORKER-VISIBLE content the job card renders VERBATIM -------------
+  // `AgencyService.toJobView` returns all four since #1647, so the edit form
+  // PREFILLS them instead of telling the payer their typing overwrites a value
+  // it could not show. NULL vs EMPTY is preserved on the two lists: null =
+  // nothing stated, `[]` = an empty list was stored.
+  final String? description;
+  final String? shift;
+  final List<String>? benefits;
+  final List<String>? requirements;
   final int applicantsReceived;
   final String? createdAt;
   final String? updatedAt;
@@ -719,14 +846,26 @@ class AgencyJobView extends Equatable {
         area,
         payMin,
         payMax,
+        payType,
         minExperienceYears,
         maxExperienceYears,
         neededBy,
+        description,
+        shift,
+        benefits,
+        requirements,
         applicantsReceived,
         createdAt,
         updatedAt,
       ];
 }
+
+/// A jsonb string array that may be ABSENT (null) or an EMPTY list, keeping the
+/// two distinguishable — unlike the `[]`-defaulting parse used for the columns
+/// (`match_skill_ids`) the server always returns as an array.
+List<String>? _optionalStringList(Object? value) => value is List<dynamic>
+    ? List<String>.unmodifiable(value.whereType<String>())
+    : null;
 
 /// The agency referral FUNNEL summary (`GET /payer/agency/referrals/summary`).
 /// AGGREGATE counts only — there are NO per-worker rows on this seam (faceless).

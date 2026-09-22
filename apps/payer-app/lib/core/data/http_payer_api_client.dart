@@ -81,10 +81,16 @@ class HttpPayerApiClient implements PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     // EXACTLY ONE of vacancy_band | vacancies (server rejects both/neither).
     if ((vacancyBand == null) == (vacancies == null)) {
@@ -105,11 +111,22 @@ class HttpPayerApiClient implements PayerApiClient {
       if (matchSkillIds != null) 'match_skill_ids': matchSkillIds,
       if (untickedRelatedIds != null)
         'unticked_related_ids': untickedRelatedIds,
+      // The worker-visible content half (#1653 made the create accept all of
+      // it). Blank/empty values are OMITTED: `area` is `min(1)` so a blank
+      // would 400, and an empty chip list on a CREATE says nothing the absent
+      // key does not (there is nothing stored to clear).
       if (city != null) 'city': city,
+      if (area != null && area.isNotEmpty) 'area': area,
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
+      if (payType != null) 'pay_type': payType,
+      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
+      if (requirements != null && requirements.isNotEmpty)
+        'requirements': requirements,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/job-postings', body: body);
@@ -140,10 +157,16 @@ class HttpPayerApiClient implements PayerApiClient {
     List<String>? matchSkillIds,
     List<String>? untickedRelatedIds,
     String? city,
+    String? area,
     int? payMin,
     int? payMax,
+    String? payType,
+    int? minExperienceYears,
+    int? maxExperienceYears,
     String? shift,
     String? neededBy,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
       if (orgLabel != null) 'org_label': orgLabel,
@@ -158,10 +181,19 @@ class HttpPayerApiClient implements PayerApiClient {
       if (untickedRelatedIds != null)
         'unticked_related_ids': untickedRelatedIds,
       if (city != null) 'city': city,
+      if (area != null) 'area': area,
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
+      if (payType != null) 'pay_type': payType,
+      if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
+      if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (shift != null) 'shift': shift,
       if (neededBy != null) 'needed_by': neededBy,
+      // LIST SEMANTICS (deliberate asymmetry with the create): a list the caller
+      // PASSES rides the PATCH even when EMPTY, because `[]` is how the chips
+      // get CLEARED server-side; only a null list is omitted.
+      if (benefits != null) 'benefits': benefits,
+      if (requirements != null) 'requirements': requirements,
     };
     if (body.isEmpty) {
       throw ArgumentError('updateJob needs at least one field');
@@ -644,12 +676,22 @@ class HttpPayerApiClient implements PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     // snake_case body — trade_key/pay_min/etc. NEVER a body payer_id (the server
     // derives the tenant from the bearer).
+    //
+    // The worker-visible content keys (description/shift/benefits/requirements)
+    // are omitted when blank/empty: the server's `description` is `min(1)`, so a
+    // blank string would be a 400, and an empty list on a CREATE carries no
+    // information the absent key does not (there is nothing stored to clear).
     final Map<String, dynamic> body = <String, dynamic>{
       'trade_key': tradeKey,
       'title': title,
@@ -657,9 +699,17 @@ class HttpPayerApiClient implements PayerApiClient {
       if (area != null && area.isNotEmpty) 'area': area,
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
+      // #1648 — what the band MEANS. Never defaulted: omitted stores NULL.
+      if (payType != null) 'pay_type': payType,
       if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (description != null && description.trim().isNotEmpty)
+        'description': description.trim(),
+      if (shift != null) 'shift': shift,
+      if (benefits != null && benefits.isNotEmpty) 'benefits': benefits,
+      if (requirements != null && requirements.isNotEmpty)
+        'requirements': requirements,
     };
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/agency/jobs', body: body);
@@ -704,9 +754,14 @@ class HttpPayerApiClient implements PayerApiClient {
     String? area,
     int? payMin,
     int? payMax,
+    String? payType,
     int? minExperienceYears,
     int? maxExperienceYears,
     String? neededBy,
+    String? description,
+    String? shift,
+    List<String>? benefits,
+    List<String>? requirements,
   }) async {
     final Map<String, dynamic> body = <String, dynamic>{
       if (tradeKey != null) 'trade_key': tradeKey,
@@ -715,9 +770,18 @@ class HttpPayerApiClient implements PayerApiClient {
       if (area != null) 'area': area,
       if (payMin != null) 'pay_min': payMin,
       if (payMax != null) 'pay_max': payMax,
+      if (payType != null) 'pay_type': payType,
       if (minExperienceYears != null) 'min_experience_years': minExperienceYears,
       if (maxExperienceYears != null) 'max_experience_years': maxExperienceYears,
       if (neededBy != null) 'needed_by': neededBy,
+      if (description != null && description.trim().isNotEmpty)
+        'description': description.trim(),
+      if (shift != null) 'shift': shift,
+      // LIST SEMANTICS (deliberate asymmetry with the create): a list the caller
+      // PASSES is sent even when EMPTY, because `[]` is how the chips get
+      // CLEARED server-side; only a null list is omitted.
+      if (benefits != null) 'benefits': benefits,
+      if (requirements != null) 'requirements': requirements,
     };
     if (body.isEmpty) {
       throw ArgumentError('updateAgencyJob needs at least one field');
@@ -965,6 +1029,31 @@ class HttpPayerApiClient implements PayerApiClient {
       verified: row['verified'] as bool? ?? false,
       // Truthful per-posting engagement: résumés the payer downloaded for it.
       disclosuresCount: (row['disclosures_count'] as num?)?.toInt() ?? 0,
+      // The worker-visible display half of the row (`JobPostingApi` returns all
+      // of these on the payer list/get/patch). Parsed so the edit form prefills
+      // what is REALLY stored, and so the post flow can tell which keys the
+      // create route persisted vs silently stripped. Absent key → null, never a
+      // fabricated value.
+      description: row['description'] as String?,
+      city: row['city'] as String?,
+      area: row['area'] as String?,
+      payMin: (row['pay_min'] as num?)?.toInt() ??
+          (row['payMin'] as num?)?.toInt(),
+      payMax: (row['pay_max'] as num?)?.toInt() ??
+          (row['payMax'] as num?)?.toInt(),
+      payType: row['pay_type'] as String? ?? row['payType'] as String?,
+      minExperienceYears: (row['min_experience_years'] as num?)?.toInt() ??
+          (row['minExperienceYears'] as num?)?.toInt(),
+      maxExperienceYears: (row['max_experience_years'] as num?)?.toInt() ??
+          (row['maxExperienceYears'] as num?)?.toInt(),
+      // jsonb with NO default: the server preserves NULL rather than flattening
+      // it to `[]`, so we keep the two apart too — "nothing stated" is not "an
+      // empty list", and the edit form needs the difference.
+      benefits: _optionalStringList(row['benefits']),
+      requirements: _optionalStringList(row['requirements']),
+      shift: row['shift'] as String?,
+      neededBy: row['needed_by'] as String? ?? row['neededBy'] as String?,
+      matchSkillIds: _stringList(row['match_skill_ids']),
       // Still NO per-posting source (applications + unlocks attach to `jobs`, not
       // `job_postings`) — kept at the model defaults rather than faked.
       applicants: 0,
@@ -1069,4 +1158,17 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   static List<dynamic>? _asList(Object? v) => v is List<dynamic> ? v : null;
+
+  /// A wire array of strings → an immutable `List<String>`; anything else (an
+  /// absent key, a null, a non-list) → empty. Never a fabricated entry.
+  static List<String> _stringList(Object? v) => v is List<dynamic>
+      ? List<String>.unmodifiable(v.whereType<String>())
+      : const <String>[];
+
+  /// Same, for a jsonb array the server may legitimately return as NULL: an
+  /// absent/null value stays NULL instead of collapsing to `[]`, which is the
+  /// only way "nothing stated" and "stored empty" stay tellable apart.
+  static List<String>? _optionalStringList(Object? v) => v is List<dynamic>
+      ? List<String>.unmodifiable(v.whereType<String>())
+      : null;
 }

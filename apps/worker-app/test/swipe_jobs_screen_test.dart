@@ -186,36 +186,37 @@ void main() {
   // (`GET /jobs/:jobId`): the real needed-by / description / requirements /
   // benefits the feed does not carry land on the card. No fake data — only
   // what the API returns.
-  testWidgets('a card is enriched with the full posting\'s real fields', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('a card renders the posting content the FEED itself carries, '
+      'with no per-card detail call', (WidgetTester tester) async {
     locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
     addTearDown(() => locator.unregister<JobFeedViewStore>());
+    int detailCalls = 0;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
             'jobs': <Map<String, dynamic>>[
-              _job(id: 'job-1', title: 'VMC Operator', city: 'Pune', area: 'Chakan'),
+              <String, dynamic>{
+                ..._job(
+                  id: 'job-1',
+                  title: 'VMC Operator',
+                  city: 'Pune',
+                  area: 'Chakan',
+                ),
+                // #1561 — the feed sends the posting's own card content.
+                'needed_by': 'immediate',
+                'description': 'Fanuc control par kaam karna hoga.',
+                'requirements': <String>['Fanuc control'],
+                'benefits': <String>['PF + ESI'],
+              },
             ],
           }),
           200,
         );
       }
-      // GET /jobs/:jobId — the full worker-visible posting.
-      return http.Response(
-        jsonEncode(<String, dynamic>{
-          'job_id': req.url.path.split('/').last,
-          'title': 'VMC Operator',
-          'city': 'Pune',
-          'area': 'Chakan',
-          'needed_by': 'immediate',
-          'description': 'Fanuc control par kaam karna hoga.',
-          'requirements': <String>['Fanuc control'],
-          'benefits': <String>['PF + ESI'],
-        }),
-        200,
-      );
+      // GET /jobs/:jobId must not be needed to draw a feed card at all.
+      detailCalls++;
+      return http.Response('{}', 500);
     }));
 
     await tester.pumpWidget(_harness(bloc));
@@ -225,6 +226,7 @@ void main() {
     expect(find.text('Fanuc control par kaam karna hoga.'), findsOneWidget);
     expect(find.text('Fanuc control'), findsOneWidget); // requirement chip
     expect(find.text('PF + ESI'), findsOneWidget); // benefit chip
+    expect(detailCalls, 0);
   });
 
   // #issue3 — every field the feed carries now reaches the card: the humanised

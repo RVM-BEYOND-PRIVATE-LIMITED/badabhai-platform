@@ -267,8 +267,52 @@ void main() {
           await h.importer.importResume(_doc());
 
       expect(outcome, isA<ResumeImportFailed>());
-      // ResumeImportFailed carries no field at all, by construction: there is
-      // nowhere for `no_text_layer` to ride to a screen.
+      // The reason RIDES the outcome (#1661) but is not a "document was read"
+      // case, so the screen keeps its one honest unreadable line. It is still
+      // never rendered — `resume_upload_screen_test` pins that the closed
+      // server vocabulary reaches no pixel.
+      expect((outcome as ResumeImportFailed).reason, 'no_text_layer');
+      expect(outcome.documentWasRead, isFalse);
+    });
+
+    test('a parse_output_invalid failure is marked as READ, not unreadable',
+        () async {
+      final ({
+        ResumeImporterImpl importer,
+        List<String> calls,
+        List<Object> reported
+      }) h = _build(
+        handler: (http.Request req, List<String> calls) async {
+          calls.add(_label(req));
+          if (req.url.path.endsWith('/upload-url')) {
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'upload_url': 'https://s3.test/put',
+                'storage_path': 'resume-uploads/w/abc.pdf',
+                'expires_in': 900,
+              }),
+              200,
+            );
+          }
+          if (req.url.host == 's3.test') return http.Response('', 200);
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'import_id': 'imp-1',
+              'status': 'failed',
+              // Our model's reply was malformed — the document itself was read,
+              // and the identity turn may still be staged from it (#1654 C).
+              'failure_reason': 'parse_output_invalid',
+            }),
+            req.method == 'POST' ? 201 : 200,
+          );
+        },
+      );
+
+      final ResumeImportOutcome outcome =
+          await h.importer.importResume(_doc());
+
+      expect(outcome, isA<ResumeImportFailed>());
+      expect((outcome as ResumeImportFailed).documentWasRead, isTrue);
     });
 
     test('a 404 on the poll stops immediately — it can never become a 200',

@@ -34,6 +34,8 @@ class BbField extends StatelessWidget {
     this.prefixText,
     this.inputFormatters,
     this.suppressSuggestions = false,
+    this.minLines,
+    this.maxLines = 1,
   });
 
   final String? label;
@@ -67,6 +69,14 @@ class BbField extends StatelessWidget {
   /// the IME-learning path too. Default false leaves ordinary fields untouched.
   final bool suppressSuggestions;
 
+  /// Line bounds for a MULTILINE input (a job description). Both null-safe
+  /// pass-throughs to [TextField]: the default `maxLines: 1` keeps every
+  /// existing single-line field byte-identical, and a caller that wants a
+  /// growing box passes e.g. `minLines: 3, maxLines: 6`. Additive only — no new
+  /// token, no chrome change (the box grows inside the same hairline field).
+  final int? minLines;
+  final int? maxLines;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -88,6 +98,8 @@ class BbField extends StatelessWidget {
           controller: controller,
           readOnly: readOnly,
           keyboardType: keyboardType,
+          minLines: minLines,
+          maxLines: maxLines,
           autofillHints: autofillHints,
           inputFormatters: inputFormatters,
           // Identity fields turn all three OFF so the keyboard cannot resurface a

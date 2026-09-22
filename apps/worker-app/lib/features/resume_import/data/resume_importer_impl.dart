@@ -136,7 +136,16 @@ class ResumeImporterImpl implements ResumeImporter {
         first: registered,
         token: token,
       );
-      if (settled == null || settled.hasFailed) return const ResumeImportFailed();
+      // The server's `failure_reason` rides along (never shown — see
+      // [ResumeImportFailed.reason]): it is the only way the client can tell a
+      // document it could not read from one it read where just our model reply
+      // was malformed, which is the case that may still stage the identity turn
+      // (#1661 / the #1654 option-C ruling). A poll that ran out of patience
+      // has no reason at all, and stays the plain failure it was.
+      if (settled == null) return const ResumeImportFailed();
+      if (settled.hasFailed) {
+        return ResumeImportFailed(reason: settled.failureReason);
+      }
 
       return switch (settled.route) {
         ResumeImportRoute.form =>
@@ -144,7 +153,11 @@ class ResumeImporterImpl implements ResumeImporter {
         // `parsed` with a null route should not happen — the server sets both
         // together — but guessing `form` on a null would send a worker to a
         // screen that has nothing to show him. Chat is the honest default.
-        ResumeImportRoute.chat || null => const ResumeImportRoutedToChat(),
+        // #1660 — a `parsed` row that extracted nothing is routed here too, and
+        // the client has to say so rather than drop him into the interview in
+        // silence.
+        ResumeImportRoute.chat || null =>
+          ResumeImportRoutedToChat(learnedNothing: settled.learnedNothing),
       };
     } catch (error, stack) {
       // REPORTED, NOT SWALLOWED — and then the worker continues anyway. The

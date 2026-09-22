@@ -75,25 +75,16 @@ void main() {
       expect(find.text('PF + ESI'), findsNothing);
     });
 
-    testWidgets('a featured card earns the HOT tag; a plain one does not', (
+    // #1655 (ruling on #1651): the alpha makes NO urgency claim to a worker.
+    // The `hot` flag, the HOT tag and the safety-yellow rail it gated are gone
+    // from the card — and `boosted_until` must never become their source, since
+    // a boost is a paid promotion, not an employer-earned urgency.
+    testWidgets('draws no HOT tag — there is no urgency claim to draw', (
       tester,
     ) async {
       await tester.pumpWidget(_host(const BbJobCard(data: data)));
       expect(find.byType(BbHotTag), findsNothing);
-
-      await tester.pumpWidget(
-        _host(
-          const BbJobCard(
-            data: BbJobCardData(
-              title: 'VMC Operator',
-              place: 'Chakan',
-              hot: true,
-            ),
-          ),
-        ),
-      );
-      expect(find.byType(BbHotTag), findsOneWidget);
-      expect(find.text('HOT'), findsOneWidget);
+      expect(find.text('HOT'), findsNothing);
     });
 
     testWidgets('fires onApply when the APPLY action is tapped', (
@@ -136,31 +127,27 @@ void main() {
       expect(find.byKey(const Key('jobCardApplyButton')), findsNothing);
     });
 
-    // `verified` now defaults to FALSE: the seal must be an explicit opt-in for
-    // a REAL employer. It previously defaulted to true, so the card stamped a
-    // green "verified" seal next to an employer name invented from
-    // `jobId.hashCode`.
-    testWidgets(
-      'shows the verified seal only when verified is explicitly true',
-      (tester) async {
-        await tester.pumpWidget(_host(const BbJobCard(data: data)));
-        expect(find.byIcon(Icons.verified), findsNothing);
-
-        await tester.pumpWidget(
-          _host(
-            const BbJobCard(
-              data: BbJobCardData(
-                title: 'CNC Operator',
-                company: 'Sharma Works',
-                verified: true,
-                place: 'Pimpri',
-              ),
+    // #1655 (ruling on #1651): `job_postings.verification_status` is
+    // deliberately never projected onto a worker-facing read, so there is no
+    // signal behind a seal. The `verified` flag and the tick are deleted — not
+    // defaulted off — so no future mapper edit can switch a trust claim on by
+    // accident.
+    testWidgets('draws no verified seal — there is no trust claim to draw', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _host(
+          const BbJobCard(
+            data: BbJobCardData(
+              title: 'CNC Operator',
+              company: 'Sharma Works',
+              place: 'Pimpri',
             ),
           ),
-        );
-        expect(find.byIcon(Icons.verified), findsOneWidget);
-      },
-    );
+        ),
+      );
+      expect(find.byIcon(Icons.verified), findsNothing);
+    });
 
     // The real feed carries no employer/pay/shift/tags — the card must simply
     // omit them rather than render an invented value.
