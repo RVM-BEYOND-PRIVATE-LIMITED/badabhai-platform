@@ -54,7 +54,7 @@ describe("settleParsedStatement", () => {
   const compiled = settleParsedStatement(
     db,
     ID,
-    { extractionMethod: "ocr", pageCount: 2, ocrConfidence: 0.8 },
+    { extractionMethod: "ocr", pageCount: 2, ocrConfidence: 0.8 , fieldsExtracted: 3},
     { route: "form", formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" },
   ).toSQL();
 
@@ -95,7 +95,7 @@ describe("settleParsedStatement", () => {
     const chat = settleParsedStatement(
       db,
       ID,
-      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.8 },
+      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.8 , fieldsExtracted: 3},
       { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
     ).toSQL();
     const set = { sql: chat.sql.slice(0, chat.sql.indexOf(" where ")), params: chat.params };
@@ -197,7 +197,7 @@ describe("rows -> boolean: zero rows means this call settled nothing", () => {
   // `null` AS THE INJECTED DATABASE IS DELIBERATE. `tx` is required, not defaulted; a settle
   // that reached for `this.db` instead would throw here rather than quietly run off-transaction.
   const repo = new ResumeImportRepository(null as unknown as Database);
-  const FACTS = { extractionMethod: "pdf_text" as const, pageCount: 1, ocrConfidence: null };
+  const FACTS = { extractionMethod: "pdf_text" as const, pageCount: 1, ocrConfidence: null , fieldsExtracted: 3};
   const ROUTING = { route: "form" as const, formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" };
 
   it("settleParsed: [] -> false (a redelivery emits nothing), [{id}] -> true", async () => {

@@ -161,7 +161,7 @@ class FakeImportsTable {
 
   async settleParsed(
     id: string,
-    facts: { extractionMethod: string; pageCount: number | null; ocrConfidence: number | null },
+    facts: { extractionMethod: string; pageCount: number | null; ocrConfidence: number | null , fieldsExtracted: 3},
     routing: { route: string; formKind: string | null; associationKind: string | null; suggestionsEnc: string | null },
     tx: unknown,
   ): Promise<boolean> {

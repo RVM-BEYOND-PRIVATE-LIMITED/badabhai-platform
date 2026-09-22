@@ -207,12 +207,22 @@ describe("the deterministic router decides, and the résumé only supplies its i
 
     expect(result?.route).toBe("form");
     expect(result?.formKind).toBe("cnc_turner");
+    // #1660 - `fieldsExtracted` is the count the settle now persists. TWO here, and it is
+    // the two fields this draft carries: asserting a literal that happens to match would
+    // pass just as well if the service wrote a constant, so it is pinned to the SAME
+    // expression the service derives it from.
     expect(imports.settleParsed).toHaveBeenCalledWith(
       IMPORT,
-      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null },
+      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null, fieldsExtracted: 2 },
       expect.objectContaining({ route: "form", formKind: "cnc_turner" }),
       TX,
     );
+    // ...and the row and the event must never disagree about one import.
+    const [, settledFacts] = imports.settleParsed.mock.calls[0]! as unknown as [
+      string,
+      { fieldsExtracted: number },
+    ];
+    expect(settledFacts.fieldsExtracted).toBe(result?.fieldsExtracted);
   });
 
   it("'CNC Turner cum VMC Operator' is VETOED to chat — and the same label without the conflict is not", async () => {

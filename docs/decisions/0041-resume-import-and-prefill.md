@@ -565,4 +565,60 @@ policy argument, so it can never be pointed at the input masker.
 **Not fixed by either half:** the masker's over-firing itself. `certified_clean_skill_labels`
 exists because of it and the `parse_policy` docblock already names it. Arming the flag routes
 around it for this one task; it does not repair it.
+## 12. Amendment 2026-09-22 - the import read says whether it yielded anything (#1660, #1656)
 
+**The quietest failure the upload door has.** `GET /profiling/resume-import/:importId` could
+answer `status: "parsed"`, `route: "chat"`, `failure_reason: null` - a clean success by every
+field on the wire - for an import that extracted **zero fields** and staged **no identity line**.
+The worker waited through the poll, landed in the ordinary Hinglish interview, and was told
+nothing. From where he sat the upload did nothing and nobody said so, which is the exact shape
+ruling D9 exists to forbid.
+
+Three roads reach zero and they are **indistinguishable from his seat**: a spend cap, cooldown or
+kill switch falling back to the deterministic mock; every citation gated away (#1657/#1658); or a
+document that genuinely carries none of the eight target fields. D9 asks for that one thing said
+plainly, so the client needs to know it happened - not why.
+
+**Owner ruling (2026-09-22): BOTH keys, additive.** The read gains
+`fields_extracted: number | null` and `yielded_nothing: boolean`. The **server owns the
+threshold** via the boolean, so two clients can never disagree about what "nothing" means; the
+raw count rides along for diagnostics and RI-7. An older app that ignores both behaves exactly as
+it does today.
+
+`yielded_nothing` is true only for a **settled** import that produced **neither half**:
+
+- `status` must be `parsed`. A `failed` row already says so through `failure_reason`, and an
+  in-flight row has not finished - answering true for either would tell the client "we found
+  nothing" about a question that has not been asked yet.
+- `fields_extracted` must be `0`, and **NULL is not zero**. A row parsed before migration 0122
+  reads NULL, which means "we did not record it", and that must never render to a worker as "we
+  found nothing".
+- **No identity line may be staged.** The summary is a SECOND, INDEPENDENT model call on the same
+  document, so a parse that yielded no structured fields can still have staged the "Kya ye aap hi
+  hain?" bubble - and a worker who gets that bubble was not told nothing.
+
+Migration **0122** adds `worker_resume_import.fields_extracted` (nullable integer, NULL-tolerant
+CHECK, no backfill). The count is the one `profile.resume_parsed` has always carried, written from
+the **same expression** so the row and the event cannot disagree about one import - an event is
+not a read, and the client polls the read.
+
+**#1656, API half.** `notes` was on the wire contract and nothing in `resume-import/` ever read
+it, so a `mock_no_parse` (a POSTURE - no model call happened at all) and an `llm_unavailable` (an
+INCIDENT - a provider was reached and failed) both settled as clean parses carrying nothing. The
+parse service now logs the degraded posture PII-free, against a CLOSED API-side vocabulary that
+drops any code it does not recognise. The import still proceeds - a degraded posture is not a
+failure and must not cost a worker his onboarding - it is simply no longer silent.
+
+**Still open on #1656:** the output-token budget. `ai_extraction_max_output_tokens` defaults to
+1024 against a measured ~795-token reply for a real 2-page CV, and the quotes scale with line
+length. The truncation is no longer silent (#1657/#1658 PR wires `finishReason`), but the number
+itself needs a measurement rather than a guess - RI-7 territory.
+
+**The client half shipped first, to exactly this contract.** #1669 landed
+`ResumeImportDto.yieldedNothing` / `fieldsExtracted` and a `learnedNothing` getter reading
+`yieldedNothing == true || fieldsExtracted == 0` - written defensively against a server that did
+not yet send either key, so it degraded to today's behaviour until this change. The two halves
+were built independently from the issue's drafted shape and the ruling picked the same names, so
+they meet without a contract change on either side. The worker-app's interim workaround - the chat
+inferring emptiness from whether an identity turn was staged - can now be retired in favour of the
+server's own answer.

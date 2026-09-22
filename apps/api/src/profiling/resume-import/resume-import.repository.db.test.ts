@@ -35,7 +35,7 @@ const DATABASE_URL =
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
 
 const WORKER = "00000000-0000-4000-8000-00000000a141";
-const FACTS_OCR = { extractionMethod: "ocr" as const, pageCount: 2, ocrConfidence: 0.81 };
+const FACTS_OCR = { extractionMethod: "ocr" as const, pageCount: 2, ocrConfidence: 0.81 , fieldsExtracted: 3};
 const FORM = {
   route: "form" as const,
   formKind: "cnc_turner",
@@ -114,7 +114,7 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
     const wrote = await repo.withTransaction((tx) =>
       repo.settleParsed(
         id,
-        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.5 },
+        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.5 , fieldsExtracted: 3},
         { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
         tx,
       ),
@@ -137,7 +137,7 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
     const again = await repo.withTransaction((tx) =>
       repo.settleParsed(
         id,
-        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null },
+        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null , fieldsExtracted: 3},
         { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null },
         tx,
       ),

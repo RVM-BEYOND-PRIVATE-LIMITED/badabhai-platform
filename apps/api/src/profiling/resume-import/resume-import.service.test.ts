@@ -350,3 +350,107 @@ describe("ResumeImportService — the reading happens off the request path (RI-4
     expect(parseQueue.add).not.toHaveBeenCalled();
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// #1660 - "parsed, route: chat, failure_reason: null" could mean the import gave the
+// worker NOTHING.
+//
+// A clean success by every field on the wire, for an upload that extracted zero fields
+// and staged no identity line. He waited through the poll, landed in the ordinary
+// Hinglish interview, and was told nothing. From where he sat the upload did nothing and
+// nobody said so - the exact shape ruling D9 exists to forbid.
+//
+// Owner ruling (2026-09-22): BOTH keys. The server owns the threshold via the boolean, so
+// two clients cannot disagree about what "nothing" means; the count rides along for
+// diagnostics and RI-7.
+// ---------------------------------------------------------------------------
+describe("#1660 - the import read says whether it yielded anything", () => {
+  const PARSED_EMPTY = {
+    id: "import-1",
+    status: "parsed",
+    route: "chat",
+    formKind: null,
+    associationKind: null,
+    failureReason: null,
+    fieldsExtracted: 0,
+    identityRoleKind: null,
+    identityExperienceText: null,
+    identitySummaryText: null,
+  };
+
+  async function read(row: Record<string, unknown>) {
+    const { svc, imports } = setup();
+    imports.findForWorker.mockResolvedValue(row);
+    return svc.get(WORKER, "import-1");
+  }
+
+  it("an import that yielded nothing says so", async () => {
+    const out = await read(PARSED_EMPTY);
+    expect(out.yielded_nothing).toBe(true);
+    expect(out.fields_extracted).toBe(0);
+    // ...and still looks like a success by every field that existed before, which is
+    // precisely why the new one was needed.
+    expect(out.status).toBe("parsed");
+    expect(out.failure_reason).toBeNull();
+  });
+
+  it("a productive import does NOT", async () => {
+    // VACUITY GUARD. A predicate stuck on true would satisfy the test above while telling
+    // every worker his upload did nothing.
+    const out = await read({ ...PARSED_EMPTY, fieldsExtracted: 3 });
+    expect(out.yielded_nothing).toBe(false);
+    expect(out.fields_extracted).toBe(3);
+  });
+
+  it("zero fields but a STAGED IDENTITY LINE is not nothing", async () => {
+    // The summary is a SECOND, INDEPENDENT model call on the same document. A parse that
+    // produced no structured fields can still have staged "Kya ye aap hi hain?", and a
+    // worker who gets that bubble was not told nothing.
+    const out = await read({
+      ...PARSED_EMPTY,
+      identityRoleKind: "cnc_turner",
+      identityExperienceText: "10+ saal ka tajurba",
+    });
+    expect(out.yielded_nothing).toBe(false);
+  });
+
+  it("NULL is not zero - a row parsed before migration 0122 answers false", async () => {
+    // "We did not record it" must never render to a worker as "we found nothing".
+    const out = await read({ ...PARSED_EMPTY, fieldsExtracted: null });
+    expect(out.yielded_nothing).toBe(false);
+    expect(out.fields_extracted).toBeNull();
+  });
+
+  it("an in-flight import answers false - the question has not been asked yet", async () => {
+    for (const status of ["uploaded", "parsing"]) {
+      const out = await read({ ...PARSED_EMPTY, status, route: null });
+      expect(out.yielded_nothing, status).toBe(false);
+    }
+  });
+
+  it("a FAILED import answers false - failure_reason already says so", async () => {
+    const out = await read({
+      ...PARSED_EMPTY,
+      status: "failed",
+      route: null,
+      failureReason: "no_text_layer",
+    });
+    expect(out.yielded_nothing).toBe(false);
+  });
+
+  it("the read stays additive - every pre-existing key is still there", async () => {
+    // An older app that ignores the two new keys must behave exactly as it does today.
+    const out = await read(PARSED_EMPTY);
+    for (const key of [
+      "import_id",
+      "status",
+      "route",
+      "form_kind",
+      "association_kind",
+      "failure_reason",
+    ]) {
+      expect(out, key).toHaveProperty(key);
+    }
+  });
+});

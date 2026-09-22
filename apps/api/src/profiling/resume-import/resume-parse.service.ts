@@ -50,6 +50,26 @@ import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
  * the summary stages while the row is still `parsing` and `settleParsed` follows it; this makes
  * the failed path match.
  */
+/**
+ * The `notes` codes that mean "no real model call reached this document" (#1656).
+ *
+ * A CLOSED SET ON BOTH SIDES, and this is the API-side half of it. Anything the far side
+ * sends that is not in here is DROPPED rather than logged: `notes` is a contract
+ * vocabulary, and the day it stops being one is the day an unrecognised string from a
+ * model reply lands in our logs.
+ *
+ * The other `notes` values (`fields_rejected`, `employments_rejected`,
+ * `lines_dropped_by_masker`, `extraction_truncated`) describe a call that DID happen and
+ * are not this signal - they belong to RI-7's quality story, not to "was anything even
+ * attempted".
+ */
+const DEGRADED_POSTURE_NOTES: ReadonlySet<string> = new Set([
+  // A POSTURE: the router fell back to the deterministic mock before spending anything.
+  "mock_no_parse",
+  // An INCIDENT: a provider was reached and failed.
+  "llm_unavailable",
+]);
+
 @Injectable()
 export class ResumeParseService {
   private readonly logger = new Logger(ResumeParseService.name);
@@ -124,6 +144,36 @@ export class ResumeParseService {
         workerId,
       },
     );
+
+    // ---- #1656: THE DEGRADED POSTURE, WHICH NOTHING READ ------------------------------
+    //
+    // `notes` is on the wire contract and NOTHING in this directory ever read it. The far
+    // side already distinguishes the two cases and its own module comment says conflating
+    // them "hides the one that needs an operator":
+    //
+    //   mock_no_parse   - a POSTURE. No model call happened at all: a spend cap, a
+    //                     provider cooldown, a cost ceiling or the kill switch sent the
+    //                     router to the deterministic mock. `empty_resume_parse` is
+    //                     contract-valid with zero fields and NO failure_reason, so this
+    //                     settles as a clean `parsed` carrying nothing.
+    //   llm_unavailable - an INCIDENT. A provider was reached and failed.
+    //
+    // Consequence, and the reason this is not cosmetic: "how often does our parser let a
+    // worker down" - the number ADR-0041 RI-7 exists to move - counted spend-capped no-ops
+    // as SUCCESSFUL PARSES. The import is still allowed to proceed (a degraded posture is
+    // not a failure and must not cost the worker his onboarding, ruling D9); it is simply
+    // no longer silent.
+    //
+    // CLOSED VOCABULARY, COUNTS AND CODES ONLY. `notes` is a closed set on both sides and
+    // must stay one; this logs the intersection with the codes we know and drops anything
+    // else rather than echoing an unrecognised string into our logs.
+    const posture = (out.notes ?? []).filter((n) => DEGRADED_POSTURE_NOTES.has(n));
+    if (posture.length > 0) {
+      this.logger.warn(
+        `résumé parse ran DEGRADED for import ${row.id}: ${posture.join(",")} ` +
+          `(fields will be empty; this is not a document failure)`,
+      );
+    }
 
     if (out.failure_reason) {
       return this.fail(
