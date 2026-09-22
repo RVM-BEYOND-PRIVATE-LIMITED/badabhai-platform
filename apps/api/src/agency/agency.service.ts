@@ -7,7 +7,14 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { InviteInstallSource, PayloadInputOf } from "@badabhai/event-schema";
-import type { AgencyInviteMedium, Job, JobNeededBy, TradeKey } from "@badabhai/db";
+import type {
+  AgencyInviteMedium,
+  Job,
+  JobNeededBy,
+  JobPayType,
+  JobShift,
+  TradeKey,
+} from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
@@ -29,6 +36,22 @@ export interface AgencyJobView {
   minExperienceYears: number | null;
   maxExperienceYears: number | null;
   neededBy: JobNeededBy | null;
+  /**
+   * THE WORKER-VISIBLE CONTENT (#1647). These four were WRITE-ONLY: `POST` and `PATCH`
+   * accepted and stored them, and no read returned them — so the agency edit screen had to
+   * start the inputs empty and warn the payer that typing there would overwrite whatever
+   * was already stored. A payer could not see what they had posted.
+   *
+   * They are already on the row; this is a pure projection. Every one was screened
+   * fail-closed at the write boundary (`looksLikePii` + `looksLikeOrgName` +
+   * `looksLikeUrl`), and the view stays FACELESS — `payer_id` is still never returned.
+   */
+  description: string | null;
+  shift: JobShift | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
+  /** #1648 — what the band MEANS. NULL = the poster did not state it. Never inferred. */
+  payType: JobPayType | null;
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -173,6 +196,8 @@ export class AgencyService {
         shift: dto.shift ?? null,
         benefits: dto.benefits ?? null,
         requirements: dto.requirements ?? null,
+        // #1648 — no default: omitted stores NULL and the card shows no pay-type pill.
+        payType: dto.pay_type ?? null,
       },
       "open",
     );
@@ -275,6 +300,11 @@ export class AgencyService {
     if (dto.needed_by !== undefined && dto.needed_by !== current.neededBy) {
       patch.neededBy = dto.needed_by;
       changedFields.push("needed_by");
+    }
+    // #1648 — the KEY says the poster changed what the band MEANS, never what it says.
+    if (dto.pay_type !== undefined && dto.pay_type !== current.payType) {
+      patch.payType = dto.pay_type;
+      changedFields.push("pay_type");
     }
     // Worker-visible content (ADR-0024 final addendum). changed_fields carries the
     // KEYS only — the screened free text itself NEVER enters the event payload.
@@ -853,6 +883,13 @@ export class AgencyService {
       minExperienceYears: row.minExperienceYears,
       maxExperienceYears: row.maxExperienceYears,
       neededBy: row.neededBy,
+      // #1647 — the write-only four, now readable. Nulls preserved: the client hides an
+      // absent row rather than rendering an invented one.
+      description: row.description,
+      shift: row.shift,
+      benefits: row.benefits,
+      requirements: row.requirements,
+      payType: row.payType,
       applicantsReceived: row.applicantsReceived,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

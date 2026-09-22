@@ -293,11 +293,13 @@ describe("ApplicationsService — skip", () => {
 });
 
 describe("ApplicationsService — feed", () => {
-  // Job 1 carries a bounded experience window + a pay band + a shift + card content;
-  // job 2 carries NONE of them (all null) — the two shapes the worker app must handle.
+  // Job 1 carries a bounded experience window + a pay band + a pay TYPE + a shift + card
+  // content; job 2 carries NONE of them (all null) — the two shapes the worker app must
+  // handle. `createdAt` differs on purpose: it is the feed's sort key (#1649) and the
+  // source of `posted_at`, so a fixture where both were equal could not observe either.
   const OPEN_JOBS = [
-    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], neededBy: "immediate" },
-    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, shift: null, description: null, benefits: null, requirements: null, neededBy: null },
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, payType: "in_hand", shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], neededBy: "immediate", createdAt: new Date("2026-06-01T00:00:00.000Z") },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, payType: null, shift: null, description: null, benefits: null, requirements: null, neededBy: null, createdAt: new Date("2026-05-01T00:00:00.000Z") },
   ];
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
@@ -305,8 +307,8 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     expect(out.jobs).toEqual([
-      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate", rank: 1 },
-      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, description: null, benefits: null, requirements: null, needed_by: null, rank: 2 },
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", description: "D1", benefits: ["B1"], requirements: ["R1"], needed_by: "immediate", pay_type: "in_hand", posted_at: "2026-06-01T00:00:00.000Z", rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, description: null, benefits: null, requirements: null, needed_by: null, pay_type: null, posted_at: "2026-05-01T00:00:00.000Z", rank: 2 },
     ]);
 
     // One feed.shown per returned job (per-impression), batched via emitMany.
@@ -333,10 +335,10 @@ describe("ApplicationsService — feed", () => {
     // Jobs spread across different cities: every one must come back, in order,
     // proving the feed applies no location/city filter and drops nothing.
     const acrossCities = [
-      { id: "b0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
-      { id: "b0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Chennai", area: null },
-      { id: "b0000000-0000-0000-0000-000000000003", tradeKey: "welder", title: "T3", city: "Rajkot", area: "GIDC" },
-      { id: "b0000000-0000-0000-0000-000000000004", tradeKey: "vmc_setter", title: "T4", city: "Coimbatore", area: null },
+      { id: "b0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", createdAt: new Date("2026-06-04T00:00:00.000Z") },
+      { id: "b0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Chennai", area: null, createdAt: new Date("2026-06-03T00:00:00.000Z") },
+      { id: "b0000000-0000-0000-0000-000000000003", tradeKey: "welder", title: "T3", city: "Rajkot", area: "GIDC", createdAt: new Date("2026-06-02T00:00:00.000Z") },
+      { id: "b0000000-0000-0000-0000-000000000004", tradeKey: "vmc_setter", title: "T4", city: "Coimbatore", area: null, createdAt: new Date("2026-06-01T00:00:00.000Z") },
     ];
     const { svc, repo, events } = setup({ openJobs: acrossCities });
     const out = await svc.getFeed(WORKER_ID, 50, {}, CTX);
@@ -366,7 +368,7 @@ describe("ApplicationsService — feed", () => {
 
   it("carries a HALF-OPEN window (min set, max null = open-ended) without inventing a ceiling", async () => {
     const openEnded = [
-      { id: "c0000000-0000-0000-0000-000000000001", tradeKey: "welder", title: "T1", city: "Rajkot", area: null, minExperienceYears: 5, maxExperienceYears: null },
+      { id: "c0000000-0000-0000-0000-000000000001", tradeKey: "welder", title: "T1", city: "Rajkot", area: null, minExperienceYears: 5, maxExperienceYears: null, createdAt: new Date("2026-06-01T00:00:00.000Z") },
     ];
     const { svc } = setup({ openJobs: openEnded });
     const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
@@ -474,7 +476,7 @@ describe("ApplicationsService — PII-free guarantees + ownership", () => {
   it("never puts PII (name/phone/employer/address/pay) in any emitted payload", async () => {
     const { svc, events } = setup({
       openJobs: [
-        { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
+        { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", createdAt: new Date("2026-06-01T00:00:00.000Z") },
       ],
     });
     await svc.getFeed(WORKER_ID, 5, {}, CTX);

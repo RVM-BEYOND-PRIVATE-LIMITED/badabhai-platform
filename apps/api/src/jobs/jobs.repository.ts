@@ -4,6 +4,7 @@ import {
   type Database,
   type Job,
   type JobNeededBy,
+  type JobPayType,
   type JobShift,
   jobs,
   jobPostings,
@@ -28,6 +29,8 @@ export interface WorkerVisibleJobRow {
   area: string | null;
   payMin: number | null;
   payMax: number | null;
+  /** #1648 — what the band MEANS. NULL = not stated by the poster. Never inferred. */
+  payType: JobPayType | null;
   minExperienceYears: number | null;
   maxExperienceYears: number | null;
   neededBy: JobNeededBy | null;
@@ -132,6 +135,7 @@ export class JobsRepository {
         area: jobs.area,
         payMin: jobs.payMin,
         payMax: jobs.payMax,
+        payType: jobs.payType,
         minExperienceYears: jobs.minExperienceYears,
         maxExperienceYears: jobs.maxExperienceYears,
         neededBy: jobs.neededBy,
@@ -170,6 +174,7 @@ export class JobsRepository {
         area: jobPostings.area,
         payMin: jobPostings.payMin,
         payMax: jobPostings.payMax,
+        payType: jobPostings.payType,
         minExperienceYears: jobPostings.minExperienceYears,
         maxExperienceYears: jobPostings.maxExperienceYears,
         neededBy: jobPostings.neededBy,

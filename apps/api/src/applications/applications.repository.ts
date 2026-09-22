@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   type Database,
   type Application,
@@ -33,6 +33,8 @@ export interface FeedJob {
   // enums — never an employer identity). Same §8 argument as the experience window.
   payMin: number | null;
   payMax: number | null;
+  /** #1648 — what the band MEANS. NULL = not stated. Never defaulted, never inferred. */
+  payType: Job["payType"];
   shift: Job["shift"];
   // Worker-visible card content (#1561): description + benefits/requirements +
   // needed_by, verbatim off the `jobs` row (the seed carries them; the fail-closed
@@ -42,6 +44,8 @@ export interface FeedJob {
   benefits: string[] | null;
   requirements: string[] | null;
   neededBy: Job["neededBy"];
+  /** #1649 — when the job was posted. NOT NULL on the column; also the feed's sort key. */
+  createdAt: Date;
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -153,11 +157,15 @@ export class ApplicationsRepository {
         maxExperienceYears: jobs.maxExperienceYears,
         payMin: jobs.payMin,
         payMax: jobs.payMax,
+        payType: jobs.payType,
         shift: jobs.shift,
         description: jobs.description,
         benefits: jobs.benefits,
         requirements: jobs.requirements,
         neededBy: jobs.neededBy,
+        // #1649 — the posting date the feed never carried. Projected so the card can
+        // badge a fresh job and the Jobs-tab header can count today's honestly.
+        createdAt: jobs.createdAt,
       })
       .from(jobs)
       // TD73: exclude applied jobs server-side.
@@ -166,7 +174,18 @@ export class ApplicationsRepository {
       // filter goes HERE, default-off so the feed stays liberal until a worker
       // opts into a location. Do NOT implement it now — the alpha feed returns
       // every open job with no location filter (see the worker-app Filters sheet).
-      .orderBy(asc(jobs.createdAt), asc(jobs.id))
+      //
+      // NEWEST FIRST (#1649, owner ruling 2026-09-22). This was `asc(createdAt)` —
+      // OLDEST first — under a Jobs-tab header that said "Aaj N naye jobs": the deck
+      // literally led with the stalest job on the platform while claiming the opposite.
+      // The V1 feed has always ordered boost -> `published_at DESC` -> id, so this also
+      // stops the worker's deck reordering when `MATCH_V1_ENABLED` flips.
+      //
+      // `id ASC` stays the tiebreak and is what keeps the order TOTAL: two jobs created in
+      // the same transaction must not swap between page loads (E11/Policy 7). It is ASC on
+      // both sides on purpose — the tiebreak is for stability, not recency, and flipping it
+      // would buy nothing and churn the pagination contract.
+      .orderBy(desc(jobs.createdAt), asc(jobs.id))
       .limit(limit);
   }
 

@@ -31,6 +31,12 @@ export interface MatchFeedItem {
   max_experience_years: number | null;
   pay_min: number | null;
   pay_max: number | null;
+  /**
+   * WHAT THE PAY BAND MEANS (#1648): `in_hand` | `gross` | `ctc`, or NULL for "the poster
+   * did not state it" — in which case the card shows the band with no pay-type pill. Never
+   * defaulted, never inferred: the worker's first question deserves a real answer or none.
+   */
+  pay_type: string | null;
   shift: string | null;
   /**
    * Worker-visible card content (#1561, migration 0116). ADDITIVE — a client that ignores
@@ -41,6 +47,19 @@ export interface MatchFeedItem {
   benefits: string[] | null;
   requirements: string[] | null;
   needed_by: string | null;
+  /**
+   * WHEN THIS POSTING BECAME WORKER-VISIBLE (#1649). ONE key across both feed shapes —
+   * `job_postings.published_at` here, `jobs.created_at` on the legacy path — because a
+   * client cannot be expected to know which source served it, and two keys would make the
+   * "naye jobs" count depend on a flag.
+   *
+   * ISO-8601 UTC, or NULL. NULL is honest: a posting can be served with `published_at`
+   * unset (the D3 backfill leaves pre-cutover rows alone), and the app must render those
+   * without a NEW badge rather than treat "unknown" as "today". The Jobs-tab header used
+   * to say "Aaj N naye jobs" while the feed carried no date at all, so a job seeded months
+   * ago counted as posted today — this key is what makes that claim checkable.
+   */
+  posted_at: string | null;
   rank: number;
   /** E18 — he was reached through a RELATED skill, not the posted one. */
   via_related: boolean;
@@ -118,11 +137,15 @@ export class MatchFeedService {
       max_experience_years: row.maxExperienceYears,
       pay_min: row.payMin,
       pay_max: row.payMax,
+      pay_type: row.payType,
       shift: row.shift,
       description: row.description,
       benefits: row.benefits,
       requirements: row.requirements,
       needed_by: row.neededBy,
+      // Already the SECOND sort key of this feed (boost, then recency, then id) — it was
+      // simply never projected, so the client could not see the order it was being served.
+      posted_at: row.publishedAt === null ? null : row.publishedAt.toISOString(),
       rank: index + 1,
       via_related: row.matchTier === 2,
       matched_skill_label: matchSkillLabel(row.matchedSkillId) ?? null,

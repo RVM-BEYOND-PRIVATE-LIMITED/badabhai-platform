@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
-import type { JobStatus } from "@badabhai/db";
+import type { JobPayType, JobStatus } from "@badabhai/db";
 import { AgencyService } from "./agency.service";
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
 
@@ -32,6 +32,9 @@ type JobRow = {
   shift: "day" | "night" | "rotational" | null;
   benefits: string[] | null;
   requirements: string[] | null;
+  // #1648 — what the ₹ band MEANS. Same reasoning as `status` below: the real union, not
+  // a local narrowing, so the fixture can express every state production can hold.
+  payType: JobPayType | null;
   // #1202 — mirrors the real `JobStatus` union rather than a narrowed copy of it. A local
   // narrowing is how a test file stops being able to express the states production can hold.
   status: JobStatus;
@@ -57,6 +60,8 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
     shift: null,
     benefits: null,
     requirements: null,
+    // #1648 — what the ₹ band MEANS. NULL is the default state for every existing row.
+    payType: null,
     status: "open",
     applicantsReceived: 0,
     createdAt: new Date(),
@@ -666,5 +671,71 @@ describe("AgencyService.createInvite — mint binds to the SESSION payer (XB-A)"
     const payload = arg.payload as Record<string, unknown>;
     expect(payload.inviter_payer_id).toBe(PAYER_A);
     expect(JSON.stringify(payload)).not.toMatch(/phone|name|email|address/i);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// #1647 — `description`, `shift`, `benefits` and `requirements` were WRITE-ONLY.
+//
+// `POST` and `PATCH` accepted and stored all four; `toJobView` mapped id/status/trade/
+// title/city/area/pay/experience/neededBy/counts and stopped there. So a payer could not
+// see what they had posted: the agency edit screen had to start those inputs EMPTY and
+// warn that typing there would overwrite whatever was stored.
+// ---------------------------------------------------------------------------
+describe("#1647 — the agency job view returns the content it accepts", () => {
+  const CONTENT = {
+    description: "Machining shop floor role on the day line.",
+    shift: "night" as const,
+    benefits: ["PF + ESI", "Canteen"],
+    requirements: ["Fanuc control", "ITI / Diploma"],
+    payType: "in_hand" as const,
+  };
+
+  it("returns all four on a single owned read", async () => {
+    const { svc } = make({ ownedJob: jobRow(CONTENT) });
+    const view = await svc.getOwnJob(PAYER_A, JOB_ID);
+    expect(view).toMatchObject(CONTENT);
+  });
+
+  it("returns them on the LIST read too, so the edit screen can prefill", async () => {
+    const { svc } = make({ ownedJob: jobRow(CONTENT) });
+    const [view] = await svc.listOwnJobs(PAYER_A);
+    expect(view).toMatchObject(CONTENT);
+  });
+
+  it("returns what a PATCH just stored, so the payer sees the result of their edit", async () => {
+    const { svc } = make({ ownedJob: jobRow() });
+    const view = await svc.updateJob(
+      PAYER_A,
+      JOB_ID,
+      { description: CONTENT.description, benefits: CONTENT.benefits } as never,
+      CTX,
+    );
+    // The repo double echoes the patched row; what is asserted here is that `toJobView`
+    // PROJECTS it. A one-field PATCH used to answer without showing the payer anything.
+    expect(view).toHaveProperty("description");
+    expect(view).toHaveProperty("benefits");
+  });
+
+  it("passes nulls through honestly — an unstated field is absent, never fabricated", async () => {
+    const { svc } = make({ ownedJob: jobRow() });
+    const view = await svc.getOwnJob(PAYER_A, JOB_ID);
+    expect(view.description).toBeNull();
+    expect(view.shift).toBeNull();
+    expect(view.benefits).toBeNull();
+    expect(view.requirements).toBeNull();
+    // #1648 — NULL means the poster did not state a pay type. Never defaulted to `gross`.
+    expect(view.payType).toBeNull();
+  });
+
+  it("the view stays FACELESS: it still never returns the owner payer_id", async () => {
+    // The guard on widening a projection. Four content fields joined the view; the one
+    // field that must never join it is the tenant owner (ADR-0022 / ADR-0009 §2).
+    const { svc } = make({ ownedJob: jobRow(CONTENT) });
+    const view = await svc.getOwnJob(PAYER_A, JOB_ID);
+    expect(view).not.toHaveProperty("payerId");
+    expect(view).not.toHaveProperty("payer_id");
+    expect(JSON.stringify(view)).not.toContain(PAYER_A);
   });
 });

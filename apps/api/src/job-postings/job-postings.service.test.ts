@@ -5,6 +5,7 @@ import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { JobPostingsService } from "./job-postings.service";
 import {
   CreateJobPostingSchema,
+  PayerCreateJobPostingSchema,
   UpdateJobPostingSchema,
   type CreateJobPostingDto,
 } from "./job-postings.dto";
@@ -40,6 +41,7 @@ type Row = {
    * sets it. Tests that exercise the canonical canonicalization scope override it.
    */
   jobDomainId: string | null;
+  untickedRelatedIds: string[];
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -59,6 +61,7 @@ function row(overrides: Partial<Row> = {}): Row {
     skillPhrases: [],
     skillIds: [],
     jobDomainId: null,
+    untickedRelatedIds: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -89,9 +92,20 @@ function toApi(r: Row) {
     // them, so the service is exercised against a row shaped like a real one.
     match_skill_ids: [],
     reach_skill_ids: [],
+    // #1645 — the poster's untick REQUEST, stored on the row since migration 0121. Defaults
+    // '[]' in the DB, so the fixture mirrors that rather than omitting it.
+    unticked_related_ids: r.untickedRelatedIds,
     city: null,
+    // #1646/#1648 — the worker-visible card content. jsonb with NO default, so NULL is the
+    // honest "never stated" and the fixture carries NULL, not [].
+    area: null,
+    min_experience_years: null,
+    max_experience_years: null,
+    benefits: null,
+    requirements: null,
     pay_min: null,
     pay_max: null,
+    pay_type: null,
     shift: null,
     needed_by: null,
     published_at: null,
@@ -174,6 +188,11 @@ function make(existing?: Row) {
     reachTier2: 0,
     zeroReach: true,
   });
+  const resolveForPublish = vi.fn().mockResolvedValue({
+    postedSkillIds: [],
+    reachSkillIds: [],
+    appliedUntickedIds: [],
+  });
   const svc = new JobPostingsService(
     {
       create,
@@ -202,10 +221,15 @@ function make(existing?: Row) {
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
     { materialize: materializeReach, opsWiden: vi.fn() } as never,
+    // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE. Resolves by
+    // default so the lifecycle cases stay about the lifecycle; the create-path cases
+    // override it to assert that an unknown id 400s on the form rather than at publish.
+    { resolveForPublish: resolveForPublish } as never,
   );
   return {
     svc,
     emit,
+    resolveForPublish,
     canonicalize,
     recordAiCost,
     traces,
@@ -1042,5 +1066,264 @@ describe("JobPostingsService — ops verification (job_posting.verification_upda
 
     await expect(d.svc.verify(POSTING_ID, CTX as never)).rejects.toBeInstanceOf(NotFoundException);
     expect(d.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1645 / #1646 / #1648 — the create path used to accept 7 keys and answer 201.
+//
+// The payer app has been sending city, pay_min, pay_max, shift, needed_by,
+// match_skill_ids and unticked_related_ids in the same body since Matching V1, and Zod
+// stripped all seven. With `match_skill_ids` gone the row's `match_skill_ids` stayed [],
+// so at publish `materializeIfNeeded` saw an empty list, returned early, `job_reach` got
+// no rows, and THE POSTING REACHED NO WORKER — while the company saw a success state and
+// a live posting. #1646 adds the card content (area / experience / benefits /
+// requirements) that no route could write at all, and #1648 the pay-type claim.
+// ---------------------------------------------------------------------------
+describe("#1645/#1646/#1648 — create persists everything the payer sent", () => {
+  /** Exactly the body the Flutter payer client builds (http_payer_api_client.dart). */
+  const PAYER_BODY = {
+    org_label: ORG,
+    role_title: ROLE,
+    vacancy_band: "2-5" as const,
+    city: "Pune",
+    area: "Chakan",
+    pay_min: 18000,
+    pay_max: 25000,
+    pay_type: "in_hand" as const,
+    min_experience_years: 2,
+    max_experience_years: 5,
+    shift: "night" as const,
+    needed_by: "immediate" as const,
+    benefits: ["PF + ESI"],
+    requirements: ["Fanuc control"],
+    match_skill_ids: ["mskill_vmc_operator"],
+    unticked_related_ids: ["mskill_cnc_turner"],
+  };
+
+  it("the payer create SCHEMA no longer strips a single field the app sends", () => {
+    const parsed = PayerCreateJobPostingSchema.safeParse(PAYER_BODY);
+    expect(parsed.success).toBe(true);
+    // Key-for-key, not a spot check: the bug was silent STRIPPING, so what matters is
+    // that nothing the client sent went missing between the body and the parsed DTO.
+    expect(Object.keys(parsed.data!).sort()).toEqual(Object.keys(PAYER_BODY).sort());
+  });
+
+  it("writes every one of them to the row (the P0: they reached no column before)", async () => {
+    const d = make();
+    await d.svc.createForPayer(PAYER_ID, PAYER_BODY as never, CTX as never);
+
+    const stored = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(stored).toMatchObject({
+      city: "Pune",
+      area: "Chakan",
+      payMin: 18000,
+      payMax: 25000,
+      payType: "in_hand",
+      minExperienceYears: 2,
+      maxExperienceYears: 5,
+      shift: "night",
+      neededBy: "immediate",
+      benefits: ["PF + ESI"],
+      requirements: ["Fanuc control"],
+      matchSkillIds: ["mskill_vmc_operator"],
+      untickedRelatedIds: ["mskill_cnc_turner"],
+    });
+    // The RESOLVED reach set is still never written by a create: a draft reaches nobody,
+    // and `reach_skill_ids` belongs to `PublishReachService` alone (Policy 10).
+    expect("reachSkillIds" in stored).toBe(false);
+  });
+
+  it("a create carrying match_skill_ids is what makes the posting MATERIALIZE at publish", async () => {
+    // The whole causal chain of #1645 in one test: create stores the ids, the publish
+    // PATCH carries NO skills of its own, and the reach is still materialized from what
+    // the row has been holding since the create. Before this batch the stored list was
+    // empty, `materializeIfNeeded` returned early, and `job_reach` got no rows.
+    const draft = row({ status: "draft", untickedRelatedIds: ["mskill_cnc_turner"] });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({
+      ...toApi(draft),
+      payer_id: PAYER_ID,
+      match_skill_ids: ["mskill_vmc_operator"],
+    });
+    d.updateOwned.mockResolvedValue({
+      ...toApi(row({ status: "open", untickedRelatedIds: ["mskill_cnc_turner"] })),
+      payer_id: PAYER_ID,
+      match_skill_ids: ["mskill_vmc_operator"],
+    });
+
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never);
+
+    expect(d.materializeReach).toHaveBeenCalledTimes(1);
+    const [postingId, input] = d.materializeReach.mock.calls[0]! as [
+      string,
+      { matchSkillIds: string[]; untickedIds: string[]; trigger: string },
+    ];
+    expect(postingId).toBe(POSTING_ID);
+    expect(input.matchSkillIds).toEqual(["mskill_vmc_operator"]);
+    expect(input.trigger).toBe("publish");
+    // AND THE UNTICKS SURVIVED create -> publish. This PATCH sent none; before 0121 they
+    // existed only as a PATCH body value, so a create-time untick evaporated and the reach
+    // silently widened past what the payer chose.
+    expect(input.untickedIds).toEqual(["mskill_cnc_turner"]);
+  });
+
+  it("MUTATION CHECK: with no stored match skills the publish materializes an EMPTY set", async () => {
+    // The inverse of the test above, and what makes it evidence rather than a coincidence.
+    // A posting with no skills reaches nobody: `materialize` still runs once on a publish
+    // (so the E13 zero-reach alert fires) but with an EMPTY list. Nothing invents skills.
+    const draft = row({ status: "draft" });
+    const d = make(draft);
+    d.findByIdAndPayer.mockResolvedValue({ ...toApi(draft), payer_id: PAYER_ID });
+    d.updateOwned.mockResolvedValue({ ...toApi(row({ status: "open" })), payer_id: PAYER_ID });
+
+    await d.svc.updateForPayer(POSTING_ID, PAYER_ID, { status: "open" }, CTX as never);
+
+    const [, input] = d.materializeReach.mock.calls[0]! as [string, { matchSkillIds: string[] }];
+    expect(input.matchSkillIds).toEqual([]);
+  });
+
+  it("400s an unknown match skill id AT CREATE, not at publish", async () => {
+    // Closed-set membership lives in `MatchSkillsService` (the vocabulary and the runtime
+    // cap live there, not in a second Zod copy). Running it at create means a typo is a
+    // 400 on the form the payer is looking at, rather than a 400 at publish against a
+    // draft they have already moved on from.
+    const d = make();
+    d.resolveForPublish.mockRejectedValue(new BadRequestException("unknown match skill id(s)"));
+
+    await expect(
+      d.svc.createForPayer(
+        PAYER_ID,
+        { ...PAYER_BODY, match_skill_ids: ["mskill_not_a_real_skill"] } as never,
+        CTX as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    // ...and NOTHING was written. A create that cannot name valid skills must not leave a
+    // half-built posting behind.
+    expect(d.create).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("a create that names no skills does not call the resolver at all", async () => {
+    // Vacuity guard for the test above: if `resolveForPublish` ran unconditionally, the
+    // rejection case would prove nothing about `match_skill_ids` being the trigger.
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "1" } as never,
+      CTX as never,
+    );
+    expect(d.resolveForPublish).not.toHaveBeenCalled();
+    expect(d.create).toHaveBeenCalledOnce();
+  });
+
+  it("omitted fields store NULL, never a fabricated default (pay_type especially)", async () => {
+    const d = make();
+    await d.svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "1" } as never,
+      CTX as never,
+    );
+    const stored = d.create.mock.calls[0]![0] as Record<string, unknown>;
+    // `pay_type` is the one that matters most: NULL means "the poster did not state it"
+    // and the card then shows the band with NO pay-type pill. Defaulting it to `gross`
+    // would make the platform assert a net-vs-gross claim nobody made — which is the
+    // dishonesty #1648 exists to end, not a convenience.
+    expect(stored.payType).toBeNull();
+    expect(stored.city).toBeNull();
+    expect(stored.area).toBeNull();
+    // jsonb with no DB default: NULL is honest absence, distinguishable from an empty list.
+    expect(stored.benefits).toBeNull();
+    expect(stored.requirements).toBeNull();
+    // The two skill columns DO default to [] in the DB, so the insert mirrors that.
+    expect(stored.matchSkillIds).toEqual([]);
+    expect(stored.untickedRelatedIds).toEqual([]);
+  });
+
+  it("the ops create takes the same fields — one entity, not two create paths", async () => {
+    const d = make();
+    await d.svc.create({ ...PAYER_BODY, created_by: CREATED_BY } as never, CTX as never);
+    expect(d.create.mock.calls[0]![0]).toMatchObject({
+      city: "Pune",
+      payType: "in_hand",
+      matchSkillIds: ["mskill_vmc_operator"],
+      benefits: ["PF + ESI"],
+    });
+  });
+});
+
+describe("#1646/#1648 — the update path reports the new fields as changed KEYS", () => {
+  it("emits area / experience / pay_type / benefits / requirements as keys, never values", async () => {
+    const current = row({ status: "open" });
+    const d = make(current);
+    d.update.mockResolvedValue(toApi(row({ status: "open" })));
+
+    await d.svc.update(
+      POSTING_ID,
+      {
+        area: "Chakan",
+        min_experience_years: 2,
+        max_experience_years: 5,
+        pay_type: "gross",
+        benefits: ["Canteen"],
+        requirements: ["ITI"],
+      } as never,
+      CTX as never,
+    );
+
+    const arg = d.emit.mock.calls[0]![0];
+    expect(arg.event_name).toBe("job_posting.updated");
+    expect([...arg.payload.changed_fields].sort()).toEqual(
+      ["area", "benefits", "experience", "pay_type", "requirements"].sort(),
+    );
+    // ONE key for the whole experience window, exactly as `pay_band` is one key for
+    // pay_min+pay_max: the window is a single editorial act, and two keys would tell a
+    // reader which END of the range the payer moved.
+    expect(arg.payload.changed_fields).not.toContain("min_experience_years");
+    // The screened free text itself never enters the payload.
+    expect(JSON.stringify(arg.payload)).not.toContain("Chakan");
+    expect(JSON.stringify(arg.payload)).not.toContain("Canteen");
+    assertNoFreeText(arg.payload);
+  });
+
+  it("rejects a ONE-SIDED pay edit that would invert the stored band", async () => {
+    // The DTO refines can only compare two values that arrived together. A patch carrying
+    // `pay_max` alone has to be checked against the ROW, and the service is the only place
+    // that can see it.
+    const current = row({ status: "open" });
+    const d = make(current);
+    d.findById.mockResolvedValue({ ...toApi(current), pay_min: 20000, pay_max: 30000 });
+
+    await expect(
+      d.svc.update(POSTING_ID, { pay_max: 15000 } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects a ONE-SIDED experience edit that would invert the stored window", async () => {
+    const current = row({ status: "open" });
+    const d = make(current);
+    d.findById.mockResolvedValue({
+      ...toApi(current),
+      min_experience_years: 5,
+      max_experience_years: 8,
+    });
+
+    await expect(
+      d.svc.update(POSTING_ID, { max_experience_years: 2 } as never, CTX as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.update).not.toHaveBeenCalled();
+  });
+
+  it("a benefits list stated as EMPTY is a change from NULL (not-stated is not empty)", async () => {
+    const current = row({ status: "open" });
+    const d = make(current);
+    d.findById.mockResolvedValue({ ...toApi(current), benefits: null });
+    d.update.mockResolvedValue(toApi(row({ status: "open" })));
+
+    await d.svc.update(POSTING_ID, { benefits: [] } as never, CTX as never);
+
+    expect(d.update.mock.calls[0]![1]).toMatchObject({ benefits: [] });
+    expect(d.emit.mock.calls[0]![0].payload.changed_fields).toContain("benefits");
   });
 });

@@ -40,6 +40,12 @@ export interface FeedItem {
   max_experience_years: number | null;
   pay_min: number | null;
   pay_max: number | null;
+  /**
+   * WHAT THE PAY BAND MEANS (#1648): `in_hand` | `gross` | `ctc`, or NULL for "the poster
+   * did not state it" — in which case the card shows the band with no pay-type pill. Never
+   * defaulted, never inferred: the worker's first question deserves a real answer or none.
+   */
+  pay_type: FeedJob["payType"];
   shift: FeedJob["shift"];
   // Worker-visible card content (#1561). ADDITIVE — a client that ignores them renders
   // exactly what it rendered before. Straight pass-through of the row's own columns,
@@ -48,6 +54,16 @@ export interface FeedItem {
   benefits: string[] | null;
   requirements: string[] | null;
   needed_by: FeedJob["neededBy"];
+  /**
+   * WHEN THIS JOB WAS POSTED (#1649) — `jobs.created_at`, the legacy path's twin of
+   * `MatchFeedItem.posted_at`. SAME KEY NAME on both shapes deliberately: a client must not
+   * have to know which source the flag selected to read a date, and two keys would make
+   * "N naye jobs (aaj)" mean different things on either side of `MATCH_V1_ENABLED`.
+   *
+   * ISO-8601 UTC. Never null here (the column is NOT NULL), but typed nullable to match
+   * the V1 shape, where an unpublished-but-served posting genuinely has none.
+   */
+  posted_at: string | null;
   rank: number;
 }
 
@@ -115,13 +131,15 @@ export class ApplicationsService {
       // same honest-nulls pass-through. Response-only — feed.shown is UNCHANGED.
       pay_min: job.payMin,
       pay_max: job.payMax,
+      pay_type: job.payType,
       shift: job.shift,
       // Card content (#1561): the seed's own description/benefits/requirements, verbatim.
       description: job.description,
       benefits: job.benefits,
       requirements: job.requirements,
       needed_by: job.neededBy,
-      rank: index + 1, // 1-based seed display position
+      posted_at: job.createdAt.toISOString(),
+      rank: index + 1, // 1-based feed position (now newest-first — see the repository)
     }));
 
     if (items.length > 0) {

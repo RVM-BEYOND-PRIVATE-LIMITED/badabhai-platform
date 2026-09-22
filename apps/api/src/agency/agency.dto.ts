@@ -6,6 +6,18 @@ import {
   looksLikeOrgName,
   looksLikeUrl,
 } from "@badabhai/validators";
+import {
+  areaSchema,
+  benefitsSchema,
+  experienceWindowOrdered,
+  experienceYearsSchema,
+  neededBySchema,
+  payAmountSchema,
+  payBandOrdered,
+  payTypeSchema,
+  requirementsSchema,
+  shiftSchema,
+} from "../common/job-content.schemas";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
 
 /**
@@ -19,23 +31,16 @@ import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
  * session (XB-A) and stamped server-side. A body/param payer id is impossible to supply.
  */
 
-// Length caps (chars). title/city/area are short labels — never long free text.
+// Length caps (chars). title/city are short labels — never long free text.
 // DESCRIPTION_MAX mirrors the ops job-postings precedent (job-postings.dto.ts:
-// same value, same "oversize input never reaches the table" posture); benefits/
-// requirements are SHORT worker-visible chips, so their caps are much tighter.
+// same value, same "oversize input never reaches the table" posture).
+//
+// `area`, the pay/experience ceilings and the benefits/requirements chip caps now live in
+// ../common/job-content.schemas — the payer-company job-posting routes needed the SAME
+// screened fields (#1646) and two copies of a PII heuristic is a pair that drifts.
 const TITLE_MAX = 200;
 const CITY_MAX = 120;
-const AREA_MAX = 120;
 const DESCRIPTION_MAX = 2000;
-const LIST_ITEM_MAX = 80; // one benefits/requirements chip
-const LIST_ITEMS_MAX = 12; // per list
-
-// Numeric ceilings (C10 — anti-abuse / overflow guards, NOT business rules). A sane upper
-// bound stops absurd values (e.g. INT overflow, a fat-fingered ₹999999999, 1000-year
-// experience) at the boundary. MUST stay in parity with payer-web
-// `agencyJobInputSchema` (apps/payer-web/src/lib/contracts.ts) — same VALUES.
-const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore — far above any real wage band)
-const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
 
 /**
  * The trade key MUST be one of the ratified manufacturing alpha trades (the same set the
@@ -65,7 +70,7 @@ const title = z
 /** COARSE location — a city label (e.g. "Pune"), never an address. */
 const city = z.string().min(1).max(CITY_MAX);
 /** COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. Optional. */
-const area = z.string().min(1).max(AREA_MAX);
+const area = areaSchema;
 
 /**
  * Worker-visible free text (ADR-0024 final addendum, 2026-07-16): description +
@@ -88,39 +93,17 @@ const description = z
   .refine((s) => !looksLikeUrl(s), { message: "description must not contain links" });
 
 /** Coarse shift enum for the worker-visible job card — mirrors db.JobShift. Non-PII. */
-const shift = z.enum(["day", "night", "rotational"]);
+const shift = shiftSchema;
 
-/** One short worker-visible benefit chip (e.g. "PF + ESI") — both heuristics apply. */
-const benefitItem = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIST_ITEM_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from benefits" })
-  .refine((s) => !looksLikeOrgName(s), { message: "benefits must not contain a company name" })
-  .refine((s) => !looksLikeUrl(s), { message: "benefits must not contain links" });
-
-/** One short worker-visible requirement tag (e.g. "Fanuc control") — both heuristics apply. */
-const requirementItem = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIST_ITEM_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from requirements" })
-  .refine((s) => !looksLikeOrgName(s), {
-    message: "requirements must not contain a company name",
-  })
-  .refine((s) => !looksLikeUrl(s), { message: "requirements must not contain links" });
-
-const benefits = z.array(benefitItem).max(LIST_ITEMS_MAX);
-const requirements = z.array(requirementItem).max(LIST_ITEMS_MAX);
+const benefits = benefitsSchema;
+const requirements = requirementsSchema;
 
 /** Monthly pay band (INR, whole rupees — never paise). Non-negative, bounded (anti-abuse). */
-const payAmount = z.number().int().nonnegative().max(PAY_MAX_INR);
+const payAmount = payAmountSchema;
 /** Experience window (years). Non-negative, bounded (anti-abuse). */
-const experienceYears = z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS);
+const experienceYears = experienceYearsSchema;
 /** When the job needs someone (coarse enum) — mirrors db.JobNeededBy. */
-const neededBy = z.enum(["immediate", "soon", "flexible"]);
+const neededBy = neededBySchema;
 
 /**
  * Create an OWNED job. `payer_id` is NOT here (session-derived, XB-A). `status` is NOT
@@ -135,6 +118,9 @@ export const CreateAgencyJobSchema = z
     area: area.optional(),
     pay_min: payAmount.optional(),
     pay_max: payAmount.optional(),
+    // #1648 — what the band MEANS. Optional and never defaulted: omitting it stores NULL
+    // and the worker card shows the band with no pay-type pill.
+    pay_type: payTypeSchema.optional(),
     min_experience_years: experienceYears.optional(),
     max_experience_years: experienceYears.optional(),
     needed_by: neededBy.optional(),
@@ -143,17 +129,11 @@ export const CreateAgencyJobSchema = z
     benefits: benefits.optional(),
     requirements: requirements.optional(),
   })
-  .refine((o) => o.pay_min === undefined || o.pay_max === undefined || o.pay_max >= o.pay_min, {
-    message: "pay_max must be >= pay_min",
-    path: ["pay_max"],
-  })
-  .refine(
-    (o) =>
-      o.min_experience_years === undefined ||
-      o.max_experience_years === undefined ||
-      o.max_experience_years >= o.min_experience_years,
-    { message: "max_experience_years must be >= min_experience_years", path: ["max_experience_years"] },
-  );
+  .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
+  .refine(experienceWindowOrdered, {
+    message: "max_experience_years must be >= min_experience_years",
+    path: ["max_experience_years"],
+  });
 export type CreateAgencyJobDto = z.infer<typeof CreateAgencyJobSchema>;
 
 /**
@@ -170,6 +150,8 @@ export const UpdateAgencyJobSchema = z
     area: area.optional(),
     pay_min: payAmount.optional(),
     pay_max: payAmount.optional(),
+    /** #1648 — editable like any other coarse band field. */
+    pay_type: payTypeSchema.optional(),
     min_experience_years: experienceYears.optional(),
     max_experience_years: experienceYears.optional(),
     needed_by: neededBy.optional(),
@@ -181,17 +163,11 @@ export const UpdateAgencyJobSchema = z
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",
   })
-  .refine((o) => o.pay_min === undefined || o.pay_max === undefined || o.pay_max >= o.pay_min, {
-    message: "pay_max must be >= pay_min",
-    path: ["pay_max"],
-  })
-  .refine(
-    (o) =>
-      o.min_experience_years === undefined ||
-      o.max_experience_years === undefined ||
-      o.max_experience_years >= o.min_experience_years,
-    { message: "max_experience_years must be >= min_experience_years", path: ["max_experience_years"] },
-  );
+  .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
+  .refine(experienceWindowOrdered, {
+    message: "max_experience_years must be >= min_experience_years",
+    path: ["max_experience_years"],
+  });
 export type UpdateAgencyJobDto = z.infer<typeof UpdateAgencyJobSchema>;
 
 /** Route param `:jobId` — must be a UUID. */

@@ -24,6 +24,8 @@ export interface MatchFeedRow {
   requirements: string[] | null;
   payMin: number | null;
   payMax: number | null;
+  /** #1648 — what the band MEANS (`in_hand`|`gross`|`ctc`). NULL = the poster said nothing. */
+  payType: string | null;
   shift: string | null;
   neededBy: string | null;
 }
@@ -38,6 +40,18 @@ export interface MatchFeedRow {
  * selects `payer_id`/`created_by` (opaque) and does not read `org_label` at all. Adding
  * it to the projection is the change that needs the sign-off; leaving it out means the
  * question cannot be answered accidentally by a future mapper edit.
+ *
+ * `verification_status` IS NOW SETTLED, NOT MERELY UNANSWERED (#1651, owner ruling
+ * 2026-09-22): THE ALPHA MAKES NO TRUST CLAIM TO A WORKER. The column exists and admin
+ * writes it, but no posting has been through a review anyone designed for worker-facing
+ * use, so projecting a `verified` boolean here would light a "VERIFIED FACTORY" pill off a
+ * field nobody audited for that purpose. The worker app is deleting the pill and its model
+ * slot instead. DO NOT ADD IT BACK without a new ruling — the absence is the decision.
+ *
+ * Same ruling covers the `hot` / "Urgent Hiring" pill, which had no source at all.
+ * `boosted_until` is NOT that source and must never become it: a boost is a PAID
+ * promotion, and rendering it to a worker as urgency would sell him a claim about the job
+ * that the employer bought rather than earned.
  */
 
 /** The worker's own filters. EVERY ONE IS OPTIONAL and every default is off. */
@@ -136,6 +150,7 @@ export class MatchFeedRepository {
       requirements: string[] | null;
       pay_min: number | null;
       pay_max: number | null;
+      pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
     }>(dsql`
@@ -155,6 +170,7 @@ export class MatchFeedRepository {
              jp.requirements                              AS requirements,
              jp.pay_min                                   AS pay_min,
              jp.pay_max                                   AS pay_max,
+             jp.pay_type                                  AS pay_type,
              jp.shift                                     AS shift,
              jp.needed_by                                 AS needed_by
       FROM job_reach jr
@@ -200,6 +216,7 @@ export class MatchFeedRepository {
       requirements: string[] | null;
       pay_min: number | null;
       pay_max: number | null;
+      pay_type: string | null;
       shift: string | null;
       needed_by: string | null;
     }[];
@@ -221,6 +238,7 @@ export class MatchFeedRepository {
       requirements: r.requirements,
       payMin: r.pay_min,
       payMax: r.pay_max,
+      payType: r.pay_type,
       shift: r.shift,
       neededBy: r.needed_by,
     }));

@@ -142,6 +142,20 @@ export const jobPostings = pgTable(
     // is the vector-canonicalizer's descriptive tagging and is explicitly NOT a rank
     // input; these two are the V1 MATCH inputs and are deterministic (invariant #4).
     reachSkillIds: jsonb("reach_skill_ids").$type<string[]>().notNull().default(jsonArray),
+    // The curated related skills the poster explicitly chose to DROP (migration 0121,
+    // issue #1645). Until now an untick existed ONLY as a PATCH body read at
+    // reach-resolution time, so unticks supplied when the draft was CREATED were lost by
+    // the time it published — and the reach then silently widened past what the payer
+    // chose. Storing them makes the draft carry the poster's full editorial decision.
+    //
+    // A REQUEST, NOT A RESULT. This is the raw ask; `resolveReachSet` still decides which
+    // unticks are HONOURED (only a suggested related skill can be dropped, never a POSTED
+    // one — Policy 10), and `reach_skill_ids` above remains the server-resolved net that
+    // no client input can set directly. Defaults '[]' so every existing row is untouched.
+    untickedRelatedIds: jsonb("unticked_related_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(jsonArray),
     // COARSE city bucket (e.g. "Pune") — mirrors `jobs.city`. NEVER an address.
     // `location_label` above stays as-is (free text); `city` is the matchable field.
     city: text("city"),
@@ -158,6 +172,16 @@ export const jobPostings = pgTable(
     // Monthly pay band offered (INR, whole rupees — never paise). Mirrors `jobs`.
     payMin: integer("pay_min"),
     payMax: integer("pay_max"),
+    // WHAT THE BAND MEANS (migration 0121, issue #1648) — mirrors `jobs.pay_type`.
+    // "kitna haath me aayega" is the single most-asked question by a worker, and a band
+    // with no stated meaning is a weak card. Closed set, COARSE: take-home, gross, or CTC.
+    //
+    // NULLABLE WITH NO BACKFILL and NO DEFAULT, deliberately. NULL means "the poster did
+    // not state it" — never a hidden `gross`. Every posting that exists today reads NULL
+    // and the worker card then shows the band with no pay-type pill, which is the app's
+    // existing behaviour. Inventing a default would make the platform assert a net-vs-gross
+    // claim nobody made, which is exactly the dishonesty this column exists to end.
+    payType: text("pay_type").$type<JobPayType>(),
     // Coarse shift enum (mirrors jobs.shift). Non-PII.
     shift: text("shift").$type<JobShift>(),
     // When the job needs someone (mirrors jobs.needed_by). Non-PII.
@@ -311,6 +335,12 @@ export const jobPostings = pgTable(
       "job_postings_shift_chk",
       sql`${t.shift} IS NULL OR ${t.shift} IN ('day', 'night', 'rotational')`,
     ),
+    // Migration 0121 (#1648) — pin the pay-type claim to the 3 allowed values. NULL-
+    // tolerant, because "not stated" is a first-class answer here, not a missing one.
+    check(
+      "job_postings_pay_type_chk",
+      sql`${t.payType} IS NULL OR ${t.payType} IN ('in_hand', 'gross', 'ctc')`,
+    ),
     check(
       "job_postings_needed_by_chk",
       sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
@@ -404,6 +434,17 @@ export type JobNeededBy = "immediate" | "soon" | "flexible";
  */
 export type JobShift = "day" | "night" | "rotational";
 
+/**
+ * What a pay band MEANS (issue #1648). `in_hand` is the monthly take-home the worker
+ * actually receives, `gross` is before deductions, `ctc` is the annualized cost-to-company
+ * figure employers quote. COARSE and closed — three buckets, never a breakdown, never a
+ * deduction schedule, and never anything that identifies an employer.
+ *
+ * There is NO default anywhere in the system. A band whose type is NULL renders with no
+ * pay-type pill: the platform states only what a poster actually told it.
+ */
+export type JobPayType = "in_hand" | "gross" | "ctc";
+
 /** Apply/skip decision. Mirrors the `applications` event family. */
 export type ApplicationAction = "applied" | "skipped";
 
@@ -459,6 +500,10 @@ export const jobs = pgTable(
     // Monthly pay band offered (INR, whole rupees — never paise).
     payMin: integer("pay_min"),
     payMax: integer("pay_max"),
+    // WHAT THE BAND MEANS (migration 0121, issue #1648). Closed set, coarse, non-PII.
+    // NULLABLE with NO backfill and NO default: NULL is "not stated", never a hidden
+    // `gross`. See the twin column on `job_postings` for the full rationale.
+    payType: text("pay_type").$type<JobPayType>(),
     // Experience window the job targets (years).
     minExperienceYears: integer("min_experience_years"),
     maxExperienceYears: integer("max_experience_years"),
@@ -514,6 +559,11 @@ export const jobs = pgTable(
     check(
       "jobs_shift_chk",
       sql`${t.shift} IS NULL OR ${t.shift} IN ('day', 'night', 'rotational')`,
+    ),
+    // Migration 0121 (#1648) — mirrors `job_postings_pay_type_chk`. NULL-tolerant.
+    check(
+      "jobs_pay_type_chk",
+      sql`${t.payType} IS NULL OR ${t.payType} IN ('in_hand', 'gross', 'ctc')`,
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)

@@ -51,6 +51,7 @@ function row(id: string, payerKey: string, over: Partial<MatchFeedRow> = {}): Ma
     requirements: null,
     payMin: 18000,
     payMax: 25000,
+    payType: null,
     shift: "day",
     neededBy: null,
     ...over,
@@ -308,7 +309,7 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
     expect(serialized).not.toContain(PAYER_B);
   });
 
-  it("returns the legacy card keys plus the additive #1561 content keys, and nothing more", async () => {
+  it("returns the legacy card keys plus the additive #1561/#1648/#1649 keys, and nothing more", async () => {
     const { svc } = setup([row("a1", PAYER_A)]);
     const out = await svc.getFeed(WORKER, 5, {}, CTX);
     expect(Object.keys(out.jobs[0]!).sort()).toEqual(
@@ -324,6 +325,10 @@ describe("MatchFeedService — the card stays faceless (ADR-0036 open org_label 
         "needed_by",
         "pay_max",
         "pay_min",
+        // #1648 — what the band MEANS. #1649 — when it was posted. Both ADDITIVE, both
+        // nullable; a client that ignores them renders exactly what it rendered before.
+        "pay_type",
+        "posted_at",
         "rank",
         "requirements",
         "shift",

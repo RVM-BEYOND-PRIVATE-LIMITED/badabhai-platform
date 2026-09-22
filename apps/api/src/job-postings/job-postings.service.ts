@@ -8,7 +8,7 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { SkillCanonicalizationInput } from "@badabhai/ai-contracts";
 import { bandForCount } from "@badabhai/validators";
-import type { JobPosting } from "@badabhai/db";
+import type { JobPosting, NewJobPosting } from "@badabhai/db";
 import type { JobPostingVerificationStatus } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -16,6 +16,7 @@ import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
+import { MatchSkillsService } from "../match/match-skills.service";
 import {
   JobPostingsRepository,
   type JobPostingApi,
@@ -104,6 +105,9 @@ export class JobPostingsService {
     // ADR-0036 moment ③ — resolves the reach set server-side and materializes it.
     // MatchModule is @Global, so no new import edge on JobPostingsModule.
     private readonly publishReach: PublishReachService,
+    // #1645 — closed-set + cap validation for `match_skill_ids` AT CREATE, so a bad id is
+    // a 400 on the form rather than at publish. Same @Global module, no new import edge.
+    private readonly matchSkills: MatchSkillsService,
   ) {}
 
   /**
@@ -236,6 +240,7 @@ export class JobPostingsService {
         // accepts `job_domain_id` (nothing in this module writes that column). Explicit
         // null -> the transitional legacy anchor, which is exactly today's behaviour.
         skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
+        ...(await this.resolveCreateContent(dto)),
       },
       { actor_type: "ops", actor_id: dto.created_by },
       ctx,
@@ -365,6 +370,7 @@ export class JobPostingsService {
         skillPhrases: dto.skills ?? [],
         // Same as the ops create: no domain exists at insert time. See the note there.
         skillIds: await this.canonicalizeSkills(dto.skills, ctx, null),
+        ...(await this.resolveCreateContent(dto)),
       },
       { actor_type: "payer", actor_id: payerId },
       ctx,
@@ -515,6 +521,10 @@ export class JobPostingsService {
       if (!publishing) return;
     }
 
+    // The unticks are passed ONLY when this edit carried them. When it did not, the
+    // fallback to the posting's STORED unticks lives in `materializeReach` below — one
+    // place, so every trigger (publish, edit, unpause, ops widen) gets the same rule and
+    // a second copy here cannot quietly disagree with it.
     await this.materializeReach(
       after,
       publishing ? "publish" : "edit",
@@ -545,13 +555,24 @@ export class JobPostingsService {
     untickedIds?: readonly string[],
   ): Promise<void> {
     const skills = matchSkillIds ?? posting.match_skill_ids;
+    // THE UNTICK FALLBACK (#1645) — THE ONLY ONE IN THE SYSTEM.
+    //
+    // A caller passes unticks only when the request it is serving carried them. Everything
+    // else — a publish PATCH that sent just `status`, an unpause, an ops widen — falls back
+    // to the unticks the posting has been carrying since its CREATE.
+    //
+    // Before migration 0121 there was nothing to fall back to: an untick existed only as a
+    // PATCH body value, so unticks chosen on the create form evaporated before publish and
+    // the reach silently widened past what the payer chose. A resume had the same problem
+    // in a slower form — it must not re-widen a reach the payer deliberately narrowed.
+    const unticked = untickedIds ?? posting.unticked_related_ids;
     if (skills.length === 0 && trigger !== "publish") return;
     try {
       await this.publishReach.materialize(
         posting.id,
         {
           matchSkillIds: skills,
-          untickedIds: untickedIds ?? [],
+          untickedIds: unticked,
           trigger,
           actor,
         },
@@ -581,6 +602,55 @@ export class JobPostingsService {
     return this.publishReach.opsWiden(id, addSkillIds, opsActorId, ctx);
   }
 
+  /**
+   * THE WORKER-VISIBLE COLUMNS A CREATE MAY SET (#1645 / #1646 / #1648).
+   *
+   * Every one of these was accepted by `PATCH` and silently stripped by the create
+   * schemas, so `createForPayer` inserted 7 columns and discarded the rest. With
+   * `match_skill_ids` among the discarded, `reach_skill_ids` stayed empty,
+   * `materializeIfNeeded` returned early at publish, `job_reach` got no rows, and the
+   * posting reached NO WORKER while the company saw a success state (#1645).
+   *
+   * `match_skill_ids` IS VALIDATED HERE, NOT JUST SHAPE-CHECKED. The DTO only proves the
+   * `mskill_*` SHAPE; closed-set membership and the runtime `max_skills_per_posting` cap
+   * live in `MatchSkillsService` because that is where the vocabulary and the config are.
+   * Validating at CREATE means a typo'd id is a 400 on the form the payer is looking at,
+   * rather than a 400 at publish against a draft they have already moved on from.
+   *
+   * `reach_skill_ids` IS NOT SET HERE AND CANNOT BE. A create makes a DRAFT, and a draft
+   * reaches nobody; the reach set is resolved and materialized by `PublishReachService`
+   * at publish (moment ③). Storing the posted ids now is what lets that resolution find
+   * them — it is the input to the moment, never the result of it (Policy 10).
+   */
+  private async resolveCreateContent(
+    dto: CreateJobPostingDto | PayerCreateJobPostingDto,
+  ): Promise<Partial<NewJobPosting>> {
+    if (dto.match_skill_ids !== undefined) {
+      // Closed-set + cap check. Throws a 400 naming the offending ids (public closed-set
+      // values — no PII can appear, the DTO regex-constrains them). The resolved reach is
+      // DISCARDED: a draft has none, and re-resolving at publish is what keeps the set
+      // honest if the curated relations moved in between.
+      await this.matchSkills.resolveForPublish(dto.match_skill_ids, dto.unticked_related_ids ?? []);
+    }
+    return {
+      city: dto.city ?? null,
+      area: dto.area ?? null,
+      payMin: dto.pay_min ?? null,
+      payMax: dto.pay_max ?? null,
+      payType: dto.pay_type ?? null,
+      minExperienceYears: dto.min_experience_years ?? null,
+      maxExperienceYears: dto.max_experience_years ?? null,
+      shift: dto.shift ?? null,
+      neededBy: dto.needed_by ?? null,
+      // NULL, not [], when the poster said nothing: these two jsonb columns have no
+      // default precisely so "not stated" and "stated as empty" stay distinguishable.
+      benefits: dto.benefits ?? null,
+      requirements: dto.requirements ?? null,
+      matchSkillIds: dto.match_skill_ids ? [...dto.match_skill_ids] : [],
+      untickedRelatedIds: dto.unticked_related_ids ? [...dto.unticked_related_ids] : [],
+    };
+  }
+
   /** Insert a posting (always status=draft) and emit the created event for the actor. */
   private async insertAndEmit(
     input: {
@@ -594,7 +664,7 @@ export class JobPostingsService {
       // ADR-0030 / TAX-6: poster phrases + their vector-assigned closed-set ids.
       skillPhrases: string[];
       skillIds: string[];
-    },
+    } & Partial<NewJobPosting>,
     actor: JobPostingActor,
     ctx: RequestContext,
   ): Promise<JobPostingApi> {
@@ -702,12 +772,66 @@ export class JobPostingsService {
       patch.neededBy = dto.needed_by;
       changedFields.push("needed_by");
     }
+
+    // ── The worker-visible card content (#1646 / #1648) ───────────────────────
+    // Same keys-only discipline as everything above: the changed-field list records
+    // WHICH field moved, never the screened free text that moved into it.
+    if (dto.area !== undefined && dto.area !== current.area) {
+      patch.area = dto.area;
+      changedFields.push("area");
+    }
+    if (dto.pay_type !== undefined && dto.pay_type !== current.pay_type) {
+      patch.payType = dto.pay_type;
+      changedFields.push("pay_type");
+    }
+    // ONE key for the whole window, mirroring `pay_band` for pay_min+pay_max: the window
+    // is a single editorial act and splitting it would tell a reader which END moved.
+    if (
+      (dto.min_experience_years !== undefined &&
+        dto.min_experience_years !== current.min_experience_years) ||
+      (dto.max_experience_years !== undefined &&
+        dto.max_experience_years !== current.max_experience_years)
+    ) {
+      if (dto.min_experience_years !== undefined) {
+        patch.minExperienceYears = dto.min_experience_years;
+      }
+      if (dto.max_experience_years !== undefined) {
+        patch.maxExperienceYears = dto.max_experience_years;
+      }
+      changedFields.push("experience");
+    }
+    if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
+      patch.benefits = [...dto.benefits];
+      changedFields.push("benefits");
+    }
+    if (dto.requirements !== undefined && !sameStringList(dto.requirements, current.requirements)) {
+      patch.requirements = [...dto.requirements];
+      changedFields.push("requirements");
+    }
+
     if (
       dto.match_skill_ids !== undefined &&
       JSON.stringify([...dto.match_skill_ids].sort()) !==
         JSON.stringify([...current.match_skill_ids].sort())
     ) {
       changedFields.push("match_skills");
+    }
+    // THE UNTICKS ARE PERSISTED, the two skill SETS are not (#1645). This is the poster's
+    // raw request — storing it is what makes an untick survive create -> publish, where it
+    // used to evaporate and silently widen the reach past what the payer chose. Which of
+    // them are HONOURED is still decided by `resolveReachSet`, and `reach_skill_ids` is
+    // still written only by `PublishReachService` (Policy 10).
+    //
+    // It rides the `match_skills` key rather than earning its own: the unticks and the
+    // selection are one act on the form, and a separate key would let a reader infer that
+    // an untick list is present.
+    if (
+      dto.unticked_related_ids !== undefined &&
+      JSON.stringify([...dto.unticked_related_ids].sort()) !==
+        JSON.stringify([...current.unticked_related_ids].sort())
+    ) {
+      patch.untickedRelatedIds = [...dto.unticked_related_ids];
+      if (!changedFields.includes("match_skills")) changedFields.push("match_skills");
     }
 
     if (dto.status === "open" && current.status !== "open") {
@@ -718,6 +842,21 @@ export class JobPostingsService {
     if (changedFields.length === 0) {
       // Nothing actually changed (idempotent no-op edit). Don't write or emit.
       throw new BadRequestException("no effective changes to apply");
+    }
+
+    // ORDERING AGAINST THE RESULTING ROW, not against the patch. The DTO refines can only
+    // compare two values that arrived TOGETHER; a one-sided edit (`pay_max` alone) has to
+    // be checked against what is stored, and this is the only place that can see it.
+    // Mirrors `AgencyService.updateJob`, which has had this check since ADR-0022.
+    const nextPayMin = patch.payMin ?? current.pay_min;
+    const nextPayMax = patch.payMax ?? current.pay_max;
+    if (nextPayMin != null && nextPayMax != null && nextPayMax < nextPayMin) {
+      throw new BadRequestException("pay_max must be >= pay_min");
+    }
+    const nextExpMin = patch.minExperienceYears ?? current.min_experience_years;
+    const nextExpMax = patch.maxExperienceYears ?? current.max_experience_years;
+    if (nextExpMin != null && nextExpMax != null && nextExpMax < nextExpMin) {
+      throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }
 
     return { patch, changedFields, bandChanged };
@@ -776,6 +915,17 @@ export class JobPostingsService {
       requestId: ctx.requestId,
     } as EmitParams<N>;
   }
+}
+
+/**
+ * Order-sensitive list compare with a NULL arm. `null` (never stated) and `[]` (stated as
+ * empty) are DIFFERENT values on these jsonb columns, so replacing one with the other is a
+ * real change and must be reported as one. Order matters because the poster's order IS the
+ * order the chips render in — a reorder is an edit.
+ */
+function sameStringList(next: readonly string[], current: string[] | null): boolean {
+  if (current === null) return false;
+  return next.length === current.length && next.every((v, i) => v === current[i]);
 }
 
 /**

@@ -154,6 +154,33 @@ mock-only freeze for the fields ruled visible below.
   band** (`pay_min`–`pay_max`, per ADR-0012 banded storage), the experience
   window, `needed_by`, **plus new fields: `description`, `shift`, `benefits`,
   requirement tags.**
+- **Addendum 2026-09-22 (owner rulings, issues #1648 / #1649 / #1651).** Three
+  fields join or are explicitly kept off this SHOW set:
+  - **`pay_type` — SHOWN (#1648).** A coarse closed enum, `in_hand | gross |
+    ctc`, stating what the band MEANS. "Kitna haath me aayega" is the worker's
+    first question and the card previously printed "TAKE HOME PAY" over a band
+    no poster had ever labelled. It is **nullable with no default and no
+    inference**: NULL means the poster did not state it and the card shows the
+    band with no pay-type pill. A guessed answer to that question is worse than
+    no answer, and a default would make the platform assert a net-vs-gross claim
+    nobody made.
+  - **`posted_at` — SHOWN (#1649).** The publish timestamp
+    (`job_postings.published_at`, `jobs.created_at`), one key on both feed
+    shapes. It is a date, not an identity signal. The Jobs tab said "Aaj N naye
+    jobs" while the feed carried no date at all and was ordered oldest-first;
+    the legacy feed now orders newest-first to match the V1 feed, which has
+    always done so.
+  - **`verification_status` — NOT SHOWN, and this is a decision, not a gap
+    (#1651).** The column exists and admin writes it, but no posting has been
+    through a review designed for worker-facing use. Projecting a `verified`
+    boolean would light a "VERIFIED FACTORY" trust claim off a field nobody
+    audited for that purpose, so **the alpha makes no trust claim to a worker**
+    and the worker app deletes the pill, the "Direct Company Payroll · Zero
+    Fees" strip and the model slot. The same ruling covers the "Urgent Hiring"
+    pill, which had no source at all: **`boosted_until` must never become that
+    source** — a boost is a PAID promotion, and rendering it to a worker as
+    urgency sells him a claim the employer bought rather than earned.
+    Re-introducing either needs a NEW ruling; the absence is the decision.
 - **Free-text guard (fail closed):** every free-text field (`title`,
   `description`, `benefits`, tags) MUST be validated at the write path against
   embedded employer identity / contact (reuse `looksLikePii` in

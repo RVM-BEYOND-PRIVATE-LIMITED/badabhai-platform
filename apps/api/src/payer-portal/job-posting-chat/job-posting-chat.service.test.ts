@@ -643,6 +643,10 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     ];
     expect(payerId).toBe(PAYER_A);
     expect(ctx).toBe(CTX);
+    // #1650 — THE WHOLE DRAFT. This asserted six keys and the other five rode back as
+    // `unmapped_fields`, which is why the most guided posting path in the product produced
+    // the thinnest posting: the payer answered every question and the worker card showed
+    // no pay, no shift, no benefits and no requirements.
     expect(dto).toEqual({
       org_label: ORG_NAME,
       role_title: "CNC Operator",
@@ -650,6 +654,11 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       description: "Machining shop floor role on our production line",
       vacancy_band: "2-5",
       skills: ["fanuc control"],
+      pay_min: 20000,
+      pay_max: 25000,
+      shift: "day",
+      benefits: ["PF and ESI"],
+      requirements: ["ITI preferred"],
     });
     expect(res).toMatchObject({ job_posting_id: POSTING, status: "published" });
   });
@@ -676,17 +685,43 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(d.emitted).toHaveLength(0);
   });
 
-  it("reports the fields the posting cannot store, by NAME and never by value", async () => {
+  it("reports NOTHING unmapped now that the create path takes all five (#1650)", async () => {
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
-    expect(res.unmapped_fields).toEqual([
-      "pay_min",
-      "pay_max",
-      "shift",
-      "benefits",
-      "requirements",
-    ]);
+    // This used to be the full five. The columns were always there (0054/0116); the
+    // create SCHEMA was the gap, and #1645/#1646 closed it.
+    expect(res.unmapped_fields).toEqual([]);
+    // VACUITY GUARD: an empty list would also be the answer if the draft were empty, so
+    // pin that this draft really does carry all five values the report is now silent about.
+    expect(FULL_DRAFT.pay_min).not.toBeNull();
+    expect(FULL_DRAFT.pay_max).not.toBeNull();
+    expect(FULL_DRAFT.shift).not.toBeNull();
+    expect(FULL_DRAFT.benefits.length).toBeGreaterThan(0);
+    expect(FULL_DRAFT.requirements.length).toBeGreaterThan(0);
+    // …and the values still never ride the RESPONSE — only the create DTO carries them.
     expect(JSON.stringify(res)).not.toContain("20000");
     expect(JSON.stringify(res)).not.toContain("PF and ESI");
+  });
+
+  it("omits a field the payer never answered instead of publishing a null (#1650)", async () => {
+    // The create DTO's fields are `.optional()`, not `.nullable()` — a null would 400 the
+    // publish. "The payer never told us the shift" must produce a posting WITHOUT a shift,
+    // not a refused publish, and an interview that collected no chips must leave the
+    // column NULL rather than storing an empty list.
+    d = make({
+      ...publishable,
+      session: {
+        ...publishable.session,
+        draft: { ...FULL_DRAFT, pay_min: null, pay_max: null, shift: null, benefits: [] },
+      },
+    });
+    await d.svc.publish(PAYER_A, SESSION, CTX);
+    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    expect("pay_min" in dto).toBe(false);
+    expect("pay_max" in dto).toBe(false);
+    expect("shift" in dto).toBe(false);
+    expect("benefits" in dto).toBe(false);
+    // The one that WAS answered still rides — otherwise this would pass on an empty DTO.
+    expect(dto.requirements).toEqual(["ITI preferred"]);
   });
 
   it("claims the session BEFORE creating, so a double-click cannot create two postings", async () => {

@@ -9,6 +9,7 @@ import {
   type TradeKey,
   type JobNeededBy,
   type JobShift,
+  type JobPayType,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -35,6 +36,8 @@ export type AgencyJobUpdate = Partial<
     | "shift"
     | "benefits"
     | "requirements"
+    // #1648 — what the ₹ band MEANS (in_hand | gross | ctc). Coarse, closed, non-PII.
+    | "payType"
     | "status"
   >
 > & { updatedAt: Date };
@@ -57,6 +60,8 @@ export interface CreateAgencyJobInput {
   shift: JobShift | null;
   benefits: string[] | null;
   requirements: string[] | null;
+  /** #1648 — NULL means the poster did not state it. There is no default anywhere. */
+  payType: JobPayType | null;
 }
 
 /**
@@ -89,6 +94,7 @@ export class AgencyJobsRepository {
         shift: input.shift,
         benefits: input.benefits,
         requirements: input.requirements,
+        payType: input.payType,
         status,
       })
       .returning();

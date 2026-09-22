@@ -300,3 +300,53 @@ describe("findOpenJobs — TD73 applied-exclusion (the WA-1 starvation guard)", 
     expect(where).toContain("city");
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// #1649 — the feed carried no posting date and was ordered OLDEST FIRST, under a
+// Jobs-tab header that said "Aaj N naye jobs" (today / new). A job seeded months ago
+// was counted as posted today AND led the deck.
+//
+// STRUCTURAL, for the same reason the file exists: the service test mocks this method,
+// so reverting the ORDER BY leaves every service/controller test green. What is provable
+// without Postgres is that the statement says the right thing.
+// ---------------------------------------------------------------------------
+describe("#1649 — findOpenJobs orders NEWEST FIRST and projects the posting date", () => {
+  it("orders by created_at DESC, then id ASC", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 20);
+
+    const order = (captured.orderBy ?? []).map(render);
+    expect(order).toHaveLength(2);
+    // The recency key, descending. It was `asc` — the deck literally led with the
+    // stalest job on the platform while the header claimed the opposite.
+    expect(order[0]).toMatch(/created_at/);
+    expect(order[0]).toMatch(/desc/i);
+    // `id ASC` stays the tiebreak, and is what keeps the order TOTAL: two jobs created
+    // in the same transaction must not swap between page loads (E11/Policy 7). ASC on
+    // purpose — the tiebreak is for stability, not recency.
+    expect(order[1]).toMatch(/"id"/);
+    expect(order[1]).not.toMatch(/desc/i);
+  });
+
+  it("selects created_at, so the feed can carry an honest posted_at", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 20);
+
+    // The column has to be in the PROJECTION, not merely in the ORDER BY: a sort key is
+    // invisible to the client, and `posted_at` is what lets the app print "N naye jobs
+    // (aaj)" and badge a fresh card instead of guessing from position.
+    expect(Object.keys(captured.selection ?? {})).toContain("createdAt");
+  });
+
+  it("still never selects a column that could carry employer identity", async () => {
+    // Guard on the widened projection: `created_at` is a timestamp, and adding it must
+    // not have been the moment something else slipped in beside it.
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 20);
+    const keys = Object.keys(captured.selection ?? {});
+    for (const forbidden of ["payerId", "payer_id", "orgLabel", "applicantsReceived", "status"]) {
+      expect(keys).not.toContain(forbidden);
+    }
+  });
+});

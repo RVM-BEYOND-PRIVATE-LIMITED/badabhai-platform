@@ -1,6 +1,18 @@
 import { z } from "zod";
 import { uuidSchema, looksLikePii } from "@badabhai/validators";
 import { VACANCY_BANDS } from "@badabhai/types";
+import {
+  areaSchema,
+  benefitsSchema,
+  experienceWindowOrdered,
+  experienceYearsSchema,
+  neededBySchema,
+  payAmountSchema,
+  payBandOrdered,
+  payTypeSchema,
+  requirementsSchema,
+  shiftSchema,
+} from "../common/job-content.schemas";
 
 // Length caps (chars). org/role/location are short labels; description is a
 // longer free-text blurb. Enforced in the schema so oversize input never reaches
@@ -69,6 +81,63 @@ const skillsInput = z.array(z.string().min(1).max(80)).max(10);
  */
 const matchSkillId = z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id");
 
+/**
+ * THE WORKER-VISIBLE POSTING FIELDS — one definition, every write route (#1645/#1646/#1648).
+ *
+ * `job_postings` became THE SERVED entity at the 0054 cutover and gained the display
+ * columns `jobs` used to carry; migration 0116 (#1561) added the rich card content on top.
+ * Until now ONLY `PATCH` accepted any of them, so a payer could complete the entire create
+ * flow, get a `201`, and have every one of these fields silently dropped by Zod — and with
+ * `match_skill_ids` among them, `reach_skills` stayed empty, `materializeIfNeeded` returned
+ * early at publish, `job_reach` got no rows, and the posting reached NO WORKER AT ALL while
+ * showing the company a success state (#1645).
+ *
+ * Spread into BOTH create schemas and the update schema so the three can never disagree
+ * again: a field added here is accepted on every route or on none.
+ *
+ * PII: every field is PII-free by its own classification — COARSE buckets (city, area),
+ * integer ₹ bands, year counts, closed enums, and short chips screened fail-closed by
+ * `../common/job-content.schemas` with all three heuristics.
+ */
+const postingContentFields = {
+  // COARSE city bucket (never an address). `location_label` stays the poster's free text.
+  city: z.string().trim().min(1).max(80).optional(),
+  // COARSE locality bucket (e.g. "Chakan"), never an address and never derived from
+  // `location_label` — see the repository note that keeps that wall.
+  area: areaSchema.optional(),
+  pay_min: payAmountSchema.optional(),
+  pay_max: payAmountSchema.optional(),
+  // #1648 — what the band MEANS. No default: omitted stores NULL and the card shows the
+  // band with no pay-type pill. The platform never guesses net-vs-gross.
+  pay_type: payTypeSchema.optional(),
+  min_experience_years: experienceYearsSchema.optional(),
+  max_experience_years: experienceYearsSchema.optional(),
+  shift: shiftSchema.optional(),
+  needed_by: neededBySchema.optional(),
+  // Worker-visible chips, shown VERBATIM (ADR-0024 final addendum) — screened with
+  // looksLikePii + looksLikeOrgName + looksLikeUrl, capped at 12 items of 80 chars.
+  benefits: benefitsSchema.optional(),
+  requirements: requirementsSchema.optional(),
+} as const;
+
+/**
+ * THE MATCHABLE HALF (ADR-0036). Distinct from `skills` above: that is ADR-0030 descriptive
+ * free text and is explicitly never matched on; these are the match inputs.
+ *
+ * THE FINAL REACH SET IS NEVER A CLIENT INPUT. There is deliberately no `reach_skill_ids`
+ * field: the server resolves it with `resolveReachSet`, which honours an untick only when
+ * it names a SUGGESTED related skill and can never untick a POSTED one (Policy 10).
+ *
+ * NO `.max()` FROM THE CONFIG. The per-posting skill cap is `match_config
+ * .max_skills_per_posting` — a runtime value — and a second copy here would disagree the
+ * moment ops change it. `MatchSkillsService` enforces it and returns a 400; it never
+ * truncates. The bounds below are anti-abuse ceilings, not the business rule.
+ */
+const matchSkillFields = {
+  match_skill_ids: z.array(matchSkillId).min(1).max(50).optional(),
+  unticked_related_ids: z.array(matchSkillId).max(200).optional(),
+} as const;
+
 export const CreateJobPostingSchema = z
   .object({
     created_by: uuidSchema,
@@ -79,10 +148,21 @@ export const CreateJobPostingSchema = z
     vacancy_band: z.enum(VACANCY_BANDS).optional(),
     vacancies: vacancies.optional(),
     skills: skillsInput.optional(),
+    // #1645/#1646/#1648 parity: the ops register creates the same entity the payer does,
+    // so it accepts the same worker-visible content and the same match inputs. An ops
+    // posting that could not carry a pay band or a reach set would be a second, thinner
+    // create path — exactly the divergence that produced the original bug.
+    ...postingContentFields,
+    ...matchSkillFields,
   })
   .refine((o) => (o.vacancy_band !== undefined) !== (o.vacancies !== undefined), {
     message: "provide exactly one of vacancy_band or vacancies",
     path: ["vacancy_band"],
+  })
+  .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
+  .refine(experienceWindowOrdered, {
+    message: "max_experience_years must be >= min_experience_years",
+    path: ["max_experience_years"],
   });
 export type CreateJobPostingDto = z.infer<typeof CreateJobPostingSchema>;
 
@@ -101,10 +181,19 @@ export const PayerCreateJobPostingSchema = z
     vacancy_band: z.enum(VACANCY_BANDS).optional(),
     vacancies: vacancies.optional(),
     skills: skillsInput.optional(),
+    // #1645/#1646/#1648 — the fields the payer app has been sending all along and Zod has
+    // been stripping. See `postingContentFields` for why silently dropping them was a P0.
+    ...postingContentFields,
+    ...matchSkillFields,
   })
   .refine((o) => (o.vacancy_band !== undefined) !== (o.vacancies !== undefined), {
     message: "provide exactly one of vacancy_band or vacancies",
     path: ["vacancy_band"],
+  })
+  .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
+  .refine(experienceWindowOrdered, {
+    message: "max_experience_years must be >= min_experience_years",
+    path: ["max_experience_years"],
   });
 export type PayerCreateJobPostingDto = z.infer<typeof PayerCreateJobPostingSchema>;
 
@@ -131,34 +220,11 @@ export const UpdateJobPostingSchema = z
     // Only "open" is a valid status transition via PATCH (publish a draft).
     status: z.literal("open").optional(),
 
-    // ── Matching V1 (ADR-0036) — the MATCHABLE half of a posting ──────────────
-    // `skills` above is ADR-0030's descriptive free-text tagging and is explicitly
-    // NOT a match input. These are: `match_skill_ids` are the closed-set `mskill_*`
-    // ids the company actually asks for (TIER 1 is membership of them), and
-    // `unticked_related_ids` are the curated related skills it chose to drop.
-    //
-    // THE FINAL REACH SET IS NEVER A CLIENT INPUT. There is deliberately no
-    // `reach_skill_ids` field here: the server resolves it with `resolveReachSet`,
-    // which honours an untick only when it names a SUGGESTED related skill and can
-    // never untick a POSTED one (Policy 10 — the platform never silently widens past
-    // the curated relations, and the company never accidentally excludes the trade it
-    // advertised).
-    //
-    // NO `.max()` ON THE SKILL LIST. The cap is `match_config.max_skills_per_posting`
-    // — a runtime value — and hard-coding a second copy here would disagree with the
-    // config the moment ops change it. `MatchSkillsService` enforces it and returns a
-    // 400; it never truncates.
-    match_skill_ids: z.array(matchSkillId).min(1).max(50).optional(),
-    unticked_related_ids: z.array(matchSkillId).max(200).optional(),
-
-    // The worker-visible display fields the SERVED entity gained in migration 0054.
-    // PII-free by the schema's own classification: a COARSE city bucket (never an
-    // address), an integer ₹ band (never an exact salary), two coarse enums.
-    city: z.string().trim().min(1).max(80).optional(),
-    pay_min: z.number().int().nonnegative().optional(),
-    pay_max: z.number().int().nonnegative().optional(),
-    shift: z.enum(["day", "night", "rotational"]).optional(),
-    needed_by: z.enum(["immediate", "soon", "flexible"]).optional(),
+    // The same two blocks the create schemas spread — see their definitions above. They
+    // were declared inline here and NOWHERE ELSE until #1645; that asymmetry between the
+    // create and update paths IS the bug this batch closes.
+    ...postingContentFields,
+    ...matchSkillFields,
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",
@@ -167,9 +233,13 @@ export const UpdateJobPostingSchema = z
     message: "provide at most one of vacancy_band or vacancies",
     path: ["vacancy_band"],
   })
-  .refine((o) => o.pay_min === undefined || o.pay_max === undefined || o.pay_max >= o.pay_min, {
-    message: "pay_max must be >= pay_min",
-    path: ["pay_max"],
+  // Both orderings are checked here only when BOTH ends arrive in the SAME patch; a
+  // one-sided edit is validated against the STORED row in the service, which is the only
+  // place that can see it.
+  .refine(payBandOrdered, { message: "pay_max must be >= pay_min", path: ["pay_max"] })
+  .refine(experienceWindowOrdered, {
+    message: "max_experience_years must be >= min_experience_years",
+    path: ["max_experience_years"],
   });
 export type UpdateJobPostingDto = z.infer<typeof UpdateJobPostingSchema>;
 
