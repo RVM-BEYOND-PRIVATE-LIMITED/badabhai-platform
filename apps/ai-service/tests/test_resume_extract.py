@@ -874,6 +874,8 @@ def test_real_tesseract_reads_a_scanned_pdf_through_the_rasterizer():
 # ---------------------------------------------------------------------------
 
 _EN_DASH = chr(0x2013)
+_PLUS_MINUS = chr(0x00B1)
+_RUPEE = chr(0x20B9)
 
 
 def test_en_dash_year_range_folds_to_ascii_hyphen():
@@ -923,6 +925,52 @@ def test_ordinary_ascii_is_untouched():
         assert extract_mod._normalize_block(line) == [line]
 
 
+def test_the_tolerance_and_salary_marks_survive_byte_for_byte():
+    """THE REGRESSION THAT WOULD QUIETLY DESTROY TOLERANCE AND SALARY EXTRACTION.
+
+    U+00B1 and U+20B9 are not typography, they are the FACT. "±0.01 mm" is a capability
+    claim and the difference between a tolerance and a plain dimension; "₹35,000" is what
+    makes an amount a salary rather than a part number, a quantity or a year — it is the
+    whole basis of `salary_expected` in `inr_per_month`.
+
+    Both lines below are real corpus lines, measured over 37 résumé PDFs: `±` appeared in
+    9 documents and `₹` in 25. The fold on `main` is correct today, but only BY OMISSION —
+    nothing states that these must stay out of it. A later "tidy up the symbols while
+    we're here" pass, or a fold widened to a Unicode category (`Sm`/`Sc` both swallow
+    these), would leave every other assertion in this section perfectly green while
+    silently flattening the two most valuable facts a résumé carries.
+    """
+    tolerance = f"Tolerance held {_PLUS_MINUS}0.01 mm or finer"
+    salary = f"Salary expected {_RUPEE}35,000 / month"
+    assert extract_mod._normalize_block(tolerance) == [tolerance]
+    assert extract_mod._normalize_block(salary) == [salary]
+
+
+def test_the_semantic_symbols_are_left_alone():
+    # Each of these carries meaning no ASCII stand-in preserves, so none may join the fold.
+    # BULLET and MIDDLE DOT are here for a DIFFERENT reason — they are the corpus's two
+    # most common non-ASCII characters (550 and 79 occurrences) and still need no fold,
+    # because a model quoting a bulleted line quotes the text AFTER the marker, so gate 1's
+    # substring match never compares the marker at all.
+    for cp in (
+        0x00B1,  # PLUS-MINUS         a tolerance band
+        0x20B9,  # INDIAN RUPEE SIGN  a salary
+        0x00D7,  # MULTIPLICATION     a 500 x 300 bed
+        0x00F7,  # DIVISION
+        0x00B0,  # DEGREE             an angle, a temperature
+        0x2265,  # GREATER-OR-EQUAL
+        0x2264,  # LESS-OR-EQUAL
+        0x2248,  # ALMOST EQUAL
+        0x00A7,  # SECTION
+        0x2022,  # BULLET
+        0x00B7,  # MIDDLE DOT
+    ):
+        line = f"x {chr(cp)} y"
+        assert extract_mod._normalize_block(line) == [line], (
+            f"U+{cp:04X} was folded and must not be"
+        )
+
+
 def test_translate_table_has_no_overlap():
     # The module comment promises "a code point can never be listed as both deleted and
     # replaced without the later entry winning silently". #1657 added four more source
@@ -941,3 +989,99 @@ def test_translate_table_has_no_overlap():
         for cp in codepoints:
             assert cp not in seen, f"U+{cp:04X} is in both {seen[cp]} and {name}"
             seen[cp] = name
+
+
+# ---------------------------------------------------------------------------
+# #1657, the other half - WHAT THE FOLD MUST NEVER REACH.
+#
+# The fold above is the cheap half. These are the characters where folding would be a
+# silent correctness loss rather than a gate-1 miss, and they had no guard: every test
+# above this line stays green if somebody sweeps the rest of the symbol block into
+# `_DASH_CODEPOINTS` tomorrow.
+# ---------------------------------------------------------------------------
+
+_PLUS_MINUS = chr(0x00B1)
+_RUPEE = chr(0x20B9)
+
+
+def test_the_tolerance_and_salary_marks_survive_byte_for_byte():
+    """THE REGRESSION THAT WOULD QUIETLY DESTROY TOLERANCE AND SALARY EXTRACTION.
+
+    U+00B1 and U+20B9 are not typography, they are the fact. "±0.01 mm" is a CNC
+    capability claim and the difference between a tolerance and a dimension; "₹35,000" is
+    what makes an amount a salary rather than a part number, a quantity or a year - it is
+    the whole basis of `salary_expected` in `inr_per_month`.
+
+    Both lines below are real corpus lines.
+    """
+    tolerance = f"Tolerance held {_PLUS_MINUS}0.01 mm or finer"
+    salary = f"Salary expected {_RUPEE}35,000 / month"
+    assert extract_mod._normalize_block(tolerance) == [tolerance]
+    assert extract_mod._normalize_block(salary) == [salary]
+
+
+def test_the_semantic_symbols_are_left_alone():
+    # Each of these carries meaning no ASCII stand-in preserves. BULLET and MIDDLE DOT are
+    # in the list for a different reason - they are the corpus's two most common non-ASCII
+    # characters and still need NO fold, because a model quoting a bulleted line quotes the
+    # text AFTER the marker, so the substring match never compares the marker at all.
+    for cp in (
+        0x00B1,  # PLUS-MINUS         tolerance
+        0x20B9,  # INDIAN RUPEE SIGN  salary
+        0x00D7,  # MULTIPLICATION     a 500 x 300 bed
+        0x00F7,  # DIVISION
+        0x00B0,  # DEGREE             an angle, a temperature
+        0x2265,  # GREATER-OR-EQUAL
+        0x2264,  # LESS-OR-EQUAL
+        0x2248,  # ALMOST EQUAL
+        0x00A7,  # SECTION
+        0x2022,  # BULLET
+        0x00B7,  # MIDDLE DOT
+        0x2192,  # RIGHTWARDS ARROW
+        0x2500,  # BOX DRAWINGS LIGHT HORIZONTAL
+    ):
+        line = f"x {chr(cp)} y"
+        assert extract_mod._normalize_block(line) == [line], (
+            f"U+{cp:04X} was folded and must not be"
+        )
+
+
+def test_letters_digits_casing_and_devanagari_are_untouched():
+    # `ocr_languages` is `eng+hin` and a résumé routinely carries both scripts, so a fold
+    # reaching a letter would corrupt the very text it exists to make quotable.
+    devanagari = "".join(chr(cp) for cp in (0x092B, 0x093F, 0x091F, 0x0930))  # "fitter"
+    for line in ("CNC Turner", "Apex Auto Components Pvt Ltd", devanagari, f"{devanagari} 8 saal"):
+        assert extract_mod._normalize_block(line) == [line]
+
+
+# Every line the en dash was measured on in the failing CV, written as the ASCII a model
+# can actually produce. Each input is derived by putting the en dash BACK, so the fixture
+# and the expectation cannot drift apart in a later edit.
+CORPUS_LINES = (
+    "Senior CNC Turner / Principal Machinist | 2021 - Present",
+    "CNC Turner / CNC Setter | 2017 - 2021",
+    "CNC Machine Operator | 2014 - 2017",
+    "ITI - Turner Trade",
+    "Rajasthan Technical Education Board - Assumed",
+    "RBSE - Rajasthan Board of Secondary Education",
+)
+
+
+@pytest.mark.parametrize("expected", CORPUS_LINES)
+def test_the_real_corpus_lines_round_trip_to_ascii(expected):
+    document_line = expected.replace(" - ", f" {_EN_DASH} ")
+    # The vacuity check first: a fixture that never held an en dash makes the real
+    # assertion below unfalsifiable.
+    assert _EN_DASH in document_line
+    assert extract_mod._normalize_block(document_line) == [expected]
+
+
+def test_the_fold_happens_on_the_real_extract_route_not_only_in_the_helper():
+    """Through the door, on a DOCX - `build_pdf` encodes latin-1 and cannot carry an en
+    dash at all, which is itself a reminder that this whole class of character only ever
+    arrives from a real authoring tool."""
+    source = f"CNC Turner / CNC Setter | 2017 {_EN_DASH} 2021"
+    result = extract(build_docx([source, "Apex Auto Components"]), mime=DOCX_MIME)
+    assert result.degraded_reason is None, result.degraded_reason
+    assert result.lines[0].text == "CNC Turner / CNC Setter | 2017 - 2021"
+    assert _EN_DASH not in result.text

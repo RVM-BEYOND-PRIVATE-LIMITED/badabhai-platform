@@ -15,6 +15,7 @@ route that must degrade rather than fail.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -36,7 +37,7 @@ from app.profiling.parse_masking import default_masker, passthrough_masker
 from app.pseudonymize import HARD_IDENTIFIER_CLASSES, contains_hard_identifier
 from app.resume_import import parse_policy
 from app.resume_import import resume_parse as parse_mod
-from app.resume_import.extract import ExtractionResult, Line
+from app.resume_import.extract import ExtractionResult, Line, extract
 from app.resume_import.parse_policy import (
     input_masker,
     mask_resume_lines,
@@ -45,6 +46,8 @@ from app.resume_import.parse_policy import (
 from app.resume_import.resume_parse import RESUME_PARSE_NOTES, gate_employments, parse_resume
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 PAN = "ABCDE1234F"
 AADHAAR = "1234 5678 9012"
@@ -428,6 +431,77 @@ def test_citations_still_resolve_after_the_masker_drops_a_line(monkeypatch):
     assert "lines_dropped_by_masker" in out.notes
     assert "[2]" in router.prompt_text, "vacuity: line 2 must still be numbered 2"
     assert out.fields["current_city"].value == "Pune"
+
+
+EN_DASH = chr(0x2013)
+
+
+def docx_bytes(paragraphs: list[str]) -> bytes:
+    """A real .docx, built here rather than imported from `test_resume_extract`.
+
+    Deliberately local: two test modules importing each other is a coupling that outlives
+    whatever it saved. It is a .docx and not a PDF because `build_pdf` over there encodes
+    latin-1, which cannot carry an en dash at all — itself a reminder that this whole class
+    of character only ever arrives from a real authoring tool.
+    """
+    from docx import Document
+
+    document = Document()
+    for text in paragraphs:
+        document.add_paragraph(text)
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def test_an_ascii_hyphen_quote_matches_a_line_the_document_wrote_with_an_en_dash(monkeypatch):
+    """THE END OF THE CHAIN (#1657), asserted AT THE GATE and not at the normalizer.
+
+    `test_resume_extract.py` proves the fold happened, which is a fact about the middle.
+    This one runs the real extractor over a real document and then asks the question that
+    actually cost us fields: does gate 1 accept the quote a model really returns?
+
+    `_quote_appears_in` is untouched and still character-literal apart from whitespace.
+    What changed is the CORPUS: before #1657 this line reached the model carrying U+2013,
+    the model quoted it with an ASCII hyphen — an HONEST citation of a real line — and
+    provenance dropped it. Every employment header and every education row on a
+    Word-authored CV died that way, one field at a time.
+    """
+    document_line = f"CNC Turner / CNC Setter | 2017 {EN_DASH} 2021"
+    assert EN_DASH in document_line, "vacuity: the fixture must actually hold an en dash"
+    extracted = extract(docx_bytes([document_line]), mime=DOCX_MIME)
+    assert extracted.degraded_reason is None, extracted.degraded_reason
+
+    # What a model returns when asked to quote that line "character for character".
+    quote = "CNC Turner / CNC Setter | 2017 - 2021"
+    out, _ = run_parse(
+        texts=[],
+        extraction_result=extracted,
+        reply=model_reply({"role_label": field_at(0, quote, "CNC Turner")}),
+        monkeypatch=monkeypatch,
+    )
+    assert out.fields["role_label"].value == "CNC Turner"
+    assert "role_label" not in out.unparsed_field_ids
+
+
+def test_that_same_quote_is_still_refused_when_the_line_never_said_it(monkeypatch):
+    """The vacuity guard for the test above, and the thing a fold COULD have broken.
+
+    #1657 widened the corpus, not the comparison. A quote no line contains must still fail
+    provenance — otherwise the fix would have bought back a few year ranges at the price of
+    the gate that makes fabrication structurally impossible.
+    """
+    extracted = extract(
+        docx_bytes([f"CNC Turner / CNC Setter | 2017 {EN_DASH} 2021"]), mime=DOCX_MIME
+    )
+    out, _ = run_parse(
+        texts=[],
+        extraction_result=extracted,
+        reply=model_reply({"role_label": field_at(0, "Shift Supervisor | 2017 - 2021", "CNC")}),
+        monkeypatch=monkeypatch,
+    )
+    assert out.fields == {}
+    assert "role_label" in out.unparsed_field_ids
 
 
 # ===========================================================================

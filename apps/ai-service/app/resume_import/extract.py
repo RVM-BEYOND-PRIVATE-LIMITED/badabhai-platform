@@ -353,6 +353,33 @@ _DOUBLE_QUOTE_CODEPOINTS: Final = (0x201C, 0x201D, 0x201E, 0x201F)
 # quoting what it can see would then fail gate 1 for the opposite reason.
 _SOFT_HYPHEN: Final = (0x00AD,)
 
+# WHAT IS DELIBERATELY IN NO TUPLE ABOVE, and this is the half that can do damage. A fold
+# is lossy; for the characters below the character IS the fact. The first two are the two
+# facts this platform cares most about, and both were measured in the same corpus:
+#
+#   ± (U+00B1)  "Tolerance held ±0.01 mm or finer" — a CNC capability claim, and the
+#               difference between a tolerance and a dimension. Fold it or delete it and
+#               the line stops saying what the worker can actually hold.
+#   ₹ (U+20B9)  "Salary expected ₹35,000 / month" — target field `salary_expected`, unit
+#               inr_per_month. The currency mark is how the amount is known to be a salary
+#               at all, rather than a part number, a quantity or a year.
+#
+# Left alone for the same reason, none of them having an ASCII stand-in that keeps the
+# meaning: × ÷ ° ≥ ≤ ≈ § (U+00D7, U+00F7, U+00B0, U+2265, U+2264, U+2248, U+00A7), and
+# every arrow and box-drawing character.
+#
+# • (U+2022) and · (U+00B7) are the two most common non-ASCII characters in the corpus and
+# still need NO fold, which is worth writing down so that nobody adds one: a model quoting
+# a bulleted line quotes the text AFTER the marker, so the substring match succeeds without
+# the marker ever being compared.
+#
+# And nothing above touches a letter, a digit, or any Devanagari code point. `ocr_languages`
+# is `eng+hin` and a résumé routinely carries both scripts.
+#
+# `test_the_tolerance_and_salary_marks_survive_byte_for_byte` is the guard on this
+# paragraph. Without it, a later "tidy up the symbols while we are here" pass would leave
+# every other test in that section perfectly green.
+
 # ONE table, ONE pass. Built in this order so a code point can never be listed as both
 # deleted and replaced without the later entry winning silently — the comprehension
 # above removes the overlap at the source instead, and `test_translate_table_has_no_overlap`
