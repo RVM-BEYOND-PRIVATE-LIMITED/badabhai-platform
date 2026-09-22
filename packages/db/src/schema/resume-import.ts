@@ -127,6 +127,26 @@ export const workerResumeImports = pgTable(
     identityExperienceText: text("identity_experience_text"),
     identitySummaryText: text("identity_summary_text"),
 
+    // ── #1660: how much the parse actually yielded ───────────────────────────
+    //
+    // The count `profile.resume_parsed` has always carried, now ALSO on the row, because
+    // an event is not a read: the import status endpoint could report `status: "parsed",
+    // route: "chat", failure_reason: null` - a clean success by every field on the wire -
+    // for an import that extracted NOTHING. The worker waited through the poll, landed in
+    // the ordinary Hinglish interview, and was told nothing. From where he sat the upload
+    // did nothing and nobody said so, which is the exact shape ruling D9 forbids.
+    //
+    // Three different roads reach zero and they are indistinguishable from his seat: a
+    // spend cap or cooldown falling back to the deterministic mock (#1656), every citation
+    // gated away (#1657/#1658), or a document that genuinely carries none of the eight
+    // target fields. D9 asks for that one thing said plainly, so the client needs to know
+    // it happened - not why.
+    //
+    // NULLABLE WITH NO BACKFILL. NULL means "parsed before this column existed" and is
+    // NOT zero: `yielded_nothing` reads NULL as unknown and answers false, because
+    // "we did not record it" must never render as "we found nothing".
+    fieldsExtracted: integer("fields_extracted"),
+
     /** AES-256-GCM token over the staged suggestion payload. NEVER read without PiiCrypto. */
     suggestionsEnc: text("suggestions_enc"),
     failureReason: text("failure_reason").$type<ResumeImportFailureName>(),
@@ -164,6 +184,10 @@ export const workerResumeImports = pgTable(
     // other CHECK here rather than referenced: a migration is a frozen record, and
     // enabling a 10th form widens the registry AND this list in the same change
     // (the settle test pins the SQL it compiles).
+    check(
+      "wri_fields_extracted_nonneg_chk",
+      sql`${t.fieldsExtracted} IS NULL OR ${t.fieldsExtracted} >= 0`,
+    ),
     check(
       "wri_identity_role_kind_chk",
       sql`${t.identityRoleKind} IS NULL OR ${t.identityRoleKind} IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'conventional_machinist', 'tool_die_maker', 'cam_programmer', 'cad_draughtsman', 'welder', 'painter_coating')`,

@@ -206,6 +206,15 @@ export interface ResumeParseFacts {
   extractionMethod: ResumeExtractionMethodName;
   pageCount: number | null;
   ocrConfidence: number | null;
+  /**
+   * #1660 - how many target fields the parse actually produced.
+   *
+   * THE SAME NUMBER `profile.resume_parsed` CARRIES, from the same expression, so the row
+   * and the event can never disagree about one import. It is a PARSE FACT and lives here
+   * rather than on {@link ResumeRouting}, because it describes what the document gave us,
+   * not where we sent the worker.
+   */
+  fieldsExtracted: number;
 }
 
 /** The routing decision and the staged suggestion token. */
@@ -248,6 +257,10 @@ export function settleParsedStatement(
       // none. Writing one anyway would be a number nothing computed, which a later reader
       // would average.
       ocrConfidence: facts.extractionMethod === "ocr" ? facts.ocrConfidence : null,
+      // #1660 - the count the event has always carried, now on the row too. An event is
+      // not a read: the import status endpoint had no field that could tell a productive
+      // chat-routed import from one that yielded nothing.
+      fieldsExtracted: facts.fieldsExtracted,
       route: routing.route,
       // NULLED, NOT OMITTED, on the chat route. `wri_form_kind_chk` is an equivalence in both
       // directions, so a form kind riding along on a chat route would fail the whole settle.

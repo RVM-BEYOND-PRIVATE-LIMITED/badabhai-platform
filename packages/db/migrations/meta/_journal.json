@@ -856,6 +856,13 @@
       "when": 1790071557700,
       "tag": "0121_pay_type_and_unticked_ids",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1790078386487,
+      "tag": "0122_resume_import_fields_extracted",
+      "breakpoints": true
     }
   ]
 }

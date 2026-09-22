@@ -135,6 +135,11 @@ export class ResumeRouteService {
           extractionMethod: draft.extractionMethod,
           pageCount: draft.pageCount,
           ocrConfidence: draft.ocrConfidence,
+          // #1660 - THE SAME EXPRESSION the payload above uses, read off the same
+          // `payload` object rather than recomputed, so the row and the event cannot
+          // disagree about one import. Recomputing `Object.keys(draft.fields).length`
+          // here would be a second source that drifts the first time either moves.
+          fieldsExtracted: payload.fields_extracted,
         },
         {
           route: decision.route,

@@ -271,6 +271,23 @@ export class ResumeImportService {
    * — so echoing it back buys nothing, and a response field is a thing that ends up in a client
    * log, a crash report, or a screenshot. `suggestions_enc` is absent for the obvious reason.
    */
+  /**
+   * Did this import give the worker anything at all? (#1660)
+   *
+   * TRUE ONLY FOR A SETTLED, PRODUCTIVE-LOOKING IMPORT THAT PRODUCED NEITHER HALF. A
+   * `failed` row already says so through `failure_reason`, and an in-flight row has not
+   * finished - answering `true` for either would tell the client "we found nothing" about
+   * a question that has not been asked yet.
+   *
+   * BOTH HALVES MUST BE EMPTY. Zero extracted fields is not enough on its own: the
+   * identity summary is a SECOND, independent model call on the same document, so a parse
+   * that yielded no structured fields can still have staged the "Kya ye aap hi hain?"
+   * line - and a worker who gets that bubble was not told nothing.
+   *
+   * NULL IS NOT ZERO. A row parsed before migration 0122 has `fields_extracted = NULL`,
+   * which is "we did not record it", and this answers FALSE for it. Rendering an unknown
+   * as "we found nothing" would put a claim in front of a worker that nobody measured.
+   */
   private toResponse(row: WorkerResumeImport) {
     return {
       import_id: row.id,
@@ -282,6 +299,39 @@ export class ResumeImportService {
       // vocabulary, so it is safe on the wire beside route and form_kind.
       association_kind: row.associationKind ?? null,
       failure_reason: row.failureReason,
+      // ── #1660: how much the parse actually yielded ───────────────────────
+      //
+      // The endpoint could answer `status: "parsed", route: "chat",
+      // failure_reason: null` - a clean success by every field above - for an import
+      // that extracted NOTHING and staged no identity line. The worker waited through
+      // the poll, landed in the ordinary Hinglish interview, and was told nothing. From
+      // where he sat the upload did nothing and nobody said so, which is the exact shape
+      // ruling D9 exists to forbid.
+      //
+      // BOTH KEYS, by owner ruling (2026-09-22): the SERVER owns the threshold via the
+      // boolean, so two clients can never disagree about what "nothing" means, and the
+      // raw count rides along for diagnostics and RI-7.
+      fields_extracted: row.fieldsExtracted,
+      yielded_nothing: yieldedNothing(row),
     };
   }
 }
+
+/**
+ * The `yielded_nothing` predicate (#1660), a free function so it is testable without a
+ * service instance and so the rule lives in exactly one place.
+ *
+ * See `ResumeImportService.toResponse` for why all four conditions are required.
+ */
+function yieldedNothing(row: WorkerResumeImport): boolean {
+  if (row.status !== "parsed") return false;
+  if (row.fieldsExtracted === null || row.fieldsExtracted > 0) return false;
+  // The identity summary is an INDEPENDENT second call on the same document; a staged
+  // line means the worker gets his bubble even with zero structured fields.
+  return (
+    row.identityRoleKind === null &&
+    row.identityExperienceText === null &&
+    row.identitySummaryText === null
+  );
+}
+
