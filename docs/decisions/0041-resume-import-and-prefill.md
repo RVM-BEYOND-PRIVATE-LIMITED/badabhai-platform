@@ -527,3 +527,42 @@ correct and invisible.
 ```
 Signed (CEO / Prakash): Prakash Kantumutchu          Date: 2026-09-11
 ```
+
+## 11. Amendment 2026-09-22 - the alpha posture is ARMED, and the wall's output is not a fact (#1658)
+
+**Owner ruling (2026-09-22): the resume parse runs with `RESUME_PARSE_RAW_TEXT_ENABLED` ARMED in
+alpha.** D5 has permitted this since 2026-09-10; what was missing was a statement of which state
+the feature is actually *expected* to run under. It is armed, via the arming procedure already
+recorded in section 3 - the box environment file plus a deploy re-run, never a ci.yml bridge.
+
+**Why the masked posture is not a safe default here, only a quieter one.** With the flag off,
+`default_masker` runs over every line before the model sees it, and `_EMPLOYER_RE`/`_PERSON_RE`
+over-fire on ordinary trade vocabulary. Measured on a real CNC-turner CV:
+
+```
+[20] '[PERSON_1], Micrometer & Bore Gauge'     <- "Vernier, Micrometer & Bore Gauge"
+[21] '[PERSON_1], Grooving & Boring'           <- "Threading, Grooving & Boring"
+[62] '[PERSON_1], rough/finish turning, ...'   <- "Facing, rough/finish turning, ..."
+```
+
+`Vernier`, `Threading` and `Facing` are instruments and machining operations - precisely what the
+`machines` target field and the capability chips exist to capture. Flag-off asks the model to read
+machines off a document whose machine nouns have been replaced with `[PERSON_1]`. That is not a
+conservative posture; it is a posture that quietly produces a worse profile and reports success.
+
+**The output wall is tightened regardless of the flag, and that half is not a ruling.**
+`resume_value_certifier` now refuses any value carrying a pseudonymization placeholder
+(`[A-Z]+_<n>` in brackets - matched by SHAPE, so a prefix added to the masker tomorrow is covered
+the day it ships). Under the armed flag this is a no-op; under flag-off it stops
+`[EMPLOYER_1] & [EMPLOYER_2].` being staged as an employer, offered to the worker, and written to
+`employer_name_enc` and the resume sheet.
+
+That was never a privacy failure - the wall held and nothing leaked. It was **the wall's own
+output being recorded as a fact the worker asserted**, which is a correctness failure of a kind no
+privacy control would ever have caught. The refusal sits beside the existing wall and takes no
+policy argument, so it can never be pointed at the input masker.
+
+**Not fixed by either half:** the masker's over-firing itself. `certified_clean_skill_labels`
+exists because of it and the `parse_policy` docblock already names it. Arming the flag routes
+around it for this one task; it does not repair it.
+

@@ -21,6 +21,7 @@ from .errors import (
     REASON_HTTP_429,
     REASON_HTTP_ERROR,
     REASON_MAX_TOKENS_NO_PARTS,
+    REASON_MAX_TOKENS_TRUNCATED,
     REASON_MISSING_KEY,
     REASON_NO_CANDIDATES,
     LlmTransportError,
@@ -202,6 +203,26 @@ def _parse_gemini_response(data: dict) -> LlmResult:
         # No content parts => the (thinking-disabled) call still hit MAX_TOKENS or
         # a safety stop before emitting an answer.
         raise LlmTransportError(REASON_MAX_TOKENS_NO_PARTS)
+
+    # #1656 - MAX_TOKENS *WITH* PARTS. The check above only fires when the model emitted
+    # nothing at all; a truncation that already produced some text returned NORMALLY, and
+    # the damage surfaced three layers away as a parse failure:
+    #
+    #   unterminated JSON -> coerce_json_text finds no balanced brace and returns the
+    #   whole string -> json.loads raises -> `parse_output_invalid`
+    #
+    # So a BUDGET problem was reported as a MODEL FORMATTING problem, after the spend,
+    # with nothing anywhere saying the cause was the ceiling. Measured: a well-behaved
+    # parse reply for a real 2-page CV is ~795 tokens against a default budget of 1024,
+    # and the quotes scale with line length - so this is a live ceiling, not a theoretical
+    # one. Raising the budget is a separate decision that needs a measurement (#1656 keeps
+    # that half open); what this does is stop the truncation being SILENT.
+    #
+    # Read from the CANDIDATE, not the response: `finishReason` is per-candidate.
+    finish_reason = str(candidates[0].get("finishReason") or "").upper()
+    if finish_reason == "MAX_TOKENS":
+        raise LlmTransportError(REASON_MAX_TOKENS_TRUNCATED)
+
     content = parts[0].get("text") or ""
 
     usage = data.get("usageMetadata") or {}

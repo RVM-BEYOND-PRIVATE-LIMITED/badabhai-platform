@@ -11,6 +11,11 @@ import asyncio
 import pytest
 
 from app.ai import gemini_client
+from app.ai.errors import (
+    REASON_MAX_TOKENS_NO_PARTS,
+    REASON_MAX_TOKENS_TRUNCATED,
+    LlmTransportError,
+)
 from app.ai.gemini_client import (
     LlmResult,
     _bare_model_id,
@@ -335,3 +340,76 @@ def test_default_retry_posture_is_one_retry(monkeypatch):
     settings = Settings(gemini_flash_api_key="k")
     assert settings.gemini_max_rate_limit_retries == 1
     assert settings.gemini_max_total_backoff_seconds == 5.0
+
+
+# ---------------------------------------------------------------------------
+# #1656 - a truncated reply was read as a success
+#
+# `_parse_gemini_response` only raised when there were NO content parts. A MAX_TOKENS
+# stop that had already emitted some text returned normally, the JSON was unterminated,
+# `coerce_json_text` found no balanced closing brace and returned the whole string,
+# `json.loads` raised - and the import reported `parse_output_invalid`. So a BUDGET
+# problem surfaced as a MODEL FORMATTING problem, after the spend, with nothing anywhere
+# naming the real cause.
+# ---------------------------------------------------------------------------
+
+
+def _response_with(finish_reason: str, text: str) -> dict:
+    return {
+        "candidates": [
+            {"finishReason": finish_reason, "content": {"parts": [{"text": text}]}}
+        ],
+        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 20},
+    }
+
+
+def test_max_tokens_with_partial_text_is_a_transport_error():
+    # The measured shape: half a JSON object and a MAX_TOKENS stop.
+    with pytest.raises(LlmTransportError) as exc:
+        _parse_gemini_response(_response_with("MAX_TOKENS", '{"fields": {"trade": {"value":'))
+    assert exc.value.reason_code == REASON_MAX_TOKENS_TRUNCATED
+
+
+def test_a_normal_stop_still_returns_its_content():
+    # VACUITY GUARD. A check that raised on every response would satisfy the test above
+    # while breaking every call the service makes.
+    result = _parse_gemini_response(_response_with("STOP", '{"fields": {}}'))
+    assert result.content == '{"fields": {}}'
+    assert result.input_tokens == 10
+    assert result.output_tokens == 20
+
+
+def test_a_missing_finish_reason_is_not_treated_as_truncation():
+    # Fail-OPEN on absence, deliberately: `finishReason` is not guaranteed on every
+    # response shape, and refusing a reply because a field was absent would turn a
+    # provider quirk into a lost import. Truncation is asserted, never inferred.
+    result = _parse_gemini_response(
+        {
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {},
+        }
+    )
+    assert result.content == "ok"
+
+
+def test_the_no_parts_case_keeps_its_own_distinct_code():
+    # Two different failures with two different codes: nothing emitted at all, versus
+    # something emitted and cut off. Collapsing them would hide which one an operator is
+    # looking at, and only one of them says "raise the budget".
+    with pytest.raises(LlmTransportError) as exc:
+        _parse_gemini_response({"candidates": [{"finishReason": "MAX_TOKENS"}]})
+    assert exc.value.reason_code == REASON_MAX_TOKENS_NO_PARTS
+
+
+def test_truncation_is_not_retried():
+    # The budget that truncated the reply does not move between attempts, so a retry
+    # spends again for an identical half-object.
+    from app.ai.router import _NO_RETRY_REASONS
+
+    assert REASON_MAX_TOKENS_TRUNCATED in _NO_RETRY_REASONS
+
+
+def test_truncation_is_categorised_as_output_truncated():
+    from app.ai.error_taxonomy import _TRANSPORT, OUTPUT_TRUNCATED
+
+    assert _TRANSPORT[REASON_MAX_TOKENS_TRUNCATED] == OUTPUT_TRUNCATED

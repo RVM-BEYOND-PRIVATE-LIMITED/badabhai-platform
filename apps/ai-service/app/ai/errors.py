@@ -22,6 +22,10 @@ from __future__ import annotations
 # body, a response payload, or any worker text.
 REASON_NO_CANDIDATES = "no_candidates"
 REASON_MAX_TOKENS_NO_PARTS = "max_tokens_no_parts"
+#: The model hit MAX_TOKENS AFTER emitting some text (#1656). Distinct from the
+#: no-parts case above: there IS content, it is simply unterminated, so nothing
+#: downstream would have noticed except by failing to parse it.
+REASON_MAX_TOKENS_TRUNCATED = "max_tokens_truncated"
 REASON_HTTP_429 = "http_429"
 REASON_HTTP_ERROR = "http_error"
 REASON_NO_TEXT_CONTENT = "no_text_content"
@@ -32,6 +36,7 @@ TRANSPORT_REASON_CODES: frozenset[str] = frozenset(
     {
         REASON_NO_CANDIDATES,
         REASON_MAX_TOKENS_NO_PARTS,
+        REASON_MAX_TOKENS_TRUNCATED,
         REASON_HTTP_429,
         REASON_HTTP_ERROR,
         REASON_NO_TEXT_CONTENT,

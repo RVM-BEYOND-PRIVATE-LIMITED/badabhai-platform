@@ -301,13 +301,70 @@ _DELETE_CODEPOINTS: Final = tuple(
     if codepoint != 0x0A and codepoint not in _SPACE_CODEPOINTS + _BREAK_CODEPOINTS
 )
 
+# ---------------------------------------------------------------------------
+# Typographic punctuation fold (#1657)
+# ---------------------------------------------------------------------------
+#
+# GATE 1 IS CHARACTER-LITERAL APART FROM WHITESPACE, deliberately: `_quote_appears_in`
+# asks whether the model's quote is a literal substring of a real line, and that
+# strictness is what makes a fabricated value structurally impossible. The gate is right.
+# THE INPUT WAS THE PROBLEM.
+#
+# A resume exported from Word, Google Docs or an HTML-to-PDF pipeline is full of
+# typography a model does not reliably echo. Measured on a real CNC-turner CV (2 pages,
+# 86 lines), EN DASH (U+2013) appeared on exactly the lines the parse most needs - every
+# employment header's year range, and every education line:
+#
+#     [45] 'CNC Turner / CNC Setter | 2017 <EN DASH> 2021'
+#     [65] 'ITI <EN DASH> Turner Trade'
+#
+# Asked to quote line 45 character for character, a model very commonly returns
+# '... | 2017 - 2021' with an ASCII hyphen. That is an HONEST citation of a real line,
+# and gate 1 dropped it - one field at a time, until a document extracted nothing at all.
+# A BadaBhai-generated resume never showed this, because WeasyPrint renders our own
+# database strings and those are near-pure ASCII.
+#
+# WHY THIS DOES NOT WEAKEN THE GATE. The fold runs inside `_normalize_block`, BEFORE the
+# lines are numbered and stored - and the model's input and the provenance corpus are the
+# SAME `lines` object. Both sides see the folded text, so the gate stays exactly as
+# literal as it was; the corpus simply stops containing characters nobody can round-trip.
+# Folding at COMPARISON time would have been the dangerous version of this fix: it would
+# have let a quote differ from the line it claims to come from and still pass.
+#
+# MEASURED, NOT ASSUMED. NFKC (applied just above) already folds U+2011 -> U+2010,
+# U+2026 -> "...", and U+2033 -> two U+2032. It leaves EVERY dash and EVERY smart quote
+# untouched - which is why this table is needed at all, and why U+2010 is in it: NFKC
+# hands the non-breaking hyphen on as a plain Unicode hyphen, still not ASCII.
+
+# The dash family -> ASCII HYPHEN-MINUS. Includes the Unicode hyphen NFKC leaves behind,
+# and MINUS SIGN, which spreadsheets and some PDF writers emit inside date ranges.
+_DASH_CODEPOINTS: Final = (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)
+
+# The single-quote family -> ASCII APOSTROPHE. PRIME is here because a model reading
+# "10' bar stock" returns an apostrophe for it essentially always.
+_SINGLE_QUOTE_CODEPOINTS: Final = (0x2018, 0x2019, 0x201A, 0x201B, 0x2032)
+
+# The double-quote family -> ASCII QUOTATION MARK.
+_DOUBLE_QUOTE_CODEPOINTS: Final = (0x201C, 0x201D, 0x201E, 0x201F)
+
+# SOFT HYPHEN is DELETED, not folded. It is a discretionary break that renders only when
+# a line actually wraps, so the document a human reads has no hyphen there at all. Folding
+# it to "-" would put a character in the corpus that is not on the page, and a model
+# quoting what it can see would then fail gate 1 for the opposite reason.
+_SOFT_HYPHEN: Final = (0x00AD,)
+
 # ONE table, ONE pass. Built in this order so a code point can never be listed as both
 # deleted and replaced without the later entry winning silently — the comprehension
-# above removes the overlap at the source instead.
+# above removes the overlap at the source instead, and `test_translate_table_has_no_overlap`
+# fails the build if a future entry reintroduces one.
 _TRANSLATE_TABLE: Final = {
     **dict.fromkeys(_DELETE_CODEPOINTS),
+    **dict.fromkeys(_SOFT_HYPHEN),
     **dict.fromkeys(_SPACE_CODEPOINTS, " "),
     **dict.fromkeys(_BREAK_CODEPOINTS, "\n"),
+    **dict.fromkeys(_DASH_CODEPOINTS, "-"),
+    **dict.fromkeys(_SINGLE_QUOTE_CODEPOINTS, "'"),
+    **dict.fromkeys(_DOUBLE_QUOTE_CODEPOINTS, '"'),
 }
 
 _RUNS_RE = re.compile(r" {2,}")

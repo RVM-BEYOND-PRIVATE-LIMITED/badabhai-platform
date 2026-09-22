@@ -857,3 +857,87 @@ def test_real_tesseract_reads_a_scanned_pdf_through_the_rasterizer():
     assert result.method == "ocr"
     assert result.page_count == 1
     assert "CNC" in result.text.upper()
+
+
+# ---------------------------------------------------------------------------
+# #1657 - typographic punctuation fold
+#
+# Gate 1 is character-literal apart from whitespace, and that strictness is what makes a
+# fabricated value structurally impossible. The gate was right; the INPUT was the problem.
+# A Word / Google-Docs / HTML-to-PDF resume is full of typography a model does not echo,
+# and on a real CNC-turner CV the EN DASH sat on exactly the lines the parse most needs.
+#
+# CODE POINTS, NEVER THE CHARACTERS, same doctrine as the module under test: a literal
+# en dash in a test file is indistinguishable from a hyphen in every editor and diff that
+# would ever review it, and one bad encoding round-trip silently turns the assertion into
+# a tautology about mojibake.
+# ---------------------------------------------------------------------------
+
+_EN_DASH = chr(0x2013)
+
+
+def test_en_dash_year_range_folds_to_ascii_hyphen():
+    # The literal line from the failing 2-page CV, line 45.
+    line = f"CNC Turner / CNC Setter | 2017 {_EN_DASH} 2021"
+    assert extract_mod._normalize_block(line) == ["CNC Turner / CNC Setter | 2017 - 2021"]
+
+
+def test_every_dash_in_the_family_folds():
+    # HYPHEN, NON-BREAKING HYPHEN, FIGURE DASH, EN DASH, EM DASH, HORIZONTAL BAR, MINUS.
+    # U+2011 is in the set even though NFKC folds it - NFKC hands it on as U+2010, which
+    # is still not ASCII, so without this table it would survive.
+    for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212):
+        out = extract_mod._normalize_block(f"2017 {chr(cp)} 2021")
+        assert out == ["2017 - 2021"], f"U+{cp:04X} did not fold"
+
+
+def test_smart_quotes_fold_to_ascii():
+    left, right = chr(0x201C), chr(0x201D)
+    assert extract_mod._normalize_block(f"he said {left}hello{right}") == ['he said "hello"']
+    assert extract_mod._normalize_block(f"worker{chr(0x2019)}s tools") == ["worker's tools"]
+    assert extract_mod._normalize_block(f"10{chr(0x2032)} bar stock") == ["10' bar stock"]
+
+
+def test_soft_hyphen_is_deleted_not_folded():
+    # A discretionary break renders only when a line actually wraps, so the page a human
+    # reads has no hyphen there. Folding it to "-" would put a character in the corpus
+    # that is not on the page, and a model quoting what it SEES would then fail gate 1
+    # for the opposite reason.
+    assert extract_mod._normalize_block(f"co{chr(0x00AD)}operate") == ["cooperate"]
+
+
+def test_the_folded_line_is_what_the_model_is_handed():
+    # THE LOAD-BEARING PROPERTY. The fold runs before the lines are numbered and stored,
+    # and the model's input and the gate's provenance corpus are the SAME object - so the
+    # gate stays exactly as literal as it was. Folding at COMPARISON time would have been
+    # the dangerous version of this fix: it would have let a quote differ from the line it
+    # claims to come from and still pass.
+    folded = extract_mod._normalize_block(f"ITI {_EN_DASH} Turner Trade")[0]
+    assert _EN_DASH not in folded
+    assert folded == "ITI - Turner Trade"
+
+
+def test_ordinary_ascii_is_untouched():
+    # Vacuity guard: a fold that mangled normal text would satisfy every assertion above.
+    for line in ("CNC Turner", "Apex Auto Components", "ITI - Turner Trade", "2017-2021"):
+        assert extract_mod._normalize_block(line) == [line]
+
+
+def test_translate_table_has_no_overlap():
+    # The module comment promises "a code point can never be listed as both deleted and
+    # replaced without the later entry winning silently". #1657 added four more source
+    # tuples to that table, so the promise needs a test rather than an ordering convention.
+    groups = {
+        "delete": extract_mod._DELETE_CODEPOINTS,
+        "soft_hyphen": extract_mod._SOFT_HYPHEN,
+        "space": extract_mod._SPACE_CODEPOINTS,
+        "break": extract_mod._BREAK_CODEPOINTS,
+        "dash": extract_mod._DASH_CODEPOINTS,
+        "single_quote": extract_mod._SINGLE_QUOTE_CODEPOINTS,
+        "double_quote": extract_mod._DOUBLE_QUOTE_CODEPOINTS,
+    }
+    seen: dict[int, str] = {}
+    for name, codepoints in groups.items():
+        for cp in codepoints:
+            assert cp not in seen, f"U+{cp:04X} is in both {seen[cp]} and {name}"
+            seen[cp] = name

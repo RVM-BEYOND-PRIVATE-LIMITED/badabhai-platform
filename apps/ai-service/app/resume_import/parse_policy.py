@@ -41,7 +41,9 @@ step deleted. Tightening it later is a config change plus a test, not a re-plumb
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from typing import Final
 
 from ..profiling.parse_masking import Masker, default_masker, passthrough_masker
 from ..pseudonymize import contains_hard_identifier
@@ -94,6 +96,41 @@ def mask_resume_lines(lines: list[Line], mask: Masker) -> MaskedLines:
     return MaskedLines(lines=tuple(kept), dropped=dropped)
 
 
+#: THE MASKER'S OWN OUTPUT SHAPE (#1658), as `pseudonymize` mints it:
+#: `tok = f"[{prefix}_{counters[prefix]}]"`. Matched by SHAPE rather than by a list of
+#: known prefixes, so a prefix added to the masker tomorrow is covered the day it ships
+#: instead of the day somebody remembers this constant exists.
+_MASK_PLACEHOLDER_RE: Final = re.compile(r"\[[A-Z][A-Z0-9]*_\d+\]")
+
+
+def contains_mask_placeholder(text: str) -> bool:
+    """True when `text` carries a pseudonymization placeholder anywhere inside it.
+
+    WHY THIS IS AT GATE 6 AND NOT A PRIVACY FIX. Nothing leaked - the wall held, and that
+    is exactly the problem: it is the WALL'S OUTPUT being stored as though it were a fact
+    the worker asserted.
+
+    With `RESUME_PARSE_RAW_TEXT_ENABLED` off, `default_masker` runs over each line before
+    the model sees it, and on a real CNC-turner CV that produced:
+
+        [33] '[EMPLOYER_1] & [EMPLOYER_2]., Jaipur, Rajasthan'
+
+    `[EMPLOYER_1] & [EMPLOYER_2].` contains no hard identifier, so it passed gate 6. It is
+    a literal substring of line 33, so it passed gate 1. It is precisely what the prompt
+    asks for - "employer_name exactly as written". So a row whose employer is that string
+    was staged into `suggestions_enc`, offered to the worker, and could reach
+    `employer_name_enc` and the resume sheet.
+
+    PARTIAL MATCHES COUNT. The refusal is `search`, not `fullmatch`, because the damaging
+    value above is only PARTLY a placeholder - an employer name half-replaced by tokens is
+    no more a fact about the worker than one wholly replaced.
+
+    NO POLICY ARGUMENT, same discipline as `resume_value_certifier` below: there must be
+    no parameter that could ever point this at the input masker and turn it off.
+    """
+    return _MASK_PLACEHOLDER_RE.search(text) is not None
+
+
 def resume_value_certifier(text: str) -> tuple[bool, str]:
     """What reaches the DATABASE. Gate 6's wall for this route, and NOT switchable.
 
@@ -108,4 +145,9 @@ def resume_value_certifier(text: str) -> tuple[bool, str]:
     something it did not. A value carrying a hard identifier is refused outright; that is
     the whole decision.
     """
+    if contains_mask_placeholder(text):
+        # #1658 - the masker's own token can never be something the worker wrote. Refused
+        # here rather than in the two callers, so field values, `employer_name`,
+        # `role_title` and the cited quote are all covered by one decision.
+        return True, text
     return contains_hard_identifier(text) is not None, text
