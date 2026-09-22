@@ -149,7 +149,10 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
     // requirements/needed_by, #1561) — and rank is 1-based. BL-18: this
     // list was stale (pay_min/pay_max/shift are current match-feed.service.ts
     // fields, MatchFeedItem, added after this test was last updated and never
-    // caught because the test never ran). Still PII-FREE: pay_min/pay_max are
+    // caught because the test never ran). #1648/#1649 added `pay_type` and
+    // `posted_at` and this list went stale the SAME WAY — the E2E job is
+    // path-gated, so the whole api suite stayed green and only CI caught it.
+    // Still PII-FREE: pay_min/pay_max are
     // a RANGE (never an exact figure a worker gave), never an employer name,
     // never a worker identity — the schema classes them alongside the
     // experience window (ADR-0024 addendum 2026-07-15).
@@ -166,6 +169,14 @@ describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
           "needed_by",
           "pay_max",
           "pay_min",
+          // #1648 — what the ₹ band MEANS (`in_hand`|`gross`|`ctc`), or NULL when the
+          // poster did not state it. A coarse closed enum, PII-free on the same footing
+          // as the band itself: it says how to read a range, never an exact figure and
+          // never anything about an employer.
+          "pay_type",
+          // #1649 — when the job was posted. A timestamp, not an identity signal. The
+          // Jobs tab claimed "Aaj N naye jobs" while the feed carried no date at all.
+          "posted_at",
           "rank",
           "requirements",
           "shift",
