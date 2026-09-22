@@ -1403,3 +1403,263 @@ def test_an_omitted_key_is_no_judgment_not_a_failure(monkeypatch):
     )
     assert out.failure_reason is None
     assert out.trade_association is None
+
+
+# ===========================================================================
+# 10. SHAPE DAMAGE IS PER-ENTRY — the reply that used to be all-or-nothing
+# ===========================================================================
+#
+# `_read_resume_output` validated `fields` and `employments` as ONE strict tree, so a
+# single malformed entry returned `parse_output_invalid` and discarded every good entry
+# beside it. Downstream: the import row is marked `failed`, the processor skips the
+# summary, and the worker never gets the "Kya ye aap hi hain?" turn — for one bad row.
+#
+# A real 2-page English CV produced such rows on every run. Extraction and masking were
+# fine (86 lines, `pdf_text`); it was the reply that could not survive contact with its
+# own contract. The measured cases are below, and every one of them used to be fatal:
+#
+#   end_year "Present" · confidence 95 · an omitted `evidence` · message_index "4"
+#   against a strict int · normalization "none" · source "resume"
+#
+# `gate_employments`, `apply_parse_gates` and `mask_resume_lines` already had the right
+# posture — drop the ENTRY, count it, keep going. This section pins that the SHAPE check
+# upstream of them now has it too, and that it did not buy resilience by weakening a gate.
+
+DAMAGED_LINE = "CNC Turner | Tata Motors Ltd | Pune | 2021 - Present"
+
+#: Sentinel for "the model omitted this key entirely", which is not the same damage as
+#: sending null for it — the most common of the six real failures was an absent `evidence`.
+OMITTED = object()
+
+
+def employment_row(**over) -> dict:
+    """A shape-valid, gate-passing employment row with whatever is named here changed."""
+    row = {
+        "employer_name": "Tata Motors Ltd",
+        "role_title": "CNC Turner",
+        "start_year": 2019,
+        "end_year": 2021,
+        "evidence": {"message_index": 0, "quote": "Tata Motors Ltd"},
+    }
+    return _apply(row, over)
+
+
+def city_field(**over) -> dict:
+    """A shape-valid, gate-passing `current_city` with whatever is named here changed."""
+    return _apply(field_at(0, "Pune", "Pune"), over)
+
+
+def _apply(entry: dict, over: dict) -> dict:
+    for key, value in over.items():
+        if value is OMITTED:
+            entry.pop(key, None)
+        else:
+            entry[key] = value
+    return entry
+
+
+def run_damaged(reply: str, monkeypatch) -> object:
+    """One damaged reply through the WHOLE pipeline, raw-text on.
+
+    RAW-TEXT ON so the employer name survives the INPUT masker and provenance can
+    resolve its quote — the same reason `test_an_employer_name_survives_to_the_response`
+    turns it on. It does not move the output wall by one inch; that is section 1's
+    whole subject.
+    """
+    out, _ = run_parse(
+        texts=[DAMAGED_LINE],
+        reply=reply,
+        monkeypatch=monkeypatch,
+        resume_parse_raw_text_enabled=True,
+    )
+    return out
+
+
+def test_the_undamaged_reply_arrives_whole(monkeypatch):
+    """VACUITY GUARD, and it comes first on purpose. Every test below asserts that the
+    GOOD entries survived alongside a bad one; if the harness could not get them through
+    in the first place, all of them would pass while proving nothing."""
+    out = run_damaged(
+        model_reply(fields={"current_city": city_field()}, employments=[employment_row()]),
+        monkeypatch,
+    )
+    assert out.failure_reason is None
+    assert out.fields["current_city"].value == "Pune"
+    assert len(out.employments) == 1
+    # `raw_text_policy_active` is the posture this harness runs under, not a rejection.
+    assert out.notes == ["raw_text_policy_active"]
+
+
+@pytest.mark.parametrize(
+    ("label", "damage"),
+    [
+        ("end_year 'Present' for an open-ended stint", {"end_year": "Present"}),
+        ("message_index as the string '0'", {"evidence": {"message_index": "0", "quote": "x"}}),
+        ("a year outside the contract bounds", {"start_year": 1899}),
+        ("no evidence at all", {"evidence": OMITTED}),
+        ("the row is not an object", None),
+    ],
+)
+def test_a_malformed_employment_row_costs_only_that_row(label, damage, monkeypatch):
+    """B and E, plus the two neighbours the same reply produces.
+
+    The test CV had three stints, all with en-dash year ranges and one open-ended —
+    "2021 – Present". `end_year: "Present"` is not an int, and that one row used to take
+    the other two employments AND every cited field with it.
+    """
+    bad = "Tata Motors Ltd" if damage is None else employment_row(**damage)
+    out = run_damaged(
+        model_reply(
+            fields={"current_city": city_field()},
+            employments=[employment_row(), bad],
+        ),
+        monkeypatch,
+    )
+    assert out.failure_reason is None, f"{label} must not fail the whole parse"
+    assert len(out.employments) == 1, label
+    assert out.employments[0].employer_name == "Tata Motors Ltd"
+    assert out.fields["current_city"].value == "Pune", "the cited field must survive it"
+    assert "employments_rejected" in out.notes
+
+
+@pytest.mark.parametrize(
+    ("label", "damage"),
+    [
+        ("confidence as a percentage", {"confidence": 95}),
+        ("no evidence at all", {"evidence": OMITTED}),
+        ("message_index as the string '0'", {"evidence": {"message_index": "0", "quote": "Pune"}}),
+        ("normalization outside the literal", {"normalization": "none"}),
+        ("source outside the literal", {"source": "resume"}),
+        ("the entry is not an object", None),
+    ],
+)
+def test_a_malformed_field_costs_only_that_field(label, damage, monkeypatch):
+    """C, D, E, F and G. Each one used to return `parse_output_invalid` for the reply.
+
+    The damaged field is `current_city` and it cites a quote that IS in the line, so if
+    the shape check ever let one of these through, the gates would ACCEPT it and this
+    would go red rather than silently agree.
+    """
+    bad = "Pune" if damage is None else city_field(**damage)
+    out = run_damaged(
+        model_reply(
+            fields={"role_label": field_at(0, "CNC Turner", "CNC Turner"), "current_city": bad},
+            employments=[employment_row()],
+        ),
+        monkeypatch,
+    )
+    assert out.failure_reason is None, f"{label} must not fail the whole parse"
+    assert out.fields["role_label"].value == "CNC Turner", label
+    assert "current_city" not in out.fields
+    assert "current_city" in out.unparsed_field_ids
+    assert len(out.employments) == 1, "the employment beside it must survive too"
+    assert "fields_rejected" in out.notes
+
+
+def test_a_null_field_is_still_no_judgment_and_not_a_rejection(monkeypatch):
+    """The contract declares `ParsedField | None` and `apply_parse_gates` reads a null as
+    "I looked and found nothing citable" — an honest answer. Counting it as shape damage
+    would put a `fields_rejected` note on a clean parse and make the counter useless."""
+    out = run_damaged(
+        model_reply(
+            fields={"role_label": field_at(0, "CNC Turner", "CNC Turner"), "current_city": None},
+            employments=[],
+        ),
+        monkeypatch,
+    )
+    assert out.failure_reason is None
+    assert out.fields["role_label"].value == "CNC Turner"
+    assert "fields_rejected" not in out.notes
+
+
+def test_the_gates_still_run_on_every_entry_that_survives_the_shape_check(monkeypatch):
+    """THE LOAD-BEARING ONE. Resilience bought by relaxing a gate would be a privacy
+    regression wearing a bug fix's clothes.
+
+    Three employment rows in one reply: an honest one, one the shape check must drop
+    (`end_year: "Present"`), and one that is perfectly shaped and must be refused by gate
+    6 — a PAN in the employer name. Exactly one may come out. The same for the fields: a
+    damaged one and a shape-valid one whose value carries a PAN.
+    """
+    out = run_damaged(
+        model_reply(
+            fields={
+                "role_label": field_at(0, "CNC Turner", "CNC Turner"),
+                "current_city": city_field(confidence=95),
+                "experience_years": field_at(0, "CNC Turner", f"PAN {PAN}"),
+            },
+            employments=[
+                employment_row(),
+                employment_row(end_year="Present"),
+                employment_row(employer_name=f"Tata Motors Ltd PAN {PAN}"),
+            ],
+        ),
+        monkeypatch,
+    )
+    assert [e.employer_name for e in out.employments] == ["Tata Motors Ltd"]
+    assert set(out.fields) == {"role_label"}
+    assert PAN not in json.dumps(out.model_dump(), default=str)
+
+
+def test_shape_damage_adds_no_new_note_code(monkeypatch):
+    """The note vocabulary is closed because a note is counted on an event. A drop that
+    happens before the gates is reported under the gates' own two codes: from outside
+    this service "unreadable row" and "rejected row" are one outcome — it is not there."""
+    out = run_damaged(
+        model_reply(
+            fields={"current_city": city_field(source="resume")},
+            employments=[employment_row(end_year="Present")],
+        ),
+        monkeypatch,
+    )
+    assert set(out.notes) == {"fields_rejected", "employments_rejected", "raw_text_policy_active"}
+    assert all(note in RESUME_PARSE_NOTES for note in out.notes)
+
+
+@pytest.mark.parametrize(
+    ("label", "reply"),
+    [
+        ("prose instead of JSON", "I'm afraid I can't do that"),
+        ("a JSON array at the top level", "[1, 2, 3]"),
+        ("a bare JSON string", '"ok"'),
+        ("fields is a list, not an object", '{"fields": [], "employments": []}'),
+        ("employments is a string, not an array", '{"fields": {}, "employments": "none"}'),
+        ("fields is null", '{"fields": null, "employments": []}'),
+        ("unparsed_field_ids is an object", '{"fields": {}, "unparsed_field_ids": {}}'),
+    ],
+)
+def test_an_unreadable_body_is_still_parse_output_invalid(label, reply, monkeypatch):
+    """WHAT MUST STAY FATAL. Only per-ENTRY damage became survivable.
+
+    A container that is not a container is the model having ignored the response schema
+    outright, and a reply whose shape this service cannot recognise is one it has no way
+    to gate. The fail-closed reading of an ungateable overlay is "there was no overlay".
+    """
+    out = run_damaged(reply, monkeypatch)
+    assert out.failure_reason == "parse_output_invalid", label
+    assert out.fields == {}
+    assert out.employments == []
+
+
+def test_a_dropped_entry_puts_nothing_of_the_model_or_the_document_in_a_log(monkeypatch, caplog):
+    """THE NEW LEAK SURFACE, closed where it opened.
+
+    A pydantic `ValidationError` message quotes the input it rejected, and for a résumé
+    that input is an employer name, a phone number and the line they were printed on.
+    `_narrow_fields` / `_narrow_employments` therefore log NOTHING — they count, and the
+    pipeline logs the total. `resume_import.fields_rejected` has always worked this way;
+    the new drop path must not be the exception.
+    """
+    with caplog.at_level(logging.DEBUG):
+        out = run_damaged(
+            model_reply(
+                fields={"current_city": city_field(value=f"Ramesh Kumar {PHONE}", confidence=95)},
+                employments=[employment_row(employer_name=f"Bharat Forge {PAN}", end_year="Now")],
+            ),
+            monkeypatch,
+        )
+
+    assert out.failure_reason is None
+    emitted = "\n".join(r.getMessage() + repr(getattr(r, "extra", "")) for r in caplog.records)
+    for fragment in ("Ramesh", PHONE, PAN, "Bharat Forge", "Tata Motors", "Now", "confidence"):
+        assert fragment not in emitted, f"{fragment} reached a log line"
