@@ -12,13 +12,19 @@ import { ResumeImportRepository } from "./resume-import.repository";
  *
  * WHAT THIS PHASE OWNS AND WHAT IT DELIBERATELY DOES NOT. This service reads the
  * same document the parse just read, for {Job Role} + {total experience} + {short
- * summary} in Hinglish (Roman script). It does NOT decide where the worker goes,
- * does NOT stage a suggestion, does NOT write a row, does NOT emit an event, and
- * does NOT touch the chat — the Langfuse trace is the verification surface, and
- * the chat display is a follow-up slice. That split is why a summary failure can
- * never cost a worker their onboarding.
+ * summary} in Hinglish (Roman script), and stages those three values on the import
+ * row for the "Kya ye aap hi hain?" turn. It does NOT decide where the worker goes,
+ * does NOT stage a suggestion, does NOT touch `status`/`route`/`suggestions_enc`,
+ * and emits NO event — the worker's own tap on that turn is what gets recorded.
+ * That split is why a summary failure can never cost a worker their onboarding.
  *
- * BACKEND-ONLY MEANS BEST-EFFORT. Every failure — unreachable service, degraded
+ * IT IS CALLED ON A FAILED PARSE TOO (D9 amendment, #1654), for the two reasons
+ * where the document read fine and only our model reply did not. Nothing in this
+ * class needs to know that: it reads the row, calls, and stages — and the staging
+ * guard (`status IN ('parsing','parsed')`) holds because the caller runs this
+ * BEFORE either settle. See `ResumeImportProcessor` for the ordering and why.
+ *
+ * BEST-EFFORT, ALWAYS. Every failure — unreachable service, degraded
  * far side, off-contract reply, unknown role — returns null and logs PII-free
  * (role id + lengths + closed reason, never the Hinglish text). The caller
  * (`ResumeImportProcessor`) runs this beside the route and ignores null.
@@ -57,12 +63,17 @@ export class ResumeSummaryService {
    * STILL BEST-EFFORT. A row that cannot be read, a summary that never came back, or a stage
    * write the guard refused all return null and change nothing. The import proceeds exactly
    * as if this call never happened.
+   *
+   * THE KEY AND THE MIME COME OFF THE ROW, not off the caller (#1654). They used to ride on
+   * the parse's `parsed` draft, which meant this could only ever be called after a SUCCESSFUL
+   * parse — and the D9 amendment needs it called after two kinds of FAILED one, whose draft
+   * has no document on it to carry. The row was already being fetched on the line below for
+   * the staged-line check, so this costs no extra read: it takes two more columns off a query
+   * that had to happen anyway, and the same worker scope guards both.
    */
   async summarizeAndStage(
     workerId: string,
     importId: string,
-    storageKey: string,
-    mime: string,
     ctx: RequestContext,
   ): Promise<ResumeSummary | null> {
     const row = await this.imports.findForWorker(importId, workerId);
@@ -88,7 +99,7 @@ export class ResumeSummaryService {
       };
     }
 
-    const summary = await this.summarize(workerId, storageKey, mime, ctx);
+    const summary = await this.summarize(workerId, row.storageKey, row.mime, ctx);
     if (
       summary === null ||
       summary.failureReason !== null ||
@@ -119,7 +130,7 @@ export class ResumeSummaryService {
    * NEVER THROWS for a model-side failure: null means "no summary", and the import
    * proceeds exactly as if this call never happened. Only a programming bug (a
    * malformed storage key shape we built ourselves) is allowed to throw — and this
-   * method builds no keys, it only forwards the one the parse already used.
+   * method builds no keys, it only forwards the one the import row stores.
    */
   async summarize(
     workerId: string,
@@ -217,11 +228,10 @@ function narrowRoleKind(kind: string | null | undefined): TradeFormKind | null {
 }
 
 /**
- * What the (future) chat confirm will be handed. Deliberately NOT persisted here:
- * nothing about a summary is a claim the worker has made, and ruling D2 says a
- * suggestion becomes an answer only when he confirms it. Backend-only in this slice
- * means this value is logged (PII-free) and returned for Langfuse verification —
- * never written, never emitted, never rendered.
+ * What the chat's identity turn is handed. Staged on the import row and NOT anywhere
+ * a claim lives: nothing about a summary is a claim the worker has made, and ruling D2
+ * says a suggestion becomes an answer only when he confirms it. So these three values
+ * reach `worker_resume_import` and the bubble, and reach no answer table until he taps.
  */
 export interface ResumeSummary {
   readonly roleKind: TradeFormKind | null;

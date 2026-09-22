@@ -36,6 +36,11 @@ function setup(
         ? opts.row
         : {
             id: "import-1",
+            // THE DOCUMENT LIVES ON THE ROW, not in the caller's arguments (#1654). The
+            // draft the processor hands in may now be a FAILED one, which carries neither
+            // a storage key nor a mime — and this read was already happening anyway.
+            storageKey: STORAGE_KEY,
+            mime: MIME,
             identityRoleKind: null,
             identityExperienceText: null,
             identitySummaryText: null,
@@ -105,21 +110,37 @@ describe("ResumeSummaryService — summarizeAndStage (check-then-call, staged fo
     const { svc, ai, imports } = setup({
       row: {
         id: "import-1",
+        storageKey: STORAGE_KEY,
+        mime: MIME,
         identityRoleKind: "welder",
         identityExperienceText: "2 saal ka tajurba",
         identitySummaryText: "Welding ka kaam",
       },
     });
-    const result = await svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX);
+    const result = await svc.summarizeAndStage(WORKER, "import-1", CTX);
 
     expect(ai.summarizeResume).not.toHaveBeenCalled();
     expect(imports.saveIdentitySummary).not.toHaveBeenCalled();
     expect(result).toMatchObject({ roleKind: "welder", failureReason: null });
   });
 
+  it("takes the storage key and mime off the ROW, never off the caller (#1654)", async () => {
+    // The failed-parse draft the processor now hands in carries neither, so a signature that
+    // demanded them was the reason the summary could only ever follow a SUCCESSFUL parse.
+    const { svc, ai, imports } = setup();
+    await svc.summarizeAndStage(WORKER, "import-1", CTX);
+
+    expect(imports.findForWorker).toHaveBeenCalledWith("import-1", WORKER);
+    // ONE read, not two: the staged-line check and the document both come off it.
+    expect(imports.findForWorker).toHaveBeenCalledOnce();
+    const sent = ai.summarizeResume.mock.calls[0]![0];
+    expect(sent.storage_key).toBe(STORAGE_KEY);
+    expect(sent.mime).toBe(MIME);
+  });
+
   it("calls once and stages the line on the row", async () => {
     const { svc, ai, imports } = setup();
-    const result = await svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX);
+    const result = await svc.summarizeAndStage(WORKER, "import-1", CTX);
 
     expect(ai.summarizeResume).toHaveBeenCalledOnce();
     expect(imports.saveIdentitySummary).toHaveBeenCalledWith("import-1", {
@@ -135,7 +156,7 @@ describe("ResumeSummaryService — summarizeAndStage (check-then-call, staged fo
       out: output({ role_kind: null, experience_text: null, summary_text: null }),
     });
     await expect(
-      svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX),
+      svc.summarizeAndStage(WORKER, "import-1", CTX),
     ).resolves.toBeNull();
     expect(imports.saveIdentitySummary).not.toHaveBeenCalled();
   });
@@ -143,7 +164,7 @@ describe("ResumeSummaryService — summarizeAndStage (check-then-call, staged fo
   it("returns null for a row that is gone without an existence oracle", async () => {
     const { svc, ai } = setup({ row: null });
     await expect(
-      svc.summarizeAndStage(WORKER, "import-1", STORAGE_KEY, MIME, CTX),
+      svc.summarizeAndStage(WORKER, "import-1", CTX),
     ).resolves.toBeNull();
     expect(ai.summarizeResume).not.toHaveBeenCalled();
   });

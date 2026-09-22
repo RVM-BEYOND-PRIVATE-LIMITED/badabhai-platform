@@ -254,7 +254,12 @@ function parseOutput(overrides: Partial<ResumeParseOutput> = {}): ResumeParseOut
 }
 
 function setup(
-  opts: { out?: ResumeParseOutput; encryptFailures?: number; eventFailures?: number } = {},
+  opts: {
+    out?: ResumeParseOutput;
+    encryptFailures?: number;
+    eventFailures?: number;
+    summaryThrows?: boolean;
+  } = {},
 ) {
   const table = new FakeImportsTable();
   table.eventFailures = opts.eventFailures ?? 0;
@@ -314,13 +319,32 @@ function setup(
     { map: vi.fn(async () => []) } as never,
   );
   // RI-summary is best-effort: null means "no summary", never a failure.
-  const summary = { summarizeAndStage: vi.fn().mockResolvedValue(null) };
+  //
+  // THE ORDERING PROBE. Every call records what the row and the events table looked like AT
+  // THAT MOMENT. That is the only way to pin #1654's race from outside: the real defect is
+  // not "was the summary called" but "was it called while the client could still not see a
+  // terminal row". A summary that runs after `markFailed` has already committed has lost —
+  // the worker-app's `_pollToTerminal` returns on `hasFailed` and the chat has already asked
+  // its first question by the time the line lands.
+  const observed: { status: string; failureEvents: number }[] = [];
+  const summary = {
+    summarizeAndStage: vi.fn(async () => {
+      observed.push({
+        status: table.row.status,
+        failureEvents: table.events.filter((e) => e.event_name === "profile.resume_parse_failed")
+          .length,
+      });
+      if (opts.summaryThrows) throw new Error("summary exploded");
+      return null;
+    }),
+  };
   return {
     processor: new ResumeImportProcessor(parse, routing, summary as never),
     table,
     ai,
     crypto,
     summary,
+    observed,
   };
 }
 
@@ -428,5 +452,119 @@ describe("ResumeImportProcessor — status and route land together, or not at al
     expect(table.row).toMatchObject({ status: "failed", failureReason: "parse_output_invalid" });
     expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parse_failed"]);
     expect(parsedWithoutRoute(table.committed)).toEqual([]);
+  });
+});
+
+/**
+ * Ruling D9 amendment (owner, 2026-09-22, #1654) — the identity line survives OUR failure.
+ *
+ * THE ASSERTION THAT MATTERS IS THE ORDER, not the call count. Widening the gate alone ships
+ * a feature that is green in every unit test and invisible to every worker: `markFailed` makes
+ * the row terminal, the app's poll returns on the first terminal read, the chat opens and asks
+ * `identityForChat` — and the summary's LLM call is still in flight. `observed` records the
+ * row's status and the failure-event count AT THE MOMENT the summary was entered; both must
+ * still say "nothing has settled yet".
+ */
+describe("ResumeImportProcessor — the identity summary and OUR failures (#1654)", () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Extraction SUCCEEDED; only our own model reply was unusable. */
+  const OURS = ["parse_output_invalid", "parse_deadline_exceeded"] as const;
+  /** The document itself was the problem. Nothing a second read could recover. */
+  const THE_DOCUMENTS = ["no_text_layer", "encrypted_document"] as const;
+
+  it.each(OURS)(
+    "%s: the summary is attempted, and the failure settles only AFTER it",
+    async (reason) => {
+      const { processor, table, summary, observed } = setup({
+        out: parseOutput({ failure_reason: reason, fields: {} }),
+      });
+
+      const result = await processor.process(JOB);
+
+      expect(summary.summarizeAndStage).toHaveBeenCalledOnce();
+      // The row is fetched by id + worker inside the service; the draft carries no document.
+      expect(summary.summarizeAndStage).toHaveBeenCalledWith(WORKER, IMPORT, {
+        correlationId: "33333333-3333-4333-8333-333333333333",
+        requestId: "req-1",
+      });
+      // THE REGRESSION PIN. Still `parsing`, still uncounted, when the line was staged.
+      expect(observed).toEqual([{ status: "parsing", failureEvents: 0 }]);
+      // …and the settle really did happen afterwards, so this is an ORDER and not an omission.
+      expect(table.row).toMatchObject({ status: "failed", failureReason: reason });
+      expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parse_failed"]);
+      expect(table.committed.map((r) => r.status)).toEqual(["parsing", "failed"]);
+      expect(result).toEqual({ import_id: IMPORT, route: null });
+    },
+  );
+
+  it.each(THE_DOCUMENTS)("%s: nothing is summarised, and the failure settles as before", async (reason) => {
+    // THE DOCUMENT'S FAILURE, NOT OURS. The summary would degrade inside its own `extract()`
+    // and stage nothing anyway — the closed set is what stops us paying a storage fetch and a
+    // model call to rediscover that.
+    const { processor, table, summary, observed } = setup({
+      out: parseOutput({ failure_reason: reason, fields: {}, extraction_method: null }),
+    });
+
+    await processor.process(JOB);
+
+    expect(summary.summarizeAndStage).not.toHaveBeenCalled();
+    expect(observed).toEqual([]);
+    expect(table.row).toMatchObject({ status: "failed", failureReason: reason });
+    expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parse_failed"]);
+  });
+
+  it("still exactly ONE `profile.resume_parse_failed`, including across a redelivery", async () => {
+    // The settle moved; its guard did not. `markFailed` is still `WHERE status = 'parsing'`
+    // and the event still rides the same transaction under the same idempotency key, so the
+    // second delivery finds a row past `uploaded`, never reaches the summary, and counts
+    // nothing.
+    const { processor, table, ai, summary } = setup({
+      out: parseOutput({ failure_reason: "parse_output_invalid", fields: {} }),
+    });
+    await processor.process(JOB);
+    const settled = { ...table.row };
+
+    const again = await processor.process(JOB);
+
+    expect(again).toEqual({ import_id: IMPORT, route: null });
+    expect(ai.parseResume).toHaveBeenCalledTimes(1);
+    expect(summary.summarizeAndStage).toHaveBeenCalledTimes(1);
+    expect(table.row).toEqual(settled);
+    expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parse_failed"]);
+  });
+
+  it("a summary that THROWS still leaves the worker his failure record", async () => {
+    // The summary is best-effort; the settle is not. The deferral must not have made the
+    // failure record contingent on a second LLM call succeeding.
+    const { processor, table, observed } = setup({
+      out: parseOutput({ failure_reason: "parse_deadline_exceeded", fields: {} }),
+      summaryThrows: true,
+    });
+
+    const result = await processor.process(JOB);
+
+    expect(result).toEqual({ import_id: IMPORT, route: null });
+    expect(observed).toEqual([{ status: "parsing", failureEvents: 0 }]);
+    expect(table.row).toMatchObject({
+      status: "failed",
+      failureReason: "parse_deadline_exceeded",
+    });
+    expect(table.events.map((e) => e.event_name)).toEqual(["profile.resume_parse_failed"]);
+  });
+
+  it("on a PARSED import the summary still runs before the settle — the order that already worked", async () => {
+    // VACUITY CHECK on the whole block: the failed path was made to match this one, so this
+    // one must still be what it was.
+    const { processor, table, observed } = setup();
+
+    await processor.process(JOB);
+
+    expect(observed).toEqual([{ status: "parsing", failureEvents: 0 }]);
+    expect(table.row).toMatchObject({ status: "parsed", route: "form" });
   });
 });

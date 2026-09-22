@@ -374,7 +374,15 @@ describe("DEGRADES ON AN OUTAGE (ruling D9)", () => {
     const { svc, events, imports } = setup();
     const result = await svc.route(
       WORKER,
-      { status: "failed", importId: IMPORT, reason: "empty_document" },
+      {
+        status: "failed",
+        importId: IMPORT,
+        reason: "empty_document",
+        extractionMethod: null,
+        // ALREADY RECORDED by the parse service — a document-level reason is not deferred
+        // (#1654). Either way this service settles nothing for a failed draft.
+        settled: true,
+      },
       CTX,
     );
 
