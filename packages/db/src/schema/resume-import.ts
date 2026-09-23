@@ -50,6 +50,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import {
+  type ResumeDegradedPostureName,
   type ResumeExtractionMethodName,
   type ResumeImportFailureName,
   type ResumeImportRouteName,
@@ -147,6 +148,35 @@ export const workerResumeImports = pgTable(
     // "we did not record it" must never render as "we found nothing".
     fieldsExtracted: integer("fields_extracted"),
 
+    // ── #1656: WHY the parse yielded nothing, when the document was not at fault ──
+    //
+    // `fields_extracted` above says HOW MUCH. It cannot say WHY, and the two roads to zero
+    // need opposite responses: a document that genuinely carries none of the eight target
+    // fields is a parser/RI-7 problem, while a spend cap, a provider cooldown, a cost ceiling
+    // or the kill switch sending the router to the deterministic mock is an OPS posture with
+    // no parser involvement at all. The far side has always distinguished them on the wire
+    // (`notes`); nothing recorded it, so "how often does our parser let a worker down" counted
+    // spend-capped no-ops as successful parses.
+    //
+    // A CLOSED VOCABULARY (`RESUME_DEGRADED_POSTURES`), never model text and never free text —
+    // the same discipline `failure_reason` and `association_kind` keep, for the same reason:
+    // this column is aggregated, and an open string here is a free-text channel from a model
+    // into our funnel.
+    //
+    // NOT A FAILURE, AND THE CHECK IS DELIBERATELY NOT TIED TO `status`. A degraded posture
+    // still settles `parsed` and still routes (ruling D9) — it must not cost the worker his
+    // onboarding. `wri_failure_reason_chk` is a biconditional because a failure MUST be
+    // explicable; this is a plain membership CHECK because a degraded posture is an ordinary
+    // property of an ordinary parsed row, and constraining it to one status would forbid a
+    // later writer (the failure path records nothing here today) from telling the truth.
+    //
+    // NULLABLE WITH NO BACKFILL, and NULL carries TWO readings that must not be merged into a
+    // fact: "parsed before this column existed" and "parsed with no degraded posture". Neither
+    // is "degraded", which is all any consumer may conclude from NULL. The event draws the
+    // distinction the row cannot — an ABSENT `degraded_posture` key is the first reading, an
+    // explicit `null` the second.
+    degradedPosture: text("degraded_posture").$type<ResumeDegradedPostureName>(),
+
     /** AES-256-GCM token over the staged suggestion payload. NEVER read without PiiCrypto. */
     suggestionsEnc: text("suggestions_enc"),
     failureReason: text("failure_reason").$type<ResumeImportFailureName>(),
@@ -187,6 +217,14 @@ export const workerResumeImports = pgTable(
     check(
       "wri_fields_extracted_nonneg_chk",
       sql`${t.fieldsExtracted} IS NULL OR ${t.fieldsExtracted} >= 0`,
+    ),
+    // #1656 — the closed degraded-posture vocabulary (`RESUME_DEGRADED_POSTURES`), spelled
+    // out like every other CHECK here rather than referenced: a migration is a frozen
+    // record, and a third posture would widen the constant AND this list in the same
+    // change (the settle test pins the SQL it compiles).
+    check(
+      "wri_degraded_posture_chk",
+      sql`${t.degradedPosture} IS NULL OR ${t.degradedPosture} IN ('llm_unavailable', 'mock_no_parse')`,
     ),
     check(
       "wri_identity_role_kind_chk",

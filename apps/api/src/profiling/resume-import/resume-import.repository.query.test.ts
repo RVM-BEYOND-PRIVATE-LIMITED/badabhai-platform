@@ -54,7 +54,7 @@ describe("settleParsedStatement", () => {
   const compiled = settleParsedStatement(
     db,
     ID,
-    { extractionMethod: "ocr", pageCount: 2, ocrConfidence: 0.8 , fieldsExtracted: 3},
+    { extractionMethod: "ocr", pageCount: 2, ocrConfidence: 0.8 , fieldsExtracted: 3, degradedPosture: null },
     { route: "form", formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" },
   ).toSQL();
 
@@ -88,14 +88,48 @@ describe("settleParsedStatement", () => {
     expect(boundTo({ sql: setClause, params: compiled.params }, /"ocr_confidence" = \$(\d+)/)).toBe(
       0.8,
     );
+    // #1656 — the degraded posture rides the SAME statement. If it ever moves to a second
+    // write, a reader can see a `parsed` row whose zero count has lost the reason behind it,
+    // and the funnel goes back to counting spend-capped no-ops as successful parses.
+    expect(
+      boundTo({ sql: setClause, params: compiled.params }, /"degraded_posture" = \$(\d+)/),
+    ).toBeNull();
     expect(compiled.sql).toMatch(/returning "id"/);
+  });
+
+  it("writes the degraded posture as a bound PARAMETER, never inlined into the SQL", () => {
+    // #1656. The value originates in an ai-service `notes` array, so it must reach Postgres as
+    // a parameter and never as literal SQL text — the service narrows it to a closed set first,
+    // and this is the second wall behind that.
+    const degraded = settleParsedStatement(
+      db,
+      ID,
+      {
+        extractionMethod: "pdf_text",
+        pageCount: 1,
+        ocrConfidence: null,
+        fieldsExtracted: 0,
+        degradedPosture: "mock_no_parse",
+      },
+      { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null },
+    ).toSQL();
+    const set = {
+      sql: degraded.sql.slice(0, degraded.sql.indexOf(" where ")),
+      params: degraded.params,
+    };
+
+    expect(boundTo(set, /"degraded_posture" = \$(\d+)/)).toBe("mock_no_parse");
+    expect(degraded.sql).not.toContain("mock_no_parse");
+    // …and the count it explains is in the same SET clause, not a second one.
+    expect(boundTo(set, /"fields_extracted" = \$(\d+)/)).toBe(0);
+    expect(boundTo(degraded, WHERE_STATUS)).toBe("parsing");
   });
 
   it("nulls form kind on the chat route and confidence off OCR — both CHECKs are equivalences", () => {
     const chat = settleParsedStatement(
       db,
       ID,
-      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.8 , fieldsExtracted: 3},
+      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.8 , fieldsExtracted: 3, degradedPosture: null },
       { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
     ).toSQL();
     const set = { sql: chat.sql.slice(0, chat.sql.indexOf(" where ")), params: chat.params };
@@ -197,7 +231,7 @@ describe("rows -> boolean: zero rows means this call settled nothing", () => {
   // `null` AS THE INJECTED DATABASE IS DELIBERATE. `tx` is required, not defaulted; a settle
   // that reached for `this.db` instead would throw here rather than quietly run off-transaction.
   const repo = new ResumeImportRepository(null as unknown as Database);
-  const FACTS = { extractionMethod: "pdf_text" as const, pageCount: 1, ocrConfidence: null , fieldsExtracted: 3};
+  const FACTS = { extractionMethod: "pdf_text" as const, pageCount: 1, ocrConfidence: null , fieldsExtracted: 3, degradedPosture: null };
   const ROUTING = { route: "form" as const, formKind: "cnc_turner", associationKind: "cnc_turner", suggestionsEnc: "v1:token" };
 
   it("settleParsed: [] -> false (a redelivery emits nothing), [{id}] -> true", async () => {

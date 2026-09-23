@@ -35,7 +35,7 @@ const DATABASE_URL =
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
 
 const WORKER = "00000000-0000-4000-8000-00000000a141";
-const FACTS_OCR = { extractionMethod: "ocr" as const, pageCount: 2, ocrConfidence: 0.81 , fieldsExtracted: 3};
+const FACTS_OCR = { extractionMethod: "ocr" as const, pageCount: 2, ocrConfidence: 0.81 , fieldsExtracted: 3, degradedPosture: null };
 const FORM = {
   route: "form" as const,
   formKind: "cnc_turner",
@@ -114,7 +114,7 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
     const wrote = await repo.withTransaction((tx) =>
       repo.settleParsed(
         id,
-        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.5 , fieldsExtracted: 3},
+        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: 0.5 , fieldsExtracted: 3, degradedPosture: null },
         { route: "chat", formKind: "cnc_turner", associationKind: "fitter", suggestionsEnc: null },
         tx,
       ),
@@ -137,7 +137,7 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
     const again = await repo.withTransaction((tx) =>
       repo.settleParsed(
         id,
-        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null , fieldsExtracted: 3},
+        { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null , fieldsExtracted: 3, degradedPosture: null },
         { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null },
         tx,
       ),
@@ -191,6 +191,63 @@ describe.skipIf(!RUN)("ResumeImportRepository settle + failure guards (migration
       }),
     ).rejects.toThrow("emit refused");
     expect(await read(id)).toMatchObject({ status: "parsing", route: null, suggestionsEnc: null });
+  });
+
+  it.each(["mock_no_parse", "llm_unavailable"] as const)(
+    "settles a %s posture onto the row, and the import is still `parsed` and routed (#1656)",
+    async (posture) => {
+      // RULING D9: a degraded posture is not a failure. The row must be able to say WHY it
+      // yielded nothing without the worker losing his route.
+      const id = await importRow();
+      const wrote = await repo.withTransaction((tx) =>
+        repo.settleParsed(
+          id,
+          {
+            extractionMethod: "pdf_text",
+            pageCount: 1,
+            ocrConfidence: null,
+            fieldsExtracted: 0,
+            degradedPosture: posture,
+          },
+          { route: "chat", formKind: null, associationKind: null, suggestionsEnc: null },
+          tx,
+        ),
+      );
+
+      expect(wrote).toBe(true);
+      expect(await read(id)).toMatchObject({
+        status: "parsed",
+        route: "chat",
+        failureReason: null,
+        fieldsExtracted: 0,
+        degradedPosture: posture,
+      });
+    },
+  );
+
+  it("a healthy settle stores NULL, and NULL is not a posture (#1656)", async () => {
+    const id = await importRow();
+    await repo.withTransaction((tx) => repo.settleParsed(id, FACTS_OCR, FORM, tx));
+
+    expect((await read(id)).degradedPosture).toBeNull();
+  });
+
+  it("VACUITY: an off-vocabulary posture is refused by `wri_degraded_posture_chk` (#1656)", async () => {
+    // The API narrows `notes` to the closed set before the settle; this proves the DATABASE
+    // refuses the rest too, so a service that stopped narrowing fails loudly rather than
+    // widening the funnel's vocabulary with whatever a model said.
+    const id = await importRow();
+    let caught: unknown;
+    try {
+      await client.db
+        .update(workerResumeImports)
+        .set({ degradedPosture: "spend_cap" as never })
+        .where(eq(workerResumeImports.id, id));
+    } catch (error) {
+      caught = error;
+    }
+    const text = `${String(caught)} ${JSON.stringify((caught as { cause?: unknown })?.cause ?? {})}`;
+    expect(text).toContain("wri_degraded_posture_chk");
   });
 
   it("VACUITY: the split write the settle replaced is refused by `wri_suggestions_chk`", async () => {

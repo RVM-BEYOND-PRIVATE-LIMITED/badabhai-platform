@@ -4671,6 +4671,70 @@ describe("résumé import (ADR-0041) — the funnel carries ids, enums and count
       validateEvent(imported("profile.resume_imported", { ...uploaded, byte_size: 0 })).success,
     ).toBe(false);
   });
+
+  describe("degraded_posture (#1656) — why the counts may be zero when the document was fine", () => {
+    // THE DEFECT. A spend cap, a provider cooldown, a cost ceiling or the kill switch sends the
+    // AI router to the deterministic mock. Its reply is contract-valid with zero fields and no
+    // failure reason, so this event carried `fields_extracted: 0` for BOTH "we read the document
+    // and it said nothing" and "no model call ever happened". Those are opposite facts — only
+    // one of them is a parser problem — and "how often does our parser let a worker down", the
+    // number RI-7 exists to move, counted the second as a success.
+
+    it.each(["mock_no_parse", "llm_unavailable"])("accepts the closed code %s", (code) => {
+      expect(
+        validateEvent(imported("profile.resume_parsed", { ...parsed, degraded_posture: code }))
+          .success,
+      ).toBe(true);
+    });
+
+    it("accepts an explicit null — 'we looked, and this parse was healthy'", () => {
+      // The emit site ALWAYS writes the key, so null is a recorded fact rather than silence.
+      expect(
+        validateEvent(imported("profile.resume_parsed", { ...parsed, degraded_posture: null }))
+          .success,
+      ).toBe(true);
+    });
+
+    it("accepts the key being ABSENT — every event on the spine predates this field", () => {
+      // INVARIANT #8, and it is why the field is `.optional()` as well as `.nullable()` on a
+      // `.strict()` payload. `parsed` above carries no `degraded_posture`; making the field
+      // required would make `validateEvent` reject every `profile.resume_parsed` ever stored,
+      // which is a breaking change dressed as an additive one. ABSENT means "nobody looked";
+      // `null` means "we looked". A consumer must be able to tell those apart.
+      expect("degraded_posture" in parsed).toBe(false);
+      expect(validateEvent(imported("profile.resume_parsed", parsed)).success).toBe(true);
+    });
+
+    it("REFUSES an open-vocabulary posture — `notes` is closed on both sides and stays closed", () => {
+      // The value originates in an ai-service `notes` array. An open string here would be a
+      // free-text channel from a model reply straight into analytics, on an event whose subject
+      // is the densest personal document on the platform.
+      for (const smuggled of [
+        "spend_cap",
+        "MOCK_NO_PARSE",
+        "mock_no_parse ",
+        "gemini returned 503 for Ramesh Kumar CV.pdf",
+        "",
+      ]) {
+        expect(
+          validateEvent(
+            imported("profile.resume_parsed", { ...parsed, degraded_posture: smuggled }),
+          ).success,
+          smuggled,
+        ).toBe(false);
+      }
+    });
+
+    it("REFUSES an ARRAY of postures — the far side's two codes are mutually exclusive", () => {
+      // `if not meta.real_call: ... elif not meta.success: ...` around a single call. One value,
+      // and an array here would invite a second, unbounded free-text channel.
+      expect(
+        validateEvent(
+          imported("profile.resume_parsed", { ...parsed, degraded_posture: ["mock_no_parse"] }),
+        ).success,
+      ).toBe(false);
+    });
+  });
 });
 
 describe("worker.portfolio_recorded (Layer A (e) / ADR-0042 D9)", () => {

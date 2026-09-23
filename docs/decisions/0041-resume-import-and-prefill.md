@@ -609,6 +609,45 @@ parse service now logs the degraded posture PII-free, against a CLOSED API-side 
 drops any code it does not recognise. The import still proceeds - a degraded posture is not a
 failure and must not cost a worker his onboarding - it is simply no longer silent.
 
+### 12.1 Amendment 2026-09-23 - the posture is RECORDED, not only logged (#1656)
+
+A `logger.warn` was where the posture stopped, and the issue's acceptance criterion is explicit
+that it must be distinguishable "in the row or the event - **not only in a log line**". It was
+not: `profile.resume_parsed` still carried `fields_extracted: 0` for both "we read the document
+and it said nothing" and "no model call ever happened". A log line cannot be aggregated into a
+funnel, so RI-7's number still counted spend-capped no-ops as successful parses.
+
+**Both, on 0122's own precedent - an event is not a read.**
+
+- **`RESUME_DEGRADED_POSTURES` (`@badabhai/types`)** is the ONE source that the CHECK constraint,
+  the `z.enum` and the parse service's filter all read. Three hand-written copies drift the first
+  time a posture is added, and the symptom is an event the registry refuses for a row the database
+  happily stored. The constant is ordered by PRECEDENCE and the reader takes the first member
+  present, so a far side that one day sent both records the INCIDENT rather than letting an ops
+  posture hide it - and the answer never depends on the wire's array order.
+- **ONE nullable value, not an array**, and this was verified rather than assumed: the far side
+  appends the two codes under `if not meta.real_call: ... elif not meta.success: ...` around the
+  single `router.run` in `resume_parse.py`, and `_response` de-duplicates `notes` before sending.
+- **Migration 0123** adds `worker_resume_import.degraded_posture` (nullable text, NULL-tolerant
+  CHECK over the closed set, no backfill). The CHECK is deliberately **not** tied to `status`:
+  `wri_failure_reason_chk` is a biconditional because a failure MUST be explicable, but a degraded
+  posture is not a failure (D9) and constraining it to one status would forbid the failure path
+  from ever recording the truth as well. NULL is not a fact - it means "parsed before this column
+  existed" OR "no degraded posture", and a consumer may conclude only "not known to be degraded".
+- **`profile.resume_parsed.degraded_posture` is `.nullable()` AND `.optional()`**, and the two say
+  different things on a `.strict()` payload. ABSENT means "emitted before this shipped, nobody
+  looked" - `.optional()` is what keeps every event already on the spine valid (invariant #8);
+  required-but-nullable would make `validateEvent` reject all of them, a breaking change dressed
+  as an additive one. `null` means "we looked and this parse was healthy", which the emit site
+  always writes, so it is a recorded fact rather than silence. Version stays **1**.
+- `settleParsed` writes it in the **same single guarded UPDATE** as status, route and
+  `fields_extracted`, read off the **same validated payload** the event carries, so the row and
+  the event cannot disagree and no reader sees a `parsed` row without its route.
+- The existing `logger.warn` **stays**. A log line and a recorded fact serve different readers.
+
+No change to `GET /profiling/resume-import/:importId` - this is an ops/funnel signal, not
+something the worker is shown; he already gets §12's `yielded_nothing`.
+
 **Still open on #1656:** the output-token budget. `ai_extraction_max_output_tokens` defaults to
 1024 against a measured ~795-token reply for a real 2-page CV, and the quotes scale with line
 length. The truncation is no longer silent (#1657/#1658 PR wires `finishReason`), but the number

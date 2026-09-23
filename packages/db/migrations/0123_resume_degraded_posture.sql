@@ -1,0 +1,53 @@
+-- ===========================================================================
+-- 0123 - worker_resume_import.degraded_posture (#1656)
+--
+-- PURELY ADDITIVE. One nullable text column, one NULL-tolerant CHECK over a closed
+-- two-value vocabulary, no backfill.
+--
+-- 0122 recorded HOW MUCH a parse yielded. This records WHY it yielded nothing when the
+-- DOCUMENT was not at fault, because those two roads to zero need opposite responses and
+-- the row could not tell them apart. A spend cap, a provider cooldown, a cost ceiling or
+-- the kill switch sends the AI router to the deterministic mock; the reply is
+-- contract-valid with zero fields and NO failure_reason, so the import settled `parsed`,
+-- routed to chat, and emitted `profile.resume_parsed` with `fields_extracted: 0` - byte
+-- for byte what a document carrying none of the eight target fields produces. So "how
+-- often does our parser let a worker down", the number ADR-0041 RI-7 exists to move,
+-- counted spend-capped no-ops as SUCCESSFUL PARSES. The far side has always distinguished
+-- the two on the wire (`notes`); as of #1668 the API reads them; this is where the reading
+-- is kept, because a log line cannot be aggregated into a funnel - an event is not a read,
+-- and neither is a log.
+--
+--   llm_unavailable  an INCIDENT: a provider was reached and failed. Someone should look.
+--   mock_no_parse    a POSTURE: no model call happened at all. Nothing is broken.
+--
+-- Mutually exclusive by construction on the far side (`if not meta.real_call: ... elif not
+-- meta.success: ...` around a single call), which is why this is ONE value and not an array.
+--
+-- NOT A FAILURE, SO THE CHECK IS NOT TIED TO `status`. A degraded posture still settles
+-- `parsed` and still routes - ruling D9: it must not cost the worker his onboarding.
+-- `wri_failure_reason_chk` is a biconditional because a failure MUST be explicable; this is
+-- a plain membership CHECK because a degraded posture is an ordinary property of an ordinary
+-- parsed row.
+--
+-- NULL IS NOT A FACT. It means "parsed before this column existed" OR "parsed with no
+-- degraded posture", and a consumer may conclude only "not known to be degraded" from it -
+-- the same discipline 0122 states as NULL IS NOT ZERO. The EVENT draws the distinction the
+-- row cannot: an absent `degraded_posture` key is the first reading, an explicit `null` the
+-- second.
+--
+-- APPLY BEFORE DEPLOY. `settleParsedStatement` names `degraded_posture` unconditionally in
+-- the single guarded UPDATE that settles EVERY parsed import, so a build carrying this code
+-- against a database without the column fails every settle - the row stays `parsing` and the
+-- worker's poll never terminates. Registered as `0123-resume-degraded-posture` in
+-- `schema-contract.ts`; run `pnpm --filter @badabhai/db db:audit:schema-contract` first.
+--
+-- Lock: `ADD COLUMN` is catalog-only and `ADD CONSTRAINT` over an all-NULL column validates
+-- nothing, so the ACCESS EXCLUSIVE window is sub-second (0109/0115/0122 precedent).
+--
+-- ROLLBACK, and it is clean - nothing reads this column fail-closed:
+--
+--   ALTER TABLE "worker_resume_import" DROP CONSTRAINT "wri_degraded_posture_chk";
+--   ALTER TABLE "worker_resume_import" DROP COLUMN "degraded_posture";
+-- ===========================================================================
+ALTER TABLE "worker_resume_import" ADD COLUMN "degraded_posture" text;--> statement-breakpoint
+ALTER TABLE "worker_resume_import" ADD CONSTRAINT "wri_degraded_posture_chk" CHECK ("worker_resume_import"."degraded_posture" IS NULL OR "worker_resume_import"."degraded_posture" IN ('llm_unavailable', 'mock_no_parse'));

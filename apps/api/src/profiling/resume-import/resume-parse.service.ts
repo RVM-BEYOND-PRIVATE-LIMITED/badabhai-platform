@@ -2,8 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { ResumeEmployment, TargetField } from "@badabhai/ai-contracts";
 import type { ParsedField } from "@badabhai/ai-contracts";
 import {
+  RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   TRADE_FORM_KINDS_ALL,
+  type ResumeDegradedPostureName,
   type ResumeExtractionMethodName,
   type ResumeImportFailureName,
   type TradeFormKindName,
@@ -54,21 +56,21 @@ import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
  * The `notes` codes that mean "no real model call reached this document" (#1656).
  *
  * A CLOSED SET ON BOTH SIDES, and this is the API-side half of it. Anything the far side
- * sends that is not in here is DROPPED rather than logged: `notes` is a contract
+ * sends that is not in here is DROPPED rather than logged OR recorded: `notes` is a contract
  * vocabulary, and the day it stops being one is the day an unrecognised string from a
- * model reply lands in our logs.
+ * model reply lands in our logs — and, since #1656, in a column and on the event spine.
+ *
+ * DERIVED FROM {@link RESUME_DEGRADED_POSTURES} RATHER THAN RE-TYPED. The same two codes are
+ * now a CHECK constraint in `packages/db`, a `z.enum` on `profile.resume_parsed`, and this
+ * filter. A hand-written third copy would drift the first time a posture was added, and the
+ * symptom would be an event the registry refuses for a row the database happily stored.
  *
  * The other `notes` values (`fields_rejected`, `employments_rejected`,
  * `lines_dropped_by_masker`, `extraction_truncated`) describe a call that DID happen and
  * are not this signal - they belong to RI-7's quality story, not to "was anything even
  * attempted".
  */
-const DEGRADED_POSTURE_NOTES: ReadonlySet<string> = new Set([
-  // A POSTURE: the router fell back to the deterministic mock before spending anything.
-  "mock_no_parse",
-  // An INCIDENT: a provider was reached and failed.
-  "llm_unavailable",
-]);
+const DEGRADED_POSTURE_NOTES: ReadonlySet<string> = new Set<string>(RESUME_DEGRADED_POSTURES);
 
 @Injectable()
 export class ResumeParseService {
@@ -165,12 +167,19 @@ export class ResumeParseService {
     // no longer silent.
     //
     // CLOSED VOCABULARY, COUNTS AND CODES ONLY. `notes` is a closed set on both sides and
-    // must stay one; this logs the intersection with the codes we know and drops anything
-    // else rather than echoing an unrecognised string into our logs.
-    const posture = (out.notes ?? []).filter((n) => DEGRADED_POSTURE_NOTES.has(n));
-    if (posture.length > 0) {
+    // must stay one; this keeps the intersection with the codes we know and drops anything
+    // else rather than echoing an unrecognised string into our logs, our column or the spine.
+    //
+    // THE LOG LINE STAYS, AND SO DOES THE RECORD, because they serve different readers. The
+    // warn is for the engineer reading one import at 2am; the value below is for the funnel,
+    // which cannot aggregate a log line — and aggregating it is the entire acceptance
+    // criterion of #1656. `degradedPosture` rides the draft to `ResumeRouteService`, which
+    // writes it in the same single guarded UPDATE as the route and puts it on
+    // `profile.resume_parsed`.
+    const posture = selectDegradedPosture(out.notes);
+    if (posture !== null) {
       this.logger.warn(
-        `résumé parse ran DEGRADED for import ${row.id}: ${posture.join(",")} ` +
+        `résumé parse ran DEGRADED for import ${row.id}: ${posture} ` +
           `(fields will be empty; this is not a document failure)`,
       );
     }
@@ -236,6 +245,9 @@ export class ResumeParseService {
       extractionMethod,
       pageCount: out.page_count,
       ocrConfidence: out.ocr_confidence,
+      // #1656 - THE SAME VALUE THE WARN ABOVE NAMED, carried rather than recomputed so a log
+      // line and a recorded fact can never describe different imports.
+      degradedPosture: posture,
     };
   }
 
@@ -395,6 +407,32 @@ function narrowTradeKind(kind: string | null | undefined): TradeFormKindName | n
 }
 
 /**
+ * #1656 — the far side's `notes`, narrowed to AT MOST ONE degraded posture, or null.
+ *
+ * ONE VALUE, NOT AN ARRAY, and the far side is what makes that safe rather than lossy: the two
+ * codes are appended under a single `if not meta.real_call: ... elif not meta.success: ...`
+ * around a single `router.run` (`apps/ai-service/app/resume_import/resume_parse.py`), and the
+ * response de-duplicates `notes` before it is sent. At most one can arrive.
+ *
+ * SO THIS IS THE GUARD FOR THE DAY THAT STOPS BEING TRUE. It scans in
+ * {@link RESUME_DEGRADED_POSTURES} order — not in the order the wire happened to use, which is
+ * the far side's business and not a contract — so a far side that one day sent both records
+ * `llm_unavailable`, the INCIDENT someone must look at, rather than letting an ops posture hide
+ * it. Deterministic on input, and independent of array order either side.
+ *
+ * A MEMBERSHIP TEST, NOT A CAST — the same posture as `narrowExtractionMethod` and
+ * `narrowTradeKind` above. Anything outside the closed set is dropped: it is never logged,
+ * never written to the column, and never reaches the event.
+ */
+function selectDegradedPosture(
+  notes: readonly string[] | null | undefined,
+): ResumeDegradedPostureName | null {
+  if (!notes || notes.length === 0) return null;
+  const seen = new Set<string>(notes.filter((n) => DEGRADED_POSTURE_NOTES.has(n)));
+  return RESUME_DEGRADED_POSTURES.find((code) => seen.has(code)) ?? null;
+}
+
+/**
  * What RI-4 will be handed. Deliberately NOT persisted here: nothing about a parse is a claim
  * the worker has made, and ruling D2 says a suggestion becomes an answer only when he confirms
  * it. An import abandoned between this phase and the next must leave zero claims behind.
@@ -434,6 +472,18 @@ export type ParsedDraft =
       extractionMethod: ResumeExtractionMethodName;
       pageCount: number | null;
       ocrConfidence: number | null;
+      /**
+       * #1656 — why no real model call stood behind this parse, or null when one did.
+       *
+       * A PARSE FACT, WHICH IS WHY IT TRAVELS HERE rather than being re-derived at the
+       * settle: only this service ever sees `notes`. `settleParsed` writes it in the same
+       * single guarded UPDATE as the route, and `profile.resume_parsed` carries it, so the
+       * funnel can subtract spend-capped no-ops from "how often does our parser let a worker
+       * down" instead of counting them as successful parses.
+       *
+       * NULL IS A FACT HERE, unlike on the column: this draft was built by code that looked.
+       */
+      degradedPosture: ResumeDegradedPostureName | null;
     };
 
 /**

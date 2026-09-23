@@ -665,6 +665,39 @@ export const RESUME_IMPORT_FAILURES = Object.freeze([
 export type ResumeImportFailureName = (typeof RESUME_IMPORT_FAILURES)[number];
 
 /**
+ * #1656 — why a parse produced nothing WITHOUT the document being at fault.
+ *
+ * A DEGRADED POSTURE IS NOT A FAILURE, which is exactly why it needs its own vocabulary.
+ * `RESUME_IMPORT_FAILURES` above says "we could not read this document"; every value here says
+ * "we never really read it, and the document had nothing to do with that". The import still
+ * settles `parsed` and the worker still routes (ruling D9) — a spend cap must not cost a man
+ * his onboarding — so without a recorded code the two are one number on the event, and "how
+ * often does our parser let a worker down" (RI-7's number) counts spend-capped no-ops as
+ * successful parses.
+ *
+ * ORDER IS PRECEDENCE, and it is the only thing that makes ONE nullable value safe. The
+ * far side appends these under `if not meta.real_call: ... elif not meta.success: ...`
+ * (`apps/ai-service/app/resume_import/resume_parse.py`), which is a single `if/elif` around a
+ * single `router.run`, so at most one can arrive today. Should a future far side ever send
+ * both, the reader takes the FIRST member of this list that is present rather than the first
+ * the wire happened to order — `llm_unavailable` is the INCIDENT an operator must see, and a
+ * posture must never hide it.
+ *
+ * MIRRORS `RESUME_PARSE_NOTES` in the ai-service IN DISCIPLINE, not in content: the far side's
+ * vocabulary also carries call-quality notes (`fields_rejected`, `extraction_truncated`, …)
+ * which describe a call that DID happen and belong to RI-7's quality story, not to "was
+ * anything even attempted". Anything outside this list is dropped rather than recorded.
+ */
+export const RESUME_DEGRADED_POSTURES = Object.freeze([
+  /** An INCIDENT: a provider was reached and failed. Someone should look. */
+  "llm_unavailable",
+  /** A POSTURE: a spend cap, a cooldown, a cost ceiling or the kill switch sent the router to
+   *  the deterministic mock, so no model call happened at all. Nothing is broken. */
+  "mock_no_parse",
+] as const);
+export type ResumeDegradedPostureName = (typeof RESUME_DEGRADED_POSTURES)[number];
+
+/**
  * The document types ruling D3 accepts, as MIME strings.
  *
  * FOUR, because this is what workers actually have. PDF and DOCX cover a cybercafe export; JPEG

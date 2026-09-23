@@ -1072,6 +1072,11 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileResumeImportedPayload,
   },
+  // #1656 added `degraded_posture` and the version STAYS 1, deliberately. It is a nullable
+  // OPTIONAL enum: every event already on the spine still validates against the new schema, and
+  // every consumer that never names it is unaffected. That is the additive case invariant #8
+  // permits; a version bump is for a shape a shipped reader could no longer read, and would
+  // instead make `validateEvent` reject every stored v1 `profile.resume_parsed` outright.
   "profile.resume_parsed": {
     version: 1,
     domain: "profile",
