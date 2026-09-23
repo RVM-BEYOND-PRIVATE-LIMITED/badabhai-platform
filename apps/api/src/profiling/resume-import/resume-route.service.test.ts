@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import type { ParsedField, ResumeEmployment } from "@badabhai/ai-contracts";
-import type { TradeFormKindName } from "@badabhai/types";
+import type { ResumeDegradedPostureName, TradeFormKindName } from "@badabhai/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResumeRouteService } from "./resume-route.service";
@@ -172,6 +172,7 @@ const parsedDraft = (
   fields: Record<string, ParsedField>,
   employments: ResumeEmployment[] = [],
   associationKind: TradeFormKindName | null = null,
+  degradedPosture: ResumeDegradedPostureName | null = null,
 ): ParsedDraft => ({
   status: "parsed",
   importId: IMPORT,
@@ -183,6 +184,9 @@ const parsedDraft = (
   extractionMethod: "pdf_text",
   pageCount: 1,
   ocrConfidence: null,
+  // #1656 — the healthy default, so every other test in this file is a positive control
+  // for the vacuity case: a posture only appears where one is passed.
+  degradedPosture,
 });
 
 type EmitCall = { payload: Record<string, unknown>; tx?: unknown; idempotencyKey?: string };
@@ -213,7 +217,15 @@ describe("the deterministic router decides, and the résumé only supplies its i
     // expression the service derives it from.
     expect(imports.settleParsed).toHaveBeenCalledWith(
       IMPORT,
-      { extractionMethod: "pdf_text", pageCount: 1, ocrConfidence: null, fieldsExtracted: 2 },
+      {
+        extractionMethod: "pdf_text",
+        pageCount: 1,
+        ocrConfidence: null,
+        fieldsExtracted: 2,
+        // #1656 — a healthy parse asserts NULL rather than omitting the key: the settle must
+        // write "not degraded" explicitly, never leave the column to whatever was there.
+        degradedPosture: null,
+      },
       expect.objectContaining({ route: "form", formKind: "cnc_turner" }),
       TX,
     );
@@ -697,5 +709,110 @@ describe("RI-autofill staging (owner override B) — the third call, on the form
     const plaintext = crypto.encrypt.mock.calls[0]![0] as string;
     const parsed = JSON.parse(plaintext) as { option_map: unknown };
     expect(parsed.option_map).toEqual([]);
+  });
+});
+
+/**
+ * #1656 — the degraded posture reaches the ROW and the EVENT, from one source, in one write.
+ *
+ * WHY BOTH, AND THE PRECEDENT IS 0122's OWN HEADER: an event is not a read. The event is what
+ * the funnel aggregates — "how often does our parser let a worker down" must stop counting
+ * spend-capped no-ops as successful parses — and the row is what an operator can join against
+ * an import someone reported. A log line serves neither.
+ */
+describe("the degraded posture is RECORDED, not just logged (#1656)", () => {
+  const settledFacts = (imports: { settleParsed: { mock: { calls: unknown[][] } } }) =>
+    imports.settleParsed.mock.calls[0]![1] as { fieldsExtracted: number; degradedPosture: string | null };
+
+  it.each(["mock_no_parse", "llm_unavailable"] as const)(
+    "%s lands on the row AND on the event, and the import still settles parsed and routes",
+    async (posture) => {
+      const { svc, imports, events } = setup();
+      const result = await svc.route(
+        WORKER,
+        parsedDraft({ role_label: field("CNC Turner") }, [], null, posture),
+        CTX,
+      );
+
+      expect(settledFacts(imports).degradedPosture).toBe(posture);
+      expect(emitCall(events).payload.degraded_posture).toBe(posture);
+      // RULING D9. A degraded posture is not a failure and must not cost the worker his
+      // onboarding: he is still settled and still routed exactly as a healthy parse would be.
+      expect(result?.route).toBe("form");
+      expect(result?.formKind).toBe("cnc_turner");
+    },
+  );
+
+  it("a healthy parse writes NULL and emits null — the vacuity guard", async () => {
+    // Without this, a service that wrote a constant posture would pass both cases above. And
+    // the event's `null` is load-bearing in its own right: the key is ALWAYS written, so an
+    // absent key can keep meaning "emitted before #1656" and nothing else.
+    const { svc, imports, events } = setup();
+    await svc.route(WORKER, parsedDraft({ role_label: field("CNC Turner") }), CTX);
+
+    expect(settledFacts(imports).degradedPosture).toBeNull();
+    const payload = emitCall(events).payload;
+    expect(payload.degraded_posture).toBeNull();
+    expect(Object.keys(payload)).toContain("degraded_posture");
+  });
+
+  it("the row and the event come from the SAME validated payload — they cannot disagree", async () => {
+    // Recomputing the posture at the settle would be a second source that drifts the first time
+    // either side moves. This is the identical discipline `fields_extracted` keeps (#1660).
+    const { svc, imports, events } = setup();
+    await svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("CNC Turner") }, [], null, "mock_no_parse"),
+      CTX,
+    );
+
+    expect(settledFacts(imports).degradedPosture).toBe(emitCall(events).payload.degraded_posture);
+  });
+
+  it("the posture rides the SAME single guarded statement and the SAME transaction", async () => {
+    // `030b7948`'s guarantee: no reader may see a `parsed` row without its route, so nothing
+    // this field needs may become a second write or a second transaction.
+    const { svc, imports, events, seen } = setup();
+    await svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("CNC Turner") }, [], null, "llm_unavailable"),
+      CTX,
+    );
+
+    expect(imports.settleParsed).toHaveBeenCalledTimes(1);
+    expect(imports.withTransaction).toHaveBeenCalledTimes(1);
+    expect(seen.settleInTx).toBe(true);
+    expect(seen.emitInTx).toBe(true);
+    expect(events.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a guard that settled NOTHING emits nothing — a redelivery records no second posture", async () => {
+    const { svc, events } = setup({ settled: false });
+    const result = await svc.route(
+      WORKER,
+      parsedDraft({ role_label: field("CNC Turner") }, [], null, "mock_no_parse"),
+      CTX,
+    );
+
+    expect(result).toBeNull();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("the event carries the CODE and nothing else — no model text, no document text", async () => {
+    const { svc, events } = setup();
+    await svc.route(
+      WORKER,
+      parsedDraft(
+        { role_label: field("CNC Turner"), current_city: field("Pune") },
+        [],
+        null,
+        "mock_no_parse",
+      ),
+      CTX,
+    );
+
+    const serialised = JSON.stringify(emitCall(events).payload);
+    expect(serialised).toContain("mock_no_parse");
+    for (const leaked of ["CNC Turner", "Pune"]) expect(serialised).not.toContain(leaked);
   });
 });

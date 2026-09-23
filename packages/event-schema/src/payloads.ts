@@ -7,6 +7,7 @@ import {
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
+  RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   RESUME_IMPORT_FAILURES,
   RESUME_IMPORT_ROUTES,
@@ -3984,6 +3985,14 @@ export type ProfileResumeImportedPayload = z.infer<typeof ProfileResumeImportedP
  * `fields_extracted` vs `suggestions_offered` is deliberately two numbers. They differ by
  * everything the gates threw away, and a widening gap is the earliest signal that the prompt has
  * drifted — one number would hide exactly that.
+ *
+ * `degraded_posture` IS WHAT MAKES THOSE TWO NUMBERS READABLE (#1656). Without it, a
+ * `fields_extracted: 0` on this event means BOTH "we read the worker's document and it said
+ * nothing" and "no model call ever happened, because a spend cap, a provider cooldown, a cost
+ * ceiling or the kill switch sent the router to the deterministic mock". Those are opposite
+ * facts — one is a parser problem, the other is an ops posture with no parser involvement at
+ * all — and averaging them makes the number RI-7 exists to move wrong in the direction that
+ * flatters us. A log line cannot be aggregated into a funnel, so it is recorded here.
  */
 export const ProfileResumeParsedPayload = z
   .object({
@@ -3997,6 +4006,32 @@ export const ProfileResumeParsedPayload = z
     fields_extracted: z.number().int().nonnegative(),
     /** How many of those actually mapped onto a question this worker will be shown. */
     suggestions_offered: z.number().int().nonnegative(),
+    /**
+     * #1656 — the reason no real model call stood behind this parse, or `null` when one did.
+     *
+     * NULLABLE **AND** OPTIONAL, AND THE TWO SAY DIFFERENT THINGS. This payload is `.strict()`,
+     * so the distinction is the whole reason both modifiers are here:
+     *
+     *   ABSENT  — emitted before #1656 shipped. Nobody looked, and nothing may be concluded.
+     *             `.optional()` is what keeps those events valid when anything re-reads the
+     *             spine (invariant #8 / CLAUDE.md §3: never break a shipped consumer). The
+     *             `training_count` field above settled this exact question the same way.
+     *   `null`  — we looked and the parse was NOT degraded. A recorded fact, and the vacuity
+     *             guard for every query written against this field: the emit site always
+     *             writes the key, so "healthy" is asserted rather than inferred from silence.
+     *
+     * Collapsing those into one absent-key state would recreate the conflation the field
+     * exists to end — the same argument `worker_resume_import.fields_extracted` makes when it
+     * insists NULL is not zero.
+     *
+     * A CLOSED SET, NEVER FREE TEXT, and ONE value rather than an array: the far side's two
+     * codes are mutually exclusive by construction (`if not meta.real_call: ... elif not
+     * meta.success: ...` around a single call). See {@link RESUME_DEGRADED_POSTURES}.
+     *
+     * NOT A FAILURE. A degraded posture still settles `parsed` and still routes (ruling D9);
+     * `profile.resume_parse_failed` is where failures are counted, and it is not this.
+     */
+    degraded_posture: z.enum(RESUME_DEGRADED_POSTURES).nullable().optional(),
   })
   .strict();
 export type ProfileResumeParsedPayload = z.infer<typeof ProfileResumeParsedPayload>;

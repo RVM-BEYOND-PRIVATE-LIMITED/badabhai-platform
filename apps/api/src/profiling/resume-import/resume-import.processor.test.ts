@@ -57,6 +57,8 @@ type Row = {
   associationKind: string | null;
   suggestionsEnc: string | null;
   failureReason: string | null;
+  /** #1656 — the closed degraded-posture code, or null (healthy, or never recorded). */
+  degradedPosture: string | null;
 };
 
 const ASSOCIATION_KINDS = [
@@ -83,6 +85,8 @@ const ASSOCIATION_KINDS = [
   "plastic_process_technician",
 ];
 
+const DEGRADED_POSTURES = ["llm_unavailable", "mock_no_parse"];
+
 const IN = (set: readonly string[], v: string | null) => v === null || set.includes(v);
 
 /** `resume-import.ts:109-138`, with SQL's rule that a NULL CHECK result passes. */
@@ -103,6 +107,9 @@ function assertChecks(r: Row): void {
   if (!IN(ASSOCIATION_KINDS, r.associationKind)) fail("wri_association_kind_chk");
   if ((r.status === "failed") !== (r.failureReason !== null)) fail("wri_failure_reason_chk");
   if (r.suggestionsEnc !== null && r.status !== "parsed") fail("wri_suggestions_chk");
+  // #1656 — a note outside the closed vocabulary is refused by the database, so a service
+  // that stopped narrowing would fail the settle here rather than quietly widening the funnel.
+  if (!IN(DEGRADED_POSTURES, r.degradedPosture)) fail("wri_degraded_posture_chk");
 }
 
 class FakeImportsTable {
@@ -120,6 +127,7 @@ class FakeImportsTable {
     associationKind: null,
     suggestionsEnc: null,
     failureReason: null,
+    degradedPosture: null,
   };
   /** What a poller could have read: every committed state, in order. */
   readonly committed: Row[] = [];
@@ -161,7 +169,13 @@ class FakeImportsTable {
 
   async settleParsed(
     id: string,
-    facts: { extractionMethod: string; pageCount: number | null; ocrConfidence: number | null , fieldsExtracted: 3},
+    facts: {
+      extractionMethod: string;
+      pageCount: number | null;
+      ocrConfidence: number | null;
+      fieldsExtracted: number;
+      degradedPosture: string | null;
+    },
     routing: { route: string; formKind: string | null; associationKind: string | null; suggestionsEnc: string | null },
     tx: unknown,
   ): Promise<boolean> {
@@ -176,6 +190,8 @@ class FakeImportsTable {
       formKind: routing.route === "form" ? routing.formKind : null,
       associationKind: routing.associationKind,
       suggestionsEnc: routing.suggestionsEnc,
+      // #1656 — the posture lands in the SAME write as the status and the route.
+      degradedPosture: facts.degradedPosture,
     });
     assertChecks(this.row);
     return true;

@@ -126,6 +126,11 @@ export class ResumeRouteService {
       // gap is the earliest signal the prompt has drifted or a pack has moved a target field.
       fields_extracted: Object.keys(draft.fields).length,
       suggestions_offered: decision.suggestionsOffered,
+      // #1656 - WHY the two numbers above may be zero, when the document was not at fault.
+      // ALWAYS WRITTEN, `null` included: the key's absence is reserved for events emitted
+      // before this field existed, so an explicit null is what lets a consumer read "we
+      // looked and this parse was healthy" as a fact rather than as silence.
+      degraded_posture: draft.degradedPosture,
     });
 
     const settled = await this.imports.withTransaction(async (tx) => {
@@ -140,6 +145,10 @@ export class ResumeRouteService {
           // disagree about one import. Recomputing `Object.keys(draft.fields).length`
           // here would be a second source that drifts the first time either moves.
           fieldsExtracted: payload.fields_extracted,
+          // #1656 - read off the SAME validated `payload` for the same reason. `?? null`
+          // narrows the schema's `.optional()` (which exists for events emitted before this
+          // field, not for this emit site) and is a no-op here: the key above is always set.
+          degradedPosture: payload.degraded_posture ?? null,
         },
         {
           route: decision.route,

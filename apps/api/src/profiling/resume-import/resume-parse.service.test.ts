@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResumeParseOutput } from "@badabhai/ai-contracts";
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
@@ -408,4 +409,121 @@ describe("ResumeParseService — trade association (Task 1 B2)", () => {
       expect(result).toMatchObject({ status: "parsed", associationKind: null });
     },
   );
+});
+
+/**
+ * #1656 — the degraded posture: no model call stood behind this parse, and the row and the
+ * event must be able to say so.
+ *
+ * THE DEFECT THESE PIN. `AIRouter.run` falls back to the deterministic mock on a spend cap, a
+ * provider cooldown, a cost ceiling or the kill switch. Its reply is contract-valid with zero
+ * fields and NO `failure_reason`, so the import settled `parsed`, routed to chat, and emitted
+ * `profile.resume_parsed` with `fields_extracted: 0` — byte for byte what a document carrying
+ * none of the eight target fields produces. "How often does our parser let a worker down"
+ * therefore counted spend-capped no-ops as successful parses.
+ *
+ * THE POSTURE IS NOT A FAILURE (ruling D9). Every case below still returns `status: "parsed"`,
+ * because a spend cap must not cost a worker his onboarding. It is made legible, not fatal.
+ */
+describe("ResumeParseService — the degraded posture (#1656)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each([
+    ["mock_no_parse", "a POSTURE: the router never spent anything"],
+    ["llm_unavailable", "an INCIDENT: a provider was reached and failed"],
+  ])("carries %s on the draft — %s", async (note) => {
+    const { svc, imports, events } = setup({ out: parseOutput({ notes: [note] }) });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    // STILL A PARSE. The settle and the route still happen; only the reason is now recorded.
+    expect(result).toMatchObject({ status: "parsed", degradedPosture: note });
+    expect(imports.markFailed).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("a healthy parse records NULL — the vacuity guard for every case above", async () => {
+    // Without this, a service that hard-coded a posture would pass both cases above. It also
+    // pins the distinction the schema's `.optional()` exists for: the emit site always says
+    // something, so `null` is "we looked and it was fine", never "nobody looked".
+    const { svc } = setup({ out: parseOutput({ notes: [] }) });
+
+    expect(await svc.parse(WORKER, IMPORT, CTX)).toMatchObject({
+      status: "parsed",
+      degradedPosture: null,
+    });
+  });
+
+  it.each([
+    ["a call-quality note", ["fields_rejected", "extraction_truncated"]],
+    ["a masker note", ["lines_dropped_by_masker"]],
+    ["free text from a model", ["could not read 'Ramesh Kumar' resume"]],
+    ["a near-miss code", ["mock-no-parse", "MOCK_NO_PARSE", "llm_unavailable "]],
+  ])("DROPS %s — it is never written and never emitted", async (_label, notes) => {
+    // `notes` is a closed vocabulary on both sides and must stay one. The other real codes
+    // describe a call that DID happen and belong to RI-7's quality story, not to "was anything
+    // even attempted"; anything else is an unrecognised string that must not reach a column,
+    // the spine, or a log line.
+    const { svc } = setup({ out: parseOutput({ notes }) });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(result).toMatchObject({ status: "parsed", degradedPosture: null });
+  });
+
+  it("logs the posture PII-free, and the log names the SAME code the draft carries", async () => {
+    // The log line and the recorded fact serve different readers — an engineer reading one
+    // import, and a funnel that cannot aggregate a log line — so both must exist and they must
+    // never describe different imports.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup({
+      out: parseOutput({ notes: ["mock_no_parse"], fields: { role_label: field("CNC Turner", "CNC Turner") } }),
+    });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    const logged = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain("mock_no_parse");
+    expect(logged).toContain(IMPORT);
+    // COUNTS AND CODES ONLY. A line from the document must never reach a log.
+    expect(logged).not.toContain("CNC Turner");
+    expect(result).toMatchObject({ degradedPosture: "mock_no_parse" });
+    warn.mockRestore();
+  });
+
+  it("a healthy parse logs NO degraded warning at all", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup({ out: parseOutput({ notes: ["fields_rejected"] }) });
+    await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(warn.mock.calls.map((c) => String(c[0])).join("\n")).not.toContain("ran DEGRADED");
+    warn.mockRestore();
+  });
+
+  it("if BOTH ever arrive, the INCIDENT wins — an ops posture must not hide a provider failure", async () => {
+    // The far side cannot send both today: the two codes are appended under a single
+    // `if not meta.real_call: ... elif not meta.success: ...` around ONE `router.run`, and the
+    // response de-duplicates `notes`. This pins what happens if that ever changes, and pins it
+    // independently of the order the wire used — both orders must give the same answer, or the
+    // recorded value would depend on the far side's array order rather than on severity.
+    for (const notes of [
+      ["mock_no_parse", "llm_unavailable"],
+      ["llm_unavailable", "mock_no_parse"],
+    ]) {
+      const { svc } = setup({ out: parseOutput({ notes }) });
+      expect(await svc.parse(WORKER, IMPORT, CTX)).toMatchObject({
+        degradedPosture: "llm_unavailable",
+      });
+    }
+  });
+
+  it("a FAILED parse records no posture — the failure path has its own reason", async () => {
+    // A degraded posture and a failure are different facts: `profile.resume_parse_failed`
+    // already names why a failure happened. The `failed` draft carries no posture field at all,
+    // so nothing can leak one onto a row the settle never writes.
+    const { svc } = setup({
+      out: parseOutput({ notes: ["mock_no_parse"], failure_reason: "ocr_below_floor", extraction_method: "ocr" }),
+    });
+    const result = await svc.parse(WORKER, IMPORT, CTX);
+
+    expect(result).toMatchObject({ status: "failed", reason: "ocr_below_floor" });
+    expect(result).not.toHaveProperty("degradedPosture");
+  });
 });

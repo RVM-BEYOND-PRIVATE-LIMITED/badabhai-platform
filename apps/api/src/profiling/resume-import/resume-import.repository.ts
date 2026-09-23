@@ -7,6 +7,7 @@ import {
   type NewWorkerResumeImport,
 } from "@badabhai/db";
 import type {
+  ResumeDegradedPostureName,
   ResumeExtractionMethodName,
   ResumeImportFailureName,
   ResumeImportRouteName,
@@ -215,6 +216,19 @@ export interface ResumeParseFacts {
    * not where we sent the worker.
    */
   fieldsExtracted: number;
+  /**
+   * #1656 — why no real model call stood behind this parse, or null when one did.
+   *
+   * A PARSE FACT like the two above it, and the one that makes `fieldsExtracted: 0`
+   * readable: without it, zero means BOTH "the document said nothing" and "a spend cap, a
+   * cooldown, a cost ceiling or the kill switch meant we never asked". Those need opposite
+   * responses, and only one of them is a parser problem.
+   *
+   * THE CLOSED SET OR NULL, narrowed by the parse service — the same posture
+   * `extractionMethod` keeps, and for the same reason: no cast stands between the far side's
+   * open `notes` array and `wri_degraded_posture_chk`.
+   */
+  degradedPosture: ResumeDegradedPostureName | null;
 }
 
 /** The routing decision and the staged suggestion token. */
@@ -261,6 +275,12 @@ export function settleParsedStatement(
       // not a read: the import status endpoint had no field that could tell a productive
       // chat-routed import from one that yielded nothing.
       fieldsExtracted: facts.fieldsExtracted,
+      // #1656 - WHY it yielded nothing, when the document was not at fault. In the SAME
+      // statement as the count and the route, so no reader can ever see a `parsed` row whose
+      // zero count has lost the reason behind it. NULL is written EXPLICITLY on a healthy
+      // parse: this is the only writer, so "not degraded" is asserted rather than inferred
+      // from a column nobody got round to setting.
+      degradedPosture: facts.degradedPosture,
       route: routing.route,
       // NULLED, NOT OMITTED, on the chat route. `wri_form_kind_chk` is an equivalence in both
       // directions, so a form kind riding along on a chat route would fail the whole settle.

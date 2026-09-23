@@ -602,6 +602,36 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "not, which is why this is APPLY-BEFORE-DEPLOY",
   },
   {
+    id: "0122-resume-fields-extracted",
+    migration: "0122_resume_import_fields_extracted",
+    kind: "column",
+    table: "worker_resume_import",
+    object: "fields_extracted",
+    requiredBy:
+      "settleParsedStatement names fields_extracted unconditionally in the ONE guarded UPDATE " +
+      "that settles every parsed résumé import (apps/api/src/profiling/resume-import/" +
+      "resume-import.repository.ts). Not optional, not feature-flagged: every parse writes it",
+    failureMode:
+      "EVERY résumé import stops settling (column does not exist). The row stays `parsing` " +
+      "forever, so the worker-app's poll never reaches a terminal status and he waits on a " +
+      "spinner; the import job retries and fails again. Missed when 0122 shipped",
+  },
+  {
+    id: "0123-resume-degraded-posture",
+    migration: "0123_resume_degraded_posture",
+    kind: "column",
+    table: "worker_resume_import",
+    object: "degraded_posture",
+    requiredBy:
+      "settleParsedStatement names degraded_posture unconditionally in the same single guarded " +
+      "UPDATE as fields_extracted above (#1656) — the two are written by one statement and " +
+      "therefore fail together, so a database missing either one fails every settle",
+    failureMode:
+      "identical to 0122's and for the same statement: every résumé import stays `parsing`, " +
+      "the worker's poll never terminates, and the job retries against a column that is not " +
+      "there. APPLY BEFORE DEPLOY",
+  },
+  {
     id: "0117-profile-correction-rls",
     migration: "0117_profile_correction",
     kind: "rls",
