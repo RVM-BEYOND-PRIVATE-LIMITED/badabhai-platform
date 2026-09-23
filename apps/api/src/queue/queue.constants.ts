@@ -148,6 +148,32 @@ export interface ResumeImportParseJobData {
   requestId: string;
 }
 
+/**
+ * ADR-0041 §7 stale-import sweep queue (#1665) — the sweep §7 said was "owed before real
+ * traffic" and that never got built.
+ *
+ * WHY A SECOND QUEUE AND NOT A JOB ON {@link RESUME_IMPORT_PARSE_QUEUE}. That queue's
+ * `defaultJobOptions` are sized for a job that reads a document: 3 attempts with exponential
+ * backoff. A repeatable clock tick wants neither, and mixing a scheduler into a queue whose
+ * jobs can sit for minutes behind an OCR run means the tick inherits that wait. It also keeps
+ * the two drainable independently when a backlog exists.
+ *
+ * The repeatable tick carries NO payload — the predicate over `worker_resume_import` (still
+ * `parsing`, untouched for longer than RESUME_IMPORT_STALE_AFTER_SECONDS) is the authoritative
+ * work list, so a lost or duplicated Redis job is harmless: the next tick re-evaluates it and
+ * catches anything missed.
+ */
+export const RESUME_IMPORT_SWEEP_QUEUE = "resume-import-sweep";
+
+/**
+ * Stable BullMQ job-scheduler id for the stale-import sweep — the idempotent upsert key the
+ * processor re-asserts at every boot (same-id upserts update the cadence instead of stacking
+ * duplicate schedulers). Lives here beside its ACCOUNT_DELETION / AI_JOBS_RETENTION /
+ * CHAT_ABANDONMENT / REACH_WIDEN_EXPIRY twins so queue names and scheduler ids stay in one
+ * place.
+ */
+export const RESUME_IMPORT_SWEEP_SCHEDULER_ID = "resume-import-sweep";
+
 /** Payload enqueued for an async profile-extraction job (refs only, no PII). */
 export interface ProfileExtractionJobData {
   workerId: string;

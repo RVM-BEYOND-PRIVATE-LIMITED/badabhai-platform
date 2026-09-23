@@ -103,6 +103,14 @@ NestJS boot assertion).
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).
+- **Résumé import sweep (ADR-0041 §7.1, #1665)** — `RESUME_IMPORT_STALE_AFTER_SECONDS` (1800)
+  and `RESUME_IMPORT_SWEEP_INTERVAL_MINUTES` (15). Both run on their defaults; neither compose
+  file forwards them. **The threshold is DERIVED from four other numbers** — the three résumé AI
+  transport budgets in `apps/api/src/ai/ai.service.ts` and BullMQ's `attempts`/backoff in
+  `apps/api/src/queue/queue.module.ts` — and the arithmetic is written beside the value in
+  `packages/config/src/server.ts`. **Raising any of those four without raising this one lets the
+  sweep settle a failure over a job that is still legitimately working.** Lowering the threshold
+  is the dangerous direction; raising it only delays a count.
 - **Observability** — `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`/`LANGFUSE_BASE_URL` (tracing
   off unless both keys are set; see `docs/observability-runbook.md` §6).
 - **Service URLs / ports** — `API_PORT`, `AI_SERVICE_PORT`, `AI_SERVICE_URL`, `WEB_PORT`.

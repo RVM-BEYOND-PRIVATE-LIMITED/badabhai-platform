@@ -183,6 +183,55 @@ export const serverEnvSchema = z.object({
   // `file_size_limit` as the outer wall; this is the inner one, and both are needed — the bucket
   // stops the bytes arriving, this stops a row being registered for an object that slipped past.
   RESUME_UPLOAD_MAX_BYTES: positiveIntFromString(10 * 1024 * 1024),
+  // ── ADR-0041 §7: the stale-import sweep (#1665) ────────────────────────────────────────
+  //
+  // How long a `worker_resume_import` row may sit in `parsing` untouched before the sweep
+  // settles it `failed` / `parse_deadline_exceeded`. It must be safely PAST the longest a
+  // LEGITIMATE delivery can take, because sweeping early writes a failure over a live job.
+  //
+  // DERIVATION — CHECK THE ARITHMETIC, DO NOT TRUST IT.
+  //
+  //   One delivery of the parse job can make THREE AI calls back to back, each bounded by
+  //   the api-side transport budget in `apps/api/src/ai/ai.service.ts` — which deliberately
+  //   sits ABOVE the far side's own `resume_parse_deadline_seconds` (90 s), so the
+  //   informative `parse_deadline_exceeded` stays reachable:
+  //
+  //     RESUME_PARSE_TIMEOUT_MS        100 s   POST /resume/parse         (RI-3)
+  //     RESUME_SUMMARY_TIMEOUT_MS      100 s   POST /resume/summary       (RI-identity)
+  //     RESUME_OPTION_MAP_TIMEOUT_MS   100 s   POST /resume/map-options   (RI-autofill)
+  //                                    -----
+  //                                    300 s   per delivery, worst case
+  //
+  //   BullMQ then multiplies the JOB. `resume-import-parse` does NOT override
+  //   `QueueModule`'s `defaultJobOptions`, which are `attempts: 3` with
+  //   `backoff: { type: "exponential", delay: 1000 }` — 3 deliveries, 1 s + 2 s of backoff
+  //   between them — plus BullMQ's stalled-job reclaim (30 s check, maxStalledCount 1) for a
+  //   delivery whose process died without failing the job:
+  //
+  //     3 x 300 s + 3 s + 30 s  =  933 s  ~= 15.6 min
+  //
+  //   That 3x is HEADROOM, not a prediction: a redelivery short-circuits at `already_settled`
+  //   and makes no AI call, so today's realistic ceiling is nearer 300 s + 33 s. The paranoid
+  //   number is the one this is sized against, because a future retry that legitimately
+  //   re-enters the chain must not be swept mid-flight.
+  //
+  //   1800 s is that ceiling ROUNDED UP, a ~1.9x margin (a ~5.4x margin on the realistic one).
+  //
+  // ERRING LONG IS THE ONLY SAFE DIRECTION. Sweeping early settles `failed` over a job that
+  // is still working AND emits the event that counts it — a failure that did not happen, in
+  // the exact metric this sweep exists to correct. Erring late costs only how quickly the
+  // funnel learns about a row NOBODY IS WAITING ON: the client's 90 s poll budget expired
+  // long ago and the worker was already told something (ruling D9).
+  //
+  // IF ANY OF THE FOUR INPUTS MOVES, THIS MOVES WITH IT — a raised `attempts`, a fourth AI
+  // call in the job, or a raised transport budget all raise the ceiling this sits above.
+  RESUME_IMPORT_STALE_AFTER_SECONDS: z.coerce.number().int().positive().default(1_800),
+  // Sweep cadence. MINUTES rather than the HOURS its ACCOUNT_DELETION / CHAT_ABANDONMENT
+  // twins use, and the deviation is the threshold above: a cadence coarser than the threshold
+  // it enforces makes the threshold a fiction (an hourly tick against a 30-minute threshold
+  // means a stranded row waits up to 90 minutes to be counted). Fractional minutes allowed so
+  // a test or staging run can tick fast.
+  RESUME_IMPORT_SWEEP_INTERVAL_MINUTES: z.coerce.number().positive().default(15),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,

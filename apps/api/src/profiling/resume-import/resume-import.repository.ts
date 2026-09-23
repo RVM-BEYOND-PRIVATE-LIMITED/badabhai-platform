@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
 import {
   type Database,
   workerResumeImports,
@@ -22,6 +22,16 @@ import { DATABASE } from "../../database/database.module";
  * so a repository method that could fetch one by id alone is a method a controller could reach
  * with an id from a request body. The type system is doing the ownership check here: you cannot
  * ask this class a question that omits the worker.
+ *
+ * ONE EXCEPTION, AND IT IS NARROWED BY PROJECTION RATHER THAN BY PROMISE (#1665).
+ * {@link ResumeImportRepository.findStaleParsing} and
+ * {@link ResumeImportRepository.countStaleUploaded} are the ADR-0041 §7 sweep's work list, and
+ * a sweep by definition has no worker to scope to — the defining property of a stranded import
+ * is that nobody is asking for it. So they are the two reads in this class that cross workers,
+ * and neither can ever hand back a document: they select an explicit COLUMN LIST of opaque ids
+ * and a timestamp, never `select()`, so `storage_key`, `suggestions_enc` and the identity
+ * strings are unreachable through them by construction. A controller that got hold of one would
+ * learn nothing it could show anybody.
  */
 @Injectable()
 export class ResumeImportRepository {
@@ -93,6 +103,58 @@ export class ResumeImportRepository {
       .where(and(eq(workerResumeImports.id, id), eq(workerResumeImports.status, "uploaded")))
       .returning({ id: workerResumeImports.id });
     return rows.length > 0;
+  }
+
+  /**
+   * Imports stuck in `parsing` since before `staleBefore` — the ADR-0041 §7 sweep's work list
+   * (#1665).
+   *
+   * `updated_at` IS THE CLOCK, NOT `created_at`. The row enters `parsing` in `markParsing`,
+   * which stamps `updated_at`; measuring from `created_at` would start the clock at CONFIRM and
+   * count the time a job spent waiting in a Redis backlog against a document nobody had begun
+   * reading yet. The only other writer that touches a `parsing` row is `saveIdentitySummary`,
+   * which re-stamps it mid-job — that pushes the deadline LATER, which is the safe direction:
+   * a job observably still working is not swept.
+   *
+   * THREE COLUMNS, AND THAT IS THE WHOLE POINT. This is the one cross-worker read in the class
+   * (see the class docblock). An explicit projection of two opaque uuids and a timestamp is
+   * what makes it safe: a `select()` here would put every worker's `storage_key` and sealed
+   * suggestion token behind a method that takes no owner.
+   *
+   * BOUNDED, and the caller re-ticks. A first deploy may find a backlog of rows stranded before
+   * the sweep existed; a backlog drains across ticks rather than holding one transaction open
+   * over thousands of rows. ORDERED OLDEST-FIRST so it drains FIFO and no row starves behind
+   * newer arrivals.
+   *
+   * ⚠ NO SUPPORTING INDEX, deliberately and for a smaller reason than it looks. The predicate
+   * wants a partial index on `(updated_at) WHERE status = 'parsing'` — tiny, since `parsing` is
+   * a transient state holding a handful of rows at a time. It is not here because the owner
+   * ruling for #1665 was explicitly "no migration", and because the cost of not having it is a
+   * sequential scan of `worker_resume_import` every RESUME_IMPORT_SWEEP_INTERVAL_MINUTES, off
+   * every request path, with output capped at `RESUME_IMPORT_SWEEP_BATCH_LIMIT`. That is
+   * affordable at this table's size (one row per résumé ever uploaded) and stops being
+   * affordable at some larger one. Unlike `findIdleActiveSessions`' identical note, nothing
+   * BLOCKS the index any more — #865 was fixed in 26cab7bf and `db:generate` is clean — so this
+   * is a one-line follow-up whenever the scan shows up in a plan.
+   */
+  async findStaleParsing(staleBefore: Date, limit: number): Promise<StaleImport[]> {
+    return staleParsingStatement(this.db, staleBefore, limit);
+  }
+
+  /**
+   * How many imports are stuck at `uploaded` past `staleBefore` — OBSERVABILITY ONLY (#1665).
+   *
+   * THE SWEEP DOES NOT SETTLE THESE, and `ResumeImportSweepProcessor` carries the
+   * argument for why. This exists so the decision is AUDITABLE rather than invisible: an
+   * operator can see the number without the sweep writing a status for it.
+   *
+   * BOUNDED BY `limit`, so the answer is "at least n" rather than a `count(*)` over a table
+   * that grows forever. Same projection discipline as {@link findStaleParsing} — one opaque
+   * column, never `select()`.
+   */
+  async countStaleUploaded(staleBefore: Date, limit: number): Promise<number> {
+    const rows = await staleUploadedStatement(this.db, staleBefore, limit);
+    return rows.length;
   }
 
   /**
@@ -193,6 +255,20 @@ export class ResumeImportRepository {
     const rows = await saveIdentitySummaryStatement(this.db, id, identity);
     return rows.length > 0;
   }
+}
+
+/**
+ * One stranded import, as the ADR-0041 §7 sweep sees it (#1665).
+ *
+ * TWO OPAQUE IDS AND A TIMESTAMP, and nothing else is reachable through the read that
+ * produces it — see `findStaleParsing`. The sweep needs the import id to settle, the worker id
+ * for the event's actor/subject (the ONE thing a sweep cannot get from a session), and
+ * `updatedAt` only to say in a log how long the row waited.
+ */
+export interface StaleImport {
+  id: string;
+  workerId: string;
+  updatedAt: Date;
 }
 
 /** The RI-identity Hinglish line, staged for the "is this you?" turn. */
@@ -312,6 +388,49 @@ export function saveIdentitySummaryStatement(db: Database, id: string, identity:
       ),
     )
     .returning({ id: workerResumeImports.id });
+}
+
+/**
+ * The stale-`parsing` work-list statement, BUILT but not awaited — exported for the same reason
+ * as the settle, and for one of its own.
+ *
+ * THE PREDICATE IS THE VACUITY GUARD. Losing `status = 'parsing'` would hand the sweep every
+ * aged row in the table, and losing `updated_at < $n` would hand it every in-flight parse. The
+ * guarded UPDATE downstream is what stops either mutation from actually corrupting a row — it
+ * refuses anything not `parsing` — but it would not stop the sweep from settling a job that is
+ * legitimately still working, which is the one outcome the threshold exists to prevent. Pinned
+ * here against `drizzle.mock()` so the predicate itself is under test with no database.
+ */
+export function staleParsingStatement(db: Database, staleBefore: Date, limit: number) {
+  return db
+    .select({
+      id: workerResumeImports.id,
+      workerId: workerResumeImports.workerId,
+      updatedAt: workerResumeImports.updatedAt,
+    })
+    .from(workerResumeImports)
+    .where(
+      and(
+        eq(workerResumeImports.status, "parsing"),
+        lt(workerResumeImports.updatedAt, staleBefore),
+      ),
+    )
+    .orderBy(asc(workerResumeImports.updatedAt))
+    .limit(limit);
+}
+
+/** The stale-`uploaded` COUNT statement (observability only), built but not awaited. */
+export function staleUploadedStatement(db: Database, staleBefore: Date, limit: number) {
+  return db
+    .select({ id: workerResumeImports.id })
+    .from(workerResumeImports)
+    .where(
+      and(
+        eq(workerResumeImports.status, "uploaded"),
+        lt(workerResumeImports.updatedAt, staleBefore),
+      ),
+    )
+    .limit(limit);
 }
 
 /** The failure statement, built but not awaited — exported for the same reason as the settle. */

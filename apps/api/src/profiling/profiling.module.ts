@@ -1,7 +1,11 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 
-import { RESUME_RENDER_QUEUE, RESUME_IMPORT_PARSE_QUEUE } from "../queue/queue.constants";
+import {
+  RESUME_RENDER_QUEUE,
+  RESUME_IMPORT_PARSE_QUEUE,
+  RESUME_IMPORT_SWEEP_QUEUE,
+} from "../queue/queue.constants";
 import { AiModule } from "../ai/ai.module";
 import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
@@ -30,6 +34,7 @@ import { ResumeImportRepository } from "./resume-import/resume-import.repository
 import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeImportSweepProcessor } from "./resume-import/resume-import-sweep.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
 import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
 import { ResumeSummaryService } from "./resume-import/resume-summary.service";
@@ -110,6 +115,11 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     // here (unlike the line above, which only borrows the Redis client): `ResumeImportService`
     // enqueues onto it and `ResumeImportProcessor` consumes it in-process.
     BullModule.registerQueue({ name: RESUME_IMPORT_PARSE_QUEUE }),
+    // ADR-0041 §7 (#1665) — the stale-import sweep's clock. A SECOND queue rather than a
+    // scheduler on the parse queue above: that one's defaultJobOptions are sized for a job
+    // that reads a document (3 attempts, exponential backoff) and its jobs can sit for
+    // minutes behind an OCR run, which a repeatable tick must not inherit.
+    BullModule.registerQueue({ name: RESUME_IMPORT_SWEEP_QUEUE }),
     // ADR-0041 RI-1 — signed upload URLs and object-info for the private résumé-uploads
     // bucket. A PLAIN import, not a forwardRef: `StorageModule` is a leaf that imports only
     // `ConfigModule` and reaches nothing here, so the edge is acyclic. `VoiceModule` takes it
@@ -152,6 +162,9 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ResumeSummaryService,
     ResumeSuggestionReader,
     ResumeImportProcessor,
+    // ADR-0041 §7 (#1665) — the repeatable sweep that settles imports stranded in `parsing`.
+    // Registers its own BullMQ scheduler at boot; idempotent by scheduler id across boots.
+    ResumeImportSweepProcessor,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator, TradeFormRepository],
 })
