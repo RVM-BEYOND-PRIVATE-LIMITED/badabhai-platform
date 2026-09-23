@@ -4,6 +4,7 @@ import { ResumeImportRepository } from "./resume-import/resume-import.repository
 import { ResumeImportService } from "./resume-import/resume-import.service";
 import { ResumeParseService } from "./resume-import/resume-parse.service";
 import { ResumeImportProcessor } from "./resume-import/resume-import.processor";
+import { ResumeImportSweepProcessor } from "./resume-import/resume-import-sweep.processor";
 import { ResumeRouteService } from "./resume-import/resume-route.service";
 import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
 import { ResumeSummaryService } from "./resume-import/resume-summary.service";
@@ -135,6 +136,13 @@ describe("ProfilingModule wiring", () => {
       ResumeSummaryService,
       ResumeSuggestionReader,
       ResumeImportProcessor,
+      // ADR-0041 §7 (#1665) — the stale-import sweep. Pinned for a reason the entries above
+      // only gesture at: this one REGISTERS ITSELF at boot (`onApplicationBootstrap` →
+      // `upsertJobScheduler`), so dropping it from this list does not fail a metadata test,
+      // does not fail boot, and does not fail any other test — it simply means no tick ever
+      // fires and `profile.resume_parse_failed` silently under-counts forever. A provider
+      // whose absence is INVISIBLE is exactly the kind this list exists to hold.
+      ResumeImportSweepProcessor,
     ]);
   });
 

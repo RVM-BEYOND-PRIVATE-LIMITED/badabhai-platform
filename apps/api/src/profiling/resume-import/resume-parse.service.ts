@@ -15,7 +15,7 @@ import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
 import { EventsService } from "../../events/events.service";
 import type { RequestContext } from "../../common/request-context";
-import { ResumeImportRepository } from "./resume-import.repository";
+import { ResumeImportRepository, type StaleImport } from "./resume-import.repository";
 import { RESUME_PARSE_TARGET_FIELDS } from "./resume-parse-fields";
 import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
 
@@ -71,6 +71,37 @@ import { applyResumeParseGates, filterEmployments } from "./resume-parse-gates";
  * attempted".
  */
 const DEGRADED_POSTURE_NOTES: ReadonlySet<string> = new Set<string>(RESUME_DEGRADED_POSTURES);
+
+/**
+ * Who settled a `profile.resume_parse_failed` — the one thing that differs between the two
+ * writers of `failed` (owner ruling, 2026-09-23, #1665).
+ *
+ * A UNION RATHER THAN TWO STRINGS, because `actor_id` is not independent of `actor_type`: a
+ * worker settle names the worker, and a sweep settle has nobody to name. Typing them together
+ * makes `{ actor_type: "system", actor_id: someWorkerId }` unrepresentable rather than merely
+ * wrong, which is the difference between a rule and a convention.
+ */
+type FailureActor =
+  | { actor_type: "worker"; actor_id: string }
+  | { actor_type: "system"; actor_id: null };
+
+/**
+ * The sweep's actor, and the whole reason #1665 needed no ninth failure reason.
+ *
+ * ADR-0041 §7 always said the sweep writes `parse_deadline_exceeded`. The objection was that
+ * it then reads identically to a job that genuinely ran out of time — a provider-latency story
+ * and an ops story collapsed into one number. It does not: the envelope already carries the
+ * actor, `"system"` is already in `ACTOR_TYPES`, and `{ actor_type: "system", actor_id: null }`
+ * is the convention `agency.service.ts` and `agency-payout.service.ts` already use. So the
+ * funnel separates cause on a field every event already has, at zero schema cost — no ninth
+ * reason, no CHECK migration, no event-schema enum change, no client change.
+ */
+const SWEEP_ACTOR: FailureActor = { actor_type: "system", actor_id: null };
+
+/** The job path's actor: the worker whose document was being read. */
+function workerActor(workerId: string): FailureActor {
+  return { actor_type: "worker", actor_id: workerId };
+}
 
 @Injectable()
 export class ResumeParseService {
@@ -270,7 +301,41 @@ export class ResumeParseService {
     ctx: RequestContext,
   ): Promise<boolean> {
     if (draft.settled) return false;
-    return this.recordFailure(draft.importId, workerId, draft.reason, draft.extractionMethod, ctx);
+    return this.recordFailure(
+      draft.importId,
+      workerId,
+      draft.reason,
+      draft.extractionMethod,
+      ctx,
+      workerActor(workerId),
+    );
+  }
+
+  /**
+   * Settle an import the sweep found stranded in `parsing` (ADR-0041 §7, #1665).
+   *
+   * THE SAME TRANSACTION THE JOB PATH RUNS, with one field different. Same
+   * {@link recordFailure}, same `markFailed` guarded `WHERE status = 'parsing'`, same
+   * `profile.resume_parse_failed:<importId>` idempotency key — so a sweep racing a live
+   * delivery cannot double-count: whoever wins the guarded UPDATE emits, the loser gets
+   * `false` and emits nothing, from either order.
+   *
+   * WHAT DIFFERS IS THE ACTOR, and that is the whole ruling — see {@link SWEEP_ACTOR}. The
+   * reason stays `parse_deadline_exceeded` exactly as §7 specified.
+   *
+   * `extractionMethod` IS NULL and must be: the sweep never read the document, so it has no
+   * method to name. Writing one would be a claim about work nobody did — the same reason the
+   * column is nullable for every failure that happens before a method is chosen.
+   */
+  async settleStale(stale: StaleImport, ctx: RequestContext): Promise<boolean> {
+    return this.recordFailure(
+      stale.id,
+      stale.workerId,
+      "parse_deadline_exceeded",
+      null,
+      ctx,
+      SWEEP_ACTOR,
+    );
   }
 
   /**
@@ -296,7 +361,14 @@ export class ResumeParseService {
     if (RESUME_SUMMARY_SURVIVING_FAILURES.has(reason)) {
       return { status: "failed", importId, reason, extractionMethod, settled: false };
     }
-    const recorded = await this.recordFailure(importId, workerId, reason, extractionMethod, ctx);
+    const recorded = await this.recordFailure(
+      importId,
+      workerId,
+      reason,
+      extractionMethod,
+      ctx,
+      workerActor(workerId),
+    );
     if (!recorded) return { status: "already_settled", importStatus: "settled_elsewhere" };
     return { status: "failed", importId, reason, extractionMethod, settled: true };
   }
@@ -323,12 +395,13 @@ export class ResumeParseService {
     reason: ResumeImportFailureName,
     extractionMethod: ResumeExtractionMethodName | null,
     ctx: RequestContext,
+    actor: FailureActor,
   ): Promise<boolean> {
     return this.imports.withTransaction(async (tx) => {
       if (!(await this.imports.markFailed(importId, reason, extractionMethod, tx))) return false;
       await this.events.emit({
         event_name: "profile.resume_parse_failed",
-        actor: { actor_type: "worker", actor_id: workerId },
+        actor,
         subject: { subject_type: "worker", subject_id: workerId },
         payload: {
           worker_id: workerId,

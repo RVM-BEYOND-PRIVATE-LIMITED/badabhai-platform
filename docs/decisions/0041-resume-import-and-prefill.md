@@ -390,7 +390,78 @@ Four consequences, all of them good:
   (a failed seal, a database error inside the settle) rolls back to `parsing` with no event. The
   BullMQ redelivery sees a row past `uploaded`, does not read the document again, and completes
   with `route: null`. The row stays `parsing` until a sweep marks stale rows
-  `parse_deadline_exceeded` — **that sweep does not exist yet and is owed before real traffic.**
+  `parse_deadline_exceeded`. **That sweep now exists — `ResumeImportSweepProcessor` (#1665,
+  built 2026-09-23).** See §7.1.
+
+### 7.1 The stale-import sweep (#1665, built 2026-09-23)
+
+`apps/api/src/profiling/resume-import/resume-import-sweep.processor.ts`. A repeatable BullMQ
+tick on its own queue (`resume-import-sweep`), registered at boot by `upsertJobScheduler` and
+idempotent by scheduler id, that settles imports stranded in `parsing`.
+
+**What it fixes.** Two paths leave a row `parsing` with no event, and both are deliberate:
+`ResumeRouteService.route` does not catch a `buildSuggestions`/`crypto.encrypt` failure (a
+payload that cannot be sealed is a correctness fault — CLAUDE.md §3 says stop), and the #1654
+deferral opens a window between `parse()` and `settleFailure` in which a dying process leaves
+the same row. In both the redelivery answers `already_settled` and re-bills nothing, which is
+correct — the row waits for a sweep rather than a second charge. A stranded row emits no
+`profile.resume_parse_failed`, so **RI-7's failure rate is undercounted by exactly these**, and
+it is invisible from outside: the client's 90s poll budget expires, the worker is told something
+and dropped into the chat, so nobody complains.
+
+**RULING (owner, 2026-09-23): an actor, not a ninth reason.** A swept row is written `failed` /
+`parse_deadline_exceeded` — the same reason a job-settled deadline carries, exactly as §7 above
+always specified. It is told apart on the spine by the **event actor**: the sweep emits
+`{ actor_type: "system", actor_id: null }` where `ResumeParseService` emits
+`{ actor_type: "worker", actor_id: workerId }`. `system` is already in `ACTOR_TYPES` and the
+null-id shape is the convention `agency.service.ts` / `agency-payout.service.ts` already use, so
+the funnel separates cause on a field already present on every envelope. **No ninth failure
+reason, no vocabulary change, no schema change, no migration** — the alternative would have
+widened a closed vocabulary that is simultaneously a CHECK constraint, a `z.enum` and a
+TypeScript union, to record a fact the envelope had room for.
+
+**One writer, still.** `ResumeParseService.recordFailure` remains the SINGLE place that writes
+`failed` and emits the event together (established by #1664). The sweep reaches it through a
+third public door, `settleStale`, which passes a different **actor** and nothing else — same
+guarded `markFailed`, same one transaction, same `profile.resume_parse_failed:<importId>`
+idempotency key. It was given a parameter rather than a copy.
+
+**The threshold: `RESUME_IMPORT_STALE_AFTER_SECONDS = 1800` (30 min).** Derived, with the
+arithmetic written beside it in `packages/config/src/server.ts`: one delivery can make three AI
+calls (`/resume/parse`, `/resume/summary`, `/resume/map-options`) at a 100 s api-side transport
+budget each = 300 s; BullMQ's `attempts: 3` with exponential backoff (1 s + 2 s) plus a 30 s
+stalled-job reclaim gives a paranoid ceiling of 933 s ≈ 15.6 min; 1800 s is that rounded up
+(~1.9×). Erring long is the only safe direction — sweeping early would settle `failed` over a
+live job and emit the failure event for a parse that was working. Cadence
+`RESUME_IMPORT_SWEEP_INTERVAL_MINUTES = 15`, in minutes rather than the hours its
+`ACCOUNT_DELETION`/`CHAT_ABANDONMENT` twins use, because a cadence coarser than the threshold
+makes the threshold a fiction.
+
+**Safety properties.** Reads no document, calls no model, re-bills nothing. The DB predicate is
+authoritative, so a lost or duplicated tick costs nothing. Bounded at 100 rows per tick,
+oldest-first, so a first-deploy backlog drains across ticks instead of holding one read over
+thousands of rows. The work list is the one cross-worker read in `ResumeImportRepository` and is
+narrowed by **projection** — `id`, `worker_id`, `updated_at` only, never `select()` — so no
+storage key or sealed suggestion token is reachable through it. Logs carry counts and truncated
+opaque ids only. A race with a live delivery is settled by the existing guarded UPDATE from
+either order: the loser gets `false` and emits nothing.
+
+**Rows stuck at `uploaded` are NOT swept — decided, not overlooked.** A row can strand at
+`uploaded` too (the confirm route catches an enqueue failure and returns 201 anyway, Redis loses
+the job, or the process dies before `markParsing`). They are left alone because (a) the
+vocabulary would lie — `parse_deadline_exceeded` means a reply that never arrived, and nothing
+was ever asked for an `uploaded` row, so writing it would put "our parser let this worker down"
+into the very metric this sweep exists to correct; that is the same conflation #1656 was filed
+to undo one field over — and (b) the remedy is different in kind: nothing has been read and
+nothing billed, so the right response is a **re-enqueue**, which spends money and is the owner's
+decision, not a terminal failure smuggled in behind a counting sweep. The sweep **counts** stale
+`uploaded` rows each tick and logs the number, so the backlog is visible without a status being
+written for it. A re-enqueue sweep is not scheduled.
+
+**Not done:** no supporting index. The predicate wants a partial index on
+`(updated_at) WHERE status = 'parsing'`; the ruling was "no migration", and the scan is periodic,
+off every request path and capped in output, so it is affordable at this table's size. Nothing
+blocks the index any more (#865 was fixed in `26cab7bf`) — it is a one-line follow-up.
 
 ## 8. Open
 
@@ -509,7 +580,10 @@ has always had (`settleParsed` follows the summary), and it is the order the cli
 
 **The deferral's cost, stated rather than implied.** A process that dies between the parse and
 `settleFailure` leaves the row `parsing` with no event, exactly as a throw on the parsed path
-already does. The redelivery does not re-bill; the row waits for a sweep (§7). The window widens
+already does. The redelivery does not re-bill; the row waits for the sweep (§7.1 — built #1665,
+2026-09-23; it settles the row `parse_deadline_exceeded` with a `system` actor, so the deferral's
+cost is now a delay of at most `RESUME_IMPORT_STALE_AFTER_SECONDS` plus one tick, not a row
+stranded forever). The window widens
 by one summary call and by no new behaviour.
 
 **Reader change.** `ResumeSuggestionReader.identityForChat` now serves a `failed` row as well as a
