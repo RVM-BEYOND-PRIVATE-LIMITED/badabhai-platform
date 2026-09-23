@@ -153,6 +153,13 @@ def _force_mock_only_env() -> None:
     os.environ["AI_EXTRACTION_MAX_OUTPUT_TOKENS"] = "1024"
     os.environ["AI_EXTRACTION_TEMPERATURE"] = "0.0"
     os.environ["AI_EXTRACTION_MAX_RETRIES"] = "2"
+    # The resume-parse output budget, split off the extraction knob in #1674. Pinned here
+    # for the same reason as its neighbours and MUST mirror the committed default: a
+    # developer .env tuning it would move the worst-case cost check and the route
+    # assertions onto a number prod does not use. `test_resume_parse_output_budget.py`
+    # deletes this var explicitly where it asserts the DEFAULT, so the pin cannot make
+    # that assertion vacuous.
+    os.environ["AI_RESUME_PARSE_MAX_OUTPUT_TOKENS"] = "2048"
     os.environ["AI_RESUME_MAX_OUTPUT_TOKENS"] = "512"
     os.environ["AI_RESUME_TEMPERATURE"] = "0.4"
     os.environ["AI_RESUME_MAX_RETRIES"] = "1"

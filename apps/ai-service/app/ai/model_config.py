@@ -179,8 +179,18 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
             # The parse returns one object per requested field, each carrying a quoted span, so its
             # output scales with the Resume Field Set rather than being a fixed-size answer. It
             # shares the extraction budget deliberately: both read one finished interview and emit
-            # one structured profile object, and giving them separate knobs would mean tuning the
-            # same thing in two places.
+            # one structured profile object.
+            #
+            # AMENDED #1674 — this comment used to end "and giving them separate knobs would mean
+            # tuning the same thing in two places", which was the stated reason `resume_parse`
+            # shared it too. That is no longer true of `resume_parse` and the measurement is what
+            # changed it: THIS route reads one finished interview, whose shape this service
+            # controls, while `resume_parse` reads an UPLOADED DOCUMENT whose reply size is set by
+            # its max line length and employment count. They are two different distributions, so
+            # one knob is now the drift risk rather than the convenience — tuning `resume_parse`
+            # for a long CV would silently widen the interview parse, which nothing measured.
+            # `profile_parse` stays here, on the shared knob, because nothing about IT was
+            # measured either and widening it would be an unmeasured change.
             max_output_tokens=settings.ai_extraction_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Typing a recorded answer has exactly one
             # right result; sampling would let a re-parse of an unchanged interview return a
@@ -195,10 +205,21 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # SHARES THE EXTRACTION BUDGET, like `profile_parse`. The output is one object
-            # per requested field plus one per job held, each carrying a quoted span, so it
-            # scales with the résumé rather than being a fixed-size answer.
-            max_output_tokens=settings.ai_extraction_max_output_tokens,
+            # ITS OWN BUDGET SINCE #1674, and the only route here that has one for a reason
+            # that was MEASURED rather than argued. The output is one object per requested
+            # field plus one per job held, each carrying a quoted span, so it scales with the
+            # RÉSUMÉ — an input this service does not control — rather than being a fixed-size
+            # answer. Over 43 documents the maximal contract-permitted reply reached 1047
+            # tokens worst case against the shared 1024, i.e. the old budget was one long line
+            # short of losing a whole parse (a truncated candidate has no closing brace, so it
+            # is fatal per-document, not per-field). The distribution, the method, the
+            # `line_count` finding that rules out deriving this per call, and the caveats live
+            # on `ai_resume_parse_max_output_tokens` in `app/config.py`.
+            #
+            # `resume_profile_summary` and `resume_option_map` deliberately DO NOT follow:
+            # the summary is a fixed-size object and the option map scales with the pack, not
+            # the document. Neither is at risk and neither was measured.
+            max_output_tokens=settings.ai_resume_parse_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Reading a value off a document has
             # exactly one right result; sampling would let a re-import of the SAME file
             # return a different employer or a different year. It also needs its own branch
@@ -212,10 +233,12 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
-            # object (a closed id plus two short Hinglish strings), so this is slack —
-            # and slack is safer than tight here: a truncated candidate loses the closing
-            # brace, fails the contract, and degrades the whole line to null.
+            # SHARES THE EXTRACTION BUDGET — and STAYS on it after #1674 split
+            # `resume_parse` off. The output is one small object (a closed id plus two
+            # short Hinglish strings): a FIXED size, which is exactly the property
+            # `resume_parse` lost. So this is slack, and slack is safer than tight here:
+            # a truncated candidate loses the closing brace, fails the contract, and
+            # degrades the whole line to null.
             max_output_tokens=settings.ai_extraction_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. A classification against a fixed
             # list must give the same answer for the same document every time; sampling
@@ -230,11 +253,13 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
         return TaskRoute(
             task_type,
             default_tier,
-            # SHARES THE EXTRACTION BUDGET, like `resume_parse`. The output is one small
-            # object per pack question, each carrying a quoted span, so it scales with the
-            # pack rather than being a fixed-size answer — and slack is safer than tight:
-            # a truncated candidate loses the closing brace and degrades the whole mapping
-            # to nothing.
+            # SHARES THE EXTRACTION BUDGET — and STAYS on it after #1674 split
+            # `resume_parse` off. The output is one small object per pack question, each
+            # carrying a quoted span, so it scales with the PACK — a closed list this
+            # service ships and can count — rather than with the uploaded document. That
+            # is the distinction the split turns on, not "fixed vs variable". Slack is
+            # safer than tight here too: a truncated candidate loses the closing brace and
+            # degrades the whole mapping to nothing.
             max_output_tokens=settings.ai_extraction_max_output_tokens,
             # TEMPERATURE ZERO, and NOT from settings. Mapping a document onto a fixed
             # option list must give the same answer for the same document every time;

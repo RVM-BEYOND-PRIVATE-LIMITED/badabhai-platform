@@ -226,6 +226,68 @@ class Settings(BaseSettings):
     ai_extraction_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     ai_extraction_max_retries: int = Field(default=2, ge=0, le=5)
 
+    # THE RESUME-PARSE OUTPUT BUDGET, SPLIT OUT OF THE SHARED EXTRACTION KNOB ABOVE (#1674).
+    #
+    # `resume_parse` is the one route whose reply size is decided by an UPLOADED DOCUMENT
+    # rather than by a schema this service controls: one object per requested field plus one
+    # per job held, each carrying a quoted span. Every other consumer of
+    # `ai_extraction_max_output_tokens` emits a shape whose size we already know
+    # (`profile_parse` reads one finished interview; `resume_profile_summary` is a fixed-size
+    # object; `resume_option_map` scales with the pack, not the CV). One knob across two
+    # different distributions is the drift risk, not the convenience — see the amended route
+    # comment in `app/ai/model_config.py`.
+    #
+    # THE MEASUREMENT (recorded on #1674; re-runnable, no model call needed).
+    #   Method: the real `extract()` -> `mask_resume_lines()` pipeline over n = 43 local PDFs;
+    #   for each document the MAXIMAL contract-permitted reply was built from that document's
+    #   REAL line lengths (8 target fields + N employments, one cited quote each), serialized
+    #   pretty-printed the way Gemini JSON-mode emits, and sized with this service's own
+    #   `cost_tracker.estimate_tokens` (`len // 4`) so the number is in the units the spend
+    #   ledger uses.
+    #
+    #     REALISTIC  (median-length quotes):  p50 = 658   p95 = 709   max =  805
+    #     WORST CASE (longest-line quotes):   p50 = 815   p95 = 957   max = 1047
+    #     over 1024 at the old budget:        realistic 0/43, worst case 1/43
+    #
+    #   The single document over the cap is the 2-page CV that opened #1656 — 86 lines, 3
+    #   employments, longest line 121 chars — at 1047 worst case against 1024. So the old
+    #   budget was not comfortably sized; it was one long line short.
+    #
+    # 2048 IS 1.96x THE OBSERVED WORST CASE (1047) and 2.14x worst-case p95 (957), and sits
+    # inside the `le=8192` bound this field already had, so nothing about the contract moves.
+    #
+    # DO NOT DERIVE THIS FROM `line_count` — the measurement kills that idea, which #1674
+    # floated. A 449-line document sizes at 977 worst case while an 86-line one hits 1047:
+    # the reply is ONE cited quote per field, so a longer document means longer POSSIBLE
+    # quotes, not more fields. Reply size tracks max line length x employment count. A
+    # per-call budget derived from line count would be confidently wrong in both directions.
+    #
+    # WHAT THIS NUMBER IS NOT. Four honest caveats, so it is not mistaken for calibrated truth:
+    #   1. `estimate_tokens` is `len // 4`, a heuristic. Real tokenization of dense punctuated
+    #      JSON is typically DENSER, so these are likely UNDERestimates.
+    #   2. `machines` is a `string_array` and the corpus reply carried one value; a résumé
+    #      naming 4-6 machines adds more. Also an underestimate.
+    #   3. The corpus is what was on one developer's machine — 43 PDFs including architecture
+    #      docs and invoices alongside real résumés. Not a random sample of worker uploads.
+    #   4. LANGFUSE SUPERSEDES THIS. `resume_parse` traces carry real `candidatesTokenCount`;
+    #      when someone can reach it, the p50/p95/max over real imports is the honest answer
+    #      and this offline ceiling should be re-set from it.
+    #
+    # SPEND (TD27), checked rather than assumed. `max_output_tokens` is a CEILING, not a
+    # reservation of real money: the extra tokens are billed only if the model emits them, and
+    # the router's pre-call worst-case reservation is refunded down to actual after the call
+    # (`SpendStore.refund`). At `gemini-2.5-flash` output rates (Rs 0.21/1k) the WORST-CASE
+    # bill per parse rises Rs 0.2151. Against the caps: the largest prompt this route can build
+    # (`max_total_chars` 120k ~= 30k input tokens) projects Rs 1.18/call vs the Rs 10
+    # `ai_max_call_cost_inr` ceiling; a 2-page CV (taking the prompt at ~6k chars ~= 1.5k input
+    # tokens, an assumption, not a measurement) projects Rs 0.47 against Rs 0.25 before. Both
+    # are well inside the per-call ceiling and the Rs 25 per-worker day, and
+    # `tests/test_resume_parse_output_budget.py` asserts the first of those rather than
+    # trusting this comment. Note the route is still DORMANT on a default box: a real call
+    # additionally needs `AI_REAL_CALL_TASKS` to name `resume_parse`, which nothing committed
+    # does, so raising this changes no bill anywhere until someone arms it.
+    ai_resume_parse_max_output_tokens: int = Field(default=2048, ge=16, le=8192)
+
     # A HARD DEADLINE is how "parse cannot run away" becomes a property of the route instead of a
     # hope about the provider — `gemini_timeout_seconds` (30 s) times the retry chain is an order
     # of magnitude past any sane budget. On expiry the parse degrades to the deterministic
