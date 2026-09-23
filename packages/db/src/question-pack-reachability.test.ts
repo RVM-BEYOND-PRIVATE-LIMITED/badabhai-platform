@@ -213,6 +213,30 @@ const CAD_PHRASES = [
 ] as const;
 
 /**
+ * COMPOUND phrases a worker actually types, which are NOT alias rows in their own right.
+ *
+ * SEPARATE FROM `CAD_PHRASES` BECAUSE THE CONTRACT IS DIFFERENT. Every row in that list is an
+ * authored alias; every row here is two of them in one sentence, resolved by longest-first span
+ * search rather than by a row anybody wrote. That distinction is why this list exists at all —
+ * `matchSpan` returns the FIRST span it hits scanning longest-first and then left to right, so a
+ * compound resolves on whichever of its words comes first, and nothing in the by-phrase tables
+ * above would notice if that changed.
+ *
+ * "cad draughtsman" IS THE PHRASE A WORKER REPORTED, and it is the sharpest case: its two words
+ * pull in OPPOSITE directions. "cad" is authored on jd_nco_3118_0401 (mechanical, the role pack)
+ * and "draughtsman" on jd_nco_3118_0301 (the generic title, the router) — deliberately, per
+ * DRAUGHTING_PHRASES below. Left-to-right at span length 1 is what settles it for the role pack,
+ * which is the right answer for a man who says CAD: he draws on a machine, and the mechanical
+ * pack is the deeper interview. If a future tranche authors a longer span over either word, or
+ * reorders the scan, this row moves and the diff says so.
+ */
+const COMPOUND_DRAWING_OFFICE_PHRASES = [
+  "cad draughtsman",
+  "cad draftsman",
+  "autocad draughtsman",
+] as const;
+
+/**
  * THE GENERIC DRAUGHTING VOCABULARY, and the list that would have caught the worst defect in the
  * Batch 1 alias tranche.
  *
@@ -504,6 +528,24 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     });
   });
 
+  it("CHARACTERIZES the compound phrases — two alias words in one sentence", () => {
+    const routing = Object.fromEntries(COMPOUND_DRAWING_OFFICE_PHRASES.map((p) => [p, familyFor(p)]));
+    // THE REPORTED DEFECT, PINNED AT THE LAYER THAT ACTUALLY FAILED. A worker typed "cad
+    // draughtsman" and was asked his trade twice, with Devanagari chips the second time. The
+    // alias corpus was never the problem — measured here it is a clean L0 hit on the "cad"
+    // span, one candidate, one family, which `decide()` pins at 0.97 with no disambiguation
+    // possible. The failure was that those rows were not in the DATABASE, which is why the
+    // fix in this change is a deploy-gate check and not an edit to the corpus.
+    //
+    // This table is what proves the corpus side stays correct: if it ever goes red, the
+    // phrase really has become ambiguous and the double-ask is a retrieval defect after all.
+    expect(routing).toEqual({
+      "cad draughtsman": "fam_cad_drafting",
+      "cad draftsman": "fam_cad_drafting",
+      "autocad draughtsman": "fam_cad_drafting",
+    });
+  });
+
   it("CHARACTERIZES the generic draughting words — they must reach the ROUTER, not the role", () => {
     const routing = Object.fromEntries(DRAUGHTING_PHRASES.map((p) => [p, familyFor(p)]));
     // THE ASSERTION THAT WOULD HAVE CAUGHT THE WORST DEFECT IN THIS TRANCHE, and the reason it
@@ -602,7 +644,12 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
   });
 
   it("no CAM, CAD or draughting phrase falls all the way through to the universal pack", () => {
-    for (const phrase of [...CAM_PHRASES, ...CAD_PHRASES, ...DRAUGHTING_PHRASES]) {
+    for (const phrase of [
+      ...CAM_PHRASES,
+      ...CAD_PHRASES,
+      ...DRAUGHTING_PHRASES,
+      ...COMPOUND_DRAWING_OFFICE_PHRASES,
+    ]) {
       expect(familyFor(phrase), `"${phrase}" falls through to universal`).not.toBe("fam_universal");
       expect(familyFor(phrase), `"${phrase}" reaches nothing at all`).not.toBeNull();
     }
