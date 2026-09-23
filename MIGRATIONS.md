@@ -26,9 +26,9 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. **The head line is
-DELIBERATELY not pinned here** — it went stale three times (it said `0086` from 2026-08-21 while
+DELIBERATELY not pinned here** — it went stale four times (it said `0086` from 2026-08-21 while
 `0087`–`0092` landed, then `0092` while `0093`–`0098` landed, then `0111` while `0112`–`0119`
-landed; as of 2026-09-21 the journal's max is 119, so the next free slot is `0120`).
+landed, then `0119` from 2026-09-21 while `0120`–`0123` landed).
 **Read `packages/db/migrations/meta/_journal.json` for the current maximum when minting a
 number** — it is the only source that cannot lag.
 
@@ -67,6 +67,9 @@ number** — it is the only source that cannot lag.
 | `0115`        | Prakash   | **MERGED (#1551); APPLIED** — ADR-0042 D9 / Layer A (g): `workers.verification_state` (nullable; CHECK closes ASSUMPTIONS A1's five-value vocabulary) + `workers.verified_at` (nullable, no render reads it). Five in the schema, two in the UI — the value→label mapping lives in `apps/api/src/resume/verification-tier.ts`, NOT in SQL, so a future tier change is a TypeScript edit. No application write path yet (ops act), hence no event. Additive; catalog-only ADD COLUMNs + an all-NULL CHECK. **APPLY-BEFORE-DEPLOY** — `findById` reads every model column on the render AND auth paths; registered as `0115-worker-verification-columns` in `schema-contract.ts` |
 | `0116`        | Divyanshu | **IN REVIEW (#1561)** — `job_postings` card content: `area`, `min/max_experience_years`, `benefits`, `requirements` (all nullable, no backfill) + the two experience CHECKs mirrored from `jobs`. The V1 feed/search/detail had nothing to carry beyond title/place/pay; the converter could not carry the seed content across. **APPLY-BEFORE-DEPLOY** — the three reads name the columns unconditionally; registered as `0116-job-postings-card-columns` in `schema-contract.ts` |
 | `0117`        | Prakash   | **IN REVIEW (#1593)** — #1311 backend half: `profile_correction` (one row per corrected field per profile; profile FK cascade; closed `pc_field_chk`; opaque session anchor, no values). New empty table; RLS ENABLE + hand-appended FORCE + four REVOKEs; registered as `0117-profile-correction-table` + `0117-profile-correction-rls`; listed in the e2e RLS guard. **APPLY-BEFORE-DEPLOY** — `ProfileCorrectionsRepository` names the table unconditionally on POST /profile/corrections |
+| `0118`–`0121` | —         | **ROWS NEVER WRITTEN.** The register stopped being fed after `0117`; the four files exist in `meta/_journal.json` and are the authority. Recorded here so the gap is visible rather than read as "no migrations landed" |
+| `0122`        | Prakash   | **MERGED (#1670, `d5c7350f`)** — #1660: `worker_resume_import.fields_extracted` (nullable integer, NULL-tolerant CHECK, no backfill). **APPLY-BEFORE-DEPLOY, and its `schema-contract.ts` entry was MISSED at merge** — `settleParsedStatement` names the column unconditionally on every parse, so a database without it stops every import at `parsing` and the worker's poll never terminates. Registered as `0122-resume-fields-extracted` by #1656's PR |
+| `0123`        | Divyanshu | **IN REVIEW (#1656)** — `worker_resume_import.degraded_posture` (nullable text; NULL-tolerant CHECK over the closed `RESUME_DEGRADED_POSTURES` set; no backfill). A spend-capped / cooled-down / kill-switched parse is now distinguishable from a genuine empty one on the row AND on `profile.resume_parsed`. CHECK deliberately NOT tied to `status` — a degraded posture is not a failure (D9). **APPLY-BEFORE-DEPLOY** — written by the SAME single guarded UPDATE as `0122`'s column, so the two fail together; registered as `0123-resume-degraded-posture` in `schema-contract.ts` |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
