@@ -18,6 +18,8 @@ import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { deterministicJobDomainAliasId } from "./job-domain-alias-id";
+import { loadJobDomainCorpusLines } from "./job-domain-corpus";
 
 config({ path: "../../.env" });
 
@@ -53,6 +55,97 @@ export function catalogEmptyFailure(domainCount: number): string | null {
   return (
     `[${SCRIPT}] FAIL  catalog is empty — no job_domain rows. ` +
     "Run `pnpm db:seed:domains --apply` first."
+  );
+}
+
+/**
+ * One row of the AUTHORED alias overlay, with the id the seeder would have written for it.
+ *
+ * `id` is not a convenience — it is the whole comparison. `job_domain_alias` has no unique
+ * constraint on (job_domain_id, text, lang); the seed's idempotency comes from the
+ * deterministic id in `job-domain-alias-id.ts`, so "did this authored row land?" is exactly
+ * "does that id exist?". Comparing on `text_norm` instead would re-implement the normalizer
+ * here and go quietly wrong the day it changes.
+ */
+export interface CuratedAlias {
+  id: string;
+  jobDomainId: string;
+  text: string;
+  lang: string;
+}
+
+/**
+ * Every alias the overlay files authored, keyed by the id the seeder derives for it.
+ *
+ * Reads the SAME loader the seed reads, deliberately: a second parser of `rvm-aliases.jsonl`
+ * would be free to disagree with the one that writes the rows, and a verifier that disagrees
+ * with the writer reports drift that is its own.
+ */
+export function expectedCuratedAliases(dir?: string): CuratedAlias[] {
+  const { overlays } = dir === undefined ? loadJobDomainCorpusLines() : loadJobDomainCorpusLines(dir);
+  return overlays.map((o) => ({
+    id: deterministicJobDomainAliasId(o.job_domain_id, o.text, o.lang),
+    jobDomainId: o.job_domain_id,
+    text: o.text,
+    lang: o.lang,
+  }));
+}
+
+/**
+ * The authored aliases the database does not have.
+ *
+ * ═══ THE HOLE THIS CLOSES, MEASURED ═══
+ *
+ * Every check above counts rows that are WRONG. None of them can see rows that are ABSENT,
+ * and the one that looks closest — "selectable domains with zero aliases" — cannot fire on a
+ * missing overlay at all: the NCO seeder writes each occupation's own `label_en` into its
+ * alias array, so all 3,515 selectable domains have an alias whether or not a single authored
+ * row ever landed. A database holding the published catalogue and NONE of the curated
+ * vernacular therefore printed "all structural checks passed".
+ *
+ * That is not a theoretical gap. `rvm-aliases.jsonl` is the file that makes role packs
+ * reachable, and without it retrieval falls back to the skeleton fold: measured through the
+ * shipped index, "cad draughtsman" resolves to `jd_nco_9621_0300` — a GOLF CADDIE — at L1
+ * confidence 0.72, which is under `AUTO_FLOOR` and so disambiguates instead of pinning. The
+ * worker is asked their trade a second time and offered chips labelled with family
+ * `label_hi`, because `pickChipLabel` falls to the family label when a domain's only alias is
+ * its own English title. With the overlay seeded the same phrase is an L0 exact hit at 0.97
+ * and pins outright. The difference between those two interviews is this file's blind spot.
+ *
+ * ═══ ROW EXISTENCE, NOT SEARCHABILITY ═══
+ *
+ * Deliberately checked on the ROW, not on `is_searchable`. The documented deploy chain is
+ * `db:migrate && db:seed:domains && db:verify:domains`, and straight after the seed every
+ * `text_norm` is NULL and nothing is searchable yet — the "aliases with no text_norm" WARN
+ * above is what reports that state. Failing on searchability here would turn the gate red on
+ * a state the deploy is supposed to pass through, which is the same mistake the
+ * "normalized selectable domains" check above documents avoiding.
+ */
+export function missingCuratedAliases(
+  expected: readonly CuratedAlias[],
+  presentIds: ReadonlySet<string>,
+): CuratedAlias[] {
+  return expected.filter((a) => !presentIds.has(a.id));
+}
+
+/**
+ * What an operator is told when authored aliases are missing.
+ *
+ * NAMES ROWS, NOT JUST A COUNT. "412 curated aliases missing" sends someone reading source to
+ * find out which corpus is stale; three example rows and the command to fix it does not. The
+ * sample is capped because the common failure is ALL of them — an overlay that never seeded —
+ * and printing 770 lines buries every other check in the report.
+ */
+export function curatedAliasFailureDetail(missing: readonly CuratedAlias[]): string {
+  const sample = missing
+    .slice(0, 3)
+    .map((a) => `${a.jobDomainId} ${JSON.stringify(a.text)} (${a.lang})`)
+    .join(", ");
+  const more = missing.length > 3 ? `, +${missing.length - 3} more` : "";
+  return (
+    "the authored alias overlay never landed — retrieval falls back to the skeleton fold and " +
+    "mis-routes workers. Run `pnpm db:seed:domains --apply` then `pnpm db:normalize:aliases --apply`. " +
+    `Missing: ${sample}${more}`
   );
 }
 
@@ -97,6 +190,29 @@ async function main(): Promise<void> {
          WHERE d."selectable" AND d."status" = 'active'
            AND NOT EXISTS (SELECT 1 FROM "job_domain_alias" a WHERE a."job_domain_id" = d."job_domain_id")
       `),
+    });
+
+    // THE AUTHORED OVERLAY, asserted to have actually landed — see `missingCuratedAliases`
+    // for why no check above can see this and what a worker experiences when it is absent.
+    //
+    // ALL ALIAS IDS IN ONE READ rather than a per-row EXISTS or an `= ANY($1)` bind. The
+    // table is ~9.5k rows of uuid in a read-only script that already runs a recursive cycle
+    // walk; the set costs nothing measurable and keeps the comparison in the pure function
+    // above, where it is unit-tested, instead of in SQL where it is not.
+    const presentAliasIds = new Set(
+      (
+        (await db.execute(dsql`SELECT "id" FROM "job_domain_alias"`)) as unknown as Array<{
+          id: string;
+        }>
+      ).map((r) => r.id),
+    );
+    const curated = expectedCuratedAliases();
+    const missingCurated = missingCuratedAliases(curated, presentAliasIds);
+    checks.push({
+      name: "curated (rvm) aliases missing from the database",
+      level: "fail",
+      detail: curatedAliasFailureDetail(missingCurated),
+      count: missingCurated.length,
     });
 
     // Orphans: a parent_code that never made it into the DB. The classic symptom of a
@@ -334,6 +450,9 @@ async function main(): Promise<void> {
     console.log(`  domains                    = ${domains}`);
     console.log(`  selectable (active)        = ${selectable}`);
     console.log(`  aliases                    = ${aliases}`);
+    console.log(
+      `  curated (rvm) aliases      = ${curated.length - missingCurated.length} / ${curated.length}`,
+    );
     console.log(`  crosswalked to a role      = ${crosswalked}`);
     console.log(`  searchable aliases         = ${searchableAliases}`);
     console.log(`  searchable domains         = ${searchableDomains}`);
