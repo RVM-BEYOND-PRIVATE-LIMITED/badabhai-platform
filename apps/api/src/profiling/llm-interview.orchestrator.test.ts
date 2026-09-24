@@ -800,6 +800,48 @@ describe("Phase A ends and the template tail takes over", () => {
     expect(map.find((a) => a.target_field === "trade")).toBeUndefined();
   });
 
+  /** An answer the worker already gave, as the answer map stores it. */
+  const answeredRecord = (questionKey: string, targetField: string | null, value: string) => ({
+    question_key: questionKey,
+    target_field: targetField,
+    value_raw: value,
+    value_normalized: value,
+    status: "answered" as const,
+    evidence: null,
+    turn: 1,
+    history: [],
+  });
+
+  // #1691 — a pin placed only in the universal family reads "General" (or "सामान्य" on a session
+  // pinned before #1686). That names no trade: it must settle nothing, so the pack asks `trade`
+  // rather than the résumé calling the worker's trade "General".
+  it.each(["General", "सामान्य", " general "])(
+    "settles NOTHING for the trade from a pin carrying the universal placeholder %j",
+    async (label) => {
+      const { orchestrator, store } = makeWorld({
+        take: { kind: "done", patch: { llmGateOpen: false, llmStage: "done" } },
+      });
+      seed(store, {
+        occupation: { ...PIN, job_domain_id: "jd_nco_9629_0100", label, isco_unit_code: "9629" },
+        llmGateOpen: true,
+        llmStage: "experience",
+        // The two questions the tail serves BEFORE the trade, already answered — so the next
+        // question is the one the placeholder would otherwise have answered on the worker's behalf.
+        answerMap: [
+          answeredRecord("q_city", "current_city", "Pune"),
+          answeredRecord("q_shift", null, "din"),
+        ],
+        llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+      });
+      const result = await orchestrator.takeTurn(say("Nahi"));
+
+      const map = store.get(SESSION)?.profiling?.answerMap ?? [];
+      expect(map.find((a) => a.target_field === "trade")).toBeUndefined();
+      // Asked, not skipped: the trade is found out from the worker.
+      expect(result.questionKey).toBe("primary_trade");
+    },
+  );
+
   it("settles the skills question from the draft, against the PACK's own vocabulary", async () => {
     const { orchestrator, store } = makeWorld({
       pack: PACK_WITH_SKILLS,
