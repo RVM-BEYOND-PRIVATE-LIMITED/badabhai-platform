@@ -163,4 +163,6 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_tool_die_making: "tool room aur die maker",
   fam_welding_trade: "welding aur jodai",
   fam_powder_coating: "powder coating aur spray painting",
+  // Batch 2 part two. The Latin reading of the family's `label_hi` ("शीट मेटल फैब्रिकेशन").
+  fam_sheet_metal_fab: "sheet metal fabrication",
 });

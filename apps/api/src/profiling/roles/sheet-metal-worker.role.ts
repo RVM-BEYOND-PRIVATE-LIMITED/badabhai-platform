@@ -3,9 +3,11 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
 /**
  * SHEET METAL WORKER — laser cutting, CNC press brake, turret punch, shearing, on thin gauge.
  *
- * DECLARED IN BATCH 2, form to follow. `fam_sheet_metal` stays exactly where it is as the generic
- * unit pack; this role binds the NCO occupations beside it, on the rule in the authoring guide's
- * §2 — a role pack sits beside the family pack, never instead of it.
+ * DECLARED IN BATCH 2, SHIPPED IN PART TWO once the 2026-09-24 alias tranche made its words
+ * reachable — "sheet metal", "press brake" and "fabricator" were NO MATCH before it. `fam_sheet_metal`
+ * stays exactly where it is as the generic unit pack; this role binds the NCO occupations beside
+ * it, on the rule in the authoring guide's §2 — a role pack sits beside the family pack, never
+ * instead of it.
  *
  * ═══ THE PRESS BRAKE IS THE WORD THIS ROLE AND THE PRESS OPERATOR FIGHT OVER ═══
  *
@@ -31,11 +33,42 @@ export const SHEET_METAL_WORKER = {
   packId: "qp_sheet_metal_fab",
   familyId: "fam_sheet_metal_fab",
   cluster: "fabrication",
-  formEnabled: false,
+  formEnabled: true,
   displayName: "Sheet Metal Worker",
   offerName: "sheet metal worker",
   levelLadder: ["Helper", "Operator", "Skilled"],
   tenureQuestionKey: "sheet_metal_experience",
+  fresher: {
+    // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_sheet_metal_fab@1. An
+    // ITI Sheet Metal Worker trainee stands at a hand shear and a folding machine, not at the
+    // laser and turret his employer will run — so this list is the WORKSHOP's machines, not the
+    // capability row's.
+    workshopMachines: {
+      shearing_machine: "Shearing machine",
+      bending_machine: "Hand bending machine",
+      spot_welder: "Spot welding machine",
+      drilling_machine: "Drilling machine",
+      grinder: "Grinding machine",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
+  /**
+   * AUTOCOMPLETE, NOT A CLOSED SET. The ratified page carries no certificate at all — its only
+   * credential is the education line "ITI — Sheet Metal Worker · NCVT" — so these are the
+   * credentials a thin-gauge shop actually asks about, led by the ITI trade itself.
+   */
+  suggestedCertificates: [
+    "ITI Sheet Metal Worker — NCVT",
+    "Trade Test — Sheet Metal Worker",
+    "CNC Press Brake Operation",
+    "Laser Cutting Machine Operation",
+    "Site Safety Induction",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
   detection: {
     occupationTerms: [
       "sheet metal worker",

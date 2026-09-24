@@ -105,6 +105,10 @@ describe("FAMILY_CHIP_LABELS", () => {
       fam_cad_drafting: "cad_draughtsman",
       fam_tool_die_making: "tool_die_maker",
       fam_powder_coating: "painter_coating",
+      // Batch 2 part two: "sheet metal fabrication" carries the occupation term "sheet metal", so
+      // a worker the resolver pins here is handed the sheet metal form — the intended route, and
+      // the generic `fam_sheet_metal` ("chadar aur dhancha") stays off this table.
+      fam_sheet_metal_fab: "sheet_metal_worker",
     });
   });
 });

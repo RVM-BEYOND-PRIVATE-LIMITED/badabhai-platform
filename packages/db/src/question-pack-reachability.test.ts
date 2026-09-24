@@ -828,7 +828,8 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
   it("CHARACTERIZES every accepted phrase — the ruled code, on today's generic pack", () => {
     const routing = Object.fromEntries(
       [
-        // Sheet metal — items 1-5, all on 7213.0101.
+        // Sheet metal — items 1-5, all on 7213.0101, which fam_sheet_metal_fab binds since its pack
+        // shipped — so these five moved off the generic minor-721 pack in that change, by design.
         "sheet metal", "शीट मेटल", "press brake", "laser cutting", "chadar ka kaam", "fabricator",
         "fabrication ka kaam",
         // Quality inspection — items 6-10, all on 7543.2001.
@@ -846,13 +847,13 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       ].map((p) => [p, familyFor(p)]),
     );
     expect(routing).toEqual({
-      "sheet metal": "fam_sheet_metal",
-      "शीट मेटल": "fam_sheet_metal",
-      "press brake": "fam_sheet_metal",
-      "laser cutting": "fam_sheet_metal",
-      "chadar ka kaam": "fam_sheet_metal",
-      fabricator: "fam_sheet_metal",
-      "fabrication ka kaam": "fam_sheet_metal",
+      "sheet metal": "fam_sheet_metal_fab",
+      "शीट मेटल": "fam_sheet_metal_fab",
+      "press brake": "fam_sheet_metal_fab",
+      "laser cutting": "fam_sheet_metal_fab",
+      "chadar ka kaam": "fam_sheet_metal_fab",
+      fabricator: "fam_sheet_metal_fab",
+      "fabrication ka kaam": "fam_sheet_metal_fab",
       qc: "fam_other_craft",
       "qc inspector": "fam_other_craft",
       "qa qc": "fam_other_craft",
@@ -957,5 +958,41 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     // 3. "naap tol" is STRUCK from QC but was a cart puller before the tranche and still is — the
     //    strike keeps it off the inspector's code, it does not repair the L1 fold on "tol".
     expect(familyFor("naap tol")).toBe("fam_cart");
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — SHEET METAL, the first of the seven to ship its pack.
+ *
+ * Two bindings, both measured before they were written: 7213.0101 carries the tranche's whole
+ * sheet-metal vocabulary, and 7223.2400 carries its own published title "Sheet Metal Machine
+ * Operator". Every other code in unit 7213 stays on the generic minor-721 pack — the auto-body
+ * denters, the tinsmiths and the "Structural" code, whose NCO description is vehicle and aircraft
+ * body assembly despite its name.
+ */
+describe("Batch 2 part two — sheet metal", () => {
+  it("binds exactly the two codes its words reach", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_sheet_metal_fab")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7213_0101", "jd_nco_7223_2400"]);
+    expect(familyFor("sheet metal machine operator")).toBe("fam_sheet_metal_fab");
+    expect(familyFor("sheet metal worker")).toBe("fam_sheet_metal_fab");
+    // The L1 fold of the tranche's "chadar" comes with it — a misspelling, not a new claim.
+    expect(familyFor("chaddar")).toBe("fam_sheet_metal_fab");
+  });
+
+  it("leaves the auto-body and tinsmith codes on the generic pack", () => {
+    for (const p of ["dent remover", "tinsmith", "tin coater", "panel beater", "boilersmith"]) {
+      expect(familyFor(p), p).toBe("fam_sheet_metal");
+    }
+    expect(familyFor("sheet metal worker structural")).toBe("fam_sheet_metal");
+  });
+
+  it("no sheet metal phrase falls through to the universal pack", () => {
+    for (const p of ["sheet metal", "press brake", "laser cutting", "fabricator", "शीट मेटल"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
   });
 });

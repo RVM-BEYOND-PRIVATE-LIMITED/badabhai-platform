@@ -185,6 +185,21 @@ describe("routeToTradeForm", () => {
       expect(route("Fabrication", "Welder, powder coating bhi karta hoon", null)).toBeNull();
     });
 
+    it("routes a sheet metal worker to the sheet metal form — Batch 2 part two's first", () => {
+      // The row above was written while sheet metal had no form, and it still holds now that it
+      // has one: the veto runs in BOTH directions inside `fabrication`, so a man who names both
+      // trades keeps talking whichever of them ships. These are the one-trade halves.
+      expect(route("Fabrication", "Sheet metal worker", null)).toBe("sheet_metal_worker");
+      // MACHINE WORDS NEED THE FAMILY PIN, the turner's rule: "laser cutting" and "press brake"
+      // are corroborating terms, so they route only once the resolver has landed the worker on
+      // fam_sheet_metal_fab — and not on their own, however specific they sound.
+      expect(
+        route("Manufacturing", "Laser cutting aur press brake operator", "fam_sheet_metal_fab"),
+      ).toBe("sheet_metal_worker");
+      expect(route("Manufacturing", "Laser cutting aur press brake operator", null)).toBeNull();
+      expect(route("Fabrication", "Welder and sheet metal worker", null)).toBeNull();
+    });
+
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.

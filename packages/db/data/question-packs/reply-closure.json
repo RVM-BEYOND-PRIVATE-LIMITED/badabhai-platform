@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 900,
+  "clip_count": 940,
   "producers": {
-    "retry": 76,
-    "clarify": 339,
-    "prompt": 242,
-    "why": 235,
+    "retry": 79,
+    "clarify": 355,
+    "prompt": 255,
+    "why": 243,
     "constant": 8
   },
   "clips": [
@@ -38,6 +38,11 @@
       "id": "016bf496584744a4",
       "text": "Har machine ka licence alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "01c5cf15ffc00977",
+      "text": "Sheet metal ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "02b98d6bd6f040b7",
@@ -73,6 +78,11 @@
       "id": "041b7e263fdddd92",
       "text": "Aapne kaunsi training ya course ki hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "042bbd5d6e93e704",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. Naap ke liye kaunse aujaar istemaal karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "0470023a8052a232",
@@ -600,6 +610,11 @@
       "producer": "clarify"
     },
     {
+      "id": "1f8b938d73b3b573",
+      "text": "Press brake ki kaunsi setting khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "1fd66ae9f93c86e6",
       "text": "Trade test diya hai?",
       "producer": "prompt"
@@ -628,6 +643,16 @@
       "id": "216877daf0aafefe",
       "text": "Gun setting se coating barabar lagti hai aur powder bachta hai. Gun ki kaunsi setting khud karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "2234fcfdda52d291",
+      "text": "Sheet metal ki kaunsi machine chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "226d26aa39fcdf00",
+      "text": "Kis cheez ki sheet metal fabrication me kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "2276dc17faa6989f",
@@ -683,6 +708,11 @@
       "id": "2497e0e3cd726a6c",
       "text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain. Aapko notice period kitne din ka lagta hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "24d5a0e42726f761",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "24d91ccea3955b25",
@@ -923,6 +953,11 @@
       "id": "2f600516d6bdd4da",
       "text": "Har jagah ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "2f8c061f423c4c19",
+      "text": "Helper aur skilled worker ka kaam aur vetan alag hota hai. Aap khud ko kis level ka sheet metal worker maante hain?",
+      "producer": "clarify"
     },
     {
       "id": "2fe7c56a2a1bcc38",
@@ -1170,6 +1205,11 @@
       "producer": "constant"
     },
     {
+      "id": "3f6849eff8106132",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Laser, press brake, turret ya shearing, kaunsi chalayi hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "3f6faad7997fc85a",
       "text": "Powder booth, spray booth ya oven, kis par kaam kiya hai?",
       "producer": "retry"
@@ -1280,6 +1320,11 @@
       "producer": "clarify"
     },
     {
+      "id": "4579d5e09b46e98f",
+      "text": "Nesting ya program ka kaunsa kaam kar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "45dfa08309aca28a",
       "text": "Aap kaun kaun si bhasha bolte hain?",
       "producer": "prompt"
@@ -1330,6 +1375,11 @@
       "producer": "why"
     },
     {
+      "id": "48092a885015f83d",
+      "text": "Nesting jaanne wale ko machine ki zimmedaari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "483d0b0c9c4ac289",
       "text": "Billing wale ko counter ka kaam milta hai.",
       "producer": "why"
@@ -1373,6 +1423,11 @@
       "id": "4aa35b8fe5b5d6b5",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Programming ka kitna tajurba hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "4aa3dd62f44e302a",
+      "text": "Lagbhag kitne saal sheet metal ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "4b3d94dd81fadc18",
@@ -1422,6 +1477,11 @@
     {
       "id": "4d76be57f2e14196",
       "text": "Post se employer ko aapka darja pehli line me samajh aata hai. Tool room me aapki abhi kaunsi post hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "4e17c858d6940fe1",
+      "text": "Moti sheet ka kaam alag rate par hota hai. Kitni moti sheet par kaam karte hain?",
       "producer": "clarify"
     },
     {
@@ -1600,6 +1660,11 @@
       "producer": "why"
     },
     {
+      "id": "571861d3ba2f0202",
+      "text": "Steel aur aluminium ka kaam alag hota hai. Kaunse material ki sheet par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "5731dd7882f04ada",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Tool room me kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -1628,6 +1693,11 @@
       "id": "58b8cb407f637924",
       "text": "Mixer aur plant ka kaam alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "5915f0ed8480d9d1",
+      "text": "Kitni moti sheet par kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "5944708c1e43f46b",
@@ -1860,6 +1930,11 @@
       "producer": "prompt"
     },
     {
+      "id": "65ce650e46b47ae6",
+      "text": "Kya aap fabrication drawing padh lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "65edf2110bc56caa",
       "text": "Moti plate ka kaam alag rate par hota hai.",
       "producer": "why"
@@ -1868,6 +1943,11 @@
       "id": "660cab3cbd86be31",
       "text": "Kya aap taul ka kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "6622c61f753b2308",
+      "text": "Setting karne wale ko zyada vetan milta hai. Press brake ki kaunsi setting khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "663469a2c470dc01",
@@ -1915,6 +1995,11 @@
       "producer": "why"
     },
     {
+      "id": "67d1ff2f22032e33",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "68cca9462ec037b9",
       "text": "Licence wale ko badi company rakhti hai.",
       "producer": "why"
@@ -1948,6 +2033,11 @@
       "id": "6a846e2ad54ddece",
       "text": "Kya aap sheher ke raaste jaante hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "6adb594d57bd569c",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Sheet metal ki kaunsi machine chalate hain?",
+      "producer": "clarify"
     },
     {
       "id": "6b17f99629a2cc4e",
@@ -2195,6 +2285,11 @@
       "producer": "retry"
     },
     {
+      "id": "75f34232b602aa71",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Sheet metal ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "766f203f7746531e",
       "text": "Wheel dressing kaise karte hain?",
       "producer": "prompt"
@@ -2208,6 +2303,11 @@
       "id": "76d231db42516a8e",
       "text": "Aap kaam kab se shuru kar sakte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "770a3cebdcfcb702",
+      "text": "Nesting jaanne wale ko machine ki zimmedaari milti hai. Nesting ya program ka kaunsa kaam kar lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "7780453e6497e0a3",
@@ -2470,6 +2570,11 @@
       "producer": "clarify"
     },
     {
+      "id": "871d97cdae348578",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "871eef517f4dba25",
       "text": "Spray ka kaam alag hunar hai. Kya aap spray gun chalate hain?",
       "producer": "clarify"
@@ -2720,6 +2825,11 @@
       "producer": "why"
     },
     {
+      "id": "9269a73c724290f0",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis cheez ki sheet metal fabrication me kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "92b79253cf5a0690",
       "text": "Kaunse booth aur oven par kaam kiya hai?",
       "producer": "prompt"
@@ -2775,9 +2885,19 @@
       "producer": "prompt"
     },
     {
+      "id": "9627f7da8c63e99a",
+      "text": "Setting karne wale ko zyada vetan milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "968d415276e0c358",
       "text": "Breakdown wale ko turant kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "9697ad6f544026ea",
+      "text": "Development ka hisaab jaanne wale se galti kam hoti hai. Flat pattern ka hisaab kaise nikaalte hain?",
+      "producer": "clarify"
     },
     {
       "id": "96fe776f95698842",
@@ -3260,6 +3380,16 @@
       "producer": "why"
     },
     {
+      "id": "b370c8603f0c78ad",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal sheet metal ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "b3b1ad2be1deab25",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Sheet par kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "b4c68d0d6c6205d8",
       "text": "Aap kaunse material par kaam karte hain?",
       "producer": "prompt"
@@ -3357,6 +3487,16 @@
     {
       "id": "bb34f950d21862c1",
       "text": "Cash wale par bharosa chahiye hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bb46184673704f8f",
+      "text": "Flat pattern ka hisaab kaise nikaalte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "bb5b6bc41e0c0f38",
+      "text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
       "producer": "why"
     },
     {
@@ -3485,6 +3625,11 @@
       "producer": "why"
     },
     {
+      "id": "bfb929f9a72644c4",
+      "text": "Kaunse material ki sheet par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "bfe0d7797613f17a",
       "text": "Setting karne wale ko operator se zyada paisa milta hai. Machine setting ka kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -3570,6 +3715,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c46134cd2a498616",
+      "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai. Cutting aur bending ke alawa kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "c4771076f2b35ea5",
       "text": "Har service ka alag hunar hota hai.",
       "producer": "why"
@@ -3603,6 +3753,11 @@
       "id": "c6cec4c63afe3d50",
       "text": "Dressing ka tarika wheel ki umar aur finish tay karta hai.",
       "producer": "why"
+    },
+    {
+      "id": "c6e42ed9c1765957",
+      "text": "Cutting aur bending ke alawa kaunsa kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "c73c8a3e9be370e7",
@@ -3685,6 +3840,11 @@
       "producer": "why"
     },
     {
+      "id": "cb73d036717a3086",
+      "text": "Aap khud ko kis level ka sheet metal worker maante hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "cb7d9d64c5b01200",
       "text": "Kya aap design bana lete hain?",
       "producer": "prompt"
@@ -3743,6 +3903,11 @@
       "id": "cd6cf956103868ca",
       "text": "Aap kahaan khana banate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "cd7c52a0b4c8abfa",
+      "text": "Drawing padhna kai jagah zaroori hota hai. Kya aap fabrication drawing padh lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "cda56167bc78dd56",
@@ -3935,6 +4100,11 @@
       "producer": "why"
     },
     {
+      "id": "d82ddac764d19d78",
+      "text": "Sheet par kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "d8f7660181858b96",
       "text": "Armed guard ka vetan zyada hota hai. Kya aap hathiyar wali duty kar sakte hain?",
       "producer": "clarify"
@@ -3973,6 +4143,11 @@
       "id": "daefef5c3c07a859",
       "text": "Program likhne wale ko sabse zyada paisa milta hai. Programming ka kaam kitna karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "dc0b7136d0cb519c",
+      "text": "Development ka hisaab jaanne wale se galti kam hoti hai.",
+      "producer": "why"
     },
     {
       "id": "dc78002e6b0e17d1",
@@ -4245,6 +4420,11 @@
       "producer": "why"
     },
     {
+      "id": "ecd60de7d2d481cd",
+      "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "ed0ab72d39311498",
       "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye. Ghar se kitne km door tak kaam kar sakte hain?",
       "producer": "clarify"
@@ -4262,6 +4442,11 @@
     {
       "id": "ed561d1c8b8afc64",
       "text": "Drawing banane ke liye aapko kya milta hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "edb0b08063aecec1",
+      "text": "Naap ke liye kaunse aujaar istemaal karte hain?",
       "producer": "prompt"
     },
     {
@@ -4303,6 +4488,11 @@
       "id": "efd9c2739e91b1f7",
       "text": "Software ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsa CAM software chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "f040500c0ce5bcaf",
+      "text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
+      "producer": "retry"
     },
     {
       "id": "f19605412412f96c",
@@ -4410,6 +4600,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f858688fd66b5cf9",
+      "text": "Laser, press brake, turret ya shearing, kaunsi chalayi hai?",
+      "producer": "retry"
+    },
+    {
       "id": "f865df0646ac79a5",
       "text": "Employer ko pata hona chahiye ki aap kab join kar sakte hain.",
       "producer": "why"
@@ -4498,6 +4693,11 @@
       "id": "fdf773c52c77d43e",
       "text": "Line par target poocha jaata hai. Aap ek shift me kitne piece karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "fe55b72cee75db9d",
+      "text": "Moti sheet ka kaam alag rate par hota hai.",
+      "producer": "why"
     },
     {
       "id": "ff6eab4528653fce",

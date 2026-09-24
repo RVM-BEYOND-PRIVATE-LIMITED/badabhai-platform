@@ -101,6 +101,10 @@ describe("the role registry", () => {
       // do not reach a bindable code — "sheet metal" and "press brake" are NO MATCH, "power press"
       // reaches masonry, every electrician phrase reaches house wiring. A kind here with a pack
       // nobody can reach passes every gate and helps nobody, which is why the flag is per role.
+      //
+      // BATCH 2 PART TWO ADDS THEM ONE AT A TIME, once the 2026-09-24 alias tranche (worksheet
+      // Part 5) gave their words a code to land on. `sheet_metal_worker` is first; it sits after
+      // `welder` because this list is the registry's DECLARATION order, not the order they shipped.
       expect([...TRADE_FORM_KINDS]).toEqual([
         "cnc_turner",
         "vmc_milling",
@@ -110,6 +114,7 @@ describe("the role registry", () => {
         "cam_programmer",
         "cad_draughtsman",
         "welder",
+        "sheet_metal_worker",
         "painter_coating",
       ]);
     });
