@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SetMyNameSchema } from "./workers.dto";
+import { ResumeErasureBackfillSchema, SetMyNameSchema } from "./workers.dto";
 
 /**
  * `SetMyNameSchema` — the body of PATCH /workers/me/name.
@@ -69,5 +69,36 @@ describe("SetMyNameSchema", () => {
     const res = parse({ full_name: "Asha", pincode: "411001" });
     expect(res.success).toBe(true);
     expect(res.success && res.data).toEqual({ full_name: "Asha" });
+  });
+});
+
+/**
+ * The body of the ops erasure backfill (ADR-0043 launch gate). The caller must SAY whether the
+ * call renders: an empty body is the canary's probe, and it must die in validation.
+ */
+describe("ResumeErasureBackfillSchema", () => {
+  const parse = (body: unknown) => ResumeErasureBackfillSchema.safeParse(body);
+  const AFTER = "00000000-0000-4000-8000-000000000001";
+
+  it("refuses a body that does not state dry_run — including the empty one", () => {
+    expect(parse({}).success).toBe(false);
+    expect(parse({ limit: 10 }).success).toBe(false);
+  });
+
+  it("defaults the page to 100 from the start", () => {
+    expect(parse({ dry_run: true }).data).toEqual({ dry_run: true, limit: 100, after: null });
+    expect(parse({ dry_run: false, limit: 500, after: AFTER }).data).toEqual({
+      dry_run: false,
+      limit: 500,
+      after: AFTER,
+    });
+  });
+
+  it("bounds the page and the cursor, and takes nothing else", () => {
+    expect(parse({ dry_run: false, limit: 0 }).success).toBe(false);
+    expect(parse({ dry_run: false, limit: 501 }).success).toBe(false);
+    expect(parse({ dry_run: false, after: "not-a-uuid" }).success).toBe(false);
+    expect(parse({ dry_run: "false" }).success).toBe(false);
+    expect(parse({ dry_run: true, worker_id: AFTER }).success).toBe(false);
   });
 });

@@ -1216,3 +1216,114 @@ describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
     );
   });
 });
+
+describe("WorkersService.backfillErasureRerenders (ADR-0043 launch gate)", () => {
+  const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
+  const T = (n: number) => ({
+    resumeId: `00000000-0000-4000-8000-00000000000${n}`,
+    workerId: `00000000-0000-4000-8000-0000000000a${n}`,
+  });
+
+  function backfillSetup(targets = [T(1), T(2)], stale = targets.length) {
+    const repo = {
+      listErasureBackfillTargets: vi.fn(async (_limit: number, _after: string | null) => targets),
+      countErasureBackfillTargets: vi.fn(async () => stale),
+    };
+    const events = { emit: vi.fn(async (_e: unknown) => true) };
+    const renderQueue = mockRenderQueue();
+    const svc = newSvc(repo, {}, events, mockStorage(), mockConfig(), renderQueue);
+    return { svc, repo, events, renderQueue };
+  }
+
+  it("a DRY RUN only counts — nothing queued, nothing emitted", async () => {
+    const { svc, repo, events, renderQueue } = backfillSetup([T(1), T(2)], 7);
+    const res = await svc.backfillErasureRerenders({ dryRun: true, limit: 100, after: null }, CTX);
+    expect(res).toEqual({
+      dry_run: true,
+      stale: 7,
+      batch: 2,
+      enqueued: 0,
+      failed: 0,
+      next_after: null,
+    });
+    expect(repo.listErasureBackfillTargets).toHaveBeenCalledWith(100, null);
+    expect(renderQueue.add).not.toHaveBeenCalled();
+    expect(renderQueue.getJob).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("queues the ERASURE render — forced, fail-closed, in the résumé's erasure slot", async () => {
+    const { svc, renderQueue } = backfillSetup([T(1)]);
+    await svc.backfillErasureRerenders({ dryRun: false, limit: 100, after: null }, CTX);
+    expect(renderQueue.add).toHaveBeenCalledTimes(1);
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      {
+        resumeId: T(1).resumeId,
+        workerId: T(1).workerId,
+        force: true,
+        failClosed: true,
+        correlationId: "corr-1",
+        requestId: "req-1",
+      },
+      { jobId: `erasure-rerender:${T(1).resumeId}`, removeOnComplete: true, removeOnFail: true },
+    );
+  });
+
+  it("emits one ids-only audit event per queued résumé, as ops", async () => {
+    const { svc, events } = backfillSetup([T(1), T(2)]);
+    const res = await svc.backfillErasureRerenders({ dryRun: false, limit: 100, after: null }, CTX);
+    expect(res.enqueued).toBe(2);
+    expect(events.emit).toHaveBeenCalledTimes(2);
+    expect(events.emit).toHaveBeenCalledWith({
+      event_name: "resume.erasure_backfill_enqueued",
+      actor: { actor_type: "ops", actor_id: null },
+      subject: { subject_type: "resume", subject_id: T(2).resumeId },
+      payload: { worker_id: T(2).workerId, resume_id: T(2).resumeId },
+      correlationId: "corr-1",
+      requestId: "req-1",
+    });
+  });
+
+  it("does not queue a résumé twice while its render is still waiting", async () => {
+    const { svc, renderQueue } = backfillSetup([T(1)]);
+    renderQueue.getJob.mockResolvedValueOnce({ getState: async () => "waiting" });
+    const res = await svc.backfillErasureRerenders({ dryRun: false, limit: 100, after: null }, CTX);
+    expect(renderQueue.add).not.toHaveBeenCalled();
+    // Still counted: a render that starts after the erasure exists, which is the point.
+    expect(res.enqueued).toBe(1);
+  });
+
+  it("one résumé that cannot be queued is counted and skipped, never the end of the page", async () => {
+    const { svc, renderQueue, events } = backfillSetup([T(1), T(2)]);
+    renderQueue.add.mockRejectedValueOnce(new Error("redis down"));
+    const res = await svc.backfillErasureRerenders({ dryRun: false, limit: 100, after: null }, CTX);
+    expect(res).toMatchObject({ enqueued: 1, failed: 1 });
+    // No audit row claims a render that was never queued.
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    expect(events.emit.mock.calls[0]![0]).toMatchObject({ subject: { subject_id: T(2).resumeId } });
+  });
+
+  it("a failed audit write never un-queues the render", async () => {
+    const { svc, renderQueue, events } = backfillSetup([T(1)]);
+    events.emit.mockRejectedValueOnce(new Error("events table unreachable"));
+    const res = await svc.backfillErasureRerenders({ dryRun: false, limit: 100, after: null }, CTX);
+    expect(renderQueue.add).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ enqueued: 1, failed: 0 });
+  });
+
+  it("hands back the last id as the cursor only when the page was full", async () => {
+    const full = backfillSetup([T(1), T(2)], 5);
+    expect(
+      (await full.svc.backfillErasureRerenders({ dryRun: true, limit: 2, after: null }, CTX))
+        .next_after,
+    ).toBe(T(2).resumeId);
+    const last = backfillSetup([T(3)], 5);
+    const res = await last.svc.backfillErasureRerenders(
+      { dryRun: true, limit: 2, after: T(2).resumeId },
+      CTX,
+    );
+    expect(last.repo.listErasureBackfillTargets).toHaveBeenCalledWith(2, T(2).resumeId);
+    expect(res.next_after).toBeNull();
+  });
+});

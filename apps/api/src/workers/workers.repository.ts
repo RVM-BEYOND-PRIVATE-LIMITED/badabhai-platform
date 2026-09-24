@@ -568,6 +568,35 @@ export class WorkersRepository {
    * the erasure; a fail-closed job queued behind it re-renders it without. `failed` rows are
    * served by nothing (download 409s), so they are left alone.
    */
+  /**
+   * ADR-0043 LAUNCH GATE — every résumé whose PDF was rendered BEFORE its worker's latest ERASURE,
+   * oldest id first, after `afterResumeId`. See {@link erasureBackfillTargetsSql} for the rule.
+   */
+  async listErasureBackfillTargets(
+    limit: number,
+    afterResumeId: string | null,
+  ): Promise<{ resumeId: string; workerId: string }[]> {
+    const after = afterResumeId === null ? sql.empty() : sql`and r.id > ${afterResumeId}::uuid`;
+    const rows = (await this.db.execute(sql`
+      ${erasureBackfillTargetsSql()}
+      select r.id as resume_id, r.worker_id
+        from stale r
+       where true ${after}
+       order by r.id
+       limit ${limit}
+    `)) as unknown as { resume_id: string; worker_id: string }[];
+    return rows.map((row) => ({ resumeId: row.resume_id, workerId: row.worker_id }));
+  }
+
+  /** How many résumés {@link listErasureBackfillTargets} would return with no page bound. */
+  async countErasureBackfillTargets(): Promise<number> {
+    const rows = (await this.db.execute(sql`
+      ${erasureBackfillTargetsSql()}
+      select count(*)::int as stale from stale
+    `)) as unknown as { stale: number }[];
+    return Number(rows[0]?.stale ?? 0);
+  }
+
   async listErasureTargetIds(workerId: string): Promise<string[]> {
     const rows = await this.db
       .select({ id: generatedResumes.id })
@@ -581,4 +610,70 @@ export class WorkersRepository {
       .orderBy(...NEWEST_RESUME_FIRST);
     return rows.map((row) => row.id);
   }
+}
+
+/**
+ * THE ERASURE BACKFILL'S TARGET RULE (ADR-0043 launch gate), as a `stale` CTE both readers share.
+ *
+ * WHY IT EXISTS. Before résumé history, an erasure re-rendered only the CURRENT PDF (then chosen
+ * by version, which could even be an older profile's row). Every other PDF kept the photo or the
+ * number the worker had removed, and was unreachable until the history list made it downloadable.
+ * Erasures from 0125 on reach every PDF (`WorkersService.enqueueErasureOfOlderResumes`); this finds
+ * what the ones before it missed.
+ *
+ * THE RULE: a `rendered` résumé whose `rendered_at` is EARLIER than its worker's latest erasure.
+ * A PDF drawn after that erasure was drawn without what it erased, and every re-render moves
+ * `rendered_at` forward, so the set drains as the renders land and a second run finds nothing.
+ * The erasure moments come from the audit spine, the only record of them:
+ *   - `worker.photo_removed`;
+ *   - `worker.whatsapp_recorded` with `has_whatsapp = false`, which is emitted only on a change;
+ *   - `worker.resume_prefs_updated` that turned `show_photo` from on to off. The event fires on
+ *     EVERY prefs write, so the flip is read against the previous prefs event (the column's
+ *     default, on, before the first one). It must also come after a `worker.photo_uploaded`,
+ *     because hiding a photo that never existed erased nothing.
+ *
+ * DELIBERATELY WIDE WHERE IT CANNOT KNOW. A photo removed while it was hidden erased nothing from
+ * any PDF, but it counts: the cost of a wrong hit is one LLM-free re-render; the cost of a miss is a
+ * face the worker erased, still being served.
+ */
+function erasureBackfillTargetsSql() {
+  return sql`
+    with prefs as (
+      select e.subject_id as worker_id,
+             e.occurred_at,
+             (e.payload->>'show_photo')::boolean as show_photo,
+             lag((e.payload->>'show_photo')::boolean, 1, true)
+               over (partition by e.subject_id order by e.occurred_at, e.id) as was_showing
+        from events e
+       where e.event_name = 'worker.resume_prefs_updated' and e.subject_type = 'worker'
+    ),
+    erasures as (
+      select e.subject_id as worker_id, e.occurred_at
+        from events e
+       where e.subject_type = 'worker'
+         and (e.event_name = 'worker.photo_removed'
+              or (e.event_name = 'worker.whatsapp_recorded'
+                  and e.payload->>'has_whatsapp' = 'false'))
+      union all
+      select p.worker_id, p.occurred_at
+        from prefs p
+       where p.was_showing and not p.show_photo
+         and exists (select 1
+                       from events u
+                      where u.event_name = 'worker.photo_uploaded'
+                        and u.subject_type = 'worker'
+                        and u.subject_id = p.worker_id
+                        and u.occurred_at < p.occurred_at)
+    ),
+    latest as (
+      select worker_id, max(occurred_at) as erased_at from erasures group by worker_id
+    ),
+    stale as (
+      select r.id, r.worker_id
+        from generated_resumes r
+        join latest l on l.worker_id = r.worker_id
+       where r.render_status = 'rendered'
+         and (r.rendered_at is null or r.rendered_at < l.erased_at)
+    )
+  `;
 }
