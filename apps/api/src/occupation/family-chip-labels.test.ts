@@ -131,6 +131,10 @@ describe("FAMILY_CHIP_LABELS", () => {
       // word corroborates nothing, and "maintenance" — the maintenance technician's occupation
       // term, derived into the fitter's veto through the shared `maintenance` cluster — vetoes.
       fam_fitter: "fitter",
+      // The same for quality inspection: "quality control aur inspection" carries the occupation
+      // term "quality control", so the pin hands over to the QC form. The generic
+      // `fam_other_craft` ("anya karigari") names no trade and stays off this table.
+      fam_quality_inspection: "quality_inspector",
     });
   });
 });
@@ -250,6 +254,27 @@ describe("the served catalogue", () => {
       expect(snapshot.domains.get(id)?.chipLabel, id).toBe(label);
       expect(routes[id], id).toBeUndefined();
     }
+  });
+
+  it("hands the QC form on a pinned label to the metal QC code alone", () => {
+    // Bare "qc" is a QC occupation term, so every chip label containing it is routing evidence.
+    // The 2026-09-24 guard aliases gave the sewing-line QC and the QC chemist codes chip labels
+    // that do ("garment qc", "pharma qc"); the QC descriptor's extra conflict terms are what keep
+    // those two off the form. A future alias that puts "qc" into another occupation's chip lands
+    // here, as a routing change to review rather than a copy edit.
+    const handedTheQcForm = [...snapshot.domains.values()]
+      .filter(
+        (d) =>
+          routeToTradeForm({
+            draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+            occupationFamilyId: d.familyId,
+            occupationLabel: d.chipLabel,
+          }) === "quality_inspector",
+      )
+      .map((d) => d.jobDomainId);
+    expect(handedTheQcForm).toEqual(["jd_nco_7543_2001"]);
+    expect(snapshot.domains.get("jd_nco_7543_0201")?.chipLabel).toBe("garment qc");
+    expect(snapshot.domains.get("jd_nco_2113_0601")?.chipLabel).toBe("pharma qc");
   });
 
   it("gives the two Devanagari-only occupations their Latin twins", () => {

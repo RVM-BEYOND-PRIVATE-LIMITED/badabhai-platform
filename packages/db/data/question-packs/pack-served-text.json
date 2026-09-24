@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 159,
+  "pack_count": 160,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -433,6 +433,10 @@
     "qp_protective_service@2": {
       "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
       "served_text_count": 9
+    },
+    "qp_quality_inspection@1": {
+      "served_text_sha256": "738450e08410a0f1048815fd3a26add6d4f9775eb7d2fe8a4901b09ed5322ad5",
+      "served_text_count": 60
     },
     "qp_rail_operation@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",

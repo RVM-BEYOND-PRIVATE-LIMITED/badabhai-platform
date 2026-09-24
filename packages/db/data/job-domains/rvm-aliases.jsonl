@@ -886,3 +886,23 @@
 # reason. A man who calls himself a welder gets the welder form; "welding fabrication" never
 # moved, because "welding" comes first.
 {"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"fabrication welder","lang":"en"}
+#
+# ── GUARD ROWS for four QC neighbours the QC binding would otherwise hand the QC form ──
+# Ruled 2026-09-24 (Divyanshu), after fam_quality_inspection bound 7543.2001. Bare "qc"
+# (item 6) is the 1-token span every one of these phrases shared, so each went to the
+# machine-shop QC code — and, that code's chip label being "qc", to a CMM form. Each row
+# below is an exact multi-token key that wins on longest-first before the bare "qc" span is
+# tried. All four keys had NO exact and NO skeleton claimant before this block (measured).
+#
+# "garment qc" and "qc executive sewing line" — the apparel sewing-line QC code, which stays
+# on fam_other_craft. The published title "QC Executive-Sewing Line" keeps its hyphen through
+# normalization, so it matches only when typed WITH the hyphen; the spaced form a worker
+# types is a distinct key, not a duplicate of it.
+{"kind":"alias","job_domain_id":"jd_nco_7543_0201","text":"garment qc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_0201","text":"qc executive sewing line","lang":"en"}
+# "pharma qc" and "qc chemist" — 2113.0601 "Quality Control Chemist", whose description is
+# lab testing of raw-material, in-process, validation and stability samples: the pharma QC
+# lab. It already owns "quality control chemist". Its unit has no family binding, so these
+# land on the universal pack — the chemist's honest interview, not a CMM form.
+{"kind":"alias","job_domain_id":"jd_nco_2113_0601","text":"pharma qc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_2113_0601","text":"qc chemist","lang":"en"}

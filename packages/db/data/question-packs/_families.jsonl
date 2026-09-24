@@ -687,3 +687,55 @@
 {"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0200"}
 {"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0100"}
 {"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0101"}
+
+# ── Quality inspection ───────────────────────────────────────────────────────────────────────
+# The machine-shop QC inspector: CMM, profile projector and height gauge on machined, cast and
+# pressed metal parts, with the PPAP / control plan / SPC paperwork the job is. One family, one
+# pack (qp_quality_inspection); fam_other_craft stays the generic ISCO-minor-754 interview for
+# every other grader and tester in the unit.
+{"kind":"family","family_id":"fam_quality_inspection","label_en":"Quality Inspection (QC for machined, cast and pressed parts)","label_hi":"क्वालिटी कंट्रोल और इंस्पेक्शन","industry_id":"ind_industrial_manufacturing"}
+#
+# 7543.2001 "Quality Inspector-forged, casted or machined components" is the anchor. The tranche
+# (worksheet items 6-10, #1685) put "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी",
+# "inspection", "quality check" and "quality" on it, and its NCO description is the trade itself —
+# "checks the forged, casted and machined components for both dimensional accuracy and for visual
+# quality at various stages of manufacture ... before production, intermediate and after".
+#
+# 7311.0500 "Viewer, Workshop / Examiner, Metal Working" sits OUTSIDE 7543 and is bound because its
+# description is this trade and nothing else: "checks mechanical components, units, machines etc.
+# at various stages of manufacture, assembly and erection ... measures and tests components for
+# accuracy using gauges and other instruments". Before this binding it fell to fam_handicraft
+# through minor 731, which asked a workshop inspector handicraft questions. Its reach is its two
+# titles only — no vernacular alias lands on it.
+#
+# EVERY OTHER 7543 CODE STAYS ON fam_other_craft, each for a stated reason:
+#   0301 "Measurement Checker" — despite the title, its description is "the dimensions of the
+#        stitched parts and the finished apparel": a garment checker, not a metal one.
+#   3002 "Quality Control Inspector-Dimension check" — "conformance to dimensions of RUBBER
+#        product". 3001 calendering, 3003 extrusion, 3004 SPC and 3005 visual inspection are the
+#        same rubber-sector (RSC) line QC. All five belong to Batch 3's Plastic Process Technician
+#        question (worksheet R4-b, unresolved) and are not claimed here.
+#   0101 0201 0202 0300 0302 0400 4001 5001 — cloth, sewing-line, footwear, wood, dry-cleaning
+#        and apparel-compliance graders.
+#   0701 0702 0801-0804 0901 1001-1006 1101 — electronics incoming/final QC and functional,
+#        performance, reliability and safety testers (UPS, PLC, TV, RAC): functional test, not
+#        dimensional inspection.
+#   0500 and 9900 — the unit's catch-all rows.
+# THE ISCO NODE jd_isco_7543 IS NOT BOUND — it carries wool classer, cloth examiner and product
+# grader. It also owns the exact phrase "quality inspector", so that phrase stays on
+# fam_other_craft offline; in production the node's aliases are shadowed (F4: 7543 has selectable
+# NCO children), so the row is not searchable there at all. A known gap — moving the phrase is an
+# alias change and needs an owner ruling; binding the node would take every grader with it.
+#
+# NEIGHBOURS OUTSIDE 7543, measured and NOT bound:
+#   3139.5001 "Quality Control Inspector" — the exact trade title, and "quality control inspector"
+#             reaches it (fam_universal today), but its description is generic ("manufactured
+#             products"), not metal. Needs an owner ruling, not a guess.
+#   3139.5002 "Quality Controller" — an automobile DEALERSHIP role.
+#   2152.0601 "Quality Engineer" — medical devices, professional band; "quality engineer" lands
+#             there (fam_universal) and stays.
+#   2141.0100 "Works Inspector, Engineering" — professional band, and includes chemical and
+#             material testing; its own title does not reach it.
+#   8122.6000 "Sample Checker, Metal Making" — furnace and rolling-mill sampling, a metal-plant role.
+{"kind":"binding","family_id":"fam_quality_inspection","job_domain_id":"jd_nco_7543_2001"}
+{"kind":"binding","family_id":"fam_quality_inspection","job_domain_id":"jd_nco_7311_0500"}
