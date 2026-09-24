@@ -112,6 +112,7 @@ class ResumeTabHarness {
     Object? generateThrows,
     bool generateNeverResolves = false,
     bool documentNeverResolves = false,
+    ResumeHistory history = ResumeHistory.empty,
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
@@ -124,6 +125,13 @@ class ResumeTabHarness {
     // would leave a pending Timer past the fixed pump counts these suites use.
     ResumeCubit.documentPollMaxAttempts = 1;
     ResumeCubit.documentPollInterval = Duration.zero;
+    // #1688 — the update watch's backoff, zeroed for the same reason: a real
+    // 3s wait outlives these suites' fixed pump counts and fails the binding
+    // on a pending Timer. The BUDGET is zeroed too, so a tab test that happens
+    // to serve an in-progress update polls once and stops instead of spinning.
+    ResumeCubit.updatePollInitial = Duration.zero;
+    ResumeCubit.updatePollMax = Duration.zero;
+    ResumeCubit.updateWatchBudget = Duration.zero;
 
     if (editLoadThrows) {
       when(() => editRepo.load()).thenThrow(const UnauthorizedFailure());
@@ -153,6 +161,10 @@ class ResumeTabHarness {
       );
     }
     when(() => repo.reportShared(any())).thenAnswer((_) async {});
+    when(() => repo.reportSharedFor(any(), any())).thenAnswer((_) async {});
+    // #1687 — the repository contract says this NEVER throws and answers
+    // `empty` for an older server, so the double answers empty by default.
+    when(() => repo.loadResumeHistory()).thenAnswer((_) async => history);
     if (generateNeverResolves) {
       final Completer<String> never = Completer<String>();
       when(
@@ -196,6 +208,9 @@ class ResumeTabHarness {
   static Future<void> reset() async {
     ResumeCubit.documentPollMaxAttempts = 6;
     ResumeCubit.documentPollInterval = const Duration(seconds: 2);
+    ResumeCubit.updatePollInitial = const Duration(seconds: 3);
+    ResumeCubit.updatePollMax = const Duration(seconds: 10);
+    ResumeCubit.updateWatchBudget = const Duration(minutes: 3);
     await locator.reset();
   }
 

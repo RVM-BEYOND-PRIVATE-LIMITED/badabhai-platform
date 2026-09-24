@@ -261,6 +261,9 @@ class ChatRepositoryImpl implements ChatRepository {
         lookahead: reply.lookahead,
         // #1339/#1340 — the handover card's data, null on every ordinary turn.
         formOffer: reply.formOffer,
+        // #1689 — 'queued' on the ONE turn that settled a "Haan" to the resume
+        // update offer; null everywhere else, including on an older server.
+        resumeUpdate: reply.resumeUpdate,
       );
     } catch (error) {
       throw mapError(error);

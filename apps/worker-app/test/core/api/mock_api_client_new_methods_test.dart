@@ -13,6 +13,33 @@ import 'package:badabhai_worker_app/features/voice/data/voice_pipeline_impl.dart
 void main() {
   final MockApiClient api = MockApiClient();
 
+  test('getResumeHistory (#1687) answers a PII-free, deterministic history',
+      () async {
+    final ResumeHistory history = await api.getResumeHistory(
+      authToken: 'mock',
+    );
+
+    expect(history.items, hasLength(2));
+    expect(history.current?.resumeId, 'mock-resume-0001');
+    // Exactly one current row, which is the contract the real server holds to.
+    expect(
+      history.items.where((ResumeHistoryItem i) => i.isCurrent),
+      hasLength(1),
+    );
+    // No pending update offline: mock mode has no server doing background work
+    // to wait for, so claiming one would strand the tab on a waiting card.
+    expect(history.pendingUpdate, isNull);
+    // FIXED dates, not `DateTime.now()`, so mock mode renders the same thing
+    // on every run.
+    expect(history.items.first.generatedAt, DateTime.utc(2026, 9, 12));
+    // PII-free by construction: ids only, and every one of them a `mock-`
+    // sentinel.
+    for (final ResumeHistoryItem item in history.items) {
+      expect(item.resumeId, startsWith('mock-'));
+      expect(item.profileId, startsWith('mock-'));
+    }
+  });
+
   test('getMyApplications returns canned rows using the API action enum', () async {
     final List<AppliedJob> rows =
         await api.getMyApplications(authToken: 'mock');

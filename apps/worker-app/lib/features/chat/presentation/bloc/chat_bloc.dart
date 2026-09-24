@@ -124,6 +124,7 @@ class ChatState extends Equatable {
     this.predictedQuestionKey,
     this.formOffer,
     this.resumePending = false,
+    this.resumeUpdateQueued = false,
   });
 
   /// Ordered, append-only transcript.
@@ -225,6 +226,22 @@ class ChatState extends Equatable {
   /// — but the reset keeps the invariant true defensively rather than by luck.
   final FormOffer? formOffer;
 
+  /// #1689 — the server ACCEPTED the worker's "Haan" to "Aapki nayi jaankari se
+  /// resume update kar doon?" and is doing the whole update itself: extract,
+  /// auto-confirm, generate.
+  ///
+  /// What it changes: the app must NOT open the profile preview/confirm step
+  /// and must NOT call extract / confirm / generate of its own. The worker's
+  /// "Haan" WAS the consent, and a client-side call on this path would mint a
+  /// duplicate history entry for work the server already has in flight. The
+  /// screen sends them to the Resume tab to watch it land (#1688) instead.
+  ///
+  /// TURN-SCOPED like [formOffer], not sticky: it describes the one terminal
+  /// turn that settled the answer. Every turn passes it explicitly, so a later
+  /// turn without it clears it without needing a `clear…` flag (a bool has no
+  /// null to confuse with false).
+  final bool resumeUpdateQueued;
+
   /// True when THIS session opened on the server's résumé-confirm first turn
   /// (`resume_pending`, ADR-0042 D8, #1523). Set once from [ChatStarted]'s open
   /// result and STICKY for the life of the bloc. It exists so the UI and tests
@@ -260,6 +277,7 @@ class ChatState extends Equatable {
     // on its own — every non-null-in-the-wire turn passes this explicitly.
     bool clearFormOffer = false,
     bool? resumePending,
+    bool? resumeUpdateQueued,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -286,6 +304,9 @@ class ChatState extends Equatable {
       // Sticky: once a résumé-confirm session, always (the opening is applied
       // exactly once and never un-opens).
       resumePending: this.resumePending || (resumePending ?? false),
+      // TURN-SCOPED (field doc): the caller always passes this turn's value, so
+      // `?? this` only ever holds it across an emit that is not a new turn.
+      resumeUpdateQueued: resumeUpdateQueued ?? this.resumeUpdateQueued,
     );
   }
 
@@ -309,6 +330,7 @@ class ChatState extends Equatable {
         predictedQuestionKey,
         formOffer,
         resumePending,
+        resumeUpdateQueued,
       ];
 }
 
@@ -782,6 +804,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // here, byte-identical, and redraws the same card.
         formOffer: turn.formOffer,
         clearFormOffer: turn.formOffer == null,
+        // #1689 — 'queued' only on the terminal turn that settled a "Haan".
+        // Passed on EVERY turn so an ordinary one clears it.
+        resumeUpdateQueued: turn.resumeUpdateQueued,
       ));
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this

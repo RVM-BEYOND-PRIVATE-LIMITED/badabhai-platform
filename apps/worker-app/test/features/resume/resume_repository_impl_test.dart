@@ -129,7 +129,18 @@ void main() {
         isEmpty,
         reason: 'a generate here overwrites the row and bins the rendered PDF',
       );
-      expect(hits.every((String h) => h == 'GET /workers/me/profile'), isTrue);
+      // #1690 — reuse now first asks WHOSE resume it is, via
+      // `GET /resume/history`. This server answers 404 (it has no such route),
+      // which the repository latches, so the probe happens AT MOST ONCE for
+      // the three opens and every other call is still the profile read.
+      expect(
+        hits.where((String h) => h == 'GET /resume/history'),
+        hasLength(lessThanOrEqualTo(1)),
+      );
+      expect(
+        hits.where((String h) => h != 'GET /resume/history'),
+        everyElement('GET /workers/me/profile'),
+      );
     });
 
     test('uses the worker-self profile route so a logged-in worker can view the resume tab', () async {
