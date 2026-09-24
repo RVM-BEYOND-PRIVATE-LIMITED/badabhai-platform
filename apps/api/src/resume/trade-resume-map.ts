@@ -2566,6 +2566,143 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE ASSEMBLY LINE SHEET — Batch 2 part two's second.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Deepak Jadhav, Assembly Line Worker — Skilled, page
+     * 6), row for row. Its capability block has SEVEN rows and this map has seven `from`s, in the
+     * page's own order: Assembly stage, Products assembled, Tools used, Shop-floor practice, Line
+     * rate worked to, Drawings, Sector worked. That order is also the template's bands — three
+     * chip rows, one tick row, three fact rows — so array order and band order agree.
+     *
+     * CHIPS OR TICKS IS A READING, NOT A MEASUREMENT. The extracted page text carries no chip or
+     * tick glyph for any row, so the kinds follow the band order the template enforces (every
+     * chip row above every tick row) and what each row IS: stages, products and tools are the
+     * vocabulary of a job advertisement, like the welder's processes; shop-floor practice is a
+     * checklist of disciplines, like his positions and inspection.
+     *
+     * ONE ROW DIVERGES FROM THE PAGE, noted on the row below rather than papered over: "Line rate
+     * worked to" is hand-set prose around one figure. This pack has no case in
+     * role-sheet-parity.render.test.ts yet, so nothing renders the persona end to end against
+     * page 6 — the map-vs-pack cross-checks in trade-resume-map.test.ts are what guard it.
+     */
+    pack_id: "qp_assembly_line",
+    // AN ASSEMBLY ADVERTISEMENT IS WRITTEN IN STAGES, PRODUCTS AND TOOLS — "final line operator,
+    // engine sub-assembly, DC nut runner" — so the heading is the page's own.
+    section_title: "Assembly work, tools & capability",
+    capability: [
+      {
+        from: "assembly_stage",
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page leads "Sub-assembly, Final assembly, End-of-line
+        // testing" — the stage is what a line vacancy is advertised by, §5.1 rank 2.
+        inHeadline: true,
+        // NO CAP. The page prints three and the pack offers five; the guideline quotes no number
+        // for stages, and the headline caps its own segment at three.
+        label: "Assembly stage",
+        kind: "chips",
+        values: {
+          sub_assembly: "Sub-assembly",
+          final_assembly: "Final assembly",
+          end_of_line: "End-of-line testing",
+          line_feeding: "Line feeding & kitting",
+          rework: "Rework & repair",
+        },
+      },
+      {
+        from: "assembly_line_product",
+        rank: 22,
+        label: "Products assembled",
+        kind: "chips",
+        // The page's four, in its order; the pack's fifth chip (door, dashboard and trim) prints
+        // after them.
+        values: {
+          engine_sub_assembly: "Engine sub-assembly",
+          transmission: "Transmission assembly",
+          seat_assembly: "Seat assembly",
+          wiring_harness: "Wiring harness routing",
+          door_trim: "Door & trim assembly",
+        },
+      },
+      {
+        from: "assembly_tool",
+        rank: 23,
+        // NO CAP. The page prints SIX tools, and §4.3's "machines max 4" would drop two values
+        // the ratified sheet shows — the welder's `Equipment` defect, avoided rather than repeated.
+        label: "Tools used",
+        kind: "chips",
+        values: {
+          dc_nut_runner: "DC nut runner",
+          torque_wrench: "Torque wrench",
+          pneumatic_gun: "Pneumatic gun",
+          poka_yoke: "Poka-yoke fixture",
+          leak_test_rig: "Leak test rig",
+          go_no_go_gauge: "Go / no-go gauge",
+        },
+      },
+      {
+        from: "assembly_practice",
+        // §4.3 wedge depth below the §5.1 list — the disciplines a plant screens a line hand on,
+        // but not what the vacancy is advertised by.
+        rank: 61,
+        label: "Shop-floor practice",
+        kind: "ticks",
+        values: {
+          sop_adherence: "SOP adherence",
+          kanban_pull: "Kanban pull",
+          five_s: "5S",
+          kaizen: "Kaizen suggestions",
+          line_balancing: "Line balancing support",
+          first_off_check: "First-off checking",
+        },
+      },
+      {
+        from: "assembly_takt_time",
+        rank: 62,
+        label: "Line rate worked to",
+        kind: "fact",
+        // A RECORDED DIVERGENCE. The page reads "Worked to 90-second takt on final line": one
+        // figure and a stage, hand-set. BANDED, on the welder's plate ruling — a free number has
+        // no closed dictionary to print through — and the stage is already the first row. So the
+        // page's worker prints "Worked to 60-120 second takt", the band that holds 90 seconds.
+        values: {
+          under_one_minute: "Worked to under 60-second takt",
+          one_to_two_minutes: "Worked to 60-120 second takt",
+          two_to_five_minutes: "Worked to 2-5 minute takt",
+          over_five_minutes: "Worked to takt over 5 minutes",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs.
+        values: {
+          work_instruction: "Reads work instructions",
+          assembly_drawing: "Reads assembly drawings and work instructions",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. The page's "Passenger vehicle assembly"
+        // is reproduced verbatim by the first entry.
+        values: {
+          passenger_vehicle: "Passenger vehicle assembly",
+          two_wheeler: "Two-wheeler assembly",
+          commercial_vehicle: "Commercial vehicle & tractor assembly",
+          auto_components: "Auto component assembly",
+          appliances: "Appliance & electronics assembly",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

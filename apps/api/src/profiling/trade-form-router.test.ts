@@ -264,6 +264,34 @@ describe("routeToTradeForm", () => {
       expect(route("Manufacturing", "Press setter, die setting", null)).toBeNull();
     });
 
+    it("routes an assembly line worker to the line form — Batch 2 part two's second", () => {
+      // Occupation terms route on their own, in either script.
+      expect(route("Manufacturing", "Assembly line worker", null)).toBe("assembly_line_worker");
+      expect(route("Automobile", "Final assembly operator", null)).toBe("assembly_line_worker");
+      expect(route("विनिर्माण", "असेंबली लाइन", null)).toBe("assembly_line_worker");
+      // MACHINE WORDS NEED THE FAMILY PIN: a nut runner and a torque wrench are also in a
+      // mechanic's and a fitter's hands, so they corroborate fam_assembly_line and never route alone.
+      expect(route("Manufacturing", "DC nut runner aur torque wrench", "fam_assembly_line")).toBe(
+        "assembly_line_worker",
+      );
+      expect(route("Manufacturing", "DC nut runner aur torque wrench", null)).toBeNull();
+      // BARE "assembly" IS NOT A TERM, and a pin alone is not evidence: "assembly ka kaam" is the
+      // generic assembly families' own label and must keep talking.
+      expect(route("Manufacturing", "Assembly ka kaam", null)).toBeNull();
+      expect(route("Manufacturing", "Assembly ka kaam", "fam_assembly_line")).toBeNull();
+    });
+
+    it("an assembly line worker who names a rival reaches NO form", () => {
+      // CROSS-CLUSTER: the fitter sits in `maintenance`, so nothing derives this veto — it is the
+      // authored `extraConflictTerms` on both descriptors. "Assembly fitter" is the worksheet's
+      // ruled phrase for the fitter, and must not be handed the line form.
+      expect(route("Manufacturing", "Assembly line fitter", null)).toBeNull();
+      expect(route("Manufacturing", "Assembly fitter", null)).toBeNull();
+      // IN-CLUSTER: the quality inspector is `production`'s other role, so its words veto by
+      // derivation even though its own form does not ship yet.
+      expect(route("Manufacturing", "Assembly line aur quality inspector", null)).toBeNull();
+    });
+
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.

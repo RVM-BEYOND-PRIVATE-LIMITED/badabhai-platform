@@ -171,4 +171,8 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // Batch 2 part two. The Latin reading of the family's `label_hi` ("पावर प्रेस और स्टैम्पिंग") —
   // the tranche's two ratified phrases, "power press" and "stamping", joined as the others are.
   fam_press_operation: "power press aur stamping",
+  // The Latin reading of `label_hi` ("असेंबली लाइन"), and deliberately NOT the "assembly ka kaam"
+  // the two generic assembly families share: "assembly line" is this role's occupation term, so
+  // the label routes its pin to the form (pinned in the test), and theirs does not.
+  fam_assembly_line: "assembly line",
 });
