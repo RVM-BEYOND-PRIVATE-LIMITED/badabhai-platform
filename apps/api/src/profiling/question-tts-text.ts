@@ -505,6 +505,28 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Training kis institute se ki?": "ट्रेनिंग किस इंस्टिट्यूट से की?",
   "Training kis saal ki thi?": "ट्रेनिंग किस साल की थी?",
   "Aap aur kaun sa kaam karte hain?": "आप और कौन सा काम करते हैं?",
+  // qp_sheet_metal_fab@1 — Batch 2 part two. The three fresher prompts are the welder's verbatim
+  // and reuse its twins above, so they are not repeated here.
+  "Sheet metal ka kitna tajurba hai?": "शीट मेटल का कितना तजुर्बा है?",
+  "Lagbhag kitne saal sheet metal ka kaam kiya hai?": "लगभग कितने साल शीट मेटल का काम किया है?",
+  "Sheet metal ki kaunsi machine chalate hain?": "शीट मेटल की कौनसी मशीन चलाते हैं?",
+  "Laser, press brake, turret ya shearing, kaunsi chalayi hai?":
+    "लेज़र, प्रेस ब्रेक, टरेट या शियरिंग, कौनसी चलाई है?",
+  "Aap khud ko kis level ka sheet metal worker maante hain?":
+    "आप खुद को किस लेवल का शीट मेटल वर्कर मानते हैं?",
+  "Kaunse material ki sheet par kaam karte hain?": "कौनसे मटीरियल की शीट पर काम करते हैं?",
+  "Sheet par kaunsa kaam khud karte hain?": "शीट पर कौनसा काम खुद करते हैं?",
+  "Bending, punching, notching ya rolling, kaunsa kaam karte hain?":
+    "बेंडिंग, पंचिंग, नॉचिंग या रोलिंग, कौनसा काम करते हैं?",
+  "Naap ke liye kaunse aujaar istemaal karte hain?": "नाप के लिए कौनसे औज़ार इस्तेमाल करते हैं?",
+  "Kya aap fabrication drawing padh lete hain?": "क्या आप फैब्रिकेशन ड्राइंग पढ़ लेते हैं?",
+  "Kitni moti sheet par kaam karte hain?": "कितनी मोटी शीट पर काम करते हैं?",
+  "Nesting ya program ka kaunsa kaam kar lete hain?": "नेस्टिंग या प्रोग्राम का कौनसा काम कर लेते हैं?",
+  "Kis cheez ki sheet metal fabrication me kaam kiya hai?":
+    "किस चीज़ की शीट मेटल फैब्रिकेशन में काम किया है?",
+  "Press brake ki kaunsi setting khud karte hain?": "प्रेस ब्रेक की कौनसी सेटिंग खुद करते हैं?",
+  "Flat pattern ka hisaab kaise nikaalte hain?": "फ्लैट पैटर्न का हिसाब कैसे निकालते हैं?",
+  "Cutting aur bending ke alawa kaunsa kaam karte hain?": "कटिंग और बेंडिंग के अलावा कौनसा काम करते हैं?",
 };
 
 /**
@@ -849,6 +871,20 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "साल से एम्प्लॉयर को आपका अनुभव समझ आता है।",
   "Doosra kaam bhi dikhane se naukri ke mauke badhte hain.":
     "दूसरा काम भी दिखाने से नौकरी के मौके बढ़ते हैं।",
+  // qp_sheet_metal_fab@1 — why-texts. Eight more (tenure, machine, material, drawing, sector and
+  // the three fresher ones) are shared verbatim with the welder's pack and already twinned above.
+  "Helper aur skilled worker ka kaam aur vetan alag hota hai.":
+    "हेल्पर और स्किल्ड वर्कर का काम और वेतन अलग होता है।",
+  "Har kaam alag hunar hai, isse sahi naukri milti hai.": "हर काम अलग हुनर है, इससे सही नौकरी मिलती है।",
+  "Sahi naap lene wale ko accurate kaam milta hai.": "सही नाप लेने वाले को एक्यूरेट काम मिलता है।",
+  "Moti sheet ka kaam alag rate par hota hai.": "मोटी शीट का काम अलग रेट पर होता है।",
+  "Nesting jaanne wale ko machine ki zimmedaari milti hai.":
+    "नेस्टिंग जानने वाले को मशीन की ज़िम्मेदारी मिलती है।",
+  "Setting karne wale ko zyada vetan milta hai.": "सेटिंग करने वाले को ज़्यादा वेतन मिलता है।",
+  "Development ka hisaab jaanne wale se galti kam hoti hai.":
+    "डेवलपमेंट का हिसाब जानने वाले से गलती कम होती है।",
+  "Poora kaam jaanne wale ko shop me aage rakha jaata hai.":
+    "पूरा काम जानने वाले को शॉप में आगे रखा जाता है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

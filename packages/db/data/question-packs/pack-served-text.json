@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 154,
+  "pack_count": 155,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -465,6 +465,10 @@
     "qp_sheet_metal@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
+    },
+    "qp_sheet_metal_fab@1": {
+      "served_text_sha256": "22aa2e7e6143d4e8c54678f04efb1a199b893d0ff694be361c44a3fbecc3c331",
+      "served_text_count": 60
     },
     "qp_ship_crew@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",

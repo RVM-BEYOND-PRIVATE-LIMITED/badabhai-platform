@@ -2102,6 +2102,151 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE SHEET METAL SHEET — Batch 2 part two's first.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Jaswinder Singh, Sheet Metal Worker — Skilled), row
+     * for row. Its capability block has EIGHT rows and this map has eight `from`s, in the page's
+     * own order: Machines, Materials, Operations, Measuring instruments, Sheet thickness,
+     * Drawings, Nesting software, Sector worked. That order is also the template's bands — three
+     * chip rows, one tick row, four fact rows — so array order and band order agree.
+     *
+     * TWO ROWS DIVERGE FROM THE PAGE AND ONE CELL IS HALF-CAPTURED, each noted on its row below
+     * rather than papered over: "Nesting software" and "Sector worked" are hand-set prose on the
+     * page, and "Sheet thickness" carries a brake length ("3200 mm brake") that no question in the
+     * pack stores. This pack has no case in role-sheet-parity.render.test.ts yet, so nothing
+     * renders the persona end to end against page 14 — the map-vs-pack cross-checks in
+     * trade-resume-map.test.ts are what guard it.
+     */
+    pack_id: "qp_sheet_metal_fab",
+    // A SHEET METAL ADVERTISEMENT IS WRITTEN IN MACHINES AND MATERIALS — "fibre laser operator,
+    // MS/SS sheet, press brake" — so the heading is the page's own, not the welder's processes.
+    section_title: "Machines, materials & capability",
+    capability: [
+      {
+        from: "sheet_metal_machine",
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page leads "Fibre laser cutting, CNC press brake,
+        // Turret punch" — the literal vocabulary of the job ad, §5.1 rank 2.
+        inHeadline: true,
+        // §4.3 machines max 4, and the page prints exactly four.
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          fibre_laser: "Fibre laser cutting",
+          cnc_press_brake: "CNC press brake",
+          turret_punch: "Turret punch",
+          shearing: "Shearing machine",
+          plasma_cutting: "Plasma cutting",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        // §4.3 materials max 4; the page prints four.
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          ms_sheet: "MS sheet",
+          stainless: "Stainless steel",
+          gi_sheet: "GI sheet",
+          aluminium: "Aluminium sheet",
+        },
+      },
+      {
+        from: "sheet_operation",
+        // §5.1 rank 4: development and bending are what separate a man who feeds a shear from one
+        // who can make the part from a drawing.
+        rank: 41,
+        // NO CAP. The page prints SEVEN operations, and a cap would drop a value the ratified
+        // sheet shows — the welder's `Equipment` defect, avoided rather than repeated.
+        label: "Operations",
+        kind: "chips",
+        values: {
+          development_layout: "Development & layout",
+          bending: "Bending & bump forming",
+          notching: "Notching",
+          punching: "Punching",
+          rolling: "Rolling",
+          spot_welding: "Spot welding",
+          deburring: "Deburring & finishing",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier",
+          steel_rule_tape: "Steel rule & tape",
+          protractor: "Protractor / angle gauge",
+          thickness_gauge: "Thickness gauge",
+          try_square: "Try square",
+        },
+      },
+      {
+        from: "sheet_thickness",
+        rank: 62,
+        label: "Sheet thickness",
+        kind: "fact",
+        // BANDED, on the welder's plate ruling: a band prints as the page prints it. The page's
+        // "· 3200 mm brake" is a machine capacity with no question behind it — a capture gap.
+        values: {
+          upto_two: "Up to 2 mm sheet",
+          upto_eight: "0.8 mm - 8 mm sheet",
+          over_eight: "8 mm sheet and above",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          flat_pattern: "Reads 2D fabrication drawings and flat patterns",
+        },
+      },
+      {
+        from: "nesting_software",
+        // §5.1 rank 4 — programming the machine is setting capability.
+        rank: 43,
+        label: "Nesting software",
+        kind: "fact",
+        // A RECORDED DIVERGENCE: the page reads "Basic nesting on machine software · imports DXF",
+        // with a down-cased second clause no closed dictionary may produce (§8); this row reads
+        // "Basic nesting on machine software · Imports DXF".
+        values: {
+          basic_nesting: "Basic nesting on machine software",
+          dxf_import: "Imports DXF",
+          bend_program: "Press brake bend programs",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. A RECORDED DIVERGENCE on the ruling every
+        // shipped sector row carries: the page's "Enclosures, panels and general fabrication" is
+        // hand-set prose, and this row reads "Enclosures & panels · General fabrication".
+        values: {
+          enclosures_panels: "Enclosures & panels",
+          general_fab: "General fabrication",
+          hvac_ducting: "HVAC ducting",
+          automotive: "Automotive parts",
+          kitchen_equipment: "Kitchen equipment & furniture",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

@@ -1,0 +1,662 @@
+{
+  "_why": "Role track for SHEET METAL, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's first pack. fam_sheet_metal stays the generic ISCO-minor-721 interview and is NOT touched; this pack belongs to fam_sheet_metal_fab, which binds the NCO sheet-metal occupations directly (job_domain specificity 50 beats minor 30), so a thin-gauge fabricator gets sheet-metal depth and every other worker under 721 keeps the generic pack.",
+  "_scope": "CUTTING, PUNCHING, BENDING AND FORMING THIN GAUGE -- laser, turret, press brake and shear, on MS, GI, stainless and aluminium sheet. The level ladder (Helper / Operator / Skilled) is asked as sheet_metal_level so the sheet can say which rung the man stands on. Structural plate work belongs to the welder's pack and auto-body denting to fam_sheet_metal; neither is bound here.",
+  "_depth": "THE TIER GATE IS sheet_metal_experience, asked FIRST, and it is SHEET_METAL_WORKER.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (sheet_metal_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15. The three fresher items are gated sheet_metal_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED SHEET METAL REFERENCE RESUME (Jaswinder Singh, page 14), not invented. Its eight rows are Machines, Materials, Operations, Measuring instruments, Sheet thickness, Drawings, Nesting software and Sector worked, and every one has a question here that fills it. Operations carries SEVEN options because the page prints seven; trimming to the chip guideline's six would have dropped a row value the page shows. Sheet thickness is a BANDED single_select, the same ruling as the welder's plate: the page prints a band, and a free number would not render as one. The page's second half of that cell, '3200 mm brake', is a machine capacity no row of this pack stores -- a known capture gap, stated here because nothing prints it. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable. material_worked, measuring_tools, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first, material_worked trimmed) to keep a sheet on one page, and a private key would opt this trade out of that.",
+  "pack_id": "qp_sheet_metal_fab",
+  "version": 1,
+  "family_id": "fam_sheet_metal_fab",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising sheet metal worker -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "sheet_metal_experience",
+      "prompt_text": "Sheet metal ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal sheet metal ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "sheet_metal_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "sheet_metal_machine",
+      "prompt_text": "Sheet metal ki kaunsi machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Laser, press brake, turret ya shearing, kaunsi chalayi hai?",
+      "target_kind": "attribute",
+      "target_field": "sheet_metal_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fibre_laser",
+          "label_text": "Fibre laser cutting",
+          "value_text": "fibre_laser"
+        },
+        {
+          "option_key": "cnc_press_brake",
+          "label_text": "CNC press brake",
+          "value_text": "cnc_press_brake"
+        },
+        {
+          "option_key": "turret_punch",
+          "label_text": "Turret punch",
+          "value_text": "turret_punch"
+        },
+        {
+          "option_key": "shearing",
+          "label_text": "Shearing machine",
+          "value_text": "shearing"
+        },
+        {
+          "option_key": "plasma_cutting",
+          "label_text": "Plasma cutting",
+          "value_text": "plasma_cutting"
+        },
+        {
+          "option_key": "other_machine",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sheet_metal_level",
+      "prompt_text": "Aap khud ko kis level ka sheet metal worker maante hain?",
+      "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "sheet_metal_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled",
+          "value_text": "skilled"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Kaunse material ki sheet par kaam karte hain?",
+      "why_text": "Steel aur aluminium ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ms_sheet",
+          "label_text": "MS sheet",
+          "value_text": "ms_sheet"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "gi_sheet",
+          "label_text": "GI sheet",
+          "value_text": "gi_sheet"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium sheet",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sheet_operation",
+      "prompt_text": "Sheet par kaunsa kaam khud karte hain?",
+      "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "retry_text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "sheet_operation",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "development_layout",
+          "label_text": "Development aur layout",
+          "value_text": "development_layout"
+        },
+        {
+          "option_key": "bending",
+          "label_text": "Bending aur bump forming",
+          "value_text": "bending"
+        },
+        {
+          "option_key": "notching",
+          "label_text": "Notching",
+          "value_text": "notching"
+        },
+        {
+          "option_key": "punching",
+          "label_text": "Punching",
+          "value_text": "punching"
+        },
+        {
+          "option_key": "rolling",
+          "label_text": "Rolling",
+          "value_text": "rolling"
+        },
+        {
+          "option_key": "spot_welding",
+          "label_text": "Spot welding",
+          "value_text": "spot_welding"
+        },
+        {
+          "option_key": "deburring",
+          "label_text": "Deburring aur finishing",
+          "value_text": "deburring"
+        },
+        {
+          "option_key": "other_operation",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Naap ke liye kaunse aujaar istemaal karte hain?",
+      "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "steel_rule_tape",
+          "label_text": "Steel rule aur tape",
+          "value_text": "steel_rule_tape"
+        },
+        {
+          "option_key": "protractor",
+          "label_text": "Protractor ya angle gauge",
+          "value_text": "protractor"
+        },
+        {
+          "option_key": "thickness_gauge",
+          "label_text": "Thickness gauge",
+          "value_text": "thickness_gauge"
+        },
+        {
+          "option_key": "try_square",
+          "label_text": "Try square",
+          "value_text": "try_square"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap fabrication drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh paata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Seedhi 2D drawing",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "flat_pattern",
+          "label_text": "Drawing aur flat pattern dono",
+          "value_text": "flat_pattern"
+        }
+      ]
+    },
+    {
+      "question_key": "sheet_thickness",
+      "prompt_text": "Kitni moti sheet par kaam karte hain?",
+      "why_text": "Moti sheet ka kaam alag rate par hota hai.",
+      "target_kind": "attribute",
+      "target_field": "sheet_thickness",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "upto_two",
+          "label_text": "2 mm tak",
+          "value_text": "upto_two"
+        },
+        {
+          "option_key": "upto_eight",
+          "label_text": "8 mm tak",
+          "value_text": "upto_eight"
+        },
+        {
+          "option_key": "over_eight",
+          "label_text": "8 mm se zyada",
+          "value_text": "over_eight"
+        },
+        {
+          "option_key": "unknown_thickness",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "nesting_software",
+      "prompt_text": "Nesting ya program ka kaunsa kaam kar lete hain?",
+      "why_text": "Nesting jaanne wale ko machine ki zimmedaari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "nesting_software",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "basic_nesting",
+          "label_text": "Machine software par nesting",
+          "value_text": "basic_nesting"
+        },
+        {
+          "option_key": "dxf_import",
+          "label_text": "DXF file import karna",
+          "value_text": "dxf_import"
+        },
+        {
+          "option_key": "bend_program",
+          "label_text": "Press brake ka bending program",
+          "value_text": "bend_program"
+        },
+        {
+          "option_key": "no_nesting",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis cheez ki sheet metal fabrication me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "enclosures_panels",
+          "label_text": "Enclosure aur panel",
+          "value_text": "enclosures_panels"
+        },
+        {
+          "option_key": "general_fab",
+          "label_text": "General fabrication",
+          "value_text": "general_fab"
+        },
+        {
+          "option_key": "hvac_ducting",
+          "label_text": "HVAC ducting",
+          "value_text": "hvac_ducting"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "kitchen_equipment",
+          "label_text": "Kitchen aur furniture",
+          "value_text": "kitchen_equipment"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_brake_setting",
+      "prompt_text": "Press brake ki kaunsi setting khud karte hain?",
+      "why_text": "Setting karne wale ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "press_brake_setting",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "punch_die_selection",
+          "label_text": "Punch aur die chunna",
+          "value_text": "punch_die_selection"
+        },
+        {
+          "option_key": "back_gauge",
+          "label_text": "Back gauge set karna",
+          "value_text": "back_gauge"
+        },
+        {
+          "option_key": "angle_correction",
+          "label_text": "Angle correction",
+          "value_text": "angle_correction"
+        },
+        {
+          "option_key": "bend_sequence",
+          "label_text": "Bending ka sequence banana",
+          "value_text": "bend_sequence"
+        },
+        {
+          "option_key": "no_setting",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "layout_calculation",
+      "prompt_text": "Flat pattern ka hisaab kaise nikaalte hain?",
+      "why_text": "Development ka hisaab jaanne wale se galti kam hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "layout_calculation",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "bend_allowance",
+          "label_text": "Bend allowance se",
+          "value_text": "bend_allowance"
+        },
+        {
+          "option_key": "k_factor",
+          "label_text": "K factor se",
+          "value_text": "k_factor"
+        },
+        {
+          "option_key": "trial_piece",
+          "label_text": "Trial piece bana kar",
+          "value_text": "trial_piece"
+        },
+        {
+          "option_key": "software_unfold",
+          "label_text": "Software se unfold karke",
+          "value_text": "software_unfold"
+        },
+        {
+          "option_key": "no_calculation",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_finishing",
+      "prompt_text": "Cutting aur bending ke alawa kaunsa kaam karte hain?",
+      "why_text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_finishing",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "riveting",
+          "label_text": "Riveting",
+          "value_text": "riveting"
+        },
+        {
+          "option_key": "hardware_insertion",
+          "label_text": "Nut aur stud press karna",
+          "value_text": "hardware_insertion"
+        },
+        {
+          "option_key": "enclosure_assembly",
+          "label_text": "Enclosure assembly",
+          "value_text": "enclosure_assembly"
+        },
+        {
+          "option_key": "first_piece_check",
+          "label_text": "First piece checking",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "no_other_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "shearing_machine",
+          "label_text": "Shearing machine",
+          "value_text": "shearing_machine"
+        },
+        {
+          "option_key": "bending_machine",
+          "label_text": "Hand bending machine",
+          "value_text": "bending_machine"
+        },
+        {
+          "option_key": "spot_welder",
+          "label_text": "Spot welding machine",
+          "value_text": "spot_welder"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "sheet_metal_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

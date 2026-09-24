@@ -443,3 +443,34 @@
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7131_0500"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0201"}
 {"kind":"binding","family_id":"fam_powder_coating","job_domain_id":"jd_nco_7132_0300"}
+
+# ══ Batch 2, part two — the roles the 2026-09-24 alias tranche made reachable ═══════════════════
+#
+# The seven roles part one could not ship were waiting on vocabulary, not on packs. Worksheet
+# Part 5 (docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md, signed 2026-09-24) ratified it and
+# #1685 put it on the codes each family below binds — so every binding here lands a phrase that
+# was measured reaching it, which is the section 2b rule. One role per change, by owner decision:
+# each pack is reviewed against its own reference page and goes live on its own.
+#
+# NOT YET RATIFIED. Labels and chip vocabulary are drafted; no practising worker in these trades
+# has corrected them. See docs/registers/trade-content-ratification.md and each pack's review_note.
+{"kind":"family","family_id":"fam_sheet_metal_fab","label_en":"Sheet Metal Fabrication (laser, punch and press brake)","label_hi":"शीट मेटल फैब्रिकेशन","industry_id":"ind_industrial_manufacturing"}
+
+# ── Sheet metal fabrication ──────────────────────────────────────────────────────────────────
+# 7213.0101 "Sheet Metal Worker, General" is the anchor: the tranche put "sheet metal", "शीट
+# मेटल", "press brake", "laser cutting", "chadar", "fabricator" and "fabrication" on it, and its
+# NCO description is the trade — "makes sheet metal articles according to drawing... selects sheet
+# of required type, thickness (gauge) and size". 7223.2400 "Sheet Metal Machine Operator" ("sizing,
+# bending and forming sheet metal") is the machine-side half; it sits in unit 7223 under
+# fam_machining at specificity 40, and this job-domain row at 50 takes it, on the same mechanism
+# conventional machining uses for its 7223 codes.
+#
+# THREE NEIGHBOURS STAY ON fam_sheet_metal, each for a stated reason:
+#   7213.0200  "Sheet Metal Worker, Structural" — despite the title, its description is assembling
+#              body structures of motor vehicles and aircraft: panel-shop work, not thin-gauge fab.
+#   7213.0201/0301/0302  auto engine repair and denting — the auto body trade.
+#   7213.0600  "Machine Feeder and Off bearer" — feeds any machine; not unambiguously this trade.
+# 7223.2000 "Bending-Machine Operator" bends bars, rods, pipes and tubes, not sheet, and stays on
+# fam_machining.
+{"kind":"binding","family_id":"fam_sheet_metal_fab","job_domain_id":"jd_nco_7213_0101"}
+{"kind":"binding","family_id":"fam_sheet_metal_fab","job_domain_id":"jd_nco_7223_2400"}

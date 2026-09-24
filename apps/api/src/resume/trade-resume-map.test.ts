@@ -102,12 +102,15 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_tool_die_making",
       "qp_welding_trade",
       "qp_powder_coating",
+      "qp_sheet_metal_fab",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
     // BESIDE it, on the guide's rule that a role pack never replaces the family pack. If the two
     // ids were ever conflated, this assertion is what fails.
     expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
+    // The same pair for part two's first role: `qp_sheet_metal` is the generic minor-721 pack.
+    expect(tradeResumeMapFor("qp_sheet_metal")).toBeUndefined();
     expect(tradeResumeMapFor(null)).toBeUndefined();
   });
 
