@@ -984,3 +984,72 @@ family is worse than no family, because a wrong role scores 0.0 where an unknown
 scores 0.4 (R5). Accepted phrases are the ones a worker in that role says and a worker
 outside it does not; every strike is a phrase that is honestly shared with another trade.
 ```
+
+---
+
+# Part 6 — Batch 2 form rulings (decided 2026-09-24, while the packs were built)
+
+**Scope: the five Batch 2 forms shipped after Sheet Metal (#1693)** — Industrial Electrician
+(#1694), Press / Machine Operator (#1697), Assembly Line Worker (#1699), Fitter
+(#1701) and Quality Inspector (#1702). Binding a family to its pack moved phrases that
+Part 5 had measured against unbound codes, so each move was put to the owner before the
+PR shipped. Maintenance Technician is not in this round: it stays blocked on the alias
+retirement that A1 needs.
+
+### How the forms ship
+
+- **B1 — One PR per role, each pack seeded to production right after its merge** (runbook
+  P3-0). Press was built in this round rather than deferred.
+
+### Fitter
+
+- **B2 — `jd_nco_7233_0101` is bound to Fitter as an interim.** A1 gives that code to
+  Maintenance Technician, but plain `fitter` is still one of its aliases and nothing can
+  retire it yet. Leaving 0101 unbound would keep the most common way a fitter names the
+  trade on the generic fitting pack. The code moves to Maintenance Technician when the retirement path and that pack
+  ship. **Accepted cost:** the tranche's maintenance phrases on 0101 (`machine ki marammat`,
+  `machine repair`, `breakdown maintenance`, `plant maintenance`) reach the Fitter pack in
+  the meantime, and the first two are offered the Fitter form.
+- **B3 — The bare words hand over the form only with the family pin.** `fitter`, `fitting`,
+  `फिटर`, `फिटिंग` and `fitting ka kaam` sit inside other trades' titles (pipe fitting, AC
+  fitting, Die Fitter, …), so on their own they are corroborating words, not an occupation.
+  The one standalone occupation term is `general fitter`. **Known leak, pinned:** `ac fitter`,
+  `structural fitter` and `press tool fitter` still reach the form through bare `fitter` on
+  code 0101. Guard rows, not routing, would fix them.
+
+### Quality Inspector
+
+- **B4 — Guard rows for the QC spillover.** Bare `qc` would take other trades' QC with it
+  once 7543.2001 was bound. Each of these now reaches its own trade:
+
+  | Phrase                               | Code                                        |
+  | ------------------------------------ | ------------------------------------------- |
+  | garment qc, qc executive sewing line | `jd_nco_7543_0201` QC Executive-Sewing Line |
+  | pharma qc, qc chemist                | `jd_nco_2113_0601` Quality Control Chemist  |
+
+- **B5 — Four veto words on the QC form: `garment`, `sewing`, `pharma`, `chemist`.** The guard
+  rows moved the family but not the form, because the target codes' chip labels still say
+  "qc". A worker whose words carry one of these is not offered the QC form.
+- **B6 — F4 re-affirmed, on new facts.** F4 accepted `vehicle inspection` because it "reaches
+  no role form". With 7543.2001 bound it now reaches the QC family, and its pin hands over the
+  QC form. **Still accepted, still pinned.**
+- **B7 — `jd_nco_7311_0500` ("Viewer, Workshop / Examiner, Metal Working") stays bound to
+  Quality Inspector.** It is a metal-working inspector that had fallen to the handicraft pack.
+
+### Known gaps these rulings leave open
+
+- `quality inspector` itself reaches no form: its only alias sits on the unbound ISCO node
+  `jd_isco_7543`.
+- Retirements still pending: item 21 (`press operator` → woollen press), A4 (the junk
+  `Machine` alias), A1 (the 0101 move above).
+- Industrial Electrician's machine words (`vfd`, `megger`, `mcc panel`, …) reach no trade on
+  their own; that needs an alias batch.
+
+```
+Verdict: B1 one PR per role, seeded after each merge; B2 0101 bound to Fitter (interim);
+B3 Fitter's bare words need the family pin; B4 four QC guard rows; B5 four QC veto words;
+B6 F4 re-affirmed; B7 7311.0500 kept.
+
+Decided by: Divyanshu, 2026-09-24 (recorded by engineering from the decisions given
+while the packs were built).
+```
