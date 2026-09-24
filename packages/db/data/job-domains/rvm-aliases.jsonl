@@ -768,3 +768,119 @@
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"कैम प्रोग्रामर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"सीएनसी प्रोग्रामर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7223_6003","text":"जी कोड","lang":"hi"}
+# ══════════════════════════════════════════════════════════
+# BATCH 2 ROUTING TRANCHE — the seven roles no worker's words could reach.
+#
+# STATUS: RATIFIED. Every phrase below was ruled on in
+# docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md Part 5, signed 2026-09-24 (Divyanshu),
+# item by item; the item number is on each block. Nothing here was chosen by the author.
+#
+# WHY IT EXISTS. Measured before this block through buildOccupationIndex -> resolveOccupation:
+#   sheet metal, press brake, fabricator, qc, quality control, क्वालिटी  -> NO MATCH
+#   machine repair, machine ki marammat -> Milker (dairy)   quality check karna -> Cook
+#   power press -> masonry (L1 "pvr")   naap tol -> cart puller   panel wiring -> house wiring
+#
+# EVERY TARGET CODE ALREADY SITS UNDER A GENERIC UNIT PACK, and that is the interim design.
+# None of the seven role families is bound yet — a family binds in the same change as its
+# pack, because a family with a binding and no active pack sends its workers to the UNIVERSAL
+# pack. Until each pack ships, these rows land on the unit's generic pack (sheet metal ->
+# fam_sheet_metal, QC -> fam_other_craft, maintenance -> fam_fitting, industrial electrician
+# -> fam_electrical_equipment, power press -> fam_machining), which is the NCO's own
+# classification of the work and strictly better than where each phrase went before.
+#
+# NOT IN THIS BLOCK, AND WHY. Three rulings need an alias to be RETIRED, and neither this
+# overlay (add-only) nor the domain seed (ON CONFLICT DO NOTHING) can retire one:
+#   A1 — plain "fitter" moves off jd_nco_7233_0101 to jd_nco_7233_0200
+#   A4 — the junk published alias "Machine" on jd_nco_6121_0800 ("Milker, Machine")
+#   21 — "press operator" means the metal press, but it is the published title of the
+#        woollen-cloth press jd_nco_8159_0400; a second claimant would make it ambiguous,
+#        not re-point it
+# Deleting the "fitter" row from this file would change the offline index and leave the live
+# database untouched — the two would disagree, silently. All three wait on a retirement path.
+#
+# Every key below had NO exact and NO skeleton claimant before this block (measured), so no
+# row lands in a bucket another trade already owns.
+# ══════════════════════════════════════════════════════════
+#
+# ── Sheet metal — NCO 7213.0101 (Sheet Metal Worker, General) — items 1-5 ─────
+# "chadar" is the stem of "chadar ka kaam"; the particle stripper collapses the phrase to it.
+# In a factory it means GI/MS sheet; "cdr" had no skeleton claimant. "fabricator" and
+# "fabrication" are already Sheet Metal occupation terms in sheet-metal-worker.role.ts; the
+# ruling accepted that a structural welder says them too.
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"sheet metal","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"शीट मेटल","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"press brake","lang":"en"}
+# 2-token row: beats the 1-token "cutting" span that sends gas cutters to welding.
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"laser cutting","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"chadar","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabricator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7213_0101","text":"fabrication","lang":"en"}
+#
+# ── Quality inspection — NCO 7543.2001 (Quality Inspector — forged, cast, machined) — 6-10 ─
+# The metal-manufacturing QC code, not the unit node: Batch 2's inspector is a machine-shop
+# inspector. "inspection", "quality" and "quality check" are the stems of "inspection ka
+# kaam", "quality wala" and "quality check karna" ("karna" is not a particle, so the 2-token
+# span matches inside the sentence). "naap tol" (item 11) is struck: it is also shop weighing.
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"qc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"qc inspector","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"qa qc","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"quality control","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"क्वालिटी","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"inspection","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"quality check","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7543_2001","text":"quality","lang":"en"}
+#
+# ── Maintenance — NCO 7233.0101 (Maintenance Fitter-Mechanical) — items 12-14 ──
+# The code ruling A1 gives to Maintenance Technician. 2-token rows beat the junk 1-token
+# "Machine" alias (A4) on longest-span-first, so these work before A4 is retired. Bare
+# "maintenance" (15) and "marammat ka kaam" (16) are struck — both are any-trade words.
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine marammat","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"machine repair","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"breakdown maintenance","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7233_0101","text":"plant maintenance","lang":"en"}
+#
+# ── Industrial electrician — NCO 7412.0200 (Electrical Fitter) — items 17-19 ──
+# Ruling A2: the generic words (bijli mistri, wiring, electrician) STAY on the domestic
+# wireman. Only industrial compounds come here; each beats the 1-token "wiring"/"electrician"
+# span on longest-first.
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel wiring","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"industrial electrician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"इंडस्ट्रियल इलेक्ट्रीशियन","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"panel electrician","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7412_0200","text":"plant electrician","lang":"en"}
+#
+# ── Press — NCO 7223.2300 (Power Press Operator, Metal) / 7223.3000 (Metal Stamper) — 20, 22 ─
+# "press ka kaam" (23) is struck — it is ironing clothes — and "machine operator" (24) routes
+# to no role. "press operator" (21) is the retirement case above.
+{"kind":"alias","job_domain_id":"jd_nco_7223_2300","text":"power press","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7223_3000","text":"stamping","lang":"en"}
+#
+# ── Assembly line — NCO 8219.0100 — item 25 ─────────────────────────────────
+# The code that already owns "assembly line" and "असेंबली". Stem of "assembly ka kaam".
+{"kind":"alias","job_domain_id":"jd_nco_8219_0100","text":"assembly","lang":"en"}
+#
+# ── Fitter — NCO 7233.0200 (Fitter, Bench) — one guard; item 28 WITHDRAWN ────
+# ITEM 28 ("fitting", the stem of "fitting ka kaam") IS NOT AUTHORED, and was in the first
+# draft. "fitting" -> "ftng" is the same skeleton as "footing" — construction foundation
+# work — and with the row in place "footing" and "footing ka kaam" moved NO MATCH -> Fitter
+# at L1. The corpus has no foundation vocabulary to guard with, so the owner withdrew the
+# item (2026-09-24). Fitter stays reachable on "fitter", "फिटर" and "bench fitter".
+#
+# GUARD ROW: bare "assembly" above would take "assembly fitter" at span 0 (left-to-right,
+# both 1-token). The worksheet ruled that phrase stays with Fitter, where it already routed
+# through "fitter"; a 2-token row keeps it there on longest-first. Preserves a ruling — it is
+# not new vocabulary.
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"assembly fitter","lang":"en"}
+#
+# ── GUARD ROWS for two neighbours this tranche would otherwise have captured ──
+# Both measured, both ruled 2026-09-24. Each is a 2-token exact row, so it wins on
+# longest-first before the 1-token span that caused the capture is ever tried.
+#
+# "chadar silai" (and "chadar ki silai" — "ki" is stripped) reached Tailoring through "silai"
+# before bare "chadar" existed, and Sheet Metal after it: "chadar" is the first 1-token span.
+# Bedsheet stitching is tailoring. Pinned to the code that already owns "silai".
+{"kind":"alias","job_domain_id":"jd_nco_7531_0100","text":"chadar silai","lang":"en"}
+# "fabrication welder" moved to Sheet Metal on bare "fabrication" for the same left-to-right
+# reason. A man who calls himself a welder gets the welder form; "welding fabrication" never
+# moved, because "welding" comes first.
+{"kind":"alias","job_domain_id":"jd_nco_7212_0301","text":"fabrication welder","lang":"en"}

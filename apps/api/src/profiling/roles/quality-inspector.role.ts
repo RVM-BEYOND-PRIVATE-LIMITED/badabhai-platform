@@ -44,6 +44,11 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  * and `rvm-aliases.jsonl` is ratified vernacular rather than something to invent. The form stays
  * disabled until that tranche ships — and the correction is recorded rather than quietly deleted,
  * because a confident unmeasured claim in a doc comment is what the next author would have built on.
+ *
+ * UPDATE 2026-09-24 — the tranche shipped (worksheet Part 5, items 6-10). "qc", "quality control",
+ * "क्वालिटी" and the rest now reach jd_nco_7543_2001, which still answers with `fam_other_craft`'s
+ * generic questions: this family is not bound until its pack ships. Pinned in
+ * `packages/db/src/question-pack-reachability.test.ts`.
  */
 export const QUALITY_INSPECTOR = {
   kind: "quality_inspector",
