@@ -1,4 +1,5 @@
 import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
+import { QUAL_SECTION_TITLES } from "./resume-tier-headings";
 import type {
   ResumeEmployment,
   ResumeFactRow,
@@ -232,7 +233,7 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
       },
       {
         id: "qualifications",
-        title: "Qualification, documents & languages",
+        title: QUAL_SECTION_TITLES[input.qualSectionVariant ?? "full"],
         chipRows: [],
         tickRows: input.qualTickRows ?? [],
         factRows: input.qualFactRows ?? [],

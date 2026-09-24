@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, Query, UseGuards } from "@nestjs/common";
 
 import { ConsentGuard } from "../../auth/consent.guard";
 import {
@@ -10,6 +10,11 @@ import { Ctx, type RequestContext } from "../../common/request-context";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { TradeFormService } from "./trade-form.service";
 import { TradeFormAnswerSchema, type TradeFormAnswerDto } from "./trade-form.dto";
+import {
+  ChooseTierSchema,
+  TradeFormViewQuery,
+  type ChooseTierDto,
+} from "../tiers/profiling-tier.dto";
 
 /**
  * The trade form (worker surface).
@@ -32,10 +37,41 @@ export class TradeFormController {
    *
    * 404 when this worker was never handed a form — which is the ordinary case for almost every
    * worker, and is a different thing from an empty form.
+   *
+   * `?view=upgrade` (tiered profiling, "Add more detail") serves only the questions the worker's
+   * tier asks that he has not settled yet. The default `full` is today's form.
    */
   @Get()
-  schema(@CurrentWorker() worker: AuthenticatedWorker) {
-    return this.form.schema(worker.id);
+  schema(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Query(new ZodValidationPipe(TradeFormViewQuery)) query: TradeFormViewQuery,
+  ) {
+    return this.form.schema(worker.id, query.view);
+  }
+
+  /**
+   * TIERED PROFILING — the tier screen's data: must the worker choose, his current tier, and the
+   * minutes each tier takes for his role. `enabled: false` while the flag is off, and the client
+   * then goes straight to the form. 404 when no form was handed over, like `GET` above.
+   */
+  @Get("tiers")
+  tiers(@CurrentWorker() worker: AuthenticatedWorker, @Ctx() ctx: RequestContext) {
+    return this.form.tierState(worker.id, ctx);
+  }
+
+  /**
+   * TIERED PROFILING — choose the tier (first tap) or raise it ("Add more detail"). A LOWER tier
+   * than the one held is a 409: tiers are only raised and answers are always kept. 404 while
+   * tiers are off.
+   */
+  @Post("tier")
+  @HttpCode(200)
+  chooseTier(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(ChooseTierSchema)) dto: ChooseTierDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.form.chooseTier(worker.id, dto.tier, ctx);
   }
 
   /**

@@ -13,6 +13,8 @@ import { ResumeRenderer } from "./resume-renderer.service";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
 import { ResumeGenerateProcessor } from "./resume-generate.processor";
 import { ResumeRenderProcessor } from "./resume-render.processor";
+import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repository";
+import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
 
 /**
  * Resume generation + async PDF render (TD5).
@@ -42,6 +44,12 @@ import { ResumeRenderProcessor } from "./resume-render.processor";
     ResumeGenerateProcessor,
     ResumeRenderProcessor,
     WorkHistoryPolishService,
+    // Tiered profiling — the sheet renders at the worker's tier. The repository depends only on
+    // the @Global DATABASE (provided here, the WorkerAttributesRepository precedent);
+    // TradeFormRepository comes from ProfilingModule above. Neither is queried while
+    // PROFILING_TIERS_ENABLED is off.
+    ProfilingTierRepository,
+    ResumeTierScopeReader,
   ],
 })
 export class ResumeModule {}

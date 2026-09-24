@@ -58,6 +58,7 @@ import type {
   QuestionTargetKind,
   AnswerType,
 } from "./internal/question-pack-types";
+import type { ProfilingTier } from "@badabhai/types";
 
 // ===========================================================================
 // profiling_family — the pack owner
@@ -311,6 +312,19 @@ export const questionPackItems = pgTable(
     skipIf: jsonb("skip_if"),
     /** Follow-up parent, by question_key. Depth is capped at 1 by the validator. */
     parentItemKey: text("parent_item_key"),
+    /**
+     * The LOWEST profiling tier that asks this question (tiered profiling, migration 0126).
+     *
+     * NULL IS HARD, and that is the fail-safe rather than a gap: an untagged question keeps being
+     * asked exactly as it was before tiers existed. Seeded from the pack JSON's `min_tier`, which
+     * stays the single source of truth; this column is its projection.
+     *
+     * READ ONLY BY `ProfilingTierRepository.findItemTiers` / `findActiveItemTiers` (apps/api), in
+     * their own query and only while `PROFILING_TIERS_ENABLED` is on. Every other reader of this
+     * table lists its columns explicitly, so a build that reaches a database without the column
+     * still serves every pack. The SEEDER writes it unconditionally, so a pack seed needs 0126.
+     */
+    minTier: text("min_tier").$type<ProfilingTier>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -347,6 +361,11 @@ export const questionPackItems = pgTable(
       sql`${t.answerType} IN ('text', 'number', 'boolean', 'single_select', 'multi_select', 'city', 'salary', 'duration')`,
     ),
     check("qpi_max_asks_chk", sql`${t.maxAsks} >= 1 AND ${t.maxAsks} <= 3`),
+    // `PROFILING_TIERS` in @badabhai/types, spelled out because a CHECK is static SQL.
+    check(
+      "qpi_min_tier_chk",
+      sql`${t.minTier} IS NULL OR ${t.minTier} IN ('easy', 'medium', 'hard')`,
+    ),
     check("qpi_display_order_chk", sql`${t.displayOrder} >= 0`),
     check(
       "qpi_turn_window_chk",

@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "electrical_experience",
+      "min_tier": "easy",
       "prompt_text": "Electrician ke kaam ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal electrician ka kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "electrical_work_type",
+      "min_tier": "medium",
       "prompt_text": "Aap kis tarah ka bijli kaam karte hain?",
       "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
       "retry_text": "Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "electrical_equipment",
+      "min_tier": "easy",
       "prompt_text": "Kaunse electrical equipment par kaam karte hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "MCC panel, VFD, starter ya motor, kispar kaam kiya hai?",
@@ -137,6 +140,7 @@
     },
     {
       "question_key": "electrician_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka electrician maante hain?",
       "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
       "target_kind": "attribute",
@@ -164,6 +168,7 @@
     },
     {
       "question_key": "panel_motor_work",
+      "min_tier": "medium",
       "prompt_text": "Panel aur motor ka kaunsa kaam khud karte hain?",
       "why_text": "Fault finding aur drive setting jaanne wale ki maang zyada hai.",
       "retry_text": "Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?",
@@ -213,6 +218,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Testing ke liye kaunse meter istemaal karte hain?",
       "why_text": "Meter chalana jaanne wala fault jaldi pakadta hai.",
       "target_kind": "attribute",
@@ -256,6 +262,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -283,6 +290,7 @@
     },
     {
       "question_key": "electrical_voltage",
+      "min_tier": "hard",
       "prompt_text": "Aap kitne volt tak ka kaam karte hain?",
       "why_text": "High voltage ka alag rate hota hai.",
       "target_kind": "attribute",
@@ -324,6 +332,7 @@
     },
     {
       "question_key": "electrical_licence",
+      "min_tier": "medium",
       "prompt_text": "Kya aapke paas bijli ka licence hai?",
       "why_text": "Licence wale ko badi jagah kaam milta hai.",
       "target_kind": "attribute",
@@ -359,6 +368,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis tarah ke plant ya company me kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -410,6 +420,7 @@
     },
     {
       "question_key": "control_circuit",
+      "min_tier": "hard",
       "prompt_text": "Kaunsa control circuit khud wire kar lete hain?",
       "why_text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai.",
       "target_kind": "attribute",
@@ -461,6 +472,7 @@
     },
     {
       "question_key": "motor_fault",
+      "min_tier": "hard",
       "prompt_text": "Motor ki kaunsi kharabi khud pakad lete hain?",
       "why_text": "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.",
       "target_kind": "attribute",
@@ -512,6 +524,7 @@
     },
     {
       "question_key": "electrical_safety",
+      "min_tier": "hard",
       "prompt_text": "Kaam shuru karne se pehle kaunsi safety khud karte hain?",
       "why_text": "Bijli ke kaam me safety zaroori hai.",
       "target_kind": "attribute",
@@ -563,6 +576,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -615,6 +629,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -651,6 +666,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

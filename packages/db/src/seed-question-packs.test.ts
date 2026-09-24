@@ -328,7 +328,7 @@ describe("item -> option attachment under batching", () => {
 
 describe("chunk sizes stay under Postgres' Bind ceiling", () => {
   // CATCHES: taking `--batch-size` on faith. `parseCommonCli` accepts up to 10000, and
-  // 10000 x 19 columns is 190,000 bound parameters against a hard limit of 65,535 — the
+  // 10000 x 20 columns is 200,000 bound parameters against a hard limit of 65,535 — the
   // server rejects the whole statement, so the apply dies part-way with the corpus half
   // written, which is the failure this change exists to remove.
   const budgets: [string, number][] = [

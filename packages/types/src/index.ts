@@ -626,6 +626,50 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
 
+// ---- Tiered profiling (migration 0126) ----
+//
+// HERE FOR THE SAME REASON AS THE SETS BELOW: `packages/db` writes these into CHECK constraints,
+// `packages/event-schema` puts them on the spine, and `apps/api` filters questions and résumé
+// rows by them. Declared once so the three cannot drift.
+
+/**
+ * How deep a worker chose to profile on the Chat path — lowest first.
+ *
+ * CUMULATIVE BY DEFINITION: Medium asks everything Easy asks and more, Hard asks everything.
+ * Hard IS today's full profiling, which is why it is also the default below.
+ */
+export const PROFILING_TIERS = Object.freeze(["easy", "medium", "hard"] as const);
+export type ProfilingTier = (typeof PROFILING_TIERS)[number];
+
+/**
+ * The tier of an UNTAGGED question and of a worker with NO recorded tier.
+ *
+ * Hard, so both fail safe to the behaviour that shipped before tiers existed: an untagged question
+ * is still asked, and an existing profile still renders every row it rendered before.
+ */
+export const DEFAULT_PROFILING_TIER: ProfilingTier = "hard";
+
+export function isProfilingTier(value: unknown): value is ProfilingTier {
+  return typeof value === "string" && (PROFILING_TIERS as readonly string[]).includes(value);
+}
+
+/** 0 for Easy, 1 for Medium, 2 for Hard — the only ordering the tiers have. */
+export function profilingTierRank(tier: ProfilingTier): number {
+  return PROFILING_TIERS.indexOf(tier);
+}
+
+/**
+ * Does a worker profiling at `workerTier` get a question tagged `itemMinTier`?
+ *
+ * `null`/`undefined` is an untagged question, which is Hard ({@link DEFAULT_PROFILING_TIER}).
+ */
+export function tierIncludes(
+  workerTier: ProfilingTier,
+  itemMinTier: ProfilingTier | null | undefined,
+): boolean {
+  return profilingTierRank(itemMinTier ?? DEFAULT_PROFILING_TIER) <= profilingTierRank(workerTier);
+}
+
 // ---- Résumé import (ADR-0041) ----
 //
 // THESE LIVE HERE RATHER THAN IN THE SCHEMA because two packages that cannot import each other

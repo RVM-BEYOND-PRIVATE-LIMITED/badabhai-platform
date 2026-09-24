@@ -39,6 +39,7 @@ import { profilingVoiceAnswers, workerAttributes } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
 import { workerCertificates, workerEducations, workerTrainings } from "./qualification";
 import { profileCorrections } from "./profile-correction";
+import { workerProfilingTiers } from "./worker-profiling-tier";
 import { workerLanguages } from "./language";
 import { workerPortfolio } from "./portfolio";
 import {
@@ -117,6 +118,7 @@ export * from "./language";
 export * from "./portfolio";
 export * from "./profile";
 export * from "./profile-correction";
+export * from "./worker-profiling-tier";
 export * from "./job";
 export * from "./payer";
 export * from "./match";
@@ -294,6 +296,8 @@ export const schema = {
   // #1311 — per-field extracted-correction audit facts (migration 0117). Present on
   // every migrated database, so it belongs in this object as well as the `export *` above.
   profileCorrections,
+  // Tiered profiling — the tier each worker profiled at (migration 0126).
+  workerProfilingTiers,
   chatSessions,
   voiceNotes,
   chatMessages,

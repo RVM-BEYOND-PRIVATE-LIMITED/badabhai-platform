@@ -14,6 +14,7 @@
   "items": [
     {
       "question_key": "coating_experience",
+      "min_tier": "easy",
       "prompt_text": "Powder coating ya paint ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal coating ka kaam kiya hai?",
@@ -48,6 +49,7 @@
     },
     {
       "question_key": "coating_level",
+      "min_tier": "easy",
       "prompt_text": "Paint shop me aap kis level par kaam karte hain?",
       "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
       "retry_text": "Helper, operator ya skilled, kaunsa level hai?",
@@ -76,6 +78,7 @@
     },
     {
       "question_key": "coating_process",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsa coating ka kaam karte hain?",
       "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Powder coating, spray ya touch-up, kya kaam karte hain?",
@@ -115,6 +118,7 @@
     },
     {
       "question_key": "coating_equipment",
+      "min_tier": "easy",
       "prompt_text": "Kaunse booth aur oven par kaam kiya hai?",
       "why_text": "Equipment ka tajurba employer sabse pehle dekhte hain.",
       "retry_text": "Powder booth, spray booth ya oven, kis par kaam kiya hai?",
@@ -154,6 +158,7 @@
     },
     {
       "question_key": "coating_material",
+      "min_tier": "medium",
       "prompt_text": "Kaunsa powder ya paint lagaya hai?",
       "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
       "retry_text": "Epoxy, polyester, PU ya primer, kya lagaya hai?",
@@ -193,6 +198,7 @@
     },
     {
       "question_key": "surface_prep",
+      "min_tier": "medium",
       "prompt_text": "Coating se pehle kaunsi tayyari khud karte hain?",
       "why_text": "Tayyari ka kaam coating ki quality tay karta hai.",
       "retry_text": "Degreasing, phosphating ya masking, kya karte hain?",
@@ -247,6 +253,7 @@
     },
     {
       "question_key": "coating_checks",
+      "min_tier": "medium",
       "prompt_text": "Coating ke baad kaunsi checking karte hain?",
       "why_text": "Checking karne wale ko quality ka kaam diya jaata hai.",
       "retry_text": "DFT gauge, gloss meter ya adhesion test, kya karte hain?",
@@ -291,6 +298,7 @@
     },
     {
       "question_key": "booth_type",
+      "min_tier": "hard",
       "prompt_text": "Booth batch wala hai ya conveyor line?",
       "why_text": "Batch aur conveyor line ka kaam alag hota hai.",
       "retry_text": "Batch booth, conveyor line ya dono, kis par kaam kiya hai?",
@@ -325,6 +333,7 @@
     },
     {
       "question_key": "film_thickness",
+      "min_tier": "hard",
       "prompt_text": "Kitne micron ki coating thickness rakhte hain?",
       "why_text": "Thickness se coating ki quality aur cost tay hoti hai.",
       "retry_text": "Lagbhag kitne micron DFT par kaam karte hain?",
@@ -372,6 +381,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke parts par coating ki hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "retry_text": "Auto parts, white goods ya furniture, kis line me kaam kiya hai?",
@@ -424,6 +434,7 @@
     },
     {
       "question_key": "substrate_worked",
+      "min_tier": "medium",
       "prompt_text": "Kis dhaat par coating karte hain?",
       "why_text": "Dhaat ke hisaab se coating ka tarika badal jaata hai.",
       "retry_text": "MS, GI, aluminium ya stainless, kis par coating ki hai?",
@@ -476,6 +487,7 @@
     },
     {
       "question_key": "gun_setting",
+      "min_tier": "hard",
       "prompt_text": "Gun ki kaunsi setting khud karte hain?",
       "why_text": "Gun setting se coating barabar lagti hai aur powder bachta hai.",
       "retry_text": "kV, powder flow ya gun distance, kya set karte hain?",
@@ -528,6 +540,7 @@
     },
     {
       "question_key": "oven_schedule",
+      "min_tier": "hard",
       "prompt_text": "Curing oven kis temperature par chalate hain?",
       "why_text": "Oven ka temperature aur time coating ki jaan hai.",
       "retry_text": "Lagbhag kitne degree par curing karte hain?",
@@ -570,6 +583,7 @@
     },
     {
       "question_key": "coating_defects",
+      "min_tier": "hard",
       "prompt_text": "Coating ki kaunsi dikkat aap sudhaar lete hain?",
       "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
       "retry_text": "Orange peel, patli coating ya blister, kya theek karte hain?",
@@ -627,6 +641,7 @@
     },
     {
       "question_key": "colour_change",
+      "min_tier": "hard",
       "prompt_text": "Colour change ke waqt kaunsa kaam karte hain?",
       "why_text": "Colour change jaldi karne se line ka time bachta hai.",
       "retry_text": "Booth safai, powder reclaim ya filter, kaunsa kaam karte hain?",
@@ -674,6 +689,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Spray gun, booth ya oven, kis par kaam kiya hai?",
@@ -726,6 +742,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test pass kiya hai ya abhi nahi diya?",
@@ -762,6 +779,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "ITI me banaya hua koi ek kaam bata dijiye.",

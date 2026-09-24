@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
+import { PROFILING_TIERS } from "@badabhai/types";
 
 import { TRADE_FORM_KINDS } from "../trade-form-router";
 
@@ -82,6 +83,26 @@ const ResumeSuggestionSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
+/**
+ * TIERED PROFILING — what a page marker does NOT ASK at the worker's tier (`pageTierScope`).
+ *
+ * `hidden_fields` are wire names of the PUT body the page owns (`documents_ready`, `work_done`,
+ * `certificates`, `trainings`) plus `additional_entries` on the employment page (do not prompt
+ * for jobs beyond the current one). ASK-ONLY: each of these pages is a whole-record replace, so a
+ * hidden field's stored value — and every stored entry — must still be loaded and sent back
+ * unchanged. Dropping them would delete a worker's saved history.
+ *
+ * `reveal_fields` appears only on `?view=upgrade`: the fields the upgrade adds to this page. Ask
+ * only those, and of those only the ones with NO saved value; skip the page if none is left.
+ *
+ * ABSENT WHILE TIERS ARE OFF, and an older client that ignores it simply shows the whole page —
+ * Hard, today's behaviour.
+ */
+const PageTierScopeSchema = z.object({
+  hidden_fields: z.array(z.string()),
+  reveal_fields: z.array(z.string()).optional(),
+});
+
 const ScreenSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("question"),
@@ -128,9 +149,14 @@ const ScreenSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("preferences"),
     endpoint: z.literal("PUT /workers/me/work-preferences"),
+    tier_scope: PageTierScopeSchema.optional(),
   }),
   /** Work history. Same argument: `PUT /workers/me/employment` owns it. */
-  z.object({ type: z.literal("employment"), endpoint: z.literal("PUT /workers/me/employment") }),
+  z.object({
+    type: z.literal("employment"),
+    endpoint: z.literal("PUT /workers/me/employment"),
+    tier_scope: PageTierScopeSchema.optional(),
+  }),
   /**
    * Zone 5's credentials — certificates and education (migration 0098).
    *
@@ -157,6 +183,7 @@ const ScreenSchema = z.discriminatedUnion("type", [
     type: z.literal("qualifications"),
     endpoint: z.literal("PUT /workers/me/qualifications"),
     suggested_certificates: z.array(z.string()),
+    tier_scope: PageTierScopeSchema.optional(),
   }),
 ]);
 
@@ -192,6 +219,11 @@ export const TradeFormSchemaResponse = z.object({
    * so possessing it grants nothing the token does not already grant.
    */
   session_id: z.string().uuid().nullable(),
+  /**
+   * TIERED PROFILING — the tier this form is scoped to. Absent while tiers are off (the form is
+   * then Hard, today's). With `?view=upgrade` the sections carry only unanswered questions.
+   */
+  profiling_tier: z.enum(PROFILING_TIERS).optional(),
   sections: z.array(SectionSchema),
 });
 export type TradeFormSchemaResponse = z.infer<typeof TradeFormSchemaResponse>;

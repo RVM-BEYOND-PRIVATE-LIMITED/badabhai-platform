@@ -296,6 +296,15 @@ export const serverEnvSchema = z.object({
   // Sized above the extraction job's own retry envelope so a slow-but-healthy update is never
   // reported as failed while it is still working.
   RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: positiveIntFromString(1_200),
+  // TIERED PROFILING (docs/profiling-tiers/tier-tagging.md) — the Easy / Medium / Hard choice on
+  // the Chat path, the form's tier filter, the upgrade flow and the tier-aware résumé.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. With it off the form serves every question
+  // (Hard), the résumé prints every row with no tier label, the tier endpoints answer
+  // `enabled: false`, and NOTHING reads `worker_profiling_tier` or `question_pack_item.min_tier`
+  // — so migration 0126 is apply-before-FLAG-ON, not apply-before-deploy. Turn it on only after
+  // 0126 is applied and `db:seed:packs --apply` has written the pack tags.
+  PROFILING_TIERS_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a

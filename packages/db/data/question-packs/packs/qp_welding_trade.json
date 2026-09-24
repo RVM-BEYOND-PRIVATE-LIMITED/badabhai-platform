@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "welding_experience",
+      "min_tier": "easy",
       "prompt_text": "Welding ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal welding ka kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "welding_process",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsi welding karte hain?",
       "why_text": "Har welding alag hoti hai, isse sahi naukri milti hai.",
       "retry_text": "Gas, arc, MIG ya TIG mein se kaunsi?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "welder_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka welder maante hain?",
       "why_text": "Helper aur certified welder ka kaam aur vetan alag hota hai.",
       "target_kind": "attribute",
@@ -120,6 +123,7 @@
     },
     {
       "question_key": "welding_equipment",
+      "min_tier": "easy",
       "prompt_text": "Kaunsi welding machine par kaam karte hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Inverter, CO2 ya TIG machine, kaunsi chalayi hai?",
@@ -159,6 +163,7 @@
     },
     {
       "question_key": "electrode_type",
+      "min_tier": "medium",
       "prompt_text": "Kaunsi rod ya wire istemaal karte hain?",
       "why_text": "Rod aur wire ka sahi chunaav welder ka hunar hai.",
       "target_kind": "attribute",
@@ -192,6 +197,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Kaunse material par welding karte hain?",
       "why_text": "Steel aur aluminium ka kaam alag hota hai.",
       "target_kind": "attribute",
@@ -230,6 +236,7 @@
     },
     {
       "question_key": "welding_position",
+      "min_tier": "medium",
       "prompt_text": "Kaunsi position me welding kar lete hain?",
       "why_text": "Overhead welding ka alag rate milta hai.",
       "target_kind": "attribute",
@@ -268,6 +275,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -295,6 +303,7 @@
     },
     {
       "question_key": "plate_thickness",
+      "min_tier": "hard",
       "prompt_text": "Kitni moti plate par welding karte hain?",
       "why_text": "Moti plate ka kaam alag rate par hota hai.",
       "target_kind": "attribute",
@@ -341,6 +350,7 @@
     },
     {
       "question_key": "inspection_work",
+      "min_tier": "medium",
       "prompt_text": "Weld ki checking ka kaunsa kaam karte hain?",
       "why_text": "Checking jaanne wale welder ko quality ka kaam milta hai.",
       "target_kind": "attribute",
@@ -387,6 +397,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis line ki fabrication me kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -438,6 +449,7 @@
     },
     {
       "question_key": "joint_type",
+      "min_tier": "hard",
       "prompt_text": "Kaunse joint weld kar lete hain?",
       "why_text": "Joint ka tarika kaam ki mushkil batata hai.",
       "target_kind": "attribute",
@@ -489,6 +501,7 @@
     },
     {
       "question_key": "machine_setting",
+      "min_tier": "hard",
       "prompt_text": "Machine ki kaunsi setting khud karte hain?",
       "why_text": "Setting karne wale welder ko zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -540,6 +553,7 @@
     },
     {
       "question_key": "weld_defect",
+      "min_tier": "hard",
       "prompt_text": "Weld ki kaunsi kharabi aap sudhaar lete hain?",
       "why_text": "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai.",
       "target_kind": "attribute",
@@ -591,6 +605,7 @@
     },
     {
       "question_key": "fabrication_work",
+      "min_tier": "hard",
       "prompt_text": "Welding ke alawa kaunsa kaam karte hain?",
       "why_text": "Poora fabrication jaanne wale ko shop me aage rakha jaata hai.",
       "target_kind": "attribute",
@@ -642,6 +657,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -694,6 +710,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -730,6 +747,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

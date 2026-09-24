@@ -1157,6 +1157,32 @@ export const EVENT_REGISTRY = {
     domain: "resume",
     payload: p.ResumeErasureBackfillEnqueuedPayload,
   },
+
+  // ── Tiered profiling (migration 0126) ───────────────────────────────────────
+  // APPENDED AT THE END, never inserted among the entries above — the registry is append-only by
+  // protocol. The Easy / Medium / Hard funnel: screen shown, tier chosen, form finished at a
+  // tier (duration + question count, which feed the tier screen's time estimates), tier raised.
+  // Ids, closed sets, counts and a duration only. v1.
+  "profile.tier_screen_shown": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileTierScreenShownPayload,
+  },
+  "profile.tier_selected": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileTierSelectedPayload,
+  },
+  "profile.tier_upgraded": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileTierUpgradedPayload,
+  },
+  "profile.tier_completed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileTierCompletedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

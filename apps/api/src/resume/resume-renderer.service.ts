@@ -317,6 +317,16 @@ export interface ResumeRenderInput {
   qualFactRows?: ResumeFactRow[];
   /** `{{#qual_tick_rows}}` — documents the worker says they hold. */
   qualTickRows?: ResumeListRow[];
+  /**
+   * TIERED PROFILING — which heading Zone 5 prints. `no_documents` is a tier that asks neither
+   * documents nor certificates (Easy), and the heading then reads "Qualification & languages"
+   * rather than naming two groups the sheet cannot hold. Absent/null is today's heading.
+   *
+   * A CLOSED VARIANT, NOT A STRING: the heading stays a template literal a mapper cannot rename
+   * (the guideline's zone map), and this only selects between the two literals the template
+   * declares. See `QUAL_SECTION_TITLES`.
+   */
+  qualSectionVariant?: "no_documents" | null;
 
   /** `{{#employments}}` — the two-level work history. See {@link ResumeEmployment}. */
   employments?: ResumeEmployment[];
@@ -516,6 +526,9 @@ export class ResumeRenderer {
       headline_line: input.headlineLine ?? "",
       subhead_line: input.subheadLine ?? "",
       cap_section_title: input.capSectionTitle ?? "",
+      // Empty for every sheet but a tier that drops documents and certificates. A closed value
+      // selecting between two template literals — never a heading string.
+      qual_section_variant: input.qualSectionVariant === "no_documents" ? "no_documents" : "",
       qr_caption: input.qrCaption ?? "",
       short_link: input.shortLink ?? "",
       footer_meta: input.footerMeta ?? "",

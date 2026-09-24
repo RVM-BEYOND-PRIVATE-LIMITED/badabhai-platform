@@ -204,6 +204,32 @@ shape is what #776 was: every authored predicate evaluated false at runtime beca
 `predicate.field` was `undefined`, and two `qp_welding` questions were never asked for the life of
 the pack. Both sides were well unit-tested; neither tested the other's shape.
 
+### Tag every question with `min_tier` (tiered profiling)
+
+A worker on the Chat path chooses **Easy, Medium or Hard**, and the form asks only the questions
+whose `min_tier` is at or below his choice. Every item of a form-enabled pack carries one:
+
+```jsonc
+{ "question_key": "controller_brand", "min_tier": "easy", ... }
+```
+
+The rule, the calibration and the per-role reasoning are in
+[`docs/profiling-tiers/tier-tagging.md`](../profiling-tiers/tier-tagging.md). In short: the tier
+gate and every mandatory item are `easy`; the primary machines/software and the headline field
+are `easy`; secondary chips and core day-to-day competence are `medium`; setting, tolerance,
+advanced capability, sectors and every specialist item are `hard`. **A row the Hard sheet's
+10-row rank budget would shed may not be `easy` or `medium`** (rule R6), or an upgrade would make
+it vanish. **And no question may be tagged below a question it depends on** (its `ask_if` / `skip_if`
+field or its `parent_item_key`): the form drops a question whose gate is out, the résumé reads each
+row's own tag, and the two agree only while this holds. Both rules are pinned per enabled pack in
+`profiling-tier.policy.test.ts`.
+
+An untagged item is read as `hard` — asked exactly as before tiers existed — but
+`profiling-tier.policy.test.ts` fails for any **enabled** role with an untagged item, so tag in the
+same PR as the pack. `min_tier` is metadata, not served text: adding or correcting it on a shipped
+version is an in-place edit (no version bump) that reaches the database on the next
+`db:seed:packs --apply`.
+
 ### ⚠ The `value_text` trap — read this before you write a single option
 
 `pack-registry.service.ts:530` resolves an option as:
@@ -395,6 +421,8 @@ anything with `max_asks: 2`.
 5. Author `packs/<pack_id>.json` (v1; later versions are `<pack_id>@<n>.json` — a shipped version is
    immutable and is never overwritten).
 6. Gate question first; tier the rest; keep the arithmetic inside the ask budget.
+   Tag every item's `min_tier` (§4, "Tag every question with `min_tier`"), and add the role's
+   Easy capability heading to its résumé map's `tier_section_titles`.
 7. Append to `_published-versions.jsonl`.
 8. Author a **Devanagari twin for every served string** you wrote — each `prompt_text`, `why_text`
    and `retry_text` — in `apps/api/src/profiling/question-tts-text.ts` (prompts and retries go in

@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "toolroom_experience",
+      "min_tier": "easy",
       "prompt_text": "Tool room ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal tool room ka kaam kiya hai?",
@@ -33,6 +34,7 @@
     },
     {
       "question_key": "toolroom_level",
+      "min_tier": "easy",
       "prompt_text": "Tool room me aapki abhi kaunsi post hai?",
       "why_text": "Post se employer ko aapka darja pehli line me samajh aata hai.",
       "retry_text": "Trainee, tool maker ya senior, kaunsi post hai?",
@@ -49,6 +51,7 @@
     },
     {
       "question_key": "tooling_made",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsa tooling banate hain?",
       "why_text": "Aap kya banate hain, yahi employer sabse pehle dekhta hai.",
       "retry_text": "Press tool, die ya fixture, kya banate hain?",
@@ -68,6 +71,7 @@
     },
     {
       "question_key": "toolroom_machine",
+      "min_tier": "easy",
       "prompt_text": "Tool room me kaunsi machine chalate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Grinder, EDM ya milling, kaunsi machine chalate hain?",
@@ -87,6 +91,7 @@
     },
     {
       "question_key": "tool_steel",
+      "min_tier": "medium",
       "prompt_text": "Kaunse tool steel par kaam kiya hai?",
       "why_text": "Tool steel ka tajurba employer ke liye alag mayne rakhta hai.",
       "retry_text": "OHNS, HCHCr ya EN31, kaunsa steel istemaal kiya hai?",
@@ -106,6 +111,7 @@
     },
     {
       "question_key": "toolroom_work",
+      "min_tier": "medium",
       "prompt_text": "Tool room ka kaunsa kaam khud karte hain?",
       "why_text": "Khud kiya hua kaam helper aur tool maker ka farq batata hai.",
       "retry_text": "Assembly, tryout ya benchwork, kaunsa kaam karte hain?",
@@ -126,6 +132,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Kaunse measuring instrument chala lete hain?",
       "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
       "retry_text": "Slip gauge, micrometer ya sine bar, kya chalate hain?",
@@ -146,6 +153,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "retry_text": "Tooling drawing dekh kar kaam kar lete hain?",
@@ -162,6 +170,7 @@
     },
     {
       "question_key": "tolerance_band",
+      "min_tier": "hard",
       "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
       "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
       "retry_text": "Die clearance kitni tolerance tak rakh lete hain?",
@@ -180,6 +189,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke liye tooling banayi hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "retry_text": "Sheet metal, auto ya electrical, kis line ki tooling banayi?",
@@ -199,6 +209,7 @@
     },
     {
       "question_key": "edm_work",
+      "min_tier": "hard",
       "prompt_text": "EDM par aap kaunsa kaam karte hain?",
       "why_text": "EDM ka kaam tool room me alag hunar mana jaata hai.",
       "retry_text": "Wire-cut program, electrode ya setting, kya karte hain?",
@@ -217,6 +228,7 @@
     },
     {
       "question_key": "die_design_work",
+      "min_tier": "hard",
       "prompt_text": "Die design ka kaunsa kaam karte hain?",
       "why_text": "Design samajhne wale tool maker ko senior kaam milta hai.",
       "retry_text": "Strip layout ya clearance nikalna, kya karte hain?",
@@ -235,6 +247,7 @@
     },
     {
       "question_key": "die_troubleshooting",
+      "min_tier": "hard",
       "prompt_text": "Die ki kaunsi dikkat aap sudhaar lete hain?",
       "why_text": "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai.",
       "retry_text": "Burr, punch tootna ya strip jam, kya theek karte hain?",
@@ -254,6 +267,7 @@
     },
     {
       "question_key": "heat_treatment_work",
+      "min_tier": "hard",
       "prompt_text": "Heat treatment ka kaam aap kaise sambhaalte hain?",
       "why_text": "Hardness sahi na ho to die jaldi toot jaati hai.",
       "retry_text": "Hardness khud check karte hain ya bahar bhijwate hain?",
@@ -271,6 +285,7 @@
     },
     {
       "question_key": "press_tonnage",
+      "min_tier": "hard",
       "prompt_text": "Kitne tonnage ki press par tryout kiya hai?",
       "why_text": "Press ka size batata hai ki kitni badi tooling banayi hai.",
       "retry_text": "Chhoti press ya badi press, kis par tryout kiya hai?",
@@ -289,6 +304,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine par haath aazmaya hai?",
@@ -309,6 +325,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka result aa gaya hai?",
@@ -325,6 +342,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Kaunsa job ya model banaya tha ITI me?",

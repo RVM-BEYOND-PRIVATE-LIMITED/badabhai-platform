@@ -104,6 +104,22 @@ describe("a valid corpus", () => {
   });
 });
 
+describe("min_tier (tiered profiling, migration 0126)", () => {
+  it("accepts every profiling tier, and absence (an untagged item is Hard)", () => {
+    for (const tier of ["easy", "medium", "hard", null, undefined] as const) {
+      const c = valid();
+      c.packs[0]!.items[0]!.min_tier = tier;
+      expect(fatal(c)).toEqual([]);
+    }
+  });
+
+  it("rejects a value outside the closed set, before the CHECK constraint would", () => {
+    const c = valid();
+    (c.packs[0]!.items[0] as { min_tier?: unknown }).min_tier = "expert";
+    expect(fatal(c).join()).toContain('min_tier "expert" is not one of easy, medium, hard');
+  });
+});
+
 describe("families and bindings — each defect must be caught", () => {
   it("rejects a family_id without the fam_ prefix", () => {
     const c = valid();

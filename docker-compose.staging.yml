@@ -285,6 +285,11 @@ services:
       # whether the chat asks. `:-false` for the reason RESUME_AUTOFILL_ENABLED gives above.
       RESUME_CHAT_UPDATE_OFFER_ENABLED: ${RESUME_CHAT_UPDATE_OFFER_ENABLED:-false}
 
+      # TIERED PROFILING (Easy/Medium/Hard on the Chat path). Off is today's full form and
+      # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
+      # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".
+      PROFILING_TIERS_ENABLED: ${PROFILING_TIERS_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as

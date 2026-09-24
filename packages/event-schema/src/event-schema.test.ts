@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 195 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill)", () => {
-    expect(EVENT_NAMES).toHaveLength(195);
+  it("exposes all 199 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events)", () => {
+    expect(EVENT_NAMES).toHaveLength(199);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4916,5 +4916,73 @@ describe("résumé history (ADR-0043) — source and trigger are closed vocabula
     // `.strict()`: what was erased never rides along — not even as a flag.
     expect(validateEvent(enqueued({ ...valid, had_photo: true })).success).toBe(false);
     expect(validateEvent(enqueued({ worker_id: UUID_A })).success).toBe(false);
+  });
+});
+
+describe("tiered profiling events (migration 0126)", () => {
+  const envelope = (event_name: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name,
+    event_version: 1,
+    occurred_at: "2026-09-24T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "worker", subject_id: UUID_B },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const valid: Record<string, Record<string, unknown>> = {
+    "profile.tier_screen_shown": {
+      worker_id: UUID_B,
+      form_kind: "cnc_turner",
+      context: "select",
+      current_tier: null,
+    },
+    "profile.tier_selected": {
+      worker_id: UUID_B,
+      form_kind: "cnc_turner",
+      pack_id: "qp_cnc_turning",
+      tier: "easy",
+    },
+    "profile.tier_upgraded": {
+      worker_id: UUID_B,
+      form_kind: "cam_programmer",
+      pack_id: "qp_cam_programming",
+      from_tier: "easy",
+      to_tier: "hard",
+    },
+    "profile.tier_completed": {
+      worker_id: UUID_B,
+      form_kind: "welder",
+      pack_id: "qp_welding_trade",
+      pack_version: 1,
+      tier: "medium",
+      duration_ms: 312_000,
+      question_count: 8,
+    },
+  };
+
+  it.each(Object.entries(valid))("accepts a valid %s", (name, payload) => {
+    expect(validateEvent(envelope(name, payload)).success).toBe(true);
+  });
+
+  it.each(Object.entries(valid))("%s is strict — no field can carry an answer or a label", (name, payload) => {
+    expect(validateEvent(envelope(name, { ...payload, answer: "Fanuc" })).success).toBe(false);
+  });
+
+  it("closes the tier and the form kind", () => {
+    const selected = valid["profile.tier_selected"]!;
+    expect(validateEvent(envelope("profile.tier_selected", { ...selected, tier: "expert" })).success).toBe(false);
+    expect(
+      validateEvent(envelope("profile.tier_selected", { ...selected, form_kind: "cook" })).success,
+    ).toBe(false);
+  });
+
+  it("allows an unknown duration (a backfilled worker) but never a negative one", () => {
+    const completed = valid["profile.tier_completed"]!;
+    expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: null })).success).toBe(true);
+    expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: -1 })).success).toBe(false);
   });
 });

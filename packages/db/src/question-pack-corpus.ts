@@ -45,6 +45,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { checkPersonaTokens } from "@badabhai/profiling-lexicon";
+import { PROFILING_TIERS, isProfilingTier, type ProfilingTier } from "@badabhai/types";
 import { predicateFields, validatePredicate } from "./question-pack-predicate";
 
 export const QUESTION_PACK_DATA_DIR = join(__dirname, "..", "data", "question-packs");
@@ -191,6 +192,11 @@ export interface PackItemRecord {
   ask_if?: unknown;
   skip_if?: unknown;
   parent_item_key?: string | null;
+  /**
+   * The LOWEST profiling tier that asks this question (tiered profiling, migration 0126). Absent
+   * or null is Hard — the question is asked exactly as it was before tiers existed.
+   */
+  min_tier?: ProfilingTier | null;
   options?: PackOptionRecord[];
 }
 
@@ -581,6 +587,11 @@ export function validateQuestionPackCorpus(
       ) {
         problems.push(
           `${iw}: target_field ${it.target_field} is not in the Resume Field Set vocabulary`,
+        );
+      }
+      if (it.min_tier !== undefined && it.min_tier !== null && !isProfilingTier(it.min_tier)) {
+        problems.push(
+          `${iw}: min_tier ${JSON.stringify(it.min_tier)} is not one of ${PROFILING_TIERS.join(", ")}`,
         );
       }
       if (

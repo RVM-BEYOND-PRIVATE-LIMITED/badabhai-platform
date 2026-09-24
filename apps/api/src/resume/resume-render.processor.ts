@@ -1,7 +1,7 @@
 import { WorkHistoryPolishService } from "./work-history-polish.service";
 import { toResumeDocument } from "./resume-document";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
-import { Inject, Logger } from "@nestjs/common";
+import { Inject, Logger, Optional } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
@@ -25,6 +25,9 @@ import { buildResumeQrDataUri } from "./resume-qr";
 import { verificationBadgeFor } from "./verification-tier";
 import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
+import { PROFILING_TIER_FOOTER_LABEL } from "../profiling/tiers/profiling-tier.policy";
+import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
+import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
 
 /**
  * Renders a resume PDF off the request path (NODE-ONLY render, see ADR).
@@ -78,6 +81,9 @@ export class ResumeRenderProcessor extends WorkerHost {
     // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
     private readonly polish: WorkHistoryPolishService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // TIERED PROFILING. Optional so its absence is today's sheet — every pre-tier construction
+    // (the processor tests) renders exactly as before, as does PROFILING_TIERS_ENABLED off.
+    @Optional() private readonly tierScopes?: ResumeTierScopeReader,
   ) {
     super();
   }
@@ -402,6 +408,18 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // TIERED PROFILING — a SEVENTH independent load, on the same degrade as the six above. A
+    // failure costs the tier and nothing else: the sheet renders exactly as it did before tiers
+    // existed (every row, no tier label), which is never a claim the failure invented.
+    let tierScope: ResumeTierScope | null = null;
+    try {
+      tierScope = (await this.tierScopes?.forWorker(workerId, loaded?.packId ?? null)) ?? null;
+    } catch {
+      this.logger.warn(
+        `could not load the profiling tier for worker ${workerId}; rendering without tier scope`,
+      );
+    }
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -453,6 +471,9 @@ export class ResumeRenderProcessor extends WorkerHost {
         generatedAt: renderedAt,
         trustBadge,
         refCode: resumeRefCode(resumeId),
+        // TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Standard profile".
+        // Absent while tiers are off, so the footer is exactly today's.
+        tierLabel: tierScope ? PROFILING_TIER_FOOTER_LABEL[tierScope.tier] : null,
       }),
     };
 
@@ -477,7 +498,8 @@ export class ResumeRenderProcessor extends WorkerHost {
       // The worker's OWN copy — real name, their photo, and their expected salary. The
       // payer-facing disclosure passes "employer" and gets none of the three.
       "worker",
-      tradeSheet,
+      // SCOPED TO THE WORKER'S PROFILING TIER, LAST — a null scope returns the context untouched.
+      applyTierScope(tradeSheet, tierScope),
     );
 
     // EVERY WITHDRAWN CLAIM IS AUDITABLE, and this is the only place it is recorded. A veto

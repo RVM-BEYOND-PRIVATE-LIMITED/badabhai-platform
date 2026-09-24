@@ -17,6 +17,7 @@
   "items": [
     {
       "question_key": "drafting_experience",
+      "min_tier": "easy",
       "prompt_text": "Drawing aur CAD ke kaam ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal drawing ka kaam ya course kiya hai?",
@@ -56,6 +57,7 @@
     },
     {
       "question_key": "cad_software",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsa CAD software chalate hain?",
       "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
       "target_kind": "attribute",
@@ -99,6 +101,7 @@
     },
     {
       "question_key": "cad_modules",
+      "min_tier": "medium",
       "prompt_text": "Software ke kaunse module par kaam kiya hai?",
       "why_text": "Module se pata chalta hai aap kis tarah ki drawing banate hain.",
       "target_kind": "attribute",
@@ -142,6 +145,7 @@
     },
     {
       "question_key": "drawing_work",
+      "min_tier": "medium",
       "prompt_text": "Drawing ka kaunsa kaam khud karte hain?",
       "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "target_kind": "attribute",
@@ -184,6 +188,7 @@
     },
     {
       "question_key": "drawing_standards",
+      "min_tier": "medium",
       "prompt_text": "Drawing me kaunse standard ka istemaal karte hain?",
       "why_text": "Standard ke hisaab se bani drawing seedha production me chali jaati hai.",
       "target_kind": "attribute",
@@ -227,6 +232,7 @@
     },
     {
       "question_key": "drawing_type",
+      "min_tier": "medium",
       "prompt_text": "Aap kis tarah ki drawing banate hain?",
       "why_text": "Drawing banane ka tarika employer ko aapka kaam samjhata hai.",
       "target_kind": "attribute",
@@ -259,6 +265,7 @@
     },
     {
       "question_key": "output_produced",
+      "min_tier": "medium",
       "prompt_text": "Aap kaunsa output banakar dete hain?",
       "why_text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
       "target_kind": "attribute",
@@ -302,6 +309,7 @@
     },
     {
       "question_key": "sector_drawn",
+      "min_tier": "hard",
       "prompt_text": "Kis line ki drawing banayi hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -353,6 +361,7 @@
     },
     {
       "question_key": "design_input_source",
+      "min_tier": "hard",
       "prompt_text": "Drawing banane ke liye aapko kya milta hai?",
       "why_text": "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain.",
       "target_kind": "attribute",
@@ -393,6 +402,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Kaunse measuring instrument chala lete hain?",
       "why_text": "Part naap kar drawing banane wale ki alag zaroorat hoti hai.",
       "target_kind": "attribute",
@@ -444,6 +454,7 @@
     },
     {
       "question_key": "drawing_check_work",
+      "min_tier": "hard",
       "prompt_text": "Doosron ki banayi drawing check karte hain?",
       "why_text": "Drawing check karne wale ko senior maana jaata hai.",
       "target_kind": "attribute",
@@ -479,6 +490,7 @@
     },
     {
       "question_key": "design_work",
+      "min_tier": "hard",
       "prompt_text": "Design ka kaunsa kaam aap karte hain?",
       "why_text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai.",
       "target_kind": "attribute",
@@ -530,6 +542,7 @@
     },
     {
       "question_key": "cad_training_source",
+      "min_tier": "medium",
       "prompt_text": "CAD kahaan se seekha hai?",
       "why_text": "Training kahaan hui, ye employer sabse pehle dekhte hain.",
       "target_kind": "attribute",
@@ -576,6 +589,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "Training me kaunsa kaam khud kiya hai?",
       "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
       "target_kind": "attribute",
@@ -628,6 +642,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "target_kind": "attribute",
@@ -664,6 +679,7 @@
     },
     {
       "question_key": "sector_studied",
+      "min_tier": "hard",
       "prompt_text": "Kis line ki drawing par padhai ki hai?",
       "why_text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.",
       "target_kind": "attribute",
@@ -716,6 +732,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "Course ya ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
       "target_kind": "attribute",

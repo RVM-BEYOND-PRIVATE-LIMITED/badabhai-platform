@@ -5,6 +5,9 @@ import { titleCaseRoleLabel } from "./resume-text-case";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import { qualSectionVariantFor, tieredCapabilityTitle } from "./resume-tier-headings";
+import { sharedFieldIncluded } from "../profiling/tiers/profiling-tier.policy";
+import type { ProfilingTier } from "@badabhai/types";
 import { degradeToFit, fitOwnWords } from "./resume-degradation";
 import {
   buildEmploymentBlock,
@@ -268,6 +271,20 @@ export interface TradeSheetContext {
   readonly shortLink?: string | null;
   /** "Generated 27 August 2026 · Self-declared · Ref RK8M2Q" — composed by the caller. */
   readonly footerMeta?: string | null;
+  /**
+   * TIERED PROFILING — the tier this sheet renders at, set by `applyTierScope` (which has
+   * already dropped the rows the tier does not ask). It chooses the headings: a tier's
+   * capability heading from the map's `tier_section_titles`, and Zone 5's "Qualification &
+   * languages" when the tier asks neither documents nor certificates. Absent is today's sheet.
+   */
+  readonly profilingTier?: ProfilingTier | null;
+  /**
+   * TIERED PROFILING, owner decision D1 — the headline's total years when the tier keeps only
+   * the latest job. The sum of one job is not a career, so a tier that never asked the earlier
+   * ones prints the total the worker stated in the chat instead. Absent everywhere else, where
+   * the sum of his filed work history is the total (owner ruling 2026-09-09).
+   */
+  readonly tierExperienceYears?: number | null;
 }
 
 /** Zone 5's values. Every field optional; an absent one contributes no row. */
@@ -302,6 +319,7 @@ type TradeCapabilitySlots = Pick<
   | "capTickRows"
   | "capFactRows"
   | "qualTickRows"
+  | "qualSectionVariant"
   | "employments"
   | "employmentsMore"
   | "phone"
@@ -487,7 +505,9 @@ function buildUndegraded(
   // exactly the population whose filled-in work history was discarded: three fully dated jobs and
   // a headline reading "duration not stated". Measured on the owner's own example, both paths,
   // before and after.
-  const employedYears = totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null);
+  const employedYears =
+    tradeSheet?.tierExperienceYears ??
+    totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null);
   const filedNoWorkHistory =
     !hasEmployments &&
     (draft.resume_profile?.experiences.length ?? 0) === 0 &&
@@ -499,7 +519,11 @@ function buildUndegraded(
   // giving the label nothing else to read. See `tenureStatusLabel`.
   const tenureLabel = tenureStatusLabel(tradeSheet?.packId ?? null, filedNoWorkHistory);
   const capabilitySlots = {
-    capSectionTitle: capability.sectionTitle,
+    capSectionTitle: tieredCapabilityTitle(
+      capability.sectionTitle,
+      tradeSheet?.packId ?? null,
+      tradeSheet?.profilingTier ?? null,
+    ),
     capChipRows: capability.chipRows,
     capTickRows: capability.tickRows,
     capFactRows: capability.factRows,
@@ -510,6 +534,7 @@ function buildUndegraded(
     // behind it for every real worker — nothing in the 143-pack corpus asks for a document, so
     // before the finishing form this row could not render for anybody.
     qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? preferences.documents),
+    qualSectionVariant: qualSectionVariantFor(tradeSheet?.profilingTier ?? null),
     employments: employmentBlock.employments,
     employmentsMore: employmentBlock.employmentsMore,
     // FORMATTED HERE, INSIDE THE MAPPER, so no call site can print an unformatted number and
@@ -666,6 +691,7 @@ function buildUndegraded(
       fresherRows,
       // Layer A (f)/(i) — the declared secondary occupations, off the context the caller built.
       tradeSheet?.occupations ?? [],
+      tradeSheet?.profilingTier ?? null,
     );
   }
 
@@ -1098,7 +1124,15 @@ function fromResumeProfile(
    * and this function stays pure. Empty prints no row.
    */
   occupations: readonly string[],
+  /**
+   * TIERED PROFILING — the tier the sheet renders at (`applyTierScope`), or null for today's
+   * sheet. The container's own work history (`rp.experiences`) is the one Zone 4 source the
+   * context filter cannot reach, so it is trimmed here the same way: the latest job only, and no
+   * description, below Medium. Display and quotes only — the years figure keeps its precedence.
+   */
+  profilingTier: ProfilingTier | null = null,
 ): ResumeRenderInput {
+  const tierExperiences = tierScopedExperiences(rp.experiences, profilingTier);
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by the Layer A (h) headline/summary builders — and certifying
   // at each read site is how the two drift: a summary built from the raw value would reprint
@@ -1171,7 +1205,7 @@ function fromResumeProfile(
     // January 2023 tak" — verbatim, his, and useless: the employer block three rows below prints
     // the same span with its employer attached. A quote earns its line by saying something the
     // sheet does not already say, and a date range never does.
-    candidates: rp.experiences.map((e) => e.work_done),
+    candidates: tierExperiences.map((e) => e.work_done),
     workerSaid,
     alreadyPrinted: [
       ...skillChips,
@@ -1314,7 +1348,7 @@ function fromResumeProfile(
       ? []
       : fresherRows.length > 0
         ? [...fresherRows]
-        : rp.experiences.map((e) => ({
+        : tierExperiences.map((e) => ({
             role: e.role_label,
             // The worker's OWN words first. `duration_months` is a normalization of it, and
             // printing "42 months" when they said "3.5 saal" trades their voice for a number they
@@ -1462,6 +1496,22 @@ export function renderedTotalYears(stated: number | null, summed: number | null)
  *
  * Rounded to one decimal so 42 months reads as "3.5", not "3.4999999999999996".
  */
+/**
+ * The container's work history at a tier — the same two rules `applyTierScope` applies to
+ * `worker_employment`: below Medium, only the latest job (the container lists the most recent
+ * first, as the interview captures it) and no description. Null tier is today's list.
+ */
+function tierScopedExperiences<E extends { work_done: string }>(
+  experiences: readonly E[],
+  tier: ProfilingTier | null,
+): readonly E[] {
+  if (tier === null) return experiences;
+  const kept = sharedFieldIncluded("previous_jobs", tier) ? experiences : experiences.slice(0, 1);
+  return sharedFieldIncluded("job_descriptions", tier)
+    ? kept
+    : kept.map((e) => ({ ...e, work_done: "" }));
+}
+
 function totalYearsFrom(experiences: readonly { duration_months: number | null }[]): number | null {
   const months = experiences
     .map((e) => e.duration_months)
