@@ -21,7 +21,7 @@ void main() {
 
   group('showFeedbackOn', () {
     test('hidden on splash, the pre-login auth screens, chat routes, the name '
-        'step, building, voice, and self', () {
+        'step, building, voice, the profile preview, and self', () {
       for (final String path in <String>[
         '/', // splash
         Routes.phoneLogin,
@@ -35,6 +35,7 @@ void main() {
         Routes.name, // bottom bar owns a Feedback pill here instead
         Routes.building, // spec §3.22: the build screen has no feedback button
         Routes.voiceNote, // would cover the record control at 320dp
+        Routes.profilePreview, // header owns the Feedback WORD instead
       ]) {
         expect(showFeedbackOn(path), isFalse, reason: 'must hide on $path');
       }
@@ -182,9 +183,7 @@ void main() {
             path: Routes.invite,
             builder: (BuildContext context, GoRouterState state) => Scaffold(
               body: SingleChildScrollView(
-                padding: EdgeInsets.only(
-                  bottom: FeedbackFabInset.of(context),
-                ),
+                padding: EdgeInsets.only(bottom: FeedbackFabInset.of(context)),
                 child: const SizedBox(height: 2000, child: Text('last')),
               ),
             ),

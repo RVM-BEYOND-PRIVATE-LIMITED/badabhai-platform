@@ -42,6 +42,50 @@ class KitFeedbackAction extends StatelessWidget {
   }
 }
 
+/// The Feedback action as a WORD rather than the yellow glyph.
+///
+/// Same destination, same `extra` (the route the worker was on) and the same
+/// anti-stack push as [KitFeedbackAction] — only the drawing differs. A screen
+/// picks ONE of the two: a screen that shows this must not also float the
+/// global Feedback pill, or the worker is offered the same action twice.
+///
+/// Drawn in the header's muted slate rather than safety yellow: it sits beside
+/// the title, and a yellow word there competes with the title for the eye,
+/// which the glyph (a small mark in the corner) does not.
+class KitFeedbackTextAction extends StatelessWidget {
+  const KitFeedbackTextAction({super.key, this.label = 'Feedback'});
+
+  /// Rendered UPPERCASE; the source string stays readable.
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: () => context.pushOnce(
+        Routes.feedback,
+        extra: GoRouterState.of(context).uri.path,
+      ),
+      style: TextButton.styleFrom(
+        // The 48dp touch floor, kept without padding the word away from the
+        // header's right gutter.
+        minimumSize: const Size(0, OnboardingLayout.tapTarget),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: OnboardingColors.textOnBlueMuted,
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: OnboardingTypography.inter(
+          size: 12,
+          weight: FontWeight.w700,
+          letterSpacing: 1,
+          color: OnboardingColors.textOnBlueMuted,
+        ),
+      ),
+    );
+  }
+}
+
 /// Any other header glyph — the bell, search, download, settings.
 ///
 /// The glyph is painted at [size] (the spec's 22) inside a 48x48 hit box, so a

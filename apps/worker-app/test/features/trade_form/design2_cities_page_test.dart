@@ -8,14 +8,12 @@ import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/des
 /// caller has no catalogue data.
 void main() {
   late TextEditingController search;
-  late TextEditingController city;
   late List<String> toggled;
   late List<String> removed;
   late List<String> statesPicked;
 
   setUp(() {
     search = TextEditingController();
-    city = TextEditingController();
     toggled = <String>[];
     removed = <String>[];
     statesPicked = <String>[];
@@ -23,7 +21,6 @@ void main() {
 
   tearDown(() {
     search.dispose();
-    city.dispose();
   });
 
   const List<String> kStates = <String>['Maharashtra', 'Gujarat'];
@@ -48,8 +45,6 @@ void main() {
     List<Design2Hub> popular = const <Design2Hub>[],
     List<Design2Hub> results = const <Design2Hub>[],
     String? selectedState = 'Maharashtra',
-    String? searchError,
-    String? cityError,
     double textScale = 1.0,
   }) {
     return MaterialApp(
@@ -70,15 +65,9 @@ void main() {
                 searchResults: results,
                 searchController: search,
                 onSearchChanged: (_) {},
-                onSearchSubmit: () {},
-                cityController: city,
-                onCityChanged: (_) {},
-                onCitySubmit: () {},
                 onSelectState: statesPicked.add,
                 onToggleHub: toggled.add,
                 onRemoveCity: removed.add,
-                searchError: searchError,
-                cityError: cityError,
               ),
             ),
           ),
@@ -150,13 +139,31 @@ void main() {
     expect(find.text('NCR: Manesar / Gurugram'), findsOneWidget);
   });
 
-  testWidgets('shows the caller\'s resolution errors verbatim',
+  testWidgets('typing is the search: no Dhoondhein button, no "Koi sheher?" '
+      'box, and no not-found error', (WidgetTester tester) async {
+    // A worker typing "Kol" was shown a red "this city was not in the list"
+    // while Kolhapur and Kolkata sat in the cards right underneath it. The
+    // cards ARE the answer, so the submit button, the second text box and the
+    // error line are gone and tapping a card is the only add path.
+    await tester.pumpWidget(harness(results: kHubs));
+
+    expect(find.text('Dhoondhein'), findsNothing);
+    expect(find.text('Koi sheher?'), findsNothing);
+    expect(find.text('Apna sheher likhein'), findsNothing);
+    expect(find.textContaining('nahi mila'), findsNothing);
+    // Exactly one text field on the page now: the browse box.
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('SEARCH RESULTS'), findsOneWidget);
+  });
+
+  testWidgets('INDUSTRIAL STATES sits BELOW the suggested cities',
       (WidgetTester tester) async {
-    await tester.pumpWidget(harness(
-      searchError: 'Yeh sheher list mein nahi mila',
-      cityError: 'Yeh sheher list mein nahi mila',
-    ));
-    expect(find.text('Yeh sheher list mein nahi mila'), findsNWidgets(2));
+    await tester.pumpWidget(harness(results: kHubs));
+
+    final double results = tester.getTopLeft(find.text('SEARCH RESULTS')).dy;
+    final double states = tester.getTopLeft(find.text('INDUSTRIAL STATES')).dy;
+    expect(states, greaterThan(results),
+        reason: 'the cities are what he came to pick; states narrow them');
   });
 
   testWidgets('no overflow on a 320x568 handset at 2.0 text scale',

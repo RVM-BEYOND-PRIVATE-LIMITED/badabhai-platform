@@ -511,28 +511,28 @@ class _FeedViewState extends State<_FeedView> {
             );
             _openDetail(context, bloc, item);
           },
-          // The Design1 paper on the untouched swipe engine. Surplus height
-          // clips off the face's bottom (never an overflow report): a
-          // scrollable inside the deck would steal the vertical
-          // follow-and-snap-back drag.
+          // The Design1 paper on the untouched swipe engine.
+          //
+          // THE FACE TAKES THE DECK'S HEIGHT. It used to be wrapped in a
+          // height-unconstrained box here, which measured the paper at its own
+          // TEXT height: a job with few chips drew a short card with a white
+          // gap above the dock, and the taller card behind it showed through
+          // below — the card that "becomes half" once a swipe brings a shorter
+          // job to the front. The clip that keeps a too-tall card from
+          // overflowing now lives INSIDE the card, around its content, so the
+          // paper still fills the box (see [Design1JobCard]).
           faceBuilder: (
             BuildContext context,
             JobDeckItem item, {
             required bool compact,
             required VoidCallback? onTitleTap,
           }) =>
-              ConstraintsTransformBox(
-            constraintsTransform:
-                ConstraintsTransformBox.heightUnconstrained,
-            alignment: Alignment.topLeft,
-            clipBehavior: Clip.hardEdge,
-            child: Design1JobCard(
-              data: item.data,
-              payFull: item.payFull,
-              onTitleTap: onTitleTap,
-              showDock: false,
-              showTeaser: false,
-            ),
+              Design1JobCard(
+            data: item.data,
+            payFull: item.payFull,
+            onTitleTap: onTitleTap,
+            showDock: false,
+            showTeaser: false,
           ),
           dockBuilder: (
             BuildContext context, {

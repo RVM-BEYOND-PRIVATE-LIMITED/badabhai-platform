@@ -1,5 +1,5 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
-    show CityOptionDto, QualificationOptionsDto, WorkPrefOptionsDto;
+    show CityHubDto, CityOptionDto, QualificationOptionsDto, WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/onboarding_theme.dart';
@@ -251,6 +251,55 @@ const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
 /// is a real assertion rather than one that passes for want of any other
 /// state's data.
 const String _kOtherCityState = 'Maharashtra';
+
+/// The DEPLOYED shape after #1639: a curated hub catalogue (a SUBSET — 18 hubs
+/// across 11 states) served alongside the full gazetteer. Haryana has two hubs
+/// plus real non-hub cities; Bihar has NO hub but real cities. The picker must
+/// merge the two lists per state and search both — treating hubs as the whole
+/// list left hub-less states reading "sheher jald aa rahe hain" and made most
+/// canonical cities unfindable.
+const WorkPrefOptionsDto _prefOptionsWithHubs = WorkPrefOptionsDto(
+  languages: <String, String>{'hindi': 'Hindi'},
+  documentsReady: <String, String>{'aadhaar': 'Aadhaar'},
+  jobType: <String, String>{'permanent': 'Permanent'},
+  shift: <String, String>{'day': 'Day'},
+  cities: <CityOptionDto>[
+    CityOptionDto(value: 'Bawal', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Faridabad', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Gurugram',
+        aliases: <String>['gurgaon'],
+        state: _kTestCityState),
+    CityOptionDto(
+        value: 'Manesar', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Sonipat', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(value: 'Rohtak', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Muzaffarpur', aliases: <String>[], state: _kCitylessState),
+    CityOptionDto(value: 'Patna', aliases: <String>[], state: _kCitylessState),
+  ],
+  states: <String>[_kTestCityState, _kCitylessState],
+  cityHubs: <CityHubDto>[
+    CityHubDto(
+      cityValue: 'Gurugram',
+      display: 'Gurugram',
+      state: _kTestCityState,
+      areas: <String>['Udyog Vihar', 'Pataudi Road'],
+      hubKey: 'gurugram',
+      popular: true,
+    ),
+    CityHubDto(
+      cityValue: 'Manesar',
+      display: 'Manesar',
+      state: _kTestCityState,
+      areas: <String>['IMT Manesar'],
+      hubKey: 'manesar',
+      popular: true,
+    ),
+  ],
+);
 
 /// A state the gazetteer has NO city for — 23 of the real 36 states/UTs are
 /// in this position, so the picker must stay answerable there.
@@ -1415,11 +1464,11 @@ void main() {
       await _pickCityState(tester, _kTestCityState);
     }
 
-    /// The exact "Koi sheher?" entry is the LAST text field on the page (the
-    /// browse search box is first).
-    Future<void> addCityText(WidgetTester tester, String city) async {
-      await tester.enterText(find.byType(TextField).last, city);
-      await tester.testTextInput.receiveAction(TextInputAction.done);
+    /// Types into the ONE text field on the page — the browse box. Typing is
+    /// the whole search now: there is no submit button and no second
+    /// exact-entry field, so every keystroke just re-resolves the cards below.
+    Future<void> typeCity(WidgetTester tester, String text) async {
+      await tester.enterText(find.byType(TextField), text);
       await tester.pump(const Duration(seconds: 2));
       await tester.pump();
     }
@@ -1446,9 +1495,12 @@ void main() {
       expect(find.text('INDUSTRIAL STATES'), findsOneWidget);
       expect(find.text('HARYANA HUBS'), findsOneWidget);
       expect(find.text('Gurugram'), findsOneWidget);
-      // No raw custom-add affordance: a city is only ever a real catalogue
-      // card (here) or a server-validated exact entry ("Koi sheher?").
+      // No raw custom-add affordance and no second text box: a city is only
+      // ever a real catalogue card, tapped.
       expect(find.text('+'), findsNothing);
+      expect(find.text('Koi sheher?'), findsNothing);
+      expect(find.text('Dhoondhein'), findsNothing);
+      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets(
@@ -1510,8 +1562,8 @@ void main() {
     });
 
     testWidgets(
-        'a city not in the gazetteer shows an inline error and is never '
-        'added (#1406/#1410) — no more silent free text',
+        'a city outside the gazetteer simply matches nothing — no error line, '
+        'and nothing added (#1406/#1410)',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1527,20 +1579,20 @@ void main() {
       await pump(tester);
       await walkToCitiesPage(tester);
 
-      await addCityText(tester, 'Kota');
+      await typeCity(tester, 'Kota');
 
-      expect(
-          find.textContaining('nahi mila'),
-          findsOneWidget,
-          reason: 'the original #1406 bug: a city outside the gazetteer '
-              'must say so, not silently accept it and 400 on save');
-      // The badge is unmoved — nothing was added to the selected list.
+      // The cards below ARE the answer: an unknown city produces none, and the
+      // red "yeh sheher list mein nahi mila" line is gone — it used to fire
+      // while real matches were on screen underneath it.
+      expect(find.textContaining('nahi mila'), findsNothing);
+      expect(find.text('SEARCH RESULTS'), findsNothing);
+      // The badge is unmoved — free text still cannot become a city (#1406).
       expect(find.text('0/5 Sheher Chune'), findsOneWidget);
     });
 
     testWidgets(
-        'typing an alias ("dilli") resolves and adds the canonical spelling '
-        '("Delhi") — never the alias itself',
+        'typing an alias ("dilli") surfaces the canonical card ("Delhi"), and '
+        'tapping it adds the canonical spelling — never the alias',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
       when(() => repo.submitAnswer(
@@ -1556,13 +1608,28 @@ void main() {
       await pump(tester);
       await walkToCitiesPage(tester);
 
-      await addCityText(tester, 'dilli');
+      await typeCity(tester, 'dilli');
+
+      // The alias matches in the live results; the card carries the canonical
+      // name, and TAPPING it is the only add path.
+      expect(find.text('SEARCH RESULTS'), findsOneWidget);
+      await tester.tap(find.text('Delhi').first);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
 
       expect(find.text('1/5 Sheher Chune'), findsOneWidget);
-      // The canonical spelling is on the hub card AND the chosen chip; the
-      // alias itself is never stored or shown.
+      // The canonical spelling is on the card AND the chosen chip. The alias
+      // survives only as the text the worker typed in the browse box — it is
+      // never stored, never a chip, and never what gets submitted.
       expect(find.text('Delhi'), findsWidgets);
-      expect(find.text('dilli'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(TextField),
+          matching: find.text('dilli'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('dilli'), findsOneWidget);
     });
 
     testWidgets(
@@ -1596,6 +1663,145 @@ void main() {
       expect(find.text('1/5 Sheher Chune'), findsOneWidget);
       expect(find.text('Gurugram'), findsNWidgets(2));
       expect(find.byIcon(Icons.close_rounded), findsOneWidget);
+    });
+
+    testWidgets(
+        'a state with no curated hub still lists its REAL cities (#1639 is a '
+        'subset, not a replacement)', (WidgetTester tester) async {
+      when(() => repo.loadPreferenceOptions())
+          .thenAnswer((_) async => _prefOptionsWithHubs);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+      await _pickCityState(tester, _kCitylessState);
+
+      // Bihar has no hub, but the gazetteer has two real cities — they must be
+      // the state's list, not the "coming soon" line.
+      expect(find.text('BIHAR HUBS'), findsOneWidget);
+      expect(find.text('Is rajya ke sheher jald aa rahe hain.'), findsNothing);
+      expect(find.text('Patna'), findsOneWidget);
+      expect(find.text('Muzaffarpur'), findsOneWidget);
+
+      // And they are addable like any hub card.
+      await _tapCityCard(tester, 'Patna');
+      expect(find.text('1/5 Sheher Chune'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a hub state lists its hubs AND its non-hub cities, each exactly once',
+        (WidgetTester tester) async {
+      when(() => repo.loadPreferenceOptions())
+          .thenAnswer((_) async => _prefOptionsWithHubs);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester); // ends on Haryana
+
+      expect(find.text('HARYANA HUBS'), findsOneWidget);
+      // Hub cards keep their area sub-labels.
+      expect(find.text('Udyog Vihar, Pataudi Road'), findsOneWidget);
+      // The hub's own city is NOT repeated as a plain city card.
+      expect(find.text('Gurugram'), findsOneWidget);
+      expect(find.text('Manesar'), findsOneWidget);
+      // The state's real cities the hubs do not represent are all reachable.
+      expect(find.text('Bawal'), findsOneWidget);
+      expect(find.text('Faridabad'), findsOneWidget);
+      expect(find.text('Sonipat'), findsOneWidget);
+      expect(find.text('Rohtak'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the browse search finds a city that has NO hub card',
+        (WidgetTester tester) async {
+      when(() => repo.loadPreferenceOptions())
+          .thenAnswer((_) async => _prefOptionsWithHubs);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+      await _pickCityState(tester, _kCitylessState);
+
+      // The browse box is the FIRST text field on the page.
+      await tester.enterText(find.byType(TextField).first, 'patna');
+      await tester.pump();
+
+      expect(find.text('SEARCH RESULTS'), findsOneWidget);
+      expect(find.text('Patna'), findsOneWidget);
+      expect(find.text('Is rajya ke sheher jald aa rahe hain.'), findsNothing);
+    });
+
+    testWidgets(
+        'a 6th city at the cap names the limit instead of silently ignoring '
+        'the tap', (WidgetTester tester) async {
+      when(() => repo.loadPreferenceOptions())
+          .thenAnswer((_) async => _prefOptionsWithHubs);
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      for (final String city in <String>[
+        'Bawal',
+        'Faridabad',
+        'Gurugram',
+        'Manesar',
+        'Sonipat',
+      ]) {
+        await _tapCityCard(tester, city);
+      }
+      expect(find.text('5/5 Sheher Chune'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Rohtak'));
+      await tester.tap(find.text('Rohtak'));
+      await tester.pump();
+      expect(find.text('5/5 Sheher Chune'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MaterialBanner),
+          matching: find.text('Aap 1 se 5 sheher chun sakte hain.'),
+        ),
+        findsOneWidget,
+      );
+      // Flush the banner's 2s auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
     });
   });
 

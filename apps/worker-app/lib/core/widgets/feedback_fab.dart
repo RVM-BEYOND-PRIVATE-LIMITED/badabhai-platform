@@ -44,7 +44,10 @@ const List<String> _kHiddenExactPaths = <String>[
 ///    that screen no feedback button: the worker is meant to watch one thing
 ///    finish, and
 ///  - the VOICE note screen, where the pill would sit over the record control
-///    on a small handset.
+///    on a small handset, and
+///  - the PROFILE PREVIEW / preparing screen — its Shift Blue header carries
+///    the Feedback WORD ([KitFeedbackTextAction]) in the slot the brand lockup
+///    used to hold, so the pill would be the second one again.
 /// Everywhere else the worker is logged in (including consent onboarding) shows
 /// it.
 const List<String> _kHiddenPrefixes = <String>[
@@ -57,6 +60,7 @@ const List<String> _kHiddenPrefixes = <String>[
   Routes.name, // /name — the bottom bar owns a Feedback pill here instead
   Routes.building, // /building — spec §3.22 gives it no feedback button
   Routes.voiceNote, // /voice — would cover the record control at 320dp
+  Routes.profilePreview, // /profiling — header owns the Feedback word instead
 ];
 
 /// Whether the floating Feedback button should show on [path].
