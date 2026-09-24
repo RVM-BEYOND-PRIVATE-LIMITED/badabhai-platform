@@ -104,6 +104,7 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_powder_coating",
       "qp_sheet_metal_fab",
       "qp_industrial_electrician",
+      "qp_press_operation",
     ]);
     // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
     // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
@@ -116,6 +117,9 @@ describe("trade resume map — qp_cnc_turning", () => {
     // whose code (7412.0200) the role now binds, and `qp_electrical` is ruling A2's house wireman.
     expect(tradeResumeMapFor("qp_electrical_equipment")).toBeUndefined();
     expect(tradeResumeMapFor("qp_electrical")).toBeUndefined();
+    // Press has no generic pack of its own; its five codes were taken off two others, and neither
+    // of those gains a map by it — `qp_machining` (unit 7223) is the one not already pinned above.
+    expect(tradeResumeMapFor("qp_machining")).toBeUndefined();
     expect(tradeResumeMapFor(null)).toBeUndefined();
   });
 

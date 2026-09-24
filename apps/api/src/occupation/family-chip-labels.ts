@@ -168,4 +168,7 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // Batch 2 part two. The Latin reading of `label_hi` ("इंडस्ट्रियल इलेक्ट्रीशियन"), spelled as the
   // ratified alias spells it. It carries the occupation term, so it is routing evidence.
   fam_industrial_electrician: "industrial electrician",
+  // Batch 2 part two. The Latin reading of the family's `label_hi` ("पावर प्रेस और स्टैम्पिंग") —
+  // the tranche's two ratified phrases, "power press" and "stamping", joined as the others are.
+  fam_press_operation: "power press aur stamping",
 });

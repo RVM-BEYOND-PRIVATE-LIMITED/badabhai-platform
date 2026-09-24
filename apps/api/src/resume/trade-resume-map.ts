@@ -2409,6 +2409,163 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE PRESS SHEET — Batch 2 part two's second.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Rakesh Kumar Paswan, Press / Machine Operator —
+     * Setter, page 12), row for row. Its capability block has EIGHT rows and this map has eight
+     * `from`s, in the page's own order: Machines, Materials, Setting work, Safety systems used,
+     * Tonnage worked, Stroke rate, Drawings, Sector worked. That order is also the template's
+     * bands — three chip rows, one tick row, four fact rows — so array order and band order agree.
+     *
+     * TWO CELLS ARE NOT REPRODUCED VERBATIM, each noted on its row below rather than papered over:
+     * "Tonnage worked" prints a range whose lower bound no question stores, and "Stroke rate"
+     * carries a trailing "on progressive tooling" this map has no seam to append. The page shows NO
+     * moulding anywhere, so owner ruling R4-a (metal forming only) removed nothing from it. This
+     * pack has no case in role-sheet-parity.render.test.ts yet, so nothing renders the persona end
+     * to end against page 12 — the map-vs-pack cross-checks in trade-resume-map.test.ts are what
+     * guard it.
+     */
+    pack_id: "qp_press_operation",
+    // THE PAGE'S OWN HEADING. A press advertisement is written in machines and tonnage — "power
+    // press operator, 100 T, progressive die" — so tonnage sits in the title, not only in a row.
+    section_title: "Machines, tonnage & capability",
+    capability: [
+      {
+        from: "press_machine",
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page leads "Mechanical power press, Hydraulic press,
+        // Pneumatic press" — the guideline's three-tool headline cap takes the first three of the
+        // four this row prints, in dictionary order, which is the page's order.
+        inHeadline: true,
+        // §4.3 machines max 4, and the page prints exactly four.
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        // "Press brake" IS PRINTED BECAUSE THE PAGE PRINTS IT. It is the sheet metal worker's
+        // machine term in the router and not this role's; a resume row routes nobody.
+        values: {
+          mechanical_power_press: "Mechanical power press",
+          hydraulic_press: "Hydraulic press",
+          pneumatic_press: "Pneumatic press",
+          press_brake: "Press brake",
+          fly_press: "Fly press / hand press",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        // §4.3 materials max 4; the page prints four.
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        values: {
+          ms_sheet: "MS sheet",
+          gi_sheet: "GI sheet",
+          aluminium: "Aluminium sheet",
+          spring_steel: "Spring steel strip",
+        },
+      },
+      {
+        from: "press_setting",
+        // §5.1 rank 4: die setting is what separates a man who feeds a press from the setter who
+        // hands it over — the Operator/Setter line on this role's ladder.
+        rank: 41,
+        // NO CAP. The page prints SIX setting values, and a cap would drop one the ratified sheet
+        // shows — the sheet metal map's Operations ruling.
+        label: "Setting work",
+        kind: "chips",
+        values: {
+          die_change: "Die change",
+          die_setting: "Die setting & alignment",
+          shut_height: "Shut-height setting",
+          feeder_setting: "Feeder setting",
+          strip_layout_check: "Strip layout check",
+          first_piece: "First-piece approval",
+        },
+      },
+      {
+        from: "press_safety",
+        // §5.1 NAMES NO SAFETY ROW. It takes rank 5's band because it is this sheet's tick row —
+        // the place measuring instruments hold on every machining sheet — flagged for the same RVM
+        // redline as the rest of this ordering.
+        rank: 51,
+        label: "Safety systems used",
+        kind: "ticks",
+        values: {
+          two_hand_control: "Two-hand control",
+          light_curtain: "Light curtain",
+          guard_interlock: "Guard interlock",
+          emergency_stop: "Emergency stop check",
+          lockout_tagout: "Lockout-tagout",
+        },
+      },
+      {
+        from: "press_tonnage",
+        // §5.1 rank 2, beside the machines: tonnage is a statement about what the MACHINE can do,
+        // the reasoning that puts turning configuration at 2x, and the page's heading names it.
+        rank: 22,
+        label: "Tonnage worked",
+        kind: "fact",
+        // A RECORDED DIVERGENCE: the page reads "30 T - 250 T presses", a range whose LOWER bound
+        // no question stores — the pack asks the largest press run, banded on the welder's plate
+        // ruling. Printing "30 T -" would be a number nobody stated (§8), so the persona's row
+        // reads "Up to 250 T presses".
+        values: {
+          upto_thirty: "Up to 30 T presses",
+          upto_hundred: "Up to 100 T presses",
+          upto_twofifty: "Up to 250 T presses",
+          over_twofifty: "Over 250 T presses",
+        },
+      },
+      {
+        from: "press_stroke_rate",
+        rank: 63,
+        label: "Stroke rate",
+        kind: "fact",
+        // A RECORDED DIVERGENCE: the page reads "Up to 60 strokes per minute on progressive
+        // tooling". The die type IS captured (`press_die_type`, tier 2), but `configFrom` appends
+        // to a first chip with a middot and there is no seam for a fact row's trailing clause —
+        // the grinding map's `dressing_method` question, left open there for the same reason. This
+        // row reads "Up to 60 strokes per minute".
+        values: {
+          upto_twenty: "Up to 20 strokes per minute",
+          upto_sixty: "Up to 60 strokes per minute",
+          over_sixty: "Over 60 strokes per minute",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs.
+        values: {
+          basic_drawing: "Reads 2D component drawings",
+          strip_layout: "Reads 2D component drawings and strip layouts",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. The page's cell is a single value,
+        // "Sheet-metal pressed components", and it is an option here, so this persona's row
+        // reproduces the page exactly; a worker who picks several prints them " · "-joined.
+        values: {
+          pressed_components: "Sheet-metal pressed components",
+          automotive: "Automotive pressings",
+          electrical_parts: "Electrical & switchgear parts",
+          appliances: "Home appliance parts",
+          utensils: "Utensils & kitchenware",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

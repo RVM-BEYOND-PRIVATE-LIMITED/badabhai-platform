@@ -512,3 +512,62 @@
 #   7412.9900  Electrical Mechanics and Fitters, Other — the unit's catch-all.
 {"kind":"family","family_id":"fam_industrial_electrician","label_en":"Industrial Electrician (panels, drives and motors)","label_hi":"इंडस्ट्रियल इलेक्ट्रीशियन","industry_id":"ind_industrial_manufacturing"}
 {"kind":"binding","family_id":"fam_industrial_electrician","job_domain_id":"jd_nco_7412_0200"}
+
+
+# ── Press / Machine Operator ─────────────────────────────────────────────────────────────────
+# METAL FORMING ONLY, by owner ruling R4-a (worksheet, signed 2026-09-24): the taxonomy's
+# attribute list folds "injection moulding" into this role, and the ruling sends all moulding to
+# Injection Moulding Operator. No moulding code is bound here and none is a candidate.
+{"kind":"family","family_id":"fam_press_operation","label_en":"Press Operation (power, hydraulic and pneumatic presses; metal forming only)","label_hi":"पावर प्रेस और स्टैम्पिंग","industry_id":"ind_industrial_manufacturing"}
+#
+# FIVE BINDINGS, each measured through buildOccupationIndex -> resolveOccupation before it was
+# written, and each a code whose NCO description is metal-press work and nothing else:
+#   7211.0101  "Press Shop Operator" (ASC/Q3402) — "operating the press machine, overseeing
+#              processes of blanking, drawing, etc... co-ordinating with die setter". Reached by
+#              "press shop operator", which went to the generic minor-721 fam_sheet_metal before.
+#   7211.0102  "Press Shop Assistant/Helper" (ASC/Q3401) — removing scrap from blanking and
+#              piercing, loading blanks, unloading the press line: this role's Helper rung. Only its
+#              literal title reaches it ("press shop assistant helper" without the slash is still
+#              "shop assistant" -> retail, a pre-existing span win this change does not touch).
+#   7223.0200  "Tool Setter, Press" — "sets press tools (die and punch) in power and hand press for
+#              manufacture of sheet metal products": this role's Setter rung, and the setter the
+#              descriptor's "press setter" names. Reached by its title "tool setter press" only;
+#              "press setter" is NO MATCH and "press tool setter" folds to the tile setter at L1.
+#   7223.2300  "Power Press Operator, Metal" — tranche item 20 put "power press" here. Its label_en
+#              is an OCR fragment ("dimensions and resets machine if necessary...") and it carries
+#              that fragment as an alias; measured, no phrase a worker says reaches it through that
+#              alias ("resets machine" -> dairy, "dimensions" -> no match). Bound with eyes open.
+#   7223.3000  "Metal Stamper" — tranche item 22 put "stamping" here. The NCO description is
+#              marking work (stamps trademarks and codes onto metal parts on a stamping machine),
+#              narrower than the shop floor's "stamping"; bound because the worker under it runs a
+#              metal press and nothing else, and because the ruled phrase lands nowhere else.
+# 7223.* sit under fam_machining at specificity 40 and 7211.* under fam_sheet_metal at 30; these
+# job-domain rows at 50 take them, on the same mechanism sheet metal uses for 7223.2400.
+#
+# REJECTED NEIGHBOURS, each staying where it is for a stated reason:
+#   7221.0500  "Stamper/Forging Operator" — owns bare "stamper", but the description is hot drop
+#              forging with tongs; blacksmithing, stays on fam_blacksmithing.
+#   7221.0301/0300/9900, 7223.0300  forging operator, power hammer, forging-press helpers and the
+#              drop-forging die setter — all forge work, not sheet press work.
+#   7126.0500  "Puncher, Metal" — punches holes in strip plates and BOILER FRAMES by machine or hand
+#              tool; structural hole punching, not a press shop. Stays on fam_plumbing (unit 7126).
+#   3122.4601/4602  Press Shop Shift In Charge / Supervisor — supervisory, on the rule that keeps
+#              the machine-shop supervisor off fam_conventional_machining. They reach fam_universal
+#              today (no family binds 3122); this change does not widen that pre-existing hole.
+#   8121.5600  Extrusion Press Operator — hot billet extrusion, metal processing, not stamping.
+#   8122.7800, 8212.1806, 8181.*  abrasive clicker press, capacitor pressing, glass and ceramic
+#              pressmen — presses, but not metal forming.
+#   8142.0200/0600  laminating and compression-moulding presses — plastics, R4-a.
+#   8159.0400  "Press Operator" (woollen cloth) — see below.
+# 7223.2400 "Sheet Metal Machine Operator" is sheet metal's, which owns "press brake" as well.
+#
+# KNOWN GAPS, PINNED AND NOT FIXED HERE. Both need an alias-retirement mechanism the overlay does
+# not have (worksheet Part 5, "What these rulings do not do by themselves"):
+#   item 21  "press operator" / "प्रेस ऑपरेटर" is ruled to mean the metal press, but the published
+#            NCO title of 8159.0400 still wins, so "press operator" reaches fam_textile_machines.
+#   A4       "machine operator" / "machine chalana" still reach dairy via the junk "Machine" alias.
+{"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7211_0101"}
+{"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7211_0102"}
+{"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_0200"}
+{"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_2300"}
+{"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_3000"}

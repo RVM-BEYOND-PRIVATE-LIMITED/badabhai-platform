@@ -123,9 +123,9 @@ const isMarker = (screen: Screen): screen is Extract<Screen, { type: MarkerScree
   MARKER_TYPES.has(screen.type);
 
 describe("#1503 — a trade form asks each worker fact once", () => {
-  it("covers all eleven enabled roles, so every parametrised case below is evidence", () => {
+  it("covers all twelve enabled roles, so every parametrised case below is evidence", () => {
     // `it.each` over an empty table passes silently.
-    expect(ROLES).toHaveLength(11);
+    expect(ROLES).toHaveLength(12);
   });
 
   it("VACUITY — the double really serves the eight-item universal pack from every door", async () => {
