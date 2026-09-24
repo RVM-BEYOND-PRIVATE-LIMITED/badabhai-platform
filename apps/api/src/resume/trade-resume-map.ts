@@ -2856,6 +2856,166 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE QUALITY INSPECTOR SHEET — Batch 2 part two.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Anjali Verma, Quality Inspector / QC — QC Engineer,
+     * page 13), row for row. Its capability block has EIGHT rows and this map has eight `from`s,
+     * in the page's own order: Instruments, Standards, Materials inspected, Inspection stage,
+     * Documentation, Drawings, Least count worked to, Sector worked. That order is also the
+     * template's bands — three chip rows, two tick rows, three fact rows — so array order and band
+     * order agree.
+     *
+     * NO ROW DIVERGES FROM THE PAGE for its own persona: every cell she prints is a value in the
+     * dictionaries below, in the page's wording, including the two fact rows the sheet metal map
+     * could only approximate — "Reads 2D drawings and GD&T · datum and true position" is one
+     * option's label, and "Works to 0.001 mm least count" one band's. The rows print MORE than the
+     * page only where the pack offers a value the page does not show (a second standard, a junior
+     * inspector's vernier and micrometer, other sectors), never a different wording of one it does.
+     * This pack has no case in role-sheet-parity.render.test.ts yet, so nothing renders the persona
+     * end to end against page 13 — the map-vs-pack cross-checks in trade-resume-map.test.ts and
+     * role-corpus-parity.guard.test.ts are what guard it.
+     *
+     * `inspection_level` IS DELIBERATELY ABSENT — the rung ("— QC Engineer") rides the headline
+     * through `role_label`, the welder's and the powder coater's ruling. `inspection_cmm_work`,
+     * `inspection_rejection_work` and `inspection_audit_work` are real matching data with no row on
+     * the ratified page, and inventing one is what §5b forbids.
+     */
+    pack_id: "qp_quality_inspection",
+    // AN INSPECTION ADVERTISEMENT IS WRITTEN IN INSTRUMENTS AND STANDARDS — "CMM inspector, IATF
+    // plant, PPAP" — so the heading is the page's own, not a machinist's machines.
+    section_title: "Instruments, standards & capability",
+    capability: [
+      {
+        from: "measuring_tools",
+        // §5.1 RANK 2, NOT THE MACHINING MAPS' 5x. For a turner the instruments are what he checks
+        // his own job with; for this trade they ARE the machines — "CMM operator" is the literal
+        // vocabulary of the job advertisement, which is exactly what rank 2 covers.
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page leads "CMM, Profile projector, Height gauge" —
+        // `toolsPhrase`'s three-value cap over this row's dictionary order.
+        inHeadline: true,
+        // §4.3 machines max 4, and the page prints exactly four. A worker who taps all five keeps
+        // the page's four; "Vernier & micrometer" is the junior inspector's row, and it prints in
+        // full for the man who holds only those.
+        maxValues: 4,
+        label: "Instruments",
+        kind: "chips",
+        values: {
+          cmm: "CMM",
+          profile_projector: "Profile projector",
+          height_gauge: "Height gauge",
+          roughness_tester: "Surface roughness tester",
+          vernier_micrometer: "Vernier & micrometer",
+        },
+      },
+      {
+        from: "inspection_standard",
+        // §4.3 wedge attribute — named in the advertisement, but it is the plant's certification
+        // rather than a capability of the man, so it ranks below the materials he has checked.
+        rank: 63,
+        label: "Standards",
+        kind: "chips",
+        values: {
+          iatf: "IATF 16949",
+          iso_nine_thousand_one: "ISO 9001",
+          as_nine_one_hundred: "AS9100",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        // §4.3 materials max 4; the page prints three.
+        maxValues: 4,
+        label: "Materials inspected",
+        kind: "chips",
+        values: {
+          machined_steel: "Machined steel",
+          die_cast: "Aluminium die-cast",
+          pressings: "Sheet-metal pressings",
+          castings_forgings: "Castings & forgings",
+          welded_fabrication: "Welded fabrications",
+        },
+      },
+      {
+        from: "inspection_stage",
+        // §5.1 rank 4: layout inspection and gauge R&R are what separate a patrol checker from an
+        // inspector who can sign a part off.
+        rank: 41,
+        // NO CAP. The page prints FIVE stages, and a cap would drop a value the ratified sheet
+        // shows — the welder's `Equipment` defect, avoided rather than repeated.
+        label: "Inspection stage",
+        kind: "ticks",
+        values: {
+          incoming: "Incoming inspection",
+          in_process_patrol: "In-process patrol",
+          final_inspection: "Final inspection",
+          layout_inspection: "Layout inspection",
+          gauge_rr: "Gauge R&R support",
+        },
+      },
+      {
+        from: "inspection_documentation",
+        // §5.1 rank 4 as well — PPAP, the control plan and the 8D are the QC engineer's rung.
+        rank: 42,
+        // NO CAP, for the same reason: the page prints SIX documents.
+        label: "Documentation",
+        kind: "ticks",
+        values: {
+          ppap: "PPAP documents",
+          control_plan: "Control plan",
+          inspection_report: "Inspection report",
+          eight_d_capa: "8D / CAPA",
+          spc_chart: "SPC charts",
+          calibration_register: "Calibration register",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs. The GD&T
+        // chip names datum and true position in its own label, so printing them is not a claim
+        // the worker did not tap.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T · datum and true position",
+        },
+      },
+      {
+        from: "inspection_least_count",
+        // Beside `tolerance_band` (62 on every machining map): the finest figure the man works to.
+        rank: 62,
+        label: "Least count worked to",
+        kind: "fact",
+        // BANDED, on the welder's plate ruling: a band prints as the page prints it.
+        values: {
+          point_zero_two: "Works to 0.02 mm least count",
+          point_zero_one: "Works to 0.01 mm least count",
+          point_zero_zero_one: "Works to 0.001 mm least count",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. The page's "Automotive tier-1 supply" is a
+        // dictionary value here, not hand-set prose, so this row reproduces it exactly.
+        values: {
+          auto_tier_one: "Automotive tier-1 supply",
+          auto_oem: "Automotive OEM",
+          general_engg: "General engineering",
+          pump_valve: "Pumps & valves",
+          defence: "Defence / aerospace",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

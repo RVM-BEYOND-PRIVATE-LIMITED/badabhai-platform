@@ -378,6 +378,47 @@ describe("routeToTradeForm", () => {
       // Both halves move when 0101 moves to fam_maintenance_tech with its pack.
     });
 
+    it("routes a quality inspector to the QC form — Batch 2 part two's second", () => {
+      // Occupation terms route on their own: a worker who says one has named the trade.
+      expect(route("Manufacturing", "Quality inspector", null)).toBe("quality_inspector");
+      expect(route("Manufacturing", "QC inspector", null)).toBe("quality_inspector");
+      expect(route("Quality", "Quality control", null)).toBe("quality_inspector");
+      // MACHINE WORDS NEED THE FAMILY PIN: "CMM" and "profile projector" corroborate only once the
+      // resolver has landed the worker on fam_quality_inspection.
+      expect(
+        route("Manufacturing", "CMM aur profile projector operator", "fam_quality_inspection"),
+      ).toBe("quality_inspector");
+      expect(route("Manufacturing", "CMM aur profile projector operator", null)).toBeNull();
+      // A VERNIER CORROBORATES NOTHING, even with the pin — every machining trade owns one, which
+      // is why the descriptor's header keeps hand instruments out of its machine terms.
+      expect(
+        route("Manufacturing", "Vernier aur micrometer se checking", "fam_quality_inspection"),
+      ).toBeNull();
+      // THE BARE RUNG IS A SECURITY GUARD'S TITLE TOO: "inspector" routes only beside the pin.
+      expect(route("Security", "Inspector", null)).toBeNull();
+      expect(route("Manufacturing", "Inspector", "fam_quality_inspection")).toBe(
+        "quality_inspector",
+      );
+      // THE `production` CLUSTER VETO, from a sibling that is declared but not yet enabled: a man
+      // who names the assembly line as well keeps talking.
+      expect(route("Production", "Assembly line aur quality inspector", null)).toBeNull();
+    });
+
+    it("keeps the garment and pharma QC lines off the QC form — the 2026-09-24 guards", () => {
+      // The guard aliases move these phrases' FAMILY; these rows are the FORM half. Each one
+      // contains the QC occupation term "qc" and routed before the extra conflict terms existed.
+      // The model's own labels:
+      expect(route("Garments", "Garment QC", null)).toBeNull();
+      expect(route("Garments", "QC Executive-Sewing Line", null)).toBeNull();
+      expect(route("Pharma", "Pharma QC", null)).toBeNull();
+      expect(route("Laboratory", "QC chemist", null)).toBeNull();
+      // And the pinned chip labels those codes now carry, on their own families:
+      expect(route(null, null, "fam_other_craft", "garment qc")).toBeNull();
+      expect(route(null, null, "fam_universal", "pharma qc")).toBeNull();
+      // The metal code's own chip still hands over — the veto is narrow.
+      expect(route(null, null, "fam_quality_inspection", "qc")).toBe("quality_inspector");
+    });
+
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.

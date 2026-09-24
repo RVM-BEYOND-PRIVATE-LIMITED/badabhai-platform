@@ -622,6 +622,29 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Hydraulic ka kaunsa kaam khud karte hain?": "हाइड्रॉलिक का कौनसा काम खुद करते हैं?",
   "Kis machine ka poora overhaul khud kar lete hain?": "किस मशीन का पूरा ओवरहॉल खुद कर लेते हैं?",
   "Erection me kaunsa kaam khud sambhalte hain?": "इरेक्शन में कौनसा काम खुद संभालते हैं?",
+  // qp_quality_inspection@1 — Batch 2 part two. The instrument and drawing prompts are the CAD and
+  // welder strings verbatim, and the three fresher prompts the welder's, so they reuse the twins
+  // above and are not repeated here.
+  "Quality inspection ka kitna tajurba hai?": "क्वालिटी इंस्पेक्शन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal quality inspection ka kaam kiya hai?":
+    "लगभग कितने साल क्वालिटी इंस्पेक्शन का काम किया है?",
+  "CMM, profile projector ya height gauge, kaunsa chalaya hai?":
+    "सीएमएम, प्रोफाइल प्रोजेक्टर या हाइट गेज, कौनसा चलाया है?",
+  "Aap khud ko kis level ka quality inspector maante hain?":
+    "आप खुद को किस लेवल का क्वालिटी इंस्पेक्टर मानते हैं?",
+  "Kis tarah ke parts ki checking karte hain?": "किस तरह के पार्ट्स की चेकिंग करते हैं?",
+  "Kis stage par inspection karte hain?": "किस स्टेज पर इंस्पेक्शन करते हैं?",
+  "Incoming, patrol ya final, kaunsi inspection karte hain?":
+    "इनकमिंग, पैट्रोल या फाइनल, कौनसी इंस्पेक्शन करते हैं?",
+  "Kitne least count tak naap lete hain?": "कितने लीस्ट काउंट तक नाप लेते हैं?",
+  "Kaunse quality standard ke hisaab se kaam kiya hai?":
+    "कौनसे क्वालिटी स्टैंडर्ड के हिसाब से काम किया है?",
+  "Kaunse quality document khud banate ya bharte hain?":
+    "कौनसे क्वालिटी डॉक्यूमेंट खुद बनाते या भरते हैं?",
+  "Kis industry ke parts ki checking ki hai?": "किस इंडस्ट्री के पार्ट्स की चेकिंग की है?",
+  "CMM par kaunsa kaam khud karte hain?": "सीएमएम पर कौनसा काम खुद करते हैं?",
+  "Rejection aane par kaunsa kaam khud karte hain?": "रिजेक्शन आने पर कौनसा काम खुद करते हैं?",
+  "Audit ya customer ka kaunsa kaam sambhalte hain?": "ऑडिट या कस्टमर का कौनसा काम संभालते हैं?",
 };
 
 /**
@@ -1026,6 +1049,22 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "इरेक्शन और कमीशनिंग जानने वाले को साइट का काम मिलता है।",
   "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.":
     "दिक्कत सुधारने वाले फिटर की प्लांट पर ज़रूरत रहती है।",
+  // qp_quality_inspection@1 — why-texts. Nine more (tenure, instruments, material, stage, drawing,
+  // sector and the three fresher ones) are shared verbatim with the welder's and sheet metal's
+  // packs and already twinned above.
+  "Inspector aur QC engineer ka kaam aur vetan alag hota hai.":
+    "इंस्पेक्टर और क्यूसी इंजीनियर का काम और वेतन अलग होता है।",
+  "Chhota least count naapne wale ko fine kaam milta hai.":
+    "छोटा लीस्ट काउंट नापने वाले को फाइन काम मिलता है।",
+  "Standard jaanne wale ko badi company me kaam milta hai.":
+    "स्टैंडर्ड जानने वाले को बड़ी कंपनी में काम मिलता है।",
+  "Document sambhalne wale ko QC engineer ka kaam milta hai.":
+    "डॉक्यूमेंट संभालने वाले को क्यूसी इंजीनियर का काम मिलता है।",
+  "CMM program banane wale ko zyada vetan milta hai.": "सीएमएम प्रोग्राम बनाने वाले को ज़्यादा वेतन मिलता है।",
+  "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.":
+    "रिजेक्शन की वजह ढूंढने वाले को आगे बढ़ाया जाता है।",
+  "Audit aur customer sambhalne wale ki har plant me zaroorat hai.":
+    "ऑडिट और कस्टमर संभालने वाले की हर प्लांट में ज़रूरत है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

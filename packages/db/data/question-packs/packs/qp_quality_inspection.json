@@ -1,0 +1,667 @@
+{
+  "_why": "Role track for QUALITY INSPECTION / QC, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's second pack. fam_other_craft stays the generic ISCO-minor-754 interview and is NOT touched; this pack belongs to fam_quality_inspection, which binds the NCO metal-inspection occupations directly (job_domain specificity 50 beats minor 30) -- 7543.2001 'Quality Inspector-forged, casted or machined components' and 7311.0500 'Viewer, Workshop / Examiner, Metal Working' -- so a machine-shop inspector gets inspection depth and every cloth examiner, footwear checker, electronics tester and rubber-line QC in the unit keeps the generic pack.",
+  "_scope": "DIMENSIONAL AND VISUAL INSPECTION OF MACHINED, CAST, FORGED AND PRESSED METAL PARTS -- CMM, profile projector, height gauge and hand instruments, on the incoming, patrol, final and layout stages, with the PPAP / control plan / SPC / 8D paperwork the job is. The level ladder (Inspector / QC Engineer) is asked as inspection_level so the sheet can say which rung the worker stands on. Textile, footwear and wood grading, electronics functional testing and rubber/plastics line QC (7543.3001-3005, worksheet R4-b) are NOT bound here. The measuring instruments are asked on the SHARED measuring_tools key, and they are deliberately NOT detection terms on the descriptor: every machining trade owns a vernier, so only the words that belong to inspection alone -- CMM, profile projector, PPAP, SPC, control plan -- corroborate this role.",
+  "_depth": "THE TIER GATE IS inspection_experience, asked FIRST, and it is QUALITY_INSPECTOR.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (inspection_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15. The three fresher items are gated inspection_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED QUALITY INSPECTOR REFERENCE RESUME (Anjali Verma, page 13), not invented. Its eight rows are Instruments, Standards, Materials inspected, Inspection stage, Documentation, Drawings, Least count worked to and Sector worked, and every one has a question here that fills it. Documentation carries SIX options because the page prints six (PPAP documents, Control plan, Inspection report, 8D / CAPA, SPC charts, Calibration register); trimming to the chip guideline's six-with-escape would have dropped a row value the page shows. Instruments offers the page's four (CMM, Profile projector, Height gauge, Surface roughness tester) plus 'Vernier aur micrometer', because a one-year patrol inspector holds those two and nothing else -- without the chip his instrument row would be empty; plug and ring gauges are left out to stay inside the chip count. Least count is a BANDED single_select (0.02 / 0.01 / 0.001 mm), the welder's plate ruling: the page prints one figure, 'Works to 0.001 mm least count', and a band renders as the page renders it. The three tier-2 items (inspection_cmm_work, inspection_rejection_work, inspection_audit_work) have NO sheet row -- the page has none and this pack does not invent one; they are matching data in worker_attributes. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable. So ISO 9001 is iso_nine_thousand_one, 8D is eight_d_capa and 0.001 mm is point_zero_zero_one; THE LABEL KEEPS THE REAL TEXT, because the label is the worker's answer of record. material_worked, measuring_tools, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first, material_worked trimmed) to keep a sheet on one page, and a private key would opt this trade out of that. Every other key carries the inspection_ prefix.",
+  "pack_id": "qp_quality_inspection",
+  "version": 1,
+  "family_id": "fam_quality_inspection",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising quality inspector -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips. A QC fresher comes out of an ITI machinist, turner or fitter workshop, so the machines are those -- plus the surface plate, the one workshop station that is inspection work.",
+  "items": [
+    {
+      "question_key": "inspection_experience",
+      "prompt_text": "Quality inspection ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal quality inspection ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "inspection_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
+      "retry_text": "CMM, profile projector ya height gauge, kaunsa chalaya hai?",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cmm",
+          "label_text": "CMM",
+          "value_text": "cmm"
+        },
+        {
+          "option_key": "profile_projector",
+          "label_text": "Profile projector",
+          "value_text": "profile_projector"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "roughness_tester",
+          "label_text": "Surface roughness tester",
+          "value_text": "roughness_tester"
+        },
+        {
+          "option_key": "vernier_micrometer",
+          "label_text": "Vernier aur micrometer",
+          "value_text": "vernier_micrometer"
+        },
+        {
+          "option_key": "other_instrument",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_level",
+      "prompt_text": "Aap khud ko kis level ka quality inspector maante hain?",
+      "why_text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "inspector",
+          "label_text": "Inspector",
+          "value_text": "inspector"
+        },
+        {
+          "option_key": "qc_engineer",
+          "label_text": "QC Engineer",
+          "value_text": "qc_engineer"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Kis tarah ke parts ki checking karte hain?",
+      "why_text": "Steel aur aluminium ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "machined_steel",
+          "label_text": "Machining wale steel parts",
+          "value_text": "machined_steel"
+        },
+        {
+          "option_key": "die_cast",
+          "label_text": "Aluminium die casting",
+          "value_text": "die_cast"
+        },
+        {
+          "option_key": "pressings",
+          "label_text": "Sheet metal pressing",
+          "value_text": "pressings"
+        },
+        {
+          "option_key": "castings_forgings",
+          "label_text": "Casting ya forging",
+          "value_text": "castings_forgings"
+        },
+        {
+          "option_key": "welded_fabrication",
+          "label_text": "Welding aur fabrication ka kaam",
+          "value_text": "welded_fabrication"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_stage",
+      "prompt_text": "Kis stage par inspection karte hain?",
+      "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "retry_text": "Incoming, patrol ya final, kaunsi inspection karte hain?",
+      "target_kind": "attribute",
+      "target_field": "inspection_stage",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "incoming",
+          "label_text": "Incoming, supplier ka maal",
+          "value_text": "incoming"
+        },
+        {
+          "option_key": "in_process_patrol",
+          "label_text": "In-process patrol",
+          "value_text": "in_process_patrol"
+        },
+        {
+          "option_key": "final_inspection",
+          "label_text": "Final inspection",
+          "value_text": "final_inspection"
+        },
+        {
+          "option_key": "layout_inspection",
+          "label_text": "Layout inspection",
+          "value_text": "layout_inspection"
+        },
+        {
+          "option_key": "gauge_rr",
+          "label_text": "Gauge R&R me madad",
+          "value_text": "gauge_rr"
+        },
+        {
+          "option_key": "other_stage",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "no_drawing",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T, datum aur true position bhi samajhta hoon",
+          "value_text": "gdt"
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_least_count",
+      "prompt_text": "Kitne least count tak naap lete hain?",
+      "why_text": "Chhota least count naapne wale ko fine kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_least_count",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "point_zero_two"
+        },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm tak",
+          "value_text": "point_zero_one"
+        },
+        {
+          "option_key": "point_zero_zero_one",
+          "label_text": "0.001 mm tak",
+          "value_text": "point_zero_zero_one"
+        },
+        {
+          "option_key": "unknown_least_count",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_standard",
+      "prompt_text": "Kaunse quality standard ke hisaab se kaam kiya hai?",
+      "why_text": "Standard jaanne wale ko badi company me kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_standard",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "iatf",
+          "label_text": "IATF 16949",
+          "value_text": "iatf"
+        },
+        {
+          "option_key": "iso_nine_thousand_one",
+          "label_text": "ISO 9001",
+          "value_text": "iso_nine_thousand_one"
+        },
+        {
+          "option_key": "as_nine_one_hundred",
+          "label_text": "AS9100, aerospace",
+          "value_text": "as_nine_one_hundred"
+        },
+        {
+          "option_key": "unknown_standard",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_documentation",
+      "prompt_text": "Kaunse quality document khud banate ya bharte hain?",
+      "why_text": "Document sambhalne wale ko QC engineer ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_documentation",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "ppap",
+          "label_text": "PPAP documents",
+          "value_text": "ppap"
+        },
+        {
+          "option_key": "control_plan",
+          "label_text": "Control plan",
+          "value_text": "control_plan"
+        },
+        {
+          "option_key": "inspection_report",
+          "label_text": "Inspection report",
+          "value_text": "inspection_report"
+        },
+        {
+          "option_key": "eight_d_capa",
+          "label_text": "8D ya CAPA report",
+          "value_text": "eight_d_capa"
+        },
+        {
+          "option_key": "spc_chart",
+          "label_text": "SPC chart",
+          "value_text": "spc_chart"
+        },
+        {
+          "option_key": "calibration_register",
+          "label_text": "Calibration register",
+          "value_text": "calibration_register"
+        },
+        {
+          "option_key": "other_document",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke parts ki checking ki hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "auto_tier_one",
+          "label_text": "Auto parts supplier, tier 1",
+          "value_text": "auto_tier_one"
+        },
+        {
+          "option_key": "auto_oem",
+          "label_text": "Automobile company, OEM",
+          "value_text": "auto_oem"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_cmm_work",
+      "prompt_text": "CMM par kaunsa kaam khud karte hain?",
+      "why_text": "CMM program banane wale ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_cmm_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "run_program",
+          "label_text": "Bana hua program chalana",
+          "value_text": "run_program"
+        },
+        {
+          "option_key": "write_program",
+          "label_text": "Naya program banana",
+          "value_text": "write_program"
+        },
+        {
+          "option_key": "part_alignment",
+          "label_text": "Part alignment aur datum set karna",
+          "value_text": "part_alignment"
+        },
+        {
+          "option_key": "cmm_report",
+          "label_text": "CMM report nikalna aur padhna",
+          "value_text": "cmm_report"
+        },
+        {
+          "option_key": "no_cmm_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_rejection_work",
+      "prompt_text": "Rejection aane par kaunsa kaam khud karte hain?",
+      "why_text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_rejection_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "segregation",
+          "label_text": "Maal alag karke hold lagana",
+          "value_text": "segregation"
+        },
+        {
+          "option_key": "why_why",
+          "label_text": "Why-why analysis",
+          "value_text": "why_why"
+        },
+        {
+          "option_key": "fishbone",
+          "label_text": "Fishbone diagram",
+          "value_text": "fishbone"
+        },
+        {
+          "option_key": "corrective_action",
+          "label_text": "Corrective action lagwana",
+          "value_text": "corrective_action"
+        },
+        {
+          "option_key": "rework_scrap",
+          "label_text": "Rework ya scrap tay karna",
+          "value_text": "rework_scrap"
+        },
+        {
+          "option_key": "no_rejection_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_audit_work",
+      "prompt_text": "Audit ya customer ka kaunsa kaam sambhalte hain?",
+      "why_text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_audit_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "internal_audit",
+          "label_text": "Internal audit karna",
+          "value_text": "internal_audit"
+        },
+        {
+          "option_key": "customer_audit",
+          "label_text": "Customer audit me saath rehna",
+          "value_text": "customer_audit"
+        },
+        {
+          "option_key": "customer_complaint",
+          "label_text": "Customer complaint sambhalna",
+          "value_text": "customer_complaint"
+        },
+        {
+          "option_key": "supplier_inspection",
+          "label_text": "Supplier ke yahan inspection",
+          "value_text": "supplier_inspection"
+        },
+        {
+          "option_key": "ppap_submission",
+          "label_text": "PPAP customer ko jama karna",
+          "value_text": "ppap_submission"
+        },
+        {
+          "option_key": "no_audit_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "surface_plate",
+          "label_text": "Surface plate par marking aur naap",
+          "value_text": "surface_plate"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "inspection_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

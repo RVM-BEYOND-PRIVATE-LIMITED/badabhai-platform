@@ -180,4 +180,7 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // word and must keep NOT routing, while this one names the trade and — pinned to fam_fitter,
   // which corroborates the bare "fitting" — routes to its form.
   fam_fitter: "fitting ka kaam",
+  // Batch 2 part two. The Latin reading of `label_hi` ("क्वालिटी कंट्रोल और इंस्पेक्शन"), spelled as
+  // the tranche's own alias "quality control" is.
+  fam_quality_inspection: "quality control aur inspection",
 });

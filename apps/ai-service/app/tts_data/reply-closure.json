@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 1074,
+  "clip_count": 1110,
   "producers": {
-    "retry": 93,
-    "clarify": 414,
-    "prompt": 298,
-    "why": 261,
+    "retry": 96,
+    "clarify": 429,
+    "prompt": 309,
+    "why": 268,
     "constant": 8
   },
   "clips": [
@@ -190,6 +190,11 @@
       "producer": "prompt"
     },
     {
+      "id": "07d799165ba05f4b",
+      "text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai. Rejection aane par kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "07f647886b795622",
       "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. Trade test ka result aa gaya hai?",
       "producer": "clarify"
@@ -257,6 +262,11 @@
     {
       "id": "0a838d038ab44683",
       "text": "Armed guard ka vetan zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0ad15cb1f767720a",
+      "text": "CMM program banane wale ko zyada vetan milta hai.",
       "producer": "why"
     },
     {
@@ -675,6 +685,11 @@
       "producer": "why"
     },
     {
+      "id": "1e5a2d5202b5447e",
+      "text": "CMM program banane wale ko zyada vetan milta hai. CMM par kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1e5bf9a46b9ccce5",
       "text": "Job ko machine par kaise pakadte hain?",
       "producer": "prompt"
@@ -687,6 +702,11 @@
     {
       "id": "1e63f4b772c8121b",
       "text": "Press ka size batata hai ki kitni badi tooling banayi hai. Kitne tonnage ki press par tryout kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1ebab892fbcd518f",
+      "text": "Standard jaanne wale ko badi company me kaam milta hai. Kaunse quality standard ke hisaab se kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -742,6 +762,11 @@
     {
       "id": "20dc85faba6c0f57",
       "text": "Material ka tajurba employer ke liye alag mayne rakhta hai. Kaunse material par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "20eefca7c520bc0f",
+      "text": "Document sambhalne wale ko QC engineer ka kaam milta hai. Kaunse quality document khud banate ya bharte hain?",
       "producer": "clarify"
     },
     {
@@ -995,9 +1020,19 @@
       "producer": "clarify"
     },
     {
+      "id": "2c45dea55fc14cef",
+      "text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "2c7b9f3afb5013a0",
       "text": "Aap kya assemble karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "2c97e8bea8229abc",
+      "text": "Steel aur aluminium ka kaam alag hota hai. Kis tarah ke parts ki checking karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "2d41b439cd3f5483",
@@ -1120,6 +1155,11 @@
       "producer": "clarify"
     },
     {
+      "id": "30c8024a8200e70a",
+      "text": "Kaunse quality standard ke hisaab se kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "3116a5dea1ffb810",
       "text": "Aap kis industry ke parts banate hain?",
       "producer": "prompt"
@@ -1213,6 +1253,11 @@
       "id": "373e5128c351185d",
       "text": "Saal se employer ko aapka experience samajh aata hai.",
       "producer": "why"
+    },
+    {
+      "id": "37420fcd8e366a71",
+      "text": "Lagbhag kitne saal quality inspection ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "375af97fc4a747a4",
@@ -1585,6 +1630,11 @@
       "producer": "clarify"
     },
     {
+      "id": "48bae775750eba9a",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke parts ki checking ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "4919f2d3245d0086",
       "text": "Fitting ke kai tarah hote hain. Aap kis tarah ka fitting kaam karte hain?",
       "producer": "clarify"
@@ -1598,6 +1648,11 @@
       "id": "49a2e9413f3c41a7",
       "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "4a29dcf10ab8db36",
+      "text": "Aap khud ko kis level ka quality inspector maante hain?",
+      "producer": "prompt"
     },
     {
       "id": "4a473ba1bb0cb405",
@@ -1715,6 +1770,11 @@
       "producer": "clarify"
     },
     {
+      "id": "4f152fb1f5a840fe",
+      "text": "Kaunse quality document khud banate ya bharte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "4f61511f6a955dcb",
       "text": "Yeh feature wali machine chalane wale kam milte hain.",
       "producer": "why"
@@ -1793,6 +1853,16 @@
       "id": "52c51a1dd7be4f5d",
       "text": "Hardness sahi na ho to die jaldi toot jaati hai. Hardness khud check karte hain ya bahar bhijwate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "52c757573366a047",
+      "text": "Document sambhalne wale ko QC engineer ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "52d26d94ecaa6aaf",
+      "text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai.",
+      "producer": "why"
     },
     {
       "id": "534c0a5816c7c768",
@@ -2038,6 +2108,11 @@
       "id": "5c64bd6bb2b5a234",
       "text": "Safedi aur scaffolding alag hai. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "5cb805d51ceea9c4",
+      "text": "CMM par kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "5d44926d31a4f0d3",
@@ -2715,6 +2790,11 @@
       "producer": "why"
     },
     {
+      "id": "7bc0c1b79d3cd3df",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Quality inspection ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "7bf271a27cfd0730",
       "text": "Apna tool khud grind karna purana aur bada hunar hai. HSS tool ki dhaar aap banate hain ya koi aur?",
       "producer": "clarify"
@@ -2770,6 +2850,11 @@
       "producer": "retry"
     },
     {
+      "id": "7f412f6b1bf91524",
+      "text": "Chhota least count naapne wale ko fine kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "7f456fde7fa5093b",
       "text": "CAM software par ya machine par MDI se program banate hain?",
       "producer": "retry"
@@ -2798,6 +2883,11 @@
       "id": "802f2335fd265242",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "806222d410a52abc",
+      "text": "Kitne least count tak naap lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "80847ea92abe3fef",
@@ -2965,6 +3055,11 @@
       "producer": "clarify"
     },
     {
+      "id": "878f0e2d9de222e3",
+      "text": "Quality inspection ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "879c42828b42541c",
       "text": "Aap hath se kaam karte hain ya machine se?",
       "producer": "prompt"
@@ -3053,6 +3148,11 @@
       "id": "8b4d04b738c4f181",
       "text": "Lagbhag kitne saal coating ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "8bcc6c790ff2acbb",
+      "text": "Audit ya customer ka kaunsa kaam sambhalte hain?",
+      "producer": "prompt"
     },
     {
       "id": "8c218b4fa7a40693",
@@ -3147,6 +3247,11 @@
     {
       "id": "8fdfa8a59e8ab4f9",
       "text": "Paint shop me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9053f4d95411ec82",
+      "text": "Rejection aane par kaunsa kaam khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -3380,6 +3485,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9c3c1b04c731f8ba",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Incoming, patrol ya final, kaunsi inspection karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "9c62f2b418115ed8",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -3408,6 +3518,11 @@
       "id": "9d9a5965ab15d907",
       "text": "Drawing padhna zaroori hai kai jagah. Kya aap drawing padh lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "9de97bb233478719",
+      "text": "Kis stage par inspection karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "9e21d3becf1b1333",
@@ -3463,6 +3578,11 @@
       "id": "a01d21acf280bc8f",
       "text": "Gaadi chalane wale ka vetan alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "a038daa851546341",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Kis stage par inspection karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "a0c010069eaed6c6",
@@ -3735,6 +3855,11 @@
       "producer": "prompt"
     },
     {
+      "id": "ad6c473e707d5311",
+      "text": "CMM, profile projector ya height gauge, kaunsa chalaya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "ad9ed65379f291e0",
       "text": "Wire-cut program, electrode ya setting, kya karte hain?",
       "producer": "retry"
@@ -3813,6 +3938,11 @@
       "id": "b0c97f3f7a510e8b",
       "text": "Plant me shift badalti rehti hai.",
       "producer": "why"
+    },
+    {
+      "id": "b0edde2ab8abe4a8",
+      "text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai. Audit ya customer ka kaunsa kaam sambhalte hain?",
+      "producer": "clarify"
     },
     {
       "id": "b166f6b612a1d3e1",
@@ -3985,6 +4115,11 @@
       "producer": "clarify"
     },
     {
+      "id": "baf56e2a0d129c9a",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. CMM, profile projector ya height gauge, kaunsa chalaya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "bb34f950d21862c1",
       "text": "Cash wale par bharosa chahiye hota hai.",
       "producer": "why"
@@ -4032,6 +4167,11 @@
     {
       "id": "bc21aec5c7bfb418",
       "text": "Aap din me kitne ghante kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "bc4edd2f8cbb3aef",
+      "text": "Kis industry ke parts ki checking ki hai?",
       "producer": "prompt"
     },
     {
@@ -4245,6 +4385,11 @@
       "producer": "why"
     },
     {
+      "id": "c3de5c26e0615a81",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal quality inspection ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c46134cd2a498616",
       "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai. Cutting aur bending ke alawa kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -4278,6 +4423,11 @@
       "id": "c5a7983fec37c127",
       "text": "Product ka tajurba usi line ke employer dhoondhte hain. Kaunsi assembly par kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "c5aad9db79968521",
+      "text": "Incoming, patrol ya final, kaunsi inspection karte hain?",
+      "producer": "retry"
     },
     {
       "id": "c5b148ff6535753c",
@@ -4660,6 +4810,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d7d414b6506f01f9",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. Kaunse measuring instrument chala lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d7e63b9cea379a49",
       "text": "Bhasha se kaam ke mauke badh jaate hain. Aap kaun kaun si bhasha bolte hain?",
       "producer": "clarify"
@@ -4678,6 +4833,11 @@
       "id": "d8f7660181858b96",
       "text": "Armed guard ka vetan zyada hota hai. Kya aap hathiyar wali duty kar sakte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "d8fae78ac461fa8b",
+      "text": "Kis tarah ke parts ki checking karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "d937bf1883283c29",
@@ -4818,6 +4978,11 @@
       "id": "e09da6c42ba700b0",
       "text": "Har chinai kaam alag hota hai. Aap kaunsa chinai kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "e0b1f985fcada8e8",
+      "text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai.",
+      "producer": "why"
     },
     {
       "id": "e0e58b0abb222bc9",
@@ -5063,6 +5228,11 @@
       "id": "ed561d1c8b8afc64",
       "text": "Drawing banane ke liye aapko kya milta hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "ed77337732bb95ee",
+      "text": "Chhota least count naapne wale ko fine kaam milta hai. Kitne least count tak naap lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "edb0b08063aecec1",
@@ -5340,6 +5510,11 @@
       "producer": "why"
     },
     {
+      "id": "fd398a3b0db03fb5",
+      "text": "Standard jaanne wale ko badi company me kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "fd9fc3424db92e44",
       "text": "Zimmedaari sambhalne wale ko zyada vetan milta hai.",
       "producer": "why"
@@ -5362,6 +5537,11 @@
     {
       "id": "fedaf70383b14e82",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ke press parts par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "fee436269baa559f",
+      "text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai. Aap khud ko kis level ka quality inspector maante hain?",
       "producer": "clarify"
     },
     {
