@@ -29,13 +29,32 @@ name: Catalogue drift (live DB)
 #
 # So: this tells you drift exists within a day. A person decides what to do about it.
 #
-# ═══ GUARDED / INERT BY DEFAULT, same posture as staging-cd.yml ═══
+# ═══ WHICH CREDENTIAL, AND WHY NOT A DEDICATED ENVIRONMENT ═══
 #
-# It reads `DATABASE_URL` from the `catalogue-check` GitHub Environment. If that secret is
-# absent the guard prints a `::notice::` and the job exits 0 WITHOUT connecting — an
-# unconfigured repo must not show a permanently red daily workflow, because a check that is
-# always red is a check nobody reads. To activate: create the `catalogue-check` Environment
-# and add `DATABASE_URL` (a read-only role is sufficient and preferred).
+# The repository-level `DATABASE_URL` secret, and NOT a job `environment:`. Three facts
+# decided that, measured rather than assumed (owner decision 2026-09-24):
+#
+#   1. A repo-level `DATABASE_URL` already exists, so this adds no new secret and no new
+#      exposure — every workflow in this repo could already read it. Naming it here widens
+#      nothing.
+#   2. `environment:` MAKES A DEPLOYMENT RECORD on every run. Pointing a daily cron at the
+#      `production` Environment would write ~365 drift-check entries a year into the
+#      production deployment history, which is the timeline someone reads during an
+#      incident. A read-only check has no business appearing there.
+#   3. The alternative — a `catalogue-check` Environment holding a dedicated read-only role
+#      — is the tighter posture and is still the right follow-up. It is not free: a human
+#      must create the Postgres role and paste its connection string, and until they do this
+#      workflow silently no-ops, which is the failure mode #1680 is about.
+#
+# If a read-only role is created later, the change here is one line: add
+# `environment: <name>` back and accept the deployment records, or scope the secret however
+# the Environment is set up. The guard below is unchanged either way.
+#
+# ═══ STILL GUARDED / INERT WITHOUT THE SECRET, same posture as staging-cd.yml ═══
+#
+# If `DATABASE_URL` is absent the guard prints a `::notice::` and the job exits 0 WITHOUT
+# connecting — an unconfigured repo must not show a permanently red daily workflow, because
+# a check that is always red is a check nobody reads.
 #
 # THE CONNECTION STRING IS NEVER ECHOED. The guard tests emptiness only and prints no part of
 # it; both runners print ids and counts. `verify-job-domains.ts` documents its own output as
@@ -63,7 +82,8 @@ jobs:
     name: Catalogue + pack drift (read-only)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: catalogue-check
+    # No `environment:` on purpose — see "WHICH CREDENTIAL" in the header. It would add a
+    # deployment record per run without changing what this job can reach.
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
@@ -71,7 +91,7 @@ jobs:
         id: guard
         run: |
           if [ -z "$DATABASE_URL" ]; then
-            echo "::notice::catalogue-check not wired (no DATABASE_URL in the 'catalogue-check' Environment) — skipping. See this file's header to activate."
+            echo "::notice::catalogue drift check not wired (no DATABASE_URL secret) — skipping. See this file's header."
             echo "wired=false" >> "$GITHUB_OUTPUT"
           else
             echo "wired=true" >> "$GITHUB_OUTPUT"
@@ -96,6 +116,21 @@ jobs:
       - name: Install dependencies
         if: steps.guard.outputs.wired == 'true'
         run: pnpm install --frozen-lockfile
+
+      # REQUIRED, and the first dispatch of this workflow is what proved it. Both runners
+      # reach `job-domain-corpus.ts`, which imports `@badabhai/profiling-lexicon` — a
+      # workspace package resolved through its `dist/`. Without this step the run dies on
+      # `Cannot find module '@badabhai/profiling-lexicon/dist/index.js'` before it opens a
+      # single connection, which looks exactly like a drift failure in the notification and
+      # is not one.
+      #
+      # `@badabhai/db...` — the trailing dots are pnpm for "this package AND its
+      # dependencies". ci.yml and staging-cd.yml both spell it `@badabhai/api...` because
+      # they go on to run the API; this job only ever runs two scripts out of `packages/db`,
+      # so it builds that subtree and not the Next.js apps.
+      - name: Build the db package (+ workspace deps)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm --filter "@badabhai/db..." build
 
       # Occupation catalogue first, then packs — the order staging-cd.yml uses, and the order
       # they depend in: `profiling_family_binding` references ISCO unit codes that only exist
