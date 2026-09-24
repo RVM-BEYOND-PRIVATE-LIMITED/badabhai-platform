@@ -126,6 +126,13 @@ void main() {
 
   setUp(() {
     repo = _MockRepo();
+      // #1710 — every load() now READS each marker page's stored record before
+      // it draws. Nothing is stored in these tests, so the reads answer
+      // "nothing saved", which is the state they were written against.
+      when(() => repo.loadSavedPreferences()).thenAnswer((_) async => null);
+      when(() => repo.loadSavedEmployment())
+          .thenAnswer((_) async => const TradeFormStoredEmployment());
+      when(() => repo.loadSavedQualifications()).thenAnswer((_) async => null);
   });
 
   TradeFormCubit build({TradeFormMarkerStore? store}) =>
@@ -151,7 +158,7 @@ void main() {
           total: 2,
         ));
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
     final TradeFormCubit cubit = build(store: store);
     await cubit.load();
     await cubit.answerQuestion(
@@ -373,7 +380,7 @@ void main() {
           total: 2,
         ));
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
     final TradeFormCubit cubit = build();
     await cubit.load();
     await cubit.answerQuestion(
@@ -388,7 +395,7 @@ void main() {
       const TradeFormEmploymentEntry(employerName: 'Acme', roleLabel: 'Fitter'),
     ]);
 
-    verify(() => repo.saveEmployment(any())).called(1);
+    verify(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).called(1);
     expect(cubit.state.status, TradeFormStatus.done);
     expect(cubit.state.status, isNot(TradeFormStatus.submitting));
   });
@@ -564,7 +571,7 @@ void main() {
     ]);
 
     expect(cubit.state.submitError, kTradeFormIncompleteEmployerMessage);
-    verifyNever(() => repo.saveEmployment(any()));
+    verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
   });
 
   group('saveQualificationsAndAdvance (#1384)', () {
@@ -678,7 +685,7 @@ void main() {
             total: 2,
           ));
       when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-      when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+      when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
       final TradeFormCubit cubit = build();
       await cubit.load();
       await cubit.answerQuestion(
@@ -726,7 +733,7 @@ void main() {
             total: 2,
           ));
       when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-      when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+      when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
       final TradeFormCubit cubit = build();
       await cubit.load();
       await cubit.answerQuestion(
@@ -977,7 +984,10 @@ void main() {
       final TradeFormPreferences sent =
           verify(() => repo.savePreferences(captureAny())).captured.single
               as TradeFormPreferences;
-      expect(sent.toJson(), isEmpty,
+      // ONLY the request mode, no ANSWER key (#1710): `touched_only: true` is
+      // never stored, and with no list or yes/no key beside it the server
+      // leaves every stored preference exactly as it is.
+      expect(sent.toJson(), <String, dynamic>{'touched_only': true},
           reason: 'an empty list would clear the stored languages and cities');
     });
 
@@ -993,7 +1003,7 @@ void main() {
 
       cubit.skipEmploymentAndAdvance();
 
-      verifyNever(() => repo.saveEmployment(any()));
+      verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
       expect(cubit.state.status, TradeFormStatus.done);
       expect(await store.completedMarkers(),
           contains(TradeFormMarkerType.employment));

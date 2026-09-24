@@ -700,18 +700,55 @@ class ApiClient {
     return WorkPreferencesDto.fromJson(json);
   }
 
+  /// GET /workers/me/employment (#1504, wired by #1710) — the worker's STORED
+  /// work history, in the PUT's own entry shapes.
+  ///
+  /// THE PUT REPLACES THE WHOLE LIST, so every page that writes it must read
+  /// this first. `MyEmploymentDto.expectedExistingCount` is what that PUT then
+  /// sends back as `expected_existing_count`.
+  ///
+  /// PRIVACY: employer names and work descriptions are free text — never log
+  /// the parsed result.
+  Future<MyEmploymentDto> getMyEmployment({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/employment', authToken: authToken);
+    return MyEmploymentDto.fromJson(json);
+  }
+
   /// PUT /workers/me/employment (#1296) — REPLACES the worker's whole work-history
   /// list (sending `[]` clears it). [employments] are the already-wire-shaped
   /// entry maps (the repository builds them from typed models, so this stays
   /// HTTP-only). Worker from [authToken]; the response `{ ok, employer_count }`
   /// echoes no employer name, so nothing is parsed back.
+  ///
+  /// [expectedExistingCount] (#1504, sent since #1710) is the number of stored
+  /// rows the caller PREFILLED FROM — `employments.length + unreadable_count`
+  /// of the [getMyEmployment] read. It does two things at once:
+  ///
+  ///  1. OPTIMISTIC CONCURRENCY. The server compares it with the rows the
+  ///     replace transaction actually reads and answers **409** when they
+  ///     differ ("work history changed since it was loaded; reload and
+  ///     retry"), before the delete — so a save built on a stale prefill
+  ///     never lands. The caller must reload and rebuild, never re-send.
+  ///  2. IT IS THE NEW-BUILD SIGNAL. Its ABSENCE tells the server this is an
+  ///     old client, whose `[]` is a tap-through rather than a deliberate
+  ///     clear, so an empty list is preserved instead of clearing. With it,
+  ///     `[]` clears, as the endpoint always meant.
+  ///
+  /// Null therefore means "I did not read the stored list" and must be used
+  /// only where that is true.
   Future<void> updateEmployment({
     required List<Map<String, dynamic>> employments,
     required String authToken,
+    int? expectedExistingCount,
   }) async {
     await _put(
       '/workers/me/employment',
-      <String, dynamic>{'employments': employments},
+      <String, dynamic>{
+        'employments': employments,
+        if (expectedExistingCount != null)
+          'expected_existing_count': expectedExistingCount,
+      },
       authToken: authToken,
     );
   }

@@ -362,9 +362,16 @@ void main() {
   setUp(() async {
     await locator.reset();
     repo = _MockRepo();
+      // #1710 — every load() now READS each marker page's stored record before
+      // it draws. Nothing is stored in these tests, so the reads answer
+      // "nothing saved", which is the state they were written against.
+      when(() => repo.loadSavedPreferences()).thenAnswer((_) async => null);
+      when(() => repo.loadSavedEmployment())
+          .thenAnswer((_) async => const TradeFormStoredEmployment());
+      when(() => repo.loadSavedQualifications()).thenAnswer((_) async => null);
     when(() => repo.loadPreferenceOptions()).thenAnswer((_) async => _prefOptions);
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
     when(() => repo.loadQualificationOptions()).thenAnswer((_) async => _qualOptions);
     when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
     locator.registerFactory<TradeFormCubit>(() => TradeFormCubit(repo));
@@ -561,7 +568,7 @@ void main() {
 
     // No employer was added, edited or removed and nothing was banked, so the
     // whole-history replace is skipped rather than sending [] over it.
-    verifyNever(() => repo.saveEmployment(any()));
+    verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
     expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     expect(find.text('BUILDING'), findsOneWidget);
   });
@@ -1865,7 +1872,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final List<TradeFormEmploymentEntry> sent = verify(
-              () => repo.saveEmployment(captureAny()))
+              () => repo.saveEmployment(captureAny(), expectedExistingCount: any(named: 'expectedExistingCount')))
           .captured
           .single as List<TradeFormEmploymentEntry>;
       expect(sent, hasLength(2));
@@ -1925,7 +1932,7 @@ void main() {
 
       expect(
           find.text('Kab shuru kiya — saal aur mahina chunein.'), findsOneWidget);
-      verifyNever(() => repo.saveEmployment(any()));
+      verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
 
       // Dismiss the banner, pick the start date, and the same finish works.
       await tester.tap(find.text('Theek hai'));
@@ -1934,7 +1941,7 @@ void main() {
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
-      verify(() => repo.saveEmployment(any())).called(1);
+      verify(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).called(1);
     });
 
     testWidgets('turning "Abhi yahin" OFF requires an end date',
@@ -1956,7 +1963,7 @@ void main() {
             'Kab tak kaam kiya — saal aur mahina chunein, ya "Abhi yahin" ON rakhein.'),
         findsOneWidget,
       );
-      verifyNever(() => repo.saveEmployment(any()));
+      verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
 
       // The end field is the only one still reading "Nahi bataya".
       await tester.tap(find.text('Theek hai'));
@@ -1965,7 +1972,7 @@ void main() {
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
-      verify(() => repo.saveEmployment(any())).called(1);
+      verify(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).called(1);
     });
 
     testWidgets('a blank added card can be finished with no dates at all',
@@ -2302,7 +2309,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final List<TradeFormEmploymentEntry> sent = verify(
-              () => repo.saveEmployment(captureAny()))
+              () => repo.saveEmployment(captureAny(), expectedExistingCount: any(named: 'expectedExistingCount')))
           .captured
           .single as List<TradeFormEmploymentEntry>;
       expect(sent.single.employerCity, 'Gurugram');
@@ -2341,7 +2348,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final List<TradeFormEmploymentEntry> sent = verify(
-              () => repo.saveEmployment(captureAny()))
+              () => repo.saveEmployment(captureAny(), expectedExistingCount: any(named: 'expectedExistingCount')))
           .captured
           .single as List<TradeFormEmploymentEntry>;
       expect(sent.single.employerCity, 'Muzaffarpur');
@@ -2400,7 +2407,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final List<TradeFormEmploymentEntry> sent = verify(
-              () => repo.saveEmployment(captureAny()))
+              () => repo.saveEmployment(captureAny(), expectedExistingCount: any(named: 'expectedExistingCount')))
           .captured
           .single as List<TradeFormEmploymentEntry>;
       expect(sent.single.employerCity, 'Kota');

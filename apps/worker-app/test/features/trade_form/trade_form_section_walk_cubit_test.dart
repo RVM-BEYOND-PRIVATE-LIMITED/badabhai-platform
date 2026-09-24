@@ -76,6 +76,13 @@ void main() {
 
   setUp(() {
     repo = _MockRepo();
+      // #1710 — every load() now READS each marker page's stored record before
+      // it draws. Nothing is stored in these tests, so the reads answer
+      // "nothing saved", which is the state they were written against.
+      when(() => repo.loadSavedPreferences()).thenAnswer((_) async => null);
+      when(() => repo.loadSavedEmployment())
+          .thenAnswer((_) async => const TradeFormStoredEmployment());
+      when(() => repo.loadSavedQualifications()).thenAnswer((_) async => null);
     when(() => repo.loadForm()).thenAnswer((_) async => _form());
   });
 
@@ -145,7 +152,7 @@ void main() {
     );
     expect(cubit.state.status, TradeFormStatus.done);
     verifyNever(() => repo.savePreferences(any()));
-    verifyNever(() => repo.saveEmployment(any()));
+    verifyNever(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')));
   });
 
   test('a bare retry keeps the section walk instead of widening it', () async {

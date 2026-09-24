@@ -51,17 +51,52 @@ abstract interface class TradeFormRepository {
   /// options `features/finishing` already renders from.
   Future<WorkPrefOptionsDto> loadPreferenceOptions();
 
+  /// GET the worker's STORED preferences, so the page opens on them (#1710).
+  ///
+  /// Null means there is no stored row to prefill from — a DIFFERENT thing
+  /// from a stored "none of these", which comes back as empty lists. THROWS a
+  /// [Failure] like every other read here: a page that silently opened blank
+  /// after a failed read is exactly the blind-save this method exists to end.
+  Future<TradeFormPreferences?> loadSavedPreferences();
+
   /// PUT the closed-set work preferences (the `preferences` marker's write).
   Future<void> savePreferences(TradeFormPreferences prefs);
 
+  /// GET the worker's STORED work history and the count its save must echo
+  /// (#1710). See [TradeFormStoredEmployment] for why the two travel together.
+  ///
+  /// THROWS a [Failure] on any read failure — never an empty result. The PUT
+  /// REPLACES the whole list, so "I could not read it" and "there is nothing
+  /// stored" must never look the same to the caller.
+  Future<TradeFormStoredEmployment> loadSavedEmployment();
+
   /// PUT the work history (REPLACES the whole list; an empty list clears it) —
   /// the `employment` marker's write.
-  Future<void> saveEmployment(List<TradeFormEmploymentEntry> employments);
+  ///
+  /// [expectedExistingCount] is the count from the [loadSavedEmployment] this
+  /// save was built on. The server compares it with the rows the replace
+  /// transaction reads and answers **409** when they differ, BEFORE deleting
+  /// anything; the caller must then reload and rebuild rather than re-send.
+  /// Omitting it tells the server this is an old client that cannot say what
+  /// it prefilled from, so callers that DID read must always pass it.
+  Future<void> saveEmployment(
+    List<TradeFormEmploymentEntry> employments, {
+    int? expectedExistingCount,
+  });
 
   /// GET the slug→label vocabulary for the `qualifications` marker's
   /// education chips (`credential`/`council`) — same contract shape as
   /// [loadPreferenceOptions], for the same reason.
   Future<QualificationOptionsDto> loadQualificationOptions();
+
+  /// GET the worker's STORED certificates and education rows (#1710).
+  ///
+  /// Null means no stored row at all. The returned value's `*Touched` flags
+  /// are FALSE: prefilling is not touching, and a page the worker passes
+  /// through must still send neither key, leaving both stored lists alone.
+  /// THROWS a [Failure] on a read failure, for the same reason as
+  /// [loadSavedPreferences].
+  Future<TradeFormQualifications?> loadSavedQualifications();
 
   /// PUT the worker's certificates + education rows (the `qualifications`
   /// marker's write) — TRI-STATE per list. [qualifications] owns which keys

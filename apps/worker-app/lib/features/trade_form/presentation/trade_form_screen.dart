@@ -689,6 +689,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         onSave: cubit.savePreferencesAndAdvance,
         initialPreferences: state.savedPreferences,
         knownFacts: state.knownFacts,
+        tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
       );
     }
@@ -709,6 +710,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         // history with its blank default.
         onSkip: cubit.skipEmploymentAndAdvance,
         initialEntries: state.savedEmployment,
+        tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
       );
     }
@@ -720,6 +722,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         loadOptions: cubit.loadQualificationOptions,
         onSave: cubit.saveQualificationsAndAdvance,
         initialQualifications: state.savedQualifications,
+        tierScope: step.tierScope,
         onPageChanged: _onMarkerPageChanged,
       );
     }

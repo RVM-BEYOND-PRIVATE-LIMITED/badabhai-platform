@@ -529,7 +529,7 @@ void main() {
           shift: <String, String>{},
         ),
       );
-      when(() => tradeFormRepo.saveEmployment(any())).thenAnswer((_) async {});
+      when(() => tradeFormRepo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
       locator.registerFactory<ProfileCubit>(
         () => ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo),
       );
@@ -601,7 +601,7 @@ void main() {
       await tester.tap(find.text('Save karein'));
       await tester.pumpAndSettle();
 
-      verify(() => tradeFormRepo.saveEmployment(any())).called(1);
+      verify(() => tradeFormRepo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).called(1);
       // Back on the confirm screen, the added job is visible — the write was
       // not blind.
       expect(find.text('Aur anubhav jodein'), findsOneWidget);
@@ -612,7 +612,7 @@ void main() {
         (WidgetTester tester) async {
       final MockTradeFormRepository tradeFormRepo =
           await pumpForExperience(tester);
-      when(() => tradeFormRepo.saveEmployment(any()))
+      when(() => tradeFormRepo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount')))
           .thenThrow(const NetworkFailure());
 
       await tester.tap(find.text('Aur anubhav jodein'));

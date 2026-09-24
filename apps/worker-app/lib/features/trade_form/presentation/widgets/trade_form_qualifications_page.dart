@@ -105,6 +105,7 @@ class TradeFormQualificationsPage extends StatefulWidget {
     required this.enabled,
     required this.onSave,
     this.initialQualifications,
+    this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
   });
 
@@ -122,6 +123,17 @@ class TradeFormQualificationsPage extends StatefulWidget {
   /// `TradeFormPreferencesPage.initialPreferences` for why a `GlobalKey`
   /// alone cannot carry this across a `goBack()`.
   final TradeFormQualifications? initialQualifications;
+
+  /// Which of this page's fields the chosen tier ASKS FOR (#1698/#1710).
+  ///
+  /// ASK-ONLY. `certificates` hidden drops the certificates sub-page; the
+  /// stored certificates are untouched, because this page's PUT is TRI-STATE
+  /// and [TradeFormQualifications.toJson] omits a key whose section was never
+  /// touched — and a section that is never drawn is never touched.
+  ///
+  /// `trainings` is accepted in the scope and ignored here: this page has no
+  /// trainings section to hide, and the PUT leaves an absent key alone.
+  final TradeFormTierScope tierScope;
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
   /// same contract, off a fixed [pageCount] of 4 (certificates, then
@@ -148,11 +160,25 @@ class TradeFormQualificationsPageState
   /// do not exist. Adding an entry on page 1 brings them back. Same shape as
   /// `TradeFormEmploymentPageState.pageCount`, which is driven by its own
   /// entry list for exactly the same reason.
-  static const int _pagesWithoutEducation = 2;
-  static const int _pagesWithEducation = 4;
+  /// The sub-pages this visit actually asks, in walk order — the certificates
+  /// page is dropped when this tier does not ask for it (#1698), and the two
+  /// per-entry education pages exist only when there is an entry to render.
+  ///
+  /// A LIST, NOT A COUNT (#1710). The page used to switch on a raw index with
+  /// `0` hard-coded as "certificates", which cannot express "this page is not
+  /// asked": dropping the first page would have silently renumbered every
+  /// other one.
+  List<_QualsPage> get _pages => <_QualsPage>[
+        if (!widget.tierScope.hides(kTierFieldCertificates))
+          _QualsPage.certificates,
+        _QualsPage.credentialAndField,
+        if (_educations.isNotEmpty) ...<_QualsPage>[
+          _QualsPage.council,
+          _QualsPage.yearAndInstitute,
+        ],
+      ];
 
-  int get pageCount =>
-      _educations.isEmpty ? _pagesWithoutEducation : _pagesWithEducation;
+  int get pageCount => _pages.length;
 
   /// #1474 — one guard per add button. A worker who taps twice because the new
   /// card appended BELOW the fold got two identical cards; the second tap is
@@ -507,10 +533,13 @@ class TradeFormQualificationsPageState
   }
 
   Widget _pageContent() {
-    switch (_page) {
-      case 0:
+    final List<_QualsPage> pages = _pages;
+    final _QualsPage page =
+        _page >= 0 && _page < pages.length ? pages[_page] : pages.last;
+    switch (page) {
+      case _QualsPage.certificates:
         return _certificatesPage();
-      case 1:
+      case _QualsPage.credentialAndField:
         return _educationPage(
           title: _kEduTitle,
           subtitle: _kEduSubtitle,
@@ -524,9 +553,9 @@ class TradeFormQualificationsPageState
       // progress bar. On the 2G these workers actually have, that is the blank
       // screen that was reported. A heading costs nothing and means no state
       // of this page can ever be contextless.
-      case 2:
+      case _QualsPage.council:
         return _educationPage(title: _kEduTitle, section: _EduSection.council);
-      default:
+      case _QualsPage.yearAndInstitute:
         return _educationPage(
             title: _kEduTitle, section: _EduSection.yearAndInstitute);
     }
@@ -724,6 +753,11 @@ class TradeFormQualificationsPageState
 
 /// Which fields an education row shows on THIS internal page — see
 /// `TradeFormQualificationsPageState.pageCount`'s doc.
+/// The qualifications marker's own sub-pages, in walk order. Named rather
+/// than numbered so a page that this tier does not ask for can be dropped
+/// without renumbering the rest (#1710).
+enum _QualsPage { certificates, credentialAndField, council, yearAndInstitute }
+
 enum _EduSection { credentialAndField, council, yearAndInstitute }
 
 /// Floor `1950` (`wc_year_chk` / `wed_year_chk`'s living-memory bound), ceiling

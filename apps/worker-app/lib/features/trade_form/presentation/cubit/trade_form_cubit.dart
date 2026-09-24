@@ -102,16 +102,25 @@ class TradeFormState extends Equatable {
   /// shown inline while the worker stays on the same question and can retry.
   final String? submitError;
 
-  /// The LAST successfully-saved value for each marker screen (#1384 item 1)
-  /// — markers carry no server-side "already filled" signal on this contract
-  /// (see this class' own doc), so unlike a question's `step.answer`, this is
-  /// the CUBIT's own memory of what a marker widget last sent, kept purely so
-  /// a worker who `goBack()`s into an already-passed marker sees it filled
-  /// in rather than reset to a blank constructor default. Set the moment a
-  /// marker save succeeds (see `_advanceAfterMarkerSave`) — a worker can only
-  /// `goBack()` into a marker that already saved successfully once, so "the
-  /// last successful save" is always available by the time it would be read.
-  /// Never sent anywhere; purely a local re-hydration seed for
+  /// What each marker page OPENS ON — the worker's stored record.
+  ///
+  /// TWO SOURCES, IN THIS ORDER (#1710):
+  ///
+  ///  1. THE STORED RECORD, read from the page's own `GET` on every [load]
+  ///     (`loadSavedPreferences` / `loadSavedEmployment` /
+  ///     `loadSavedQualifications`). Until #1710 this did not happen at all,
+  ///     and it is the whole bug: each page is a WHOLE-RECORD PUT, so a page
+  ///     that opened blank and saved deleted everything it had not been shown.
+  ///  2. The last successful save in THIS session (#1384 item 1), which keeps
+  ///     a `goBack()` into an already-passed marker filled in without a
+  ///     re-read.
+  ///
+  /// Null means "there is nothing stored for this marker" — never "the read
+  /// failed". A failed read fails the whole [load] (see [TradeFormCubit.load]),
+  /// because a page that silently opened blank is the overwrite this field
+  /// exists to prevent.
+  ///
+  /// Never sent anywhere as-is; purely the re-hydration seed for
   /// `trade_form_screen.dart`'s `_stepBody()`.
   final TradeFormPreferences? savedPreferences;
   final List<TradeFormEmploymentEntry>? savedEmployment;
@@ -228,18 +237,24 @@ class TradeFormState extends Equatable {
 /// RESUMABILITY. On every [load], the resume position is the first step that
 /// is either an unanswered question OR a marker screen (preferences /
 /// employment / qualifications) not yet saved for this form. Marker screens
-/// carry no "already filled" signal on this contract and their endpoints have
-/// no read route, so the cubit records each marker in [TradeFormMarkerStore]
-/// the moment the server ACKNOWLEDGED its PUT — a server fact, not a client
-/// guess. Without that record a fresh cubit (back from step 1 then the chat
-/// card, a cold start restoring /trade-form) re-showed every marker BLANK, and
-/// a tap-through PUT empty lists over what the worker had saved.
+/// carry no "already filled" signal on this contract, so the cubit records
+/// each marker in [TradeFormMarkerStore] the moment the server ACKNOWLEDGED
+/// its PUT — a server fact, not a client guess.
 ///
 /// A recorded marker is skipped on every FORWARD move (load, the schema_stale
 /// resync, the advance after an answer or a marker save) and stays reachable
-/// with [goBack]. Reopening one is SAFE but NOT PRE-FILLED: a fresh cubit has
-/// no read of what was saved, so the page opens blank, and it writes only what
-/// the worker changes on that visit (see [goBack]).
+/// with [goBack].
+///
+/// PREFILL (#1710). Every [load] also READS each marker page's stored record
+/// through its own `GET` and banks it in [TradeFormState.savedPreferences] /
+/// `savedEmployment` / `savedQualifications`, so reopening a marker shows what
+/// the worker actually saved. Before #1710 there was no read at all and a
+/// reopened page came up BLANK — which, on three whole-record PUTs, is not a
+/// cosmetic gap: a worker who added one job on a re-served employment page
+/// deleted every other job he had given.
+///
+/// A READ THAT FAILS FAILS THE LOAD. There is no "open it blank and hope"
+/// branch: that is precisely the state in which a save destroys data.
 class TradeFormCubit extends Cubit<TradeFormState> {
   TradeFormCubit(
     this._repo, {
@@ -263,6 +278,15 @@ class TradeFormCubit extends Cubit<TradeFormState> {
 
   /// Marker types already saved for this worker.
   Set<TradeFormMarkerType> _doneMarkers = <TradeFormMarkerType>{};
+
+  /// The stored work history this walk prefilled from, and the count its save
+  /// must echo (#1710). Re-read on every [load] and after a 409; null until a
+  /// form carrying an employment marker has been loaded.
+  ///
+  /// NOT ON [TradeFormState]: `expected_existing_count` is a concurrency token
+  /// for the NEXT write, not something any widget draws, and putting it in the
+  /// state would invite a rebuild to carry a stale one.
+  TradeFormStoredEmployment? _storedEmployment;
 
   /// Re-reads the saved markers. What this cubit recorded itself is kept, so an
   /// in-flight store write can never make a marker saved seconds ago look
@@ -291,6 +315,102 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     unawaited(_markerStore.markCompleted(marker));
   }
 
+  /// The stored preferences / qualifications this walk prefilled from (#1710).
+  TradeFormPreferences? _savedPreferences;
+  TradeFormQualifications? _savedQualifications;
+
+  /// Reads the stored record of every marker page [flat] actually contains
+  /// (#1710), concurrently.
+  ///
+  /// ONLY THE MARKERS THIS FORM CARRIES. Reading all three unconditionally
+  /// would spend three round trips on a form with one marker page, and — worse
+  /// — would let an endpoint this walk never touches fail a load it has no
+  /// business failing.
+  ///
+  /// THROWS, and is deliberately awaited inside [load]'s own `try`, so a
+  /// failed read surfaces as the form's ordinary load error with its existing
+  /// retry. There is no "carry on with a blank page" branch: every one of
+  /// these pages is a whole-record PUT, so opening blank is what destroys
+  /// data. Failing closed costs a retry; failing open costs the worker's
+  /// history.
+  Future<void> _loadSavedMarkers(List<TradeFormFlatStep> flat) async {
+    final Set<TradeFormMarkerType> present = <TradeFormMarkerType>{
+      for (final TradeFormFlatStep f in flat)
+        if (tradeFormMarkerTypeOf(f.step) case final TradeFormMarkerType t) t,
+    };
+    await Future.wait<void>(<Future<void>>[
+      if (present.contains(TradeFormMarkerType.preferences))
+        _repo.loadSavedPreferences().then(
+            (TradeFormPreferences? p) => _savedPreferences = p),
+      if (present.contains(TradeFormMarkerType.employment))
+        _repo.loadSavedEmployment().then(
+            (TradeFormStoredEmployment e) => _storedEmployment = e),
+      if (present.contains(TradeFormMarkerType.qualifications))
+        _repo.loadSavedQualifications().then(
+            (TradeFormQualifications? q) => _savedQualifications = q),
+    ]);
+  }
+
+  /// Drops the marker pages an UPGRADE has nothing left to ask on (#1698 part
+  /// 2, via #1710's read-back).
+  ///
+  /// `tier_scope.reveal_fields` names the fields THIS upgrade adds to the
+  /// page. The rule is "ask only those, and of those only the ones with no
+  /// saved value" — so a page whose revealed fields are all answered already
+  /// is not worth a screen, and is skipped.
+  ///
+  /// ORDINARY LOADS ARE UNTOUCHED: `reveal_fields` is absent outside
+  /// `?view=upgrade`, [TradeFormTierScope.revealFields] is then null, and
+  /// every page is kept.
+  List<TradeFormFlatStep> _dropAnsweredUpgradePages(
+    List<TradeFormFlatStep> flat,
+  ) {
+    final List<TradeFormFlatStep> kept = <TradeFormFlatStep>[
+      for (final TradeFormFlatStep f in flat)
+        if (!_tierSkipped(f.step)) f,
+    ];
+    // Never hand the walk an empty list — the same guard `_applySection`
+    // makes, and for the same reason: a form with nothing to show is a dead
+    // end, not a completed one.
+    return kept.isEmpty ? flat : kept;
+  }
+
+  /// Whether this upgrade has nothing left to ask on [step].
+  bool _tierSkipped(TradeFormStep step) {
+    final Set<String>? reveal = switch (step) {
+      TradeFormPreferencesStep(:final TradeFormTierScope tierScope) =>
+        tierScope.revealFields,
+      TradeFormEmploymentStep(:final TradeFormTierScope tierScope) =>
+        tierScope.revealFields,
+      TradeFormQualificationsStep(:final TradeFormTierScope tierScope) =>
+        tierScope.revealFields,
+      _ => null,
+    };
+    if (reveal == null) return false; // not an upgrade view — ask normally.
+    return !reveal.any(_revealFieldStillUnanswered);
+  }
+
+  /// Whether one revealed field is still worth asking for.
+  ///
+  /// A field this page cannot ask is NOT worth a screen (`trainings` has no
+  /// section on the qualifications page), so it reads as answered — otherwise
+  /// every upgrade would re-serve a page on which the worker can do nothing.
+  bool _revealFieldStillUnanswered(String field) => switch (field) {
+        kTierFieldDocumentsReady =>
+          _savedPreferences?.documentsReady.isEmpty ?? true,
+        // "Add more jobs" is an INVITATION, never an answered fact: there is
+        // no stored value that could satisfy it, so a page revealing it is
+        // always shown.
+        kTierFieldAdditionalEntries => true,
+        kTierFieldWorkDone => _storedEmployment == null ||
+            _storedEmployment!.entries.isEmpty ||
+            _storedEmployment!.entries.any((TradeFormEmploymentEntry e) =>
+                (e.workDone ?? '').trim().isEmpty),
+        kTierFieldCertificates =>
+          _savedQualifications?.certificates.isEmpty ?? true,
+        _ => false,
+      };
+
   Future<void> load({String? sectionKey, bool upgradeView = false}) async {
     // A non-null argument (re)arms the section walk; null KEEPS whatever is
     // armed — the error-state retry calls `load()` bare and must not widen a
@@ -305,7 +425,15 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       }
       await _syncDoneMarkers();
       final Set<WorkerFact> known = await _knownFacts.knownFacts();
-      final List<TradeFormFlatStep> flat = _applySection(_flatten(form));
+      List<TradeFormFlatStep> flat = _applySection(_flatten(form));
+      // PREFILL BEFORE THE FIRST FRAME (#1710). The pages seed their state in
+      // `initState` and have no `didUpdateWidget`, so a record that arrived
+      // after the page was built would never reach it — the read has to be
+      // part of the load, not a race beside it.
+      await _loadSavedMarkers(flat);
+      // An upgrade view may now have nothing left to ask on a page whose
+      // revealed fields are all answered — drop those (see `_tierSkipped`).
+      flat = _dropAnsweredUpgradePages(flat);
       final int total = form.questionSteps.length;
       final int answeredCount =
           form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
@@ -318,6 +446,9 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         total: total,
         doneMarkers: _doneSnapshot,
         knownFacts: known,
+        savedPreferences: _savedPreferences,
+        savedEmployment: _storedEmployment?.entries,
+        savedQualifications: _savedQualifications,
         // #1472 — carried from THIS response, every time. Never cached: the
         // form is resumable across a cold start, and a stale id would file a
         // spoken work description under the wrong conversation.
@@ -672,7 +803,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     }
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
-      await _repo.saveEmployment(kept);
+      await _saveEmploymentWithRetry(kept);
       _advanceAfterMarkerSave(TradeFormMarkerType.employment,
           savedEmployment: kept);
     } on Failure catch (f) {
@@ -682,6 +813,42 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         status: TradeFormStatus.ready,
         submitError: 'Save nahi hua. Dobara koshish karein.',
       ));
+    }
+  }
+
+  /// The employment write, with the one retry a 409 is allowed to earn (#1710).
+  ///
+  /// `expected_existing_count` is the count of the rows this page prefilled
+  /// from. The server compares it with the rows the replace transaction reads
+  /// and answers **409 BEFORE DELETING ANYTHING** when they disagree — the
+  /// history changed under this walk (another device, the chat interview, a
+  /// résumé import finishing in the background).
+  ///
+  /// ON A 409 WE RE-READ AND SEND AGAIN WITH THE FRESH COUNT — and NEVER the
+  /// stale list: re-sending what this page prefilled would delete whatever the
+  /// other writer just added, which is the exact overwrite the count exists to
+  /// stop. What the worker has on screen is still their intent, so it is their
+  /// edit that is re-sent, against the new count.
+  ///
+  /// EXACTLY ONE RETRY. A second 409 means the history is being written faster
+  /// than this page can answer, and looping would keep clobbering a moving
+  /// target; the worker is told to try again instead.
+  Future<void> _saveEmploymentWithRetry(
+    List<TradeFormEmploymentEntry> kept,
+  ) async {
+    try {
+      await _repo.saveEmployment(kept,
+          expectedExistingCount: _storedEmployment?.expectedExistingCount);
+    } on ServerFailure catch (f) {
+      if (f.statusCode != 409) rethrow;
+      _storedEmployment = await _repo.loadSavedEmployment();
+      try {
+        await _repo.saveEmployment(kept,
+            expectedExistingCount: _storedEmployment?.expectedExistingCount);
+      } on ServerFailure catch (again) {
+        if (again.statusCode != 409) rethrow;
+        throw const UnknownFailure(kTradeFormEmploymentChangedMessage);
+      }
     }
   }
 
@@ -771,5 +938,12 @@ const String kTradeFormIncompleteEmployerMessage =
 /// persona_neutrality_test.dart.
 const String kTradeFormIncompleteCertificateMessage =
     'Har certificate ka naam likhein.';
+
+/// Shown when the stored work history changed twice while this page was open
+/// (#1710) — two 409s in a row. Honest about the cause rather than blaming the
+/// network, and asks for the one move that can work. Persona-neutral
+/// (aap-form, safe verb, no `!`); scanned by persona_neutrality_test.dart.
+const String kTradeFormEmploymentChangedMessage =
+    'Aapki naukri ki list abhi kahin aur badal gayi. Dobara koshish karein.';
 
 const Object _sentinel = Object();

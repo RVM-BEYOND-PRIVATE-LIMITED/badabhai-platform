@@ -127,6 +127,7 @@ class TradeFormEmploymentPage extends StatefulWidget {
     required this.onSave,
     required this.loadOptions,
     this.initialEntries,
+    this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
     this.onSkip,
   });
@@ -151,6 +152,22 @@ class TradeFormEmploymentPage extends StatefulWidget {
   /// `TradeFormPreferencesPage.initialPreferences` for why a `GlobalKey`
   /// alone cannot carry this across a `goBack()`.
   final List<TradeFormEmploymentEntry>? initialEntries;
+
+  /// Which of this page's fields the chosen tier ASKS FOR (#1698/#1710).
+  ///
+  /// ASK-ONLY, AND HERE THAT NEEDS SAYING OUT LOUD. This page's PUT REPLACES
+  /// the whole history, so a hidden field is not merely un-drawn: its stored
+  /// value rides on the entry ([initialEntries] prefills it) and
+  /// [TradeFormEmploymentEntry.toJson] sends it back unchanged. Dropping the
+  /// value with the question would delete every work description a worker gave
+  /// at Medium the moment they were served an Easy page.
+  ///
+  ///  - `work_done` hidden → the description box and its mic are not drawn,
+  ///    and the description is not REQUIRED (a field nobody was asked for
+  ///    cannot block the save).
+  ///  - `additional_entries` hidden → "Aur ek jagah jodein" is not offered;
+  ///    the jobs already stored stay on their cards.
+  final TradeFormTierScope tierScope;
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
   /// same contract, reported here off [pageCount] (which — unlike
@@ -248,7 +265,15 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() {
     final VoidCallback? skip = widget.onSkip;
-    if (skip != null && !_touched && widget.initialEntries == null) {
+    // NOTHING TO SEND: the worker changed nothing and the page is holding no
+    // history — either because none was prefilled (#1384) or because the read
+    // found none (#1710). `PUT /workers/me/employment` replaces the whole
+    // list, so advancing WITHOUT the write is the only safe reading of a
+    // tap-through. A prefilled page that was NOT touched still saves, sending
+    // the stored rows back unchanged, which is a no-op server-side.
+    if (skip != null &&
+        !_touched &&
+        (widget.initialEntries?.isEmpty ?? true)) {
       skip();
       return;
     }
@@ -293,7 +318,10 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   String? _entryError(TradeFormEmploymentEntry e) {
     if (e.employerName.trim().isEmpty) return _kNameRequiredError;
     if (e.roleLabel.trim().isEmpty) return _kRoleRequiredError;
-    if (e.workDone == null || e.workDone!.trim().isEmpty) {
+    // Only when this tier ASKED for it (#1698): a description box the worker
+    // was never shown cannot be a reason to block their save.
+    if (!widget.tierScope.hides(kTierFieldWorkDone) &&
+        (e.workDone == null || e.workDone!.trim().isEmpty)) {
       return _kWorkRequiredError;
     }
     return _dateErrorFor(e);
@@ -395,10 +423,13 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
           citiesFor: _citiesFor,
           onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
           onRemove: () => _remove(i),
+          showWorkDone: !widget.tierScope.hides(kTierFieldWorkDone),
         ),
       );
     }
-    if (isLastPage && _entries.length < kTradeFormMaxEmployers) {
+    if (isLastPage &&
+        _entries.length < kTradeFormMaxEmployers &&
+        !widget.tierScope.hides(kTierFieldAdditionalEntries)) {
       if (_entries.isNotEmpty) {
         children.add(const SizedBox(height: 12));
       }
@@ -431,6 +462,7 @@ class _EmployerCard extends StatefulWidget {
     required this.citiesFor,
     required this.onChanged,
     required this.onRemove,
+    this.showWorkDone = true,
   });
 
   final List<String> states;
@@ -439,6 +471,12 @@ class _EmployerCard extends StatefulWidget {
   final TradeFormEmploymentEntry entry;
   final ValueChanged<TradeFormEmploymentEntry> onChanged;
   final VoidCallback onRemove;
+
+  /// Whether this tier ASKS for the work description (#1698). False draws
+  /// neither the box nor its mic — and changes NOTHING about what is sent:
+  /// the entry keeps whatever description it was prefilled with and
+  /// [TradeFormEmploymentEntry.toJson] writes it straight back.
+  final bool showWorkDone;
 
   @override
   State<_EmployerCard> createState() => _EmployerCardState();
@@ -597,10 +635,11 @@ class _EmployerCardState extends State<_EmployerCard> {
               },
             ),
           ],
-          const SizedBox(height: 14),
-          const TradeFormFieldLabel(_kWorkLabel),
-          TradeFormTextField(
-            controller: _work,
+          if (widget.showWorkDone) ...<Widget>[
+            const SizedBox(height: 14),
+            const TradeFormFieldLabel(_kWorkLabel),
+            TradeFormTextField(
+              controller: _work,
             hint: _kWorkHint,
             label: _kWorkLabel,
             maxLength: _kWorkDoneMax,
@@ -624,7 +663,8 @@ class _EmployerCardState extends State<_EmployerCard> {
             // is still the answer of record and the clip is still where that text
             // started. The field's own `onChanged` above documents the same rule.
             onText: (String text) => _push(e.copyWith(workDone: text)),
-          ),
+            ),
+          ],
         ],
       ),
     );
