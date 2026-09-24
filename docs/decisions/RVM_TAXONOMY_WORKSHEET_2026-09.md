@@ -927,7 +927,7 @@ re-measures each one.
 | 25 | Assembly Line Worker   | assembly ka kaam                                   | no match                                      | A       |
 | 26 | Assembly Line Worker   | fitting line                                       | no match                                      | S       |
 | 27 | Assembly Line Worker   | production line                                    | no match                                      | S       |
-| 28 | Fitter                 | fitting ka kaam                                    | no match                                      | A       |
+| 28 | Fitter                 | fitting ka kaam                                    | no match                                      | ~~A~~ Withdrawn — F1 |
 
 Why each strike: **11** also means shop weighing — kept as a skill alias only. **15** is a
 one-word magnet (building, AC and house maintenance), the same defect class as A4.
@@ -937,6 +937,30 @@ warns about. **26** collides with Fitter. **27** is something any factory worker
 
 Items 6, 7, 14 (`plant maintenance`), 18 and 19 are not in the Part 1 lists; they come from
 the #1440 descriptors' `occupationTerms` or from the misroutes measured above.
+
+### Follow-up rulings, after the tranche was measured (same day)
+
+Authoring the accepted phrases and re-running them through the index surfaced four
+neighbours they captured. Each was put back to the signatory and ruled:
+
+- **F1 — Item 28 withdrawn.** `fitting` (the stem of `fitting ka kaam`) folds to the
+  skeleton `ftng`, which is also `footing` — construction foundation work. With the row in
+  place, `footing` and `footing ka kaam` moved from no match to Fitter. The corpus has no
+  foundation vocabulary to guard with, so the item is withdrawn. Fitter stays reachable on
+  `fitter`, `फिटर` and `bench fitter`.
+- **F2 — Guard `chadar silai` → Tailoring** (`jd_nco_7531_0100`, the code that owns
+  `silai`). Bedsheet stitching reached Tailoring before item 4 and Sheet Metal after it,
+  because `chadar` is the first word. One row covers `chadar ki silai` too — `ki` is stripped.
+- **F3 — Guard `fabrication welder` → Welding** (`jd_nco_7212_0301`). It moved to Sheet
+  Metal on bare `fabrication` for the same left-to-right reason. `welding fabrication` never
+  moved.
+- **F4 — `vehicle inspection` accepted as an imprecision.** Bare `inspection` (item 8) sends
+  it to the QC code's generic pack. Not a factory-trade phrase, and it reaches no role form;
+  pinned in the reachability test so any change shows in review.
+
+Engineering also added one guard that preserves an existing ruling rather than making a new
+one: `assembly fitter` → Bench Fitter, because bare `assembly` (item 25) would otherwise
+take it from Fitter, where the tick-list records it already routes.
 
 ### What these rulings do not do by themselves
 
@@ -950,7 +974,8 @@ the #1440 descriptors' `occupationTerms` or from the misroutes measured above.
   workers who get a generic pack today.
 
 ```
-Verdict: A1 (b), A2 (a), A3 = R4-a (a), A4 strike; alias verdicts 1–28 as tabled.
+Verdict: A1 (b), A2 (a), A3 = R4-a (a), A4 strike; alias verdicts 1–28 as tabled;
+follow-ups F1 (item 28 withdrawn), F2 and F3 (guard rows), F4 (accepted imprecision).
 
 Signed: Divyanshu, 2026-09-24.
 
