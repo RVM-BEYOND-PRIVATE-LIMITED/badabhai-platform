@@ -16,7 +16,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { TRADE_FORM_KINDS_ALL } from "@badabhai/types";
+import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+
+import { workerResumeImports } from "./schema/resume-import";
 
 const TAG = "0124_resume_identity_role_kind_declared";
 const RAW = readFileSync(join(__dirname, "..", "migrations", `${TAG}.sql`), "utf8");
@@ -39,6 +42,23 @@ const KINDS_0118 = [
   "cad_draughtsman",
   "welder",
   "painter_coating",
+] as const;
+
+/** The 21 declared kinds as of 0124 — `TRADE_FORM_KINDS_ALL` on the day it was written. */
+const KINDS_0124 = [
+  ...KINDS_0118,
+  "sheet_metal_worker",
+  "press_operator",
+  "fitter",
+  "maintenance_technician",
+  "industrial_electrician",
+  "assembly_line_worker",
+  "quality_inspector",
+  "injection_moulding_operator",
+  "mould_die_maker",
+  "blow_moulding_operator",
+  "rubber_moulding_operator",
+  "plastic_process_technician",
 ] as const;
 
 const chk = FLAT.match(/"wri_identity_role_kind_chk" CHECK[^;]*/)?.[0] ?? "";
@@ -87,11 +107,11 @@ describe("the widened CHECK", () => {
     expect(chk).toContain("IS NULL");
   });
 
-  it("closes EXACTLY the 21 declared kinds of the shared constant", () => {
-    // THE POINT OF THE MIGRATION. Tied to `TRADE_FORM_KINDS_ALL`, not to the enabled subset, so
-    // enabling a form can never again need a migration it can forget — and a 22nd DECLARED kind
-    // makes this red until the constraint is widened with it.
-    expect([...listed].sort()).toEqual([...TRADE_FORM_KINDS_ALL].sort());
+  it("closes EXACTLY the 21 kinds declared when it was written — a FROZEN record", () => {
+    // A migration file never changes, so this pins it to a literal rather than to the live
+    // constant: a 22nd declared kind is widened by a NEW migration, and that must not make this
+    // file's test red. The LIVE agreement is the schema test below.
+    expect([...listed].sort()).toEqual([...KINDS_0124].sort());
     expect(new Set(listed).size).toBe(listed.length);
   });
 
@@ -102,4 +122,26 @@ describe("the widened CHECK", () => {
   it("admits the kind whose flip exposed the hole", () => {
     expect(listed).toContain("sheet_metal_worker");
   });
+});
+
+describe("the LIVE schema — both kind CHECKs agree with the shared constant", () => {
+  // THE TRIPWIRE THAT OUTLIVES THIS MIGRATION. It reads the drizzle model, not a frozen file, so
+  // a 22nd DECLARED kind turns it red until BOTH constraints are widened — which is the edit that
+  // was forgotten for `identity_role_kind` once. `association_kind` is held to the same rule,
+  // because the two columns name the same vocabulary and must never disagree.
+  const dialect = new PgDialect();
+  const config = getTableConfig(workerResumeImports);
+  const kindsIn = (name: string): string[] => {
+    const check = config.checks.find((c) => c.name === name);
+    if (!check) throw new Error(`${name} is not on the model`);
+    const text = dialect.sqlToQuery(check.value).sql;
+    return [...text.matchAll(/'([a-z_]+)'/g)].map((m) => m[1] as string).sort();
+  };
+
+  it.each(["wri_identity_role_kind_chk", "wri_association_kind_chk"])(
+    "%s closes exactly TRADE_FORM_KINDS_ALL",
+    (name) => {
+      expect(kindsIn(name)).toEqual([...TRADE_FORM_KINDS_ALL].sort());
+    },
+  );
 });

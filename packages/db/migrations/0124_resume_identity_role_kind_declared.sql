@@ -20,10 +20,26 @@
 -- (ai-service) keep what is WRITTEN to the enabled kinds. The constraint only guards the
 -- closed vocabulary, which is what a CHECK is for.
 --
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK both take ACCESS EXCLUSIVE,
+-- and the ADD scans the table under it. This table holds one row per résumé upload and the
+-- CHECK reads one short text column, so the scan is milliseconds; the real risk is queueing
+-- behind a long transaction. Applied by hand: wrap both statements in ONE explicit
+-- BEGIN/COMMIT (psql -f would otherwise commit the DROP alone and leave a window with no
+-- constraint) with SET LOCAL lock_timeout = '3s', and retry on 55P03 (0077/0080/0109
+-- precedent). NOT VALID + VALIDATE buys nothing inside one transaction: the DROP already
+-- holds ACCESS EXCLUSIVE until commit.
+--
 -- APPLY BEFORE THE NEXT ROLE IS ENABLED, and as soon as possible for sheet_metal_worker,
 -- which is live now. Order-independent otherwise: no code in this change depends on it.
 --
--- ROLLBACK (only if no row holds a kind outside the original 9):
+-- ROLLBACK. Rolling back REOPENS THE LIVE DEFECT while sheet_metal_worker (or any later
+-- role) stays enabled, and it cannot succeed once any row holds a kind outside the original
+-- nine: the re-add would fail on that row. Pre-check first; if it returns rows, roll back in
+-- CODE (disable the forms) rather than here, as 0118/0119 state for their columns.
+--   SELECT count(*) FROM "worker_resume_import" WHERE "identity_role_kind" NOT IN
+--     ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'conventional_machinist', 'tool_die_maker',
+--      'cam_programmer', 'cad_draughtsman', 'welder', 'painter_coating');   -- expect 0
+-- then:
 --   ALTER TABLE "worker_resume_import" DROP CONSTRAINT "wri_identity_role_kind_chk";
 --   ALTER TABLE "worker_resume_import" ADD CONSTRAINT "wri_identity_role_kind_chk" CHECK
 --     ("worker_resume_import"."identity_role_kind" IS NULL OR "worker_resume_import"."identity_role_kind"
