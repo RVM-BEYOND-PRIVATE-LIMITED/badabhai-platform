@@ -1,0 +1,122 @@
+name: Catalogue drift (live DB)
+
+# THE DAILY READ-ONLY DRIFT CHECK ON THE DATABASE THAT ACTUALLY SERVES WORKERS (#1680).
+#
+# ═══ THE GAP THIS FILLS, AND WHY IT IS NOT COVERED ELSEWHERE ═══
+#
+# Two workflows already seed a database and then verify it, and neither of them protects a
+# real one:
+#
+#   ci.yml         seeds + verifies an EPHEMERAL container that is deleted at end of run.
+#   staging-cd.yml seeds + verifies a live database — but it is `workflow_dispatch` only and
+#                  inert until a human wires the `staging` GitHub Environment.
+#
+# So nothing observed the database the app actually reads. Measured cost of that (#1675): the
+# alias overlay's last two commits landed 2026-09-02 and the rows never reached the database.
+# For three weeks the whole Batch 1 drawing-office and part-programming vocabulary was
+# unreachable — `cad`, `autocad`, `draughtsman`, `नक्शा`, the CAM tranche, `ग्राइंडिंग` — and
+# "cad draughtsman" folded at L1 to a GOLF CADDIE, so a draughtsman was asked his trade twice.
+# Nothing went red anywhere, because the corpus tests read the JSONL and the JSONL was correct.
+#
+# ═══ DETECTION ONLY. THIS WORKFLOW NEVER WRITES ═══
+#
+# Both runners are read-only and exit 1 on a failed check, which is the whole mechanism —
+# there is no bespoke assertion here to drift from the gate. FIXING drift stays manual and
+# runbook-governed (production-release-runbook.md P3), deliberately: `ops-guard.ts` demands
+# two separate authorisation signals before anything writes to a production-like target, and
+# the repo's locked convention is that seeds and migrations are applied by a human. A cron
+# that quietly re-seeded production would be automating exactly past that.
+#
+# So: this tells you drift exists within a day. A person decides what to do about it.
+#
+# ═══ GUARDED / INERT BY DEFAULT, same posture as staging-cd.yml ═══
+#
+# It reads `DATABASE_URL` from the `catalogue-check` GitHub Environment. If that secret is
+# absent the guard prints a `::notice::` and the job exits 0 WITHOUT connecting — an
+# unconfigured repo must not show a permanently red daily workflow, because a check that is
+# always red is a check nobody reads. To activate: create the `catalogue-check` Environment
+# and add `DATABASE_URL` (a read-only role is sufficient and preferred).
+#
+# THE CONNECTION STRING IS NEVER ECHOED. The guard tests emptiness only and prints no part of
+# it; both runners print ids and counts. `verify-job-domains.ts` documents its own output as
+# "ids + counts" and names alias TEXT (reviewed public vocabulary) on failure — no worker data
+# is reachable from either script.
+
+on:
+  schedule:
+    # 06:00 UTC daily. A gap found here is at most ~24h old; the one that prompted this
+    # workflow was three weeks old.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One at a time. A manual dispatch during the nightly run would open a second connection to
+  # the same database to compute the same read-only answer.
+  group: catalogue-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Catalogue + pack drift (read-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: catalogue-check
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Guard — is this repo wired for the live check?
+        id: guard
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::notice::catalogue-check not wired (no DATABASE_URL in the 'catalogue-check' Environment) — skipping. See this file's header to activate."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.guard.outputs.wired == 'true'
+
+      - name: Install pnpm
+        # No `version:` here on purpose — it would conflict with the
+        # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).
+        if: steps.guard.outputs.wired == 'true'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        if: steps.guard.outputs.wired == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Occupation catalogue first, then packs — the order staging-cd.yml uses, and the order
+      # they depend in: `profiling_family_binding` references ISCO unit codes that only exist
+      # once the domains are in. `set -eo pipefail` so the first failure is the one reported.
+      #
+      # NEITHER TAKES `--apply` AND NEITHER HAS ONE. These are verifiers, not seeders; the
+      # `--apply` flag belongs to the seed/normalize family this workflow deliberately does
+      # not run.
+      - name: Verify occupation catalogue + question packs (live DB)
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          set -eo pipefail
+          pnpm --filter @badabhai/db db:verify:domains
+          pnpm --filter @badabhai/db db:verify:packs
+
+      # The failure line a person actually reads at 06:00. The gates above already print WHICH
+      # check failed and the command that fixes it; this says where the authority to run that
+      # command lives, because the answer is a runbook and not this workflow.
+      - name: Explain a failure
+        if: failure() && steps.guard.outputs.wired == 'true'
+        run: |
+          echo "::error::Live catalogue/pack drift. The step above names the failing check and its fix command."
+          echo "::error::Applying it is a MANUAL, runbook-governed step: docs/ops/production-release-runbook.md (P3 — Backfills and seeders)."
+          echo "::error::Seed/normalize runners refuse to write without BOTH --i-am-authorised-to-write-to-production and OPS_ALLOW_PRODUCTION=<runner>. That guard is intentional; do not automate past it."
