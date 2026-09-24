@@ -1,0 +1,703 @@
+{
+  "_why": "Role track for the FITTER, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's second pack. fam_fitting stays the generic ISCO-unit-7233 interview and is NOT touched; this pack belongs to fam_fitter, which binds the NCO fitting occupations directly (job_domain specificity 50 beats unit 40), so a bench, assembly or plant fitter gets fitting depth and every other worker under 7233 -- the diesel mechanic, the pump mechanic, the loco and marine fitters -- keeps the interview they have today.",
+  "_scope": "BENCH, ASSEMBLY, MAINTENANCE AND ERECTION FITTING on rotating plant -- gearboxes, pumps, conveyors and hydraulic power packs -- which is the range the reference page shows inside the one word 'fitter'. fitter_work_type is asked of everyone rather than used as a router, because the page's own worker does all three and the ITI trade name does not say which. The level ladder (Helper / Fitter / Senior Fitter) is asked as fitter_level so the sheet can say which rung the man stands on; RoleFormDescriptor.levelLadder is the list it offers. Engine, vehicle and pump MECHANICS are not bound here and are not asked about.",
+  "_depth": "THE TIER GATE IS fitting_experience, asked FIRST, and it is FITTER.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (fitting_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15. The three fresher items are gated fitting_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10. 16 items, none duplicating a qp_universal key.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED FITTER REFERENCE RESUME (Suresh Pawar, page 8), not invented. Its seven rows are Fitting type, Equipment worked on, Bench & assembly work, Tools & instruments, Drawings, Alignment held and Sector worked, and every one has a question here that fills it. Bench & assembly work and Tools & instruments each carry SEVEN options because the page prints seven in each; trimming to the chip guideline's six would have dropped a row value the page shows. fitter_work_type adds 'Bench fitting' beside the page's three because jd_nco_7233_0200 'Fitter, Bench' is bound to this family and its worker would otherwise have no chip. Alignment held is a BANDED single_select, the welder's plate ruling: the page prints 'Coupling alignment to 0.05 mm', which is a band, and a typed number would not render as one. The page prints Bench & assembly work like the sheet metal page's Operations and Tools & instruments like its Measuring instruments, so the first is a chip row and the second a tick row -- read off the layout's parallel, since the extracted text cannot show a tick. The four depth items -- fitter_hydraulic_work (tier 1), fitter_overhaul, fitter_erection and fitter_fault_finding (tier 2) -- have NO sheet row -- the ratified page has none and this pack does not invent one; they are matching data in worker_attributes. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable. So the alignment bands are point_one / point_zero_five / point_zero_two; the LABEL keeps the real figure ('0.05 mm tak'). measuring_tools, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first) to keep a sheet on one page, and a private key would opt this trade out of that. measuring_tools carries the page's whole 'Tools & instruments' row -- four instruments and three fitting tools -- because the page prints them as one row in the instruments slot. The work-type key is fitter_work_type and NOT fitting_type: qp_fitting@1 already owns fitting_type with a different vocabulary (bench / maintenance / pipe / assembly), and one key with two vocabularies would let an answer captured under one pack print through the other's dictionary.",
+  "pack_id": "qp_fitter",
+  "version": 1,
+  "family_id": "fam_fitter",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising fitter -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific, and an ITI Fitter trainee spends his first year at the bench and vice, so that leads. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "fitting_experience",
+      "prompt_text": "Fitting ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal fitter ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "fitting_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_work_type",
+      "prompt_text": "Aap kis tarah ka fitting kaam karte hain?",
+      "why_text": "Fitting ke kai tarah hote hain.",
+      "retry_text": "Assembly, maintenance ya erection, kaunsi fitting karte hain?",
+      "target_kind": "attribute",
+      "target_field": "fitter_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "assembly_fitting",
+          "label_text": "Assembly fitting",
+          "value_text": "assembly_fitting"
+        },
+        {
+          "option_key": "maintenance_fitting",
+          "label_text": "Maintenance fitting",
+          "value_text": "maintenance_fitting"
+        },
+        {
+          "option_key": "erection_commissioning",
+          "label_text": "Erection aur commissioning",
+          "value_text": "erection_commissioning"
+        },
+        {
+          "option_key": "bench_fitting",
+          "label_text": "Bench fitting",
+          "value_text": "bench_fitting"
+        },
+        {
+          "option_key": "other_fitting",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_level",
+      "prompt_text": "Aap khud ko kis level ka fitter maante hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "fitter_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "fitter",
+          "label_text": "Fitter",
+          "value_text": "fitter"
+        },
+        {
+          "option_key": "senior_fitter",
+          "label_text": "Senior fitter",
+          "value_text": "senior_fitter"
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_equipment",
+      "prompt_text": "Kaunsi machine ya equipment par fitting ka kaam kiya hai?",
+      "why_text": "Equipment ka tajurba employer sabse pehle dekhte hain.",
+      "retry_text": "Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "fitter_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "gearbox",
+          "label_text": "Gearbox",
+          "value_text": "gearbox"
+        },
+        {
+          "option_key": "centrifugal_pump",
+          "label_text": "Centrifugal pump",
+          "value_text": "centrifugal_pump"
+        },
+        {
+          "option_key": "conveyor",
+          "label_text": "Conveyor",
+          "value_text": "conveyor"
+        },
+        {
+          "option_key": "hydraulic_power_pack",
+          "label_text": "Hydraulic power pack",
+          "value_text": "hydraulic_power_pack"
+        },
+        {
+          "option_key": "compressor",
+          "label_text": "Compressor",
+          "value_text": "compressor"
+        },
+        {
+          "option_key": "blower_fan",
+          "label_text": "Blower ya fan",
+          "value_text": "blower_fan"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitting_work",
+      "prompt_text": "Bench aur assembly ka kaunsa kaam khud karte hain?",
+      "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "retry_text": "Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "fitting_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "marking_scribing",
+          "label_text": "Marking aur scribing",
+          "value_text": "marking_scribing"
+        },
+        {
+          "option_key": "filing_scraping",
+          "label_text": "Filing aur scraping",
+          "value_text": "filing_scraping"
+        },
+        {
+          "option_key": "drilling_tapping",
+          "label_text": "Drilling aur tapping",
+          "value_text": "drilling_tapping"
+        },
+        {
+          "option_key": "bearing_fitting",
+          "label_text": "Bearing fitting",
+          "value_text": "bearing_fitting"
+        },
+        {
+          "option_key": "coupling_alignment",
+          "label_text": "Coupling alignment",
+          "value_text": "coupling_alignment"
+        },
+        {
+          "option_key": "belt_chain",
+          "label_text": "Belt aur chain tensioning",
+          "value_text": "belt_chain"
+        },
+        {
+          "option_key": "seal_gland",
+          "label_text": "Seal aur gland badalna",
+          "value_text": "seal_gland"
+        },
+        {
+          "option_key": "other_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?",
+      "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "dial_gauge",
+          "label_text": "Dial gauge",
+          "value_text": "dial_gauge"
+        },
+        {
+          "option_key": "feeler_gauge",
+          "label_text": "Feeler gauge",
+          "value_text": "feeler_gauge"
+        },
+        {
+          "option_key": "torque_wrench",
+          "label_text": "Torque wrench",
+          "value_text": "torque_wrench"
+        },
+        {
+          "option_key": "hydraulic_puller",
+          "label_text": "Hydraulic puller",
+          "value_text": "hydraulic_puller"
+        },
+        {
+          "option_key": "laser_alignment",
+          "label_text": "Laser alignment kit",
+          "value_text": "laser_alignment"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh paata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Seedhi 2D drawing",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "assembly_drawing",
+          "label_text": "Assembly drawing",
+          "value_text": "assembly_drawing"
+        },
+        {
+          "option_key": "hydraulic_circuit",
+          "label_text": "Assembly drawing aur hydraulic circuit dono",
+          "value_text": "hydraulic_circuit"
+        }
+      ]
+    },
+    {
+      "question_key": "fitting_alignment",
+      "prompt_text": "Coupling alignment kitni accuracy tak kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "fitting_alignment",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "point_one",
+          "label_text": "0.1 mm tak",
+          "value_text": "point_one"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "point_zero_five"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "point_zero_two"
+        },
+        {
+          "option_key": "no_alignment",
+          "label_text": "Alignment nahi karta",
+          "value_text": "none"
+        },
+        {
+          "option_key": "unknown_alignment",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke plant me fitting ka kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "auto_components",
+          "label_text": "Auto components",
+          "value_text": "auto_components"
+        },
+        {
+          "option_key": "plant_maintenance",
+          "label_text": "Plant maintenance",
+          "value_text": "plant_maintenance"
+        },
+        {
+          "option_key": "steel_cement",
+          "label_text": "Steel ya cement plant",
+          "value_text": "steel_cement"
+        },
+        {
+          "option_key": "process_plant",
+          "label_text": "Chemical ya process plant",
+          "value_text": "process_plant"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_hydraulic_work",
+      "prompt_text": "Hydraulic ka kaunsa kaam khud karte hain?",
+      "why_text": "Hydraulic jaanne wale fitter ki plant me alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "fitter_hydraulic_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "hose_pipe",
+          "label_text": "Hose aur pipe line badalna",
+          "value_text": "hose_pipe"
+        },
+        {
+          "option_key": "cylinder_seal",
+          "label_text": "Cylinder ki seal kit badalna",
+          "value_text": "cylinder_seal"
+        },
+        {
+          "option_key": "power_pack_service",
+          "label_text": "Power pack ka oil aur filter",
+          "value_text": "power_pack_service"
+        },
+        {
+          "option_key": "valve_change",
+          "label_text": "Valve badalna",
+          "value_text": "valve_change"
+        },
+        {
+          "option_key": "no_hydraulic",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_overhaul",
+      "prompt_text": "Kis machine ka poora overhaul khud kar lete hain?",
+      "why_text": "Overhaul karne wale fitter ko senior kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "fitter_overhaul",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "gearbox_overhaul",
+          "label_text": "Gearbox overhaul",
+          "value_text": "gearbox_overhaul"
+        },
+        {
+          "option_key": "pump_overhaul",
+          "label_text": "Pump overhaul",
+          "value_text": "pump_overhaul"
+        },
+        {
+          "option_key": "cylinder_overhaul",
+          "label_text": "Hydraulic cylinder overhaul",
+          "value_text": "cylinder_overhaul"
+        },
+        {
+          "option_key": "conveyor_drive",
+          "label_text": "Conveyor drive aur pulley",
+          "value_text": "conveyor_drive"
+        },
+        {
+          "option_key": "compressor_overhaul",
+          "label_text": "Compressor overhaul",
+          "value_text": "compressor_overhaul"
+        },
+        {
+          "option_key": "no_overhaul",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_erection",
+      "prompt_text": "Erection me kaunsa kaam khud sambhalte hain?",
+      "why_text": "Erection aur commissioning jaanne wale ko site ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "fitter_erection",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "levelling",
+          "label_text": "Foundation par levelling",
+          "value_text": "levelling"
+        },
+        {
+          "option_key": "grouting",
+          "label_text": "Grouting aur foundation bolt",
+          "value_text": "grouting"
+        },
+        {
+          "option_key": "rigging",
+          "label_text": "Rigging aur lifting",
+          "value_text": "rigging"
+        },
+        {
+          "option_key": "trial_run",
+          "label_text": "Trial run aur commissioning",
+          "value_text": "trial_run"
+        },
+        {
+          "option_key": "no_erection",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fitter_fault_finding",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "fitter_fault_finding",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "vibration_noise",
+          "label_text": "Vibration aur awaaz",
+          "value_text": "vibration_noise"
+        },
+        {
+          "option_key": "bearing_heating",
+          "label_text": "Bearing garam hona",
+          "value_text": "bearing_heating"
+        },
+        {
+          "option_key": "oil_leakage",
+          "label_text": "Oil leakage",
+          "value_text": "oil_leakage"
+        },
+        {
+          "option_key": "misalignment",
+          "label_text": "Alignment bigadna",
+          "value_text": "misalignment"
+        },
+        {
+          "option_key": "gear_backlash",
+          "label_text": "Gear ka backlash",
+          "value_text": "gear_backlash"
+        },
+        {
+          "option_key": "no_fault",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "fitting_bench",
+          "label_text": "Fitting bench aur vice ka kaam",
+          "value_text": "fitting_bench"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "power_hacksaw",
+          "label_text": "Power hacksaw",
+          "value_text": "power_hacksaw"
+        },
+        {
+          "option_key": "lathe",
+          "label_text": "Lathe machine",
+          "value_text": "lathe"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "fitting_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

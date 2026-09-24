@@ -597,6 +597,31 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Line par aur kaunsi zimmedaari sambhalte hain?": "लाइन पर और कौनसी ज़िम्मेदारी संभालते हैं?",
   "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?":
     "असेंबली की कौनसी खराबी पकड़ कर सुधार लेते हैं?",
+  // qp_fitter@1 — Batch 2 part two. Six prompts reuse a twin above verbatim and are not
+  // repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
+  // "Aap kis tarah ka fitting kaam karte hain?" (qp_fitting's) and "Machine ki kaunsi dikkat aap
+  // sudhaar lete hain?" (the turner's).
+  "Fitting ka kitna tajurba hai?": "फिटिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal fitter ka kaam kiya hai?": "लगभग कितने साल फिटर का काम किया है?",
+  "Assembly, maintenance ya erection, kaunsi fitting karte hain?":
+    "असेंबली, मेंटेनेंस या इरेक्शन, कौनसी फिटिंग करते हैं?",
+  "Aap khud ko kis level ka fitter maante hain?": "आप खुद को किस लेवल का फिटर मानते हैं?",
+  "Kaunsi machine ya equipment par fitting ka kaam kiya hai?":
+    "कौनसी मशीन या इक्विपमेंट पर फिटिंग का काम किया है?",
+  "Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?":
+    "गियरबॉक्स, पंप, कन्वेयर या हाइड्रॉलिक, किस पर काम किया है?",
+  "Bench aur assembly ka kaunsa kaam khud karte hain?": "बेंच और असेंबली का कौनसा काम खुद करते हैं?",
+  "Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?":
+    "फाइलिंग, ड्रिलिंग, बेयरिंग या अलाइनमेंट, कौनसा काम करते हैं?",
+  "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?":
+    "नाप और फिटिंग के लिए कौनसे औज़ार इस्तेमाल करते हैं?",
+  "Coupling alignment kitni accuracy tak kar lete hain?":
+    "कपलिंग अलाइनमेंट कितनी एक्यूरेसी तक कर लेते हैं?",
+  "Kis industry ke plant me fitting ka kaam kiya hai?":
+    "किस इंडस्ट्री के प्लांट में फिटिंग का काम किया है?",
+  "Hydraulic ka kaunsa kaam khud karte hain?": "हाइड्रॉलिक का कौनसा काम खुद करते हैं?",
+  "Kis machine ka poora overhaul khud kar lete hain?": "किस मशीन का पूरा ओवरहॉल खुद कर लेते हैं?",
+  "Erection me kaunsa kaam khud sambhalte hain?": "इरेक्शन में कौनसा काम खुद संभालते हैं?",
 };
 
 /**
@@ -990,6 +1015,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "ज़िम्मेदारी संभालने वाले को ज़्यादा वेतन मिलता है।",
   "Kharabi pakadne wale ki line par zaroorat rehti hai.":
     "खराबी पकड़ने वाले की लाइन पर ज़रूरत रहती है।",
+  // qp_fitter@1 — why-texts. Twelve more are shared verbatim with packs twinned above: the
+  // tenure, drawing, sector and three fresher ones (the welder's), "Fitting ke kai tarah hote
+  // hain." (qp_fitting's), the level and equipment ones (the painter's), the tolerance one (the
+  // turner's), and the work and measuring ones (the sheet metal worker's).
+  "Hydraulic jaanne wale fitter ki plant me alag maang hai.":
+    "हाइड्रॉलिक जानने वाले फिटर की प्लांट में अलग माँग है।",
+  "Overhaul karne wale fitter ko senior kaam milta hai.": "ओवरहॉल करने वाले फिटर को सीनियर काम मिलता है।",
+  "Erection aur commissioning jaanne wale ko site ka kaam milta hai.":
+    "इरेक्शन और कमीशनिंग जानने वाले को साइट का काम मिलता है।",
+  "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.":
+    "दिक्कत सुधारने वाले फिटर की प्लांट पर ज़रूरत रहती है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

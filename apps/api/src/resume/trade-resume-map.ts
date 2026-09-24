@@ -2703,6 +2703,159 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE FITTER SHEET — Batch 2 part two's second.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Suresh Pawar, Fitter — Senior Fitter, page 8), row
+     * for row. Its capability block has SEVEN rows and this map has seven `from`s, in the page's
+     * own order: Fitting type, Equipment worked on, Bench & assembly work, Tools & instruments,
+     * Drawings, Alignment held, Sector worked. That order is also the template's bands — three
+     * chip rows, one tick row, three fact rows — so array order and band order agree.
+     *
+     * ONE ROW DIVERGES FROM THE PAGE, noted on the row rather than papered over: "Sector worked"
+     * is hand-set prose on the page. The chip/tick split between "Bench & assembly work" and
+     * "Tools & instruments" is read off the layout's parallel with the sheet metal page
+     * (Operations / Measuring instruments), because the extracted text cannot show a tick. This
+     * pack has no case in role-sheet-parity.render.test.ts yet, so nothing renders the persona
+     * end to end against page 8 — the map-vs-pack cross-checks in trade-resume-map.test.ts are
+     * what guard it.
+     *
+     * `fitter_level` IS DELIBERATELY ABSENT — the rung prints in the headline ("Fitter — Senior
+     * Fitter"), not in this block. So are the four depth answers (`fitter_hydraulic_work`,
+     * `fitter_overhaul`, `fitter_erection`, `fitter_fault_finding`): no ratified fitter page prints
+     * a row for them, and they are matching data in `worker_attributes`.
+     */
+    pack_id: "qp_fitter",
+    // A FITTER IS HIRED ON WHAT HE HAS FITTED — "maintenance fitter, gearbox and pump overhaul" —
+    // so the heading is the page's own, not a machinist's machines.
+    section_title: "Fitting work, equipment & capability",
+    capability: [
+      {
+        from: "fitter_work_type",
+        // §5.1 rank 2: "maintenance fitter" and "assembly fitter" are the literal words of the job
+        // advertisement — the fitter's equivalent of a turner's controllers.
+        rank: 21,
+        label: "Fitting type",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE PAGE'S: the page prints the first three in this order.
+        // `bench_fitting` is the pack's fourth chip — the bound "Fitter, Bench" worker's own — and
+        // sits last so the ratified persona renders exactly as printed.
+        values: {
+          assembly_fitting: "Assembly fitting",
+          maintenance_fitting: "Maintenance fitting",
+          erection_commissioning: "Erection & commissioning",
+          bench_fitting: "Bench fitting",
+        },
+      },
+      {
+        from: "fitter_equipment",
+        rank: 22,
+        // THE HEADLINE'S THIRD SEGMENT: the page leads "Gearboxes, Centrifugal pumps, Conveyors" —
+        // this row's first three values in dictionary order, and `toolsPhrase` caps at three, so
+        // the segment reproduces character for character.
+        inHeadline: true,
+        // §4.3 machines max 4, and the page prints exactly four.
+        maxValues: 4,
+        label: "Equipment worked on",
+        kind: "chips",
+        // PLURAL, AS THE PAGE PRINTS THEM. The chip is the worker's singular ("Gearbox"); the sheet
+        // says what he has worked on.
+        values: {
+          gearbox: "Gearboxes",
+          centrifugal_pump: "Centrifugal pumps",
+          conveyor: "Conveyors",
+          hydraulic_power_pack: "Hydraulic power packs",
+          compressor: "Compressors",
+          blower_fan: "Blowers & fans",
+        },
+      },
+      {
+        from: "fitting_work",
+        // §5.1 rank 4: bearing fitting and coupling alignment are what separate a helper who
+        // holds the spanner from a fitter who can be left with the machine.
+        rank: 41,
+        // NO CAP. The page prints SEVEN values, and a cap would drop one the ratified sheet shows —
+        // the welder's `Equipment` defect, avoided rather than repeated.
+        label: "Bench & assembly work",
+        kind: "chips",
+        values: {
+          marking_scribing: "Marking & scribing",
+          filing_scraping: "Filing & scraping",
+          drilling_tapping: "Drilling & tapping",
+          bearing_fitting: "Bearing fitting",
+          coupling_alignment: "Coupling alignment",
+          belt_chain: "Belt & chain tensioning",
+          seal_gland: "Seal & gland replacement",
+        },
+      },
+      {
+        from: "measuring_tools",
+        // §5.1 rank 5, the instruments slot. The page puts three fitting TOOLS (torque wrench,
+        // hydraulic puller, laser alignment kit) in the same row as its four instruments, under
+        // its own label, and this row prints them the same way.
+        rank: 51,
+        label: "Tools & instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          dial_gauge: "Dial gauge",
+          feeler_gauge: "Feeler gauge",
+          torque_wrench: "Torque wrench",
+          hydraulic_puller: "Hydraulic puller",
+          laser_alignment: "Laser alignment kit",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          assembly_drawing: "Reads 2D assembly drawings",
+          hydraulic_circuit: "Reads 2D assembly drawings and hydraulic circuits",
+        },
+      },
+      {
+        from: "fitting_alignment",
+        // 6x, the tolerance slot the turner's `tolerance_band` holds: a precision claim, not a
+        // skill.
+        rank: 62,
+        label: "Alignment held",
+        kind: "fact",
+        // BANDED, on the welder's plate ruling: the worker taps a band ("0.05 mm tak") and the
+        // sheet prints the page's sentence. `none` ("Alignment nahi karta") has no label, on the
+        // drawing row's ruling.
+        values: {
+          point_one: "Coupling alignment to 0.1 mm",
+          point_zero_five: "Coupling alignment to 0.05 mm",
+          point_zero_two: "Coupling alignment to 0.02 mm",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. A RECORDED DIVERGENCE on the ruling every
+        // shipped sector row carries: the page's "Auto components · plant maintenance" is
+        // hand-set, with a down-cased second value no closed dictionary may produce (§8), and
+        // this row reads "Auto components · Plant maintenance".
+        values: {
+          auto_components: "Auto components",
+          plant_maintenance: "Plant maintenance",
+          steel_cement: "Steel & cement plants",
+          process_plant: "Chemical & process plants",
+          general_engg: "General engineering",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {
