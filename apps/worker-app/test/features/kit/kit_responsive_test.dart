@@ -1,7 +1,7 @@
 // D13 — the interview-kit list and detail across every shape a worker owns, at
-// system font scales 1.0 / 1.5 / 2.0, plus the v3 chrome both screens gained:
-// the compact ShiftBlueHeader (back tooltip 'Wapas'), a 600dp content cap on a
-// tablet, and a 48dp floor on every tappable thing.
+// system font scales 1.0 / 1.5 / 2.0, plus the redesigned list chrome (the
+// interview_kit.png header with back tooltip 'Wapas', search, Audio, Bolein), a
+// 600dp content cap on a tablet, and a 48dp floor on every tappable thing.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -18,6 +18,7 @@ import 'package:badabhai_worker_app/features/kit/presentation/cubit/kit_detail_c
 import 'package:badabhai_worker_app/features/kit/presentation/cubit/kit_list_cubit.dart';
 import 'package:badabhai_worker_app/features/kit/presentation/kit_detail_screen.dart';
 import 'package:badabhai_worker_app/features/kit/presentation/kit_screen.dart';
+import 'package:badabhai_worker_app/features/kit/presentation/widgets/interview_kit_widgets.dart';
 
 import '../../support/kit_matrix.dart';
 
@@ -166,7 +167,7 @@ void main() {
     // The chrome is built once, above the state switch — a failed load must not
     // strand the worker without a way back.
     expect(find.byTooltip('Wapas'), findsOneWidget);
-    expect(find.text('Interview kit'), findsOneWidget);
+    expect(find.text('Interview Kit'), findsOneWidget);
     expect(find.text('Try again'), findsOneWidget);
   });
 
@@ -202,7 +203,10 @@ void main() {
     WidgetTester tester,
   ) async {
     await pumpAt(tester, list(), size: const Size(768, 1024));
-    expect(widthOf(tester, find.byType(KitCard).first), lessThanOrEqualTo(600));
+    expect(
+      widthOf(tester, find.byType(InterviewKitCard).first),
+      lessThanOrEqualTo(600),
+    );
 
     await pumpAt(tester, detail(), size: const Size(768, 1024));
     expect(widthOf(tester, find.byType(KitCard).first), lessThanOrEqualTo(600));
@@ -218,15 +222,49 @@ void main() {
     await expectKitTapTargets(tester);
   });
 
-  testWidgets('the checklist stub still says only what is true', (
+  testWidgets('the ready list draws the mock chrome: section header and tip', (
     WidgetTester tester,
   ) async {
     await pumpAt(tester, list(), size: const Size(390, 844));
 
-    await tester.tap(find.text('Interview din ki checklist'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('AVAILABLE TRADE KITS'), findsOneWidget);
+    expect(find.text('Tap to open syllabus'), findsOneWidget);
+    expect(find.byType(InterviewKitTipCard), findsOneWidget);
+    expect(find.text(InterviewKitTipCard.title), findsOneWidget);
+  });
 
-    expect(find.text('Jald aa raha hai'), findsOneWidget);
+  testWidgets('typing filters the loaded kits to a real title match', (
+    WidgetTester tester,
+  ) async {
+    await pumpAt(tester, list(), size: const Size(390, 844));
+
+    await tester.enterText(find.byKey(const Key('kitSearchField')), 'vmc');
+    await tester.pump();
+
+    expect(find.text('VMC Operator'), findsOneWidget);
+    expect(find.text('CNC Operator'), findsNothing);
+    expect(find.text('Fitter'), findsNothing);
+  });
+
+  testWidgets('a search that matches nothing says so, and can be cleared', (
+    WidgetTester tester,
+  ) async {
+    await pumpAt(tester, list(), size: const Size(390, 844));
+
+    await tester.enterText(
+      find.byKey(const Key('kitSearchField')),
+      'welder',
+    );
+    await tester.pump();
+
+    expect(find.text(InterviewKitListView.emptySearch), findsOneWidget);
+    // The catalogue is NOT empty — never the "no kits exist" line for a miss.
+    expect(find.text(InterviewKitListView.emptyCatalogue), findsNothing);
+
+    await tester.tap(find.text('Search saaf karein'));
+    await tester.pump();
+
+    expect(find.text('CNC Operator'), findsOneWidget);
+    expect(find.text('VMC Operator'), findsOneWidget);
   });
 }
