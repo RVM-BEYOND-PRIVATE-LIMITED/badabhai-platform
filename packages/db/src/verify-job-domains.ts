@@ -107,9 +107,9 @@ export function expectedCuratedAliases(dir?: string): CuratedAlias[] {
  * reachable, and without it retrieval falls back to the skeleton fold: measured through the
  * shipped index, "cad draughtsman" resolves to `jd_nco_9621_0300` — a GOLF CADDIE — at L1
  * confidence 0.72, which is under `AUTO_FLOOR` and so disambiguates instead of pinning. The
- * worker is asked their trade a second time and offered chips labelled with family
- * `label_hi`, because `pickChipLabel` falls to the family label when a domain's only alias is
- * its own English title. With the overlay seeded the same phrase is an L0 exact hit at 0.97
+ * worker is asked their trade a second time and offered chips labelled with the family's
+ * label (its Devanagari `label_hi` until #1679, its Latin twin since), because `pickChipLabel`
+ * falls to the family label when a domain's only alias is its own English title. With the overlay seeded the same phrase is an L0 exact hit at 0.97
  * and pins outright. The difference between those two interviews is this file's blind spot.
  *
  * ═══ ROW EXISTENCE, NOT SEARCHABILITY ═══

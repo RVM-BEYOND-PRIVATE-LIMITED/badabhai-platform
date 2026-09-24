@@ -41,8 +41,13 @@ Families and bindings live in `packages/db/data/question-packs/_families.jsonl`.
 {"kind":"binding","family_id":"fam_cnc_turning","job_domain_id":"jd_nco_7223_0701"}  // Lathe Machinist
 ```
 
-`label_hi` is what the worker is SHOWN when the engine confirms their trade, so it must be the word
-they would use — "टर्निंग और खराद", not a transliteration of the NCO title.
+`label_hi` must be the word the worker would use: "टर्निंग और खराद", not a transliteration of the
+NCO title. It is the catalogue's Devanagari name. **What the worker is SHOWN** (the disambiguation
+chip, the trust pill, the `primary_trade` fallback) is its **Latin twin**, `FAMILY_CHIP_LABELS` in
+`apps/api/src/occupation/family-chip-labels.ts`: `fam_cnc_turning: "turning aur kharad"`. Display
+script is Latin (#1679). Write the twin as the same words in Latin letters, spelled the way the
+alias corpus spells them. `family-chip-labels.test.ts` fails until every family in `_families.jsonl`
+has one.
 
 **Two families may never claim the same target.** `fam_machining` already binds
 `isco_unit_code: "7223"`, so a second family binding 7223 is rejected by the corpus validator:
@@ -370,7 +375,10 @@ anything with `max_asks: 2`.
 - **One** `is_none_of_above` per item, at most.
 - Keep to ~6. `persona.json` sets `maxChips: 4` for generated turns; authored packs run slightly
   wider, but a worker scanning ten chips on a phone is a worker who abandons.
-- One script per item — never mix Latin and Devanagari in one option list.
+- One script per item — never mix Latin and Devanagari in one option list. **That script is Latin**
+  (#1679): romanized Hinglish, like every served string. Devanagari is for read-aloud (step 8 below)
+  and for RECOGNITION (the aliases in §2b), never for display. Generated disambiguation chips follow
+  the same rule: `pickChipLabel` takes a Latin alias first, then the family's Latin twin.
 - Follow-ups via `parent_item_key` are **depth 1**. The validator rejects cycles and depth > 1.
 
 ---
@@ -382,7 +390,8 @@ anything with `max_asks: 2`.
    domains own them, and decide which of those codes are unambiguously your trade. Authoring before
    this step is how you write a pack nobody reaches.
 3. Find and **verify** every NCO `job_domain_id` exists in the catalogue.
-4. Add the family + one binding per occupation to `_families.jsonl`.
+4. Add the family + one binding per occupation to `_families.jsonl`, and the family's **Latin twin**
+   to `FAMILY_CHIP_LABELS` (`apps/api/src/occupation/family-chip-labels.ts`) — see §2.
 5. Author `packs/<pack_id>.json` (v1; later versions are `<pack_id>@<n>.json` — a shipped version is
    immutable and is never overwritten).
 6. Gate question first; tier the rest; keep the arithmetic inside the ask budget.

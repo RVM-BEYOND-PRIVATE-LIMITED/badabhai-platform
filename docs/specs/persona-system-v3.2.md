@@ -237,3 +237,22 @@ a version string in a settings screen or a status affordance on a card, which ar
 speaking as an app. Two such strings exist (`Made in India 🇮🇳`, `Aapne apply kar diya ✓`)
 and are deliberately left alone. If a future check wants to enforce emoji-freedom, it must
 scope itself to persona surfaces or it will generate false positives forever.
+
+### Display script (ruling, 2026-09-24, #1679)
+
+**What a worker reads is Latin script: romanized Hinglish.** That already held for every served
+pack string, the persona's own lines and the "Kuch aur" escape. It did not hold for the one surface
+generated rather than authored: the trade chips offered when a worker's words fit several trades,
+and the trade echoed back once one is pinned. Those were ranked by string length, which is not
+script-neutral, so a CAD draughtsman was offered `cad`, `नक्शा`, `Kuch aur`. The label a worker taps
+is recorded as their answer verbatim, so a chip in the wrong script is a wrong answer, not only a
+wrong look.
+
+- **Chips and the pinned trade are Latin.** The worker's own alias comes first; after it, the trade
+  family's Latin label (`FAMILY_CHIP_LABELS`, `apps/api/src/occupation/family-chip-labels.ts`).
+- **Devanagari stays for read-aloud** (the `question-tts-text.ts` sidecar) **and for recognition**
+  (a Devanagari alias is how a Devanagari speech transcript is still understood). It is not a
+  display script. The one path left that can still show it is a fallback for a trade family the
+  running code has no Latin label for, and that path logs a warning naming the family.
+- The family labels were written as the same words as the family's Devanagari `label_hi`, in Latin
+  letters. They are drafted, not ratified; see `docs/registers/trade-content-ratification.md`.

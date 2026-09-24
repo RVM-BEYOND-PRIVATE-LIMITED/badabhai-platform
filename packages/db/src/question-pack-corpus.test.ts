@@ -118,8 +118,9 @@ describe("families and bindings — each defect must be caught", () => {
   });
 
   it("WARNS but does not fail when label_hi is missing", () => {
-    // It is the worker-facing confirmation, so its absence matters — but label_en is a
-    // working fallback, and failing the corpus over copy would block a schema fix.
+    // It backs the worker-facing confirmation, so its absence matters — but the Latin twin
+    // and label_en are working fallbacks, and failing the corpus over copy would block a
+    // schema fix.
     const c = valid();
     c.families[0]!.label_hi = null;
     expect(validateQuestionPackCorpus(c).join()).toContain("WARN label_hi");

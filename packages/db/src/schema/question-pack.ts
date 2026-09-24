@@ -72,9 +72,12 @@ import type {
  * it is a week of work rather than a quarter of it, and every occupation inherits its
  * family's answer through the binding table.
  *
- * `label_hi` matters more than it looks: it is what a worker is SHOWN when the engine
- * says "so you're a welder?" — the trust moment of the whole interview. `label_en` is
- * frequently unusable for that ("Metal Working Machine Tool Setters and Operators").
+ * `label_hi` is the family's Devanagari name. What a worker is SHOWN when the engine says
+ * "so you're a welder?" — the trust moment of the whole interview — is its Latin-script
+ * twin, `FAMILY_CHIP_LABELS` in `apps/api/src/occupation/family-chip-labels.ts`: display
+ * script is Latin (#1679). `label_hi` is only the fallback for a family that map does not
+ * know yet. `label_en` is frequently unusable for either ("Metal Working Machine Tool
+ * Setters and Operators").
  */
 export const profilingFamilies = pgTable(
   "profiling_family",

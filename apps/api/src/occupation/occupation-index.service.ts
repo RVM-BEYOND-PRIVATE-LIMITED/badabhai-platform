@@ -22,6 +22,7 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 
 import { OccupationRepository } from "./occupation.repository";
+import { FAMILY_CHIP_LABELS } from "./family-chip-labels";
 import { buildOccupationSnapshot, type OccupationSnapshot } from "./occupation-index";
 
 /**
@@ -116,6 +117,7 @@ export class OccupationIndexService implements OnModuleInit, OnModuleDestroy {
       }
 
       this.current = next;
+      this.warnOnUnlabelledFamilies(familyLabels);
       this.logger.log(
         `occupation index built: ${next.domains.size} domains, ${next.aliasCount} aliases, ` +
           `${next.spans.exact.size} exact keys, ${next.spans.skeleton.size} skeleton keys, ` +
@@ -132,5 +134,23 @@ export class OccupationIndexService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.building = false;
     }
+  }
+
+  /**
+   * Say so when the catalogue holds a family this build has no Latin label for.
+   *
+   * Those families' chips fall back to Devanagari `label_hi` (see `pickChipLabel`), which is
+   * correct as a fallback and invisible as a symptom: the chips look fine to anyone who does not
+   * read the script rule. It happens when the database is seeded from a newer corpus than the
+   * running code, after a rollback, or for a retired family nobody deleted. Family ids only.
+   */
+  private warnOnUnlabelledFamilies(familyLabels: ReadonlyMap<string, string | null>): void {
+    const unlabelled = [...familyLabels.keys()].filter((id) => !Object.hasOwn(FAMILY_CHIP_LABELS, id));
+    if (unlabelled.length === 0) return;
+    this.logger.warn(
+      `${unlabelled.length} catalogue famil${unlabelled.length === 1 ? "y has" : "ies have"} no ` +
+        `Latin chip label and will be shown in Devanagari (#1679): ${unlabelled.sort().join(", ")}. ` +
+        `Add them to FAMILY_CHIP_LABELS.`,
+    );
   }
 }
