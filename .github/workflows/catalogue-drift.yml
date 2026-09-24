@@ -117,6 +117,21 @@ jobs:
         if: steps.guard.outputs.wired == 'true'
         run: pnpm install --frozen-lockfile
 
+      # REQUIRED, and the first dispatch of this workflow is what proved it. Both runners
+      # reach `job-domain-corpus.ts`, which imports `@badabhai/profiling-lexicon` — a
+      # workspace package resolved through its `dist/`. Without this step the run dies on
+      # `Cannot find module '@badabhai/profiling-lexicon/dist/index.js'` before it opens a
+      # single connection, which looks exactly like a drift failure in the notification and
+      # is not one.
+      #
+      # `@badabhai/db...` — the trailing dots are pnpm for "this package AND its
+      # dependencies". ci.yml and staging-cd.yml both spell it `@badabhai/api...` because
+      # they go on to run the API; this job only ever runs two scripts out of `packages/db`,
+      # so it builds that subtree and not the Next.js apps.
+      - name: Build the db package (+ workspace deps)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm --filter "@badabhai/db..." build
+
       # Occupation catalogue first, then packs — the order staging-cd.yml uses, and the order
       # they depend in: `profiling_family_binding` references ISCO unit codes that only exist
       # once the domains are in. `set -eo pipefail` so the first failure is the one reported.

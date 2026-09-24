@@ -218,6 +218,16 @@ Unlike D1–D6 these are not a one-time cutover step. **Any release that changed
 `packages/db/data/` needs them, and running them when nothing changed is a no-op** — every row
 carries a deterministic, content-derived id, so a re-run inserts nothing.
 
+**Build first on a fresh checkout.** All four commands reach `job-domain-corpus.ts`, which
+imports `@badabhai/profiling-lexicon` through its `dist/`. An unbuilt tree fails with
+`Cannot find module '@badabhai/profiling-lexicon/dist/index.js'` before it opens a connection —
+which reads like a database problem and is not one.
+
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter "@badabhai/db..." build
+```
+
 ```bash
 # 1. Catalogue rows + aliases. Writes nothing that already exists.
 OPS_ALLOW_PRODUCTION=seed:domains \
