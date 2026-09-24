@@ -205,6 +205,58 @@ Data scripts D1–D6, then `verify-match-v1`. All are idempotent and re-runnable
 counts. The one that matters most for cutover continuity is the seeded-jobs conversion — without
 it, the worker feed is empty the moment `MATCH_V1_ENABLED` goes true.
 
+### P3-0 — The occupation catalogue and the question packs. Run these on EVERY release.
+
+**This section was missing until #1680, and the omission cost three weeks of silent breakage.**
+The alias overlay's last two commits landed 2026-09-02 (#1395 CAD draughtsman + CAM programmer,
+#1390 CNC grinding) and the rows never reached the database, because nothing in this runbook or
+any workflow told anyone to put them there. Measured on 2026-09-23: 35 curated aliases absent,
+`"cad draughtsman"` folding at L1 to a **golf caddie**, and a real draughtsman asked his trade
+twice with mixed-script chips (#1675, #1679).
+
+Unlike D1–D6 these are not a one-time cutover step. **Any release that changed
+`packages/db/data/` needs them, and running them when nothing changed is a no-op** — every row
+carries a deterministic, content-derived id, so a re-run inserts nothing.
+
+```bash
+# 1. Catalogue rows + aliases. Writes nothing that already exists.
+OPS_ALLOW_PRODUCTION=seed:domains \
+  pnpm --filter @badabhai/db db:seed:domains --apply --i-am-authorised-to-write-to-production
+
+# 2. REQUIRED, and separately, between the seed and any retrieval. Without it the new aliases
+#    have no `text_norm`, which verify-job-domains.ts calls "invisible to L0/L2 retrieval" —
+#    the ladder silently degrades to trigram-only and nothing looks wrong.
+OPS_ALLOW_PRODUCTION=normalize:aliases \
+  pnpm --filter @badabhai/db db:normalize:aliases --apply --i-am-authorised-to-write-to-production
+
+# 3. Question packs. Occupations FIRST: profiling_family_binding references ISCO unit codes
+#    that only exist once the domains are in.
+OPS_ALLOW_PRODUCTION=seed:packs \
+  pnpm --filter @badabhai/db db:seed:packs --apply --i-am-authorised-to-write-to-production
+
+# 4. The gates. Read-only, exit 1 on any FAIL. This is the verify step for 1–3.
+pnpm --filter @badabhai/db db:verify:domains
+pnpm --filter @badabhai/db db:verify:packs
+```
+
+**`--apply` IS REQUIRED.** Every script in this family is dry-run by default: without it they
+print what they would write, exit 0, and touch nothing. A seed step that passes while seeding
+nothing is worse than no seed step, because the green tick is the thing you would trust.
+
+**Both authorisation signals are required, and they are separate on purpose.** `ops-guard.ts`
+classifies any Supabase host as production-like from the connection string alone and refuses to
+write without the CLI flag *and* `OPS_ALLOW_PRODUCTION` naming that specific runner — so the
+variable cannot be left over from authorising a different one. Note each command above names a
+different runner. Do not export it once for the whole block.
+
+**STOP if:** `db:verify:domains` reports `curated (rvm) aliases` below the expected total, or
+any check FAILs after step 3. A catalogue that half-applied routes workers to the wrong trade,
+which is worse than one that is obviously empty.
+
+**What watches this between releases:** `.github/workflows/catalogue-drift.yml` runs steps 4
+daily against the live database and fails the job on drift. It never writes — applying the fix
+is this section, by a human.
+
 The skill-alias embedding seeder refuses to run under `NODE_ENV=production` by design. The
 sanctioned override is two deliberate acts (an env var **and** a CLI flag), it logs an audit line,
 and it requires `skill_embedding` to be allowlisted first — so it belongs *inside* P4, after that
