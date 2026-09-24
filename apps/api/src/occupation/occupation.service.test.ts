@@ -76,6 +76,25 @@ const snapshotWithFamilyLabels = buildOccupationSnapshot({
   ]),
 });
 
+/**
+ * A catalogue with a UNIVERSAL occupation (#1691): `jd_misc` owns no Latin alias, so its chip
+ * falls to its family's label, `fam_universal`'s "General" — the committed label, left to its
+ * default here so the test sees what production shows.
+ */
+const snapshotWithUniversal = buildOccupationSnapshot({
+  catalogVersion: "cat-1",
+  domains: [
+    { jobDomainId: "jd_weld", labelEn: "Welder, Gas", labelHi: null, iscoUnitCode: "7212" },
+    { jobDomainId: "jd_tailor", labelEn: "Tailor, General", labelHi: null, iscoUnitCode: "7531" },
+    { jobDomainId: "jd_misc", labelEn: "Other Workers", labelHi: null, iscoUnitCode: "9629" },
+  ],
+  aliases: [
+    { jobDomainId: "jd_weld", text: "welder" },
+    { jobDomainId: "jd_tailor", text: "darzi" },
+  ],
+  bindings: [...BINDINGS, { familyId: "fam_universal", isUniversal: true }],
+});
+
 function make(opts: {
   snapshot?: ReturnType<typeof buildOccupationSnapshot> | null;
   trigram?: TrigramCandidate[];
@@ -221,6 +240,44 @@ describe("OccupationService.resolve — refusing", () => {
       "plumber ka kaam",
       "Kuch aur",
     ]);
+  });
+
+  it("never offers the universal placeholder as a chip (#1691)", async () => {
+    // A tapped chip is the worker's answer of record, so a "General" chip recorded "General" as
+    // what they do. It drops out; the real trades and the escape stay.
+    const { svc } = make({
+      snapshot: snapshotWithUniversal,
+      trigram: [
+        { jobDomainId: "jd_weld", rawScore: 0.62 },
+        { jobDomainId: "jd_misc", rawScore: 0.61 },
+        { jobDomainId: "jd_tailor", rawScore: 0.6 },
+      ],
+    });
+    const r = await svc.resolve("kaam");
+    // Fixture guard: the universal occupation really does carry the placeholder, and really was
+    // one of the families `decide` put on offer — otherwise "no General chip" proves nothing.
+    expect(snapshotWithUniversal.domains.get("jd_misc")?.chipLabel).toBe("General");
+    expect(r.candidates.map((c) => c.jobDomainId)).toContain("jd_misc");
+    expect(r.status).toBe("disambiguate");
+    expect(r.disambiguationOptions.map((o) => o.label)).toEqual(["welder", "darzi", "Kuch aur"]);
+  });
+
+  it("ABANDONS the offer when dropping the placeholder leaves one real trade (#1691)", async () => {
+    // One chip is not a choice — the same shape `decide` already refuses — so the worker gets
+    // the open narrowing question instead of "welder / Kuch aur".
+    const { svc } = make({
+      snapshot: snapshotWithUniversal,
+      trigram: [
+        { jobDomainId: "jd_weld", rawScore: 0.62 },
+        { jobDomainId: "jd_misc", rawScore: 0.61 },
+      ],
+    });
+    const r = await svc.resolve("kaam");
+    expect(r.candidates.map((c) => c.jobDomainId)).toContain("jd_misc");
+    expect(r.status).toBe("unresolved");
+    expect(r.needsDisambiguation).toBe(false);
+    expect(r.disambiguationOptions).toEqual([]);
+    expect(r.reason).toContain("universal placeholder");
   });
 
   it("sets needs_disambiguation only when it is actually offering something", async () => {

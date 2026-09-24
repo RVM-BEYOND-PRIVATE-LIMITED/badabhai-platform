@@ -757,6 +757,7 @@ class ChatReply extends Equatable {
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.formOffer,
+    this.resumeUpdate,
   });
 
   final String reply;
@@ -879,6 +880,25 @@ class ChatReply extends Equatable {
   /// never a broken one.
   final FormOffer? formOffer;
 
+  /// #1689 — `resume_update`, the server's word on what it did with the
+  /// worker's answer to "Aapki nayi jaankari se resume update kar doon?".
+  ///
+  /// `'queued'` means the server has ACCEPTED the update and is doing all of it
+  /// itself: extract, confirm, generate. The app must then skip the profile
+  /// preview/confirm step entirely and send the worker to the Resume tab to
+  /// wait (#1688) — and must NOT call extract / confirm / generate, or it mints
+  /// a duplicate history entry for work the server already has in flight.
+  ///
+  /// Kept as a RAW string rather than an enum, like [FormOffer.kind]: an
+  /// unknown future value must read as "not queued" and leave today's flow
+  /// untouched, not force a new enum member into every switch. Absent, null or
+  /// non-string -> null, which is every ordinary turn and every older server.
+  final String? resumeUpdate;
+
+  /// Whether the server queued the resume update — the ONLY value that changes
+  /// the app's behaviour. Fails closed: anything else is today's flow.
+  bool get resumeUpdateQueued => resumeUpdate == 'queued';
+
   /// Parses the `lookahead` map defensively: a non-map, a non-string key, or a
   /// malformed entry is dropped (never thrown), so a bad prediction can never
   /// take down the whole reply (#371). Absent ⇒ empty map.
@@ -960,6 +980,12 @@ class ChatReply extends Equatable {
         // ordinary turn (see [FormOffer.fromJson] and the field doc). Never
         // thrown (#371): a malformed offer degrades to no card, not a lost reply.
         formOffer: FormOffer.fromJson(json['form_offer']),
+        // #1689 — absent / null / non-string -> null, which is every ordinary
+        // turn and every server built before the offer shipped. Never thrown
+        // (#371).
+        resumeUpdate: json['resume_update'] is String
+            ? json['resume_update'] as String
+            : null,
       );
 
   @override
@@ -980,6 +1006,7 @@ class ChatReply extends Equatable {
         ttsText,
         lookahead,
         formOffer,
+        resumeUpdate,
       ];
 }
 
@@ -2856,6 +2883,196 @@ ResumeImportRoute? _resumeImportRoute(String? raw) => switch (raw) {
       'form' => ResumeImportRoute.form,
       'chat' => ResumeImportRoute.chat,
       _ => null,
+    };
+
+// ---- Resume history (ADR-0043, issues #1687 / #1688) ----------------------
+//
+// `GET /resume/history` — the newest few resumes the worker has, each labelled
+// with the flow that produced it, plus whether an accepted chat update is still
+// on its way. Source of truth for every literal below: `ResumeHistoryItem` /
+// `ResumePendingUpdate` / `ResumeHistoryResponse` in
+// `apps/api/src/resume/resume.dto.ts`. Pinned by
+// `resume_history_contract_test.dart`.
+
+/// Which flow produced a resume (`generation_source`).
+///
+/// [unknown] exists because the server's `RESUME_SOURCES` can grow and a build
+/// that has never heard of a value must not crash the Resume tab. A row whose
+/// source is genuinely absent parses to `null` instead — that is a LEGACY row,
+/// written before the column existed, and it is the reason the parse is
+/// nullable rather than defaulting to [unknown]. Both render no badge; only one
+/// of them means "the server told us something we don't understand".
+enum ResumeSource { form, chat, resumeUpload, unknown }
+
+/// Why that resume was generated (`generation_trigger`). Same null/unknown
+/// split as [ResumeSource], for the same reason.
+enum ResumeTrigger {
+  profileConfirmed,
+  manual,
+  chatUpdateAccepted,
+  opsRegenerate,
+  unknown,
+}
+
+/// One row of `GET /resume/history`.
+///
+/// [renderStatus] is deliberately a RAW token (`'pending' | 'rendered' |
+/// 'failed'`), never printed — read [isRendered], which fails closed the same
+/// way [ResumeDocumentResponse] does: unknown is not ready.
+///
+/// NOTE WHAT IS ABSENT: `version`. It is numbered per PROFILE, not per history,
+/// so the newest card can legitimately read "v1" while an older one reads "v3".
+/// The server sends no version here and the app must never invent one.
+class ResumeHistoryItem extends Equatable {
+  const ResumeHistoryItem({
+    required this.resumeId,
+    this.profileId,
+    this.source,
+    this.trigger,
+    this.generatedAt,
+    this.renderStatus,
+    this.renderedAt,
+    this.isCurrent = false,
+  });
+
+  final String resumeId;
+
+  /// Which profile this resume was generated from. Null on an older server.
+  /// #1690 compares it against the profile the worker just confirmed.
+  final String? profileId;
+
+  /// Null = a legacy row with no recorded source; [ResumeSource.unknown] = a
+  /// value this build does not know. Neither shows a badge.
+  final ResumeSource? source;
+  final ResumeTrigger? trigger;
+  final DateTime? generatedAt;
+
+  /// Raw token. Never rendered — see [isRendered].
+  final String? renderStatus;
+  final DateTime? renderedAt;
+
+  /// Exactly one item is current when the list is non-empty.
+  final bool isCurrent;
+
+  /// Fails closed: only an explicit `'rendered'` counts as ready.
+  bool get isRendered => renderStatus == 'rendered';
+
+  /// Fails closed the other way too: only an explicit `'failed'` is a failure,
+  /// so an unknown token reads as "still working", never as "give up".
+  bool get hasFailedRender => renderStatus == 'failed';
+
+  factory ResumeHistoryItem.fromJson(Map<String, dynamic> json) =>
+      ResumeHistoryItem(
+        resumeId: json['resume_id'] as String? ?? '',
+        profileId: json['profile_id'] as String?,
+        source: _resumeSource(json['source'] as String?),
+        trigger: _resumeTrigger(json['trigger'] as String?),
+        generatedAt: DateTime.tryParse(json['generated_at'] as String? ?? ''),
+        renderStatus: json['render_status'] as String?,
+        renderedAt: DateTime.tryParse(json['rendered_at'] as String? ?? ''),
+        isCurrent: json['is_current'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        resumeId,
+        profileId,
+        source,
+        trigger,
+        generatedAt,
+        renderStatus,
+        renderedAt,
+        isCurrent,
+      ];
+}
+
+/// `pending_update` — an accepted chat update that has not landed yet (#1688).
+///
+/// [status] stays a RAW token for the same reason
+/// [ResumeHistoryItem.renderStatus] does. Both getters fail closed: an
+/// unrecognised status is neither "still going" nor "failed", which stops a
+/// future server value from either spinning the worker forever or showing them
+/// a failure that did not happen.
+class PendingUpdate extends Equatable {
+  const PendingUpdate({this.requestedAt, this.status});
+
+  final DateTime? requestedAt;
+
+  /// `'in_progress' | 'failed'`.
+  final String? status;
+
+  bool get isInProgress => status == 'in_progress';
+  bool get hasFailed => status == 'failed';
+
+  /// Null-returning, #371 discipline: a malformed `pending_update` degrades to
+  /// "nothing pending" rather than throwing the whole history away.
+  static PendingUpdate? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return PendingUpdate(
+      requestedAt: DateTime.tryParse(raw['requested_at'] as String? ?? ''),
+      status: raw['status'] as String?,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[requestedAt, status];
+}
+
+/// The whole `GET /resume/history` body.
+class ResumeHistory extends Equatable {
+  const ResumeHistory({
+    this.items = const <ResumeHistoryItem>[],
+    this.pendingUpdate,
+  });
+
+  /// Newest first, and already windowed by the server. The app does not
+  /// re-sort or re-trim: the window is the server's product decision.
+  final List<ResumeHistoryItem> items;
+  final PendingUpdate? pendingUpdate;
+
+  /// What a worker on an older server has, and what every failed read returns.
+  /// Never an error state — see `ResumeRepositoryImpl.loadResumeHistory`.
+  static const ResumeHistory empty = ResumeHistory();
+
+  bool get isEmpty => items.isEmpty && pendingUpdate == null;
+
+  /// The row the server marked current, or null when none is.
+  ResumeHistoryItem? get current {
+    for (final ResumeHistoryItem item in items) {
+      if (item.isCurrent) return item;
+    }
+    return null;
+  }
+
+  factory ResumeHistory.fromJson(Map<String, dynamic> json) => ResumeHistory(
+        items: (json['items'] as List<dynamic>? ?? <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(ResumeHistoryItem.fromJson)
+            .toList(growable: false),
+        pendingUpdate: PendingUpdate.fromJson(json['pending_update']),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[items, pendingUpdate];
+}
+
+/// Null for an absent source (a legacy row); [ResumeSource.unknown] for a value
+/// this build does not know. The difference is deliberate — see [ResumeSource].
+ResumeSource? _resumeSource(String? raw) => switch (raw) {
+      null => null,
+      'form' => ResumeSource.form,
+      'chat' => ResumeSource.chat,
+      'resume_upload' => ResumeSource.resumeUpload,
+      _ => ResumeSource.unknown,
+    };
+
+ResumeTrigger? _resumeTrigger(String? raw) => switch (raw) {
+      null => null,
+      'profile_confirmed' => ResumeTrigger.profileConfirmed,
+      'manual' => ResumeTrigger.manual,
+      'chat_update_accepted' => ResumeTrigger.chatUpdateAccepted,
+      'ops_regenerate' => ResumeTrigger.opsRegenerate,
+      _ => ResumeTrigger.unknown,
     };
 
 // ---- Layer A profile surfaces (ADR-0042 D9, issue #1545) ------------------

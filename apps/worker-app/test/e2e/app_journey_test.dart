@@ -358,5 +358,14 @@ void main() {
     // enforced/asserted server-side on events/ai_jobs/logs): the phone we typed
     // on the OTP screen never surfaces in the post-onboarding shell.
     expect(find.textContaining('9876500000'), findsNothing);
+
+    // Drain the reads the last tab focus started — the Resume tab now also
+    // re-reads `GET /resume/history` on focus (#1687/#1688), and mock mode
+    // answers every call behind a timer. A bare `Future.delayed` schedules no
+    // FRAME, so `pumpAndSettle` does not drain it — only advancing the clock
+    // does.
+    for (int i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 400));
+    }
   });
 }

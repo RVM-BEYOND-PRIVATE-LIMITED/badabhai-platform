@@ -1,4 +1,5 @@
-import '../../../core/api/api_models.dart' show ResumeDocument;
+import '../../../core/api/api_models.dart'
+    show ResumeDocument, ResumeHistory;
 
 /// What ONE `GET /resume/document` call learned: the structured document (or
 /// null) AND the PDF's real render state.
@@ -66,6 +67,29 @@ abstract interface class ResumeRepository {
   /// session. Throws a [Failure] on error. PRIVACY: the returned url embeds a
   /// token — callers launch it immediately and never log it.
   Future<String> resumeDownloadUrl();
+
+  /// The same signed url for ONE SPECIFIC resume of the worker's (#1687) — a
+  /// history card downloads ITS OWN pdf, not whatever the session last touched.
+  ///
+  /// [resumeDownloadUrl] is left exactly as it is rather than being widened:
+  /// it reads the CURRENT resume id off the session and every existing caller
+  /// means precisely that. Same error posture as it, including the 409 →
+  /// [ResumeNotReadyFailure] mapping a still-rendering pdf needs.
+  Future<String> resumeDownloadUrlFor(String resumeId);
+
+  /// [reportShared] for ONE SPECIFIC resume (#1687). Same swallow-everything
+  /// posture: a failed report must never cost the worker the share they made.
+  Future<void> reportSharedFor(String resumeId, String channel);
+
+  /// The worker's resume HISTORY — the newest few, plus whether an accepted
+  /// chat update is still on its way (GET /resume/history, #1687 / #1688).
+  ///
+  /// NEVER THROWS and never reports an error state. It returns
+  /// [ResumeHistory.empty] for every reason the route cannot answer, which the
+  /// Resume tab renders as "no history section at all" — byte-identical to the
+  /// screen before this feature existed. The route is an ADDITION to a screen
+  /// that already works; it must never be able to break it.
+  Future<ResumeHistory> loadResumeHistory();
 
   /// Best-effort report that the worker shared their resume (POST
   /// /resume/:id/share → `resume.shared`, #1317). [channel] is a closed

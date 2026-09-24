@@ -52,6 +52,7 @@ import { CHAT_UNAVAILABLE_REPLY } from "../chat/chat-replies";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { catalogVersionForEvent } from "../occupation/occupation.repository";
+import { isUniversalPlaceholderLabel } from "../occupation/family-chip-labels";
 import {
   DISAMBIGUATION_ESCAPE_KEY,
   DISAMBIGUATION_ESCAPE_LABEL,
@@ -4242,6 +4243,8 @@ function unavailable(): TurnResult {
  * `occupation.label` is safe to spend here in a way a model's free text would not be: it is
  * RETRIEVAL's pin, the same deterministic decision that chose the pack whose questions are about
  * to be served. Last in precedence, because the model's own labels are more specific when present.
+ * EXCEPT THE UNIVERSAL PLACEHOLDER (#1691): a pin that could only be placed in `fam_universal`
+ * reads "General", which names no trade, so it settles nothing and the pack asks `trade`.
  *
  * SKILLS ARE MATCHED AGAINST THE PACK'S OWN VOCABULARY, never written through verbatim. The draft
  * carries free text ("MIG welding") and the skills items are `multi_select` over a closed option
@@ -4258,7 +4261,8 @@ function settleFromLlmDraft(
   items: readonly QuestionPackItem[],
   turn: number,
 ): AnswerMap {
-  const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
+  const pinnedTrade = isUniversalPlaceholderLabel(occupationLabel) ? null : occupationLabel;
+  const trade = (draft.role_label ?? draft.domain_label ?? pinnedTrade ?? "").trim();
   // #1505 F2/ruling-1: `duration_months` FIRST (the ai-service's own parse, when it has one),
   // `parseDurationMonths(duration_text)` as the API-side fallback for an entry that reached here
   // with no month count at all. `resolvedMonths` returning `null` for even ONE entry is what

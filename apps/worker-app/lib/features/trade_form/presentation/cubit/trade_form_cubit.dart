@@ -291,14 +291,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     unawaited(_markerStore.markCompleted(marker));
   }
 
-  Future<void> load({String? sectionKey}) async {
+  Future<void> load({String? sectionKey, bool upgradeView = false}) async {
     // A non-null argument (re)arms the section walk; null KEEPS whatever is
     // armed — the error-state retry calls `load()` bare and must not widen a
     // section walk back to the full form.
     if (sectionKey != null) _sectionKey = sectionKey;
     emit(state.copyWith(status: TradeFormStatus.loading, loadError: null));
     try {
-      final TradeForm? form = await _repo.loadForm();
+      final TradeForm? form = await _repo.loadForm(upgradeView: upgradeView);
       if (form == null) {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;

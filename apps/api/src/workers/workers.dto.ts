@@ -276,3 +276,33 @@ export interface WorkerProfileSummary {
    */
   source: ProfileSource | null;
 }
+
+/**
+ * ADR-0043 launch gate — `POST /workers/resume-erasure-backfill` (ops, InternalServiceGuard).
+ *
+ * `dry_run` HAS NO DEFAULT, on purpose. The caller states whether this call renders, so an empty
+ * body (a probe, a typo) is a 400 rather than a read or a write. Paged by résumé id: pass the
+ * previous response's `next_after` until it comes back null.
+ */
+export const ResumeErasureBackfillSchema = z
+  .object({
+    dry_run: z.boolean(),
+    limit: z.number().int().min(1).max(500).default(100),
+    after: z.string().uuid().nullable().default(null),
+  })
+  .strict();
+export type ResumeErasureBackfillDto = z.infer<typeof ResumeErasureBackfillSchema>;
+
+export interface ResumeErasureBackfillResponse {
+  dry_run: boolean;
+  /** Every résumé still stale when this call started, this page included. */
+  stale: number;
+  /** Résumés in this page. */
+  batch: number;
+  /** Fail-closed re-renders queued (or already waiting) by this call. Always 0 on a dry run. */
+  enqueued: number;
+  /** Résumés in this page whose re-render could not be queued; a later run picks them up. */
+  failed: number;
+  /** Pass as `after` for the next page; null when this page was the last. */
+  next_after: string | null;
+}

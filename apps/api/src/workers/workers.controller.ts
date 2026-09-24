@@ -42,6 +42,9 @@ import {
   type ConfirmPhotoDto,
   SetMyWhatsappSchema,
   type SetMyWhatsappDto,
+  ResumeErasureBackfillSchema,
+  type ResumeErasureBackfillDto,
+  type ResumeErasureBackfillResponse,
   type MyWhatsappResponse,
   type WorkerProfileSummary,
   type WorkerResumeFields,
@@ -236,6 +239,25 @@ export class WorkersController {
    * R11: this legacy PUT is now gated behind InternalServiceGuard (ops-only).
    * The worker-self route is PATCH /workers/me/name (WorkerAuthGuard + ConsentGuard).
    */
+  /**
+   * ADR-0043 LAUNCH GATE (ops) — re-render, fail-closed, every résumé PDF drawn before its worker's
+   * latest erasure. Run it with `dry_run: true` first to size it; see
+   * `docs/ops/resume-erasure-backfill-runbook.md`. Ops-only: the ops console's shared secret, never
+   * a worker or payer token.
+   */
+  @Post("resume-erasure-backfill")
+  @HttpCode(200)
+  @UseGuards(InternalServiceGuard)
+  resumeErasureBackfill(
+    @Body(new ZodValidationPipe(ResumeErasureBackfillSchema)) dto: ResumeErasureBackfillDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<ResumeErasureBackfillResponse> {
+    return this.workersService.backfillErasureRerenders(
+      { dryRun: dto.dry_run, limit: dto.limit, after: dto.after },
+      ctx,
+    );
+  }
+
   @Put(":id/name")
   @HttpCode(200)
   @UseGuards(InternalServiceGuard)

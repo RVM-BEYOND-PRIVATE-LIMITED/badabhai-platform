@@ -519,6 +519,8 @@ const CONTRACT: ControllerContract[] = [
       list: [I],
       getProfile: [I],
       setName: [I],
+      // ADR-0043 launch gate — the ops erasure backfill.
+      resumeErasureBackfill: [I],
       setMyName: [C, W],
       getMyProfileSummary: [C, W],
     },

@@ -1150,6 +1150,13 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileResumeUpdateAnsweredPayload,
   },
+  // ADR-0043 launch gate — the erasure backfill queued a fail-closed re-render of one résumé PDF
+  // rendered before the worker's latest erasure. APPENDED AT THE END, per the append-only protocol.
+  "resume.erasure_backfill_enqueued": {
+    version: 1,
+    domain: "resume",
+    payload: p.ResumeErasureBackfillEnqueuedPayload,
+  },
 
   // ── Tiered profiling (migration 0126) ───────────────────────────────────────
   // APPENDED AT THE END, never inserted among the entries above — the registry is append-only by

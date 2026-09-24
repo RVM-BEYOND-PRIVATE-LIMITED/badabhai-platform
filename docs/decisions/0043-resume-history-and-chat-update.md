@@ -121,11 +121,20 @@ toggle storm; a RUNNING job may have read the face before the erasure, so it nev
   `schema-contract.ts` as `0125-resume-history-*`.
 - **Launch gate — pre-existing PDFs.** Erasures made BEFORE this change reached only one row, so
   older rendered résumés of workers who redid an interview can still carry a photo or number they
-  have since removed. `GET /resume/history` makes those rows listable; a one-time fail-closed
-  re-render of every rendered non-current row must run before the history UI (#1687) ships.
+  have since removed. `GET /resume/history` makes those rows listable. **Built as an ops
+  backfill:** `POST /workers/resume-erasure-backfill` (InternalServiceGuard). It re-renders
+  fail-closed every `rendered` résumé whose `rendered_at` is earlier than its worker's latest
+  erasure. The erasures are read from the audit spine: `worker.photo_removed`, a
+  `worker.whatsapp_recorded` that cleared the number, and a `worker.resume_prefs_updated` that
+  hid an uploaded photo. That rule is narrower than "every non-current row", because a history
+  entry drawn after the erasure is left as it was generated. It also catches the current row when
+  the old version-ordered "latest" re-rendered a different one. It runs with a dry run first, in
+  pages, and emits `resume.erasure_backfill_enqueued` per résumé. See
+  `docs/ops/resume-erasure-backfill-runbook.md`. It must be RUN on production; #1687 has shipped.
 - **Storage grows without bound** by design (R4). Every retained PDF carries the worker's name,
   phone and (if shown) photo, so a DPDP retention decision is owed before public launch. A retention rule, if ever wanted, is a new ADR —
   note `resume_disclosures.resume_ref` is `ON DELETE SET NULL`, so deleting a row an employer was
   shown loses the record of which version they saw.
 - **Rollout:** migrate → deploy (flag off: history recorded, nothing asked) → worker-app #1687–#1690
-  → flip `RESUME_CHAT_UPDATE_OFFER_ENABLED` on staging, then production.
+  → run the erasure backfill until its dry run reports `stale: 0` → flip
+  `RESUME_CHAT_UPDATE_OFFER_ENABLED` on staging, then production.

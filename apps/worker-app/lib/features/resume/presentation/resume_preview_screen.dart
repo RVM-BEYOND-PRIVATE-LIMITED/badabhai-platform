@@ -9,7 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/api/api_models.dart'
-    show ResumeDocument, TradeSheetResumeDocument;
+    show ResumeDocument, ResumeHistoryItem, TradeSheetResumeDocument;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
@@ -36,6 +36,8 @@ import 'cubit/resume_cubit.dart';
 import 'widgets/resume_action_row.dart';
 import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
+import '../../trade_form/presentation/widgets/add_more_detail_button.dart';
+import 'widgets/resume_history_section.dart';
 import 'widgets/resume_profile_card.dart';
 import 'widgets/resume_sections.dart';
 
@@ -110,6 +112,20 @@ class _ResumeViewState extends State<_ResumeView> {
   /// resume text), and a key keeps that property.
   int _photoNonce = 0;
 
+  @override
+  void initState() {
+    super.initState();
+    // The tab root is built ONCE per app run (the shell's IndexedStack keeps
+    // the branch mounted), and `TabFocusRefetch` only fires when the tab is
+    // selected. Read the history here too so the section — and a pending
+    // update the worker left mid-flight — is there on the FIRST build, not
+    // only after they switch tabs and come back.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_syncHistory(context.read<ResumeCubit>()));
+    });
+  }
+
   /// Returning from the editor: the photo may have changed either way, so always
   /// refetch it. Regenerate ONLY on a real name change — the name is baked in at
   /// generation time, and an unconditional regenerate would spend one of the
@@ -139,7 +155,24 @@ class _ResumeViewState extends State<_ResumeView> {
   void _onTabFocused() {
     if (!mounted) return;
     setState(() => _photoNonce++);
-    context.read<ResumeCubit>().refresh();
+    final ResumeCubit cubit = context.read<ResumeCubit>();
+    cubit.refresh();
+    // #1687/#1688 — the history is read on EVERY focus, separately from
+    // refresh(): refresh holds a `_loading` mutex and early-returns while any
+    // load is in flight, which would silently drop the history read fired by
+    // the same focus. It is also what RESUMES a wait that a kill-and-reopen
+    // interrupted — the pending update lives on the server, not in this state,
+    // so the app re-learns it from the same read rather than remembering it.
+    _syncHistory(cubit);
+  }
+
+  /// Re-reads the history and, when the server says an accepted update is
+  /// still in flight, (re)starts the watch. The cubit itself refuses to start
+  /// a second watch, so this is safe to call on every focus.
+  Future<void> _syncHistory(ResumeCubit cubit) async {
+    await cubit.loadHistory();
+    if (!mounted) return;
+    if (cubit.state.updateInProgress) unawaited(cubit.watchResumeUpdate());
   }
 
   @override
@@ -287,8 +320,34 @@ class _ResumeViewState extends State<_ResumeView> {
           ),
         ),
         const SizedBox(height: kResumeCardGap),
+        // #1688 — an update the worker accepted in chat, while it is on its
+        // way or once it has terminally failed. Directly under the profile
+        // card: it is the answer to "did my Haan reach the resume?", which is
+        // why the worker came to this tab.
+        if (state.updateInProgress || state.updateFailed) ...<Widget>[
+          ResumeUpdateCard(
+            failed: state.updateFailed,
+            onRetry: () => context.pushOnce(Routes.profilePreview),
+          ),
+          const SizedBox(height: kResumeCardGap),
+        ],
         resumeBody,
         const SizedBox(height: kResumeCardGap),
+        // #1687 — the older resumes. Renders nothing at all when there is no
+        // history (an older server, or a worker with one resume).
+        ResumeHistorySection(
+          history: state.history,
+          actionsBuilder: (ResumeHistoryItem item) => ResumeActionRow(
+            share: ResumeShareButton(resumeId: item.resumeId),
+            download: _DownloadResumeButton(resumeId: item.resumeId),
+          ),
+        ),
+        if (state.history.items.isNotEmpty)
+          const SizedBox(height: kResumeCardGap),
+        // #1698 — "Aur detail add karein": a tier UPGRADE, offered only when
+        // the server says one is available. Renders nothing otherwise, which
+        // is every box today.
+        const AddMoreDetailButton(),
         const _ReportCorrectionButton(),
         const SizedBox(height: 10),
         const _ReviewExtractedButton(),
@@ -542,11 +601,16 @@ Future<String> _loadResumeFileName() async {
 Future<String?> resolveSignedResumeUrl(
   ResumeCubit cubit, {
   required VoidCallback onPreparing,
+  String? resumeId,
 }) async {
   for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
     final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
     try {
-      return await cubit.resolveDownloadUrl();
+      // #1687 — a HISTORY card mints the url for ITS OWN resume; everything
+      // else means "the current one", which is what the session holds.
+      return await (resumeId == null
+          ? cubit.resolveDownloadUrl()
+          : cubit.resolveDownloadUrlFor(resumeId));
     } on ResumeNotReadyFailure {
       if (lastAttempt) rethrow;
       // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
@@ -574,7 +638,11 @@ Future<String?> resolveSignedResumeUrl(
 /// The button stays busy (disabled) for the WHOLE download so a double-tap
 /// can't produce double files. The url is fetched in memory, never logged.
 class _DownloadResumeButton extends StatefulWidget {
-  const _DownloadResumeButton();
+  const _DownloadResumeButton({this.resumeId});
+
+  /// Null = the CURRENT resume (every caller before #1687). Non-null = one
+  /// specific history entry, which downloads its own pdf.
+  final String? resumeId;
 
   @override
   State<_DownloadResumeButton> createState() => _DownloadResumeButtonState();
@@ -631,7 +699,11 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
     if (!mounted) return;
     await downloadSignedPdf(
       context,
-      resolve: () => resolveSignedResumeUrl(cubit, onPreparing: _markPreparing),
+      resolve: () => resolveSignedResumeUrl(
+        cubit,
+        onPreparing: _markPreparing,
+        resumeId: widget.resumeId,
+      ),
       fileName: _fileName,
     );
     if (mounted) {
@@ -777,7 +849,16 @@ Future<Uint8List> _fetchResumePdfBytes(http.Client client, Uri uri) {
 /// explaining why. A failure here NEVER falls back to sharing the url — it says
 /// the real reason and shares nothing.
 class ResumeShareButton extends StatefulWidget {
-  const ResumeShareButton({super.key, this.share, this.httpClient});
+  const ResumeShareButton({
+    super.key,
+    this.share,
+    this.httpClient,
+    this.resumeId,
+  });
+
+  /// Null = the CURRENT resume. Non-null = one history entry (#1687): it mints
+  /// that entry's own signed url AND reports the share against that same id.
+  final String? resumeId;
 
   /// Injectable ONLY as test seams; production passes neither (same convention
   /// as [downloadSignedPdf]).
@@ -823,6 +904,7 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
       final String? url = await resolveSignedResumeUrl(
         cubit,
         onPreparing: _markPreparing,
+        resumeId: widget.resumeId,
       );
       final Uri? uri = (url == null || url.isEmpty) ? null : Uri.tryParse(url);
       if (uri == null) {
@@ -897,7 +979,11 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
     final String channel = rawTarget.toLowerCase().contains('whatsapp')
         ? 'whatsapp'
         : 'other';
-    unawaited(cubit.reportShared(channel).catchError((Object _) {}));
+    final String? id = widget.resumeId;
+    unawaited((id == null
+            ? cubit.reportShared(channel)
+            : cubit.reportSharedFor(id, channel))
+        .catchError((Object _) {}));
   }
 
   @override

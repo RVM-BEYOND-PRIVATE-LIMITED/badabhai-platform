@@ -35,10 +35,10 @@
  *   - `fam_universal` is "General", NOT a transliteration of सामान्य. The worker app hides exactly
  *     two strings on the trust pill, "सामान्य" and "General" (`kUniversalOccupationLabels` in
  *     `apps/worker-app/lib/core/api/occupation_label.dart`); any other spelling would put the word
- *     "General" on the pill as if it were a trade. Hidden there, it is still SHOWN as a
- *     disambiguation chip and still settles `trade`, exactly as सामान्य did before. The pairing is
- *     held from both sides: `family-chip-labels.test.ts` reads the Dart, and
- *     `occupation_label_test.dart` pins "General" as hidden.
+ *     "General" on the pill as if it were a trade. The pairing is held from both sides:
+ *     `family-chip-labels.test.ts` reads the Dart, and `occupation_label_test.dart` pins "General"
+ *     as hidden. It is NOT a trade anywhere else either (#1691): it is never offered as a chip
+ *     and never settles `trade` — see {@link isUniversalPlaceholderLabel}.
  *   - `fam_security` is "security guard", not "suraksha guard". That is what a guard calls the job
  *     (it is an authored alias; the Hindi is a translation of it).
  *
@@ -184,3 +184,36 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // the tranche's own alias "quality control" is.
   fam_quality_inspection: "quality control aur inspection",
 });
+
+/**
+ * THE UNIVERSAL PLACEHOLDER (#1691) — the label an occupation shows when retrieval could place it
+ * only in `fam_universal`, the family every occupation falls back to. 1,345 of 3,515 reachable
+ * occupations own no Latin alias and land here, so the word is common, and it names no trade.
+ *
+ * OWNER RULING, 2026-09-24 (#1691): the placeholder is never a trade.
+ *   - It is never offered as a disambiguation chip. A chip is recorded verbatim as the worker's
+ *     answer, so a tap on "General" recorded "General" as what they do. `OccupationService`
+ *     drops it from the offer; if fewer than two real trades are left, the offer is abandoned
+ *     for an open narrowing question, the path a single-family result already takes.
+ *   - It never settles `trade`. `settleFromLlmDraft` skips a pinned occupation that carries it,
+ *     so `trade` stays unset and the pack asks it, instead of the résumé naming the worker's
+ *     trade as "General".
+ * The pin itself is untouched: the universal pack is still the right interview for them.
+ *
+ * EXACTLY THE WORKER APP'S HIDE LIST (`kUniversalOccupationLabels`), matched the way the app
+ * matches it (trimmed, case-insensitive), so the server and the trust pill agree on what is not a
+ * trade. "सामान्य" is kept for a session pinned before #1686 made the label Latin: the pin, label
+ * included, is stored on the session. `family-chip-labels.test.ts` holds the list equal to the
+ * Dart.
+ */
+export const UNIVERSAL_PLACEHOLDER_LABELS: readonly string[] = Object.freeze([
+  "General",
+  "सामान्य",
+]);
+
+/** Is `label` the universal placeholder — no trade at all? See {@link UNIVERSAL_PLACEHOLDER_LABELS}. */
+export function isUniversalPlaceholderLabel(label: string | null | undefined): boolean {
+  if (label === null || label === undefined) return false;
+  const needle = label.trim().toLowerCase();
+  return UNIVERSAL_PLACEHOLDER_LABELS.some((placeholder) => placeholder.toLowerCase() === needle);
+}

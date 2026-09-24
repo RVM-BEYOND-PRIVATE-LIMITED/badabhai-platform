@@ -256,3 +256,9 @@ wrong look.
   running code has no Latin label for, and that path logs a warning naming the family.
 - The family labels were written as the same words as the family's Devanagari `label_hi`, in Latin
   letters. They are drafted, not ratified; see `docs/registers/trade-content-ratification.md`.
+- **The universal placeholder is not a trade (ruling, 2026-09-24, #1691).** An occupation that
+  retrieval can place only in `fam_universal` reads "General", which names no trade. It is never
+  offered as a chip: if dropping it leaves fewer than two real trades, the worker gets the open
+  narrowing question instead. It never settles `trade` either, so the pack asks for it. The worker
+  app already hides it on the trust pill, and `UNIVERSAL_PLACEHOLDER_LABELS` is kept equal to that
+  hide list.

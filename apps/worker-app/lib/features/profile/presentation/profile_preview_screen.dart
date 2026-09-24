@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -19,6 +20,8 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
+import '../../trade_form/domain/trade_form_args.dart';
+import '../../trade_form/presentation/open_trade_form.dart';
 import '../../profile_tab/domain/profile_summary.dart';
 import '../../profile_tab/presentation/widgets/profile_identity_card.dart'
     show profileExperienceLabel;
@@ -123,6 +126,15 @@ class _ProfileViewState extends State<_ProfileView> {
           //                closed-set work-history + preferences, THEN generates
           //                the resume (Building) and enters the shell.
           // context.go clears the onboarding stack (point of no return).
+          // #1698 — the trade-form arm may stop at the tier chooser first;
+          // the other two are untouched. `unawaited` because this listener
+          // cannot be async and the navigation owns itself from here.
+          if (state.routeTarget == ProfileRouteTarget.tradeForm) {
+            unawaited(
+              openTradeFormWithTier(context, entry: TierEntry.replaced),
+            );
+            return;
+          }
           context.go(switch (state.routeTarget) {
             ProfileRouteTarget.tradeForm => Routes.tradeForm,
             ProfileRouteTarget.resume => Routes.building,
@@ -290,7 +302,11 @@ class _ProfileViewState extends State<_ProfileView> {
   ///    today's behaviour (pop back to the live chat when possible).
   void _editProfile(BuildContext context, ProfileSummary? summary) {
     if (summary?.isFormSourced ?? false) {
-      context.go(Routes.tradeForm);
+      // #1698 — same gate. In practice a worker editing an EXISTING
+      // form-sourced profile has already chosen a tier, so the server answers
+      // `needs_choice: false` and this is today's `go` — but the decision is
+      // the server's to make, not this screen's to assume.
+      unawaited(openTradeFormWithTier(context, entry: TierEntry.replaced));
       return;
     }
     _backToChat(context);

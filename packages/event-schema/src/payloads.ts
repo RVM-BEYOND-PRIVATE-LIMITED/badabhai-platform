@@ -4218,6 +4218,25 @@ export const ProfileResumeUpdateAnsweredPayload = z
 export type ProfileResumeUpdateAnsweredPayload = z.infer<typeof ProfileResumeUpdateAnsweredPayload>;
 
 /**
+ * ADR-0043 launch gate — ops queued a FAIL-CLOSED re-render of one résumé PDF that was rendered
+ * BEFORE the worker's latest erasure (photo removed, photo hidden, WhatsApp number cleared), so it
+ * may still carry what they erased. Before résumé history an erasure re-rendered only the current
+ * PDF; the older ones became downloadable when the history list shipped. One event per résumé the
+ * backfill enqueues: the audit record that the erasure reached that document.
+ *
+ * Ids only — never the photo, the number, or anything read off the PDF.
+ */
+export const ResumeErasureBackfillEnqueuedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    resume_id: uuidSchema,
+  })
+  .strict();
+export type ResumeErasureBackfillEnqueuedPayload = z.infer<
+  typeof ResumeErasureBackfillEnqueuedPayload
+>;
+
+/**
  * The identity "haan" applied the staged option mappings as form answers.
  *
  * THE ONE EVENT THAT MEASURES OWNER OVERRIDE B. Everything above counts what the

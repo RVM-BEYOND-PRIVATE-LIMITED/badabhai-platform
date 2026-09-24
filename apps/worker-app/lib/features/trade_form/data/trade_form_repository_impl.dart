@@ -8,6 +8,7 @@ import '../../voice_form/domain/voice_form_models.dart'
     show VoiceChoice, VoiceQuestion, VoiceQuestionKind;
 import '../domain/form_fact_registry.dart';
 import '../domain/trade_form_models.dart';
+import '../domain/profiling_tier.dart';
 import '../domain/trade_form_repository.dart';
 
 /// Real trade-form repository (#1341) — HTTP + parsing, mirroring
@@ -55,11 +56,16 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
   }
 
   @override
-  Future<TradeForm?> loadForm() async {
+  Future<TradeForm?> loadForm({bool upgradeView = false}) async {
     final String token = _requireToken();
     try {
-      final Map<String, dynamic> json =
-          await _api.getTradeForm(authToken: token);
+      final Map<String, dynamic> json = await _api.getTradeForm(
+        authToken: token,
+        // #1698 — the parameter is OMITTED on an ordinary load rather than
+        // sent as `view=full`, so a server built before tiers sees exactly the
+        // request it has always seen.
+        view: upgradeView ? 'upgrade' : null,
+      );
       // ONE FACT, ASKED ONCE: every caller (the first load AND the
       // schema_stale resync) gets the de-duplicated form, so the walk and the
       // progress totals derived from `questionSteps` agree. See
@@ -73,6 +79,50 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
       // empty form (#1341): the caller renders an honest "nothing to fill
       // here" state rather than a blank one, so this is null, not a Failure.
       if (error.statusCode == 404) return null;
+      throw mapError(error);
+    } on Failure {
+      rethrow;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<TierState> loadTierState() async {
+    final String? token = _session.sessionToken;
+    // No session at all: there is nothing to ask about, and a tier screen must
+    // never be the reason a signed-out worker sees an error.
+    if (token == null) return TierState.disabled;
+    try {
+      return TierState.fromJson(await _api.getProfilingTiers(authToken: token));
+    } catch (_) {
+      // EVERY failure is the same answer: a 404 (no form handed over), a 401,
+      // a 5xx, a timeout, a body this build cannot parse. All of them mean
+      // "do what the app did before tiers existed". Deliberately not reported
+      // either — an optional gate that quietly stays shut is not an incident.
+      return TierState.disabled;
+    }
+  }
+
+  @override
+  Future<TierChoice?> chooseTier(ProfilingTier tier) async {
+    final String token = _requireToken();
+    try {
+      return TierChoice.fromJson(
+        await _api.chooseProfilingTier(
+          authToken: token,
+          tier: profilingTierWire(tier),
+        ),
+      );
+    } on ApiException catch (error) {
+      // Same posture as every deliberate write on this repository: a 400 (or a
+      // 409 refusing a downgrade this app should never have offered) carries
+      // the server's own sentence, and the worker is shown it rather than
+      // "kuch takneeki dikkat hai".
+      if ((error.statusCode == 400 || error.statusCode == 409) &&
+          error.message.trim().isNotEmpty) {
+        throw InvalidRequestFailure(error.message);
+      }
       throw mapError(error);
     } on Failure {
       rethrow;

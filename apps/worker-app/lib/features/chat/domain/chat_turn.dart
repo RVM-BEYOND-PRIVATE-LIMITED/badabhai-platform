@@ -32,6 +32,7 @@ class ChatTurn extends Equatable {
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.formOffer,
+    this.resumeUpdate,
   });
 
   final String reply;
@@ -110,6 +111,18 @@ class ChatTurn extends Equatable {
   /// `extraction_ready: false` on this same turn.
   final FormOffer? formOffer;
 
+  /// #1689 — the server's word on the worker's answer to "Aapki nayi jaankari
+  /// se resume update kar doon?", carried from `ChatReply.resumeUpdate`.
+  /// `'queued'` on the ONE terminal turn that settled a Haan; null on an
+  /// "Abhi nahi", on every ordinary turn, and on every older server.
+  ///
+  /// Kept RAW rather than as a bool so an unknown future value stays visible
+  /// and still reads as "not queued" — see [resumeUpdateQueued].
+  final String? resumeUpdate;
+
+  /// The only value that changes what the app does. Fails closed.
+  bool get resumeUpdateQueued => resumeUpdate == 'queued';
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -127,5 +140,6 @@ class ChatTurn extends Equatable {
         ttsText,
         lookahead,
         formOffer,
+        resumeUpdate,
       ];
 }

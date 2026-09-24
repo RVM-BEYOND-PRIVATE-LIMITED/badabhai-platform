@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 198 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + the four tiered-profiling events)", () => {
-    expect(EVENT_NAMES).toHaveLength(198);
+  it("exposes all 199 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events)", () => {
+    expect(EVENT_NAMES).toHaveLength(199);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4905,6 +4905,17 @@ describe("résumé history (ADR-0043) — source and trigger are closed vocabula
     // `.strict()`: nothing smuggled beside the ids.
     expect(validateEvent(answered({ ...valid, reply_text: "Haan" })).success).toBe(false);
     expect(validateEvent(answered({ worker_id: UUID_A, answer: "yes" })).success).toBe(false);
+  });
+
+  it("the erasure backfill's audit row is two ids and nothing else", () => {
+    const enqueued = (payload: Record<string, unknown>) =>
+      envelope("resume.erasure_backfill_enqueued", payload);
+    const valid = { worker_id: UUID_A, resume_id: UUID_B };
+    expect(isEventName("resume.erasure_backfill_enqueued")).toBe(true);
+    expect(validateEvent(enqueued(valid)).success).toBe(true);
+    // `.strict()`: what was erased never rides along — not even as a flag.
+    expect(validateEvent(enqueued({ ...valid, had_photo: true })).success).toBe(false);
+    expect(validateEvent(enqueued({ worker_id: UUID_A })).success).toBe(false);
   });
 });
 

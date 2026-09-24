@@ -497,6 +497,12 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // route landed on main with a green check on a suite that never ran. It was caught by the
   // first api-touching branch to merge main — the same way, one release later.
   "/trade-form", // Routes.tradeForm
+  // #1698 — the tier chooser ("Kitna time de sakte hain?"), between the form
+  // handover and the first form question. Listed here for the same reason the
+  // comment above records: a worker-app-only PR does not run the Node job that
+  // owns this contract, so a route added without its entry lands green and
+  // breaks the first api-touching merge afterwards.
+  "/trade-form/tier", // Routes.tierChoice
   "/alerts", // Routes.alerts
   // Relay inbox (E0, FE #1628) — the worker's threads list and one thread.
   "/inbox", // Routes.inbox

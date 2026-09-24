@@ -29,6 +29,8 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
+import '../../trade_form/domain/trade_form_args.dart';
+import '../../trade_form/presentation/open_trade_form.dart';
 import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
@@ -937,13 +939,37 @@ class _ChatViewState extends State<_ChatView> {
     if (_openingTradeForm) return;
     setState(() => _openingTradeForm = true);
     try {
-      await context.pushOnce(Routes.tradeForm);
+      // #1698 — stops at the tier chooser ONLY when the server says this
+      // worker still has to choose; every other answer pushes the form exactly
+      // as this line always did.
+      await openTradeFormWithTier(context, entry: TierEntry.pushed);
     } finally {
       // The worker can back out of the form and return to this (dead) chat
       // session — re-arm so the card stays tappable rather than permanently
       // disabled.
       if (mounted) setState(() => _openingTradeForm = false);
     }
+  }
+
+  /// #1689 — the server has ACCEPTED the résumé update and is doing all of it
+  /// itself. Take the worker to the Résumé tab, where #1688 shows them it
+  /// landing.
+  ///
+  /// This REPLACES the preview/confirm step for this one path, and nothing
+  /// here calls extract / confirm / generate: the worker's "Haan" was the
+  /// consent and the server is already acting on it, so a client-side call
+  /// would mint a SECOND résumé for the same acceptance.
+  ///
+  /// `go`, not `push`: the interview is over (`session_ended: true` rides the
+  /// same turn), so the chat must not stay on the stack behind the tab. The
+  /// latch is synchronous for the same reason `_openingPreview` is — two
+  /// emits inside one frame must not both navigate.
+  bool _leavingForResumeUpdate = false;
+
+  void _maybeLeaveForResumeUpdate(ChatState state) {
+    if (!state.resumeUpdateQueued || _leavingForResumeUpdate) return;
+    _leavingForResumeUpdate = true;
+    context.go(Routes.resume);
   }
 
   /// Opens the profile preview at most once per round trip (#372).
@@ -1224,9 +1250,13 @@ class _ChatViewState extends State<_ChatView> {
         listenWhen: (ChatState prev, ChatState curr) =>
             curr.messages.length > prev.messages.length ||
             curr.sending != prev.sending ||
-            curr.initializing != prev.initializing,
+            curr.initializing != prev.initializing ||
+            // #1689 — the terminal turn that settled a "Haan" must be acted on
+            // even if nothing else about the state moved.
+            curr.resumeUpdateQueued != prev.resumeUpdateQueued,
         listener: (BuildContext context, ChatState state) {
           _maybeSayEmptyImport(state);
+          _maybeLeaveForResumeUpdate(state);
           // Release on the SETTLE EDGE (sending true → false), never on the
           // way in: the bloc clears followups and sets sending as soon as the
           // worker sends, so anything keyed on those unlatches while the turn
