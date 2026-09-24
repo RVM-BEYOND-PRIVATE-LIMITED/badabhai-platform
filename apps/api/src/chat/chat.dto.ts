@@ -276,6 +276,18 @@ export const PostMessageResponseSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * THE WORKER SAID "HAAN" TO "Resume update kar doon?" (ADR-0043) -- `queued` on exactly the
+   * terminal turn that settled it, null on every other.
+   *
+   * What it tells the client: the interview is durably flushed and the server itself is
+   * extracting, confirming and regenerating the resume, so the client should go to the Resume
+   * tab and wait (`GET /resume/history` reports the progress) -- and must NOT run the preview's
+   * extract/confirm/generate, which would record a duplicate entry. A client that predates this
+   * field shows `reply` and the preview it always showed; the server dedupes what that client
+   * then calls, so the worst case is a redundant preview, never a lost update.
+   */
+  resume_update: z.enum(["queued"]).nullable().default(null),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 

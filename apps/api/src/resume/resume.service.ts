@@ -13,7 +13,8 @@ import {
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
-import type { GeneratedResume } from "@badabhai/db";
+import type { GeneratedResume, NewGeneratedResume } from "@badabhai/db";
+import type { ResumeGenerationTrigger } from "@badabhai/types";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -28,7 +29,15 @@ import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
-import type { GenerateResumeInput, MyResumeDocumentResponse, ShareResumeDto } from "./resume.dto";
+import { pendingUpdateFrom } from "./resume-pending-update";
+import { resolveResumeSource } from "./resume-source";
+import type {
+  GenerateResumeInput,
+  MyResumeDocumentResponse,
+  ResumeHistoryResponse,
+  ShareResumeDto,
+  SystemResumeTrigger,
+} from "./resume.dto";
 
 @Injectable()
 export class ResumeService {
@@ -75,6 +84,44 @@ export class ResumeService {
     };
   }
 
+  /**
+   * THE WORKER'S RÉSUMÉ HISTORY — the newest `RESUME_HISTORY_VISIBLE_LIMIT` résumés, each with the
+   * flow it was made from, plus the state of an update they accepted in chat (ADR-0043).
+   *
+   * KEEP ALL, SHOW THREE (ruling R4). The window is a display rule: older rows stay on file and
+   * stay downloadable by id through the existing `GET /resume/:id/download`, which already checks
+   * ownership per id. `is_current` marks the one every other résumé read treats as current, by
+   * the same shared order, so the Resume tab and this list cannot disagree about it.
+   *
+   * `version` IS DELIBERATELY ABSENT. It is a per-worker counter, not a history ordinal — a new
+   * profile's first résumé is its own v1 — so a client that displayed it would label the newest
+   * entry "v1" beneath an older "v3".
+   *
+   * NO OWNERSHIP CHECK BEYOND THE TOKEN, for `myDocument`'s reason: there is no id in the
+   * request, the worker is the token's, and every read below is scoped to them.
+   */
+  async history(workerId: string, now: Date = new Date()): Promise<ResumeHistoryResponse> {
+    const rows = await this.resumes.listHistory(workerId, this.config.RESUME_HISTORY_VISIBLE_LIMIT);
+    const facts = await this.resumes.pendingChatUpdate(workerId);
+    return {
+      items: rows.map((row, index) => ({
+        resume_id: row.id,
+        profile_id: row.profileId,
+        source: row.generationSource ?? null,
+        trigger: row.generationTrigger ?? null,
+        generated_at: row.generatedAt.toISOString(),
+        render_status: row.renderStatus,
+        rendered_at: row.renderedAt ? row.renderedAt.toISOString() : null,
+        is_current: index === 0,
+      })),
+      pending_update: pendingUpdateFrom(
+        facts,
+        now,
+        this.config.RESUME_UPDATE_PENDING_TIMEOUT_SECONDS * 1000,
+      ),
+    };
+  }
+
   constructor(
     private readonly resumes: ResumeRepository,
     private readonly profiles: ProfilesRepository,
@@ -105,14 +152,35 @@ export class ResumeService {
   async generate(
     dto: GenerateResumeInput,
     ctx: RequestContext,
-    opts: { systemInitiated?: boolean; forceNewVersion?: boolean } = {},
+    opts: {
+      systemInitiated?: boolean;
+      forceNewVersion?: boolean;
+      /**
+       * WHICH SYSTEM EVENT started a system-initiated generation (ADR-0043). Ignored otherwise:
+       * a worker's call is always `manual` and an ops regenerate always `ops_regenerate`, decided
+       * here rather than trusted from the caller. Defaults to `profile_confirmed`.
+       */
+      trigger?: SystemResumeTrigger;
+      /**
+       * A QUEUE RETRY of a system generation that already charged the worker's daily cap on its
+       * first attempt. Only meaningful for `chat_update_accepted`, the one metered system trigger:
+       * a model outage must not spend three of the worker's five daily generations on one "Haan".
+       */
+      retry?: boolean;
+    } = {},
   ) {
     // Enforce the daily cap BEFORE any paid AI/render work; fails closed (429) if
     // Redis is down. The system-initiated auto-generate (on profile.confirmed) is
     // one-per-worker + idempotent, so it skips the per-worker abuse cap but still
     // counts against the GLOBAL spend backstop.
+    //
+    // AN ACCEPTED CHAT UPDATE IS NOT EXEMPT (ADR-0043). It runs on the system path, but the
+    // worker asked for it — one "Haan" per finished interview — so it is metered like the
+    // worker's own regenerate. The exemption exists for the ONE auto-generate per worker, not for
+    // a generation a worker can repeat.
     await this.rateLimit.assertWithinDailyCap(dto.worker_id, {
-      perWorker: !opts.systemInitiated,
+      perWorker:
+        !opts.systemInitiated || (opts.trigger === "chat_update_accepted" && opts.retry !== true),
     });
 
     const profile = await this.profiles.findById(dto.profile_id);
@@ -171,6 +239,13 @@ export class ResumeService {
           `(${err instanceof Error ? err.message : "unknown"})`,
       );
     }
+
+    // THE MOMENT THIS GENERATION STARTED — before the model call, on the DATABASE's clock (the one
+    // `generated_at` is stamped with). A row this profile gained after it was written DURING this
+    // call, i.e. it is the same generation racing us (see `convergeOnto`), never an earlier entry
+    // the worker already has. Only the worker's own call converges, so only it pays the read.
+    const startedAt =
+      opts.systemInitiated || opts.forceNewVersion ? null : await this.resumes.now();
 
     // The AI service receives ONLY the structured profile (no name/phone).
     const result = await this.ai.generateResume({ profile: draft }, ctx);
@@ -243,11 +318,6 @@ export class ResumeService {
     const resumeText = fullName ? `${fullName}\n${result.resume_text}` : result.resume_text;
     const resumeJson = fullName ? { ...result.resume_json, name: fullName } : result.resume_json;
 
-    // Resolve the target row. The INITIAL resume (version 1) is idempotent + race-safe
-    // via createInitial (partial unique index `generated_resumes_initial_uq`): the
-    // auto-generate on profile.confirmed and a manual POST /resume/generate converge on
-    // ONE row, even though the worker's name can be recorded AFTER confirm. An explicit
-    // regenerate (forceNewVersion) creates the next version instead.
     // THE LAYOUT, CHOSEN FROM THE WORKER'S TRADE.
     //
     // `bb_trade` has been shipped, tested and immutable for sixteen packets and NOTHING HAS
@@ -272,38 +342,93 @@ export class ResumeService {
       );
     }
 
+    // ── WHICH HISTORY ENTRY THIS GENERATION IS (ADR-0043) ─────────────────────────────────
+    //
+    // The INITIAL résumé (version 1) of a profile is idempotent + race-safe via createInitial
+    // (partial unique index `generated_resumes_initial_uq`): the auto-generate on
+    // profile.confirmed and a manual POST /resume/generate converge on ONE row, even though the
+    // worker's name can be recorded AFTER confirm.
+    //
+    // EVERY AI GENERATION IS ITS OWN ENTRY (owner ruling R2) — the worker's history lists the
+    // newest three, and a regenerate that overwrote the previous résumé in place, which is what
+    // the manual path used to do, destroyed the entry the worker had. What remains of "overwrite"
+    // is CONVERGENCE: two requests for the same generation must still land on one row.
+    //
+    //   ops regenerate             a new entry, numbered after the worker's highest version.
+    //   system (auto / chat Haan)  the profile's INITIAL row, insert-if-absent — idempotent under
+    //                              queue retries and the app's own POST racing the job.
+    //   manual, profile has none   the same initial row, authoritative (today's behaviour).
+    //   manual, newest still       converge onto it: it is the same generation — the worker has
+    //     pending, or written      not seen it finish (a double-tap, a timeout retry), or it was
+    //     during this call         written while this call was at the model (the first-time
+    //                              auto-generate racing the app's POST). The guard is IN the
+    //                              update — an entry finished before this call started is left
+    //                              alone.
+    //   manual, anything else      a new entry. This is the trade-form "done" rebuild and every
+    //                              worker-initiated regenerate: today's app sends it as a plain
+    //                              POST, so no client change is needed for it to be recorded.
+    //
+    // `version` is a per-worker counter from `maxVersion`, NOT a history ordinal — a new profile's
+    // first résumé is its own v1 — and nothing orders by it any more (see `NEWEST_RESUME_FIRST`).
+    const trigger: ResumeGenerationTrigger = opts.forceNewVersion
+      ? "ops_regenerate"
+      : opts.systemInitiated
+        ? (opts.trigger ?? "profile_confirmed")
+        : "manual";
+    const generationSource = resolveResumeSource({
+      source: profile.source ?? null,
+      seededFromImportId: profile.seededFromImportId ?? null,
+    });
+    const initial: NewGeneratedResume = {
+      workerId: dto.worker_id,
+      profileId: dto.profile_id,
+      resumeJson,
+      resumeText,
+      version: 1,
+      templateId,
+      // NAME-FREE structured draft, so a future renderer can re-render from the
+      // snapshot. The name lives only in resume_json/resume_text (TD21), never here.
+      sourceProfileSnapshot: draft,
+      generationSource,
+      generationTrigger: trigger,
+    };
+
     let saved: GeneratedResume;
     let previousVersion: number | null = null;
+    // A converged row may have a render in flight for its PREVIOUS content; forcing the render
+    // enqueued below is what stops that stale job's "already rendered" from winning.
+    let forceRender = false;
+    const newEntry = async (): Promise<GeneratedResume> => {
+      const highest = await this.resumes.maxVersion(dto.worker_id);
+      previousVersion = highest > 0 ? highest : null;
+      return this.resumes.create({ ...initial, version: highest + 1 });
+    };
+
     if (opts.forceNewVersion) {
-      const previous = await this.workers.latestResume(dto.worker_id);
-      previousVersion = previous?.version ?? null;
-      saved = await this.resumes.create({
-        workerId: dto.worker_id,
-        profileId: dto.profile_id,
-        resumeJson,
-        resumeText,
-        version: (previous?.version ?? 0) + 1,
-        templateId,
-        // NAME-FREE structured draft, so a future renderer can re-render from the
-        // snapshot. The name lives only in resume_json/resume_text (TD21), never here.
-        sourceProfileSnapshot: draft,
-      });
+      saved = await newEntry();
+    } else if (opts.systemInitiated) {
+      // The system auto-generate only fills if absent, so it never clobbers a manual résumé.
+      saved = await this.resumes.createInitial(initial, { overwrite: false });
     } else {
-      // Manual generate is authoritative (overwrite content — e.g. a name added after
-      // the auto-generate ran); the system auto-generate only fills if absent, so it
-      // never clobbers a manual resume.
-      saved = await this.resumes.createInitial(
-        {
-          workerId: dto.worker_id,
-          profileId: dto.profile_id,
-          resumeJson,
-          resumeText,
-          version: 1,
-          templateId,
-          sourceProfileSnapshot: draft,
-        },
-        { overwrite: !opts.systemInitiated },
-      );
+      const newest = await this.resumes.newestForProfile(dto.profile_id);
+      if (!newest) {
+        // Manual generate is authoritative (overwrite content — e.g. a name added after the
+        // auto-generate ran) on the profile's initial row. The render job is enqueued exactly as
+        // it always was: the overwrite resets the row to 'pending', which the processor renders.
+        saved = await this.resumes.createInitial(initial, { overwrite: true });
+      } else {
+        const since = startedAt ?? new Date();
+        const sameGeneration = newest.renderStatus === "pending" || newest.generatedAt >= since;
+        const converged = sameGeneration
+          ? await this.resumes.convergeOnto(newest.id, initial, since)
+          : undefined;
+        if (converged) {
+          saved = converged;
+          forceRender = true;
+        } else {
+          saved = await newEntry();
+        }
+      }
     }
 
     // A first/initial resume emits `resume.generated`; a regenerate (version > 1) emits
@@ -320,6 +445,9 @@ export class ResumeService {
           version: saved.version,
           previous_version: previousVersion,
           format: result.format,
+          // ADR-0043 — read off the SAVED row, so the event and the history card cannot disagree.
+          resume_source: saved.generationSource ?? null,
+          trigger: saved.generationTrigger ?? null,
         },
         idempotencyKey: `resume.regenerated:${saved.id}`,
         correlationId: ctx.correlationId,
@@ -339,6 +467,9 @@ export class ResumeService {
           // Task 1 — the road of the profile this résumé renders (pre-0107
           // rows carry NULL → unknown).
           profile_source: profile.source ?? null,
+          // ADR-0043 — read off the SAVED row, so the event and the history card cannot disagree.
+          resume_source: saved.generationSource ?? null,
+          trigger: saved.generationTrigger ?? null,
         },
         idempotencyKey: `resume.generated:${saved.id}`,
         correlationId: ctx.correlationId,
@@ -346,7 +477,7 @@ export class ResumeService {
       });
     }
 
-    await this.enqueueRender(saved.id, dto.worker_id, ctx);
+    await this.enqueueRender(saved.id, dto.worker_id, ctx, forceRender);
 
     return {
       resume_id: saved.id,
@@ -383,11 +514,16 @@ export class ResumeService {
     resumeId: string,
     workerId: string,
     ctx: RequestContext,
+    force = false,
   ): Promise<void> {
     try {
       await this.renderQueue.add("render", {
         resumeId,
         workerId,
+        // Only on a CONVERGED row (ADR-0043): its content was just rewritten, and a render job
+        // for the previous content may already be in flight. Absent everywhere else, so every
+        // other generate enqueues exactly the job it always did.
+        ...(force ? { force: true } : {}),
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });

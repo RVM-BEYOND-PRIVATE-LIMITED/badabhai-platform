@@ -9,7 +9,11 @@ import { ProfilesService } from "../profiles/profiles.service";
 import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
-import { resolvePackPointer, toConversationStatePatch } from "../profiling/conversation-state";
+import {
+  resolvePackPointer,
+  toConversationStatePatch,
+  toResumeHistoryStatePatch,
+} from "../profiling/conversation-state";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -151,6 +155,11 @@ export type ChatTurnOutcome =
       readonly turn: TurnResult;
       readonly buffered: TranscriptBuffer;
       readonly terminal: boolean;
+      /**
+       * ADR-0043 — THIS turn's flush landed an accepted "Resume update kar doon?": the résumé is
+       * being regenerated. Only the buffer that became the record may say so.
+       */
+      readonly updateQueued: boolean;
     };
 
 @Injectable()
@@ -437,6 +446,8 @@ export class ChatService {
             // offer -- and a card drawn over a blocked reply would send a worker to a form the
             // interview never actually routed them to.
             form_offer: null,
+            // No résumé update was settled on this turn (ADR-0043).
+            resume_update: null,
           },
           dto.session_id,
         );
@@ -487,6 +498,8 @@ export class ChatService {
             // offer -- and a card drawn over a blocked reply would send a worker to a form the
             // interview never actually routed them to.
             form_offer: null,
+            // No résumé update was settled on this turn (ADR-0043).
+            resume_update: null,
           },
           dto.session_id,
         );
@@ -678,10 +691,16 @@ export class ChatService {
     //    TERMINAL ONLY IF IT ACTUALLY LANDED. `turn.complete` says the interview should
     //    end; `flushed` says the transcript is durable. They differ exactly when the flush
     //    transaction rolled back, and conflating them loses the whole interview.
-    const flushed = turn.complete
-      ? await this.finalizeInterview(workerId, dto.session_id, buffered, ctx)
-      : false;
+    const flush = turn.complete
+      ? await this.flushInterview(workerId, dto.session_id, buffered, ctx)
+      : null;
+    const flushed = flush !== null && flush !== "failed";
     const terminal = turn.complete && flushed;
+    // ADR-0043 — "your résumé is being updated" is promised only when THIS buffer became the
+    // record. If another request closed the session first (the abandonment sweep settling an idle
+    // offer as "Abhi nahi"), the state that landed is not this Haan, and nothing was queued.
+    const updateQueued =
+      flush === "won" && buffered.profiling?.resumeUpdateOffer?.accepted === true;
 
     // 6b. The mid-interview checkpoint (OIE Phase 9, risk #10).
     //
@@ -713,6 +732,9 @@ export class ChatService {
             // drop `prefilled_keys` and the admin journey / parse exclusion would lose track of
             // what was seeded rather than asked.
             prefilled_keys: buffered.profiling.prefilledKeys,
+            // ADR-0043 — same reasoning: this write REPLACES the column, so the accepted CV import
+            // the worker claimed earlier in this interview must ride along or be lost.
+            ...toResumeHistoryStatePatch(buffered.profiling),
           },
           now,
         );
@@ -731,7 +753,7 @@ export class ChatService {
         `complete=${turn.complete} flushed=${flushed}`,
     );
 
-    return { kind: "turn", turn, buffered, terminal };
+    return { kind: "turn", turn, buffered, terminal, updateQueued };
   }
 
   /**
@@ -747,7 +769,7 @@ export class ChatService {
     workerId: string,
     outcome: Extract<ChatTurnOutcome, { kind: "turn" }>,
   ): Promise<PostMessageResponse> {
-    const { turn, buffered, terminal } = outcome;
+    const { turn, buffered, terminal, updateQueued } = outcome;
     const dto = { session_id: sessionId };
     // 7. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit —
     //    by interpolating the worker's real first name over the `{{worker_name}}` token.
@@ -759,14 +781,21 @@ export class ChatService {
     //    `{{worker_name}}` on a worker's screen.
     const workerFullName = await this.workerFullName(workerId);
     const occupation = buffered.profiling?.occupation ?? null;
+    // ADR-0043 — A HAAN THAT DID NOT BECOME THE RECORD IS NOT ANNOUNCED. When another request closed
+    // the session first (the abandonment sweep settling an idle offer), nothing was queued for this
+    // answer, so the worker gets the ordinary close rather than "your résumé is being updated".
+    const replyText =
+      terminal && !updateQueued && buffered.profiling?.resumeUpdateOffer?.accepted === true
+        ? CLOSING_REPLY_TEXT
+        : turn.reply;
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: this.renderPackText(turn.reply, workerFullName),
+      reply: this.renderPackText(replyText, workerFullName),
       // #896 — the SAME sentence in Devanagari, so read-aloud pronounces it. Resolved from
       // `turn.reply` PRE-interpolation (the sidecar is keyed by the engine string, and a lookup
       // on the rendered text would key on the worker's real name), then rendered through the
       // identical `renderPackText` so both strings carry the name the same way.
-      ...this.ttsField(turn.reply, workerFullName),
+      ...this.ttsField(replyText, workerFullName),
       blocked: false,
       // PERMANENTLY FALSE, and deliberately not repurposed. The field meant "this reply
       // came from a mock LLM instead of a real one"; there is no LLM in this path at all,
@@ -808,6 +837,10 @@ export class ChatService {
               headline: turn.formOffer.headline,
               cta_label: turn.formOffer.ctaLabel,
             },
+      // ADR-0043 — the worker said "Haan" to "Resume update kar doon?" and the interview is
+      // durably flushed: the résumé is being regenerated in the background. `queued` ONLY on the
+      // terminal turn that settled it, so a client never routes on an update that did not happen.
+      resume_update: updateQueued ? "queued" : null,
       // TYPING ON OR OFF. Absent on every turn but two, and absent means `text` — the same
       // asymmetry `lookahead` uses, and for the same reason: forgetting it produces today's
       // behaviour rather than a wrong screen.
@@ -878,6 +911,27 @@ export class ChatService {
     buffer: TranscriptBuffer,
     ctx: RequestContext,
   ): Promise<boolean> {
+    return (await this.flushInterview(workerId, sessionId, buffer, ctx)) !== "failed";
+  }
+
+  /**
+   * {@link finalizeInterview}, telling the caller WHOSE flush landed (ADR-0043).
+   *
+   * `won`            THIS call's transaction closed the session — its buffer is the record.
+   * `already_final`  another request closed it first; the transcript is durable, but the
+   *                  state that landed is the OTHER request's, not this buffer's.
+   * `failed`         the transaction rolled back; the buffer is intact for a retry.
+   *
+   * The distinction matters exactly when two buffers disagree about the interview's last
+   * answer — the worker's "Haan" racing the abandonment sweep's "Abhi nahi" — and a caller that
+   * announces or records that answer must only do so for the buffer that became the record.
+   */
+  private async flushInterview(
+    workerId: string,
+    sessionId: string,
+    buffer: TranscriptBuffer,
+    ctx: RequestContext,
+  ): Promise<"won" | "already_final" | "failed"> {
     const at = new Date();
     // The state snapshot that lands in `chat_sessions.conversation_state`. Built
     // field-by-field from the buffer rather than spread, so nothing Redis-shaped
@@ -908,6 +962,13 @@ export class ChatService {
       // the moment this transaction commits. `[]` for a v1 (model-driven) session, which never
       // seeds anything.
       prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
+      // ADR-0043 — SAME REASONING AS `form_kind` ABOVE. `import_applied_id` labels the résumé
+      // `resume_upload`; `resume_update` is the worker's answer to "Resume update kar doon?" and
+      // is what the extraction processor reads to confirm the profile this interview produces.
+      // Both are durable only here: the envelope is gone the moment this transaction commits.
+      ...(buffer.profiling
+        ? toResumeHistoryStatePatch(buffer.profiling)
+        : { import_applied_id: null, resume_update: null }),
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -1104,7 +1165,7 @@ export class ChatService {
         `transcript flush FAILED session=${sessionId}; the buffer is intact and the ` +
           `flush will be retried: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return false;
+      return "failed";
     }
 
     if (!won) {
@@ -1112,7 +1173,7 @@ export class ChatService {
       // is ours to clear — and durable is durable no matter who wrote it, so this counts
       // as flushed for the caller.
       await this.buffer.drop(sessionId);
-      return true;
+      return "already_final";
     }
 
     this.logger.log(
@@ -1145,9 +1206,11 @@ export class ChatService {
     // on a two-turn transcript produces a container that outranks the answer map and blanks the
     // trade sheet. Gated here as well as on the event, because this call does not read it.
     if (!handedToForm) {
-      await this.autoTriggerExtraction(workerId, sessionId, ctx);
+      await this.autoTriggerExtraction(workerId, sessionId, ctx, {
+        updateAccepted: buffer.profiling?.resumeUpdateOffer?.accepted === true,
+      });
     }
-    return true;
+    return "won";
   }
 
   /**
@@ -1200,6 +1263,86 @@ export class ChatService {
     // means key reuse, and it must never be attributed to this worker.
     const buffer = loaded && loaded.workerId === workerId ? loaded : null;
 
+    // AN INTERVIEW WAITING ON "Resume update kar doon?" IS NOT ABANDONED (ADR-0043). The engine
+    // had already decided to close it; the offer is one extra question about what to do next, and
+    // before the offer existed this interview would have been flushed — profile, extraction and
+    // all — on the turn that served it. So a worker who walked away from the question gets exactly
+    // that: the interview is finalized as an "Abhi nahi", never as an abandonment that would
+    // withhold the profile they finished. An unanswered question is never read as a "Haan".
+    const pendingOffer = buffer?.profiling?.resumeUpdateOffer;
+    if (buffer?.profiling && pendingOffer?.state === "pending") {
+      const settledAt = at.toISOString();
+      const declined: TranscriptBuffer = {
+        ...buffer,
+        profiling: {
+          ...buffer.profiling,
+          servedQuestionKey: null,
+          resumeUpdateOffer: {
+            state: "settled",
+            accepted: false,
+            completionReason: pendingOffer.completionReason,
+            answeredAt: settledAt,
+          },
+        },
+        completedAt: settledAt,
+        completionReason: pendingOffer.completionReason ?? "complete",
+      };
+      const outcome = await this.flushInterview(workerId, sessionId, declined, ctx);
+      // RECORDED ONLY IF THIS FLUSH BECAME THE RECORD. A worker who came back and answered in the
+      // same instant may have closed the session first — with a "Haan" that is now the stored
+      // answer — and a "no" written here would contradict the one record of their consent.
+      if (outcome === "won") {
+        try {
+          await this.events.emit({
+            event_name: "profile.resume_update_answered",
+            // The SWEEP settled it, not the worker — the same attribution rule as the abandonment.
+            actor: { actor_type: "system" },
+            subject: { subject_type: "chat_session", subject_id: sessionId },
+            payload: { worker_id: workerId, session_id: sessionId, answer: "no" },
+            idempotencyKey: `profile.resume_update_answered:${sessionId}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `idle résumé-update answer not recorded session=${sessionId} ` +
+              `(${err instanceof Error ? err.message : "unknown"})`,
+          );
+        }
+      }
+      this.logger.log(
+        `session idle at the résumé-update offer finalized as "Abhi nahi" session=${sessionId} ` +
+          `idle=${idleMinutes}m outcome=${outcome}`,
+      );
+      const closed = outcome === "won";
+      return {
+        closed,
+        transcriptRecovered: true,
+        messages: closed ? declined.messages.length : 0,
+        answers: 0,
+      };
+    }
+
+    // AN ANSWERED OFFER WHOSE FLUSH FAILED IS FINISHED, NOT ABANDONED (ADR-0043). The worker was
+    // told either "your résumé is being updated" or the ordinary close; either way the interview
+    // is over, and abandoning it would withhold the extraction that promise depends on. The
+    // buffer already carries `completedAt` and the settled answer, so the flush is re-driven as-is
+    // — the same re-drive `runTurn` step 1b performs when the worker posts again.
+    if (buffer?.completedAt && buffer.profiling?.resumeUpdateOffer?.state === "settled") {
+      const outcome = await this.flushInterview(workerId, sessionId, buffer, ctx);
+      this.logger.log(
+        `completed-but-unflushed session with a settled résumé-update answer re-driven ` +
+          `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
+      );
+      const closed = outcome === "won";
+      return {
+        closed,
+        transcriptRecovered: true,
+        messages: closed ? buffer.messages.length : 0,
+        answers: 0,
+      };
+    }
+
     const state: Record<string, unknown> = buffer
       ? {
           role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
@@ -1211,6 +1354,10 @@ export class ChatService {
           extraction_ready_emitted: false,
           // #1504 item 5 (city-seed) — same reasoning as `finalizeInterview`'s `prefilled_keys`.
           prefilled_keys: buffer.profiling?.prefilledKeys ?? [],
+          // ADR-0043 — same reasoning as `finalizeInterview`'s.
+          ...(buffer.profiling
+            ? toResumeHistoryStatePatch(buffer.profiling)
+            : { import_applied_id: null, resume_update: null }),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding
@@ -1465,6 +1612,8 @@ export class ChatService {
         // offer -- and a card drawn over a blocked reply would send a worker to a form the
         // interview never actually routed them to.
         form_offer: null,
+        // No résumé update was settled on this turn (ADR-0043).
+        resume_update: null,
       },
       sessionId,
     );
@@ -1516,6 +1665,8 @@ export class ChatService {
         // offer -- and a card drawn over a blocked reply would send a worker to a form the
         // interview never actually routed them to.
         form_offer: null,
+        // No résumé update was settled on this turn (ADR-0043).
+        resume_update: null,
       },
       sessionId,
     );
@@ -1778,10 +1929,17 @@ export class ChatService {
     workerId: string,
     sessionId: string,
     ctx: RequestContext,
+    opts: { updateAccepted: boolean } = { updateAccepted: false },
   ): Promise<void> {
     try {
       const existing = await this.workers.latestProfile(workerId);
-      if (existing && hasExtractedContent(existing)) {
+      // ADR-0043 — A WORKER WHO SAID "Haan" TO "Resume update kar doon?" IS THE EXCEPTION. The
+      // skip exists because a returning worker already has a profile, and the app used to drive
+      // their redo's extraction from the preview. This worker asked for their new interview to
+      // become their résumé and will not pass through the preview, so the extraction starts here.
+      // It is still SESSION-SCOPED and deduped by `ProfilesService.extract`, so the app calling
+      // it too cannot mint a second job.
+      if (existing && hasExtractedContent(existing) && !opts.updateAccepted) {
         this.logger.log(
           `auto-extract skipped session=${sessionId}: worker already has profile ${existing.id}`,
         );

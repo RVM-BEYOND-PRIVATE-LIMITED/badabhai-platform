@@ -10,6 +10,7 @@ import {
   workers,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
 /**
  * A Drizzle transaction handle (re-derived locally — NOT imported from
@@ -241,7 +242,9 @@ export class ResumeDisclosureRepository {
       })
       .from(generatedResumes)
       .where(eq(generatedResumes.workerId, workerId))
-      .orderBy(desc(generatedResumes.generatedAt))
+      // THE SHARED ORDER (ADR-0043) — the same "current résumé" the worker's own Resume tab shows,
+      // with `id` as the tie-break it lacked.
+      .orderBy(...NEWEST_RESUME_FIRST)
       .limit(1);
     const row = rows[0];
     if (!row || row.snapshot == null) return undefined;

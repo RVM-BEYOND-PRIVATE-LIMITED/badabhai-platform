@@ -25,6 +25,30 @@ export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
 export const PROFILE_SOURCES = ["form", "chat"] as const;
 export type ProfileSource = (typeof PROFILE_SOURCES)[number];
 
+// ---- Resume history (ADR-0043) ----
+// Which flow a GENERATED RÉSUMÉ was made from, as the worker's history list labels it. A
+// SEPARATE vocabulary from `ProfileSource`, not a widening of it: `resume_upload` is a fact
+// about the session that produced the profile (the worker accepted facts from a CV he
+// uploaded), not a third road — an imported CV still finishes through the form or the chat,
+// and every reader of `worker_profiles.source` keeps its two values. Owner ruling R1
+// (2026-09-24): an accepted import wins over the road.
+export const RESUME_SOURCES = ["form", "chat", "resume_upload"] as const;
+export type ResumeSource = (typeof RESUME_SOURCES)[number];
+
+// What STARTED a résumé generation. Every AI generation is a history entry (ruling R2), and
+// this is what tells the entries apart for the worker and for the funnel:
+//   profile_confirmed     the system auto-generate on a confirmed profile
+//   manual                the worker asked (POST /resume/generate)
+//   chat_update_accepted  the worker said "Haan" to "Resume update kar doon?" in chat
+//   ops_regenerate        an operator re-ran generation (internal route)
+export const RESUME_GENERATION_TRIGGERS = [
+  "profile_confirmed",
+  "manual",
+  "chat_update_accepted",
+  "ops_regenerate",
+] as const;
+export type ResumeGenerationTrigger = (typeof RESUME_GENERATION_TRIGGERS)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

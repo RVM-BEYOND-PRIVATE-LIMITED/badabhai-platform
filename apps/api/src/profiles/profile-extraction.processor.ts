@@ -46,6 +46,9 @@ import { redactKnownName } from "../common/redact-known-name";
 import { WorkerSkillsService } from "../match/worker-skills.service";
 import { SkillsRepository } from "../skills/skills.repository";
 import { ProfilesRepository } from "./profiles.repository";
+import { ProfilesService } from "./profiles.service";
+import { ConsentRepository } from "../consent/consent.repository";
+import { hasActiveConsent } from "../consent/consent-active";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
 import { ChatTableWritesService } from "./chat-table-writes";
@@ -57,6 +60,9 @@ import {
   type AiSpendCapReason,
 } from "@badabhai/event-schema";
 import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
+
+/** A stored import id is only trusted as a FK value when it is shaped like one. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * TD27 spend-cap / circuit-breaker block codes the AI gateway returns in
@@ -277,8 +283,110 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // the calls it made before — the whole LLM-led change stays behind a single switch, on the
     // extraction side as much as on the interview side.
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0043 — confirms the profile an accepted chat update produced ("Resume update kar
+    // doon?" -> Haan). Same module, so no edge. LAST AND OPTIONAL so every existing construction
+    // keeps compiling; absent means no auto-confirm, which is exactly the pre-0125 behaviour.
+    private readonly profilesService?: ProfilesService,
+    // ADR-0043 — the consent re-check in front of the ACCEPTED-UPDATE extraction, the one
+    // extraction this change starts off the request path for a worker who already has a profile.
+    // Trailing and optional for the same reason; absent means that extraction does not run.
+    private readonly consents?: ConsentRepository,
   ) {
     super();
+  }
+
+  /**
+   * The two résumé-history facts the interview recorded on its session (ADR-0043), read off the
+   * loose engine keys `finalizeInterview` writes beside `form_kind`:
+   *
+   *   `import_applied_id`  the CV import whose identity line the worker said "haan" to, or whose
+   *                        staged facts they confirmed. Becomes `seeded_from_import_id`, which
+   *                        labels the résumé `resume_upload` (ruling R1).
+   *   `resume_update`      `{ accepted: true }` when the worker said "Haan" to "Resume update kar
+   *                        doon?". Becomes `resume_update_accepted_at`.
+   *
+   * DEGRADE, NEVER FAIL — `resolveProfileSource`'s posture: an unreadable session costs the two
+   * labels, never the worker's profile. A value this build did not write narrows to null.
+   */
+  private async sessionResumeFacts(
+    workerId: string,
+    sessionId: string | null,
+  ): Promise<{
+    importAppliedId: string | null;
+    updateAcceptedAt: Date | null;
+    /** The session could not be read, so whether this is an accepted update is UNKNOWN. */
+    readFailed: boolean;
+  }> {
+    const none = { importAppliedId: null, updateAcceptedAt: null, readFailed: false };
+    if (!sessionId) return none;
+    try {
+      const session = await this.chat.findSession(sessionId);
+      // Defence in depth: the job's session was ownership-checked when the job was minted, but
+      // a fact that confirms a profile and spends money is read only from THIS worker's session.
+      if (session && session.workerId !== workerId) return none;
+      const state = session?.conversationState;
+      if (typeof state !== "object" || state === null) return none;
+      const raw = state as Record<string, unknown>;
+      const candidate =
+        typeof raw.import_applied_id === "string" && UUID_PATTERN.test(raw.import_applied_id)
+          ? raw.import_applied_id
+          : null;
+      // THE IMPORT MUST EXIST AND BE THIS WORKER'S. It becomes a foreign key on the profile row,
+      // so an id whose import is gone would fail the INSERT — costing the worker their profile,
+      // the opposite of "degrade, never fail" — and the FK alone would accept another worker's
+      // import. One indexed read closes both; a miss costs the label, never the profile.
+      const importAppliedId =
+        candidate !== null && (await this.resumeImports.findForWorker(candidate, workerId))
+          ? candidate
+          : null;
+      const update = raw.resume_update as Record<string, unknown> | null | undefined;
+      const answeredAt =
+        update && update.accepted === true && typeof update.answered_at === "string"
+          ? new Date(update.answered_at)
+          : null;
+      return {
+        importAppliedId,
+        updateAcceptedAt:
+          answeredAt !== null && !Number.isNaN(answeredAt.getTime()) ? answeredAt : null,
+        readFailed: false,
+      };
+    } catch {
+      this.logger.warn(
+        `résumé-history facts unreadable for session ${sessionId}; the profile is written ` +
+          `without them`,
+      );
+      return { ...none, readFailed: true };
+    }
+  }
+
+  /**
+   * THE ACCEPTED UPDATE LANDS HERE (ADR-0043). The worker said "Haan" to "Resume update kar
+   * doon?", the interview flushed, and this job just produced the profile it asked for — so it
+   * is confirmed now, and the ordinary confirm enqueues the résumé. Every wall (the profile must
+   * be `extracted`, consent must still be active) lives in `confirmAcceptedUpdate`.
+   *
+   * NEVER THROWS, and runs only after the job is marked completed: the extraction has succeeded
+   * and been paid for, and a failure here must not turn it into a retried — re-billed — job.
+   */
+  private async landAcceptedUpdate(
+    workerId: string,
+    profileId: string,
+    ctx: { correlationId: string; requestId: string },
+  ): Promise<void> {
+    if (!this.profilesService) return;
+    try {
+      const outcome = await this.profilesService.confirmAcceptedUpdate(
+        { worker_id: workerId, profile_id: profileId },
+        ctx,
+      );
+      this.logger.log(`accepted résumé update profile=${profileId} outcome=${outcome}`);
+    } catch (err) {
+      this.logger.warn(
+        `accepted résumé update could not be confirmed profile=${profileId} (${
+          err instanceof Error ? err.name : "UnknownError"
+        })`,
+      );
+    }
   }
 
   /**
@@ -329,8 +437,21 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // profile_id the previous run recorded.
     const existing = await this.aiJobs.findById(aiJobId);
     const existingProfileId = (existing?.outputRef as { profile_id?: string } | null)?.profile_id;
+    // A CORRECTION REBUILD is not the interview's answer to "Resume update kar doon?" — it re-runs
+    // an interview the worker already finished, after they changed an answer. It keeps its own
+    // behaviour: the import fact is still recorded, the acceptance is not re-applied.
+    const isCorrection =
+      (existing?.inputRef as { trigger?: unknown } | null | undefined)?.trigger === "correction";
     if (existing?.status === "completed" && existingProfileId) {
       this.logger.log(`extraction job ${aiJobId} already completed; skipping reprocess`);
+      // A redelivery after the job completed but before the accepted update was confirmed would
+      // otherwise strand the worker's "Haan". The confirm is idempotent, so re-driving it is safe.
+      if (!isCorrection) {
+        const facts = await this.sessionResumeFacts(workerId, sessionId);
+        if (facts.updateAcceptedAt !== null) {
+          await this.landAcceptedUpdate(workerId, existingProfileId, { correlationId, requestId });
+        }
+      }
       return { profile_id: existingProfileId };
     }
 
@@ -343,6 +464,27 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // before money is spent, not after. The records it reads are durable and
       // do not move during this job, so early and late resolve identically.
       const profileSource = await this.resolveProfileSource(workerId, sessionId);
+      // ADR-0043 — read with the road and for the same reason: before any AI spend.
+      const resumeFacts = await this.sessionResumeFacts(workerId, sessionId);
+      // THE ACCEPTED UPDATE IS AN OFF-REQUEST TRIGGER. Before ADR-0043 a returning worker's redo was
+      // extracted only when the app called `POST /profile/extract`, behind ConsentGuard; the
+      // accepted update is extracted from the flush, and this job retries for up to ~15 minutes.
+      // A worker who withdrew consent after saying "Haan" must not have the interview sent to the
+      // model, so the check the guard would have made is made here. THROWN, not returned: it takes
+      // the ordinary retry and terminal-failure path, and a consent re-granted before the final
+      // attempt lets the update proceed.
+      //
+      // AN UNREADABLE SESSION TAKES THE CHECK TOO: whether this is an accepted update is then
+      // unknown, and "unknown" must not be the door around the gate. `profiling` is the purpose an
+      // interview's extraction runs under, so it is the one required — off the request path the
+      // lawful basis is checked, never assumed.
+      if (
+        !isCorrection &&
+        (resumeFacts.updateAcceptedAt !== null || resumeFacts.readFailed) &&
+        !(await hasActiveConsent(this.consents, workerId, "profiling"))
+      ) {
+        throw new Error("consent is not active; the accepted résumé update is not extracted");
+      }
 
       // Both shapes of the same conversation, deliberately. `transcript` is the
       // flat both-directions blob the model reads (and the rollback lever — drop
@@ -467,6 +609,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // wins on a TD14 retry, which is correct: the derivation is deterministic
         // over durable records, so a retry computes the same value.
         source: profileSource,
+        // ADR-0043 — the two résumé-history facts, written once with the row (TD14: a retry
+        // returns this row, so first write wins, and the facts are durable session records that
+        // resolve identically on every attempt).
+        seededFromImportId: resumeFacts.importAppliedId,
+        resumeUpdateAcceptedAt: isCorrection ? null : resumeFacts.updateAcceptedAt,
         canonicalTradeId: profile.canonical_trade_id,
         canonicalRoleId: profile.canonical_role_id,
         skills: profile.skills,
@@ -615,6 +762,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
         correlationId,
         requestId,
       });
+
+      // ADR-0043 — the worker's "Haan" to "Resume update kar doon?" is confirmed on the profile
+      // it asked for. AFTER `markCompleted` and the completion event, so the audit reads in the
+      // order things happened, and never-throwing, so it cannot re-bill this job.
+      if (!isCorrection && resumeFacts.updateAcceptedAt !== null) {
+        await this.landAcceptedUpdate(workerId, saved.id, { correlationId, requestId });
+      }
 
       // Record AI usage/cost on the dedicated observability event. Guarded: an
       // observability emit must never turn a SUCCESSFUL extraction into a failure.

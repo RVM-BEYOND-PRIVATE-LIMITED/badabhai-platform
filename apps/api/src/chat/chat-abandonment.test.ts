@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ChatService } from "./chat.service";
 import { ChatAbandonmentSweepProcessor, SWEEP_BATCH_LIMIT } from "./chat-abandonment-sweep.processor";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
+import { emptyProfilingEnvelope } from "../profiling/conversation-state";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -68,6 +69,12 @@ function make(
     // Args typed even though unused: `mock.calls[0][1]` is how the assertions read the rows
     // back, and an argless mock gives the call a 0-tuple that cannot be indexed.
     insertPackAnswers: vi.fn(async (_tx: unknown, _rows: Record<string, unknown>[]) => undefined),
+    // ADR-0043 — an interview idle at the résumé-update offer is FINALIZED, not abandoned, so the
+    // flush's own collaborators must exist here too.
+    endSession: vi.fn(
+      async (_tx: unknown, _id: string, _state: Record<string, unknown>, _at: Date) => true,
+    ),
+    pinPack: vi.fn(async () => true),
   };
   const events = { emit: vi.fn().mockResolvedValue(undefined) };
   const profiles = { extract: vi.fn().mockResolvedValue({ ai_job_id: "job-1" }) };
@@ -364,5 +371,94 @@ describe("ChatAbandonmentSweepProcessor", () => {
     await expect(proc.onApplicationBootstrap()).resolves.toBeUndefined();
     proc.onModuleDestroy(); // abort the backoff chain so the test does not idle
     await proc.whenRegistrationSettled();
+  });
+});
+
+describe("ChatService.abandonInterview — an interview idle at the résumé-update offer (ADR-0043)", () => {
+  const PENDING_OFFER = {
+    ...emptyProfilingEnvelope(),
+    ...(ENVELOPE_WITH_ANSWER as object),
+    resumeUpdateOffer: {
+      state: "pending",
+      accepted: null,
+      completionReason: "ask_budget",
+      answeredAt: null,
+    },
+  } as never;
+
+  it("is FINALIZED as an 'Abhi nahi' — the interview the engine already closed keeps its profile", async () => {
+    const { svc, chat, events, profiles, session } = make({
+      buffer: partialBuffer({ profiling: PENDING_OFFER }),
+    });
+    const out = await svc.abandonInterview(session, 380, CTX);
+
+    expect(out.closed).toBe(true);
+    expect(chat.abandonSession).not.toHaveBeenCalled();
+    expect(chat.endSession).toHaveBeenCalledTimes(1);
+    const state = chat.endSession.mock.calls[0]![2];
+    // The engine's own verdict, carried across the offer — never "abandoned".
+    expect(state.completion_reason).toBe("ask_budget");
+    // An unanswered question is NEVER an acceptance.
+    expect(state.resume_update).toEqual({ accepted: false, answered_at: expect.any(String) });
+    expect(emittedNames(events)).not.toContain("chat.session_abandoned");
+    expect(emittedNames(events)).toContain("profile.extraction_ready");
+    // The extraction a finished interview always got — the preview will still confirm it.
+    expect(profiles.extract).toHaveBeenCalledTimes(1);
+
+    const answered = events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; actor: { actor_type: string }; payload: unknown })
+      .find((e) => e.event_name === "profile.resume_update_answered");
+    expect(answered?.payload).toEqual({ worker_id: WORKER, session_id: SESSION, answer: "no" });
+    // The SWEEP settled it, not the worker.
+    expect(answered?.actor.actor_type).toBe("system");
+  });
+
+  it("records NO 'no' when the worker's own flush won the race — their Haan is the record", async () => {
+    const { svc, chat, events, session } = make({
+      buffer: partialBuffer({ profiling: PENDING_OFFER }),
+    });
+    chat.endSession.mockResolvedValue(false);
+    const out = await svc.abandonInterview(session, 380, CTX);
+    expect(out.closed).toBe(false);
+    expect(emittedNames(events)).not.toContain("profile.resume_update_answered");
+  });
+
+  it("an ANSWERED offer whose flush failed is re-driven, not abandoned — the promise is kept", async () => {
+    const SETTLED = {
+      ...emptyProfilingEnvelope(),
+      ...(ENVELOPE_WITH_ANSWER as object),
+      resumeUpdateOffer: {
+        state: "settled",
+        accepted: true,
+        completionReason: "complete",
+        answeredAt: T0,
+      },
+    } as never;
+    const { svc, chat, events, profiles, session } = make({
+      buffer: partialBuffer({ profiling: SETTLED, completedAt: T0, completionReason: "complete" }),
+    });
+    const out = await svc.abandonInterview(session, 380, CTX);
+    expect(out.closed).toBe(true);
+    expect(chat.abandonSession).not.toHaveBeenCalled();
+    expect(chat.endSession).toHaveBeenCalledTimes(1);
+    expect(chat.endSession.mock.calls[0]![2].resume_update).toEqual({
+      accepted: true,
+      answered_at: T0,
+    });
+    expect(emittedNames(events)).not.toContain("chat.session_abandoned");
+    // The answer was recorded when the turn landed; the re-drive records nothing new about it.
+    expect(emittedNames(events)).not.toContain("profile.resume_update_answered");
+    expect(profiles.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it("an interview idle on an ORDINARY question is still abandoned exactly as before", async () => {
+    // The vacuity check: same harness, no pending offer.
+    const { svc, chat, events, session } = make({
+      buffer: partialBuffer({ profiling: ENVELOPE_WITH_ANSWER }),
+    });
+    await svc.abandonInterview(session, 380, CTX);
+    expect(chat.abandonSession).toHaveBeenCalledTimes(1);
+    expect(chat.endSession).not.toHaveBeenCalled();
+    expect(emittedNames(events)).toContain("chat.session_abandoned");
   });
 });

@@ -877,6 +877,13 @@
       "when": 1790235510468,
       "tag": "0124_resume_identity_role_kind_declared",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1790238258155,
+      "tag": "0125_resume_history",
+      "breakpoints": true
     }
   ]
 }

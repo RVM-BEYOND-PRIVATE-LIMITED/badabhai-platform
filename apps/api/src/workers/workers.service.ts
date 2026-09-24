@@ -32,6 +32,14 @@ import type {
 const PHOTO_MAX_BYTES = 2 * 1024 * 1024; // 2 MiB
 const PHOTO_ALLOWED_MIME = new Set(["image/jpeg", "image/png"]);
 
+/** BullMQ states in which a job has not started yet — it will read the worker's state when it does. */
+const NOT_STARTED_JOB_STATES: ReadonlySet<string> = new Set([
+  "waiting",
+  "delayed",
+  "prioritized",
+  "waiting-children",
+]);
+
 /**
  * Worker write-side logic (identity) + the worker SELF-view summary read.
  * Plain read-only ops queries stay on the repository; mutations that touch PII
@@ -90,14 +98,18 @@ export class WorkersService {
       const latest = await this.workers.latestResume(workerId);
       // No resume yet → nothing to re-render; the first generate picks the photo up.
       if (!latest) return;
-      await this.renderQueue.add("render", {
-        resumeId: latest.id,
+      const job = (resumeId: string): ResumeRenderJobData => ({
+        resumeId,
         workerId,
         force: true,
         failClosed: opts.failClosed,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
+      // THE CURRENT RÉSUMÉ FIRST, AND ON ITS OWN — exactly the job this has always enqueued, so no
+      // failure in the fan-out below can cost the worker the re-render they had before it.
+      await this.renderQueue.add("render", job(latest.id));
+      if (opts.failClosed) await this.enqueueErasureOfOlderResumes(workerId, latest.id, job);
     } catch (err) {
       this.logger.warn(
         `could not enqueue resume re-render for worker ${workerId} (reason: ${
@@ -105,6 +117,77 @@ export class WorkersService {
         })`,
       );
     }
+  }
+
+  /**
+   * AN ERASURE REACHES EVERY PDF THE WORKER OWNS (ADR-0043). Résumé history keeps every generation
+   * and serves any of them by id, so taking a face or a number off only the CURRENT PDF would leave
+   * it on every older one. A cosmetic refresh never comes here — an older entry keeps what it was
+   * generated with.
+   *
+   * BEST-EFFORT AND LOUD: a failure is logged per résumé and never fails the write that triggered
+   * it — the same contract as the current résumé's re-render, which has already been enqueued.
+   */
+  private async enqueueErasureOfOlderResumes(
+    workerId: string,
+    currentId: string,
+    job: (resumeId: string) => ResumeRenderJobData,
+  ): Promise<void> {
+    let older: string[];
+    try {
+      older = (await this.workers.listErasureTargetIds(workerId)).filter((id) => id !== currentId);
+    } catch (err) {
+      this.logger.warn(
+        `could not list worker ${workerId}'s older résumés for an erasure re-render (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      return;
+    }
+    for (const resumeId of older) {
+      try {
+        await this.enqueueErasure(resumeId, job(resumeId));
+      } catch (err) {
+        this.logger.warn(
+          `could not enqueue the erasure re-render of résumé ${resumeId} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Make sure a render that STARTS AFTER this erasure exists for one older résumé — without letting
+   * a toggle storm pile renders onto the shared queue.
+   *
+   * THE RULE IS "HAS A JOB NOT STARTED YET", NOT "DOES A JOB EXIST". A render reads the worker's
+   * photo and number when it starts, and the erasure has already been written by the time this
+   * runs. So a job still WAITING will read the erased state — a repeat collapses into it, and that
+   * is the whole load bound. A job already RUNNING may have read the state from before this
+   * erasure, and collapsing into it would let its PDF keep the face the worker just removed; it
+   * gets a second slot instead, which waits and reads the erased state after it.
+   *
+   * Two deterministic slots, freed on completion, bound the queue to at most two jobs per older
+   * résumé. Should both be running (possible only with more than one render worker), the erasure
+   * is enqueued unkeyed rather than dropped.
+   */
+  private async enqueueErasure(resumeId: string, data: ResumeRenderJobData): Promise<void> {
+    for (const jobId of [`erasure-rerender:${resumeId}`, `erasure-rerender:${resumeId}:next`]) {
+      const existing = await this.renderQueue.getJob(jobId);
+      const state = existing ? await existing.getState() : undefined;
+      if (state !== undefined && NOT_STARTED_JOB_STATES.has(state)) return;
+      if (state === undefined) {
+        await this.renderQueue.add("render", data, {
+          jobId,
+          removeOnComplete: true,
+          removeOnFail: true,
+        });
+        return;
+      }
+      // Running (or finished and not yet removed): this slot cannot promise a later start.
+    }
+    await this.renderQueue.add("render", data);
   }
 
   /**

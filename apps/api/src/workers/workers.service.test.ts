@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import {
   BadRequestException,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -56,7 +57,18 @@ function mockConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
 
 /** TD77 render queue: the forced re-render producer. Assert `add` per test. */
 function mockRenderQueue() {
-  return { add: vi.fn(async (_name: string, _data: ResumeRenderJobData) => ({ id: "job-1" })) };
+  return {
+    add: vi.fn(
+      async (_name: string, _data: ResumeRenderJobData, _opts?: Record<string, unknown>) => ({
+        id: "job-1",
+      }),
+    ),
+    // ADR-0043 — the erasure fan-out asks whether a keyed job for an older résumé exists, and in
+    // which state. Default: none, so every older résumé gets its first slot.
+    getJob: vi.fn(
+      async (_id: string) => undefined as { getState: () => Promise<string> } | undefined,
+    ),
+  };
 }
 
 function newSvc(
@@ -87,6 +99,8 @@ function setup(workerExists = true) {
     // The name is baked onto the PDF at render time, so setFullName re-renders the
     // latest resume in place (TD77 parity with updateResumePrefs).
     latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
+    // ADR-0043 — the erasure fan-out's read. No older rendered entries by default.
+    listErasureTargetIds: vi.fn(async (_id: string) => ["res-1"]),
   };
   const pii = { encrypt: vi.fn((_plaintext: string) => TOKEN) };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -445,6 +459,8 @@ function resumeFieldsSetup(
     updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => updatedRow),
     // TD77: a show_photo flip re-renders the worker's LATEST resume.
     latestResume: vi.fn(async (_id: string) => ({ id: RESUME_ID, version: 1 })),
+    // ADR-0043 — the erasure fan-out's read. No older rendered entries by default.
+    listErasureTargetIds: vi.fn(async (_id: string) => [RESUME_ID]),
   };
   const pii = {
     encrypt: vi.fn(),
@@ -702,7 +718,9 @@ function photoSetup(
     /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
     latestResume?: { id: string; version: number } | undefined;
     /** TD77: override to prove the re-render enqueue is best-effort. */
-    renderQueue?: { add: ReturnType<typeof vi.fn> };
+    renderQueue?: { add: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> };
+    /** ADR-0043: OLDER rendered résumés the worker also owns — the erasure fan-out's targets. */
+    olderRendered?: string[];
   } = {},
 ) {
   const worker =
@@ -716,6 +734,10 @@ function photoSetup(
       worker ? { ...worker, photoStorageKey: key } : undefined,
     ),
     latestResume: vi.fn(async (_id: string) => latestResume),
+    listErasureTargetIds: vi.fn(async (_id: string) => [
+      ...(latestResume ? [latestResume.id] : []),
+      ...(opts.olderRendered ?? []),
+    ]),
   };
   const pii = { encrypt: vi.fn(), decrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -854,6 +876,7 @@ describe("WorkersService.confirmPhoto (ADR-0032)", () => {
       add: vi.fn(async () => {
         throw new Error("redis down");
       }),
+      getJob: vi.fn(async () => undefined),
     };
     const { svc, repo } = photoSetup({ renderQueue });
     await expect(svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX)).resolves.toEqual({
@@ -942,6 +965,104 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
     });
   });
 
+  // ADR-0043 — résumé history keeps every generation and serves any of them by id, so an erasure
+  // that reached only the current PDF would leave the face on every older one.
+  it("fans the FAIL-CLOSED erasure out: the current résumé as always, then EVERY older one, keyed", async () => {
+    const OLDER = ["4d5e6f70-4444-4444-8444-000000000004", "5e6f7081-5555-4555-8555-000000000005"];
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+      olderRendered: OLDER,
+    });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    const calls = renderQueue.add.mock.calls as unknown as [
+      string,
+      ResumeRenderJobData,
+      Record<string, unknown> | undefined,
+    ][];
+    // The current résumé's job first, byte-for-byte the one this path always enqueued.
+    expect(calls[0]![1]).toMatchObject({ resumeId: RESUME_ID, force: true, failClosed: true });
+    expect(calls[0]![2]).toBeUndefined();
+    expect(calls.slice(1).map(([, data]) => data.resumeId)).toEqual(OLDER);
+    for (const [name, data, opts] of calls.slice(1)) {
+      expect(name).toBe("render");
+      expect(data).toMatchObject({ workerId: WORKER_ID, force: true, failClosed: true });
+      expect(opts).toEqual({
+        jobId: `erasure-rerender:${data.resumeId}`,
+        removeOnComplete: true,
+        removeOnFail: true,
+      });
+    }
+  });
+
+  it("COLLAPSES into a keyed job that has NOT STARTED — it will read the erased state (the load bound)", async () => {
+    const OLDER = "4d5e6f70-4444-4444-8444-000000000004";
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+      olderRendered: [OLDER],
+    });
+    renderQueue.getJob.mockResolvedValue({ getState: async () => "waiting" });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    // Only the current résumé's job; the older one is already waiting.
+    expect(renderQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("NEVER collapses into a RUNNING job — it may have read the face before the erasure", async () => {
+    const OLDER = "4d5e6f70-4444-4444-8444-000000000004";
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+      olderRendered: [OLDER],
+    });
+    renderQueue.getJob.mockImplementation(async (id: string) =>
+      id === `erasure-rerender:${OLDER}` ? { getState: async () => "active" } : undefined,
+    );
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(renderQueue.add).toHaveBeenCalledTimes(2);
+    expect(renderQueue.add.mock.calls[1]![2]).toMatchObject({
+      jobId: `erasure-rerender:${OLDER}:next`,
+    });
+  });
+
+  it("with BOTH slots running the erasure is enqueued UNKEYED — never dropped", async () => {
+    const OLDER = "4d5e6f70-4444-4444-8444-000000000004";
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+      olderRendered: [OLDER],
+    });
+    renderQueue.getJob.mockResolvedValue({ getState: async () => "active" });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(renderQueue.add).toHaveBeenCalledTimes(2);
+    expect(renderQueue.add.mock.calls[1]![1]).toMatchObject({ resumeId: OLDER, failClosed: true });
+    expect(renderQueue.add.mock.calls[1]![2]).toBeUndefined();
+  });
+
+  it("a fan-out read that FAILS still leaves the current résumé's erasure enqueued", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, repo, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+    });
+    repo.listErasureTargetIds.mockRejectedValue(new Error("pg down"));
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(renderQueue.add).toHaveBeenCalledOnce();
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+    );
+  });
+
+  it("a COSMETIC re-render stays on the current résumé — history entries keep what they were made with", async () => {
+    const { svc, repo, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: null, resumeShowPhoto: true },
+      olderRendered: ["4d5e6f70-4444-4444-8444-000000000004"],
+    });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(repo.listErasureTargetIds).not.toHaveBeenCalled();
+    expect(renderQueue.getJob).not.toHaveBeenCalled();
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, failClosed: false }),
+    );
+  });
+
   it("TD77: photo removed while show_photo was OFF → NO re-render (never was on the PDF)", async () => {
     const { svc, renderQueue } = photoSetup({
       worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: false },
@@ -1007,6 +1128,7 @@ describe("WorkersService.setWhatsapp / getWhatsapp (Layer A (a))", () => {
       findById: vi.fn(async (_id: string) => worker ?? undefined),
       updateWhatsapp: vi.fn(async (_id: string, _token: string | null) => ({ id: "w-1" })),
       latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
+      listErasureTargetIds: vi.fn(async (_id: string) => ["res-1"]),
     };
     const pii = {
       encrypt: vi.fn((_plaintext: string) => "v1.encryptedwhatsapp"),

@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 193 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit)", () => {
-    expect(EVENT_NAMES).toHaveLength(193);
+  it("exposes all 194 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer)", () => {
+    expect(EVENT_NAMES).toHaveLength(194);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4821,5 +4821,89 @@ describe("worker.occupations_recorded (Layer A (f) / ADR-0042 D9)", () => {
     );
     expect(validateEvent(recorded({ ...valid, occupation_count: 5 })).success).toBe(false);
     expect(validateEvent(recorded({ ...valid, occupation_count: -1 })).success).toBe(false);
+  });
+});
+
+describe("résumé history (ADR-0043) — source and trigger are closed vocabularies, the answer is closed", () => {
+  const envelope = (eventName: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: eventName,
+    event_version: 1,
+    occurred_at: "2026-09-24T10:00:00.000Z",
+    actor: { actor_type: "system" },
+    subject: { subject_type: "resume", subject_id: UUID_B },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const generated = {
+    worker_id: UUID_A,
+    profile_id: UUID_B,
+    resume_id: UUID_C,
+    version: 1,
+    format: "text",
+    profile_source: "chat",
+  };
+
+  it("accepts every source and trigger on both generation events", () => {
+    for (const resume_source of ["form", "chat", "resume_upload"]) {
+      for (const trigger of [
+        "profile_confirmed",
+        "manual",
+        "chat_update_accepted",
+        "ops_regenerate",
+      ]) {
+        expect(
+          validateEvent(envelope("resume.generated", { ...generated, resume_source, trigger }))
+            .success,
+        ).toBe(true);
+        expect(
+          validateEvent(
+            envelope("resume.regenerated", {
+              ...generated,
+              version: 2,
+              previous_version: 1,
+              resume_source,
+              trigger,
+            }),
+          ).success,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("stays valid WITHOUT the new fields — an emitter that predates them must not start failing", () => {
+    expect(validateEvent(envelope("resume.generated", generated)).success).toBe(true);
+    // And the defaults are NULL — "not recorded", never a guessed source.
+    const payload = EVENT_REGISTRY["resume.generated"].payload.parse(generated);
+    expect(payload.resume_source).toBeNull();
+    expect(payload.trigger).toBeNull();
+  });
+
+  it("refuses a value outside either vocabulary", () => {
+    // Asserted valid first, so the two refusals below cannot be the fixture's own fault.
+    expect(validateEvent(envelope("resume.generated", generated)).success).toBe(true);
+    expect(
+      validateEvent(envelope("resume.generated", { ...generated, resume_source: "voice" })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(envelope("resume.generated", { ...generated, trigger: "cron" })).success,
+    ).toBe(false);
+  });
+
+  it("the update answer is ids plus yes/no, and nothing else rides along", () => {
+    const answered = (payload: Record<string, unknown>) =>
+      envelope("profile.resume_update_answered", payload);
+    const valid = { worker_id: UUID_A, session_id: UUID_B, answer: "yes" };
+    expect(isEventName("profile.resume_update_answered")).toBe(true);
+    expect(validateEvent(answered(valid)).success).toBe(true);
+    expect(validateEvent(answered({ ...valid, answer: "no" })).success).toBe(true);
+    // Closed: free text here would be the worker's own words on the spine.
+    expect(validateEvent(answered({ ...valid, answer: "haan kar do" })).success).toBe(false);
+    // `.strict()`: nothing smuggled beside the ids.
+    expect(validateEvent(answered({ ...valid, reply_text: "Haan" })).success).toBe(false);
+    expect(validateEvent(answered({ worker_id: UUID_A, answer: "yes" })).success).toBe(false);
   });
 });

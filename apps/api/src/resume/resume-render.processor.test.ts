@@ -256,6 +256,9 @@ function setup(
     // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
     workerSaid?: string[];
     transcriptThrows?: boolean;
+    // ADR-0043 — the id `latestResume` reports as the worker's CURRENT résumé. Omitted, the row
+    // under render IS current, which is every test written before résumé history existed.
+    currentResumeId?: string;
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -274,6 +277,9 @@ function setup(
       currentCity: opts.currentCity ?? null,
       currentState: opts.currentState ?? null,
       verificationState: opts.verificationState ?? null,
+    })),
+    latestResume: vi.fn(async () => ({
+      id: opts.currentResumeId ?? (resumeRow as { id?: string } | undefined)?.id ?? RESUME_ID,
     })),
   };
   const pii = {
@@ -775,6 +781,55 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
       // document in place would leave the app screen describing the PDF it just overwrote.
       expect.objectContaining({ format: expect.any(String) }),
     );
+  });
+
+  // ADR-0043 — résumé history keeps every generation, and a forced re-render reads LIVE worker
+  // data. Aimed at an older entry (the trade-form refresh is queued 60 s ahead against whatever
+  // was current then), it would silently turn a record of what was generated into today's copy.
+  describe("a HISTORY ENTRY is never redrawn with today's data (ADR-0043)", () => {
+    const RENDERED = {
+      id: RESUME_ID,
+      workerId: WORKER_ID,
+      version: 1,
+      renderStatus: "rendered",
+      sourceProfileSnapshot: SNAPSHOT,
+    };
+    const NEWER = "99999999-9999-4999-8999-999999999999";
+
+    it("SKIPS a cosmetic forced re-render of a rendered row that is no longer current", async () => {
+      const { proc, renderer, storage, resumes } = setup({
+        resume: RENDERED,
+        currentResumeId: NEWER,
+      });
+      expect(await proc.process(makeJob({ force: true }))).toEqual({ rendered: true });
+      expect(renderer.renderPdf).not.toHaveBeenCalled();
+      expect(storage.uploadPdf).not.toHaveBeenCalled();
+      expect(resumes.markRendered).not.toHaveBeenCalled();
+      expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    });
+
+    it("STILL re-renders the current row — the guard is not a blanket skip", async () => {
+      // The vacuity check for the test above: same row, same job, only `current` differs.
+      const { proc, renderer } = setup({ resume: RENDERED, currentResumeId: RESUME_ID });
+      await proc.process(makeJob({ force: true }));
+      expect(renderer.renderPdf).toHaveBeenCalledTimes(1);
+    });
+
+    it("an ERASURE (fail-closed) reaches an older entry too — the face must leave every PDF", async () => {
+      const { proc, renderer, resumes } = setup({ resume: RENDERED, currentResumeId: NEWER });
+      await proc.process(makeJob({ force: true, failClosed: true }));
+      expect(renderer.renderPdf).toHaveBeenCalledTimes(1);
+      expect(resumes.markRendered).toHaveBeenCalledTimes(1);
+    });
+
+    it("a non-current row still waiting for its FIRST PDF is rendered, whatever is newer", async () => {
+      const { proc, renderer } = setup({
+        resume: { ...RENDERED, renderStatus: "pending" },
+        currentResumeId: NEWER,
+      });
+      await proc.process(makeJob({ force: true }));
+      expect(renderer.renderPdf).toHaveBeenCalledTimes(1);
+    });
   });
 
   // TD77 REGRESSION — the forced re-render must never be able to take a working

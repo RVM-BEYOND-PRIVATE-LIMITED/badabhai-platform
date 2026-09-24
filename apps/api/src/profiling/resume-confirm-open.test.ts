@@ -259,6 +259,9 @@ describe("the résumé confirm opens the session (Task 1 B3)", () => {
     expect(applied).toBeDefined();
     expect(applied!.payload).toMatchObject({ offered: expect.any(Number), accepted: 2 });
     expect(resume.forImport).toHaveBeenCalledWith(WORKER, IMPORT);
+    // ADR-0043 (ruling R1): facts from the CV entered this interview, so its résumé is labelled
+    // `resume_upload`.
+    expect(saved(store)?.importAppliedId).toBe(IMPORT);
   });
 
   it("a decline settles the offer, writes no facts, and the interview continues", async () => {
@@ -278,6 +281,8 @@ describe("the résumé confirm opens the session (Task 1 B3)", () => {
       .map(([params]) => params as { event_name: string; payload: Record<string, unknown> })
       .find((e) => e.event_name === "profile.resume_prefill_applied");
     expect(applied!.payload).toMatchObject({ accepted: 0 });
+    // ADR-0043: nothing of the CV was accepted, so the résumé is not labelled `resume_upload`.
+    expect(saved(store)?.importAppliedId ?? null).toBeNull();
   });
 
   it("a second open re-serves the confirm WITHOUT spending a second ask", async () => {

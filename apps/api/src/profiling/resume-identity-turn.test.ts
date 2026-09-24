@@ -273,6 +273,9 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(result.kind).toBe("ask");
     expect(result.reply).not.toBe(IDENTITY_REPLY);
     expect(result.questionKey).toBe("primary_trade");
+    // ADR-0043 (ruling R1): the worker claimed this CV, so the résumé this interview makes is
+    // labelled `resume_upload` — on the chat road as much as the form one.
+    expect(saved(store)?.importAppliedId).toBe(IMPORT);
   });
 
   it("Haan on a form-routed import autofills first, then hands over to its form with the same CTA card", async () => {
@@ -296,6 +299,9 @@ describe("the résumé identity turn (RI-identity)", () => {
     expect(result.formOffer).toEqual(TRADE_FORM_OFFERS.cnc_grinding);
     expect(saved(store)?.formKind).toBe("cnc_grinding");
     expect(saved(store)?.formOfferPrompt).toEqual({ kind: "cnc_grinding", state: "settled" });
+    // ADR-0043 (ruling R1): set BEFORE the handover, so the flush that ends this session into the
+    // form persists it and the form's résumé is labelled `resume_upload` too.
+    expect(saved(store)?.importAppliedId).toBe(IMPORT);
   });
 
   it("Haan with an unresolvable form kind falls through to the interview, never a bad handover", async () => {
@@ -332,6 +338,8 @@ describe("the résumé identity turn (RI-identity)", () => {
     // IGNORE + NORMAL CHAT: the trade question comes back as if no résumé existed.
     expect(result.kind).toBe("ask");
     expect(result.questionKey).toBe("primary_trade");
+    // ADR-0043: a CV the worker denied did not make their résumé — no `resume_upload` label.
+    expect(saved(store)?.importAppliedId ?? null).toBeNull();
   });
 
   it("an autofill throw costs the prefill, never the handover", async () => {
@@ -361,6 +369,8 @@ describe("the résumé identity turn (RI-identity)", () => {
     const answered = emitted(events, "profile.resume_identity_answered");
     expect(answered).toHaveLength(1);
     expect(answered[0]!.payload).toMatchObject({ answer: "no" });
+    // ADR-0043: an unreadable reply is a no here too — no `resume_upload` label.
+    expect(saved(store)?.importAppliedId ?? null).toBeNull();
   });
 
   it("no staged line ⇒ the ordinary opening, never the identity bubble", async () => {

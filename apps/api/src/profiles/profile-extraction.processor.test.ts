@@ -99,6 +99,15 @@ function make(
     llmInterview?: boolean;
     /** What `/profiling/extract` returned. `null` = unreachable/blocked/mis-shaped. */
     interview?: unknown;
+    /**
+     * ADR-0043 — the service that confirms an accepted chat update. Omitted = the processor is
+     * built without it, which is the pre-0125 construction and means no auto-confirm.
+     */
+    profilesService?: { confirmAcceptedUpdate: ReturnType<typeof vi.fn> };
+    /** ADR-0043 — `false`: the session's accepted import is gone or belongs to someone else. */
+    importOwned?: boolean;
+    /** ADR-0043 — the worker's latest consent row. Default: active. `null`: none on file. */
+    consent?: { revokedAt: Date | null; purposes: string[] } | null;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -121,8 +130,12 @@ function make(
           .fn()
           .mockResolvedValue(
             "conversationState" in opts
-              ? { id: JOB.sessionId, conversationState: opts.conversationState }
-              : { id: JOB.sessionId, conversationState: null },
+              ? {
+                  id: JOB.sessionId,
+                  workerId: JOB.workerId,
+                  conversationState: opts.conversationState,
+                }
+              : { id: JOB.sessionId, workerId: JOB.workerId, conversationState: null },
           ),
   };
   // The in-flight transcript, for the early-finish path. `undefined` = no buffer (the
@@ -230,6 +243,11 @@ function make(
   // Task 1 — the résumé-import road record. `undefined` = the worker never
   // uploaded (the common chat case); a row reproduces the upload roads.
   const resumeImports = {
+    // ADR-0043 — the ownership read behind `seeded_from_import_id`. Default: the import exists
+    // and is this worker's; a test passes `importOwned: false` for the gone/foreign case.
+    findForWorker: vi.fn(async (id: string) =>
+      opts.importOwned === false ? undefined : { id, workerId: JOB.workerId },
+    ),
     findLatestForWorker: vi
       .fn()
       .mockResolvedValue(
@@ -262,6 +280,14 @@ function make(
     // and which deliberately does not, which is what the fake makes visible.
     traces.recorder,
     { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
+    opts.profilesService as never,
+    {
+      findLatestByWorker: vi.fn(async () =>
+        "consent" in opts
+          ? (opts.consent ?? undefined)
+          : { revokedAt: null, purposes: ["profiling", "resume_generation"] },
+      ),
+    } as never,
   );
   return {
     proc,
@@ -2550,5 +2576,202 @@ describe("OIE O2 — the canonical scope on the legacy extract branch", () => {
     ]);
     expect(scoping).toHaveLength(OCCUPATION_MATCH_STATUSES.length - 3);
     expect(occupationPinScopesCanonicalization(null)).toBe(false);
+  });
+});
+
+describe("ProfileExtractionProcessor — résumé history facts (ADR-0043)", () => {
+  const IMPORT = "66666666-6666-4666-8666-666666666666";
+  const ANSWERED_AT = "2026-09-24T10:00:00.000Z";
+  const created = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+  const service = () => ({ confirmAcceptedUpdate: vi.fn(async () => "confirmed") });
+
+  it("writes the accepted import and the Haan onto the profile, then confirms it", async () => {
+    const profilesService = service();
+    const { proc, profiles } = make({
+      conversationState: {
+        answer_map: [],
+        import_applied_id: IMPORT,
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(created(profiles).seededFromImportId).toBe(IMPORT);
+    expect(created(profiles).resumeUpdateAcceptedAt).toEqual(new Date(ANSWERED_AT));
+    expect(profilesService.confirmAcceptedUpdate).toHaveBeenCalledWith(
+      { worker_id: JOB.workerId, profile_id: PROFILE },
+      { correlationId: JOB.correlationId, requestId: JOB.requestId },
+    );
+  });
+
+  it("an 'Abhi nahi' records no acceptance and confirms nothing — the preview decides, as before", async () => {
+    const profilesService = service();
+    const { proc, profiles } = make({
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: false, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    await proc.process(makeJob());
+    expect(created(profiles).resumeUpdateAcceptedAt).toBeNull();
+    expect(created(profiles).seededFromImportId).toBeNull();
+    expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a session that never saw either fact writes NULLs — never a guessed label", async () => {
+    const { proc, profiles } = make({ conversationState: { answer_map: [] } });
+    await proc.process(makeJob());
+    expect(created(profiles).seededFromImportId).toBeNull();
+    expect(created(profiles).resumeUpdateAcceptedAt).toBeNull();
+  });
+
+  it("an import that is GONE or ANOTHER WORKER'S costs the label, never the profile", async () => {
+    // It becomes a foreign key: a missing row would fail the insert, and the FK alone would
+    // accept a foreign one. The ownership read turns both into NULL and the profile is written.
+    const { proc, profiles, resumeImports } = make({
+      conversationState: { answer_map: [], import_applied_id: IMPORT },
+      importOwned: false,
+    });
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(resumeImports.findForWorker).toHaveBeenCalledWith(IMPORT, JOB.workerId);
+    expect(created(profiles).seededFromImportId).toBeNull();
+  });
+
+  it("an import id that is not shaped like one is never written as a foreign key", async () => {
+    const { proc, profiles } = make({
+      conversationState: { answer_map: [], import_applied_id: "not-a-uuid" },
+    });
+    await proc.process(makeJob());
+    expect(created(profiles).seededFromImportId).toBeNull();
+  });
+
+  it("a CORRECTION rebuild keeps the import fact but never re-applies the acceptance", async () => {
+    const profilesService = service();
+    const { proc, profiles } = make({
+      findById: { status: "queued", inputRef: { trigger: "correction" }, outputRef: null },
+      conversationState: {
+        answer_map: [],
+        import_applied_id: IMPORT,
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    await proc.process(makeJob());
+    expect(created(profiles).seededFromImportId).toBe(IMPORT);
+    expect(created(profiles).resumeUpdateAcceptedAt).toBeNull();
+    expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a redelivery of an ALREADY-COMPLETED job re-drives the confirm — a Haan is never stranded", async () => {
+    const profilesService = service();
+    const { proc, profiles } = make({
+      findById: { status: "completed", inputRef: {}, outputRef: { profile_id: PROFILE } },
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(profiles.create).not.toHaveBeenCalled();
+    expect(profilesService.confirmAcceptedUpdate).toHaveBeenCalledWith(
+      { worker_id: JOB.workerId, profile_id: PROFILE },
+      expect.anything(),
+    );
+  });
+
+  it("a worker who WITHDREW consent after the Haan has nothing sent to the model", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const profilesService = service();
+    const { proc, ai, profiles } = make({
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      consent: { revokedAt: new Date(), purposes: ["profiling"] },
+      profilesService,
+    });
+    // THROWN, so the job takes the ordinary retry/terminal-failure path.
+    await expect(proc.process(makeJob())).rejects.toThrow(/consent is not active/);
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+    expect(ai.parseProfile).not.toHaveBeenCalled();
+    expect(profiles.create).not.toHaveBeenCalled();
+    expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
+  });
+
+  it("an UNREADABLE session takes the consent check too — 'unknown' is not a way around the gate", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, ai, profiles } = make({
+      sessionThrows: true,
+      consent: { revokedAt: new Date(), purposes: ["profiling"] },
+    });
+    await expect(proc.process(makeJob())).rejects.toThrow(/consent is not active/);
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+    expect(profiles.create).not.toHaveBeenCalled();
+  });
+
+  it("an accepted update needs the `profiling` purpose on record, not just any active consent", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, ai } = make({
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      consent: { revokedAt: null, purposes: ["resume_generation"] },
+    });
+    await expect(proc.process(makeJob())).rejects.toThrow(/consent is not active/);
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+  });
+
+  it("an ordinary (not accepted-update) extraction is NOT gated by this check — today's behaviour", async () => {
+    const { proc, profiles } = make({
+      conversationState: { answer_map: [] },
+      consent: { revokedAt: new Date(), purposes: [] },
+    });
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(profiles.create).toHaveBeenCalledOnce();
+  });
+
+  it("the Haan is read only from THIS worker's session", async () => {
+    const profilesService = service();
+    const { proc, profiles, chat } = make({
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    chat.findSession.mockResolvedValue({
+      id: JOB.sessionId,
+      workerId: "99999999-9999-4999-8999-999999999999",
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+    });
+    await proc.process(makeJob());
+    expect(created(profiles).resumeUpdateAcceptedAt).toBeNull();
+    expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a confirm that THROWS costs the update, never the extraction", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const profilesService = {
+      confirmAcceptedUpdate: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
+    const { proc, aiJobs } = make({
+      conversationState: {
+        answer_map: [],
+        resume_update: { accepted: true, answered_at: ANSWERED_AT },
+      },
+      profilesService,
+    });
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
+    expect(aiJobs.markFailed).not.toHaveBeenCalled();
   });
 });

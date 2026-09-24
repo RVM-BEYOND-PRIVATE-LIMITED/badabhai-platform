@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import {
   ProfilesService,
@@ -90,7 +90,15 @@ const CONTENTLESS_DRAFT_PROFILE: FakeProfile = {
   },
 };
 
-function setup() {
+function setup(
+  opts: {
+    /**
+     * ADR-0043 — the consent repository behind `confirmAcceptedUpdate`. Omitted = the service is
+     * built without it (every pre-existing construction), which must mean NO auto-confirm.
+     */
+    consent?: { revokedAt: Date | null; purposes?: string[] } | null;
+  } = {},
+) {
   const profiles = {
     findById: vi.fn(async () => undefined as Record<string, unknown> | undefined),
     confirm: vi.fn(async () => undefined),
@@ -150,6 +158,10 @@ function setup() {
   const resumeGenerateQueue = { add: vi.fn(async () => undefined) };
   // §X.6 — leg 1 of the activation-bonus rule is enqueued on confirm.
   const referralBonusQueue = { add: vi.fn(async () => undefined) };
+  const consents =
+    "consent" in opts
+      ? { findLatestByWorker: vi.fn(async (_workerId: string) => opts.consent ?? undefined) }
+      : undefined;
   const svc = new ProfilesService(
     profiles as unknown as ProfilesRepository,
     aiJobs as unknown as AiJobsRepository,
@@ -159,6 +171,7 @@ function setup() {
     extractionQueue as unknown as Queue<ProfileExtractionJobData>,
     resumeGenerateQueue as unknown as Queue<ResumeGenerateJobData>,
     referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
+    consents as never,
   );
   return {
     svc,
@@ -1052,5 +1065,99 @@ describe("ProfilesService — the extraction job's retry policy", () => {
     // stranded and mint a duplicate — reintroducing the exact double-enqueue #420 closed.
     const ladder = EXTRACTION_JOB_OPTS.backoff.delay * (EXTRACTION_JOB_OPTS.attempts - 1);
     expect(EXTRACTION_IN_FLIGHT_WINDOW_MS).toBeGreaterThan(ladder);
+  });
+});
+
+/**
+ * ADR-0043 (ruling R3) — the worker said "Haan" to "Resume update kar doon?"; the extraction
+ * processor confirms the profile that interview produced, without the preview. Every wall is
+ * fail-closed, because a confirm here spends AI money in the worker's name.
+ */
+describe("ProfilesService.confirmAcceptedUpdate — the chat Haan confirms, behind four walls", () => {
+  const ACCEPTED = new Date("2026-09-24T10:00:00.000Z");
+  const ACTIVE = { revokedAt: null, purposes: ["profiling", "resume_generation"] };
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: PROFILE,
+    workerId: WORKER,
+    profileStatus: "extracted",
+    resumeUpdateAcceptedAt: ACCEPTED,
+    ...over,
+  });
+  const input = { worker_id: WORKER, profile_id: PROFILE };
+
+  it("confirms an EXTRACTED profile the worker accepted, with ACTIVE consent — the ordinary confirm", async () => {
+    const { svc, profiles, events, resumeGenerateQueue } = setup({ consent: ACTIVE });
+    profiles.findById.mockResolvedValue(row());
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("confirmed");
+    expect(profiles.confirm).toHaveBeenCalledOnce();
+    const confirmed = events.emit.mock.calls.find(
+      (c) => c[0].event_name === "profile.confirmed",
+    )?.[0];
+    // The Haan is the worker's, so the confirm is attributed to them.
+    expect(confirmed).toBeDefined();
+    expect(resumeGenerateQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("REFUSES a profile that carries no acceptance — the record decides, never the caller", async () => {
+    const { svc, profiles } = setup({ consent: ACTIVE });
+    profiles.findById.mockResolvedValue(row({ resumeUpdateAcceptedAt: null }));
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("not_accepted");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES an empty `draft` extraction — never a blank résumé over a good one", async () => {
+    const { svc, profiles } = setup({ consent: ACTIVE });
+    profiles.findById.mockResolvedValue(row({ profileStatus: "draft" }));
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("not_extracted");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES when consent was WITHDRAWN between the chat and now", async () => {
+    const { svc, profiles } = setup({ consent: { revokedAt: new Date() } });
+    profiles.findById.mockResolvedValue(row());
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("no_consent");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES an active consent that does not name `resume_generation` — no request, so no assumed basis", async () => {
+    const { svc, profiles } = setup({ consent: { revokedAt: null, purposes: ["profiling"] } });
+    profiles.findById.mockResolvedValue(row());
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("no_consent");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES with no consent row at all", async () => {
+    const { svc, profiles } = setup({ consent: null });
+    profiles.findById.mockResolvedValue(row());
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("no_consent");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("built WITHOUT the consent repository it FAILS CLOSED — never 'consent assumed'", async () => {
+    const { svc, profiles } = setup();
+    profiles.findById.mockResolvedValue(row());
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("no_consent");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("another worker's profile is not found — and nothing is confirmed", async () => {
+    const { svc, profiles } = setup({ consent: ACTIVE });
+    profiles.findById.mockResolvedValue(row({ workerId: OTHER }));
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("not_found");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("ALREADY CONFIRMED (the preview's tap won the race) is success, and confirms nothing twice", async () => {
+    const { svc, profiles } = setup({ consent: ACTIVE });
+    profiles.findById.mockResolvedValue(row({ profileStatus: "confirmed" }));
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("already_confirmed");
+    expect(profiles.confirm).not.toHaveBeenCalled();
+  });
+
+  it("NEVER THROWS — a failure is reported, and the extraction that called it stands", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, profiles } = setup({ consent: ACTIVE });
+    profiles.findById.mockRejectedValue(new Error("pg down"));
+    expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("error");
   });
 });

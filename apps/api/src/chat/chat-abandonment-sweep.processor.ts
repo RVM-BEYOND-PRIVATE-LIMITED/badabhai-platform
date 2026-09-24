@@ -61,6 +61,13 @@ const REGISTRATION_RETRY_DELAYS_MS = [1_000, 5_000, 15_000, 60_000] as const;
  * words are not destroyed — it never reaches the ranking surface. See that method's header for
  * the CLAUDE.md §2 argument.
  *
+ * THE ONE EXCEPTION IS A FINISHED INTERVIEW (ADR-0043). A session idle at "Resume update kar
+ * doon?" — or one whose answer was settled but whose flush failed — had already reached the
+ * engine's close, so it is FINALIZED rather than abandoned: flushed as a completed interview
+ * (an idle question is recorded as "Abhi nahi"), with the extraction a completed interview
+ * always gets. That is not a partial interview reaching the ranking surface; it is a complete
+ * one the sweep refuses to discard.
+ *
  * ── WHY THE TIMING IS THE WHOLE DESIGN ─────────────────────────────────────────────────────
  *
  * CHAT_ABANDON_AFTER_SECONDS (6h) sits far below CHAT_TRANSCRIPT_TTL_SECONDS (24h) so this

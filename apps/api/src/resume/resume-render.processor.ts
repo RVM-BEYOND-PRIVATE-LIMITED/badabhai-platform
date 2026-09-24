@@ -106,6 +106,30 @@ export class ResumeRenderProcessor extends WorkerHost {
       return { rendered: true };
     }
 
+    // A HISTORY ENTRY IS NOT REDRAWN WITH TODAY'S DATA (ADR-0043).
+    //
+    // A forced re-render reads the row's snapshot PLUS the live worker tables — name, photo,
+    // attributes, employment, credentials — so aimed at an older entry it would quietly turn a
+    // record of what was generated then into a copy of the current résumé. It gets aimed there
+    // by timing, not intent: the trade-form refresh is queued with a 60 s delay against the
+    // résumé that was current WHEN IT WAS QUEUED, and the worker's own "done" regenerate in
+    // those 60 s makes a newer entry current.
+    //
+    // ONLY THE COSMETIC DIRECTION. A fail-closed render is an ERASURE (photo removed, number
+    // cleared) and must reach every PDF the worker owns, current or not — that fan-out is what
+    // `WorkersService` enqueues. And only a row that has already rendered: an entry still waiting
+    // for its first PDF needs this render whatever else is newer.
+    if (wasRendered && !job.data.failClosed) {
+      const current = await this.workers.latestResume(workerId);
+      if (current && current.id !== resumeId) {
+        this.logger.log(
+          `resume ${resumeId} is a history entry (current is ${current.id}); ` +
+            `skipping the forced re-render so it keeps what it was generated with`,
+        );
+        return { rendered: true };
+      }
+    }
+
     // Decrypt the worker's real name SERVER-SIDE. Degrade to a name-less render on
     // any failure (rotated key / tampered token) — same as ResumeService. Never log
     // the token, the error detail, or the name.

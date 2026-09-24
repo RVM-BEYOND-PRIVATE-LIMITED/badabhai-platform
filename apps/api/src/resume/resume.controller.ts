@@ -30,6 +30,7 @@ import {
   ShareResumeSchema,
   type GenerateResumeDto,
   type MyResumeDocumentResponse,
+  type ResumeHistoryResponse,
   type ShareResumeDto,
 } from "./resume.dto";
 
@@ -99,6 +100,26 @@ export class ResumeController {
   @UseGuards(WorkerAuthGuard, ConsentGuard)
   myDocument(@CurrentWorker() worker: AuthenticatedWorker): Promise<MyResumeDocumentResponse> {
     return this.resume.myDocument(worker.id);
+  }
+
+  /**
+   * The acting worker's résumé history — the newest three, each labelled with the flow it was
+   * made from — and the state of an update they accepted in chat (ADR-0043,
+   * {@link ResumeHistoryResponse}).
+   *
+   * DECLARED BEFORE `@Get(":id")` for `document`'s reason directly above: below it, `history`
+   * would be parsed as an id and rejected by `ParseUUIDPipe` as a 400.
+   *
+   * `no-store` for both of `document`'s reasons: it carries the worker's own résumé metadata, and
+   * the app POLLS it while an accepted update is in progress — a cached `in_progress` is a poll
+   * that can never observe the résumé landing. CONSENT-GATED like every sibling worker résumé
+   * route. No id in the request: the worker is the token's, and every read is scoped to them.
+   */
+  @Get("history")
+  @Header("Cache-Control", "no-store")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  history(@CurrentWorker() worker: AuthenticatedWorker): Promise<ResumeHistoryResponse> {
+    return this.resume.history(worker.id);
   }
 
   /** Read a single generated resume by id (ops read view). */

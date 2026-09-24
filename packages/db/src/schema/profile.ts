@@ -19,9 +19,15 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type { ProfileStatus, ProfileSource } from "@badabhai/types";
+import type {
+  ProfileStatus,
+  ProfileSource,
+  ResumeGenerationTrigger,
+  ResumeSource,
+} from "@badabhai/types";
 import { jsonObject, jsonArray } from "./internal/sql-defaults";
 import { workers } from "./worker";
+import { workerResumeImports } from "./resume-import";
 import { jobDomains } from "./occupation";
 import type { OccupationMatchLayer, OccupationMatchStatus } from "./occupation";
 
@@ -147,6 +153,28 @@ export const workerProfiles = pgTable(
     // else entirely.
     jobDomainMatchLayer: text("job_domain_match_layer").$type<OccupationMatchLayer>(),
     jobDomainMatchedAt: timestamp("job_domain_matched_at", { withTimezone: true }),
+    // ── Resume history (migration 0125, ADR-0043) ─────────────────────────────
+    //
+    // THE CV IMPORT THIS PROFILE'S INTERVIEW ACCEPTED, or NULL. Written ONCE, by the extraction
+    // processor, from the session's `import_applied_id` — set when the worker said "haan, ye
+    // main hoon" to the import's identity line, or confirmed at least one of its staged facts.
+    // It is the fact the résumé history labels `resume_upload` from (owner ruling R1: an
+    // accepted import wins over the road), and a FACT rather than a label on purpose: the road
+    // stays in `source` with its two values, so none of that column's readers moves.
+    //
+    // ON DELETE SET NULL, never CASCADE: losing the import row must cost the label, not the
+    // worker's profile. NULL is also the honest value for every row written before 0125.
+    seededFromImportId: uuid("seeded_from_import_id").references(
+      (): AnyPgColumn => workerResumeImports.id,
+      { onDelete: "set null" },
+    ),
+    // WHEN THE WORKER SAID "HAAN" TO "Resume update kar doon?" at the end of the interview that
+    // produced this profile, or NULL. The ONE thing that lets the résumé auto-generate run for
+    // a worker who already has a résumé: `ResumeGenerateProcessor` keeps its one-per-worker skip
+    // for every other confirm, so an "Abhi nahi" — or a shipped app build confirming a redo —
+    // behaves exactly as it did before 0125. Stored on the row rather than carried on a queue
+    // payload so the authority is a durable record the processor reads, not a job's claim.
+    resumeUpdateAcceptedAt: timestamp("resume_update_accepted_at", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -161,6 +189,13 @@ export const workerProfiles = pgTable(
       "worker_profiles_source_chk",
       sql`${t.source} IS NULL OR ${t.source} IN ('form', 'chat')`,
     ),
+    // 0125 — backs the ON DELETE SET NULL of `seeded_from_import_id`. Without it every deleted
+    // import (account deletion cascades them) scans all of `worker_profiles` to find referrers:
+    // measured at ~99% of the trigger time of a 100-worker deletion. PARTIAL, because nearly every
+    // profile carries NULL here and a lookup is only ever for a real import id.
+    index("worker_profiles_seeded_from_import_idx")
+      .on(t.seededFromImportId)
+      .where(sql`${t.seededFromImportId} IS NOT NULL`),
     // Idempotent extraction (TD14): at most one profile per ai_job. Many NULLs
     // allowed (NULLS DISTINCT — Postgres default). See `aiJobId` above.
     uniqueIndex("worker_profiles_ai_job_id_uq").on(t.aiJobId),
@@ -235,10 +270,41 @@ export const generatedResumes = pgTable(
     // for every row still pending. A reader must fall back to resume_text rather than treat null
     // as an empty resume.
     resumeDocument: jsonb("resume_document"),
+    // ── Resume history (migration 0125, ADR-0043) ─────────────────────────────
+    //
+    // WHICH FLOW THIS RÉSUMÉ WAS MADE FROM — the label on the worker's history card. Resolved
+    // once at generation time from the profile (`seeded_from_import_id` → `resume_upload`, else
+    // the profile's road) and never re-derived on read: a history entry records what it was
+    // made from THEN. NULL for every row written before 0125, and for a profile whose own road
+    // was never recorded (pre-0107); a reader shows no label rather than guessing one.
+    generationSource: text("generation_source").$type<ResumeSource>(),
+    // WHAT STARTED THIS GENERATION. Every AI generation is its own history entry (ruling R2);
+    // this is what tells an auto-generate from a worker's regenerate from an accepted chat
+    // update. NULL for every row written before 0125.
+    generationTrigger: text("generation_trigger").$type<ResumeGenerationTrigger>(),
   },
   (t) => [
     index("generated_resumes_worker_id_idx").on(t.workerId),
     index("generated_resumes_profile_id_idx").on(t.profileId),
+    // THE HISTORY READ, and the one definition of "the worker's current résumé": newest
+    // generation first, id as the tie-break (0125). `version` is NOT a history ordinal — a new
+    // profile's first résumé is its own v1 — so ordering by it hid a newer profile's résumé
+    // behind an older profile's v2.
+    index("generated_resumes_worker_generated_idx").on(
+      t.workerId,
+      t.generatedAt.desc(),
+      t.id.desc(),
+    ),
+    // Closed vocabularies, NULL-tolerant for pre-0125 rows — the `worker_profiles_source_chk`
+    // posture: a typo'd writer fails at the database rather than silently downstream.
+    check(
+      "generated_resumes_generation_source_chk",
+      sql`${t.generationSource} IS NULL OR ${t.generationSource} IN ('form', 'chat', 'resume_upload')`,
+    ),
+    check(
+      "generated_resumes_generation_trigger_chk",
+      sql`${t.generationTrigger} IS NULL OR ${t.generationTrigger} IN ('profile_confirmed', 'manual', 'chat_update_accepted', 'ops_regenerate')`,
+    ),
     // At most ONE initial (version 1) resume per profile. Makes initial generation
     // idempotent/race-safe (ON CONFLICT): the auto-generate on profile.confirmed and
     // a manual POST /resume/generate converge on one row instead of double-creating.

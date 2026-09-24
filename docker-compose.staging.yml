@@ -277,6 +277,14 @@ services:
       # `:-`) because this bool rejects "" and the service would not boot.
       RESUME_AUTOFILL_ENABLED: ${RESUME_AUTOFILL_ENABLED:-false}
 
+      # ---- RÉSUMÉ HISTORY — THE CHAT UPDATE OFFER (ADR-0043, ruling R3).
+      #
+      # On, a worker who already has a résumé is asked "Resume update kar doon?" at the end of an
+      # interview, and a Haan confirms the new profile and regenerates in the background. OFF is
+      # the interview as it was. History itself is recorded either way — this only decides
+      # whether the chat asks. `:-false` for the reason RESUME_AUTOFILL_ENABLED gives above.
+      RESUME_CHAT_UPDATE_OFFER_ENABLED: ${RESUME_CHAT_UPDATE_OFFER_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as

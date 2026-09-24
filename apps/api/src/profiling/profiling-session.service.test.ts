@@ -149,7 +149,13 @@ function makeWorld(
     startSession: vi.fn(async () => ({ session_id: OTHER_SESSION })),
     runTurn: vi.fn(
       async (_w: string, _s: string, _t: string, _c: unknown): Promise<ChatTurnOutcome> =>
-        opts.outcome ?? { kind: "turn", turn: turn(), buffered: {} as never, terminal: false },
+        opts.outcome ?? {
+          kind: "turn",
+          turn: turn(),
+          buffered: {} as never,
+          terminal: false,
+          updateQueued: false,
+        },
     ),
   };
   const orchestrator = {
@@ -516,6 +522,7 @@ describe("the step a client draws", () => {
         turn: turn({ questionKey: "q_material", options: MATERIALS, answerType: "multi_select" }),
         buffered: {} as never,
         terminal: false,
+        updateQueued: false,
       },
     });
 
@@ -690,6 +697,7 @@ const offerOutcome = {
   turn: OFFER_TURN,
   buffered: {} as never,
   terminal: false,
+  updateQueued: false,
 };
 
 describe("a disambiguation offer announces itself on the voice form (#706)", () => {
