@@ -103,10 +103,21 @@ void kitMatrixTest(
           if (target.evaluate().isEmpty) {
             final Finder scrollable = find.byType(Scrollable);
             if (scrollable.evaluate().isNotEmpty) {
+              // The walk has to be able to reach the BOTTOM of the longest
+              // screen at the smallest phone and the largest font — the
+              // Profile tab at 320x568 @2.0 is the one that sets the bound.
+              // The 120px STEP is unchanged — a larger one overshoots the
+              // target on the shorter screens — but the default 50-scroll
+              // budget stopped short of the bottom the moment the Profile tab
+              // gained one more row, and the failure surfaced as a bare
+              // "Bad state: No element" from the drag rather than as
+              // "primary action unreachable", which is the message this
+              // harness exists to print.
               await tester.scrollUntilVisible(
                 target,
                 120,
                 scrollable: scrollable.first,
+                maxScrolls: 200,
               );
             }
           }

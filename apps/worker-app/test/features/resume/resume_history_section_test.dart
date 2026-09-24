@@ -80,9 +80,12 @@ void main() {
       }
     });
 
-    testWidgets('MORE than three rows still draws exactly three cards', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('the SERVER owns the window — six rows draw six cards, not '
+        'three', (WidgetTester tester) async {
+      // `RESUME_HISTORY_VISIBLE_LIMIT` (server, default 3) decides how many
+      // rows arrive. If it is raised, the app must SHOW them: re-trimming
+      // client-side would make a server config change look broken, and nothing
+      // is ever deleted (ruling R4, "keep all, show three").
       await pumpTab(
         tester,
         history: ResumeHistory(
@@ -92,11 +95,23 @@ void main() {
           ],
         ),
       );
-      expect(find.text('FORM'), findsNWidgets(kResumeHistoryMaxCards));
-      // The NEWEST three, in the order the server sent them.
+      expect(find.text('FORM'), findsNWidgets(6));
       expect(find.text('20 September 2026'), findsOneWidget);
-      expect(find.text('18 September 2026'), findsOneWidget);
-      expect(find.text('17 September 2026'), findsNothing);
+      expect(find.text('15 September 2026'), findsOneWidget);
+    });
+
+    testWidgets('an absurd response is still bounded — the safety ceiling '
+        'stops an unbounded list of cards', (WidgetTester tester) async {
+      await pumpTab(
+        tester,
+        history: ResumeHistory(
+          items: <ResumeHistoryItem>[
+            for (int i = 0; i < 40; i++)
+              _item(id: 'r$i', source: ResumeSource.form, day: 20 - (i % 20)),
+          ],
+        ),
+      );
+      expect(find.text('FORM'), findsNWidgets(kResumeHistoryMaxCards));
     });
 
     testWidgets('THREE CHAT ENTRIES render three Chat cards — any mix is '

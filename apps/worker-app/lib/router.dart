@@ -43,6 +43,7 @@ import 'features/profile_tab/presentation/profile_tab_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
+import 'features/resume/presentation/resume_history_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
 import 'features/swipe/domain/job_detail.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
@@ -99,6 +100,11 @@ class Routes {
   /// replacement); no navigation is wired into it yet — #1340's handover
   /// card pushes here once it lands, and #1344 will retire [finishing]
   /// later. Reachable today only via `context.push(Routes.tradeForm)`.
+  /// #1687 — every resume the worker has made, newest first, reached from the
+  /// Profile tab. The Resume tab shows the same list as a SECTION under the
+  /// current resume; this is the "show me everything I have made" screen.
+  static const String resumeHistory = '/profile/resumes';
+
   static const String tradeForm = '/trade-form';
 
   /// #1698 — "Kitna time de sakte hain?": Easy / Medium / Hard, shown between
@@ -544,6 +550,13 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.finishing,
         builder: (_, __) => const FinishingScreen(),
+      ),
+      // #1687 — "Mere resume": every resume the worker has made. Pushed from
+      // the Profile tab, full-screen over the shell.
+      GoRoute(
+        path: Routes.resumeHistory,
+        parentNavigatorKey: _rootNavKey,
+        builder: (_, __) => const ResumeHistoryScreen(),
       ),
       GoRoute(
         path: Routes.tradeForm,
