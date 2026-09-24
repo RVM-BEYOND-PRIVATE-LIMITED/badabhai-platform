@@ -458,6 +458,41 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// #1687 — GET /resume/history. Two rows and no pending update: enough for
+  /// the "Pichle resume" section to draw its current-vs-older states and its
+  /// source badges offline, without inventing a third source the real server
+  /// would have to keep honest.
+  ///
+  /// The dates are FIXED literals, not `DateTime.now()`, so mock mode renders
+  /// the same thing on every run and a golden never drifts by a day.
+  @override
+  Future<ResumeHistory> getResumeHistory({required String authToken}) async {
+    await _delay();
+    return ResumeHistory(
+      items: <ResumeHistoryItem>[
+        ResumeHistoryItem(
+          resumeId: 'mock-resume-0001',
+          profileId: 'mock-profile-0001',
+          source: ResumeSource.chat,
+          trigger: ResumeTrigger.profileConfirmed,
+          generatedAt: DateTime.utc(2026, 9, 12),
+          renderStatus: 'rendered',
+          renderedAt: DateTime.utc(2026, 9, 12),
+          isCurrent: true,
+        ),
+        ResumeHistoryItem(
+          resumeId: 'mock-resume-0000',
+          profileId: 'mock-profile-0000',
+          source: ResumeSource.form,
+          trigger: ResumeTrigger.manual,
+          generatedAt: DateTime.utc(2026, 8, 30),
+          renderStatus: 'rendered',
+          renderedAt: DateTime.utc(2026, 8, 30),
+        ),
+      ],
+    );
+  }
+
   // The `mock://` SCHEME is the downloader's mock sentinel: `downloadSignedPdf`
   // sees it, skips the (impossible) network fetch, and saves a small placeholder
   // PDF instead — so the download flow stays walkable offline. Keep the scheme

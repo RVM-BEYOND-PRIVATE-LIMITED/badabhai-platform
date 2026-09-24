@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/api/api_models.dart' show ResumeDocument;
+import '../../../../core/api/api_models.dart'
+    show PendingUpdate, ResumeDocument, ResumeHistory;
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
@@ -24,7 +25,11 @@ class ResumeState extends Equatable {
     this.document,
     this.awaitingDocument = false,
     this.renderStatus,
+    this.renderedAt,
     this.profileConfirmed,
+    this.history = ResumeHistory.empty,
+    this.updateFailed = false,
+    this.updateLanded = false,
   });
 
   final ResumeStatus status;
@@ -67,6 +72,19 @@ class ResumeState extends Equatable {
   /// already saw.
   final String? renderStatus;
 
+  /// WHEN that render finished (`rendered_at`), straight from the same call as
+  /// [renderStatus]. A RAW timestamp the screen never prints.
+  ///
+  /// #1688 — it is carried in state for ONE reason: to be the BASELINE a
+  /// write-then-reload poll compares against. A write that forces a re-render
+  /// (a photo, a language, a preference, a work-history source switch) leaves
+  /// the row `rendered` with the OLD document still in place, so "non-null and
+  /// not stale-pending" was satisfied on the very first poll and the reload
+  /// returned what was already on screen. Holding the PRE-WRITE value lets the
+  /// poll ask the only question that actually distinguishes them: has
+  /// `rendered_at` MOVED?
+  final DateTime? renderedAt;
+
   /// R7 — whether the worker's PROFILE is confirmed, from
   /// `GET /workers/me/profile-summary`. Three-valued on purpose:
   ///  * `false` → the DRAFT pill shows;
@@ -80,9 +98,33 @@ class ResumeState extends Equatable {
   /// therefore told a confirmed worker their profile was a draft forever.
   final bool? profileConfirmed;
 
+  /// #1687 — the worker's resume history, newest first, as the server windows
+  /// it, plus `pending_update`.
+  ///
+  /// [ResumeHistory.empty] means "no section": an older server, a failed read,
+  /// or genuinely nothing yet. All three render the tab exactly as it looked
+  /// before this feature existed — the history is an ADDITION to a screen that
+  /// already works and must never be able to break it.
+  final ResumeHistory history;
+
+  /// #1688 — the accepted chat update did not land: the server said `failed`,
+  /// or the client's own deadline passed. Terminal; the screen offers the
+  /// ordinary preview → confirm path as the way forward.
+  final bool updateFailed;
+
+  /// #1688 — the accepted update HAS landed and the new resume is on screen.
+  /// Set for the one emit that carries it; the screen shows a brief
+  /// "Naya resume taiyaar hai" highlight off it.
+  final bool updateLanded;
+
   /// True only when the server said the PDF is rendered. Fails closed:
   /// absent / pending / failed are all "not ready".
   bool get pdfRendered => renderStatus == 'rendered';
+
+  /// #1688 — an accepted update is still on its way. Fails closed: an unknown
+  /// `pending_update.status` is NOT "in progress", so a future server value
+  /// can never leave a worker watching a card forever.
+  bool get updateInProgress => history.pendingUpdate?.isInProgress ?? false;
 
   @override
   List<Object?> get props => <Object?>[
@@ -92,7 +134,11 @@ class ResumeState extends Equatable {
     document,
     awaitingDocument,
     renderStatus,
+    renderedAt,
     profileConfirmed,
+    history,
+    updateFailed,
+    updateLanded,
   ];
 }
 
@@ -200,6 +246,7 @@ class ResumeCubit extends Cubit<ResumeState> {
           nightShiftReady: nightShiftReady,
           document: snapshot.document,
           renderStatus: snapshot.renderStatus,
+          renderedAt: snapshot.renderedAt,
           profileConfirmed: confirmed,
           // Settled — successfully or not (the retry budget is bounded; see
           // _loadDocumentWithRetry's own doc). Never leaves the worker on the
@@ -265,6 +312,7 @@ class ResumeCubit extends Cubit<ResumeState> {
               nightShiftReady: nightShiftReady,
               document: snapshot.document,
               renderStatus: snapshot.renderStatus,
+          renderedAt: snapshot.renderedAt,
               profileConfirmed: confirmed,
               awaitingDocument: false,
             ),
@@ -323,6 +371,7 @@ class ResumeCubit extends Cubit<ResumeState> {
           nightShiftReady: state.nightShiftReady,
           document: state.document,
           renderStatus: state.renderStatus,
+          renderedAt: state.renderedAt,
           profileConfirmed: state.profileConfirmed,
         ),
       );
@@ -340,6 +389,7 @@ class ResumeCubit extends Cubit<ResumeState> {
           nightShiftReady: nightShiftReady,
           document: snapshot.document,
           renderStatus: snapshot.renderStatus,
+          renderedAt: snapshot.renderedAt,
           profileConfirmed: confirmed,
         ),
       );
@@ -418,6 +468,7 @@ class ResumeCubit extends Cubit<ResumeState> {
           nightShiftReady: nightShiftReady,
           document: snapshot.document,
           renderStatus: snapshot.renderStatus,
+          renderedAt: snapshot.renderedAt,
           profileConfirmed: confirmed,
           awaitingDocument: false,
         ),
@@ -446,6 +497,7 @@ class ResumeCubit extends Cubit<ResumeState> {
         // profile's confirmed state changed under a night-shift toggle.
         document: state.document,
         renderStatus: state.renderStatus,
+          renderedAt: state.renderedAt,
         profileConfirmed: state.profileConfirmed,
       ),
     );
@@ -508,6 +560,155 @@ class ResumeCubit extends Cubit<ResumeState> {
     }
   }
 
+  /// #1688 — the backoff and the hard ceiling for [watchResumeUpdate].
+  ///
+  /// MUTABLE STATICS, the same test-seam shape as [documentPollInterval]: a
+  /// widget test's binding asserts no pending timers, so a real 3-second wait
+  /// inside a pumped test fails as a binding assertion rather than anything
+  /// readable. A harness zeroes these and restores the literals below.
+  ///
+  /// [updateWatchBudget] is a HARD CLIENT DEADLINE and is not negotiable with
+  /// the server: nothing in the contract guarantees that an accepted update
+  /// ever terminates, so the client has to be able to stop on its own. Three
+  /// minutes is sized off the server's own chain — extraction (an AI call,
+  /// ~30-90s), auto-confirm, resume generation, then the PDF render.
+  static Duration updatePollInitial = const Duration(seconds: 3);
+  static Duration updatePollMax = const Duration(seconds: 10);
+  static Duration updateWatchBudget = const Duration(minutes: 3);
+
+  /// True while [watchResumeUpdate] is polling, so a tab focus, an app resume
+  /// and the screen's own create:-time call cannot start three of them.
+  bool _watchingUpdate = false;
+
+  /// #1687 — (re)reads the resume history and emits it. Best-effort by
+  /// contract: the repository never throws, so this cannot fail the screen.
+  ///
+  /// Deliberately NOT part of [refresh]: refresh holds the [_loading] mutex and
+  /// early-returns while any load is in flight, which would silently drop a
+  /// history read fired by the same tab focus.
+  Future<void> loadHistory() async {
+    final ResumeHistory history = await _readHistory();
+    if (isClosed) return;
+    emit(_withHistory(history));
+  }
+
+  /// [ResumeRepository.loadResumeHistory] behind a belt-and-suspenders catch,
+  /// exactly like [_loadDocument].
+  ///
+  /// The repository already promises never to throw. This is here because the
+  /// PROMISE is what the screen depends on, and an optional section must not
+  /// be able to take down a resume the worker is looking at if that promise is
+  /// ever broken — by a future edit, or by a double in a test.
+  Future<ResumeHistory> _readHistory() async {
+    try {
+      return await _repo.loadResumeHistory();
+    } catch (_) {
+      return ResumeHistory.empty;
+    }
+  }
+
+  /// #1688 — waits for an update the worker accepted in chat.
+  ///
+  /// Polls `GET /resume/history` while `pending_update.status` is
+  /// `in_progress`, backing off from [updatePollInitial] to [updatePollMax],
+  /// and stops for ONE of four reasons, every one of them terminal:
+  ///
+  ///  * the update LANDED (`pending_update` is gone) — the new resume is
+  ///    re-read and [ResumeState.updateLanded] is set for that emit;
+  ///  * the server said `failed`;
+  ///  * this client's own [updateWatchBudget] ran out;
+  ///  * the cubit closed (the worker left the tab, or the app).
+  ///
+  /// The worker is NEVER left spinning: the last two exist precisely because
+  /// the wire contract cannot promise the first two will ever arrive.
+  Future<void> watchResumeUpdate() async {
+    if (_watchingUpdate || isClosed) return;
+    _watchingUpdate = true;
+    final DateTime deadline = DateTime.now().add(updateWatchBudget);
+    Duration wait = updatePollInitial;
+    try {
+      while (!isClosed) {
+        final ResumeHistory history = await _readHistory();
+        if (isClosed) return;
+        final PendingUpdate? pending = history.pendingUpdate;
+
+        if (pending == null) {
+          // Nothing pending any more. Either it landed, or there never was
+          // one — both are "stop waiting". The resume itself is re-read FIRST
+          // so the tab shows the NEW text/document, not the one the worker
+          // accepted an update away from; the landed flag is emitted AFTER
+          // that read, because `refresh` emits a state of its own and would
+          // otherwise wipe the very flag the highlight is keyed off.
+          await refresh();
+          if (isClosed) return;
+          emit(_withHistory(history, landed: true));
+          return;
+        }
+        if (pending.hasFailed) {
+          emit(_withHistory(history, failed: true));
+          return;
+        }
+        if (!pending.isInProgress) {
+          // A status this build has never heard of. Terminal, and SILENT: the
+          // app does not understand it, so it may neither keep the worker
+          // waiting on it nor tell them it failed. Both would be inventions.
+          emit(_withHistory(history));
+          return;
+        }
+        emit(_withHistory(history));
+
+        // Checked AFTER a poll, never before: a zeroed budget in a test must
+        // still observe one real answer, and a worker whose update lands on
+        // the last poll must still be shown it.
+        if (!DateTime.now().isBefore(deadline)) {
+          emit(_withHistory(history, failed: true));
+          return;
+        }
+        await Future<void>.delayed(wait);
+        final Duration next = wait * 2;
+        wait = next > updatePollMax ? updatePollMax : next;
+      }
+    } finally {
+      _watchingUpdate = false;
+    }
+  }
+
+  /// Carries EVERY field the screen is already showing, exactly like the other
+  /// background re-reads here: a history poll must never blank a resume the
+  /// worker is looking at.
+  ResumeState _withHistory(
+    ResumeHistory history, {
+    bool failed = false,
+    bool landed = false,
+  }) =>
+      ResumeState(
+        status: state.status,
+        resumeText: state.resumeText,
+        nightShiftReady: state.nightShiftReady,
+        document: state.document,
+        // Carried like every other field: a history read that landed mid-wait
+        // must not drop the loader flag and flash the text fallback at a
+        // worker whose structured document is still being written.
+        awaitingDocument: state.awaitingDocument,
+        renderStatus: state.renderStatus,
+        renderedAt: state.renderedAt,
+        profileConfirmed: state.profileConfirmed,
+        history: history,
+        updateFailed: failed,
+        updateLanded: landed,
+      );
+
+  /// #1687 — a signed url for ONE history entry's pdf. Mirrors
+  /// [resolveDownloadUrl] (including letting a [Failure] propagate so the
+  /// screen can name the real reason) but for a resume the worker PICKED,
+  /// rather than whatever the session last touched.
+  Future<String?> resolveDownloadUrlFor(String resumeId) =>
+      _repo.resumeDownloadUrlFor(resumeId);
+
+  /// [reportShared] for one history entry. Best-effort, never thrown.
+  Future<void> reportSharedFor(String resumeId, String channel) =>
+      _repo.reportSharedFor(resumeId, channel);
+
   /// How many times [_loadDocumentWithRetry] re-checks a `null` document
   /// before giving up, and how long it waits between checks. `GET
   /// /resume/document` reads a STORED column (`resumeDocument`) that only a
@@ -550,11 +751,42 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// Returns the LAST snapshot, not an empty one, when the budget runs out:
   /// a worker on the legacy text path has no document by definition, and
   /// their PDF's `render_status` still has to reach the banner.
-  Future<ResumeDocumentSnapshot> _loadDocumentWithRetry() async {
+  /// Whether [snapshot] is the document this poll was waiting for.
+  ///
+  /// Without a baseline this is the ORIGINAL rule, unchanged: non-null and not
+  /// the stale-under-pending shape. Every caller that has no pre-write
+  /// timestamp keeps exactly today's behaviour.
+  ///
+  /// #1688 — with a [since] baseline it also demands that the render actually
+  /// MOVED. A FORCED re-render (a photo, a language, a qualification, a
+  /// preference, a work-history source switch) does not pass through
+  /// `pending`: the row stays `rendered` with the PREVIOUS document and the
+  /// PREVIOUS `rendered_at` until the new render lands. The old rule was
+  /// satisfied on the first poll and handed the caller back the very document
+  /// it had just written over — the worker saw their old skills after editing
+  /// them. Comparing against the pre-write timestamp is the only test that
+  /// tells those two states apart.
+  ///
+  /// A snapshot with a null [ResumeDocumentSnapshot.renderedAt] under a
+  /// baseline is NOT fresh: that is the stale-pending shape, and it is what
+  /// the poll is waiting to see replaced.
+  static bool _isFresh(ResumeDocumentSnapshot snapshot, DateTime? since) {
+    if (snapshot.document == null || snapshot.isStalePendingDocument) {
+      return false;
+    }
+    if (since == null) return true;
+    final DateTime? at = snapshot.renderedAt;
+    if (at == null) return false;
+    return at.isAfter(since);
+  }
+
+  Future<ResumeDocumentSnapshot> _loadDocumentWithRetry({
+    DateTime? since,
+  }) async {
     ResumeDocumentSnapshot snapshot = const ResumeDocumentSnapshot();
     for (int attempt = 0; attempt < documentPollMaxAttempts; attempt++) {
       snapshot = await _loadDocument();
-      if (snapshot.document != null && !snapshot.isStalePendingDocument) {
+      if (_isFresh(snapshot, since)) {
         return snapshot;
       }
       if (isClosed) return snapshot;
@@ -609,7 +841,12 @@ class ResumeCubit extends Cubit<ResumeState> {
     // `RESUME_RENDER_QUEUE` the initial generate does — see
     // `worker-employment.service.ts`'s `setDescriptionSource`), so the same
     // race [_loadDocumentWithRetry] guards against applies here too.
-    final ResumeDocumentSnapshot reloaded = await _loadDocumentWithRetry();
+    // #1688 — the PRE-WRITE render time is the baseline: this write forces a
+    // re-render that never passes through `pending`, so "has rendered_at
+    // moved?" is the only question that distinguishes the new document from
+    // the one just overwritten.
+    final ResumeDocumentSnapshot reloaded =
+        await _loadDocumentWithRetry(since: state.renderedAt);
     if (isClosed) return;
     emit(
       ResumeState(
@@ -618,6 +855,7 @@ class ResumeCubit extends Cubit<ResumeState> {
         nightShiftReady: state.nightShiftReady,
         document: reloaded.document ?? state.document,
         renderStatus: reloaded.renderStatus ?? state.renderStatus,
+        renderedAt: reloaded.renderedAt ?? state.renderedAt,
         profileConfirmed: state.profileConfirmed,
       ),
     );
@@ -632,7 +870,12 @@ class ResumeCubit extends Cubit<ResumeState> {
   }) async {
     await _repo.setAnswerTextSource(attributeKey, ownWords: ownWords);
     if (isClosed) return;
-    final ResumeDocumentSnapshot reloaded = await _loadDocumentWithRetry();
+    // #1688 — the PRE-WRITE render time is the baseline: this write forces a
+    // re-render that never passes through `pending`, so "has rendered_at
+    // moved?" is the only question that distinguishes the new document from
+    // the one just overwritten.
+    final ResumeDocumentSnapshot reloaded =
+        await _loadDocumentWithRetry(since: state.renderedAt);
     if (isClosed) return;
     emit(
       ResumeState(
@@ -641,6 +884,7 @@ class ResumeCubit extends Cubit<ResumeState> {
         nightShiftReady: state.nightShiftReady,
         document: reloaded.document ?? state.document,
         renderStatus: reloaded.renderStatus ?? state.renderStatus,
+        renderedAt: reloaded.renderedAt ?? state.renderedAt,
         profileConfirmed: state.profileConfirmed,
       ),
     );

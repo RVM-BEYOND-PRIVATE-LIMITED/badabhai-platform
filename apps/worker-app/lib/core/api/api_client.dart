@@ -1062,6 +1062,27 @@ class ApiClient {
     return ResumeDocumentResponse.fromJson(json);
   }
 
+  /// The worker's resume HISTORY — the newest few, newest first, each labelled
+  /// with the flow that produced it (GET /resume/history, ADR-0043 / #1687).
+  /// WorkerAuthGuard + ConsentGuard: the worker is the token's, and there is no
+  /// id in the path. The server sends `Cache-Control: no-store` because the app
+  /// POLLS this route while an accepted update is in flight (#1688).
+  ///
+  /// The body also carries `pending_update`, which is how the app knows an
+  /// update the worker accepted in chat is still on its way.
+  ///
+  /// CALLERS MUST TOLERATE ITS ABSENCE, and not only as a 404. On a server
+  /// built before ADR-0043 this literal path falls through to `@Get(":id")`,
+  /// which is behind `InternalServiceGuard` — so an old server answers **401**,
+  /// not 404. `ResumeRepositoryImpl.loadResumeHistory` is where that is
+  /// absorbed; see its docblock. PRIVACY: rows carry ids only, never a signed
+  /// url — a card mints its own at tap time through [downloadResume].
+  Future<ResumeHistory> getResumeHistory({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/resume/history', authToken: authToken);
+    return ResumeHistory.fromJson(json);
+  }
+
   /// Fetches a short-lived SIGNED url to the worker's own resume PDF
   /// (GET /resume/:id/download — ADR-0009 Stream C / G1c). Worker-scoped:
   /// requires [authToken] (WorkerAuthGuard); the server derives the worker from
