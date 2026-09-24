@@ -31,6 +31,7 @@ import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 import { EventsService } from "../events/events.service";
 
 import { SkillsRepository } from "../skills/skills.repository";
+import { isUniversalPlaceholderLabel } from "./family-chip-labels";
 import {
   calibrate,
   decide,
@@ -294,6 +295,12 @@ export class OccupationService {
    * scripts. Only when qualification ALSO collides — two
    * families sharing a label, or one lacking one — is the offer abandoned for an open
    * narrowing question.
+   *
+   * THE UNIVERSAL PLACEHOLDER IS NEVER A CHIP (#1691). "General" names no trade, and the chip a
+   * worker taps is their answer of record. It is dropped AFTER qualification, because a
+   * qualifier is a family label and can be the placeholder too. Dropping it can leave one real
+   * trade, and one chip is not a choice (`decide` refuses that same shape), so the offer is then
+   * abandoned for the open narrowing question.
    */
   private buildOffer(
     options: readonly ScoredCandidate[],
@@ -317,8 +324,17 @@ export class OccupationService {
       return familyLabel === null ? r : { candidate: r.candidate, label: familyLabel };
     });
 
+    const real = qualified.filter((r) => !isUniversalPlaceholderLabel(r.label));
+    if (real.length < qualified.length && real.length < 2) {
+      return {
+        options: [],
+        abandoned: true,
+        reason: `only ${real.length} real trade left once the universal placeholder was dropped; one chip is not a choice`,
+      };
+    }
+
     const seen = new Set<string>();
-    for (const r of qualified) {
+    for (const r of real) {
       if (seen.has(r.label)) {
         return {
           options: [],
@@ -329,7 +345,7 @@ export class OccupationService {
       seen.add(r.label);
     }
 
-    const built: DisambiguationOption[] = qualified.map((r) => ({
+    const built: DisambiguationOption[] = real.map((r) => ({
       jobDomainId: r.candidate.jobDomainId,
       familyId: r.candidate.familyId,
       label: r.label,

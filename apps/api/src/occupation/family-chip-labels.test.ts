@@ -22,7 +22,11 @@ import {
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import { routeToTradeForm, type TradeFormKind } from "../profiling/trade-form-router";
-import { FAMILY_CHIP_LABELS } from "./family-chip-labels";
+import {
+  FAMILY_CHIP_LABELS,
+  isUniversalPlaceholderLabel,
+  UNIVERSAL_PLACEHOLDER_LABELS,
+} from "./family-chip-labels";
 import { buildOccupationSnapshot, isLatinScript } from "./occupation-index";
 
 const corpus = loadQuestionPackCorpus();
@@ -77,6 +81,24 @@ describe("FAMILY_CHIP_LABELS", () => {
       ([id, label]) => id !== "fam_universal" && hidden.has(label.toLowerCase()),
     );
     expect(vanishing).toEqual([]);
+  });
+
+  it("treats EXACTLY the app's hidden labels as the universal placeholder (#1691)", () => {
+    // The server's "not a trade" and the trust pill's "not a trade" are one list. A spelling on
+    // one side only would drop a chip the pill shows, or record a trade the pill hides.
+    const lower = (labels: readonly string[]) => labels.map((l) => l.toLowerCase()).sort();
+    expect(lower(UNIVERSAL_PLACEHOLDER_LABELS)).toEqual(lower(workerAppHiddenLabels()));
+    expect(isUniversalPlaceholderLabel(FAMILY_CHIP_LABELS.fam_universal)).toBe(true);
+  });
+
+  it("matches the placeholder the way the app does — trimmed, any case — and nothing else", () => {
+    for (const label of ["General", " general ", "GENERAL", "सामान्य"]) {
+      expect(isUniversalPlaceholderLabel(label)).toBe(true);
+    }
+    // A real trade that merely CONTAINS the word is a trade, and must stay a chip.
+    for (const label of ["general helper", "welder", "", null, undefined]) {
+      expect(isUniversalPlaceholderLabel(label)).toBe(false);
+    }
   });
 
   it("routes to a trade form exactly where this table says, and nowhere else", () => {
@@ -180,6 +202,20 @@ describe("the served catalogue", () => {
       .filter((d) => !isLatinScript(d.chipLabel))
       .map((d) => `${d.jobDomainId} -> ${d.chipLabel}`);
     expect(devanagari).toEqual([]);
+  });
+
+  it("shows the placeholder ONLY for occupations placed in the universal family (#1691)", () => {
+    // The placeholder is dropped from every offer and never settles `trade`. That is safe only
+    // if no real trade is labelled with it: an occupation in a trade family whose own word were
+    // "General" would vanish from its own disambiguation.
+    const placeholders = [...snapshot.domains.values()].filter((d) =>
+      isUniversalPlaceholderLabel(d.chipLabel),
+    );
+    // Vacuity guard: #1691 measured 1,345 occupations that fall to the universal label.
+    expect(placeholders.length).toBeGreaterThan(1000);
+    expect(
+      placeholders.filter((d) => d.familyId !== "fam_universal").map((d) => d.jobDomainId),
+    ).toEqual([]);
   });
 
   it("qualifies colliding chips in Latin script too", () => {
