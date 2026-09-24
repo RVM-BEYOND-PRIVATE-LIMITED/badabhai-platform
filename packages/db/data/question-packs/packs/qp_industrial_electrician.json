@@ -1,0 +1,672 @@
+{
+  "_why": "Role track for the INDUSTRIAL ELECTRICIAN, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two. fam_electrical (the domestic wireman, ISCO unit 7411) and fam_electrical_equipment (the generic ISCO-minor-741 interview) stay exactly as they are and are NOT touched; this pack belongs to fam_industrial_electrician, which binds jd_nco_7412_0200 'Electrical Fitter' directly (job_domain specificity 50 beats minor 30). That is the code the 2026-09-24 alias tranche (#1685) put 'panel wiring', 'industrial electrician', 'panel electrician' and 'plant electrician' on, so a plant electrician gets panel-and-drive depth and every other worker under 741 keeps the interview they have today. Owner ruling A2 keeps the generic electrician vocabulary on the domestic wireman; no 7411 code is bound here.",
+  "_scope": "MCC/PCC PANELS, VFD AND AC DRIVES, STARTERS, INDUCTION MOTORS AND LT DISTRIBUTION on a running plant -- panel wiring, drive parameter setting, fault finding, cable termination and earthing. The level ladder (Helper / Electrician / Senior) is asked as electrician_level so the sheet can say which rung the man stands on. House wiring belongs to fam_electrical, overhead lines and cable jointing to fam_lineman, and motor winding to the armature winder's own code; none of them is bound here.",
+  "_depth": "THE TIER GATE IS electrical_experience, asked FIRST, and it is INDUSTRIAL_ELECTRICIAN.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (electrical_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15, so the worst case is 13 + 18 = 31 against 48. The three fresher items are gated electrical_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED INDUSTRIAL ELECTRICIAN REFERENCE RESUME (Balwant Singh, page 9), not invented. Its eight rows are Work type, Equipment, Panel & motor work, Instruments, Voltage worked on, Drawings, Licence and Sector worked, and every one has a question here that fills it. Panel & motor work carries SIX values plus the escape because the page prints six. Voltage worked on is a multi_select because the page prints two clauses ('LT up to 415 V · HT switchyard exposure under supervision') and the default ' · ' join reproduces them. The Licence cell is HALF-CAPTURED: this pack stores the licence TYPE and prints 'Electrician licence'; the page's '· Uttar Pradesh, valid to 2028' is an issuing state and an expiry year no question here stores -- a known capture gap, stated here because nothing prints it. The page prints 'Clamp meter' and 'Tong tester' as two instruments; both chips are kept because the page keeps both. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable. measuring_tools, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first) to keep a sheet on one page, and a private key would opt this trade out of that. The voltage and licence rows are NOT qp_electrical's voltage_level / licence_held: those carry a different option vocabulary (and licence_held is a boolean), so sharing the key would carry a domestic answer into this sheet as a slug no dictionary knows. electrical_work_type is not qp_universal's work_types, which is a different fact.",
+  "pack_id": "qp_industrial_electrician",
+  "version": 1,
+  "family_id": "fam_industrial_electrician",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising industrial electrician -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific, and an ITI Electrician's workshop holds wiring boards, starters and motor-generator sets, not the plant's MCC. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "electrical_experience",
+      "prompt_text": "Electrician ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal electrician ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "electrical_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "electrical_work_type",
+      "prompt_text": "Aap kis tarah ka bijli kaam karte hain?",
+      "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "retry_text": "Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "electrical_work_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "panel_wiring",
+          "label_text": "Panel wiring",
+          "value_text": "panel_wiring"
+        },
+        {
+          "option_key": "motor_drive",
+          "label_text": "Motor aur drive ka kaam",
+          "value_text": "motor_drive"
+        },
+        {
+          "option_key": "cable_laying",
+          "label_text": "Cable laying",
+          "value_text": "cable_laying"
+        },
+        {
+          "option_key": "earthing",
+          "label_text": "Earthing",
+          "value_text": "earthing"
+        },
+        {
+          "option_key": "lighting_power",
+          "label_text": "Lighting aur power wiring",
+          "value_text": "lighting_power"
+        },
+        {
+          "option_key": "other_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "electrical_equipment",
+      "prompt_text": "Kaunse electrical equipment par kaam karte hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "MCC panel, VFD, starter ya motor, kispar kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "electrical_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mcc_pcc",
+          "label_text": "MCC aur PCC panel",
+          "value_text": "mcc_pcc"
+        },
+        {
+          "option_key": "vfd_drive",
+          "label_text": "VFD ya AC drive",
+          "value_text": "vfd_drive"
+        },
+        {
+          "option_key": "starter",
+          "label_text": "DOL aur star-delta starter",
+          "value_text": "starter"
+        },
+        {
+          "option_key": "induction_motor",
+          "label_text": "Induction motor",
+          "value_text": "induction_motor"
+        },
+        {
+          "option_key": "dg_set",
+          "label_text": "DG set",
+          "value_text": "dg_set"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "electrician_level",
+      "prompt_text": "Aap khud ko kis level ka electrician maante hain?",
+      "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "electrician_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "electrician",
+          "label_text": "Electrician",
+          "value_text": "electrician"
+        },
+        {
+          "option_key": "senior",
+          "label_text": "Senior electrician",
+          "value_text": "senior"
+        }
+      ]
+    },
+    {
+      "question_key": "panel_motor_work",
+      "prompt_text": "Panel aur motor ka kaunsa kaam khud karte hain?",
+      "why_text": "Fault finding aur drive setting jaanne wale ki maang zyada hai.",
+      "retry_text": "Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "panel_motor_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "panel_assembly",
+          "label_text": "Panel assembly aur wiring",
+          "value_text": "panel_assembly"
+        },
+        {
+          "option_key": "drive_parameter",
+          "label_text": "Drive ka parameter setting",
+          "value_text": "drive_parameter"
+        },
+        {
+          "option_key": "fault_finding",
+          "label_text": "Fault finding",
+          "value_text": "fault_finding"
+        },
+        {
+          "option_key": "motor_rewind",
+          "label_text": "Motor rewinding karwana",
+          "value_text": "motor_rewind"
+        },
+        {
+          "option_key": "cable_termination",
+          "label_text": "Cable termination aur glanding",
+          "value_text": "cable_termination"
+        },
+        {
+          "option_key": "earth_pit_testing",
+          "label_text": "Earth pit testing",
+          "value_text": "earth_pit_testing"
+        },
+        {
+          "option_key": "other_panel_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Testing ke liye kaunse meter istemaal karte hain?",
+      "why_text": "Meter chalana jaanne wala fault jaldi pakadta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "multimeter",
+          "label_text": "Multimeter",
+          "value_text": "multimeter"
+        },
+        {
+          "option_key": "clamp_meter",
+          "label_text": "Clamp meter",
+          "value_text": "clamp_meter"
+        },
+        {
+          "option_key": "megger",
+          "label_text": "Megger",
+          "value_text": "megger"
+        },
+        {
+          "option_key": "tong_tester",
+          "label_text": "Tong tester",
+          "value_text": "tong_tester"
+        },
+        {
+          "option_key": "phase_sequence",
+          "label_text": "Phase sequence meter",
+          "value_text": "phase_sequence"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh paata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "schematic",
+          "label_text": "Wiring diagram padh leta hoon",
+          "value_text": "schematic"
+        },
+        {
+          "option_key": "schematic_ga",
+          "label_text": "Wiring diagram aur panel GA drawing dono",
+          "value_text": "schematic_ga"
+        }
+      ]
+    },
+    {
+      "question_key": "electrical_voltage",
+      "prompt_text": "Aap kitne volt tak ka kaam karte hain?",
+      "why_text": "High voltage ka alag rate hota hai.",
+      "target_kind": "attribute",
+      "target_field": "electrical_voltage",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "lt_three_phase",
+          "label_text": "LT, 415 volt tak",
+          "value_text": "lt_three_phase"
+        },
+        {
+          "option_key": "ht_supervised",
+          "label_text": "HT switchyard, senior ke saath",
+          "value_text": "ht_supervised"
+        },
+        {
+          "option_key": "ht_independent",
+          "label_text": "HT par khud kaam",
+          "value_text": "ht_independent"
+        },
+        {
+          "option_key": "unknown_voltage",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "electrical_licence",
+      "prompt_text": "Kya aapke paas bijli ka licence hai?",
+      "why_text": "Licence wale ko badi jagah kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "electrical_licence",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "electrician_licence",
+          "label_text": "Haan, wireman ya electrician licence",
+          "value_text": "electrician_licence"
+        },
+        {
+          "option_key": "supervisor_licence",
+          "label_text": "Haan, supervisor licence",
+          "value_text": "supervisor_licence"
+        },
+        {
+          "option_key": "no_licence",
+          "label_text": "Nahi hai",
+          "value_text": "none"
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis tarah ke plant ya company me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "manufacturing_plant",
+          "label_text": "Manufacturing plant",
+          "value_text": "manufacturing_plant"
+        },
+        {
+          "option_key": "panel_builder",
+          "label_text": "Panel banane wali company",
+          "value_text": "panel_builder"
+        },
+        {
+          "option_key": "process_plant",
+          "label_text": "Chemical, pharma ya food plant",
+          "value_text": "process_plant"
+        },
+        {
+          "option_key": "building_services",
+          "label_text": "Mall, hospital ya badi building",
+          "value_text": "building_services"
+        },
+        {
+          "option_key": "power_substation",
+          "label_text": "Power plant ya substation",
+          "value_text": "power_substation"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "control_circuit",
+      "prompt_text": "Kaunsa control circuit khud wire kar lete hain?",
+      "why_text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "control_circuit",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "dol_circuit",
+          "label_text": "DOL starter circuit",
+          "value_text": "dol_circuit"
+        },
+        {
+          "option_key": "star_delta_circuit",
+          "label_text": "Star-delta circuit",
+          "value_text": "star_delta_circuit"
+        },
+        {
+          "option_key": "forward_reverse",
+          "label_text": "Forward-reverse circuit",
+          "value_text": "forward_reverse"
+        },
+        {
+          "option_key": "interlock_timer",
+          "label_text": "Interlocking aur timer circuit",
+          "value_text": "interlock_timer"
+        },
+        {
+          "option_key": "plc_io",
+          "label_text": "PLC input-output wiring",
+          "value_text": "plc_io"
+        },
+        {
+          "option_key": "no_circuit",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "motor_fault",
+      "prompt_text": "Motor ki kaunsi kharabi khud pakad lete hain?",
+      "why_text": "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "motor_fault",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "winding_fault",
+          "label_text": "Winding short ya earth fault",
+          "value_text": "winding_fault"
+        },
+        {
+          "option_key": "single_phasing",
+          "label_text": "Single phasing",
+          "value_text": "single_phasing"
+        },
+        {
+          "option_key": "overload_trip",
+          "label_text": "Baar baar overload trip",
+          "value_text": "overload_trip"
+        },
+        {
+          "option_key": "bearing_fault",
+          "label_text": "Bearing ya vibration ki kharabi",
+          "value_text": "bearing_fault"
+        },
+        {
+          "option_key": "drive_fault_code",
+          "label_text": "VFD ka fault code",
+          "value_text": "drive_fault_code"
+        },
+        {
+          "option_key": "no_fault",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "electrical_safety",
+      "prompt_text": "Kaam shuru karne se pehle kaunsi safety khud karte hain?",
+      "why_text": "Bijli ke kaam me safety zaroori hai.",
+      "target_kind": "attribute",
+      "target_field": "electrical_safety",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "lockout_tagout",
+          "label_text": "Lockout-tagout lagana",
+          "value_text": "lockout_tagout"
+        },
+        {
+          "option_key": "work_permit",
+          "label_text": "Permit lekar kaam karna",
+          "value_text": "work_permit"
+        },
+        {
+          "option_key": "dead_check",
+          "label_text": "Line dead check karna",
+          "value_text": "dead_check"
+        },
+        {
+          "option_key": "discharge_earthing",
+          "label_text": "Discharge aur temporary earthing",
+          "value_text": "discharge_earthing"
+        },
+        {
+          "option_key": "insulated_ppe",
+          "label_text": "Insulated gloves aur rubber mat",
+          "value_text": "insulated_ppe"
+        },
+        {
+          "option_key": "no_safety",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "wiring_board",
+          "label_text": "Wiring practice board",
+          "value_text": "wiring_board"
+        },
+        {
+          "option_key": "motor_starter",
+          "label_text": "Motor aur starter",
+          "value_text": "motor_starter"
+        },
+        {
+          "option_key": "dc_machine",
+          "label_text": "DC motor ya generator",
+          "value_text": "dc_machine"
+        },
+        {
+          "option_key": "transformer",
+          "label_text": "Transformer",
+          "value_text": "transformer"
+        },
+        {
+          "option_key": "winding_machine",
+          "label_text": "Motor winding machine",
+          "value_text": "winding_machine"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "electrical_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

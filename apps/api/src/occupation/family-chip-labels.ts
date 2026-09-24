@@ -165,4 +165,7 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   fam_powder_coating: "powder coating aur spray painting",
   // Batch 2 part two. The Latin reading of the family's `label_hi` ("शीट मेटल फैब्रिकेशन").
   fam_sheet_metal_fab: "sheet metal fabrication",
+  // Batch 2 part two. The Latin reading of `label_hi` ("इंडस्ट्रियल इलेक्ट्रीशियन"), spelled as the
+  // ratified alias spells it. It carries the occupation term, so it is routing evidence.
+  fam_industrial_electrician: "industrial electrician",
 });

@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 940,
+  "clip_count": 971,
   "producers": {
-    "retry": 79,
-    "clarify": 355,
-    "prompt": 255,
-    "why": 243,
+    "retry": 83,
+    "clarify": 369,
+    "prompt": 264,
+    "why": 247,
     "constant": 8
   },
   "clips": [
@@ -68,6 +68,11 @@
       "id": "039739b68b057e5b",
       "text": "Engine ka kaam alag rate par hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "03af5009543e0498",
+      "text": "Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?",
+      "producer": "retry"
     },
     {
       "id": "041841a8f3caed3d",
@@ -220,6 +225,11 @@
       "producer": "prompt"
     },
     {
+      "id": "0bdcd283fbd47da4",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunse electrical equipment par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "0c14cc0ee3a6b2c4",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "producer": "clarify"
@@ -288,6 +298,11 @@
       "id": "0dfeb6e82e8aea98",
       "text": "Site par raat ka kaam aam hai.",
       "producer": "why"
+    },
+    {
+      "id": "0e04ffc7ae1dce8e",
+      "text": "Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?",
+      "producer": "retry"
     },
     {
       "id": "0e3b4513d6c2036c",
@@ -445,6 +460,11 @@
       "producer": "clarify"
     },
     {
+      "id": "17bc0d776adb5f41",
+      "text": "Fault finding aur drive setting jaanne wale ki maang zyada hai. Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "17f6e39c6d40b559",
       "text": "Kaam ke hisaab se jagah dhoondhte hain.",
       "producer": "why"
@@ -478,6 +498,11 @@
       "id": "199a247469a7b95f",
       "text": "Training centre ka naam resume par aata hai.",
       "producer": "why"
+    },
+    {
+      "id": "19b377e24ee02a08",
+      "text": "Kaunsa control circuit khud wire kar lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "19c154be871981a2",
@@ -810,9 +835,19 @@
       "producer": "clarify"
     },
     {
+      "id": "2a20fc365a165998",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Aap kis tarah ka bijli kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2a7708d1c20e37d3",
       "text": "High voltage ka alag rate hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "2a801f2a87d266f2",
+      "text": "Kaunse electrical equipment par kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "2ad94248940fac86",
@@ -923,6 +958,11 @@
       "id": "2e2a56d3893fcada",
       "text": "Licence wale ko badi jagah kaam milta hai. Kya aapke paas bijli ka licence hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "2eab0af9486fb227",
+      "text": "Electrician ke kaam ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "2eb3c91c5a003736",
@@ -1230,6 +1270,11 @@
       "producer": "prompt"
     },
     {
+      "id": "414eb0893e3b3c2b",
+      "text": "Fault finding aur drive setting jaanne wale ki maang zyada hai. Panel aur motor ka kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "4182e9d84f15f225",
       "text": "Forklift wale ka vetan zyada hota hai. Kya aap forklift chala lete hain?",
       "producer": "clarify"
@@ -1515,6 +1560,11 @@
       "producer": "prompt"
     },
     {
+      "id": "5023266b036d3144",
+      "text": "MCC panel, VFD, starter ya motor, kispar kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "5049e4ba5f004c1e",
       "text": "Gun setting se coating barabar lagti hai aur powder bachta hai. kV, powder flow ya gun distance, kya set karte hain?",
       "producer": "clarify"
@@ -1680,6 +1730,11 @@
       "producer": "why"
     },
     {
+      "id": "580e2a77b5608590",
+      "text": "Meter chalana jaanne wala fault jaldi pakadta hai.",
+      "producer": "why"
+    },
+    {
       "id": "581c4d92016b6e07",
       "text": "Polish alag se paisa deta hai. Kya aap polish ka kaam karte hain?",
       "producer": "clarify"
@@ -1698,6 +1753,11 @@
       "id": "5915f0ed8480d9d1",
       "text": "Kitni moti sheet par kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "5932e136cd54dd09",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal electrician ka kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "5944708c1e43f46b",
@@ -1773,6 +1833,11 @@
       "id": "5bcde295a44f7740",
       "text": "Aap kaunse sheher mein rehte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "5be01fd705d21582",
+      "text": "Helper aur skilled worker ka kaam aur vetan alag hota hai. Aap khud ko kis level ka electrician maante hain?",
+      "producer": "clarify"
     },
     {
       "id": "5c64bd6bb2b5a234",
@@ -2035,6 +2100,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6ab9581e605c12ec",
+      "text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai. Kaunsa control circuit khud wire kar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "6adb594d57bd569c",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Sheet metal ki kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -2073,6 +2143,11 @@
       "id": "6c28b133dbb5e1fb",
       "text": "Problem theek karne wale operator ki demand zyada hai. Machine problem mein aap kya theek karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "6c4c4e2dff99d5a9",
+      "text": "Panel aur motor ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "6c4c7eb78b711ac9",
@@ -2290,6 +2365,11 @@
       "producer": "clarify"
     },
     {
+      "id": "7608796fe65d3f7e",
+      "text": "Aap khud ko kis level ka electrician maante hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "766f203f7746531e",
       "text": "Wheel dressing kaise karte hain?",
       "producer": "prompt"
@@ -2380,6 +2460,11 @@
       "producer": "retry"
     },
     {
+      "id": "7bb20e249abd5a35",
+      "text": "Fault finding aur drive setting jaanne wale ki maang zyada hai.",
+      "producer": "why"
+    },
+    {
       "id": "7bf271a27cfd0730",
       "text": "Apna tool khud grind karna purana aur bada hunar hai. HSS tool ki dhaar aap banate hain ya koi aur?",
       "producer": "clarify"
@@ -2388,6 +2473,11 @@
       "id": "7c5b051373532235",
       "text": "Finishing se saman ka daam badhta hai.",
       "producer": "why"
+    },
+    {
+      "id": "7cb4c28733f66d38",
+      "text": "Meter chalana jaanne wala fault jaldi pakadta hai. Testing ke liye kaunse meter istemaal karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "7d430e13ac7a0dbc",
@@ -2995,6 +3085,11 @@
       "producer": "why"
     },
     {
+      "id": "9d6775890f61a167",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. MCC panel, VFD, starter ya motor, kispar kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "9d9a5965ab15d907",
       "text": "Drawing padhna zaroori hai kai jagah. Kya aap drawing padh lete hain?",
       "producer": "clarify"
@@ -3098,6 +3193,11 @@
       "id": "a2471ea03c47a4ac",
       "text": "Aap kitne volt tak ka kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "a314ddba86a786d7",
+      "text": "Lagbhag kitne saal electrician ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "a34259f35b4703e1",
@@ -3205,6 +3305,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a764c8efd3eab704",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a7cc5b4eb3be225c",
       "text": "Post-processor theek karne wale programmer kam milte hain.",
       "producer": "why"
@@ -3238,6 +3343,11 @@
       "id": "a99f79b62442233f",
       "text": "Thickness se coating ki quality aur cost tay hoti hai.",
       "producer": "why"
+    },
+    {
+      "id": "a99faa4d266f2910",
+      "text": "Bijli ke kaam me safety zaroori hai. Kaam shuru karne se pehle kaunsi safety khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "a9de237dbdd8acc3",
@@ -3295,6 +3405,11 @@
       "producer": "prompt"
     },
     {
+      "id": "adefa765a8941597",
+      "text": "Testing ke liye kaunse meter istemaal karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "adfa0a6cecb85a59",
       "text": "CCTV wale ko control room milta hai. Kya aap CCTV dekh sakte hain?",
       "producer": "clarify"
@@ -3308,6 +3423,11 @@
       "id": "adff94770daa39a7",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. Workshop me khraad ya milling par kaam kiya tha?",
       "producer": "clarify"
+    },
+    {
+      "id": "ae728b2db22b659e",
+      "text": "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.",
+      "producer": "why"
     },
     {
       "id": "ae8358ed3014f829",
@@ -3370,6 +3490,11 @@
       "producer": "why"
     },
     {
+      "id": "b2952bc2708f76c6",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Electrician ke kaam ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "b2d715c3368f87e1",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. Workshop me kaunsi machine chalayi thi?",
       "producer": "clarify"
@@ -3413,6 +3538,11 @@
       "id": "b646d46f4d31d612",
       "text": "Kya aapki apni dukan hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "b6486773751ad2df",
+      "text": "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai. Motor ki kaunsi kharabi khud pakad lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "b66fa078e6fb67f4",
@@ -3460,6 +3590,11 @@
       "producer": "prompt"
     },
     {
+      "id": "b8e6298b9a99115b",
+      "text": "Kaam shuru karne se pehle kaunsi safety khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "b98ee4024446b243",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "producer": "why"
@@ -3473,6 +3608,11 @@
       "id": "b9f3e60ea4da0d34",
       "text": "Kitne saal se ye kaam kar rahe hain?",
       "producer": "retry"
+    },
+    {
+      "id": "ba89eb14f9420246",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis tarah ke plant ya company me kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "bab777a32cbd0655",
@@ -3715,6 +3855,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c3d1acc56a8eb2de",
+      "text": "Control wiring jaanne wale ko panel ki zimmedaari milti hai.",
+      "producer": "why"
+    },
+    {
       "id": "c46134cd2a498616",
       "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai. Cutting aur bending ke alawa kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -3950,6 +4095,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cfc888a142999a9f",
+      "text": "Kis tarah ke plant ya company me kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "d00c8826fff7a1a5",
       "text": "Aap kaunsa kaam karte hain?",
       "producer": "prompt"
@@ -3993,6 +4143,11 @@
       "id": "d1aa8b052cd6c6f5",
       "text": "Chip level wale ka rate zyada hai.",
       "producer": "why"
+    },
+    {
+      "id": "d1afc759d4713880",
+      "text": "Motor ki kaunsi kharabi khud pakad lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "d20d756f234b9878",
