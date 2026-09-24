@@ -107,6 +107,7 @@ describe("the role registry", () => {
       // `welder` because this list is the registry's DECLARATION order, not the order they shipped.
       // `industrial_electrician` follows, the first of the `maintenance` cluster, so it sits after
       // `painter_coating` — the last `fabrication` role — for the same reason.
+      // `press_operator` is second, and sits between sheet metal and painting for the same reason.
       expect([...TRADE_FORM_KINDS]).toEqual([
         "cnc_turner",
         "vmc_milling",
@@ -117,6 +118,7 @@ describe("the role registry", () => {
         "cad_draughtsman",
         "welder",
         "sheet_metal_worker",
+        "press_operator",
         "painter_coating",
         "industrial_electrician",
       ]);

@@ -552,6 +552,26 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Motor ki kaunsi kharabi khud pakad lete hain?": "मोटर की कौनसी खराबी खुद पकड़ लेते हैं?",
   "Kaam shuru karne se pehle kaunsi safety khud karte hain?":
     "काम शुरू करने से पहले कौनसी सेफ्टी खुद करते हैं?",
+  // qp_press_operation@1 — Batch 2 part two. The three fresher prompts and the drawing prompt are
+  // the welder's verbatim and reuse its twins above, so they are not repeated here.
+  "Press par kaam ka kitna tajurba hai?": "प्रेस पर काम का कितना तजुर्बा है?",
+  "Lagbhag kitne saal press par kaam kiya hai?": "लगभग कितने साल प्रेस पर काम किया है?",
+  "Kaunsi press machine chalate hain?": "कौनसी प्रेस मशीन चलाते हैं?",
+  "Power press, hydraulic ya pneumatic, kaunsi chalayi hai?":
+    "पावर प्रेस, हाइड्रोलिक या न्यूमैटिक, कौनसी चलाई है?",
+  "Press shop me aap kis level par kaam karte hain?": "प्रेस शॉप में आप किस लेवल पर काम करते हैं?",
+  "Kaunse material ki sheet ya strip par kaam karte hain?":
+    "कौनसे मटीरियल की शीट या स्ट्रिप पर काम करते हैं?",
+  "Press par kaunse safety system istemaal karte hain?":
+    "प्रेस पर कौनसे सेफ्टी सिस्टम इस्तेमाल करते हैं?",
+  "Kitne ton tak ki press chalayi hai?": "कितने टन तक की प्रेस चलाई है?",
+  "Press ki kaunsi setting khud karte hain?": "प्रेस की कौनसी सेटिंग खुद करते हैं?",
+  "Ek minute me kitne stroke tak chalate hain?": "एक मिनट में कितने स्ट्रोक तक चलाते हैं?",
+  "Kis line ke press parts par kaam kiya hai?": "किस लाइन के प्रेस पार्ट्स पर काम किया है?",
+  "Kaunse die par kaam kiya hai?": "कौनसे डाई पर काम किया है?",
+  "Press part ki kaunsi kharabi aap sudhaar lete hain?":
+    "प्रेस पार्ट की कौनसी खराबी आप सुधार लेते हैं?",
+  "Press ki kaunsi dekhbhaal khud karte hain?": "प्रेस की कौनसी देखभाल खुद करते हैं?",
 };
 
 /**
@@ -921,6 +941,13 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "कंट्रोल वायरिंग जानने वाले को पैनल की ज़िम्मेदारी मिलती है।",
   "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.":
     "खराबी पकड़ने वाले इलेक्ट्रीशियन की प्लांट में ज़रूरत रहती है।",
+  // qp_press_operation@1 — why-texts. The other fourteen (tenure, machine, level, material,
+  // safety, tonnage, drawing, setting, stroke rate, sector, maintenance and the three fresher ones)
+  // are shared verbatim with packs already twinned above, and reuse their clips.
+  "Har die ka kaam alag hota hai, isse sahi naukri milti hai.":
+    "हर डाई का काम अलग होता है, इससे सही नौकरी मिलती है।",
+  "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.":
+    "खराबी सुधारने वाले सेटर की शॉप पर ज़रूरत रहती है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

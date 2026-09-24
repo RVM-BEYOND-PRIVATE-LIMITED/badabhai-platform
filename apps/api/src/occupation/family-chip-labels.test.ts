@@ -114,6 +114,12 @@ describe("FAMILY_CHIP_LABELS", () => {
       // `fam_electrical_equipment` ("bijli upkaran") stay off this table — ruling A2's house
       // wireman must not be handed the panel-and-drive form on a pin.
       fam_industrial_electrician: "industrial_electrician",
+      // Batch 2 part two's second: "power press aur stamping" routes on the MACHINE term
+      // "power press", corroborated by the pin — the tier a family label always has, because it
+      // is only shown for an occupation already resolved into that family. Three of the five
+      // bound codes are shown by it (Tool Setter Press, Press Shop Operator and Press Shop
+      // Helper carry no vernacular alias), so this row is what hands those workers the form.
+      fam_press_operation: "press_operator",
     });
   });
 });

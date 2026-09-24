@@ -842,7 +842,8 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         // change, by design.
         "panel wiring", "industrial electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "panel electrician",
         "plant electrician",
-        // Press — items 20 and 22.
+        // Press — items 20 and 22, on 7223.2300 and 7223.3000, which fam_press_operation binds since
+        // its pack shipped — so both moved off the generic unit-7223 machining pack in that change.
         "power press", "stamping",
         // Assembly line — item 25.
         "assembly ka kaam",
@@ -873,8 +874,8 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_industrial_electrician",
       "panel electrician": "fam_industrial_electrician",
       "plant electrician": "fam_industrial_electrician",
-      "power press": "fam_machining",
-      stamping: "fam_machining",
+      "power press": "fam_press_operation",
+      stamping: "fam_press_operation",
       "assembly ka kaam": "fam_assembly",
     });
   });
@@ -1090,6 +1091,81 @@ describe("Batch 2 part two — industrial electrician", () => {
     // "starter" is the motor-transport time-keeper (4110.0600), "pit" folds onto isco 2641.
     for (const p of ["mcc panel", "dol starter", "earth pit"]) {
       expect(familyFor(p), p).toBe("fam_universal");
+    }
+  });
+});
+
+
+/**
+ * BATCH 2 PART TWO — PRESS / MACHINE OPERATOR, the second of the seven to ship its pack.
+ *
+ * Five bindings, each measured before it was written and each an NCO code whose description is
+ * metal-press work and nothing else: the tranche's two (7223.2300 "power press", 7223.3000
+ * "stamping"), the press tool setter (7223.0200) and the two automotive press-shop codes
+ * (7211.0101 operator, 7211.0102 helper). No generic press pack existed, so every one of these
+ * moved off a neighbour's generic pack — fam_machining (unit 7223) or fam_sheet_metal (minor 721).
+ * The forging, punching, supervisory and non-metal presses stay where they were.
+ */
+describe("Batch 2 part two — press / machine operator", () => {
+  it("binds exactly the five codes, and the phrases that reach them", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_press_operation")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_7211_0101",
+      "jd_nco_7211_0102",
+      "jd_nco_7223_0200",
+      "jd_nco_7223_2300",
+      "jd_nco_7223_3000",
+    ]);
+    for (const p of [
+      "power press", "power press operator", "power press ka kaam", "stamping", "stamping operator",
+      "metal stamper", "tool setter press", "press shop operator", "press shop assistant/helper",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_press_operation");
+    }
+  });
+
+  it("leaves forging, punching, supervision and the non-metal presses where they were", () => {
+    // Forge work — bare "stamper" is 7221.0500's alias, and that code is hot drop forging.
+    for (const p of ["stamper", "forging operator", "power hammer operator", "hammer man"]) {
+      expect(familyFor(p), p).toBe("fam_blacksmithing");
+    }
+    // The drop-forging die setter sits in unit 7223 beside the press tool setter, and stays generic.
+    expect(familyFor("setter drop forging machine")).toBe("fam_machining");
+    // "Puncher, Metal" punches boiler frames; it stays with its unit.
+    expect(familyFor("puncher metal")).toBe("fam_plumbing");
+    // SUPERVISORY, and unbound on purpose. They reach the universal pack today because no family
+    // binds 3122 — a pre-existing hole this change neither makes nor widens.
+    expect(familyFor("press shop supervisor")).toBe("fam_universal");
+    expect(familyFor("press shop shift in charge")).toBe("fam_universal");
+    expect(familyFor("extrusion press operator")).toBe("fam_metal_processing");
+    expect(familyFor("pressing machine operator")).toBe("fam_assemblers_other");
+    // "press brake" is the sheet metal worker's, and the press binding takes none of it.
+    expect(familyFor("press brake")).toBe("fam_sheet_metal_fab");
+    expect(familyFor("press brake operator")).toBe("fam_sheet_metal_fab");
+    expect(familyFor("sheet metal machine operator")).toBe("fam_sheet_metal_fab");
+  });
+
+  it("PINS THE GAPS IT KNOWINGLY LEAVES", () => {
+    // Item 21 and A4 need an alias-retirement mechanism (see the tranche block above, whose
+    // assertions these restate for this family): the role's own first word still lands elsewhere.
+    expect(familyFor("press operator")).toBe("fam_textile_machines");
+    expect(familyFor("machine operator")).toBe("fam_animal_rearing");
+    // Neither the Devanagari occupation term nor the struck "press ka kaam" reaches anything, and
+    // "press tool setter" folds to the tile setter at L1 ("tool setter" ~ "tile setter").
+    expect(familyFor("प्रेस ऑपरेटर")).toBeNull();
+    expect(familyFor("press ka kaam")).toBeNull();
+    expect(familyFor("press tool setter")).toBe("fam_building_finishing");
+    // The helper code's title matches only WITH its slash; without it the one span left is
+    // "shop assistant", which is retail.
+    expect(familyFor("press shop assistant helper")).toBe("fam_retail");
+  });
+
+  it("no ratified press phrase falls through to the universal pack", () => {
+    for (const p of ["power press", "stamping", "tool setter press", "press shop operator"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
     }
   });
 });

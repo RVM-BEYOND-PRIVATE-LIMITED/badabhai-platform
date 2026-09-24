@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 971,
+  "clip_count": 1001,
   "producers": {
-    "retry": 83,
-    "clarify": 369,
-    "prompt": 264,
-    "why": 247,
+    "retry": 85,
+    "clarify": 383,
+    "prompt": 276,
+    "why": 249,
     "constant": 8
   },
   "clips": [
@@ -22,6 +22,11 @@
     {
       "id": "00326923ff727ed3",
       "text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "producer": "prompt"
+    },
+    {
+      "id": "00e3bf3111a7ee05",
+      "text": "Press par kaunse safety system istemaal karte hain?",
       "producer": "prompt"
     },
     {
@@ -203,6 +208,11 @@
       "id": "091993e1dc3a72f3",
       "text": "Pump ka kaam alag se milta hai. Kya aap motor ya pump lagate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "0942374d5e6fb112",
+      "text": "Lagbhag kitne saal press par kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "0971591e80e323d2",
@@ -440,6 +450,11 @@
       "producer": "clarify"
     },
     {
+      "id": "16299430788bfa70",
+      "text": "Har die ka kaam alag hota hai, isse sahi naukri milti hai. Kaunse die par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "1633b3d24e524ebe",
       "text": "Lambi duri ka paisa alag hota hai. Kya aap lambi duri ja sakte hain?",
       "producer": "clarify"
@@ -578,6 +593,11 @@
       "id": "1d9e2941e63dddbe",
       "text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "1dcc90a923b27ccd",
+      "text": "Steel aur aluminium ka kaam alag hota hai. Kaunse material ki sheet ya strip par kaam karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "1dd9dab7e16b0838",
@@ -1015,6 +1035,11 @@
       "producer": "clarify"
     },
     {
+      "id": "3060a6dac881dc94",
+      "text": "Press ki kaunsi setting khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "3067a7e4c25312a1",
       "text": "Mahine ka kitna milna chahiye?",
       "producer": "retry"
@@ -1190,6 +1215,11 @@
       "producer": "clarify"
     },
     {
+      "id": "3c222ec76f57f57d",
+      "text": "Press par kaam ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "3c64c553cfe4fcd9",
       "text": "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai. Die ki kaunsi dikkat aap sudhaar lete hain?",
       "producer": "clarify"
@@ -1217,6 +1247,11 @@
     {
       "id": "3e5b202b34a2ef34",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal programming ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3e5e477e743a3a7b",
+      "text": "Plant me safety zaroori hoti hai. Press par kaunse safety system istemaal karte hain?",
       "producer": "clarify"
     },
     {
@@ -1328,6 +1363,11 @@
       "id": "43fdf33d7bc0620c",
       "text": "Gaadi chalane wale ka vetan alag hai. Kya aap kachra gaadi chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "446c7c9f0d067c26",
+      "text": "Kaunse die par kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "44a0854256d845aa",
@@ -1485,6 +1525,11 @@
       "producer": "why"
     },
     {
+      "id": "4b47802f9691305f",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi press machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "4b7552dd447ad9a6",
       "text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.",
       "producer": "why"
@@ -1497,6 +1542,11 @@
     {
       "id": "4bef4372bcac8b28",
       "text": "Kis dhaat par coating karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4cf382effd094e83",
+      "text": "Press ki kaunsi dekhbhaal khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -1703,6 +1753,11 @@
       "id": "56ee651df27de60f",
       "text": "Kaunsa mushkil kaam aap kar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "56f75206aecba8b5",
+      "text": "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.",
+      "producer": "why"
     },
     {
       "id": "56fce669d1e4f090",
@@ -1925,6 +1980,11 @@
       "producer": "prompt"
     },
     {
+      "id": "62592ab375942aac",
+      "text": "Power press, hydraulic ya pneumatic, kaunsi chalayi hai?",
+      "producer": "retry"
+    },
+    {
       "id": "62f4f0a73df0796b",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ki drawing banayi hai?",
       "producer": "clarify"
@@ -2087,6 +2147,11 @@
     {
       "id": "69dba17d6ad47c15",
       "text": "Dressing ka tarika wheel ki umar aur finish tay karta hai. Wheel dressing kaise karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "69ea72e8f161b18d",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal press par kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -2260,6 +2325,11 @@
       "producer": "clarify"
     },
     {
+      "id": "7151ed7b1db5f839",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Press shop me aap kis level par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "715b9afb0f56cbce",
       "text": "Aap ek din me kitne piece kar lete hain?",
       "producer": "prompt"
@@ -2273,6 +2343,11 @@
       "id": "71e1321d979f6f4b",
       "text": "Kaunse material par kaam kiya hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "71e3544baf1993c3",
+      "text": "Badi machine chalane wale ko bade job ka kaam milta hai. Kitne ton tak ki press chalayi hai?",
+      "producer": "clarify"
     },
     {
       "id": "72620660371ffe9f",
@@ -2495,6 +2570,11 @@
       "producer": "why"
     },
     {
+      "id": "7e8fd0917fbff1aa",
+      "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai. Press ki kaunsi dekhbhaal khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "7e9b24dcb31ce351",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Machine par kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -2528,6 +2608,11 @@
       "id": "7fdc3e8ad08449a7",
       "text": "Die aur jig ka kaam alag hota hai. Aap kya banate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "7feb3212bf194e8a",
+      "text": "Press part ki kaunsi kharabi aap sudhaar lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "802f2335fd265242",
@@ -2617,6 +2702,11 @@
     {
       "id": "842fac6c7b915b53",
       "text": "Kya aap billing machine chala lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "8450dc0781feb386",
+      "text": "Kaunse material ki sheet ya strip par kaam karte hain?",
       "producer": "prompt"
     },
     {
@@ -3290,6 +3380,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a6a942f572aa201c",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Press par kaam ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "a6eef2e98b7bc02a",
       "text": "Aap kaunsa oven chalate hain?",
       "producer": "prompt"
@@ -3508,6 +3603,11 @@
       "id": "b370c8603f0c78ad",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal sheet metal ka kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "b3a65ab069c0aae8",
+      "text": "Kaunsi press machine chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "b3b1ad2be1deab25",
@@ -3805,6 +3905,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c26174084c6f58e6",
+      "text": "Press shop me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "c2d626eb59044e52",
       "text": "Machine ki kaunsi setting khud karte hain?",
       "producer": "prompt"
@@ -3832,6 +3937,11 @@
     {
       "id": "c36df7a1e6a851dd",
       "text": "Process ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsa coating ka kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c38c10bd8befdc2b",
+      "text": "Setting ka kaam operator aur setter ka farq batata hai. Press ki kaunsi setting khud karte hain?",
       "producer": "clarify"
     },
     {
@@ -3978,6 +4088,11 @@
       "id": "ca5367ae064e0fc1",
       "text": "Bina licence badi site par kaam nahi milta. Kya aapke paas licence hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "caf244496d2bfa2c",
+      "text": "Kitne ton tak ki press chalayi hai?",
+      "producer": "prompt"
     },
     {
       "id": "cb37da29f57e4606",
@@ -4300,9 +4415,19 @@
       "producer": "clarify"
     },
     {
+      "id": "dbab2912758df65f",
+      "text": "Kis line ke press parts par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "dc0b7136d0cb519c",
       "text": "Development ka hisaab jaanne wale se galti kam hoti hai.",
       "producer": "why"
+    },
+    {
+      "id": "dc11d02237a0da4f",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Power press, hydraulic ya pneumatic, kaunsi chalayi hai?",
+      "producer": "clarify"
     },
     {
       "id": "dc78002e6b0e17d1",
@@ -4570,6 +4695,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ec9f6eaa3ce2df69",
+      "text": "Ek minute me kitne stroke tak chalate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "eca4635d2d5da4ad",
       "text": "Doosre sheher mein bhi achhi naukri mil sakti hai.",
       "producer": "why"
@@ -4770,6 +4900,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f8aa579fea356076",
+      "text": "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai. Press part ki kaunsi kharabi aap sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "f921ec2949302896",
       "text": "Aap kaunsa lakdi kaam karte hain?",
       "producer": "prompt"
@@ -4802,6 +4937,11 @@
     {
       "id": "fbb9aec1667f0416",
       "text": "Door ki naukri bhi dikhane ke liye ye pata hona chahiye.",
+      "producer": "why"
+    },
+    {
+      "id": "fbcb1622a6638e36",
+      "text": "Har die ka kaam alag hota hai, isse sahi naukri milti hai.",
       "producer": "why"
     },
     {
@@ -4853,6 +4993,16 @@
       "id": "fe55b72cee75db9d",
       "text": "Moti sheet ka kaam alag rate par hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "fedaf70383b14e82",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ke press parts par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "ff0b54ac7e23ec27",
+      "text": "Line par target poocha jaata hai. Ek minute me kitne stroke tak chalate hain?",
+      "producer": "clarify"
     },
     {
       "id": "ff6eab4528653fce",

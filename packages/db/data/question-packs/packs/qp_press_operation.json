@@ -1,0 +1,676 @@
+{
+  "_why": "Role track for PRESS OPERATION, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's second pack. No generic press pack exists to sit beside: before this change 'power press', 'stamping' and 'tool setter press' reached fam_machining (ISCO unit 7223) and 'press shop operator' reached fam_sheet_metal (ISCO minor 721), and both stay exactly as they are. This pack belongs to fam_press_operation, which binds the NCO press occupations directly (job_domain specificity 50 beats unit 40 and minor 30), so a press-shop worker gets press depth and every other worker under 7223 and 721 keeps the generic pack.",
+  "_scope": "METAL FORMING ONLY -- mechanical power, hydraulic and pneumatic presses, blanking, piercing, forming and progressive work on sheet and strip, from loading helper to die setter. OWNER RULING R4-a (docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md, signed 2026-09-24): Press / Machine Operator is metal forming only and all moulding belongs to Injection Moulding Operator, so no item and no option here mentions moulding. The level ladder (Helper / Operator / Setter) is asked as press_level so the sheet can say which rung the man stands on. Thin-gauge fabrication at a press brake belongs to the sheet metal pack and forging to fam_blacksmithing; neither is bound here.",
+  "_depth": "THE TIER GATE IS press_experience, asked FIRST, and it is PRESS_OPERATOR.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (press_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15, and 13 + 18 = 31 against the ceiling of 48. The three fresher items are gated press_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED PRESS REFERENCE RESUME (Rakesh Kumar Paswan, page 12), not invented. Its eight rows are Machines, Materials, Setting work, Safety systems used, Tonnage worked, Stroke rate, Drawings and Sector worked, and every one has a question here that fills it. Setting work carries SIX values plus the escape chip because the page prints six. Machines keeps the page's 'Press brake': it is the sheet metal worker's machine term in the router, but a pack chip is never routing evidence -- it is only served to a worker whose family already resolved here -- so printing what the page prints claims nothing. Tonnage and stroke rate are BANDED single_selects, the welder's plate ruling. TWO CELLS ARE NOT REPRODUCED VERBATIM: the page's '30 T - 250 T presses' is a range whose lower bound no question stores, so the row prints 'Up to 250 T presses'; and 'on progressive tooling' after the stroke rate is captured by press_die_type but no map seam appends a trailing clause to a fact row, so the row prints 'Up to 60 strokes per minute'. THE PAGE SHOWS NO MOULDING, so nothing was omitted from it under R4-a; the ruling instead strikes the taxonomy attribute list's 'injection moulding', which no item here asks. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable, which is why the bands are upto_thirty / upto_twofifty and not upto_30. material_worked, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first, material_worked trimmed) to keep a sheet on one page, and a private key would opt this trade out of that.",
+  "pack_id": "qp_press_operation",
+  "version": 1,
+  "family_id": "fam_press_operation",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising press operator -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "press_experience",
+      "prompt_text": "Press par kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal press par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "press_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "press_machine",
+      "prompt_text": "Kaunsi press machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Power press, hydraulic ya pneumatic, kaunsi chalayi hai?",
+      "target_kind": "attribute",
+      "target_field": "press_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mechanical_power_press",
+          "label_text": "Mechanical power press",
+          "value_text": "mechanical_power_press"
+        },
+        {
+          "option_key": "hydraulic_press",
+          "label_text": "Hydraulic press",
+          "value_text": "hydraulic_press"
+        },
+        {
+          "option_key": "pneumatic_press",
+          "label_text": "Pneumatic press",
+          "value_text": "pneumatic_press"
+        },
+        {
+          "option_key": "press_brake",
+          "label_text": "Press brake",
+          "value_text": "press_brake"
+        },
+        {
+          "option_key": "fly_press",
+          "label_text": "Fly press ya hand press",
+          "value_text": "fly_press"
+        },
+        {
+          "option_key": "other_machine",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_level",
+      "prompt_text": "Press shop me aap kis level par kaam karte hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "press_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "setter",
+          "label_text": "Setter",
+          "value_text": "setter"
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Kaunse material ki sheet ya strip par kaam karte hain?",
+      "why_text": "Steel aur aluminium ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "ms_sheet",
+          "label_text": "MS sheet",
+          "value_text": "ms_sheet"
+        },
+        {
+          "option_key": "gi_sheet",
+          "label_text": "GI sheet",
+          "value_text": "gi_sheet"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium sheet",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "spring_steel",
+          "label_text": "Spring steel strip",
+          "value_text": "spring_steel"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_safety",
+      "prompt_text": "Press par kaunse safety system istemaal karte hain?",
+      "why_text": "Plant me safety zaroori hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "press_safety",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "two_hand_control",
+          "label_text": "Two-hand control",
+          "value_text": "two_hand_control"
+        },
+        {
+          "option_key": "light_curtain",
+          "label_text": "Light curtain",
+          "value_text": "light_curtain"
+        },
+        {
+          "option_key": "guard_interlock",
+          "label_text": "Guard interlock",
+          "value_text": "guard_interlock"
+        },
+        {
+          "option_key": "emergency_stop",
+          "label_text": "Emergency stop check",
+          "value_text": "emergency_stop"
+        },
+        {
+          "option_key": "lockout_tagout",
+          "label_text": "Lockout-tagout (LOTO)",
+          "value_text": "lockout_tagout"
+        },
+        {
+          "option_key": "other_safety",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_tonnage",
+      "prompt_text": "Kitne ton tak ki press chalayi hai?",
+      "why_text": "Badi machine chalane wale ko bade job ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "press_tonnage",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "upto_thirty",
+          "label_text": "30 ton tak",
+          "value_text": "upto_thirty"
+        },
+        {
+          "option_key": "upto_hundred",
+          "label_text": "100 ton tak",
+          "value_text": "upto_hundred"
+        },
+        {
+          "option_key": "upto_twofifty",
+          "label_text": "250 ton tak",
+          "value_text": "upto_twofifty"
+        },
+        {
+          "option_key": "over_twofifty",
+          "label_text": "250 ton se zyada",
+          "value_text": "over_twofifty"
+        },
+        {
+          "option_key": "unknown_tonnage",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Seedhi 2D drawing",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "strip_layout",
+          "label_text": "Drawing aur strip layout dono",
+          "value_text": "strip_layout"
+        }
+      ]
+    },
+    {
+      "question_key": "press_setting",
+      "prompt_text": "Press ki kaunsi setting khud karte hain?",
+      "why_text": "Setting ka kaam operator aur setter ka farq batata hai.",
+      "target_kind": "attribute",
+      "target_field": "press_setting",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "die_change",
+          "label_text": "Die change",
+          "value_text": "die_change"
+        },
+        {
+          "option_key": "die_setting",
+          "label_text": "Die setting aur alignment",
+          "value_text": "die_setting"
+        },
+        {
+          "option_key": "shut_height",
+          "label_text": "Shut height setting",
+          "value_text": "shut_height"
+        },
+        {
+          "option_key": "feeder_setting",
+          "label_text": "Feeder setting",
+          "value_text": "feeder_setting"
+        },
+        {
+          "option_key": "strip_layout_check",
+          "label_text": "Strip layout check",
+          "value_text": "strip_layout_check"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "First piece approval",
+          "value_text": "first_piece"
+        },
+        {
+          "option_key": "no_setting",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_stroke_rate",
+      "prompt_text": "Ek minute me kitne stroke tak chalate hain?",
+      "why_text": "Line par target poocha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "press_stroke_rate",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "upto_twenty",
+          "label_text": "20 stroke tak",
+          "value_text": "upto_twenty"
+        },
+        {
+          "option_key": "upto_sixty",
+          "label_text": "60 stroke tak",
+          "value_text": "upto_sixty"
+        },
+        {
+          "option_key": "over_sixty",
+          "label_text": "60 stroke se zyada",
+          "value_text": "over_sixty"
+        },
+        {
+          "option_key": "unknown_stroke",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis line ke press parts par kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "pressed_components",
+          "label_text": "Sheet metal pressed components",
+          "value_text": "pressed_components"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "electrical_parts",
+          "label_text": "Electrical aur switchgear parts",
+          "value_text": "electrical_parts"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Home appliance parts",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "utensils",
+          "label_text": "Bartan aur kitchenware",
+          "value_text": "utensils"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_die_type",
+      "prompt_text": "Kaunse die par kaam kiya hai?",
+      "why_text": "Har die ka kaam alag hota hai, isse sahi naukri milti hai.",
+      "target_kind": "attribute",
+      "target_field": "press_die_type",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "blanking_piercing",
+          "label_text": "Blanking aur piercing die",
+          "value_text": "blanking_piercing"
+        },
+        {
+          "option_key": "progressive",
+          "label_text": "Progressive die",
+          "value_text": "progressive"
+        },
+        {
+          "option_key": "compound",
+          "label_text": "Compound die",
+          "value_text": "compound"
+        },
+        {
+          "option_key": "bending_forming",
+          "label_text": "Bending ya forming die",
+          "value_text": "bending_forming"
+        },
+        {
+          "option_key": "deep_drawing",
+          "label_text": "Deep drawing die",
+          "value_text": "deep_drawing"
+        },
+        {
+          "option_key": "no_die",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_defect",
+      "prompt_text": "Press part ki kaunsi kharabi aap sudhaar lete hain?",
+      "why_text": "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "press_defect",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "burr",
+          "label_text": "Burr aana",
+          "value_text": "burr"
+        },
+        {
+          "option_key": "crack_tear",
+          "label_text": "Crack ya part phatna",
+          "value_text": "crack_tear"
+        },
+        {
+          "option_key": "wrinkle",
+          "label_text": "Wrinkle ya silvat",
+          "value_text": "wrinkle"
+        },
+        {
+          "option_key": "dimension",
+          "label_text": "Naap me farak",
+          "value_text": "dimension"
+        },
+        {
+          "option_key": "misfeed",
+          "label_text": "Strip ki galat feeding",
+          "value_text": "misfeed"
+        },
+        {
+          "option_key": "no_defect",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "press_maintenance",
+      "prompt_text": "Press ki kaunsi dekhbhaal khud karte hain?",
+      "why_text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "press_maintenance",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "oiling",
+          "label_text": "Oiling aur greasing",
+          "value_text": "oiling"
+        },
+        {
+          "option_key": "clutch_brake",
+          "label_text": "Clutch aur brake check",
+          "value_text": "clutch_brake"
+        },
+        {
+          "option_key": "air_pressure",
+          "label_text": "Air pressure check",
+          "value_text": "air_pressure"
+        },
+        {
+          "option_key": "die_bolts",
+          "label_text": "Die ke bolt tight karna",
+          "value_text": "die_bolts"
+        },
+        {
+          "option_key": "belt_flywheel",
+          "label_text": "Belt aur flywheel check",
+          "value_text": "belt_flywheel"
+        },
+        {
+          "option_key": "no_maintenance",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "power_press",
+          "label_text": "Power press",
+          "value_text": "power_press"
+        },
+        {
+          "option_key": "fly_press",
+          "label_text": "Fly press ya hand press",
+          "value_text": "fly_press"
+        },
+        {
+          "option_key": "shearing_machine",
+          "label_text": "Shearing machine",
+          "value_text": "shearing_machine"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "press_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

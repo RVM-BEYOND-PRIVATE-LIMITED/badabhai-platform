@@ -228,6 +228,42 @@ describe("routeToTradeForm", () => {
       expect(route("Manufacturing", "Industrial electrician, fitter ka kaam bhi", null)).toBeNull();
     });
 
+    it("routes a press operator to the press form — Batch 2 part two's second", () => {
+      // OCCUPATION TERMS route on their own, in Latin and in Devanagari.
+      expect(route("Manufacturing", "Press operator", null)).toBe("press_operator");
+      expect(route("Manufacturing", "Power press operator", null)).toBe("press_operator");
+      expect(route("विनिर्माण", "प्रेस ऑपरेटर", null)).toBe("press_operator");
+      // ...even under the WRONG pin. Worksheet item 21 is still pending, so "press operator"
+      // resolves to the woollen-cloth press in fam_textile_machines; an occupation term never
+      // consults the pin, so the model's label still hands the worker the metal press form.
+      expect(route("Manufacturing", "Press operator", "fam_textile_machines")).toBe(
+        "press_operator",
+      );
+      // MACHINE WORDS NEED THE FAMILY PIN: "power press" (the tranche's item 20, and the chip
+      // label 7223.2300 is shown by) and "hydraulic press" route only once the resolver has landed
+      // the worker on fam_press_operation.
+      expect(route("Manufacturing", "Power press", "fam_press_operation")).toBe("press_operator");
+      expect(route("Manufacturing", "Hydraulic press chalata hoon", "fam_press_operation")).toBe(
+        "press_operator",
+      );
+      expect(route("Manufacturing", "Power press", null)).toBeNull();
+      // A KNOWN GAP, PINNED: 7223.3000 is shown by its tranche alias "stamping", which is not a
+      // press detection term, so that pin alone hands over nothing. The worker still gets the
+      // press pack — in conversation, as the family's pack — until a label names the trade.
+      expect(route(null, null, "fam_press_operation", "stamping")).toBeNull();
+      // "press brake" STAYS SHEET METAL'S. It is not a press term, and under the press pin it is a
+      // fabrication rival's word — so a press brake operator is never handed the press form.
+      expect(route("Manufacturing", "Press brake operator", "fam_press_operation")).toBeNull();
+      expect(route("Fabrication", "Power press aur press brake", "fam_press_operation")).toBeNull();
+      // THE CLUSTER VETO, both directions, now that both forms ship.
+      expect(route("Fabrication", "Press operator and sheet metal worker", null)).toBeNull();
+      expect(route("Fabrication", "Welder, power press bhi chalata hoon", null)).toBeNull();
+      // R4-a: moulding is a declared conflict, not a press word — the ambiguous man keeps talking.
+      expect(route("Manufacturing", "Press operator, injection moulding bhi", null)).toBeNull();
+      // And the tool room's setting vocabulary vetoes across the cluster boundary.
+      expect(route("Manufacturing", "Press setter, die setting", null)).toBeNull();
+    });
+
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.
