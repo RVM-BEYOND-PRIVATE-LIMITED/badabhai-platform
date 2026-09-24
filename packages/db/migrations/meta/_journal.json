@@ -870,6 +870,13 @@
       "when": 1790083014438,
       "tag": "0123_resume_degraded_posture",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1790235510468,
+      "tag": "0124_resume_identity_role_kind_declared",
+      "breakpoints": true
     }
   ]
 }

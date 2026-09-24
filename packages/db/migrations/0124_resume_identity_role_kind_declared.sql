@@ -1,0 +1,50 @@
+-- ===========================================================================
+-- 0124 - worker_resume_import.wri_identity_role_kind_chk: 9 enabled kinds -> 21 declared
+--
+-- WIDENS ONE CHECK. No column, no data, no backfill. Every value 0118 allowed is still
+-- allowed, so no existing row can fail the re-added constraint.
+--
+-- THE DEFECT. 0118 closed identity_role_kind on the 9 ENABLED form kinds and said that
+-- enabling a 10th form must widen this list in the same change. #1693 enabled
+-- sheet_metal_worker without doing so. The résumé summary call offers the model the
+-- ENABLED kinds (TRADE_FORM_KINDS), so from that deploy on a sheet-metal résumé could come
+-- back identified as sheet_metal_worker, and saveIdentitySummary then violated this CHECK.
+-- The processor catches it - nothing crashed - but the staged identity line was lost and a
+-- retry re-billed the call, because nothing was saved. Each further role enabled would have
+-- widened the hole by one kind.
+--
+-- WHY 21 AND NOT 10. A rule that has to be remembered on every formEnabled flip is the rule
+-- that gets forgotten, which is exactly what happened. wri_association_kind_chk beside it
+-- already closes on all 21 DECLARED kinds (TRADE_FORM_KINDS_ALL); this now matches it.
+-- "Is this form live" stays in code: narrowRoleKind (api) and _narrow_role_kind
+-- (ai-service) keep what is WRITTEN to the enabled kinds. The constraint only guards the
+-- closed vocabulary, which is what a CHECK is for.
+--
+-- LOCKS. DROP CONSTRAINT and a validated ADD CONSTRAINT ... CHECK both take ACCESS EXCLUSIVE,
+-- and the ADD scans the table under it. This table holds one row per résumé upload and the
+-- CHECK reads one short text column, so the scan is milliseconds; the real risk is queueing
+-- behind a long transaction. Applied by hand: wrap both statements in ONE explicit
+-- BEGIN/COMMIT (psql -f would otherwise commit the DROP alone and leave a window with no
+-- constraint) with SET LOCAL lock_timeout = '3s', and retry on 55P03 (0077/0080/0109
+-- precedent). NOT VALID + VALIDATE buys nothing inside one transaction: the DROP already
+-- holds ACCESS EXCLUSIVE until commit.
+--
+-- APPLY BEFORE THE NEXT ROLE IS ENABLED, and as soon as possible for sheet_metal_worker,
+-- which is live now. Order-independent otherwise: no code in this change depends on it.
+--
+-- ROLLBACK. Rolling back REOPENS THE LIVE DEFECT while sheet_metal_worker (or any later
+-- role) stays enabled, and it cannot succeed once any row holds a kind outside the original
+-- nine: the re-add would fail on that row. Pre-check first; if it returns rows, roll back in
+-- CODE (disable the forms) rather than here, as 0118/0119 state for their columns.
+--   SELECT count(*) FROM "worker_resume_import" WHERE "identity_role_kind" NOT IN
+--     ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'conventional_machinist', 'tool_die_maker',
+--      'cam_programmer', 'cad_draughtsman', 'welder', 'painter_coating');   -- expect 0
+-- then:
+--   ALTER TABLE "worker_resume_import" DROP CONSTRAINT "wri_identity_role_kind_chk";
+--   ALTER TABLE "worker_resume_import" ADD CONSTRAINT "wri_identity_role_kind_chk" CHECK
+--     ("worker_resume_import"."identity_role_kind" IS NULL OR "worker_resume_import"."identity_role_kind"
+--      IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'conventional_machinist', 'tool_die_maker',
+--          'cam_programmer', 'cad_draughtsman', 'welder', 'painter_coating'));
+-- ===========================================================================
+ALTER TABLE "worker_resume_import" DROP CONSTRAINT "wri_identity_role_kind_chk";--> statement-breakpoint
+ALTER TABLE "worker_resume_import" ADD CONSTRAINT "wri_identity_role_kind_chk" CHECK ("worker_resume_import"."identity_role_kind" IS NULL OR "worker_resume_import"."identity_role_kind" IN ('cnc_turner', 'vmc_milling', 'cnc_grinding', 'cam_programmer', 'cad_draughtsman', 'conventional_machinist', 'tool_die_maker', 'welder', 'sheet_metal_worker', 'press_operator', 'painter_coating', 'fitter', 'maintenance_technician', 'industrial_electrician', 'assembly_line_worker', 'quality_inspector', 'injection_moulding_operator', 'mould_die_maker', 'blow_moulding_operator', 'rubber_moulding_operator', 'plastic_process_technician'));
