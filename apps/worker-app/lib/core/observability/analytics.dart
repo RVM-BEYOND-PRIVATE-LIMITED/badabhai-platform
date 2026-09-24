@@ -65,6 +65,23 @@ class BbAnalytics {
       });
 
   /// A resume was generated and shown.
+  /// #1698 — tiered profiling. The SERVER already emits the authoritative
+  /// `profile.tier_*` spine; these mirror only what the CLIENT can see (the
+  /// screen was shown, the worker tapped) so the funnel has a client-side
+  /// drop-off number. The tier token is a fixed enum-like value, never a
+  /// worker's words — the only parameter this may ever carry.
+  static const BbAnalyticsEvent tierScreenShown =
+      BbAnalyticsEvent('tier_screen_shown');
+
+  static const BbAnalyticsEvent tierUpgradeScreenShown =
+      BbAnalyticsEvent('tier_upgrade_screen_shown');
+
+  static BbAnalyticsEvent tierSelected({required String tier}) =>
+      BbAnalyticsEvent('tier_selected', <String, Object>{'tier': tier});
+
+  static BbAnalyticsEvent tierUpgraded({required String tier}) =>
+      BbAnalyticsEvent('tier_upgraded', <String, Object>{'tier': tier});
+
   static const BbAnalyticsEvent resumeReady =
       BbAnalyticsEvent('bb_resume_ready');
 

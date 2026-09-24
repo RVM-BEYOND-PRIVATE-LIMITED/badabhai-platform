@@ -32,6 +32,8 @@ import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/profile_edit/presentation/profile_edit_screen.dart';
 import 'features/extracted_review/presentation/extracted_review_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
+import 'features/trade_form/domain/trade_form_args.dart';
+import 'features/trade_form/presentation/tier_choice_screen.dart';
 import 'features/trade_form/presentation/trade_form_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
@@ -98,6 +100,15 @@ class Routes {
   /// card pushes here once it lands, and #1344 will retire [finishing]
   /// later. Reachable today only via `context.push(Routes.tradeForm)`.
   static const String tradeForm = '/trade-form';
+
+  /// #1698 — "Kitna time de sakte hain?": Easy / Medium / Hard, shown between
+  /// the form handover and the first form question, and again (as "Aur detail
+  /// add karein") when the worker upgrades from the Résumé tab.
+  ///
+  /// Only ever reached when `GET /profiling/form/tiers` said `needs_choice`
+  /// with cards to draw. With `PROFILING_TIERS_ENABLED` off — which is every
+  /// box today — nothing in the app navigates here.
+  static const String tierChoice = '/trade-form/tier';
   static const String building = '/building';
 
   // --- Shell branch roots (persistent bottom nav) ---
@@ -206,6 +217,9 @@ const Set<String> _onboardingRoutes = <String>{
   Routes.profilePreview,
   Routes.finishing,
   Routes.tradeForm,
+  // #1698 — the tier chooser is a real onboarding STEP: a worker killed on it
+  // must come back to it, not to an empty Résumé tab (#1470).
+  Routes.tierChoice,
   Routes.building,
 };
 
@@ -533,9 +547,43 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.tradeForm,
-        builder: (_, GoRouterState state) => TradeFormScreen(
-          sectionKey: state.extra is String ? state.extra as String : null,
-        ),
+        builder: (_, GoRouterState state) {
+          // `extra` has carried a bare section-key STRING since #1566, and it
+          // still may: the résumé-menu walk passes one. #1698 adds a typed
+          // [TradeFormArgs] for the tier road, which can also carry the
+          // upgrade view. Both shapes are read defensively, and anything else
+          // is the plain full walk — exactly today's behaviour.
+          final Object? extra = state.extra;
+          final TradeFormArgs args = switch (extra) {
+            TradeFormArgs() => extra,
+            String() => TradeFormArgs(sectionKey: extra),
+            _ => const TradeFormArgs(),
+          };
+          return TradeFormScreen(
+            sectionKey: args.sectionKey,
+            upgradeView: args.upgradeView,
+          );
+        },
+      ),
+      // #1698 — the tier chooser, between the form handover and the first
+      // question. It is reached ONLY when the server said `needs_choice`, so a
+      // worker on a box with tiers off never sees this route at all.
+      GoRoute(
+        path: Routes.tierChoice,
+        builder: (_, GoRouterState state) {
+          final Object? extra = state.extra;
+          // No state to draw = nothing to choose from. Fail forward to the
+          // form rather than render an empty chooser: this screen must never
+          // be a dead end.
+          if (extra is! TierChoiceArgs || extra.state.tiers.isEmpty) {
+            return const TradeFormScreen();
+          }
+          return TierChoiceScreen(
+            state: extra.state,
+            entry: extra.entry,
+            sectionKey: extra.sectionKey,
+          );
+        },
       ),
       GoRoute(
         path: Routes.building,

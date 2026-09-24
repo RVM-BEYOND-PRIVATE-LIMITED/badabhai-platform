@@ -1158,8 +1158,109 @@ class MockApiClient extends ApiClient {
     };
   }
 
+  /// #1698 — whether mock mode offers the TIER SCREEN.
+  ///
+  /// Defaults to FALSE for the same reason `PROFILING_TIERS_ENABLED` does on a
+  /// real box: tiers are dark until the packs are re-seeded, and mock mode's
+  /// job is to mirror the server a worker would actually meet, not the one we
+  /// hope to ship. A demo or a test flips it.
+  bool mockProfilingTiersEnabled = false;
+
+  /// #1698 — GET /profiling/form/tiers.
+  ///
+  /// With tiers off this answers `enabled: false`, which is the ordinary
+  /// answer on every box today and keeps mock mode opening the full form
+  /// exactly as it always has. With them on it serves three priced tiers so
+  /// the screen can be walked offline; the minutes are FIXED literals, because
+  /// the real ones are computed per role and mock mode has no role engine to
+  /// compute them from.
   @override
-  Future<Map<String, dynamic>> getTradeForm({required String authToken}) async {
+  Future<Map<String, dynamic>> getProfilingTiers({
+    required String authToken,
+  }) async {
+    await _delay();
+    if (!mockProfilingTiersEnabled) {
+      return <String, dynamic>{
+        'enabled': false,
+        'kind': 'cnc_turner',
+        'needs_choice': false,
+        'current_tier': null,
+        'upgradable_to': <String>[],
+        'tiers': <Map<String, dynamic>>[],
+      };
+    }
+    return <String, dynamic>{
+      'enabled': true,
+      'kind': 'cnc_turner',
+      'needs_choice': _mockChosenTier == null,
+      'current_tier': _mockChosenTier,
+      'upgradable_to': switch (_mockChosenTier) {
+        'easy' => <String>['medium', 'hard'],
+        'medium' => <String>['hard'],
+        _ => <String>[],
+      },
+      'tiers': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'tier': 'easy',
+          'min_minutes': 2,
+          'max_minutes': 3,
+          'question_count': 6,
+        },
+        <String, dynamic>{
+          'tier': 'medium',
+          'min_minutes': 5,
+          'max_minutes': 7,
+          'question_count': 14,
+        },
+        <String, dynamic>{
+          'tier': 'hard',
+          'min_minutes': 10,
+          'max_minutes': 12,
+          'question_count': 23,
+        },
+      ],
+    };
+  }
+
+  /// The tier this mock worker has chosen, if any. Held in memory only, like
+  /// every other mock write.
+  String? _mockChosenTier;
+
+  /// #1698 — POST /profiling/form/tier. Honours the real rule that matters
+  /// most: tiers only ever go UP, and the same tier twice is `unchanged`.
+  @override
+  Future<Map<String, dynamic>> chooseProfilingTier({
+    required String authToken,
+    required String tier,
+  }) async {
+    await _delay();
+    const List<String> order = <String>['easy', 'medium', 'hard'];
+    final String? previous = _mockChosenTier;
+    final String change;
+    if (previous == null) {
+      change = 'selected';
+    } else if (previous == tier) {
+      change = 'unchanged';
+    } else if (order.indexOf(tier) > order.indexOf(previous)) {
+      change = 'upgraded';
+    } else {
+      // The app never offers a downgrade; mirror the server's refusal rather
+      // than quietly accepting one here and hiding a client bug.
+      throw ApiException(409, 'Tier cannot be lowered');
+    }
+    _mockChosenTier = tier;
+    return <String, dynamic>{
+      'tier': tier,
+      'previous_tier': previous,
+      'change': change,
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTradeForm({
+    required String authToken,
+    String? view,
+  }) async {
     await _delay();
     // Mirror the real contract's neutral 404 for a worker with no form (#1356) —
     // see `mockHasTradeForm`'s doc comment for why this is the correct default.

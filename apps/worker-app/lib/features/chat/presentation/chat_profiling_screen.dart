@@ -29,6 +29,8 @@ import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/selection_cards.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
+import '../../trade_form/domain/trade_form_args.dart';
+import '../../trade_form/presentation/open_trade_form.dart';
 import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
@@ -937,7 +939,10 @@ class _ChatViewState extends State<_ChatView> {
     if (_openingTradeForm) return;
     setState(() => _openingTradeForm = true);
     try {
-      await context.pushOnce(Routes.tradeForm);
+      // #1698 — stops at the tier chooser ONLY when the server says this
+      // worker still has to choose; every other answer pushes the form exactly
+      // as this line always did.
+      await openTradeFormWithTier(context, entry: TierEntry.pushed);
     } finally {
       // The worker can back out of the form and return to this (dead) chat
       // session — re-arm so the card stays tappable rather than permanently
