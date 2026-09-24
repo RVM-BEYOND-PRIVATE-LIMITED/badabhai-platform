@@ -14,6 +14,7 @@
   "items": [
     {
       "question_key": "machining_experience",
+      "min_tier": "easy",
       "prompt_text": "Khraad aur milling ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal machine par kaam kiya hai?",
@@ -48,6 +49,7 @@
     },
     {
       "question_key": "machining_machine",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsi machine chalate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Khraad, milling ya drill, kaunsi machine chalate hain?",
@@ -97,6 +99,7 @@
     },
     {
       "question_key": "machining_level",
+      "min_tier": "easy",
       "prompt_text": "Shop par aap kis level ka kaam karte hain?",
       "why_text": "Level se employer ko aapke kaam ka darja pata chalta hai.",
       "retry_text": "Helper, operator ya skilled machinist, kaunsa kaam karte hain?",
@@ -125,6 +128,7 @@
     },
     {
       "question_key": "machining_operation",
+      "min_tier": "medium",
       "prompt_text": "Machine par kaunsa kaam karte hain?",
       "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "retry_text": "Turning, milling, drilling ya boring, kya kya karte hain?",
@@ -184,6 +188,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Kaunse material par kaam kiya hai?",
       "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
       "retry_text": "MS, EN8 ya cast iron, kis par kaam kiya hai?",
@@ -233,6 +238,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Kaunse measuring instrument chala lete hain?",
       "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
       "retry_text": "Vernier, micrometer ya dial gauge, kya istemaal karte hain?",
@@ -277,6 +283,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "retry_text": "Drawing dekh kar job bana lete hain?",
@@ -305,6 +312,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke parts banaye hain?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "retry_text": "Job shop, auto parts ya pump valve, kis line me kaam kiya?",
@@ -354,6 +362,7 @@
     },
     {
       "question_key": "turning_capacity",
+      "min_tier": "hard",
       "prompt_text": "Khraad par kitne bade job tak kaam kiya hai?",
       "why_text": "Badi machine chalane wale ko bade job ka kaam milta hai.",
       "retry_text": "Sabse bada job kitne dia ka kiya hai?",
@@ -401,6 +410,7 @@
     },
     {
       "question_key": "tolerance_band",
+      "min_tier": "hard",
       "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
       "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
       "retry_text": "Job ki tolerance lagbhag kitni rakhte hain?",
@@ -448,6 +458,7 @@
     },
     {
       "question_key": "setting_operation",
+      "min_tier": "hard",
       "prompt_text": "Machine setting ka kaunsa kaam karte hain?",
       "why_text": "Setting karne wale ko operator se zyada paisa milta hai.",
       "retry_text": "Job set karna, tool set karna, kya khud karte hain?",
@@ -505,6 +516,7 @@
     },
     {
       "question_key": "quality_work",
+      "min_tier": "hard",
       "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
       "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
       "retry_text": "Pehla piece check karna ya rejection dekhna, kya karte hain?",
@@ -552,6 +564,7 @@
     },
     {
       "question_key": "troubleshooting",
+      "min_tier": "hard",
       "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
       "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
       "retry_text": "Belt, gear ya bearing ki dikkat kya khud theek karte hain?",
@@ -604,6 +617,7 @@
     },
     {
       "question_key": "tool_grinding",
+      "min_tier": "hard",
       "prompt_text": "Cutting tool khud grind karke banate hain?",
       "why_text": "Apna tool khud grind karna purana aur bada hunar hai.",
       "retry_text": "HSS tool ki dhaar aap banate hain ya koi aur?",
@@ -640,6 +654,7 @@
     },
     {
       "question_key": "advanced_work",
+      "min_tier": "hard",
       "prompt_text": "Kaunsa mushkil kaam aap kar lete hain?",
       "why_text": "Mushkil kaam karne wale machinist ki alag pehchaan hoti hai.",
       "retry_text": "Taper, gear cutting ya lamba shaft, kya bana lete hain?",
@@ -692,6 +707,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me khraad ya milling par kaam kiya tha?",
@@ -744,6 +760,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "ITI ka trade test pass kiya hai ya nahi?",
@@ -780,6 +797,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "ITI me banaya hua koi job yaad hai?",

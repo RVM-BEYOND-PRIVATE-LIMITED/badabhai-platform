@@ -1,0 +1,329 @@
+role_kind,role,pack_id,status,question_key,resume_section,resume_row,experience_gate,min_tier,judgement_call,reason
+cnc_turner,CNC Turner,qp_cnc_turning,live,turning_experience,,(tier gate — not printed),,easy,,"R1. Tier gate: it sizes the form. The chat's answer usually pre-settles it (#1459), so it is not shown."
+cnc_turner,CNC Turner,qp_cnc_turning,live,turning_machine,"MACHINES, CONTROLLERS & CAPABILITY",Machines,,easy,,§4 calibration: primary machines.
+cnc_turner,CNC Turner,qp_cnc_turning,live,controller_brand,"MACHINES, CONTROLLERS & CAPABILITY",Controllers,,easy,,§4 calibration: the headline field.
+cnc_turner,CNC Turner,qp_cnc_turning,live,turning_operation,"MACHINES, CONTROLLERS & CAPABILITY",Operations,,hard,J1,"The rule says Medium, but Rinku's approved Medium target has no Operations row, and at rank 63 the Hard sheet's 10-row budget drops it for a senior."
+cnc_turner,CNC Turner,qp_cnc_turning,live,workholding,"MACHINES, CONTROLLERS & CAPABILITY",Workholding,,hard,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,material_worked,"MACHINES, CONTROLLERS & CAPABILITY",Materials,,medium,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,measuring_tools,"MACHINES, CONTROLLERS & CAPABILITY",Measuring instruments,,medium,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,drawing_reading,"MACHINES, CONTROLLERS & CAPABILITY",Drawings,,medium,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,setting_operation,"MACHINES, CONTROLLERS & CAPABILITY",Setting,>=2,hard,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,tolerance_band,"MACHINES, CONTROLLERS & CAPABILITY",Tolerance held,>=2,hard,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,sector_worked,"MACHINES, CONTROLLERS & CAPABILITY",Sector worked,>=2,hard,,R5: sectors are Hard (as in the CAM calibration).
+cnc_turner,CNC Turner,qp_cnc_turning,live,programming_level,"MACHINES, CONTROLLERS & CAPABILITY",Programming,>=5,medium,,§4 calibration. The experience gate still applies: a turner under 5 years is not asked at any tier.
+cnc_turner,CNC Turner,qp_cnc_turning,live,advanced_capability,"MACHINES, CONTROLLERS & CAPABILITY",Machine capability,>=5,hard,,§4 calibration.
+cnc_turner,CNC Turner,qp_cnc_turning,live,quality_work,"MACHINES, CONTROLLERS & CAPABILITY",Quality,>=5,hard,,R5: specialist screening. The budget drops this row today anyway.
+cnc_turner,CNC Turner,qp_cnc_turning,live,troubleshooting,"MACHINES, CONTROLLERS & CAPABILITY",Troubleshooting,>=5,hard,,R5: specialist screening. The budget drops this row today anyway.
+cnc_turner,CNC Turner,qp_cnc_turning,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+cnc_turner,CNC Turner,qp_cnc_turning,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+cnc_turner,CNC Turner,qp_cnc_turning,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,milling_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,milling_machine,"MACHINES, CONTROLLERS & CAPABILITY",Machines,,easy,,"R2: primary machines, as for its turner twin."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,axis_capability,,"(printed on the Machines chip, e.g. ""VMC · 3-axis"")",,easy,J3,R2: it is printed inside the Easy Machines chip. CAM's approved Easy target also shows axes on its machine chips.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,controller_brand,"MACHINES, CONTROLLERS & CAPABILITY",Controllers,,easy,,"R2: the headline field, as for the turner."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,milling_operation,"MACHINES, CONTROLLERS & CAPABILITY",Operations,,medium,J1,"R4: core competence. Unlike the turner, this row survives the Hard budget (10th of 13), so R6 does not force it to Hard."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,material_worked,"MACHINES, CONTROLLERS & CAPABILITY",Materials,,medium,,"R4: materials, as in the turner calibration."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,measuring_tools,"MACHINES, CONTROLLERS & CAPABILITY",Measuring instruments,,medium,,R4: as in the turner calibration.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,drawing_reading,"MACHINES, CONTROLLERS & CAPABILITY",Drawings,,medium,,R4: as in the turner calibration.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,setting_operation,"MACHINES, CONTROLLERS & CAPABILITY",Setting,>=2,hard,,"R5: setting, as in the turner calibration."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,tolerance_band,"MACHINES, CONTROLLERS & CAPABILITY",Tolerance held,>=2,hard,,R5: as in the turner calibration.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,sector_worked,"MACHINES, CONTROLLERS & CAPABILITY",Sector worked,>=2,hard,,R5: sectors.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,programming_level,"MACHINES, CONTROLLERS & CAPABILITY",Programming,>=5,medium,,R4: as in the turner calibration.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,workholding,"MACHINES, CONTROLLERS & CAPABILITY",Workholding,>=5,hard,,R5: as in the turner calibration.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,quality_work,"MACHINES, CONTROLLERS & CAPABILITY",Quality,>=5,hard,,R5: specialist screening.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,troubleshooting,"MACHINES, CONTROLLERS & CAPABILITY",Troubleshooting,>=5,hard,,R5: specialist screening.
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+vmc_milling,CNC Machining Centre (VMC),qp_vmc_milling,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,grinding_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,grinding_machine,"MACHINES, WHEELS & CAPABILITY",Machines,,easy,,R2: primary machines and the headline field.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,grinding_type,,(not printed — matching data),,medium,J5,"The CNC-or-conventional qualifier. It is printed nowhere, so it stays out of Easy."
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,controller_brand,"MACHINES, WHEELS & CAPABILITY",Controllers,,medium,J4,"R4: a secondary chip. A grinder's headline is his machines, not his controllers. Under the rank-21/22 reading it would be Easy."
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,material_worked,"MACHINES, WHEELS & CAPABILITY",Materials,,medium,,R4: materials.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,wheel_type,"MACHINES, WHEELS & CAPABILITY",Wheels dressed,,medium,J4,R4: day-to-day grinding competence. Under the section-title reading it would be Easy.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,measuring_tools,"MACHINES, WHEELS & CAPABILITY",Measuring instruments,,medium,,R4.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,drawing_reading,"MACHINES, WHEELS & CAPABILITY",Drawings,,medium,,R4.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,setting_work,"MACHINES, WHEELS & CAPABILITY",Setting,>=2,hard,,R5: setting.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,tolerance_band,"MACHINES, WHEELS & CAPABILITY",Tolerance held,>=2,hard,,R5.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,sector_worked,"MACHINES, WHEELS & CAPABILITY",Sector worked,>=2,hard,,R5: sectors.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,surface_finish,"MACHINES, WHEELS & CAPABILITY",Surface finish held,>=5,hard,,"R5: a precision claim, like tolerance."
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,dressing_method,"MACHINES, WHEELS & CAPABILITY",Dressing,>=5,hard,,R5: setup specifics.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,quality_work,,(not printed — matching data),>=5,hard,,R5: specialist screening.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,troubleshooting,,(not printed — matching data),>=5,hard,,R5: specialist screening.
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+cnc_grinding,CNC Grinding Operator,qp_cnc_grinding,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+cam_programmer,CAM Programmer,qp_cam_programming,live,programming_mode,,(mode split — not printed),,easy,,"R1: mandatory. It decides how every later answer is read, and the pack fails closed if it is unanswered."
+cam_programmer,CAM Programmer,qp_cam_programming,live,programming_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+cam_programmer,CAM Programmer,qp_cam_programming,live,cam_software,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",CAM software,,easy,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,machine_programmed,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Machines programmed for,,easy,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,controller_brand,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Controllers posted to,,medium,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,programming_work,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Programming work,,medium,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,drawing_reading,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Drawings,,medium,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,cad_model_handling,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",CAD model handling,>=2,hard,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,sector_worked,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Sector worked,>=2,hard,,§4 calibration.
+cam_programmer,CAM Programmer,qp_cam_programming,live,post_processor_work,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Post-processors,>=5,hard,,R5: specialist.
+cam_programmer,CAM Programmer,qp_cam_programming,live,simulation_work,"SOFTWARE, MACHINES PROGRAMMED & CAPABILITY",Simulation,>=5,hard,,R5: specialist.
+cam_programmer,CAM Programmer,qp_cam_programming,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+cam_programmer,CAM Programmer,qp_cam_programming,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+cam_programmer,CAM Programmer,qp_cam_programming,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,drafting_experience,,(tier gate — not printed),,easy,,"R1: tier gate. Note this pack's scale: 0 = course only, 1 = under a year."
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,cad_software,"SOFTWARE, DRAWING WORK & CAPABILITY",Software,,easy,,R2: primary software and the headline field.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,cad_modules,"SOFTWARE, DRAWING WORK & CAPABILITY",Modules,,medium,J4,R4: a secondary chip. Under the rank-21/22 reading it would be Easy.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,drawing_work,"SOFTWARE, DRAWING WORK & CAPABILITY",Drawing work,,medium,J4,R4: core competence. Under the section-title reading it would be Easy.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,drawing_standards,"SOFTWARE, DRAWING WORK & CAPABILITY",Standards & detailing,,medium,,"R4: day-to-day detailing (GD&T symbols, title block, BOM)."
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,drawing_type,"SOFTWARE, DRAWING WORK & CAPABILITY",Drawing type,,medium,,R4: what drawings he produces.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,output_produced,"SOFTWARE, DRAWING WORK & CAPABILITY",Output produced,,medium,,R4: day-to-day deliverables.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,sector_drawn,"SOFTWARE, DRAWING WORK & CAPABILITY",Sector worked,>=2,hard,,R5: sectors.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,design_input_source,"SOFTWARE, DRAWING WORK & CAPABILITY",Design input,>=2,hard,,R5: specialist.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,measuring_tools,"SOFTWARE, DRAWING WORK & CAPABILITY",Measuring instruments,>=2,medium,,R4: measuring instruments are Medium in the calibration. Hard's 10-row budget keeps this row (10th of 11).
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,drawing_check_work,"SOFTWARE, DRAWING WORK & CAPABILITY",Drawing checking,>=5,hard,,R5: specialist (checking other people's drawings).
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,design_work,"SOFTWARE, DRAWING WORK & CAPABILITY",Design work,>=5,hard,,R5: specialist.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,cad_training_source,,(not printed — matching data),<=1,medium,J2,A training credential that is never printed. It follows Certificates (Medium).
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=1,easy,J2,A fresher's stand-in for the current-job line (see J2).
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=1,medium,J2,"A credential, so Medium."
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,sector_studied,"SOFTWARE, DRAWING WORK & CAPABILITY",Sector studied,<=1,hard,J2,R5: sectors. Note the ratified fresher page (Pooja Chaudhary) prints this row.
+cad_draughtsman,CAD Designer / Draughtsman,qp_cad_drafting,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=1,medium,J2,"Free text, like a job description (Medium)."
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,machining_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,machining_machine,"MACHINES, OPERATIONS & CAPABILITY",Machines,,easy,,R2: primary machines and the headline field.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,machining_level,,Headline — level rung,,easy,J6,R3: the rung is printed in the headline role title.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,machining_operation,"MACHINES, OPERATIONS & CAPABILITY",Operations,,medium,J4,R4: core competence. Under the section-title reading it would be Easy.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,material_worked,"MACHINES, OPERATIONS & CAPABILITY",Materials,,medium,,R4.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,measuring_tools,"MACHINES, OPERATIONS & CAPABILITY",Measuring instruments,,medium,,R4.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,drawing_reading,"MACHINES, OPERATIONS & CAPABILITY",Drawings,,medium,,R4.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,sector_worked,"MACHINES, OPERATIONS & CAPABILITY",Sector worked,,hard,,"R5: sectors. Ungated in this pack, so every worker is asked today."
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,turning_capacity,"MACHINES, OPERATIONS & CAPABILITY",Turning capacity,>=2,hard,,"R5: a machine-size capability, like the turner's advanced_capability."
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,tolerance_band,"MACHINES, OPERATIONS & CAPABILITY",Tolerance held,>=2,hard,,R5.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,setting_operation,,(not printed — matching data),>=2,hard,,R5: setting.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,quality_work,,(not printed — matching data),>=5,hard,,R5.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,troubleshooting,,(not printed — matching data),>=5,hard,,R5.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,tool_grinding,,(not printed — matching data),>=5,hard,,R5: specialist.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,advanced_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+conventional_machinist,Conventional Machinist,qp_conventional_machining,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,toolroom_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,toolroom_level,,Headline — level rung,,easy,J6,"R3: headline rung (""— Tool Maker"")."
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,tooling_made,"TOOLING, MACHINES & CAPABILITY",Tooling made,,easy,,R2: the headline field.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,toolroom_machine,"TOOLING, MACHINES & CAPABILITY",Machines,,easy,,R2: primary machines.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,tool_steel,"TOOLING, MACHINES & CAPABILITY",Tool steels,,medium,,R4: the materials equivalent.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,toolroom_work,"TOOLING, MACHINES & CAPABILITY",Tool-room work,,medium,J7,"R4: his core daily work. Part of it (clearance and shut-height setting) looks like setting, which is Hard for the turner."
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,measuring_tools,"TOOLING, MACHINES & CAPABILITY",Measuring instruments,,medium,,R4.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,drawing_reading,"TOOLING, MACHINES & CAPABILITY",Drawings,,medium,,R4.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,tolerance_band,"TOOLING, MACHINES & CAPABILITY",Tolerance held,>=2,hard,,R5.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,sector_worked,"TOOLING, MACHINES & CAPABILITY",Sector worked,>=2,hard,,R5.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,edm_work,,(not printed — matching data),>=2,hard,,R5: specialist.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,die_design_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,die_troubleshooting,,(not printed — matching data),>=5,hard,,R5: specialist.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,heat_treatment_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,press_tonnage,,(not printed — matching data),>=5,hard,,R5: specialist.
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+tool_die_maker,Tool & Die Maker,qp_tool_die_making,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+welder,Welder,qp_welding_trade,live,welding_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+welder,Welder,qp_welding_trade,live,welding_process,"PROCESSES, POSITIONS & CAPABILITY",Processes,,easy,,R2: the headline field.
+welder,Welder,qp_welding_trade,live,welder_level,,Headline — level rung,,easy,J6,"R3: headline rung (""Welder — Certified Welder"")."
+welder,Welder,qp_welding_trade,live,welding_equipment,"PROCESSES, POSITIONS & CAPABILITY",Equipment,,easy,,R2: primary machines.
+welder,Welder,qp_welding_trade,live,electrode_type,"PROCESSES, POSITIONS & CAPABILITY",Electrodes / wire,,medium,,R4: a secondary chip.
+welder,Welder,qp_welding_trade,live,material_worked,"PROCESSES, POSITIONS & CAPABILITY",Materials,,medium,,R4.
+welder,Welder,qp_welding_trade,live,welding_position,"PROCESSES, POSITIONS & CAPABILITY",Positions,,medium,J4,"R4: core competence. Under the section-title reading it would be Easy, and 3G/6G is often an employer's first filter."
+welder,Welder,qp_welding_trade,live,drawing_reading,"PROCESSES, POSITIONS & CAPABILITY",Drawings,,medium,,R4.
+welder,Welder,qp_welding_trade,live,plate_thickness,"PROCESSES, POSITIONS & CAPABILITY",Plate thickness,>=2,hard,,"R5: a capability limit, like tolerance."
+welder,Welder,qp_welding_trade,live,inspection_work,"PROCESSES, POSITIONS & CAPABILITY",Inspection,>=2,medium,,R4: the measuring-instruments equivalent.
+welder,Welder,qp_welding_trade,live,sector_worked,"PROCESSES, POSITIONS & CAPABILITY",Sector worked,>=2,hard,,R5.
+welder,Welder,qp_welding_trade,live,joint_type,,(not printed — matching data),>=5,hard,,R5: specialist.
+welder,Welder,qp_welding_trade,live,machine_setting,,(not printed — matching data),>=5,hard,,R5: setting.
+welder,Welder,qp_welding_trade,live,weld_defect,,(not printed — matching data),>=5,hard,,R5: troubleshooting.
+welder,Welder,qp_welding_trade,live,fabrication_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+welder,Welder,qp_welding_trade,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+welder,Welder,qp_welding_trade,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+welder,Welder,qp_welding_trade,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_level,,Headline — level rung,,easy,J6,R3: headline rung.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_process,"PROCESSES, EQUIPMENT & CAPABILITY",Processes,,easy,,R2: the headline field.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_equipment,"PROCESSES, EQUIPMENT & CAPABILITY",Equipment,,easy,,R2: primary equipment.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_material,"PROCESSES, EQUIPMENT & CAPABILITY",Coatings applied,,medium,,R4: the materials equivalent.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,surface_prep,"PROCESSES, EQUIPMENT & CAPABILITY",Surface preparation,,medium,J7,"R4: daily pretreatment work. It ranks 41 (the setting band), and setting is Hard for the turner."
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_checks,"PROCESSES, EQUIPMENT & CAPABILITY",Checks performed,,medium,,R4: the measuring-instruments equivalent.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,booth_type,"PROCESSES, EQUIPMENT & CAPABILITY",Booth type,,hard,J8,R5: rank 71 (volunteered depth). Ungated today.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,film_thickness,"PROCESSES, EQUIPMENT & CAPABILITY",Film thickness held,>=2,hard,,"R5: a precision claim, like tolerance."
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,sector_worked,"PROCESSES, EQUIPMENT & CAPABILITY",Sector worked,>=2,hard,,R5.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,substrate_worked,,(not printed — matching data),>=2,medium,J8,"R4: the materials equivalent, but never printed."
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,gun_setting,,(not printed — matching data),>=5,hard,,R5: setting.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,oven_schedule,,(not printed — matching data),>=5,hard,,R5: specialist.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,coating_defects,,(not printed — matching data),>=5,hard,,R5: troubleshooting.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,colour_change,,(not printed — matching data),>=5,hard,,R5: specialist.
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+painter_coating,Painter / Powder Coating,qp_powder_coating,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sheet_metal_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sheet_metal_machine,"MACHINES, MATERIALS & CAPABILITY",Machines,,easy,,R2: primary machines and the headline field.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sheet_metal_level,,Headline — level rung,,easy,J6,R3: headline rung.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,material_worked,"MACHINES, MATERIALS & CAPABILITY",Materials,,medium,J4,"R4: materials are Medium in the calibration, even though the section title names them."
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sheet_operation,"MACHINES, MATERIALS & CAPABILITY",Operations,,medium,,"R4: core competence (bending, notching, punching)."
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,measuring_tools,"MACHINES, MATERIALS & CAPABILITY",Measuring instruments,,medium,,R4.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,drawing_reading,"MACHINES, MATERIALS & CAPABILITY",Drawings,,medium,,R4.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sheet_thickness,"MACHINES, MATERIALS & CAPABILITY",Sheet thickness,>=2,hard,,R5: a capability limit.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,nesting_software,"MACHINES, MATERIALS & CAPABILITY",Nesting software,>=2,medium,J8,"R4: the programming equivalent, and the calibration puts programming level in Medium."
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,sector_worked,"MACHINES, MATERIALS & CAPABILITY",Sector worked,>=2,hard,,R5.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,press_brake_setting,,(not printed — matching data),>=5,hard,,R5: setting.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,layout_calculation,,(not printed — matching data),>=5,hard,,R5: specialist.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,assembly_finishing,,(not printed — matching data),>=5,hard,,R5: specialist.
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+sheet_metal_worker,Sheet Metal Worker,qp_sheet_metal_fab,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_work_type,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Work type,,medium,J4,R4. Under the section-title reading it would be Easy (bound from the provisional tag).
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_equipment,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Equipment,,easy,,R2: the headline field and the primary equipment.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrician_level,,Headline — level rung,,easy,J6,R3: headline rung.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,panel_motor_work,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Panel & motor work,,medium,,R4: core competence.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,measuring_tools,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Instruments,,medium,,R4: the measuring-instruments equivalent.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,drawing_reading,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Drawings,,medium,,R4.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_voltage,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Voltage worked on,>=2,hard,J9,"R5: a capability limit. It is also a safety scope (LT vs HT), which could argue for Easy."
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_licence,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Licence,>=2,medium,J9,"A credential, so it follows Certificates (Medium)."
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,sector_worked,"ELECTRICAL WORK, EQUIPMENT & CAPABILITY",Sector worked,>=2,hard,,R5.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,control_circuit,,(not printed — matching data),>=5,hard,,R5: specialist.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,motor_fault,,(not printed — matching data),>=5,hard,,R5: troubleshooting.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,electrical_safety,,(not printed — matching data),>=5,hard,J9,R5: specialist screening. Never printed; the ratified page has no row for it.
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+industrial_electrician,Industrial Electrician,qp_industrial_electrician,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+press_operator,Press / Machine Operator,qp_press_operation,live,press_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_machine,"MACHINES, TONNAGE & CAPABILITY",Machines,,easy,,R2: the headline field and the primary machines.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_level,,Headline — level rung,,easy,J6,R3: headline rung.
+press_operator,Press / Machine Operator,qp_press_operation,live,material_worked,"MACHINES, TONNAGE & CAPABILITY",Materials,,medium,,R4.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_safety,"MACHINES, TONNAGE & CAPABILITY",Safety systems used,,medium,J9,R4: day-to-day. It could also be an Easy screening item.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_tonnage,"MACHINES, TONNAGE & CAPABILITY",Tonnage worked,,hard,J9,"R5: a capability limit. The section title names it, and employers post jobs by tonnage."
+press_operator,Press / Machine Operator,qp_press_operation,live,drawing_reading,"MACHINES, TONNAGE & CAPABILITY",Drawings,,medium,,R4.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_setting,"MACHINES, TONNAGE & CAPABILITY",Setting work,>=2,hard,,"R5: setting, as for the turner."
+press_operator,Press / Machine Operator,qp_press_operation,live,press_stroke_rate,"MACHINES, TONNAGE & CAPABILITY",Stroke rate,>=2,hard,,R5: a performance claim.
+press_operator,Press / Machine Operator,qp_press_operation,live,sector_worked,"MACHINES, TONNAGE & CAPABILITY",Sector worked,>=2,hard,,R5.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_die_type,,(not printed — matching data),>=5,hard,,R5: specialist.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_defect,,(not printed — matching data),>=5,hard,,R5: troubleshooting.
+press_operator,Press / Machine Operator,qp_press_operation,live,press_maintenance,,(not printed — matching data),>=5,hard,,R5: specialist.
+press_operator,Press / Machine Operator,qp_press_operation,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+press_operator,Press / Machine Operator,qp_press_operation,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+press_operator,Press / Machine Operator,qp_press_operation,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_stage,"ASSEMBLY WORK, TOOLS & CAPABILITY",Assembly stage,,easy,,R2: the headline field.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_level,,Headline — level rung,,easy,J6,R3: headline rung.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_line_product,"ASSEMBLY WORK, TOOLS & CAPABILITY",Products assembled,,medium,,R4: a secondary chip.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_tool,"ASSEMBLY WORK, TOOLS & CAPABILITY",Tools used,,easy,,"R2: the machines equivalent, what the worker runs."
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_practice,"ASSEMBLY WORK, TOOLS & CAPABILITY",Shop-floor practice,,medium,,"R4: day-to-day (SOP, 5S, Kanban)."
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,drawing_reading,"ASSEMBLY WORK, TOOLS & CAPABILITY",Drawings,,medium,,R4.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_takt_time,"ASSEMBLY WORK, TOOLS & CAPABILITY",Line rate worked to,>=2,hard,,R5: a capability limit.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,sector_worked,"ASSEMBLY WORK, TOOLS & CAPABILITY",Sector worked,>=2,hard,,R5.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_joining,,(not printed — matching data),>=2,hard,J11,"R5: never printed, so it is matching data only."
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_station_count,,(not printed — matching data),>=5,hard,,R5: a capability limit.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_responsibility,,(not printed — matching data),>=5,hard,,R5: specialist.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,assembly_defect,,(not printed — matching data),>=5,hard,,R5: quality and troubleshooting.
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+assembly_line_worker,Assembly Line Worker,qp_assembly_line,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+fitter,Fitter,qp_fitter,live,fitting_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+fitter,Fitter,qp_fitter,live,fitter_work_type,"FITTING WORK, EQUIPMENT & CAPABILITY",Fitting type,,medium,J4,R4. Under the section-title reading it would be Easy.
+fitter,Fitter,qp_fitter,live,fitter_level,,Headline — level rung,,easy,J6,R3: headline rung.
+fitter,Fitter,qp_fitter,live,fitter_equipment,"FITTING WORK, EQUIPMENT & CAPABILITY",Equipment worked on,,easy,,R2: the headline field and the primary equipment.
+fitter,Fitter,qp_fitter,live,fitting_work,"FITTING WORK, EQUIPMENT & CAPABILITY",Bench & assembly work,,medium,,R4: core competence.
+fitter,Fitter,qp_fitter,live,measuring_tools,"FITTING WORK, EQUIPMENT & CAPABILITY",Tools & instruments,,medium,,R4: the measuring-instruments equivalent.
+fitter,Fitter,qp_fitter,live,drawing_reading,"FITTING WORK, EQUIPMENT & CAPABILITY",Drawings,,medium,,R4.
+fitter,Fitter,qp_fitter,live,fitting_alignment,"FITTING WORK, EQUIPMENT & CAPABILITY",Alignment held,>=2,hard,,R5: a precision claim.
+fitter,Fitter,qp_fitter,live,sector_worked,"FITTING WORK, EQUIPMENT & CAPABILITY",Sector worked,>=2,hard,,R5.
+fitter,Fitter,qp_fitter,live,fitter_hydraulic_work,,(not printed — matching data),>=2,hard,,"R5: specialist, and never printed."
+fitter,Fitter,qp_fitter,live,fitter_overhaul,,(not printed — matching data),>=5,hard,,R5: specialist.
+fitter,Fitter,qp_fitter,live,fitter_erection,,(not printed — matching data),>=5,hard,,R5: specialist.
+fitter,Fitter,qp_fitter,live,fitter_fault_finding,,(not printed — matching data),>=5,hard,,R5: troubleshooting.
+fitter,Fitter,qp_fitter,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+fitter,Fitter,qp_fitter,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+fitter,Fitter,qp_fitter,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_experience,,(tier gate — not printed),,easy,,R1: tier gate.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,measuring_tools,"INSTRUMENTS, STANDARDS & CAPABILITY",Instruments,,easy,,R2: the headline field and the primary equipment.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_level,,Headline — level rung,,easy,J6,R3: headline rung.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,material_worked,"INSTRUMENTS, STANDARDS & CAPABILITY",Materials inspected,,medium,,R4.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_stage,"INSTRUMENTS, STANDARDS & CAPABILITY",Inspection stage,,medium,,R4: core competence.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,drawing_reading,"INSTRUMENTS, STANDARDS & CAPABILITY",Drawings,,medium,,R4.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_least_count,"INSTRUMENTS, STANDARDS & CAPABILITY",Least count worked to,,hard,,"R5: a precision claim. Ungated, so every Hard inspector is asked it."
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_standard,"INSTRUMENTS, STANDARDS & CAPABILITY",Standards,>=2,medium,J4,R4. Under the section-title reading it would be Easy.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_documentation,"INSTRUMENTS, STANDARDS & CAPABILITY",Documentation,>=2,hard,J9,"R5: PPAP, 8D and CAPA are specialist for the Inspector rung."
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,sector_worked,"INSTRUMENTS, STANDARDS & CAPABILITY",Sector worked,>=2,hard,,R5.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_cmm_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_rejection_work,,(not printed — matching data),>=5,hard,,R5: quality and troubleshooting.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,inspection_audit_work,,(not printed — matching data),>=5,hard,,R5: specialist.
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,iti_workshop_machines,WORK HISTORY,Work history — fresher block,<=0,easy,J2,A fresher's stand-in for the current-job line. Without it an Easy fresher's work-history zone is empty (guideline §11 #1).
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,trade_test_status,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"A credential, so it follows Certificates (Medium)."
+quality_inspector,Quality Inspector / QC,qp_quality_inspection,live,iti_project_work,WORK HISTORY,Work history — fresher block,<=0,medium,J2,"Free text, so it follows job descriptions (Medium)."
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Disciplines,,easy,,R2: the headline field.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Equipment maintained,,easy,,R2: primary equipment.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Maintenance type,,medium,,R4: core competence.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Instruments & tools,,medium,,R4.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Drawings,,medium,,R4.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Response worked to,,hard,,R5: a performance claim.
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Documentation,,hard,J9,"R5: specialist record-keeping (PM checklists, MTTR)."
+maintenance_technician,Maintenance Technician,qp_maintenance_tech,provisional (no pack),,"DISCIPLINES, EQUIPMENT & CAPABILITY",Sector worked,,hard,,R5.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Machine makes,,easy,,R2: the headline field and the primary machines.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Materials,,medium,J4,"R4: materials are Medium in the calibration, even though the section title names them."
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Auxiliaries,,medium,,R4: a secondary chip.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Setting work,,hard,,R5: setting.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Defects corrected,,hard,,R5: troubleshooting.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Tonnage worked,,hard,J9,R5: a capability limit. Employers post jobs by tonnage.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Cycle time held,,hard,,R5: a performance claim.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Drawings,,medium,,R4.
+injection_moulding_operator,Injection Moulding Operator,qp_injection_moulding,provisional (no pack),,"MACHINES, MATERIALS & CAPABILITY",Sector worked,,hard,,R5.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Processes,,easy,,R2: the headline field.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Machine makes,,easy,,R2: primary machines.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Materials,,medium,,R4.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Setting work,,hard,,R5: setting.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Checks performed,,medium,,R4: the measuring-instruments equivalent.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Output range,,hard,,R5: a capability limit.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Wall thickness held,,hard,,R5: a precision claim.
+blow_moulding_operator,Blow Moulding / Extrusion Operator,qp_blow_moulding,provisional (no pack),,"PROCESSES, MACHINES & CAPABILITY",Sector worked,,hard,,R5.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Mould types,,easy,,R2: the headline field.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Machines,,easy,,R2: primary machines.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Mould steels,,medium,,R4: the materials equivalent.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Mould-room work,,medium,J7,R4: Tool & Die's tool-room-work equivalent.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Measuring instruments,,medium,,R4.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Drawings,,medium,,R4.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Tolerance held,,hard,,R5.
+mould_die_maker,Mould / Die Maker (Plastics),qp_mould_making,provisional (no pack),,"MOULD TYPES, MACHINES & CAPABILITY",Sector worked,,hard,,R5.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Process work,,easy,,R2: the headline field.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Machines supported,,easy,,R2: primary machines.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Materials,,medium,,R4.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Instruments,,medium,J4,R4. Under the section-title reading it would be Easy.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Documentation,,hard,J9,"R5: specialist (SPC, 8D). Same treatment as QC."
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Rejection worked down to,,hard,,R5: an outcome claim.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Drawings,,medium,,R4.
+plastic_process_technician,Plastic Process / Quality Technician,qp_plastic_process,provisional (no pack),,"PROCESS WORK, INSTRUMENTS & CAPABILITY",Sector worked,,hard,,R5.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,,Level rung (headline),,easy,J6,R3: printed in the headline role title.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Processes,,easy,,R2: the headline field.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Equipment,,easy,,R2: primary equipment.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Compounds,,medium,,R4: the materials equivalent.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Setting work,,hard,,R5: setting.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Checks performed,,medium,,R4.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Cure worked to,,hard,,R5: a process-window claim.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Hardness held,,hard,,R5: a precision claim.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Products made,,medium,J9,R4: a secondary chip.
+rubber_moulding_operator,Rubber Moulding / Compression Operator,qp_rubber_moulding,provisional (no pack),,"PROCESSES, EQUIPMENT & CAPABILITY",Sector worked,,hard,,R5.
+*,all roles,,shared,,Header,Name,,easy,,§4 Easy. Captured before profiling. Source: registration (NameScreen)
+*,all roles,,shared,,Header,Phone,,easy,,§4 Easy. Captured before profiling. Source: registration (OTP)
+*,all roles,,shared,,Header,"Location (city, state)",,easy,,§4 Easy. Source: onboarding (NameScreen)
+*,all roles,,shared,,Header,Role / trade,,easy,,§4 Easy. The tier screen needs it first. Source: chat opener → form kind
+*,all roles,,shared,,Header (headline years),Total experience,,easy,D1,§4 Easy. Where the headline number comes from is decision D1. Source: chat opener (`experience_years`)
+*,all roles,,shared,,Header + Availability & terms,"Salary expected (+ band max, period)",,easy,,§4: all availability and terms are Easy. Source: chat / preferences page
+*,all roles,,shared,,Availability & terms,Preferred locations + willing to relocate,,easy,,§4. Source: preferences page
+*,all roles,,shared,,Availability & terms,Shift + job type / work types,,easy,,"§4 (""Any shift · Permanent""). Source: preferences page"
+*,all roles,,shared,,Availability & terms,Accommodation needed,,easy,,§4. Source: preferences page
+*,all roles,,shared,,Availability & terms,"Availability (status, available from, notice)",,easy,,§4. Source: preferences page
+*,all roles,,shared,,Availability & terms,"Commute km, willing to travel",,easy,,§4: all availability and terms are Easy. Source: preferences page
+*,all roles,,shared,,Work history,"Current / latest job: employer, place, title, dates",,easy,,"§4: current job only, with no description. Source: employment page"
+*,all roles,,shared,,Work history,Current job description (`work_done`),,medium,,§4. Source: employment page
+*,all roles,,shared,,Work history,Previous jobs (all fields) + descriptions,,medium,,§4. Source: employment page
+*,all roles,,shared,,Qualification…,"Education (level, stream, council, year, institute)",,easy,,§4. Fana's Easy sheet prints the full education line. Source: qualifications / preferences page
+*,all roles,,shared,,Qualification…,Certificates / training,,medium,,§4. Source: qualifications page
+*,all roles,,shared,,Qualification…,Languages,,easy,,§4. Source: preferences / languages page
+*,all roles,,shared,,Qualification…,Documents ready,,medium,,§4. Source: preferences page
+*,all roles,,shared,,Availability & terms,Also works as (secondary occupations),,medium,J10,"The rule reads it as a term (Easy), but it is really a skill claim. Source: occupations page"

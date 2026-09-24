@@ -9,6 +9,9 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repository";
+import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repository";
+import { TradeFormRepository } from "../profiling/form/trade-form.repository";
+import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 
 /**
  * Resume Disclosure (ADR-0013 Decision C / the resume-disclosure threat-model
@@ -54,6 +57,12 @@ import { WorkerOccupationsRepository } from "../profiles/worker-occupations.repo
     // Migration 0114 / Layer A (i) — feeds the masked sheet's "Also works as" row. Provided here
     // on the same terms as the three above: its only dependency is the @Global DATABASE.
     WorkerOccupationsRepository,
+    // Tiered profiling — the employer's copy renders at the worker's tier. All three depend only
+    // on the @Global DATABASE / SERVER_CONFIG, so they are provided here on the same terms, and
+    // none of them queries anything while PROFILING_TIERS_ENABLED is off.
+    ProfilingTierRepository,
+    TradeFormRepository,
+    ResumeTierScopeReader,
   ],
   // Exported so the payer portal can mount a PayerAuthGuard'd disclosure surface
   // (PayerDisclosureController) over the SAME chokepoint, exactly as ReachModule exports

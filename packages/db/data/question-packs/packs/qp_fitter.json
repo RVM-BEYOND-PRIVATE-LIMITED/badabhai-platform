@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "fitting_experience",
+      "min_tier": "easy",
       "prompt_text": "Fitting ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal fitter ka kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "fitter_work_type",
+      "min_tier": "medium",
       "prompt_text": "Aap kis tarah ka fitting kaam karte hain?",
       "why_text": "Fitting ke kai tarah hote hain.",
       "retry_text": "Assembly, maintenance ya erection, kaunsi fitting karte hain?",
@@ -88,6 +90,7 @@
     },
     {
       "question_key": "fitter_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka fitter maante hain?",
       "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
       "target_kind": "attribute",
@@ -115,6 +118,7 @@
     },
     {
       "question_key": "fitter_equipment",
+      "min_tier": "easy",
       "prompt_text": "Kaunsi machine ya equipment par fitting ka kaam kiya hai?",
       "why_text": "Equipment ka tajurba employer sabse pehle dekhte hain.",
       "retry_text": "Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?",
@@ -164,6 +168,7 @@
     },
     {
       "question_key": "fitting_work",
+      "min_tier": "medium",
       "prompt_text": "Bench aur assembly ka kaunsa kaam khud karte hain?",
       "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
       "retry_text": "Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?",
@@ -218,6 +223,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?",
       "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
       "target_kind": "attribute",
@@ -271,6 +277,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -303,6 +310,7 @@
     },
     {
       "question_key": "fitting_alignment",
+      "min_tier": "hard",
       "prompt_text": "Coupling alignment kitni accuracy tak kar lete hain?",
       "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
       "target_kind": "attribute",
@@ -349,6 +357,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke plant me fitting ka kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -400,6 +409,7 @@
     },
     {
       "question_key": "fitter_hydraulic_work",
+      "min_tier": "hard",
       "prompt_text": "Hydraulic ka kaunsa kaam khud karte hain?",
       "why_text": "Hydraulic jaanne wale fitter ki plant me alag maang hai.",
       "target_kind": "attribute",
@@ -446,6 +456,7 @@
     },
     {
       "question_key": "fitter_overhaul",
+      "min_tier": "hard",
       "prompt_text": "Kis machine ka poora overhaul khud kar lete hain?",
       "why_text": "Overhaul karne wale fitter ko senior kaam milta hai.",
       "target_kind": "attribute",
@@ -497,6 +508,7 @@
     },
     {
       "question_key": "fitter_erection",
+      "min_tier": "hard",
       "prompt_text": "Erection me kaunsa kaam khud sambhalte hain?",
       "why_text": "Erection aur commissioning jaanne wale ko site ka kaam milta hai.",
       "target_kind": "attribute",
@@ -543,6 +555,7 @@
     },
     {
       "question_key": "fitter_fault_finding",
+      "min_tier": "hard",
       "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
       "why_text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.",
       "target_kind": "attribute",
@@ -594,6 +607,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -646,6 +660,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -682,6 +697,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

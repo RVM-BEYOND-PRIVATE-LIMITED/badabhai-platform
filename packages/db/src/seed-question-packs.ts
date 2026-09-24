@@ -65,9 +65,10 @@
  * incident above happened at all. Chunked multi-row statements take it to 10, plus BEGIN
  * and COMMIT. Chunk sizes are DERIVED from each statement's column count via
  * `chunkSizeForColumns` and never taken from the flag directly — `--batch-size` accepts up
- * to 10000, and a 19-column item insert crosses Postgres' 65535-parameter Bind ceiling at
- * 3,450 rows (3,450 x 19 = 65,550). `chunkSizeForColumns` clamps a requested 10000 to
- * 3,445, which is the ceiling less `chunk.ts`'s statement headroom, not the raw ceiling.
+ * to 10000, and a 20-column item insert (19 before migration 0126 added `min_tier`) crosses
+ * Postgres' 65535-parameter Bind ceiling at 3,277 rows (3,277 x 20 = 65,540).
+ * `chunkSizeForColumns` clamps a requested 10000 to 3,273, which is the ceiling less
+ * `chunk.ts`'s statement headroom, not the raw ceiling.
  *
  * THE RETURNING ORDER IS NOT THE VALUES ORDER. Options reference `item_id`, a surrogate
  * the database mints, so the item insert has to hand its ids back. Postgres does NOT
@@ -98,6 +99,7 @@ import {
   type PackItemRecord,
   type PackRecord,
 } from "./question-pack-corpus";
+import type { ProfilingTier } from "@badabhai/types";
 import {
   profilingFamilies,
   profilingFamilyBindings,
@@ -128,7 +130,7 @@ export const BINDING_INSERT_COLUMNS = 8;
 /** `question_pack` values bound per row. */
 export const PACK_INSERT_COLUMNS = 7;
 /** `question_pack_item` values bound per row. */
-export const ITEM_INSERT_COLUMNS = 19;
+export const ITEM_INSERT_COLUMNS = 20;
 /** `question_pack_option` values bound per row. */
 export const OPTION_INSERT_COLUMNS = 9;
 /** (pack_id, pack_version) — what the item DELETE binds per pack. */
@@ -249,6 +251,7 @@ export interface PlannedItemRow {
   askIf: unknown;
   skipIf: unknown;
   parentItemKey: string | null;
+  minTier: ProfilingTier | null;
 }
 
 /**
@@ -282,6 +285,8 @@ export function planItemRows(packs: readonly PackRecord[]): PlannedItemRow[] {
         askIf: it.ask_if ?? null,
         skipIf: it.skip_if ?? null,
         parentItemKey: it.parent_item_key ?? null,
+        // Tiered profiling (0126): the pack JSON is the source; null is Hard.
+        minTier: it.min_tier ?? null,
       });
     }
   }

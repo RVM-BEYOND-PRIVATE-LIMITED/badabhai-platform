@@ -639,9 +639,14 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // "Also works as" row. Identical shape once more: closed ids, @Global DATABASE, no service,
     // no event surface. Checked before this bump.
     //
+    // `tierScopes` (ResumeTierScopeReader) joined for tiered profiling (migration 0126) — the tier
+    // the sheet renders at. It reaches ProfilingTierRepository and TradeFormRepository, both
+    // @Global-DATABASE-only reads, plus SERVER_CONFIG; no service, no event surface. Checked
+    // before this bump.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(13);
+    expect(ResumeRenderProcessor.length).toBe(14);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

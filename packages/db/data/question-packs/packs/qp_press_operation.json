@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "press_experience",
+      "min_tier": "easy",
       "prompt_text": "Press par kaam ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal press par kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "press_machine",
+      "min_tier": "easy",
       "prompt_text": "Kaunsi press machine chalate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Power press, hydraulic ya pneumatic, kaunsi chalayi hai?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "press_level",
+      "min_tier": "easy",
       "prompt_text": "Press shop me aap kis level par kaam karte hain?",
       "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
       "target_kind": "attribute",
@@ -120,6 +123,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Kaunse material ki sheet ya strip par kaam karte hain?",
       "why_text": "Steel aur aluminium ka kaam alag hota hai.",
       "target_kind": "attribute",
@@ -158,6 +162,7 @@
     },
     {
       "question_key": "press_safety",
+      "min_tier": "medium",
       "prompt_text": "Press par kaunse safety system istemaal karte hain?",
       "why_text": "Plant me safety zaroori hoti hai.",
       "target_kind": "attribute",
@@ -201,6 +206,7 @@
     },
     {
       "question_key": "press_tonnage",
+      "min_tier": "hard",
       "prompt_text": "Kitne ton tak ki press chalayi hai?",
       "why_text": "Badi machine chalane wale ko bade job ka kaam milta hai.",
       "target_kind": "attribute",
@@ -239,6 +245,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -266,6 +273,7 @@
     },
     {
       "question_key": "press_setting",
+      "min_tier": "hard",
       "prompt_text": "Press ki kaunsi setting khud karte hain?",
       "why_text": "Setting ka kaam operator aur setter ka farq batata hai.",
       "target_kind": "attribute",
@@ -322,6 +330,7 @@
     },
     {
       "question_key": "press_stroke_rate",
+      "min_tier": "hard",
       "prompt_text": "Ek minute me kitne stroke tak chalate hain?",
       "why_text": "Line par target poocha jaata hai.",
       "target_kind": "attribute",
@@ -363,6 +372,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis line ke press parts par kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -414,6 +424,7 @@
     },
     {
       "question_key": "press_die_type",
+      "min_tier": "hard",
       "prompt_text": "Kaunse die par kaam kiya hai?",
       "why_text": "Har die ka kaam alag hota hai, isse sahi naukri milti hai.",
       "target_kind": "attribute",
@@ -465,6 +476,7 @@
     },
     {
       "question_key": "press_defect",
+      "min_tier": "hard",
       "prompt_text": "Press part ki kaunsi kharabi aap sudhaar lete hain?",
       "why_text": "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.",
       "target_kind": "attribute",
@@ -516,6 +528,7 @@
     },
     {
       "question_key": "press_maintenance",
+      "min_tier": "hard",
       "prompt_text": "Press ki kaunsi dekhbhaal khud karte hain?",
       "why_text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
       "target_kind": "attribute",
@@ -567,6 +580,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -619,6 +633,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -655,6 +670,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

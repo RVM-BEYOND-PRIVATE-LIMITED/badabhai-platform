@@ -7,6 +7,7 @@ import {
   WORKER_FEEDBACK_APP_BUILD_MAX,
   WORKER_APP_SCREEN_TEMPLATES,
   TRADE_FORM_KINDS_ALL,
+  PROFILING_TIERS,
   RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
   RESUME_GENERATION_TRIGGERS,
@@ -3953,6 +3954,78 @@ export const ProfileFormCompletedPayload = z
   })
   .strict();
 export type ProfileFormCompletedPayload = z.infer<typeof ProfileFormCompletedPayload>;
+
+/**
+ * ══ TIERED PROFILING (migration 0126) ═════════════════════════════════════════════════════════
+ *
+ * FOUR EVENTS, ONE FUNNEL: the Easy / Medium / Hard screen was shown, a tier was chosen, the form
+ * was finished at that tier (with how long it took and how many questions it asked), and a
+ * finished worker came back to add detail. The completion durations are what replace the tier
+ * screen's computed time estimates with observed ones.
+ *
+ * NEW EVENTS, NOT FIELDS ON `profile.form_completed`. That payload is `.strict()` and v1; adding
+ * a tier to it would mutate a shipped schema. It keeps firing exactly as before, once per
+ * (worker, pack), beside these.
+ *
+ * PII-FREE throughout: ids, closed-set kinds and tiers, counts and a duration. `.strict()` is
+ * what stops a later field adding an answer or a label.
+ */
+
+/** The tier screen was served — for a first choice (`select`) or an "add more detail" (`upgrade`). */
+export const ProfileTierScreenShownPayload = z
+  .object({
+    worker_id: uuidSchema,
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    context: z.enum(["select", "upgrade"]),
+    /** The worker's tier when the screen was shown; null on a first choice. */
+    current_tier: z.enum(PROFILING_TIERS).nullable(),
+  })
+  .strict();
+export type ProfileTierScreenShownPayload = z.infer<typeof ProfileTierScreenShownPayload>;
+
+/** A worker chose his FIRST tier on the tier screen. */
+export const ProfileTierSelectedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    pack_id: z.string().min(1).max(64),
+    tier: z.enum(PROFILING_TIERS),
+  })
+  .strict();
+export type ProfileTierSelectedPayload = z.infer<typeof ProfileTierSelectedPayload>;
+
+/** A worker raised his tier ("add more detail"). Never lowered — the API refuses a downgrade. */
+export const ProfileTierUpgradedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    pack_id: z.string().min(1).max(64),
+    from_tier: z.enum(PROFILING_TIERS),
+    to_tier: z.enum(PROFILING_TIERS),
+  })
+  .strict();
+export type ProfileTierUpgradedPayload = z.infer<typeof ProfileTierUpgradedPayload>;
+
+/**
+ * The form was finished at a tier — every question that tier asks this worker is settled.
+ *
+ * ONCE PER (worker, pack, tier): an upgraded worker who finishes the deeper tier completes a
+ * second, distinct funnel. `duration_ms` runs from the moment the current tier was chosen; null
+ * when that moment is unknown (a pre-tier backfilled worker). `question_count` is the tier's
+ * VISIBLE question count for this worker, the same denominator the progress rail shows.
+ */
+export const ProfileTierCompletedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    form_kind: z.enum(TRADE_FORM_KINDS_ALL),
+    pack_id: z.string().min(1).max(64),
+    pack_version: z.number().int().positive(),
+    tier: z.enum(PROFILING_TIERS),
+    duration_ms: z.number().int().nonnegative().nullable(),
+    question_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileTierCompletedPayload = z.infer<typeof ProfileTierCompletedPayload>;
 
 /**
  * ══ RÉSUMÉ IMPORT (ADR-0041) ═══════════════════════════════════════════════════════════════

@@ -17,6 +17,7 @@
     {
       "_why": "THE DISAMBIGUATOR, and the load-bearing item of the pack. fam_cam_programming is scoped as part programming in general, so this splits the desk CAM programmer from the man doing manual data input at the controller before a single capability question is asked. Modelled on qp_machining's machine_type, which settles the occupation inside a family retrieval has already pinned. The escape chip exists because a worker can be routed here by an alias and still not be the one who writes the program -- 'Program koi aur banata hai' is a real answer, and a pack that could not record it would be inventing one.",
       "question_key": "programming_mode",
+      "min_tier": "easy",
       "prompt_text": "Program aap CAM software par banate hain ya machine par?",
       "why_text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai.",
       "retry_text": "CAM software par ya machine par MDI se program banate hain?",
@@ -53,6 +54,7 @@
     {
       "_why": "THE TIER GATE. value_number ONLY on every option -- see _depth. why_text is taken verbatim from all three sibling packs so it shares their rendered TTS clip.",
       "question_key": "programming_experience",
+      "min_tier": "easy",
       "prompt_text": "Programming ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal programming ka kaam kiya hai?",
@@ -72,6 +74,7 @@
     {
       "_why": "Sheet row 'CAM software'. The four names are the sheet's own closed vocabulary; the escape chip carries value_text 'unknown' so an MDI-only programmer's non-answer resolves to nothing and the row simply does not print.",
       "question_key": "cam_software",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsa CAM software chalate hain?",
       "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
       "target_kind": "attribute",
@@ -95,6 +98,7 @@
     {
       "_why": "Sheet row 'Machines programmed'. NO DIGITS IN AN option_key -- slugKey enforces ^[a-z_]+$ at runtime and a key like vmc_3_axis makes the whole pack unparseable, so the axis count is spelled out in the key and printed in the label. why_text is the sibling packs' machine-question line, verbatim.",
       "question_key": "machine_programmed",
+      "min_tier": "easy",
       "prompt_text": "Kaunsi machine ke liye program banate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "target_kind": "attribute",
@@ -130,6 +134,7 @@
     {
       "_why": "Sheet row 'Controllers posted'. Attribute name AND both served strings are the sibling packs' controller question verbatim -- same fact, same clip, and a matcher searching for Fanuc finds turners, millers, grinders and programmers under one key. See _shared_attribute_names.",
       "question_key": "controller_brand",
+      "min_tier": "medium",
       "prompt_text": "Machine par kaunsa controller lagaa hai?",
       "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
       "target_kind": "attribute",
@@ -152,6 +157,7 @@
     {
       "_why": "Sheet row 'Programming work' -- the six chips are the sheet's own list. why_text is qp_vmc_milling's operation line, verbatim. No escape chip: a worker who does none of these has already said so on the split question with 'Program koi aur banata hai'.",
       "question_key": "programming_work",
+      "min_tier": "medium",
       "prompt_text": "Program banate waqt kaunsa kaam karte hain?",
       "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "target_kind": "attribute",
@@ -195,6 +201,7 @@
     {
       "_why": "Sheet row 'Drawings' -- prints 'Reads 2D drawings and GD&T'. Item taken verbatim from the three sibling packs, options included: same question, same clip, same stored values, so one dictionary reads them all. 'none' is left unmapped by design -- a worker's own marketing document is not where a negative claim belongs.",
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -215,6 +222,7 @@
     {
       "_why": "TIER 1. Sheet row 'CAD model handling'. Importing and repairing a supplied model is the work that separates a programmer from a trainee running someone else's file, so it is gated at two years rather than asked of everyone.",
       "question_key": "cad_model_handling",
+      "min_tier": "hard",
       "prompt_text": "CAD model ke saath kaunsa kaam karte hain?",
       "why_text": "Model theek kar lena programmer ka apna hunar hai.",
       "target_kind": "attribute",
@@ -258,6 +266,7 @@
     {
       "_why": "TIER 1. Sheet row 'Sector worked' -- prints 'Auto components and tool room'. Both served strings and four of the six chips are the sibling packs' sector question verbatim; tool_room is added because this sheet prints it and no sibling sector list carries it.",
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke parts banaye hain?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -298,6 +307,7 @@
     {
       "_why": "TIER 2. Sheet row 'Post-processors' -- prints 'Edits and tests post-processors'. A BANDED single_select, not free text and not answer_type 'number': the sheet's string is a capability level, and a band is what a low-literacy worker can tap. Gated at five years because editing and proving a post is the senior half of the ladder Junior Programmer -> Programmer -> Senior Programmer.",
       "question_key": "post_processor_work",
+      "min_tier": "hard",
       "prompt_text": "Post-processor ke saath aap kitna kaam karte hain?",
       "why_text": "Post-processor theek karne wale programmer kam milte hain.",
       "target_kind": "attribute",
@@ -341,6 +351,7 @@
     {
       "_why": "TIER 2. Sheet row 'Simulation' -- prints 'Vericut and in-CAM collision check before release'. Banded single_select for the same reason as the post-processor row. 'none' is stored honestly and left unmapped on the sheet: a programmer who does not simulate is real matching data, but a negative claim does not belong on his own resume.",
       "question_key": "simulation_work",
+      "min_tier": "hard",
       "prompt_text": "Program release se pehle simulation kaise karte hain?",
       "why_text": "Simulation se machine aur job ka nuksaan bachta hai.",
       "target_kind": "attribute",
@@ -378,6 +389,7 @@
     {
       "_why": "FRESHER BRANCH, gated the other way (lte 0) so a senior never sees it. Both served strings and every stored value are the sibling packs' verbatim -- resume-fresher-rows.ts reads fresher.workshopMachines by STORED VALUE, so a divergent value here would render nothing while looking correct.",
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "target_kind": "attribute",
@@ -410,6 +422,7 @@
     {
       "_why": "FRESHER BRANCH. Verbatim from the sibling packs, options included.",
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "target_kind": "attribute",
@@ -434,6 +447,7 @@
     {
       "_why": "FRESHER BRANCH. Verbatim from the sibling packs. The only free-text item in the pack, and deliberately so: a project is the worker's own words, which section 8 allows as a printed source.",
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "target_kind": "attribute",

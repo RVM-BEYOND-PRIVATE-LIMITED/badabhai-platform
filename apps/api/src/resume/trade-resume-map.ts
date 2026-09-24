@@ -205,6 +205,17 @@ export interface TradeResumeMap {
    * hard-coded. It lives beside the rows it titles so a new role is still one entry in one file.
    */
   readonly section_title: string;
+  /**
+   * TIERED PROFILING — the first section's heading when a tier leaves out a whole group the
+   * full heading names. "Machines, controllers & capability" prints as "Machines & controllers"
+   * on an Easy sheet, because Easy asks none of the capability rows (the approved Easy targets
+   * in `docs/profiling-tiers/`). A tier with no entry prints `section_title`, which is why Medium
+   * — which keeps capability rows — has none, and Hard never reads this at all.
+   *
+   * HERE, BESIDE `section_title`, AND NOT IN THE TEMPLATE, because the fabrication gate accepts
+   * only headings this map declares: a heading is data a reviewer signs off, not layout.
+   */
+  readonly tier_section_titles?: Readonly<Partial<Record<"easy" | "medium", string>>>;
   readonly capability: readonly TradeRowSpec[];
 }
 
@@ -233,6 +244,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
   {
     pack_id: "qp_cnc_turning",
     section_title: "Machines, controllers & capability",
+    tier_section_titles: { easy: "Machines & controllers" },
     capability: [
       {
         from: "turning_machine",
@@ -459,6 +471,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_vmc_milling",
     section_title: "Machines, controllers & capability",
+    tier_section_titles: { easy: "Machines & controllers" },
     capability: [
       {
         from: "milling_machine",
@@ -700,6 +713,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_cnc_grinding",
     section_title: "Machines, wheels & capability",
+    tier_section_titles: { easy: "Machines" },
     capability: [
       {
         from: "grinding_machine",
@@ -942,6 +956,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_cam_programming",
     section_title: "Software, machines programmed & capability",
+    tier_section_titles: { easy: "Software & machines programmed" },
     capability: [
       {
         from: "cam_software",
@@ -1126,6 +1141,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_cad_drafting",
     section_title: "Software, drawing work & capability",
+    tier_section_titles: { easy: "Software" },
     capability: [
       {
         from: "cad_software",
@@ -1386,6 +1402,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // "operations" where the turner's says "controllers": his spread is what he can DO by hand,
     // not what electronics he can drive.
     section_title: "Machines, operations & capability",
+    tier_section_titles: { easy: "Machines" },
     capability: [
       {
         from: "machining_machine",
@@ -1564,6 +1581,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_tool_die_making",
     section_title: "Tooling, machines & capability",
+    tier_section_titles: { easy: "Tooling & machines" },
     capability: [
       {
         from: "tooling_made",
@@ -1704,6 +1722,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // 3G, structural fab"), and the heading has to name what the reader is scanning for.
     // Sentence case — the template uppercases.
     section_title: "Processes, positions & capability",
+    tier_section_titles: { easy: "Processes & equipment" },
     capability: [
       {
         from: "welding_process",
@@ -1927,6 +1946,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      */
     pack_id: "qp_powder_coating",
     section_title: "Processes, equipment & capability",
+    tier_section_titles: { easy: "Processes & equipment" },
     capability: [
       {
         from: "coating_process",
@@ -2123,6 +2143,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // A SHEET METAL ADVERTISEMENT IS WRITTEN IN MACHINES AND MATERIALS — "fibre laser operator,
     // MS/SS sheet, press brake" — so the heading is the page's own, not the welder's processes.
     section_title: "Machines, materials & capability",
+    tier_section_titles: { easy: "Machines" },
     capability: [
       {
         from: "sheet_metal_machine",
@@ -2273,6 +2294,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // AN ELECTRICIAN'S ADVERTISEMENT IS WRITTEN IN WORK AND EQUIPMENT — "panel wiring electrician,
     // MCC / VFD" — so the heading is the page's own.
     section_title: "Electrical work, equipment & capability",
+    tier_section_titles: { easy: "Equipment" },
     capability: [
       {
         from: "electrical_work_type",
@@ -2431,6 +2453,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // THE PAGE'S OWN HEADING. A press advertisement is written in machines and tonnage — "power
     // press operator, 100 T, progressive die" — so tonnage sits in the title, not only in a row.
     section_title: "Machines, tonnage & capability",
+    tier_section_titles: { easy: "Machines" },
     capability: [
       {
         from: "press_machine",
@@ -2591,6 +2614,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // AN ASSEMBLY ADVERTISEMENT IS WRITTEN IN STAGES, PRODUCTS AND TOOLS — "final line operator,
     // engine sub-assembly, DC nut runner" — so the heading is the page's own.
     section_title: "Assembly work, tools & capability",
+    tier_section_titles: { easy: "Assembly work & tools" },
     capability: [
       {
         from: "assembly_stage",
@@ -2730,6 +2754,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // A FITTER IS HIRED ON WHAT HE HAS FITTED — "maintenance fitter, gearbox and pump overhaul" —
     // so the heading is the page's own, not a machinist's machines.
     section_title: "Fitting work, equipment & capability",
+    tier_section_titles: { easy: "Equipment" },
     capability: [
       {
         from: "fitter_work_type",
@@ -2886,6 +2911,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
     // AN INSPECTION ADVERTISEMENT IS WRITTEN IN INSTRUMENTS AND STANDARDS — "CMM inspector, IATF
     // plant, PPAP" — so the heading is the page's own, not a machinist's machines.
     section_title: "Instruments, standards & capability",
+    tier_section_titles: { easy: "Instruments" },
     capability: [
       {
         from: "measuring_tools",

@@ -28,6 +28,8 @@ import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { ProfilingTierRepository } from "./tiers/profiling-tier.repository";
+import { ProfilingTierService } from "./tiers/profiling-tier.service";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
 import { ResumeUpdateOfferPolicy } from "./resume-update-offer";
 import { ResumeImportController } from "./resume-import/resume-import.controller";
@@ -148,6 +150,11 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    // Tiered profiling (migration 0126). The repository depends only on the @Global DATABASE,
+    // so it is provided here and again in the résumé modules (the WorkerAttributesRepository
+    // precedent). Nothing in either queries 0126 while PROFILING_TIERS_ENABLED is off.
+    ProfilingTierRepository,
+    ProfilingTierService,
     // RI-AUTOFILL (owner override B). Called by the orchestrator's identity-Haan branch
     // only; `AiService`/`AiCostRecorder` come from `AiModule`, already imported above.
     ResumeAutofillService,

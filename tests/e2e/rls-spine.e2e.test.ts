@@ -141,6 +141,9 @@ const LOCKED_TABLES = [
   // profile/session ids + closed field enum + timestamp, no corrected values (those live
   // in the authored stores). Deny-by-default, FORCE, no policy.
   "profile_correction",
+  // 0126: the profiling tier each worker chose (tiered profiling) — an opaque worker id, closed
+  // tiers, an opaque session anchor, timestamps. Deny-by-default, FORCE, no policy.
+  "worker_profiling_tier",
   // 0110: the languages a worker speaks/reads/writes (ADR-0042 D9 / Layer A (b)) — one row per
   // language with three worker ticks, printed on the sheet's Languages row. Deny-by-default,
   // FORCE, no policy.

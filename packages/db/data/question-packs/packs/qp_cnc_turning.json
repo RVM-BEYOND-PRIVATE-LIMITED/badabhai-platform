@@ -12,6 +12,7 @@
   "items": [
     {
       "question_key": "turning_experience",
+      "min_tier": "easy",
       "prompt_text": "Turning ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal turning ka kaam kiya hai?",
@@ -46,6 +47,7 @@
     },
     {
       "question_key": "turning_machine",
+      "min_tier": "easy",
       "prompt_text": "Aap kaunsi turning machine chalate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "target_kind": "attribute",
@@ -89,6 +91,7 @@
     },
     {
       "question_key": "controller_brand",
+      "min_tier": "easy",
       "prompt_text": "Machine par kaunsa controller lagaa hai?",
       "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
       "target_kind": "attribute",
@@ -132,6 +135,7 @@
     },
     {
       "question_key": "turning_operation",
+      "min_tier": "hard",
       "prompt_text": "Kaunse turning operation aap karte hain?",
       "why_text": "Operation se pata chalta hai aap kis level ka kaam karte hain.",
       "target_kind": "attribute",
@@ -174,6 +178,7 @@
     },
     {
       "question_key": "workholding",
+      "min_tier": "hard",
       "prompt_text": "Job pakadne ke liye kya use karte hain?",
       "why_text": "Job pakadna turning ka sabse zaroori hissa hai.",
       "target_kind": "attribute",
@@ -215,6 +220,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Aap kaunse material par kaam karte hain?",
       "why_text": "Har material ka cutting alag hota hai.",
       "target_kind": "attribute",
@@ -256,6 +262,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Aap kaunse maapne ke auzaar use karte hain?",
       "why_text": "Micrometer wale ko fine kaam milta hai.",
       "target_kind": "attribute",
@@ -297,6 +304,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -323,6 +331,7 @@
     },
     {
       "question_key": "setting_operation",
+      "min_tier": "hard",
       "prompt_text": "Setting mein aap kya kya karte hain?",
       "why_text": "Setting karne wale operator ko zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -373,6 +382,7 @@
     },
     {
       "question_key": "tolerance_band",
+      "min_tier": "hard",
       "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
       "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
       "target_kind": "attribute",
@@ -419,6 +429,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Aap kis industry ke parts banate hain?",
       "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
       "target_kind": "attribute",
@@ -469,6 +480,7 @@
     },
     {
       "question_key": "programming_level",
+      "min_tier": "medium",
       "prompt_text": "Programme ke saath aap kitna kaam karte hain?",
       "why_text": "Programme likhne wale ko sabse zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -509,6 +521,7 @@
     },
     {
       "question_key": "advanced_capability",
+      "min_tier": "hard",
       "prompt_text": "Aapki machine mein kaunsa feature hai?",
       "why_text": "Yeh feature wali machine chalane wale kam milte hain.",
       "target_kind": "attribute",
@@ -560,6 +573,7 @@
     },
     {
       "question_key": "quality_work",
+      "min_tier": "hard",
       "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
       "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
       "target_kind": "attribute",
@@ -606,6 +620,7 @@
     },
     {
       "question_key": "troubleshooting",
+      "min_tier": "hard",
       "prompt_text": "Machine problem mein aap kya theek karte hain?",
       "why_text": "Problem theek karne wale operator ki demand zyada hai.",
       "target_kind": "attribute",
@@ -657,6 +672,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -715,6 +731,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -752,6 +769,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

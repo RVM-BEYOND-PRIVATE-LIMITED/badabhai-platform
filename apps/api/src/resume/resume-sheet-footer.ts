@@ -68,6 +68,11 @@ export function buildSheetFooterMeta(input: {
   generatedAt: Date;
   trustBadge?: string | null;
   refCode?: string | null;
+  /**
+   * TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Standard profile", LAST,
+   * after the ref. Absent while tiers are off, so every sheet's footer is exactly today's.
+   */
+  tierLabel?: string | null;
 }): string {
   const date = new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
@@ -79,6 +84,7 @@ export function buildSheetFooterMeta(input: {
     `Generated ${date}`,
     input.trustBadge?.trim() || null,
     input.refCode?.trim() ? `Ref ${input.refCode.trim()}` : null,
+    input.tierLabel?.trim() || null,
   ].filter((s): s is string => Boolean(s));
   return segments.join("  ·  ");
 }

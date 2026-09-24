@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "inspection_experience",
+      "min_tier": "easy",
       "prompt_text": "Quality inspection ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal quality inspection ka kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "easy",
       "prompt_text": "Kaunse measuring instrument chala lete hain?",
       "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
       "retry_text": "CMM, profile projector ya height gauge, kaunsa chalaya hai?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "inspection_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka quality inspector maante hain?",
       "why_text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai.",
       "target_kind": "attribute",
@@ -115,6 +118,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Kis tarah ke parts ki checking karte hain?",
       "why_text": "Steel aur aluminium ka kaam alag hota hai.",
       "target_kind": "attribute",
@@ -158,6 +162,7 @@
     },
     {
       "question_key": "inspection_stage",
+      "min_tier": "medium",
       "prompt_text": "Kis stage par inspection karte hain?",
       "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
       "retry_text": "Incoming, patrol ya final, kaunsi inspection karte hain?",
@@ -202,6 +207,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -229,6 +235,7 @@
     },
     {
       "question_key": "inspection_least_count",
+      "min_tier": "hard",
       "prompt_text": "Kitne least count tak naap lete hain?",
       "why_text": "Chhota least count naapne wale ko fine kaam milta hai.",
       "target_kind": "attribute",
@@ -262,6 +269,7 @@
     },
     {
       "question_key": "inspection_standard",
+      "min_tier": "medium",
       "prompt_text": "Kaunse quality standard ke hisaab se kaam kiya hai?",
       "why_text": "Standard jaanne wale ko badi company me kaam milta hai.",
       "target_kind": "attribute",
@@ -303,6 +311,7 @@
     },
     {
       "question_key": "inspection_documentation",
+      "min_tier": "hard",
       "prompt_text": "Kaunse quality document khud banate ya bharte hain?",
       "why_text": "Document sambhalne wale ko QC engineer ka kaam milta hai.",
       "target_kind": "attribute",
@@ -359,6 +368,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis industry ke parts ki checking ki hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -410,6 +420,7 @@
     },
     {
       "question_key": "inspection_cmm_work",
+      "min_tier": "hard",
       "prompt_text": "CMM par kaunsa kaam khud karte hain?",
       "why_text": "CMM program banane wale ko zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -456,6 +467,7 @@
     },
     {
       "question_key": "inspection_rejection_work",
+      "min_tier": "hard",
       "prompt_text": "Rejection aane par kaunsa kaam khud karte hain?",
       "why_text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.",
       "target_kind": "attribute",
@@ -507,6 +519,7 @@
     },
     {
       "question_key": "inspection_audit_work",
+      "min_tier": "hard",
       "prompt_text": "Audit ya customer ka kaunsa kaam sambhalte hain?",
       "why_text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai.",
       "target_kind": "attribute",
@@ -558,6 +571,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -610,6 +624,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -646,6 +661,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

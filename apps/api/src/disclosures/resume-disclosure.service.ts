@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { DisclosureDenyReason } from "@badabhai/db";
 import type { PayloadInputOf } from "@badabhai/event-schema";
@@ -23,6 +23,8 @@ import { verificationBadgeFor } from "../resume/verification-tier";
 import { containsOtherAnswerMarker } from "../resume/other-answer-leak-guard";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
+import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scope";
+import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -94,6 +96,9 @@ export class ResumeDisclosureService {
     private readonly occupations: WorkerOccupationsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // TIERED PROFILING — the employer's copy prints the worker's tier exactly as his own copy
+    // does (same reader, same transform). Optional so its absence is today's disclosure.
+    @Optional() private readonly tierScopes?: ResumeTierScopeReader,
   ) {}
 
   async requestDisclosure(
@@ -402,6 +407,18 @@ export class ResumeDisclosureService {
       return neutralUnavailable();
     }
 
+    // TIERED PROFILING — scope the employer's copy to the worker's tier, on the render worker's
+    // degrade: a failed tier read renders today's sheet, never a failed disclosure. No footer on
+    // this copy, so there is no tier label to add.
+    let tierScope: ResumeTierScope | null = null;
+    try {
+      tierScope = (await this.tierScopes?.forWorker(workerId, tradeSheet.packId)) ?? null;
+    } catch {
+      this.logger.warn(
+        `could not load the profiling tier for worker ${workerId}; rendering without`,
+      );
+    }
+
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
     // their OWN resume only and must NEVER appear on the payer-facing disclosure
     // (the faceless invariant). Changing this null is a §2/product-level decision.
@@ -428,7 +445,7 @@ export class ResumeDisclosureService {
       // above, this is what keeps `expected_salary` off the disclosure — the worker's asking
       // price is theirs to reveal in a conversation, not ours to print before one.
       "employer",
-      tradeSheet,
+      applyTierScope(tradeSheet, tierScope),
     );
 
     let pdf: Buffer | null;

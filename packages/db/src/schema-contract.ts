@@ -631,6 +631,40 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "the worker's poll never terminates, and the job retries against a column that is not " +
       "there. APPLY BEFORE DEPLOY",
   },
+  // 0126: THE API names neither `worker_profiling_tier` nor `question_pack_item.min_tier` while
+  // PROFILING_TIERS_ENABLED is off, so a deploy ahead of the migration breaks no request. The PACK
+  // SEEDER does name the column, unconditionally — hence the column entry — and the table is
+  // listed for its lock. APPLY BEFORE THE NEXT PACK SEED, and before the flag (migration header).
+  {
+    id: "0126-question-pack-item-min-tier",
+    migration: "0126_profiling_tiers",
+    kind: "column",
+    table: "question_pack_item",
+    object: "min_tier",
+    requiredBy:
+      "`db:seed:packs --apply` (seed-question-packs.ts `planItemRows`) writes min_tier on every " +
+      "item it inserts, unconditionally — the pack JSON carries the tags. The API reads it only " +
+      "with PROFILING_TIERS_ENABLED on (ProfilingTierRepository.findItemTiers / findActiveItemTiers)",
+    failureMode:
+      "every pack seed fails (column does not exist) and its one transaction rolls back, so the " +
+      "live packs are untouched but no pack — including a new trade's — can be seeded until 0126 " +
+      "is applied. With the flag on it would also fail every tier read, which is why the flag " +
+      "comes after the migration",
+  },
+  {
+    id: "0126-worker-profiling-tier-rls",
+    migration: "0126_profiling_tiers",
+    kind: "rls",
+    table: "worker_profiling_tier",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices",
+    failureMode:
+      "SILENT. The table records which workers profiled and when, keyed by worker id; an open " +
+      "grant exposes that across the worker base to every PostgREST role while every surface " +
+      "keeps working",
+  },
   {
     id: "0125-resume-history-generation-source",
     migration: "0125_resume_history",

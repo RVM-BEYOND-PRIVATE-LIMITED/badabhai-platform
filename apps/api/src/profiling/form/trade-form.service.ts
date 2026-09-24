@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
@@ -12,6 +13,7 @@ import { Queue } from "bullmq";
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerPackAnswer } from "@badabhai/db";
+import type { ProfilingTier } from "@badabhai/types";
 
 import { ChatRepository } from "../../chat/chat.repository";
 import type { AiRequestContext } from "../../ai/ai.service";
@@ -39,6 +41,13 @@ import { ResumeImportRepository } from "../resume-import/resume-import.repositor
 import { isLegacyFormUniversalKey } from "./legacy-universal-answer";
 import { parseStrictNumber } from "./strict-number";
 import { TradeFormRepository } from "./trade-form.repository";
+import { pageRevealFields, pageTierScope, type TieredPage } from "../tiers/profiling-tier.policy";
+import {
+  ProfilingTierService,
+  type FormTierScope,
+  type TierFormContext,
+} from "../tiers/profiling-tier.service";
+import type { ChooseTierResponse, TierStateResponse } from "../tiers/profiling-tier.dto";
 import type {
   TradeFormAnswerDto,
   TradeFormAnswerResponse,
@@ -132,6 +141,9 @@ export class TradeFormService {
     // The queue is already registered in THIS module (see profiling.module.ts).
     @InjectQueue(RESUME_RENDER_QUEUE)
     private readonly renderQueue: Queue<ResumeRenderJobData>,
+    // TIERED PROFILING. OPTIONAL SO ITS ABSENCE IS TODAY'S FORM: a construction without it (every
+    // pre-tier test) serves Hard, exactly as `PROFILING_TIERS_ENABLED` off does.
+    @Optional() private readonly tiers?: ProfilingTierService,
   ) {}
 
   /**
@@ -141,11 +153,37 @@ export class TradeFormService {
    * serving it a screen at a time would spend a request per screen for no gain and would make the
    * offline case — a worker on 2G in a shop floor basement — impossible rather than merely slow.
    */
-  async schema(workerId: string): Promise<TradeFormSchemaResponse> {
+  async schema(
+    workerId: string,
+    mode: "full" | "upgrade" = "full",
+  ): Promise<TradeFormSchemaResponse> {
     const { kind, sessionId } = await this.contextFor(workerId);
     const pack = await this.packFor(kind);
-    const view = await this.formView(workerId, kind, pack);
+    // TIERED PROFILING — null while the flag is off, and the form below is then byte-for-byte
+    // today's (Hard) form: no screen dropped, no field added to the response.
+    const scope = (await this.tiers?.formScope(workerId, pack)) ?? null;
+    const view = await this.formView(workerId, kind, pack, scope);
     const byKey = new Map(view.saved.map((row) => [row.questionKey, row]));
+    // THE UPGRADE VIEW ("Add more detail"): only questions this tier asks that are still
+    // unsettled — an answer already given, or declined, is never asked again. ONLY WHILE TIERS
+    // ARE ON: with the flag off `?view=upgrade` is today's full form, so the parameter can never
+    // change a flag-off response.
+    const upgrade = mode === "upgrade" && scope !== null;
+    const unsettled = (item: QuestionPackItem): boolean =>
+      !upgrade || (byKey.get(item.question_key)?.status ?? "unanswered") === "unanswered";
+    // A page is re-served on an upgrade only if the tier adds fields to it (`pageRevealFields`),
+    // and it then names exactly those fields; the client asks only the ones with no saved value.
+    const pageServed = (page: TieredPage): boolean =>
+      !upgrade || pageRevealFields(page, scope.tier).length > 0;
+    const tierScopeOf = (page: TieredPage) =>
+      scope
+        ? {
+            tier_scope: {
+              ...pageTierScope(page, scope.tier),
+              ...(upgrade ? { reveal_fields: pageRevealFields(page, scope.tier) } : {}),
+            },
+          }
+        : {};
 
     // FAILS SOFT, DELIBERATELY. A suggestion is a convenience; the form is the worker's actual
     // task. If the import row is unreadable or its payload will not decrypt he gets today's
@@ -158,8 +196,11 @@ export class TradeFormService {
     // them. That gap is tracked on #1503/#1504 and recorded in ADR-0041 §9.
     const suggestions = await this.resumeSuggestions.forWorker(workerId);
 
+    const tradeMap = TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id);
+    // The sheet's heading AT THIS TIER, so the form reads like the page it produces.
     const capabilityTitle =
-      TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
+      (scope ? tierSectionTitle(tradeMap, scope.tier) : undefined) ??
+      tradeMap?.section_title ??
       "Machines, controllers & capability";
 
     return {
@@ -167,6 +208,8 @@ export class TradeFormService {
       pack_id: pack.pack_id,
       pack_version: pack.version,
       session_id: sessionId,
+      // Present only while tiers are on, so a flag-off response is exactly today's.
+      ...(scope ? { profiling_tier: scope.tier } : {}),
       sections: [
         {
           id: "capability",
@@ -176,27 +219,43 @@ export class TradeFormService {
           // hands to a marker page or to the tier question — a worker answered each twice, and the
           // page's write raced the question's. `trade-form-fact-uniqueness.contract.test.ts` holds
           // this against the real universal pack for every enabled role.
-          screens: view.ordered.map((item) =>
-            this.questionScreen(item, byKey.get(item.question_key), suggestions),
-          ),
+          screens: view.ordered
+            .filter(unsettled)
+            .map((item) => this.questionScreen(item, byKey.get(item.question_key), suggestions)),
         },
         {
           id: "terms",
           title: SECTION_TITLES.terms,
-          screens: [{ type: "preferences", endpoint: "PUT /workers/me/work-preferences" }],
+          screens: pageServed("preferences")
+            ? [
+                {
+                  type: "preferences" as const,
+                  endpoint: "PUT /workers/me/work-preferences" as const,
+                  ...tierScopeOf("preferences"),
+                },
+              ]
+            : [],
         },
         {
           id: "work_history",
           title: SECTION_TITLES.work_history,
-          screens: [{ type: "employment", endpoint: "PUT /workers/me/employment" }],
+          screens: pageServed("employment")
+            ? [
+                {
+                  type: "employment" as const,
+                  endpoint: "PUT /workers/me/employment" as const,
+                  ...tierScopeOf("employment"),
+                },
+              ]
+            : [],
         },
         {
           id: "qualifications",
           title: SECTION_TITLES.qualifications,
           screens: [
-            ...view.leftover.map((item) =>
-              this.questionScreen(item, byKey.get(item.question_key), suggestions),
-            ),
+            ...view.leftover
+              .filter(unsettled)
+              .map((item) => this.questionScreen(item, byKey.get(item.question_key), suggestions)),
             // ZONE 5's CREDENTIALS (migration 0098). A MARKER, like the two above:
             // `PUT /workers/me/qualifications` owns the vocabulary, the caps and the
             // three-state contract, and restating them here would be a second contract for one
@@ -209,18 +268,101 @@ export class TradeFormService {
             // never had a source at all. A client on an older build drops this marker (it fails
             // soft on an unknown `type`) and sees exactly what it sees today, which is what lets
             // the server land ahead of the app.
-            {
-              type: "qualifications" as const,
-              endpoint: "PUT /workers/me/qualifications" as const,
-              // PER-TRADE, AND THIS IS THE ONLY RESPONSE THAT KNOWS THE TRADE. Empty for a role
-              // that declares none — the worker types freely, which is the behaviour everywhere
-              // today. Never a validation list; see the descriptor field.
-              suggested_certificates: [...(descriptorForKind(kind)?.suggestedCertificates ?? [])],
-            },
+            ...(pageServed("qualifications")
+              ? [
+                  {
+                    type: "qualifications" as const,
+                    endpoint: "PUT /workers/me/qualifications" as const,
+                    // PER-TRADE, AND THIS IS THE ONLY RESPONSE THAT KNOWS THE TRADE. Empty for a
+                    // role that declares none — the worker types freely, which is the behaviour
+                    // everywhere today. Never a validation list; see the descriptor field.
+                    suggested_certificates: [
+                      ...(descriptorForKind(kind)?.suggestedCertificates ?? []),
+                    ],
+                    ...tierScopeOf("qualifications"),
+                  },
+                ]
+              : []),
           ],
         },
       ],
     };
+  }
+
+  /**
+   * `GET /profiling/form/tiers` — the tier screen's data for the form this worker was handed.
+   * Tiers off (or no tier service): `enabled: false`, and the client goes straight to the form.
+   */
+  async tierState(workerId: string, requestCtx?: RequestContext): Promise<TierStateResponse> {
+    const tierCtx = await this.tierContextFor(workerId);
+    if (!this.tiers) {
+      return {
+        enabled: false,
+        kind: tierCtx.kind as TradeFormKind,
+        needs_choice: false,
+        current_tier: null,
+        upgradable_to: [],
+        tiers: [],
+      };
+    }
+    return this.tiers.state(
+      workerId,
+      tierCtx,
+      this.tiers.enabled ? await this.hasStartedForm(workerId, tierCtx.pack) : false,
+      requestCtx,
+    );
+  }
+
+  /** `POST /profiling/form/tier` — choose or raise the tier. Never lowers it. */
+  async chooseTier(
+    workerId: string,
+    tier: ProfilingTier,
+    requestCtx?: RequestContext,
+  ): Promise<ChooseTierResponse> {
+    if (!this.tiers) throw new NotFoundException("tiered profiling is not enabled");
+    const tierCtx = await this.tierContextFor(workerId);
+    const result = await this.tiers.choose(
+      workerId,
+      tierCtx,
+      tier,
+      this.tiers.enabled ? await this.hasStartedForm(workerId, tierCtx.pack) : false,
+      requestCtx,
+    );
+    // AN UPGRADE CAN LAND ON A TIER THE WORKER HAS ALREADY FINISHED — every question it adds was
+    // answered earlier (a résumé autofill, or a form begun before tiers). No answer will ever be
+    // posted to fire the completion, so it is recorded here, once, or the funnel would read an
+    // upgrade that completed instantly as one that was abandoned.
+    if (result.change === "upgraded") {
+      const scope = await this.tiers.formScope(workerId, tierCtx.pack);
+      if (scope) {
+        const view = await this.formView(workerId, tierCtx.kind, tierCtx.pack, scope);
+        const answered = this.answeredIn(view);
+        if (view.visibleItems.length > 0 && answered >= view.visibleItems.length) {
+          await this.tiers.recordCompletion(
+            workerId,
+            tierCtx,
+            scope,
+            view.visibleItems.length,
+            requestCtx,
+          );
+        }
+      }
+    }
+    return result;
+  }
+
+  private async tierContextFor(workerId: string): Promise<TierFormContext> {
+    const { kind, sessionId } = await this.contextFor(workerId);
+    return { kind, sessionId, pack: await this.packFor(kind) };
+  }
+
+  /**
+   * Has this worker already settled any question of this form? A form begun before tiers existed
+   * carries on at Hard rather than stopping him mid-way for a choice.
+   */
+  private async hasStartedForm(workerId: string, pack: QuestionPack): Promise<boolean> {
+    const saved = await this.answers.listAnswers(workerId, pack.pack_id);
+    return saved.some((row) => row.status !== "unanswered");
   }
 
   /** Save one answer. */
@@ -241,6 +383,7 @@ export class TradeFormService {
   ): Promise<TradeFormAnswerResponse> {
     const ctx = await this.contextFor(workerId);
     const pack = await this.packFor(ctx.kind);
+    const scope = (await this.tiers?.formScope(workerId, pack)) ?? null;
 
     // THE TRADE PACK ONLY (#1503) — the form serves nothing else, so it accepts nothing else.
     const item = pack.items.find((candidate) => candidate.question_key === dto.question_key);
@@ -354,7 +497,7 @@ export class TradeFormService {
     // THE SAME VIEW `schema()` SERVES, re-read after the write (#1503). `total` below is therefore
     // exactly the number of question screens the next fetch returns — never a count over a
     // different set that the progress rail cannot reach.
-    const view = await this.formView(workerId, ctx.kind, pack);
+    const view = await this.formView(workerId, ctx.kind, pack, scope);
     const visibleItems = view.visibleItems;
     const answeredCount = this.answeredIn(view);
 
@@ -373,6 +516,17 @@ export class TradeFormService {
         answered: answeredCount,
         total: visibleItems.length,
       });
+      // TIERED PROFILING — the same completion, counted per tier (duration + question count feed
+      // the tier screen's estimates). Only while tiers are on; never throws.
+      if (scope && this.tiers) {
+        await this.tiers.recordCompletion(
+          workerId,
+          { kind: ctx.kind, sessionId: ctx.sessionId, pack },
+          scope,
+          visibleItems.length,
+          requestCtx,
+        );
+      }
     }
 
     return {
@@ -382,6 +536,11 @@ export class TradeFormService {
       // COUNTED OVER WHAT IS STILL ASKED, not over the whole pack. A senior turner is not asked
       // the three fresher questions, and a progress rail whose denominator includes them can
       // never reach its own end — the worker finishes the form at 15/18 and is told they have not.
+      //
+      // TIERED PROFILING: this is every question the worker's TIER asks, answered or not — also
+      // on the upgrade view, which serves only the unanswered ones. So after an Easy → Medium
+      // upgrade the rail starts at (Easy's answers)/(Medium's total), not at 0/(new questions):
+      // the worker is continuing one profile, not starting a second.
       total: visibleItems.length,
       /**
        * The screen list the client is holding no longer matches the one this server would serve.
@@ -492,6 +651,8 @@ export class TradeFormService {
     workerId: string,
     kind: TradeFormKind,
     pack: QuestionPack,
+    // TIERED PROFILING — null serves every question (Hard, today's form).
+    scope: FormTierScope | null,
   ): Promise<FormView> {
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const answers = answerMapFromRows(saved);
@@ -506,6 +667,10 @@ export class TradeFormService {
       derived === null ? answers : { ...answers, [derived.questionKey]: derived.record };
     const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
       items.filter((item) => {
+        // OUTSIDE THE WORKER'S PROFILING TIER, NOT ASKED — checked FIRST, and deliberately ahead
+        // of "settled shows": an answer the tier does not ask (a résumé autofill, a pre-tier
+        // form) stays stored and matchable, but it is not this tier's question to show.
+        if (scope?.excluded.has(item.question_key)) return false;
         // A DERIVED TIER IS NEVER ASKED. `isFormQuestionVisible` shows anything settled so the
         // worker can change it, but this value was never his tap on THIS question — there is
         // nothing here for him to change, and the answer it derives from stays editable in the
@@ -677,7 +842,8 @@ export class TradeFormService {
     // answer against a single/multi-select universal question.
     this.triggerOtherAnswerPolish(workerId, pack.pack_id, item, row.answerOtherText, undefined);
 
-    const view = await this.formView(workerId, ctx.kind, pack);
+    const scope = (await this.tiers?.formScope(workerId, pack)) ?? null;
+    const view = await this.formView(workerId, ctx.kind, pack, scope);
     const answered = this.answeredIn(view);
     const total = view.visibleItems.length;
     const status = row.status === "answered" ? "answered" : "declined";
@@ -1152,6 +1318,14 @@ export class TradeFormService {
  * non-finite numbers fall back for the same reason — both would be stored as "an answer" that
  * says nothing.
  */
+/** The capability heading a tier prints, when the role's map declares one for it. */
+function tierSectionTitle(
+  map: (typeof TRADE_RESUME_MAPS)[number] | undefined,
+  tier: ProfilingTier,
+): string | undefined {
+  return tier === "hard" ? undefined : map?.tier_section_titles?.[tier];
+}
+
 function optionValue(option: QuestionPackItem["options"][number]): string | number | boolean {
   const value = option.value;
   if (typeof value === "string") return value.length > 0 ? value : option.label_text;

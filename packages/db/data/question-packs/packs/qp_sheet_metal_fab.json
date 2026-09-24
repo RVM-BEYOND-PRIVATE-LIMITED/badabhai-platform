@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "sheet_metal_experience",
+      "min_tier": "easy",
       "prompt_text": "Sheet metal ka kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal sheet metal ka kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "sheet_metal_machine",
+      "min_tier": "easy",
       "prompt_text": "Sheet metal ki kaunsi machine chalate hain?",
       "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Laser, press brake, turret ya shearing, kaunsi chalayi hai?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "sheet_metal_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka sheet metal worker maante hain?",
       "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
       "target_kind": "attribute",
@@ -120,6 +123,7 @@
     },
     {
       "question_key": "material_worked",
+      "min_tier": "medium",
       "prompt_text": "Kaunse material ki sheet par kaam karte hain?",
       "why_text": "Steel aur aluminium ka kaam alag hota hai.",
       "target_kind": "attribute",
@@ -158,6 +162,7 @@
     },
     {
       "question_key": "sheet_operation",
+      "min_tier": "medium",
       "prompt_text": "Sheet par kaunsa kaam khud karte hain?",
       "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
       "retry_text": "Bending, punching, notching ya rolling, kaunsa kaam karte hain?",
@@ -212,6 +217,7 @@
     },
     {
       "question_key": "measuring_tools",
+      "min_tier": "medium",
       "prompt_text": "Naap ke liye kaunse aujaar istemaal karte hain?",
       "why_text": "Sahi naap lene wale ko accurate kaam milta hai.",
       "target_kind": "attribute",
@@ -255,6 +261,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap fabrication drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -282,6 +289,7 @@
     },
     {
       "question_key": "sheet_thickness",
+      "min_tier": "hard",
       "prompt_text": "Kitni moti sheet par kaam karte hain?",
       "why_text": "Moti sheet ka kaam alag rate par hota hai.",
       "target_kind": "attribute",
@@ -323,6 +331,7 @@
     },
     {
       "question_key": "nesting_software",
+      "min_tier": "medium",
       "prompt_text": "Nesting ya program ka kaunsa kaam kar lete hain?",
       "why_text": "Nesting jaanne wale ko machine ki zimmedaari milti hai.",
       "target_kind": "attribute",
@@ -364,6 +373,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis cheez ki sheet metal fabrication me kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -415,6 +425,7 @@
     },
     {
       "question_key": "press_brake_setting",
+      "min_tier": "hard",
       "prompt_text": "Press brake ki kaunsi setting khud karte hain?",
       "why_text": "Setting karne wale ko zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -461,6 +472,7 @@
     },
     {
       "question_key": "layout_calculation",
+      "min_tier": "hard",
       "prompt_text": "Flat pattern ka hisaab kaise nikaalte hain?",
       "why_text": "Development ka hisaab jaanne wale se galti kam hoti hai.",
       "target_kind": "attribute",
@@ -507,6 +519,7 @@
     },
     {
       "question_key": "assembly_finishing",
+      "min_tier": "hard",
       "prompt_text": "Cutting aur bending ke alawa kaunsa kaam karte hain?",
       "why_text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
       "target_kind": "attribute",
@@ -553,6 +566,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -605,6 +619,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -641,6 +656,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",

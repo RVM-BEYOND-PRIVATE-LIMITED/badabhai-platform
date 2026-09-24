@@ -143,6 +143,12 @@ function scoreSkills(job: JobSpec, w: WorkerSignals): Part {
     // raw contributes nothing and the reason documents why the weight shows 0.
     return { raw: 0, reason: "job lists no skill requirements (weight redistributed)" };
   }
+  // ⚠ TIERED PROFILING (owner decision D6, 2026-09-24): a worker who profiled at Easy or Medium
+  // was never ASKED the deeper questions, and "not asked" means UNKNOWN, never "no". Today this is
+  // safe because no pack answer feeds `w.skillIds` here. The day one does, an empty set on this
+  // factor must be split into "asked and has none" versus "never asked" (and the weight
+  // redistributed for the latter, as a skill-less job's is above), or every Easy worker is scored
+  // as unskilled for a question he was never shown.
   if (usableSkillIds(w.skillIds).size === 0) {
     return { raw: 0, reason: "no confirmed skills yet (scores 0 on this factor only — never a block)" };
   }

@@ -13,6 +13,8 @@ import { ResumeUpdateOfferPolicy } from "./resume-update-offer";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { ProfilingTierRepository } from "./tiers/profiling-tier.repository";
+import { ProfilingTierService } from "./tiers/profiling-tier.service";
 import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
@@ -104,6 +106,11 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // TIERED PROFILING. `TradeFormService` takes the tier service as an @Optional() dependency, so
+      // omitting these two would NOT fail boot — the form would silently serve Hard to everyone
+      // with the flag on. This pin is the only thing that notices.
+      ProfilingTierRepository,
+      ProfilingTierService,
       // RI-AUTOFILL (owner override B). `ProfilingOrchestrator` takes it as a CONSTRUCTOR
       // dependency (the identity-Haan branch), so omitting this provider does not fail a
       // metadata test — it fails BOOT, exactly as the entries above.

@@ -15,6 +15,7 @@
   "items": [
     {
       "question_key": "assembly_experience",
+      "min_tier": "easy",
       "prompt_text": "Assembly line par kitna tajurba hai?",
       "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
       "retry_text": "Lagbhag kitne saal assembly line par kaam kiya hai?",
@@ -49,6 +50,7 @@
     },
     {
       "question_key": "assembly_stage",
+      "min_tier": "easy",
       "prompt_text": "Line ke kaunse stage par kaam kiya hai?",
       "why_text": "Line ke har stage ka kaam alag hota hai.",
       "retry_text": "Sub-assembly, final assembly ya testing, kahan kaam kiya hai?",
@@ -93,6 +95,7 @@
     },
     {
       "question_key": "assembly_level",
+      "min_tier": "easy",
       "prompt_text": "Aap khud ko kis level ka assembly line worker maante hain?",
       "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
       "target_kind": "attribute",
@@ -120,6 +123,7 @@
     },
     {
       "question_key": "assembly_line_product",
+      "min_tier": "medium",
       "prompt_text": "Kaunsi assembly par kaam kiya hai?",
       "why_text": "Product ka tajurba usi line ke employer dhoondhte hain.",
       "retry_text": "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?",
@@ -164,6 +168,7 @@
     },
     {
       "question_key": "assembly_tool",
+      "min_tier": "easy",
       "prompt_text": "Line par kaunse tool chalate hain?",
       "why_text": "Tool ke hisaab se sahi kaam dikhaya jaata hai.",
       "retry_text": "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?",
@@ -213,6 +218,7 @@
     },
     {
       "question_key": "assembly_practice",
+      "min_tier": "medium",
       "prompt_text": "Shop floor par kaunse tareeke follow karte hain?",
       "why_text": "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai.",
       "target_kind": "attribute",
@@ -261,6 +267,7 @@
     },
     {
       "question_key": "drawing_reading",
+      "min_tier": "medium",
       "prompt_text": "Kya aap drawing padh lete hain?",
       "why_text": "Drawing padhna kai jagah zaroori hota hai.",
       "target_kind": "attribute",
@@ -288,6 +295,7 @@
     },
     {
       "question_key": "assembly_takt_time",
+      "min_tier": "hard",
       "prompt_text": "Aapki line ka takt time kitna tha?",
       "why_text": "Tez line par kaam karne wale ki alag maang hoti hai.",
       "target_kind": "attribute",
@@ -334,6 +342,7 @@
     },
     {
       "question_key": "sector_worked",
+      "min_tier": "hard",
       "prompt_text": "Kis cheez ki assembly line par kaam kiya hai?",
       "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
       "target_kind": "attribute",
@@ -385,6 +394,7 @@
     },
     {
       "question_key": "assembly_joining",
+      "min_tier": "hard",
       "prompt_text": "Assembly me jodne ka kaunsa kaam khud karte hain?",
       "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
       "target_kind": "attribute",
@@ -436,6 +446,7 @@
     },
     {
       "question_key": "assembly_station_count",
+      "min_tier": "hard",
       "prompt_text": "Line ke kitne station ka kaam aata hai?",
       "why_text": "Kai station jaanne wale ko line par aage rakha jaata hai.",
       "target_kind": "attribute",
@@ -471,6 +482,7 @@
     },
     {
       "question_key": "assembly_responsibility",
+      "min_tier": "hard",
       "prompt_text": "Line par aur kaunsi zimmedaari sambhalte hain?",
       "why_text": "Zimmedaari sambhalne wale ko zyada vetan milta hai.",
       "target_kind": "attribute",
@@ -517,6 +529,7 @@
     },
     {
       "question_key": "assembly_defect",
+      "min_tier": "hard",
       "prompt_text": "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
       "why_text": "Kharabi pakadne wale ki line par zaroorat rehti hai.",
       "target_kind": "attribute",
@@ -568,6 +581,7 @@
     },
     {
       "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
       "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
       "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
       "retry_text": "Workshop me kaunsi machine chalayi thi?",
@@ -620,6 +634,7 @@
     },
     {
       "question_key": "trade_test_status",
+      "min_tier": "medium",
       "prompt_text": "Trade test diya hai?",
       "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
       "retry_text": "Trade test ka kya status hai?",
@@ -656,6 +671,7 @@
     },
     {
       "question_key": "iti_project_work",
+      "min_tier": "medium",
       "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
       "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
       "retry_text": "Workshop me kaunsa job ya project banaya tha?",
