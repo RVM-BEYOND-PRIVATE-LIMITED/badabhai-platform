@@ -1142,6 +1142,14 @@ export const EVENT_REGISTRY = {
     domain: "consent",
     payload: p.ConsentPurposesWithdrawnPayload,
   },
+  // ADR-0043 (ruling R3) — the worker's answer to "Resume update kar doon?" at the end of an
+  // interview. APPENDED AT THE END, per the append-only protocol. The only record of the consent
+  // that lets a returning worker's new profile be confirmed and regenerated without the preview.
+  "profile.resume_update_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileResumeUpdateAnsweredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -30,6 +30,7 @@ function make() {
       render_status: "pending",
       rendered_at: null,
     })),
+    history: vi.fn(async () => ({ items: [], pending_update: null })),
     regenerate: vi.fn(async () => ({ resume_id: "r2", version: 3 })),
     download: vi.fn(async () => ({ url: "https://signed/u?token=x", expires_in: 900 })),
     recordShare: vi.fn(async () => ({ ok: true })),
@@ -104,6 +105,26 @@ describe("ResumeController (thin) — delegation", () => {
     // Nest matches in declaration order, and method order on the prototype IS declaration order.
     const methods = Object.getOwnPropertyNames(ResumeController.prototype);
     expect(methods.indexOf("myDocument")).toBeLessThan(methods.indexOf("get"));
+  });
+
+  // ADR-0043 — the history route shares every load-bearing property `myDocument` has: the id
+  // comes from the session, the answer is polled so it must not be cached, and the literal path
+  // must be declared before the parameterised one.
+  it("history delegates with the SESSION worker id — no id is taken from the request", async () => {
+    const { controller, resume } = make();
+    await controller.history(OWNER);
+    expect(resume.history).toHaveBeenCalledWith(OWNER.id);
+  });
+
+  it("history is worker-guarded, no-store, and declared BEFORE the :id route", () => {
+    const guards = (Reflect.getMetadata("__guards__", ResumeController.prototype.history) ??
+      []) as unknown[];
+    expect(guards).toContain(WorkerAuthGuard);
+    const headers = (Reflect.getMetadata("__headers__", ResumeController.prototype.history) ??
+      []) as { name: string; value: string }[];
+    expect(headers).toContainEqual({ name: "Cache-Control", value: "no-store" });
+    const methods = Object.getOwnPropertyNames(ResumeController.prototype);
+    expect(methods.indexOf("history")).toBeLessThan(methods.indexOf("get"));
   });
 
   it("get delegates to getById", async () => {

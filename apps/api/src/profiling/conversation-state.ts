@@ -63,7 +63,7 @@ import { toAnswerArray, toAnswerMap, toCapturedProjection, type AnswerMap } from
 // Type-only, and one-directional: `lookahead.ts` does not import this file, so persisting its
 // shape here cannot create the cycle the module header warns about.
 import type { Lookahead } from "./lookahead";
-import type { EngineState } from "./next-question";
+import { COMPLETION_REASONS, type CompletionReason, type EngineState } from "./next-question";
 
 /**
  * The reply-cache entry — Layer A of the double-submit defence.
@@ -756,6 +756,44 @@ export interface ProfilingEnvelope {
    * `worker-record-seed.ts`'s docblock for the accepted limitation this leaves.
    */
   readonly prefilledKeys: readonly string[];
+
+  /**
+   * "Aapki nayi jaankari se resume update kar doon?" (ADR-0043, ruling R3) — `null` when it was
+   * never offered, `pending` while it is on screen, `settled` once answered.
+   *
+   * THREE STATES, NOT TWO, for {@link resumeConfirm}'s reason: collapsing `settled` back to
+   * `null` would offer it again on a later turn. It is served ONLY at the point the engine would
+   * otherwise close, for a worker who already has a résumé, so `completionReason` carries the
+   * engine's own verdict across the one extra turn — the close that follows the answer must end
+   * the interview for the reason the engine decided, not for a reason re-derived a turn later.
+   *
+   * `accepted` is null while pending, then the worker's answer: true only for a readable "haan".
+   * `answeredAt` is when they answered (ISO-8601). Both reach Postgres as the loose
+   * `resume_update` key on `conversation_state`, which is what the extraction processor and
+   * `GET /resume/history` read — the envelope itself is gone the moment the flush commits.
+   */
+  readonly resumeUpdateOffer: ResumeUpdateOfferState | null;
+
+  /**
+   * The CV import this interview ACCEPTED, or `null` (ADR-0043, ruling R1).
+   *
+   * Set when the worker said "haan, ye main hoon" to the import's identity line, or confirmed at
+   * least one of its staged facts on the batch-confirm turn. A declined or unreadable answer
+   * never sets it — facts the worker did not accept did not make their résumé. Persisted as the
+   * loose `import_applied_id` key, it becomes `worker_profiles.seeded_from_import_id`, which is
+   * what labels the résumé `resume_upload`.
+   *
+   * AN ID, NEVER THE CONTENT — the same rule `resumeConfirm` follows.
+   */
+  readonly importAppliedId: string | null;
+}
+
+/** See {@link ProfilingEnvelope.resumeUpdateOffer}. */
+export interface ResumeUpdateOfferState {
+  readonly state: "pending" | "settled";
+  readonly accepted: boolean | null;
+  readonly completionReason: CompletionReason | null;
+  readonly answeredAt: string | null;
 }
 
 /** See {@link ProfilingEnvelope.resumeConfirm}. */
@@ -874,6 +912,8 @@ export const PROFILING_ENVELOPE_KEYS = {
   identifyTypeRequested: true,
   identifyStalledTurns: true,
   prefilledKeys: true,
+  resumeUpdateOffer: true,
+  importAppliedId: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -919,6 +959,8 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],
+    resumeUpdateOffer: null,
+    importAppliedId: null,
   };
 }
 
@@ -1269,6 +1311,66 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // drifted key should cost that key's "skip the ask" behaviour, not the worker's whole
     // interview state.
     prefilledKeys: narrowPrefilledKeys(v.prefilledKeys),
+    // ABSENT READS AS null — "never offered" — the state of every envelope in flight across the
+    // deploy that adds this field, none of which was ever asked. An unreadable value also reads as
+    // null: the cost is at most one offer at the close, while narrowing it to `settled` could
+    // record an acceptance nobody gave.
+    resumeUpdateOffer: narrowResumeUpdateOffer(v.resumeUpdateOffer),
+    // ABSENT READS AS null — "no import accepted in this interview", which is true of every
+    // envelope written before this field existed.
+    importAppliedId:
+      typeof v.importAppliedId === "string" && v.importAppliedId.length > 0
+        ? v.importAppliedId
+        : null,
+  };
+}
+
+/**
+ * The résumé-update offer, or `null` (ADR-0043).
+ *
+ * FAILS TOWARD "NEVER OFFERED", and never toward an acceptance: `accepted` is true only for a
+ * literal `true`, because an acceptance spends AI money in the worker's name and confirms a
+ * profile they did not review.
+ */
+function narrowResumeUpdateOffer(value: unknown): ResumeUpdateOfferState | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state !== "pending" && v.state !== "settled") return null;
+  const completionReason = COMPLETION_REASONS.find((reason) => reason === v.completionReason);
+  return {
+    state: v.state,
+    accepted: v.state === "settled" ? v.accepted === true : null,
+    completionReason: completionReason ?? null,
+    answeredAt: typeof v.answeredAt === "string" ? v.answeredAt : null,
+  };
+}
+
+/**
+ * The two ADR-0043 engine keys, as they are persisted on `chat_sessions.conversation_state`.
+ *
+ * OUTSIDE THE FROZEN `ConversationState` CONTRACT, exactly like `form_kind` and `prefilled_keys`:
+ * engine bookkeeping the parse call cannot use and the ai-service must never write. ONE projection
+ * shared by every writer of the column — the flush, the mid-interview checkpoint and the abandon
+ * sweep — because the checkpoint REPLACES the whole column, and a writer that forgot these keys
+ * would durably drop an acceptance the worker gave.
+ *
+ * `resume_update` is written only once the offer is SETTLED: a pending offer is a question on
+ * screen, not an answer, and a reader must never find an `accepted` it could mistake for one.
+ */
+export function toResumeHistoryStatePatch(envelope: ProfilingEnvelope): {
+  import_applied_id: string | null;
+  resume_update: { accepted: boolean; answered_at: string | null } | null;
+} {
+  // `?? null` rather than trusting the type: an envelope built in memory by a caller that predates
+  // these fields (a test fixture, a hand-assembled buffer) carries them as `undefined`, and a
+  // projection that threw on one would cost the flush it sits inside.
+  const offer = envelope.resumeUpdateOffer ?? null;
+  return {
+    import_applied_id: envelope.importAppliedId ?? null,
+    resume_update:
+      offer !== null && offer.state === "settled"
+        ? { accepted: offer.accepted === true, answered_at: offer.answeredAt }
+        : null,
   };
 }
 

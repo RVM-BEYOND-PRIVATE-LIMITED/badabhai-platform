@@ -509,13 +509,19 @@ describe("WorkersRepository.hardDelete — ADR-0026 Phase 5 right-to-erasure, on
 });
 
 describe("WorkersRepository.latestResume — the resume the worker/payer should see", () => {
-  it("scopes by worker, orders by VERSION (not generatedAt) descending, one row", async () => {
+  it("scopes by worker, orders NEWEST FIRST (generated_at, then id — ADR-0043), one row", async () => {
+    // NOT version any more: a new profile's first résumé is its own v1, so a version sort let an
+    // older profile's v2 hide the résumé the worker had just made. `desc nulls last` is spelled
+    // out to match `generated_resumes_worker_generated_idx`'s pathkeys.
     const { db, captured } = makeDb({ rows: [] });
     await new WorkersRepository(db).latestResume(WORKER_ID);
     expect(captured.selectTable).toBe(generatedResumes);
     expect(text(captured.where)).toBe('"generated_resumes"."worker_id" = $1');
     expect(params(captured.where)).toEqual([WORKER_ID]);
-    expect(text(captured.orderBy![0])).toBe('"generated_resumes"."version" desc');
+    expect(captured.orderBy!.map((clause) => text(clause))).toEqual([
+      '"generated_resumes"."generated_at" desc nulls last',
+      '"generated_resumes"."id" desc nulls last',
+    ]);
     expect(captured.limit).toBe(1);
   });
 

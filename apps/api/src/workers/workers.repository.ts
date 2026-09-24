@@ -16,6 +16,7 @@ import {
   type GeneratedResume,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { NEWEST_RESUME_FIRST } from "../resume/resume-order";
 
 /** Ops-console list row. PII (phone/full name) is intentionally excluded. */
 export interface WorkerListItem {
@@ -534,16 +535,50 @@ export class WorkersRepository {
     });
   }
 
+  /**
+   * The worker's CURRENT résumé: the newest generation, by the one shared order
+   * ({@link NEWEST_RESUME_FIRST}, ADR-0043).
+   *
+   * NOT `version` any more. It used to order by version on the reasoning that two
+   * near-simultaneous generates must not read the same "previous" and collide on the next
+   * version — but numbering now has its own read (`ResumeRepository.maxVersion`), the object key
+   * carries the résumé id so a shared version cannot collide, and a version sort answered
+   * "current" wrongly the moment a worker had two profiles: a new profile's first résumé is its
+   * own v1, so an older profile's v2 won and the worker was shown the interview they had redone.
+   */
   async latestResume(workerId: string): Promise<GeneratedResume | undefined> {
     const rows = await this.db
       .select()
       .from(generatedResumes)
       .where(eq(generatedResumes.workerId, workerId))
-      // Order by version (monotonic), not generatedAt (DB-now() granularity): two
-      // near-simultaneous generates must not read the same "previous" and collide
-      // on the next version / the v{n} object key.
-      .orderBy(desc(generatedResumes.version))
+      .orderBy(...NEWEST_RESUME_FIRST)
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Every résumé of this worker that holds a PDF or is about to — the fan-out set for an ERASURE
+   * re-render (photo removed, WhatsApp cleared). Ids only.
+   *
+   * ALL OF THEM, NOT THE NEWEST THREE. Résumé history keeps every generation (ruling R4), and an
+   * erased face or number must not survive in an older PDF just because the history screen no
+   * longer lists it: the download route serves any résumé the worker owns, by id.
+   *
+   * `pending` IS INCLUDED. A row whose render is in flight may already have read the photo before
+   * the erasure; a fail-closed job queued behind it re-renders it without. `failed` rows are
+   * served by nothing (download 409s), so they are left alone.
+   */
+  async listErasureTargetIds(workerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: generatedResumes.id })
+      .from(generatedResumes)
+      .where(
+        and(
+          eq(generatedResumes.workerId, workerId),
+          inArray(generatedResumes.renderStatus, ["rendered", "pending"]),
+        ),
+      )
+      .orderBy(...NEWEST_RESUME_FIRST);
+    return rows.map((row) => row.id);
   }
 }

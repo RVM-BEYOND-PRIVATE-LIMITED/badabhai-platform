@@ -632,6 +632,36 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "there. APPLY BEFORE DEPLOY",
   },
   {
+    id: "0125-resume-history-generation-source",
+    migration: "0125_resume_history",
+    kind: "column",
+    table: "generated_resumes",
+    object: "generation_source",
+    requiredBy:
+      "every `select().from(generatedResumes)` — Drizzle names every schema column — so " +
+      "WorkersRepository.latestResume, ResumeRepository.findById/listHistory, the render worker " +
+      "and the employer-disclosure resume read all name it unconditionally. " +
+      "`generation_trigger` is added by the same migration and fails together",
+    failureMode:
+      "EVERY résumé read 500s (column does not exist): the Resume tab, GET /workers/me/profile, " +
+      "GET /resume/document, the render worker and the payer disclosure path. APPLY BEFORE DEPLOY",
+  },
+  {
+    id: "0125-resume-history-seeded-from-import",
+    migration: "0125_resume_history",
+    kind: "column",
+    table: "worker_profiles",
+    object: "seeded_from_import_id",
+    requiredBy:
+      "every `select().from(workerProfiles)` names it — ProfilesRepository.findById on confirm and " +
+      "on generate, WorkersRepository.latestProfile on every chat finalize, the extraction " +
+      "processor's create. `resume_update_accepted_at` is added by the same migration and fails " +
+      "together",
+    failureMode:
+      "EVERY profile read and write 500s (column does not exist): extraction stops creating " +
+      "profiles, confirm fails, the Resume tab and the profile screens fail. APPLY BEFORE DEPLOY",
+  },
+  {
     id: "0117-profile-correction-rls",
     migration: "0117_profile_correction",
     kind: "rls",

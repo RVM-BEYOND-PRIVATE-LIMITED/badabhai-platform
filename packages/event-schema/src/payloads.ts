@@ -9,8 +9,10 @@ import {
   TRADE_FORM_KINDS_ALL,
   RESUME_DEGRADED_POSTURES,
   RESUME_EXTRACTION_METHODS,
+  RESUME_GENERATION_TRIGGERS,
   RESUME_IMPORT_FAILURES,
   RESUME_IMPORT_ROUTES,
+  RESUME_SOURCES,
   RESUME_UPLOAD_MIME_TYPES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
@@ -870,6 +872,13 @@ export const ActionRecordedPayload = z.object({
 // ---------------------------------------------------------------------------
 // resume.*
 // ---------------------------------------------------------------------------
+// ADR-0043 — résumé history. Which flow a generated résumé was made from, and what started the
+// generation. Closed vocabularies shared with the database CHECKs (`RESUME_SOURCES`,
+// `RESUME_GENERATION_TRIGGERS`); both nullable with a null default so an emitter that predates
+// them — and every pre-0125 row a regenerate reads — stays valid.
+const resumeSource = z.enum(RESUME_SOURCES);
+const resumeGenerationTrigger = z.enum(RESUME_GENERATION_TRIGGERS);
+
 export const ResumeGeneratedPayload = z.object({
   worker_id: uuidSchema,
   profile_id: uuidSchema,
@@ -877,6 +886,9 @@ export const ResumeGeneratedPayload = z.object({
   version: z.number().int().positive().default(1),
   format: z.enum(["text", "json"]).default("text"),
   profile_source: profileSource.nullable().default(null),
+  /** The history card's label: `profile_source`, except an accepted CV import wins (ruling R1). */
+  resume_source: resumeSource.nullable().default(null),
+  trigger: resumeGenerationTrigger.nullable().default(null),
 });
 
 /** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
@@ -895,6 +907,8 @@ export const ResumeRegeneratedPayload = z.object({
   version: z.number().int().positive().default(1),
   previous_version: z.number().int().positive().nullable().default(null),
   format: z.enum(["text", "json"]).default("text"),
+  resume_source: resumeSource.nullable().default(null),
+  trigger: resumeGenerationTrigger.nullable().default(null),
 });
 
 /** A worker shared a resume. `channel` is an enum (no free text → no PII / no link leakage). */
@@ -4105,6 +4119,30 @@ export const ProfileResumeIdentityAnsweredPayload = z
 export type ProfileResumeIdentityAnsweredPayload = z.infer<
   typeof ProfileResumeIdentityAnsweredPayload
 >;
+
+/**
+ * The worker answered "Aapki nayi jaankari se resume update kar doon?" at the end of an
+ * interview (ADR-0043, ruling R3).
+ *
+ * THE ONLY RECORD OF THE CONSENT TO REGENERATE. A "yes" is what lets the system confirm the
+ * profile this interview produces and generate a new résumé from it without the worker passing
+ * through the preview screen, so the decision has to be on the spine rather than inferred from
+ * the résumé that follows it: `resume.generated` says a résumé exists, not that the worker asked
+ * for it. `offered` minus `yes` is also the one number that says whether the question is worth
+ * asking.
+ *
+ * Ids and a closed answer only. `no` covers an explicit "Abhi nahi" AND an unreadable reply AND
+ * a session that went idle on the question — fail-closed, because a regenerate is paid AI work
+ * done in the worker's name.
+ */
+export const ProfileResumeUpdateAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    answer: z.enum(["yes", "no"]),
+  })
+  .strict();
+export type ProfileResumeUpdateAnsweredPayload = z.infer<typeof ProfileResumeUpdateAnsweredPayload>;
 
 /**
  * The identity "haan" applied the staged option mappings as form answers.

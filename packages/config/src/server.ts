@@ -278,6 +278,24 @@ export const serverEnvSchema = z.object({
   // because a reversal that needs a deploy is not a reversal, and a bad mapping writes
   // records an employer will read: stopping quickly matters most here.
   RESUME_AUTOFILL_ENABLED: booleanFromString,
+  // ADR-0043 (ruling R3) — "Aapki nayi jaankari se resume update kar doon?" at the end of an
+  // interview, for a worker who ALREADY has a résumé. A "Haan" confirms the profile that
+  // interview produces and regenerates the résumé in the background, without the preview.
+  //
+  // DEFAULT OFF, and OFF IS EXACTLY THE PRE-0125 INTERVIEW: the engine closes on its own verdict,
+  // the app shows the preview, and a returning worker's re-confirm keeps its one-per-worker skip.
+  // Nothing about résumé HISTORY is behind this — every generation is recorded either way; the
+  // switch only decides whether the chat asks.
+  RESUME_CHAT_UPDATE_OFFER_ENABLED: booleanFromString,
+  // How many résumés `GET /resume/history` returns, newest first (ruling R4: keep all, show 3).
+  // A display window, never a retention rule — nothing is deleted when a fourth arrives.
+  RESUME_HISTORY_VISIBLE_LIMIT: positiveIntFromString(3),
+  // How long an accepted chat update may take — extraction, auto-confirm, generate — before
+  // `GET /resume/history` reports it `failed` instead of `in_progress`. Covers the outcomes that
+  // leave no durable failure row (a generate that hit the daily cap, a queue that never ran).
+  // Sized above the extraction job's own retry envelope so a slow-but-healthy update is never
+  // reported as failed while it is still working.
+  RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: positiveIntFromString(1_200),
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a

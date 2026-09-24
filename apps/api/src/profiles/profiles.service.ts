@@ -17,6 +17,21 @@ import {
 } from "../queue/queue.constants";
 import type { ExtractProfileInput, ConfirmProfileInput, ProfileConfirmNext } from "./profiles.dto";
 import { hasExtractedContent } from "./profile-content";
+import { ConsentRepository } from "../consent/consent.repository";
+import { hasActiveConsent } from "../consent/consent-active";
+
+/**
+ * What `confirmAcceptedUpdate` did — every refusal named, because each one means the worker's
+ * "Haan" will NOT produce a résumé and the log line is how an operator learns which wall it hit.
+ */
+export type AcceptedUpdateOutcome =
+  | "confirmed"
+  | "already_confirmed"
+  | "not_accepted"
+  | "not_extracted"
+  | "no_consent"
+  | "not_found"
+  | "error";
 
 /**
  * How long a `queued`/`running` extraction job is believed to be genuinely in
@@ -142,6 +157,10 @@ export class ProfilesService {
     // ReferralBonusService, so this module gains no dependency on `referrals`.
     @InjectQueue(REFERRAL_BONUS_QUEUE)
     private readonly referralBonusQueue: Queue<ReferralBonusJobData>,
+    // ADR-0043 — the consent re-check behind `confirmAcceptedUpdate`, which runs off the request
+    // path where no ConsentGuard stands. LAST AND OPTIONAL so every existing construction keeps
+    // compiling; ABSENT MEANS NO AUTO-CONFIRM (fail closed), never "consent assumed".
+    private readonly consents?: ConsentRepository,
   ) {}
 
   /**
@@ -638,6 +657,62 @@ export class ProfilesService {
       // behaviour, byte for byte, until the row is re-extracted.
       next: confirmNextFor(profile.source),
     };
+  }
+
+  /**
+   * CONFIRM A PROFILE THE WORKER ALREADY ACCEPTED IN CHAT (ADR-0043, ruling R3).
+   *
+   * The worker said "Haan" to "Resume update kar doon?" at the end of the interview that
+   * produced this profile. That answer IS the acceptance — the owner ruled the preview step away
+   * for it — so the extraction processor calls this the moment the profile exists, and the
+   * ordinary `confirm` below does the rest: the `profile.confirmed` event (actor = the worker,
+   * whose Haan it is), the résumé enqueue, the referral leg and the kit notice, byte for byte
+   * what a tap on the preview would have done.
+   *
+   * THE WALLS, each fail-closed, because a confirm here spends AI money in the worker's name:
+   *   - the profile must carry `resume_update_accepted_at` — the acceptance is a durable record
+   *     on the row, never a caller's claim;
+   *   - it must be `extracted`. An empty extraction lands as `draft`, and confirming a draft
+   *     would generate a blank résumé over a good one;
+   *   - consent must still be ACTIVE and must name `resume_generation`. This runs minutes after
+   *     the chat, off the request path where no ConsentGuard stands, and a worker who withdrew in
+   *     between must not have a profile confirmed and sent to the model on the strength of an
+   *     answer given before. The purpose is required here even though the worker's own
+   *     `POST /resume/generate` does not ask for it: this generation runs with no request from
+   *     the worker at all, so the lawful basis has to be on the record, not assumed.
+   *
+   * ALREADY CONFIRMED IS SUCCESS, not a refusal: the worker's own tap on the preview (a shipped
+   * app build still shows it) got there first, its résumé job carries the same profile, and the
+   * generate processor reaches the same answer from the same row.
+   *
+   * NEVER THROWS — the caller is an extraction that has already succeeded, and must stay one.
+   */
+  async confirmAcceptedUpdate(
+    input: { worker_id: string; profile_id: string },
+    ctx: RequestContext,
+  ): Promise<AcceptedUpdateOutcome> {
+    try {
+      const profile = await this.profiles.findById(input.profile_id);
+      if (!profile || profile.workerId !== input.worker_id) return "not_found";
+      if (profile.resumeUpdateAcceptedAt == null) return "not_accepted";
+      if (profile.profileStatus === "confirmed") return "already_confirmed";
+      if (profile.profileStatus !== "extracted") return "not_extracted";
+
+      if (!(await hasActiveConsent(this.consents, input.worker_id, "resume_generation"))) {
+        return "no_consent";
+      }
+
+      await this.confirm({ worker_id: input.worker_id, profile_id: input.profile_id }, ctx);
+      return "confirmed";
+    } catch (err) {
+      this.logger.warn(
+        `accepted-update confirm failed profile=${input.profile_id}; the worker's update will ` +
+          `not land and the history reports it failed after the timeout (${
+            err instanceof Error ? err.message : String(err)
+          })`,
+      );
+      return "error";
+    }
   }
 }
 

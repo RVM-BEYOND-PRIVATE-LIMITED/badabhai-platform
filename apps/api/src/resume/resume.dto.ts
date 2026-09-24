@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { uuidSchema } from "@badabhai/validators";
+import type { ResumeGenerationTrigger, ResumeSource } from "@badabhai/types";
 
 /**
  * Generate a resume (worker-authed, TD70 item 5). The ACTING worker id is
@@ -22,6 +23,53 @@ export type GenerateResumeDto = z.infer<typeof GenerateResumeSchema>;
 export interface GenerateResumeInput {
   worker_id: string;
   profile_id: string;
+}
+
+/**
+ * The system events that may start a generation on their own (ADR-0043). A worker's own call is
+ * always `manual` and an ops regenerate always `ops_regenerate` — those two are decided by the
+ * service from the path, never passed in.
+ */
+export type SystemResumeTrigger = Extract<
+  ResumeGenerationTrigger,
+  "profile_confirmed" | "chat_update_accepted"
+>;
+
+/** One card on the worker's résumé history (`GET /resume/history`, ADR-0043). */
+export interface ResumeHistoryItem {
+  resume_id: string;
+  /** The profile this résumé was generated from — what a client matches a fresh confirm against. */
+  profile_id: string;
+  /** Which flow made it. NULL for a résumé generated before 0125 — show no label, never a guess. */
+  source: ResumeSource | null;
+  /** What started the generation. NULL before 0125. */
+  trigger: ResumeGenerationTrigger | null;
+  /** ISO-8601 UTC. The history's order: newest first. */
+  generated_at: string;
+  /** 'pending' | 'rendered' | 'failed' — typed `string` for the reason `MyResumeDocumentResponse` gives. */
+  render_status: string;
+  /** ISO-8601 UTC, or null when this row has never completed a render. */
+  rendered_at: string | null;
+  /** The résumé every other read treats as the worker's current one. Exactly one when non-empty. */
+  is_current: boolean;
+}
+
+/**
+ * The state of an update the worker ACCEPTED in chat ("Resume update kar doon?" → Haan) that has
+ * not landed as a résumé yet. `failed` is terminal until the next résumé of any kind is generated.
+ */
+export interface ResumePendingUpdate {
+  requested_at: string;
+  status: "in_progress" | "failed";
+}
+
+/**
+ * Response of `GET /resume/history` (ADR-0043). Keep all, show three: `items` is a display window,
+ * never a retention rule. No `version` — it is not a history ordinal and must not be displayed.
+ */
+export interface ResumeHistoryResponse {
+  items: ResumeHistoryItem[];
+  pending_update: ResumePendingUpdate | null;
 }
 
 /**
@@ -93,9 +141,10 @@ export interface GenerateResumeInput {
  *              an erased face out of service. Stop polling; prefer `document` if it is
  *              non-null, and only then fall back.
  *
- * SCOPE OF THE ANSWER: these fields describe the LATEST VERSION row (`latestResume` orders by
- * version desc), not "the worker's best resume". An ops regenerate that mints a v2 shadows a
- * good v1 — the state is now legible here, which it was not before.
+ * SCOPE OF THE ANSWER: these fields describe the NEWEST row (`latestResume` orders by
+ * `NEWEST_RESUME_FIRST` — generated_at, then id; ADR-0043), not "the worker's best resume". A
+ * regenerate that mints a new entry shadows a good older one — the state is legible here, and
+ * the older entry stays listed in `GET /resume/history`.
  *
  * `render_status` is typed `string`, deliberately matching `WorkerProfileBundleResume` rather
  * than narrowing to a union on one route only: the column is unconstrained `text` validated in

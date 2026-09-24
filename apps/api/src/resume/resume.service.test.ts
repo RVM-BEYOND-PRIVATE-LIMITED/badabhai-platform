@@ -104,6 +104,24 @@ function setup(
     // unguarded sibling is here only so a test can assert it is never reached.
     markRenderFailedIfPending: vi.fn(async (_id: string) => undefined),
     markRenderFailed: vi.fn(async (_id: string) => undefined),
+    // ADR-0043 — the history reads. `newestForProfile` defaults to NONE, so a manual generate
+    // takes the profile's-initial-row path every test written before résumé history assumes;
+    // the history suite re-stubs it. `maxVersion` is what numbers a new entry now, fed by the
+    // same `previousVersion` option `latestResume` used to be.
+    newestForProfile: vi.fn(
+      async (_profileId: string) => undefined as Record<string, unknown> | undefined,
+    ),
+    maxVersion: vi.fn(async (_workerId: string) => opts.previousVersion ?? 0),
+    // The database clock the converge rule compares `generated_at` against.
+    now: vi.fn(async () => new Date()),
+    convergeOnto: vi.fn(
+      async (id: string, input: Record<string, unknown>, _since: Date) =>
+        ({ id, version: 1, ...input }) as Record<string, unknown> | undefined,
+    ),
+    listHistory: vi.fn(
+      async (_workerId: string, _limit: number) => [] as Record<string, unknown>[],
+    ),
+    pendingChatUpdate: vi.fn(async (_workerId: string) => null as Record<string, unknown> | null),
   };
   const events = {
     emit: vi.fn(async (params: { event_name: string; payload: Record<string, unknown> }) => params),
@@ -122,6 +140,8 @@ function setup(
   const config = {
     RESUME_SIGNED_URL_TTL_SECONDS: 900,
     RESUME_RATE_LIMIT_PER_IP_PER_HOUR: 20,
+    RESUME_HISTORY_VISIBLE_LIMIT: 3,
+    RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
   } as ServerConfig;
 
   // #745: the résumé cost emitter. Stubbed (not the real recorder) so a test asserts on
@@ -837,5 +857,260 @@ describe("ResumeService.regenerate (TD5)", () => {
     const { svc, resumes } = setup(null);
     await expect(svc.regenerate(RES_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
     expect(resumes.create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ADR-0043 — every AI generation is its own history entry (ruling R2), labelled with the flow
+ * that made it (ruling R1), and the worker sees the newest three (ruling R4).
+ */
+describe("ResumeService — résumé history: which entry a generation becomes (ADR-0043)", () => {
+  // FINISHED BEFORE the request started — an entry the worker already has.
+  const RENDERED_ROW = {
+    id: "older",
+    version: 1,
+    renderStatus: "rendered",
+    generatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  };
+
+  it("a manual regenerate over a FINISHED résumé records a NEW entry — never overwrites it", async () => {
+    // The overwrite this replaces is what destroyed the entry the worker had. Today's app sends
+    // the trade-form "done" rebuild as this exact plain POST, so no client change is needed.
+    const { svc, resumes } = setup(null, { previousVersion: 3 });
+    resumes.newestForProfile.mockResolvedValue(RENDERED_ROW);
+    const out = await svc.generate(DTO, CTX);
+    expect(resumes.createInitial).not.toHaveBeenCalled();
+    expect(resumes.convergeOnto).not.toHaveBeenCalled();
+    expect(resumes.create).toHaveBeenCalledOnce();
+    const saved = resumes.create.mock.calls[0]![0] as Record<string, unknown>;
+    // Numbered from the worker's HIGHEST version, not from the newest row.
+    expect(saved.version).toBe(4);
+    expect(saved.generationTrigger).toBe("manual");
+    expect(out.version).toBe(4);
+    const regenerated = lastEvents(svc)
+      .emit.mock.calls.map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "resume.regenerated");
+    expect(regenerated?.payload).toMatchObject({
+      version: 4,
+      previous_version: 3,
+      trigger: "manual",
+    });
+  });
+
+  it("a manual generate CONVERGES on a generation still pending — the same request twice is one entry", async () => {
+    const { svc, resumes, renderQueue } = setup(null, { previousVersion: 1 });
+    resumes.newestForProfile.mockResolvedValue({
+      id: "in-flight",
+      version: 1,
+      renderStatus: "pending",
+    });
+    const out = await svc.generate(DTO, CTX);
+    expect(resumes.convergeOnto).toHaveBeenCalledOnce();
+    expect(resumes.convergeOnto.mock.calls[0]![0]).toBe("in-flight");
+    expect(resumes.create).not.toHaveBeenCalled();
+    expect(resumes.createInitial).not.toHaveBeenCalled();
+    expect(out.resume_id).toBe("in-flight");
+    // FORCED, because a render for the previous content may already be in flight and would
+    // otherwise win with "already rendered".
+    const [, payload] = renderQueue.add.mock.calls[0]!;
+    expect(payload).toMatchObject({ resumeId: "in-flight", force: true });
+  });
+
+  it("CONVERGES on a row RENDERED during this call — the first résumé racing the auto-generate is ONE entry", async () => {
+    // The auto-generate and the app's POST start on the same confirm; the auto job writes and
+    // renders its v1 while this call is at the model. That row is the same generation, not an
+    // entry the worker already had — without this, their very first résumé was two entries.
+    const { svc, resumes, renderQueue, events } = setup(null);
+    resumes.newestForProfile.mockResolvedValue({
+      id: "auto-v1",
+      version: 1,
+      renderStatus: "rendered",
+      generatedAt: new Date(Date.now() + 60_000),
+    });
+    const out = await svc.generate(DTO, CTX);
+    expect(resumes.convergeOnto).toHaveBeenCalledOnce();
+    expect(resumes.convergeOnto.mock.calls[0]![0]).toBe("auto-v1");
+    expect(resumes.convergeOnto.mock.calls[0]![2]).toBeInstanceOf(Date);
+    expect(resumes.create).not.toHaveBeenCalled();
+    expect(out.version).toBe(1);
+    expect(renderQueue.add.mock.calls[0]![1]).toMatchObject({ resumeId: "auto-v1", force: true });
+    // Announced as the first résumé, never as a "regenerated" one.
+    const names = events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).not.toContain("resume.regenerated");
+  });
+
+  it("does NOT re-charge the worker's daily cap on a queue RETRY of an accepted update", async () => {
+    const { svc, rateLimit } = setup(null);
+    await svc.generate(DTO, CTX, {
+      systemInitiated: true,
+      trigger: "chat_update_accepted",
+      retry: true,
+    });
+    expect(rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: false });
+  });
+
+  it("records a new entry when the pending row RENDERED in the meantime (the guarded write missed)", async () => {
+    const { svc, resumes, renderQueue } = setup(null, { previousVersion: 1 });
+    resumes.newestForProfile.mockResolvedValue({
+      id: "in-flight",
+      version: 1,
+      renderStatus: "pending",
+    });
+    resumes.convergeOnto.mockResolvedValue(undefined);
+    await svc.generate(DTO, CTX);
+    expect(resumes.create).toHaveBeenCalledOnce();
+    expect((resumes.create.mock.calls[0]![0] as { version: number }).version).toBe(2);
+    // A brand-new row renders the ordinary way — no force on a job for a row nobody rendered.
+    const [, payload] = renderQueue.add.mock.calls[0]!;
+    expect(payload).not.toHaveProperty("force");
+  });
+
+  it("the system path is untouched: insert-if-absent on the profile's initial row, labelled by trigger", async () => {
+    const { svc, resumes } = setup(null);
+    await svc.generate(DTO, CTX, { systemInitiated: true, trigger: "chat_update_accepted" });
+    expect(resumes.newestForProfile).not.toHaveBeenCalled();
+    const [input, options] = resumes.createInitial.mock.calls[0]!;
+    expect((options as { overwrite: boolean }).overwrite).toBe(false);
+    expect((input as Record<string, unknown>).generationTrigger).toBe("chat_update_accepted");
+  });
+
+  it("a system generate with no trigger is `profile_confirmed`; an ops regenerate is `ops_regenerate`", async () => {
+    const auto = setup(null);
+    await auto.svc.generate(DTO, CTX, { systemInitiated: true });
+    expect(
+      (auto.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
+    ).toBe("profile_confirmed");
+
+    const ops = setup(null, { previousVersion: 2 });
+    await ops.svc.generate(DTO, CTX, { forceNewVersion: true });
+    expect(
+      (ops.resumes.create.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
+    ).toBe("ops_regenerate");
+  });
+
+  it("the trigger is decided by the PATH, never taken from a caller on the worker path", async () => {
+    // A worker's own call cannot label itself an accepted chat update.
+    const { svc, resumes } = setup(null);
+    await svc.generate(DTO, CTX, { trigger: "chat_update_accepted" });
+    expect(
+      (resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationTrigger,
+    ).toBe("manual");
+  });
+
+  it("an accepted chat update is METERED against the worker's daily cap; the auto-generate is not", async () => {
+    const accepted = setup(null);
+    await accepted.svc.generate(DTO, CTX, {
+      systemInitiated: true,
+      trigger: "chat_update_accepted",
+    });
+    expect(accepted.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", {
+      perWorker: true,
+    });
+
+    const auto = setup(null);
+    await auto.svc.generate(DTO, CTX, { systemInitiated: true });
+    expect(auto.rateLimit.assertWithinDailyCap).toHaveBeenCalledWith("w-1", { perWorker: false });
+  });
+
+  it("labels the entry `resume_upload` when the profile accepted a CV import, else the road", async () => {
+    const fromCv = setup(null);
+    fromCv.profiles.findById.mockResolvedValue({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "confirmed",
+      rawProfile: {},
+      source: "chat",
+      seededFromImportId: "import-1",
+    });
+    await fromCv.svc.generate(DTO, CTX);
+    expect(
+      (fromCv.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationSource,
+    ).toBe("resume_upload");
+    const generated = lastEvents(fromCv.svc)
+      .emit.mock.calls.map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "resume.generated");
+    // The event reads the SAVED row, so it cannot disagree with the card.
+    expect(generated?.payload).toMatchObject({
+      resume_source: "resume_upload",
+      profile_source: "chat",
+    });
+
+    const road = setup(null);
+    road.profiles.findById.mockResolvedValue({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "confirmed",
+      rawProfile: {},
+      source: "form",
+      seededFromImportId: null,
+    });
+    await road.svc.generate(DTO, CTX);
+    expect(
+      (road.resumes.createInitial.mock.calls[0]![0] as Record<string, unknown>).generationSource,
+    ).toBe("form");
+  });
+});
+
+describe("ResumeService.history — keep all, show three (ADR-0043)", () => {
+  const at = (iso: string) => new Date(iso);
+  const row = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    profileId: `profile-${id}`,
+    version: 7,
+    generationSource: "chat",
+    generationTrigger: "manual",
+    generatedAt: at("2026-09-24T10:00:00.000Z"),
+    renderStatus: "rendered",
+    renderedAt: at("2026-09-24T10:01:00.000Z"),
+    ...over,
+  });
+
+  it("maps the window newest-first, marks ONLY the first current, and never exposes `version`", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([
+      row("a"),
+      row("b", { generationSource: "form", generationTrigger: "profile_confirmed" }),
+      row("c", {
+        generationSource: null,
+        generationTrigger: null,
+        renderedAt: null,
+        renderStatus: "failed",
+      }),
+    ]);
+    const out = await svc.history("w-1");
+    expect(resumes.listHistory).toHaveBeenCalledWith("w-1", 3);
+    expect(out.items.map((i) => [i.resume_id, i.is_current])).toEqual([
+      ["a", true],
+      ["b", false],
+      ["c", false],
+    ]);
+    expect(out.items[1]).toMatchObject({ source: "form", trigger: "profile_confirmed" });
+    // A pre-0125 row shows no label rather than a guessed one.
+    expect(out.items[2]).toMatchObject({ source: null, trigger: null, rendered_at: null });
+    for (const item of out.items) expect(item).not.toHaveProperty("version");
+    expect(out.pending_update).toBeNull();
+  });
+
+  it("returns an EMPTY window, not a 404, for a worker with no résumé yet", async () => {
+    const { svc } = setup(null);
+    expect(await svc.history("w-1")).toEqual({ items: [], pending_update: null });
+  });
+
+  it("reports an accepted update that has not landed as in_progress, then failed past the timeout", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.pendingChatUpdate.mockResolvedValue({
+      sessionId: "s-1",
+      requestedAt: at("2026-09-24T10:00:00.000Z"),
+      extractionStatus: "running",
+      profileStatus: null,
+      landed: false,
+    });
+    const soon = await svc.history("w-1", at("2026-09-24T10:05:00.000Z"));
+    expect(soon.pending_update).toEqual({
+      requested_at: "2026-09-24T10:00:00.000Z",
+      status: "in_progress",
+    });
+    const late = await svc.history("w-1", at("2026-09-24T10:21:00.000Z"));
+    expect(late.pending_update?.status).toBe("failed");
   });
 });

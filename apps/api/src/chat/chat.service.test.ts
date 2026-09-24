@@ -32,6 +32,7 @@ import {
 } from "../profiling/conversation-state";
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 import { llmChipOptions } from "../profiling/orchestrator.service";
+import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -92,6 +93,8 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     identifyTypeRequested: false,
     identifyStalledTurns: 0,
     prefilledKeys: [],
+    resumeUpdateOffer: null,
+    importAppliedId: null,
     ...over,
   };
 }
@@ -1760,5 +1763,105 @@ describe("ChatService — universal-only close pins the served pack and attribut
     });
     expect(chat.insertPackAnswers).not.toHaveBeenCalled();
     expect(chat.pinPack).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0043 — "Resume update kar doon?"
+// ---------------------------------------------------------------------------
+
+describe("ChatService — the résumé-update answer (ADR-0043)", () => {
+  const complete = { complete: true, questionKey: null, completionReason: "complete" };
+  const ANSWERED_AT = "2026-07-22T00:01:00.000Z";
+  const IMPORT = "44444444-4444-4444-8444-444444444444";
+  /** A completed interview whose worker said Haan — and, separately, accepted a CV import. */
+  const accepted = (acceptedFlag: boolean): Partial<TranscriptBuffer> => ({
+    ...COMPLETED,
+    profiling: envelope({
+      answerMap: [answer()] as never,
+      importAppliedId: IMPORT,
+      resumeUpdateOffer: {
+        state: "settled",
+        accepted: acceptedFlag,
+        completionReason: "complete",
+        answeredAt: ANSWERED_AT,
+      },
+    }),
+  });
+
+  it("persists the answer and the accepted import as loose keys on the flushed state", async () => {
+    const { chat } = await run({ buffer: {}, written: accepted(true), turn: complete });
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.resume_update).toEqual({ accepted: true, answered_at: ANSWERED_AT });
+    expect(state.import_applied_id).toBe(IMPORT);
+  });
+
+  it("an interview that was never offered flushes NULLs — never a guessed acceptance", async () => {
+    const { chat } = await run({ buffer: {}, written: COMPLETED, turn: complete });
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.resume_update).toBeNull();
+    expect(state.import_applied_id).toBeNull();
+  });
+
+  it("HAAN extracts even for a worker who already has a real profile — the preview will not do it", async () => {
+    const { profiles } = await run({
+      buffer: {},
+      written: accepted(true),
+      turn: complete,
+      latestProfile: profileRow({ skills: [{ skill_id: "msk_stitching" }] }),
+    });
+    expect(profiles.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it("ABHI NAHI keeps today's skip for a worker who already has a real profile", async () => {
+    // The vacuity check for the test above: same worker, same interview, only the answer differs.
+    const { profiles } = await run({
+      buffer: {},
+      written: accepted(false),
+      turn: complete,
+      latestProfile: profileRow({ skills: [{ skill_id: "msk_stitching" }] }),
+    });
+    expect(profiles.extract).not.toHaveBeenCalled();
+  });
+
+  it("tells the client `resume_update: queued` on the terminal turn that settled a Haan", async () => {
+    const { res } = await run({ buffer: {}, written: accepted(true), turn: complete });
+    expect(res.session_ended).toBe(true);
+    expect(res.resume_update).toBe("queued");
+  });
+
+  it("`resume_update` is null on an Abhi nahi and on every ordinary turn", async () => {
+    const declined = await run({ buffer: {}, written: accepted(false), turn: complete });
+    expect(declined.res.resume_update).toBeNull();
+    const ordinary = await run();
+    expect(ordinary.res.resume_update).toBeNull();
+  });
+
+  it("is NOT `queued` when ANOTHER request closed the session first — the stored answer is not this Haan", async () => {
+    // The abandonment sweep settled the idle offer as "Abhi nahi" in the same instant; its flush
+    // is the record, and nothing was queued for this Haan.
+    const { res } = await run({
+      buffer: {},
+      written: accepted(true),
+      turn: complete,
+      flushLost: true,
+    });
+    expect(res.session_ended).toBe(true);
+    expect(res.resume_update).toBeNull();
+    // …and the worker is not told "your résumé is being updated" for an update nobody queued.
+    expect(res.reply).toBe(CLOSING_REPLY_TEXT);
+  });
+
+  it("is NOT `queued` when the flush failed — a client must never route on an update that did not happen", async () => {
+    vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const { res } = await run({
+      buffer: {},
+      written: accepted(true),
+      turn: complete,
+      flushThrows: true,
+    });
+    expect(res.session_ended).toBe(false);
+    expect(res.resume_update).toBeNull();
+    vi.restoreAllMocks();
   });
 });

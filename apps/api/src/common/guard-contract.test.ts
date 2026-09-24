@@ -481,6 +481,9 @@ const CONTRACT: ControllerContract[] = [
     routes: {
       generate: [C, W],
       myDocument: [C, W],
+      // ADR-0043 — the worker's résumé history. [C, W] like every sibling worker read here, and
+      // listed on the day it ships rather than the release after (see `myDocument` above).
+      history: [C, W],
       get: [I],
       regenerate: [I],
       download: [W],

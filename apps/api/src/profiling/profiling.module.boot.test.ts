@@ -9,6 +9,7 @@ import { ResumeRouteService } from "./resume-import/resume-route.service";
 import { ResumeOptionMapService } from "./resume-import/resume-option-map.service";
 import { ResumeSummaryService } from "./resume-import/resume-summary.service";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
+import { ResumeUpdateOfferPolicy } from "./resume-update-offer";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
@@ -107,6 +108,8 @@ describe("ProfilingModule wiring", () => {
       // dependency (the identity-Haan branch), so omitting this provider does not fail a
       // metadata test — it fails BOOT, exactly as the entries above.
       ResumeAutofillService,
+      // ADR-0043 — who is asked "Resume update kar doon?" at the close.
+      ResumeUpdateOfferPolicy,
       // "TYPED CUSTOM ANSWER, EVERYWHERE" (round-4 ruling). `TradeFormService` takes it as a
       // CONSTRUCTOR dependency (`answer()`'s fire-and-forget review-or-omit trigger), so omitting
       // this provider does not fail a metadata test — it fails BOOT, exactly as the entries above.

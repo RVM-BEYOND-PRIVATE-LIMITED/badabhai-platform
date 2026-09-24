@@ -83,6 +83,13 @@ import {
 } from "./resume-import/resume-identity";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
+import {
+  readResumeUpdateOfferReply,
+  RESUME_UPDATE_ACCEPTED_REPLY,
+  RESUME_UPDATE_OFFER_OPTIONS,
+  RESUME_UPDATE_OFFER_PROMPT,
+  ResumeUpdateOfferPolicy,
+} from "./resume-update-offer";
 import { chatServableItems, crossFillItems } from "./facts/worker-fact.ownership";
 import { parseDurationMonths } from "./duration-months";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -503,6 +510,11 @@ export class ProfilingOrchestrator {
     // is already filled. Last constructor param so every existing test construction keeps
     // compiling; tests that reach the Haan pass their own fake.
     private readonly resumeAutofill?: ResumeAutofillService,
+    // ADR-0043 (ruling R3) — WHO is asked "Resume update kar doon?" at the close: a worker who
+    // already has a résumé, while the switch is on. READ-ONLY. Trailing and optional for the
+    // same reason as `resumeAutofill`: every existing construction keeps compiling, and a test
+    // that does not pass one gets exactly the pre-0125 interview.
+    private readonly resumeUpdateOffer?: ResumeUpdateOfferPolicy,
   ) {}
 
   /**
@@ -671,6 +683,12 @@ export class ProfilingOrchestrator {
         // on it now; passing the value that was written is what keeps that true if a later stamp
         // touches something the pin reads.
         await this.persistPin(envelope, measured.profiling, input);
+        // ADR-0043 — the résumé-update answer, recorded only now that the turn that settled it
+        // is the one that landed (the same after-the-CAS rule `persistPin` follows).
+        const settled = measured.profiling?.resumeUpdateOffer;
+        if (envelope.resumeUpdateOffer?.state === "pending" && settled?.state === "settled") {
+          await this.recordResumeUpdateAnswered(input, settled.accepted === true ? "yes" : "no");
+        }
         return decided.result;
       }
 
@@ -756,6 +774,22 @@ export class ProfilingOrchestrator {
       // {@link selectableEnginePacks}.
       const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
+
+      // ── THE RÉSUMÉ-UPDATE OFFER, RE-SERVED (ADR-0043) ──────────────────────────────────
+      //
+      // FIRST, because it is the LAST thing the interview ever puts on screen: it is served only
+      // where the engine would otherwise have closed, so nothing can be newer. Without this a
+      // cold start finds no `servedQuestionKey`, falls through to `nextQuestion`, and serves the
+      // closing line as a turn that is `complete` but was never flushed — the worker's interview
+      // would sit in Redis until the TTL took it. RE-SERVE ONLY: no write, no ask.
+      if (envelope.resumeUpdateOffer?.state === "pending") {
+        return resumeUpdateOfferTurn(
+          progressOf(progressItems, answers),
+          essentialsOf(items, answers),
+          true,
+          false,
+        );
+      }
 
       // ── THE RÉSUMÉ CONFIRM OPENS THE SCREEN (Task 1 B3; ADR-0042 D8) ──────────────────
       //
@@ -1327,6 +1361,60 @@ export class ProfilingOrchestrator {
     // cap every turn class falls through to `nextQuestion`, which closes with `turn_cap`.
     const capped = turn > MAX_ENGINE_TURNS;
 
+    // --- The résumé-update offer, answered (ADR-0043, ruling R3) -------------
+    //
+    // THE INTERVIEW IS ALREADY OVER. The offer is served only where the engine had decided to
+    // close, so this turn has exactly one job — read the answer and close — and it runs BEFORE
+    // every other branch, including capture: a "haan" that reached cross-question filling could
+    // settle some unrelated boolean question, and one that reached identify could re-pin a trade.
+    //
+    // NOT GATED ON `capped`. An interview that closed on `turn_cap` is offered the question too,
+    // and its answer arrives one turn past the cap — gating it would drop the worker's answer on
+    // the floor and re-serve the close without it.
+    //
+    // THE CLOSE CARRIES THE ENGINE'S OWN VERDICT, stored when the offer was served, so the
+    // interview ends for the reason it ended — `complete`, `ask_budget`, `turn_cap` — not for a
+    // reason re-derived one turn later.
+    if (envelope.resumeUpdateOffer?.state === "pending") {
+      const offer = envelope.resumeUpdateOffer;
+      const accepted = readResumeUpdateOfferReply(input.text) === "accept";
+      // NO EVENT HERE. `profile.resume_update_answered` is the record of the worker's consent to
+      // regenerate, so it is emitted in `takeTurn` AFTER this decision wins its CAS — a decision
+      // that loses the write did not happen, and recording it first could leave the spine saying
+      // "no" beside a stored "yes".
+      const answersNow = answersOf(envelope);
+      return this.turn(
+        buffer,
+        {
+          ...envelope,
+          servedQuestionKey: null,
+          resumeUpdateOffer: {
+            state: "settled",
+            accepted,
+            completionReason: offer.completionReason,
+            answeredAt: input.now.toISOString(),
+          },
+        },
+        input,
+        {
+          reply: accepted ? RESUME_UPDATE_ACCEPTED_REPLY : CLOSING_REPLY,
+          kind: "close",
+          questionKey: null,
+          options: [],
+          whyText: null,
+          answerType: null,
+          progress: progressOf(progressItems, answersNow),
+          unansweredEssentials: essentialsOf(items, answersNow),
+          complete: true,
+          completionReason: offer.completionReason ?? "complete",
+          replayed: false,
+          excludeFromParse: false,
+          unavailable: false,
+          checkpointDue: false,
+        },
+      );
+    }
+
     // --- An OLD client's "Kuch aur" tap on a model chip turn (#1506) ---------
     //
     // BEFORE CAPTURE, and the position is the whole fix. Placed any later — the first design put it
@@ -1574,6 +1662,9 @@ export class ProfilingOrchestrator {
 
       if (reply === "accept") {
         await this.recordIdentityAnswered(input, identityImportId, "yes");
+        // ADR-0043 (ruling R1): the worker claimed this CV as theirs, so the résumé this
+        // interview produces is labelled `resume_upload` — whichever road finishes it.
+        next = { ...next, importAppliedId: identityImportId };
         // RI-AUTOFILL (owner override B): apply the staged mappings as answers BEFORE the
         // handover, so the form the worker lands on is already filled. Best-effort and
         // never blocking: a throw here must not cost the handover, so it is caught and
@@ -1657,10 +1748,15 @@ export class ProfilingOrchestrator {
         // `preferred_locations` suggestions stay on the pages that own them; only trade,
         // experience, city and availability are ever offered for confirmation here.
         const facts = confirmableFacts(staged, chatServableItems(items), answers);
-        for (const value of confirmedValues(facts)) {
+        const confirmed = confirmedValues(facts);
+        for (const value of confirmed) {
           answers = recordAnswer(answers, value, turn);
         }
         next = withAnswers(next, answers);
+        // ADR-0043 (ruling R1): facts from the CV entered this interview, so its résumé is
+        // labelled `resume_upload`. ONLY when at least one was confirmed — a "haan" over an
+        // offer whose every fact had since been answered by the worker added nothing of the CV's.
+        if (confirmed.length > 0) next = { ...next, importAppliedId: confirmImportId };
         await this.recordPrefillApplied(input, confirmImportId, staged.size, facts.length);
       } else {
         // COUNTED AS OFFERED AND ZERO ACCEPTED. A decline is the measurement this event exists
@@ -2244,6 +2340,55 @@ export class ProfilingOrchestrator {
       next = { ...next, phase: decision.phase, servedQuestionKey: decision.questionKey };
     }
 
+    // --- The résumé-update offer, served (ADR-0043, ruling R3) ---------------
+    //
+    // WHERE THE ENGINE WOULD CLOSE, AND ONLY THERE. The interview has everything it is going to
+    // ask; this is one more question, about what to do with it, put to a worker who already has
+    // a résumé. It changes nothing about which questions were asked or how the answers were
+    // recorded, and a worker who is not eligible — a first interview, or the switch off — gets
+    // the close byte for byte as before.
+    //
+    // NOT ON TWO CLOSES. `abuse_cap` ended an interview that went wrong, and asking that worker
+    // to confirm a profile built from it would be the worst available follow-up; `no_pack` built
+    // nothing. A form handover never reaches here (it returns earlier), and `formKind` is checked
+    // anyway so a later edit cannot offer a résumé update over a form the worker is sent to.
+    //
+    // ONCE: `resumeUpdateOffer === null` means never offered; the answer turn above closes the
+    // interview, so the engine is never consulted again for this session.
+    //
+    // A CHECKPOINT, because the interview is effectively over and its whole answer map is at
+    // stake while it waits on one tap.
+    if (
+      decision.kind === "close" &&
+      decision.completionReason !== "abuse_cap" &&
+      decision.completionReason !== "no_pack" &&
+      next.formKind === null &&
+      next.resumeUpdateOffer == null &&
+      this.resumeUpdateOffer !== undefined &&
+      (await this.resumeUpdateOffer.eligible(input.workerId))
+    ) {
+      next = {
+        ...next,
+        servedQuestionKey: null,
+        resumeUpdateOffer: {
+          state: "pending",
+          accepted: null,
+          completionReason: decision.completionReason,
+          answeredAt: null,
+        },
+      };
+      const offered = resumeUpdateOfferTurn(
+        decision.progress,
+        essentialsOf(items, answers),
+        false,
+        true,
+      );
+      return this.turn(buffer, next, input, {
+        ...offered,
+        excludeFromParse: capture.excludeFromParse,
+      });
+    }
+
     // A TURN THAT WOULD SHOW THE WORKER NOTHING IS NOT A TURN WORTH COMMITTING.
     //
     // `disambiguate` is how this WAS reached: `nextQuestion` returns it with an empty
@@ -2398,6 +2543,26 @@ export class ProfilingOrchestrator {
       ? [...(viewSelectable.occupation?.items ?? []), ...viewSelectable.universal.items]
       : [];
     const answers = answersOf(envelope);
+
+    // THE RÉSUMÉ-UPDATE OFFER OUTRANKS EVERYTHING (ADR-0043) — the same precedence `openTurn`
+    // applies, for the same reason: it is the last thing the interview ever serves.
+    // `questionKey: null` is load-bearing, as for the offers below: `ProfilingSessionService`
+    // guards a voice-form answer on it, and the chips resolve to their labels through `options`.
+    if (envelope.resumeUpdateOffer?.state === "pending") {
+      return {
+        buffer,
+        envelope,
+        items,
+        served: {
+          questionKey: null,
+          promptText: RESUME_UPDATE_OFFER_PROMPT,
+          answerType: "single_select",
+          options: [...RESUME_UPDATE_OFFER_OPTIONS],
+          whyText: null,
+          progress: progressOf(progressItems, answers),
+        },
+      };
+    }
 
     // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION — see {@link outstandingOffer}, which
     // both readers of a reopened session share so they cannot answer this differently again.
@@ -2947,6 +3112,33 @@ export class ProfilingOrchestrator {
       this.logger.error(
         `the résumé identity answer for import ${importId} was not recorded; the interview ` +
           `continues but RI-7 cannot see the answer: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * The worker's answer to "Resume update kar doon?" (ADR-0043) — the only record of the consent
+   * that lets their new profile be confirmed and regenerated without the preview.
+   *
+   * ONCE PER SESSION by its key: the offer is asked once, so a replayed or re-decided turn must
+   * not record a second answer. Never throws — a lost audit row must not cost the worker their
+   * close; it is loud in the log instead.
+   */
+  private async recordResumeUpdateAnswered(input: TurnInput, answer: "yes" | "no"): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.resume_update_answered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: { worker_id: input.workerId, session_id: input.sessionId, answer },
+        idempotencyKey: `profile.resume_update_answered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the résumé-update answer for session ${input.sessionId} was not recorded; the ` +
+          `interview closes regardless: ${(error as Error).message}`,
       );
     }
   }
@@ -4289,6 +4481,39 @@ function shapeOf(
   const item = items.find((candidate) => candidate.question_key === questionKey);
   if (!item) return { whyText: null, answerType: null };
   return { whyText: item.why_text ?? null, answerType: item.answer_type };
+}
+
+/**
+ * The résumé-update offer as a turn (ADR-0043) — one shape for the serve and the re-serve, so a
+ * reopened app draws exactly the bubble and chips the worker was first shown.
+ *
+ * `ask`, not a new kind: `TURN_KINDS` is pinned as a subset of what shipped clients know, and this
+ * IS an ask — a question with two chips, answered like any single-select. `questionKey: null`
+ * because it belongs to no pack; naming one would make the answer turn's capture file "haan"
+ * against that question.
+ */
+function resumeUpdateOfferTurn(
+  progress: { readonly answered: number; readonly total: number },
+  unansweredEssentials: readonly string[],
+  replayed: boolean,
+  checkpointDue: boolean,
+): TurnResult {
+  return {
+    reply: RESUME_UPDATE_OFFER_PROMPT,
+    kind: "ask",
+    questionKey: null,
+    options: [...RESUME_UPDATE_OFFER_OPTIONS],
+    whyText: null,
+    answerType: "single_select",
+    progress,
+    unansweredEssentials: [...unansweredEssentials],
+    complete: false,
+    completionReason: null,
+    replayed,
+    excludeFromParse: false,
+    unavailable: false,
+    checkpointDue,
+  };
 }
 
 function progressOf(items: readonly QuestionPackItem[], answers: AnswerMap) {

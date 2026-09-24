@@ -159,6 +159,16 @@ const FULL: ProfilingEnvelope = {
   // NON-DEFAULT, like every field here: `[]` is what a `narrow` that dropped it would rebuild
   // (#1504 item 5, city-seed).
   prefilledKeys: ["current_city"],
+  // NON-DEFAULT, like every field here (ADR-0043): null is what a `narrow` that dropped either
+  // would rebuild. `settled` + `accepted: true` + a non-`complete` reason, because each of the
+  // three is a value a lossy narrower could silently reset.
+  resumeUpdateOffer: {
+    state: "settled",
+    accepted: true,
+    completionReason: "ask_budget",
+    answeredAt: "2026-09-24T10:00:00.000Z",
+  },
+  importAppliedId: "33333333-3333-4333-8333-333333333333",
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
