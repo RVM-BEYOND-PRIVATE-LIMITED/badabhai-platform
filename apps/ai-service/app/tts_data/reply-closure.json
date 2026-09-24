@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 1001,
+  "clip_count": 1110,
   "producers": {
-    "retry": 85,
-    "clarify": 383,
-    "prompt": 276,
-    "why": 249,
+    "retry": 96,
+    "clarify": 429,
+    "prompt": 309,
+    "why": 268,
     "constant": 8
   },
   "clips": [
@@ -65,6 +65,11 @@
       "producer": "why"
     },
     {
+      "id": "0357fef8aef4ae28",
+      "text": "Overhaul karne wale fitter ko senior kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "0360e9d8b4ff4bfa",
       "text": "Aap kaunsi dukan par kaam karte hain?",
       "producer": "prompt"
@@ -78,6 +83,11 @@
       "id": "03af5009543e0498",
       "text": "Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "03dcfb75a8035f60",
+      "text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.",
+      "producer": "why"
     },
     {
       "id": "041841a8f3caed3d",
@@ -105,9 +115,19 @@
       "producer": "why"
     },
     {
+      "id": "048bacb0c39defc9",
+      "text": "Assembly line par kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "053f2c388f8a8004",
       "text": "Machine wale ko badi jagah kaam milta hai. Kya aap safai ki machine chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "05d1c6f96c3d8eb7",
+      "text": "Bench aur assembly ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "05e86c803712bef8",
@@ -130,6 +150,11 @@
       "producer": "clarify"
     },
     {
+      "id": "06f1b730b26d7c17",
+      "text": "Hydraulic jaanne wale fitter ki plant me alag maang hai. Hydraulic ka kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "0748706b5628ff0e",
       "text": "Post-processor ke saath aap kitna kaam karte hain?",
       "producer": "prompt"
@@ -145,6 +170,11 @@
       "producer": "prompt"
     },
     {
+      "id": "076751bd8cbb967b",
+      "text": "Fitting ke kai tarah hote hain. Assembly, maintenance ya erection, kaunsi fitting karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "07693866bb3f9908",
       "text": "Ghar aur factory ka kaam alag hai.",
       "producer": "why"
@@ -158,6 +188,11 @@
       "id": "07a18548d2028586",
       "text": "Kis line ki drawing banayi hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "07d799165ba05f4b",
+      "text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai. Rejection aane par kaunsa kaam khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "07f647886b795622",
@@ -220,8 +255,18 @@
       "producer": "clarify"
     },
     {
+      "id": "0a4893236d2515ae",
+      "text": "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai. Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "0a838d038ab44683",
       "text": "Armed guard ka vetan zyada hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "0ad15cb1f767720a",
+      "text": "CMM program banane wale ko zyada vetan milta hai.",
       "producer": "why"
     },
     {
@@ -268,6 +313,11 @@
       "id": "0c68d10eefc2cfd2",
       "text": "Quality ka kaunsa kaam aap karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "0c79c6553fc81142",
+      "text": "Zimmedaari sambhalne wale ko zyada vetan milta hai. Line par aur kaunsi zimmedaari sambhalte hain?",
+      "producer": "clarify"
     },
     {
       "id": "0ca26ed08238bdd1",
@@ -410,6 +460,11 @@
       "producer": "prompt"
     },
     {
+      "id": "12f14c3571a737c0",
+      "text": "Shop floor par kaunse tareeke follow karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "1312c19a719b2458",
       "text": "Setting karne wale welder ko zyada vetan milta hai. Machine ki kaunsi setting khud karte hain?",
       "producer": "clarify"
@@ -457,6 +512,11 @@
     {
       "id": "1633b3d24e524ebe",
       "text": "Lambi duri ka paisa alag hota hai. Kya aap lambi duri ja sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "163d852105bf6075",
+      "text": "Erection aur commissioning jaanne wale ko site ka kaam milta hai. Erection me kaunsa kaam khud sambhalte hain?",
       "producer": "clarify"
     },
     {
@@ -550,6 +610,11 @@
       "producer": "retry"
     },
     {
+      "id": "1b1de98adc24dcf2",
+      "text": "Equipment ka tajurba employer sabse pehle dekhte hain. Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "1b2167a3f28e1927",
       "text": "LT aur HT line ka kaam alag hai.",
       "producer": "why"
@@ -572,6 +637,11 @@
     {
       "id": "1c5a1f7aca404c2f",
       "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. ITI ka trade test pass kiya hai ya nahi?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1cbf4193c46f4966",
+      "text": "Kharabi pakadne wale ki line par zaroorat rehti hai. Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
       "producer": "clarify"
     },
     {
@@ -615,6 +685,11 @@
       "producer": "why"
     },
     {
+      "id": "1e5a2d5202b5447e",
+      "text": "CMM program banane wale ko zyada vetan milta hai. CMM par kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "1e5bf9a46b9ccce5",
       "text": "Job ko machine par kaise pakadte hain?",
       "producer": "prompt"
@@ -627,6 +702,11 @@
     {
       "id": "1e63f4b772c8121b",
       "text": "Press ka size batata hai ki kitni badi tooling banayi hai. Kitne tonnage ki press par tryout kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "1ebab892fbcd518f",
+      "text": "Standard jaanne wale ko badi company me kaam milta hai. Kaunse quality standard ke hisaab se kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -685,6 +765,11 @@
       "producer": "clarify"
     },
     {
+      "id": "20eefca7c520bc0f",
+      "text": "Document sambhalne wale ko QC engineer ka kaam milta hai. Kaunse quality document khud banate ya bharte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "216877daf0aafefe",
       "text": "Gun setting se coating barabar lagti hai aur powder bachta hai. Gun ki kaunsi setting khud karte hain?",
       "producer": "clarify"
@@ -723,6 +808,11 @@
       "id": "22fbae0b3526674e",
       "text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai. Pehla piece check karna ya rejection dekhna, kya karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "239e6c2d9592d079",
+      "text": "Tez line par kaam karne wale ki alag maang hoti hai.",
+      "producer": "why"
     },
     {
       "id": "23b2947d851e0207",
@@ -930,9 +1020,19 @@
       "producer": "clarify"
     },
     {
+      "id": "2c45dea55fc14cef",
+      "text": "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "2c7b9f3afb5013a0",
       "text": "Aap kya assemble karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "2c97e8bea8229abc",
+      "text": "Steel aur aluminium ka kaam alag hota hai. Kis tarah ke parts ki checking karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "2d41b439cd3f5483",
@@ -1045,6 +1145,21 @@
       "producer": "retry"
     },
     {
+      "id": "30b7c35b96246c42",
+      "text": "Tool ke hisaab se sahi kaam dikhaya jaata hai. Line par kaunse tool chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "30be6536c31a5d1e",
+      "text": "Overhaul karne wale fitter ko senior kaam milta hai. Kis machine ka poora overhaul khud kar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "30c8024a8200e70a",
+      "text": "Kaunse quality standard ke hisaab se kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "3116a5dea1ffb810",
       "text": "Aap kis industry ke parts banate hain?",
       "producer": "prompt"
@@ -1130,9 +1245,24 @@
       "producer": "clarify"
     },
     {
+      "id": "368c1fac7880da9e",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Fitting ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "373e5128c351185d",
       "text": "Saal se employer ko aapka experience samajh aata hai.",
       "producer": "why"
+    },
+    {
+      "id": "37420fcd8e366a71",
+      "text": "Lagbhag kitne saal quality inspection ka kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "375af97fc4a747a4",
+      "text": "Line par kaunse tool chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "379634fd24c9fff8",
@@ -1262,6 +1392,21 @@
     {
       "id": "3ed407fb74d22243",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Job shop, auto parts ya pump valve, kis line me kaam kiya?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3ef2d8c7461cc1cc",
+      "text": "Tez line par kaam karne wale ki alag maang hoti hai. Aapki line ka takt time kitna tha?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3ef94869420c35e7",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. Naap aur fitting ke liye kaunse aujaar istemaal karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3f34d5b543be9eb3",
+      "text": "Line ke har stage ka kaam alag hota hai. Sub-assembly, final assembly ya testing, kahan kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -1395,6 +1540,11 @@
       "producer": "why"
     },
     {
+      "id": "451fa404ed1708ef",
+      "text": "Kaunsi assembly par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "45492d64966fde2a",
       "text": "Kya aap koi hunar seekh rahe hain?",
       "producer": "prompt"
@@ -1475,6 +1625,16 @@
       "producer": "clarify"
     },
     {
+      "id": "4848967d4691a47d",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke plant me fitting ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "48bae775750eba9a",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke parts ki checking ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "4919f2d3245d0086",
       "text": "Fitting ke kai tarah hote hain. Aap kis tarah ka fitting kaam karte hain?",
       "producer": "clarify"
@@ -1488,6 +1648,11 @@
       "id": "49a2e9413f3c41a7",
       "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "4a29dcf10ab8db36",
+      "text": "Aap khud ko kis level ka quality inspector maante hain?",
+      "producer": "prompt"
     },
     {
       "id": "4a473ba1bb0cb405",
@@ -1555,6 +1720,11 @@
       "producer": "why"
     },
     {
+      "id": "4d1ca47f25a8b3ed",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Assembly me jodne ka kaunsa kaam khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "4d2d96583838f250",
       "text": "Grade jaanne wale ko badi site milti hai.",
       "producer": "why"
@@ -1595,6 +1765,16 @@
       "producer": "why"
     },
     {
+      "id": "4ee96a3ff320a4c6",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Aap khud ko kis level ka fitter maante hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "4f152fb1f5a840fe",
+      "text": "Kaunse quality document khud banate ya bharte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "4f61511f6a955dcb",
       "text": "Yeh feature wali machine chalane wale kam milte hain.",
       "producer": "why"
@@ -1607,6 +1787,11 @@
     {
       "id": "4f89f2fee57b9d27",
       "text": "Aap kaunsa karghah chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4fe789ce93bf2ae9",
+      "text": "Aap khud ko kis level ka assembly line worker maante hain?",
       "producer": "prompt"
     },
     {
@@ -1670,6 +1855,16 @@
       "producer": "clarify"
     },
     {
+      "id": "52c757573366a047",
+      "text": "Document sambhalne wale ko QC engineer ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "52d26d94ecaa6aaf",
+      "text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai.",
+      "producer": "why"
+    },
+    {
       "id": "534c0a5816c7c768",
       "text": "Chemical wale kaam ki training hoti hai. Kya aap chemical se safai karte hain?",
       "producer": "clarify"
@@ -1692,6 +1887,11 @@
     {
       "id": "54529197467ba4f2",
       "text": "QC wale ko alag se rakha jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "547b9d703c27343b",
+      "text": "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai.",
       "producer": "why"
     },
     {
@@ -1728,6 +1928,11 @@
       "id": "559be5050f452515",
       "text": "Ghante ke hisaab se vetan tay hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "55caf089db02d8e7",
+      "text": "Sub-assembly, final assembly ya testing, kahan kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "562e3504a8dc4ca7",
@@ -1875,6 +2080,11 @@
       "producer": "retry"
     },
     {
+      "id": "5b657f61ff881a4f",
+      "text": "Kharabi pakadne wale ki line par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
       "id": "5b7c4e0380ad5af1",
       "text": "Tayyari ka kaam coating ki quality tay karta hai. Degreasing, phosphating ya masking, kya karte hain?",
       "producer": "clarify"
@@ -1898,6 +2108,11 @@
       "id": "5c64bd6bb2b5a234",
       "text": "Safedi aur scaffolding alag hai. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "5cb805d51ceea9c4",
+      "text": "CMM par kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "5d44926d31a4f0d3",
@@ -1943,6 +2158,16 @@
       "id": "5ebd2cdbd6d19e26",
       "text": "Controller jaanne wale operator ko jaldi kaam milta hai. Machine par kaunsa controller lagaa hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "5ee0f540f048656b",
+      "text": "Lagbhag kitne saal assembly line par kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "5f981c4c7c18d2ea",
+      "text": "Kaunsi machine ya equipment par fitting ka kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "5febf17aba083517",
@@ -2012,6 +2237,11 @@
     {
       "id": "639a76a0adb054b0",
       "text": "Kis industry ke liye tooling banayi hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "63eca3abcc9c1b78",
+      "text": "Aap khud ko kis level ka fitter maante hain?",
       "producer": "prompt"
     },
     {
@@ -2175,6 +2405,11 @@
       "producer": "clarify"
     },
     {
+      "id": "6afe2166303f1d56",
+      "text": "Erection me kaunsa kaam khud sambhalte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "6b17f99629a2cc4e",
       "text": "Lagbhag kitne saal machine par kaam kiya hai?",
       "producer": "retry"
@@ -2182,6 +2417,11 @@
     {
       "id": "6b5daaeef73a6d6c",
       "text": "Drawing dekh kar job bana lete hain?",
+      "producer": "retry"
+    },
+    {
+      "id": "6b6bb33d973016d0",
+      "text": "Lagbhag kitne saal fitter ka kaam kiya hai?",
       "producer": "retry"
     },
     {
@@ -2282,6 +2522,11 @@
     {
       "id": "6e3c36dda175d138",
       "text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai. CAM software par ya machine par MDI se program banate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "6e4f16b450a79b92",
+      "text": "Helper aur skilled worker ka kaam aur vetan alag hota hai. Aap khud ko kis level ka assembly line worker maante hain?",
       "producer": "clarify"
     },
     {
@@ -2500,6 +2745,11 @@
       "producer": "clarify"
     },
     {
+      "id": "79485f17468a18ec",
+      "text": "Line ke kaunse stage par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "799df871fe3e85d4",
       "text": "Kya aap ghar jaakar service dete hain?",
       "producer": "prompt"
@@ -2540,6 +2790,11 @@
       "producer": "why"
     },
     {
+      "id": "7bc0c1b79d3cd3df",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Quality inspection ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "7bf271a27cfd0730",
       "text": "Apna tool khud grind karna purana aur bada hunar hai. HSS tool ki dhaar aap banate hain ya koi aur?",
       "producer": "clarify"
@@ -2552,6 +2807,11 @@
     {
       "id": "7cb4c28733f66d38",
       "text": "Meter chalana jaanne wala fault jaldi pakadta hai. Testing ke liye kaunse meter istemaal karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "7d327b8a68eb6d26",
+      "text": "Product ka tajurba usi line ke employer dhoondhte hain. Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -2590,6 +2850,11 @@
       "producer": "retry"
     },
     {
+      "id": "7f412f6b1bf91524",
+      "text": "Chhota least count naapne wale ko fine kaam milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "7f456fde7fa5093b",
       "text": "CAM software par ya machine par MDI se program banate hain?",
       "producer": "retry"
@@ -2620,6 +2885,11 @@
       "producer": "why"
     },
     {
+      "id": "806222d410a52abc",
+      "text": "Kitne least count tak naap lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "80847ea92abe3fef",
       "text": "Colour change jaldi karne se line ka time bachta hai.",
       "producer": "why"
@@ -2637,6 +2907,11 @@
     {
       "id": "816ee2a1de2baf3b",
       "text": "Site par raat ka kaam aam hai. Kya aap raat ki shift kar sakte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8174b5316ae4e859",
+      "text": "Equipment ka tajurba employer sabse pehle dekhte hain. Kaunsi machine ya equipment par fitting ka kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -2710,6 +2985,11 @@
       "producer": "prompt"
     },
     {
+      "id": "84868244a772e6fe",
+      "text": "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "84fef38bdd1657da",
       "text": "Tool room ka kitna tajurba hai?",
       "producer": "prompt"
@@ -2773,6 +3053,11 @@
       "id": "8764240a2e75feaf",
       "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai. Machine ki kaunsi dikkat aap sudhaar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "878f0e2d9de222e3",
+      "text": "Quality inspection ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "879c42828b42541c",
@@ -2850,6 +3135,11 @@
       "producer": "retry"
     },
     {
+      "id": "8a88e081a432a011",
+      "text": "Kis cheez ki assembly line par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "8ae77cc90d8f82b8",
       "text": "Har jagah ki duty alag hoti hai.",
       "producer": "why"
@@ -2858,6 +3148,11 @@
       "id": "8b4d04b738c4f181",
       "text": "Lagbhag kitne saal coating ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "8bcc6c790ff2acbb",
+      "text": "Audit ya customer ka kaunsa kaam sambhalte hain?",
+      "producer": "prompt"
     },
     {
       "id": "8c218b4fa7a40693",
@@ -2893,6 +3188,11 @@
       "id": "8d4bff300e2b4bc0",
       "text": "Diesel aur petrol ka kaam alag hai.",
       "producer": "why"
+    },
+    {
+      "id": "8d626576f6b34565",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal fitter ka kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "8daa89666d47d67b",
@@ -2947,6 +3247,11 @@
     {
       "id": "8fdfa8a59e8ab4f9",
       "text": "Paint shop me aap kis level par kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9053f4d95411ec82",
+      "text": "Rejection aane par kaunsa kaam khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -3008,6 +3313,11 @@
       "id": "9269a73c724290f0",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis cheez ki sheet metal fabrication me kaam kiya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "92a32b36ebd0c3fa",
+      "text": "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "92b79253cf5a0690",
@@ -3080,8 +3390,18 @@
       "producer": "clarify"
     },
     {
+      "id": "96ac30ed7d3bfbc2",
+      "text": "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "96fe776f95698842",
       "text": "Drawing aur CAD ke kaam ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "97b4b25f05a284ca",
+      "text": "Fitting ka kitna tajurba hai?",
       "producer": "prompt"
     },
     {
@@ -3098,6 +3418,16 @@
       "id": "98dc165375a41667",
       "text": "Aapke aas-paas ki naukri dikhane ke liye sheher zaroori hai. Aap kaunse sheher mein rehte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "98ef2cfb161cb486",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis cheez ki assembly line par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "999a4f972f3618d3",
+      "text": "Line par aur kaunsi zimmedaari sambhalte hain?",
+      "producer": "prompt"
     },
     {
       "id": "99aa47ab55aa2d69",
@@ -3155,6 +3485,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9c3c1b04c731f8ba",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Incoming, patrol ya final, kaunsi inspection karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "9c62f2b418115ed8",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi machine chalate hain?",
       "producer": "clarify"
@@ -3183,6 +3518,11 @@
       "id": "9d9a5965ab15d907",
       "text": "Drawing padhna zaroori hai kai jagah. Kya aap drawing padh lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "9de97bb233478719",
+      "text": "Kis stage par inspection karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "9e21d3becf1b1333",
@@ -3240,6 +3580,11 @@
       "producer": "why"
     },
     {
+      "id": "a038daa851546341",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Kis stage par inspection karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a0c010069eaed6c6",
       "text": "Kya aapke paas guard ka licence hai?",
       "producer": "prompt"
@@ -3262,6 +3607,11 @@
     {
       "id": "a17f93e822c6b0fb",
       "text": "Drawing check karne wale ko senior maana jaata hai. Doosron ki banayi drawing check karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "a1814cc9cb3ca347",
+      "text": "Kai station jaanne wale ko line par aage rakha jaata hai. Line ke kitne station ka kaam aata hai?",
       "producer": "clarify"
     },
     {
@@ -3435,6 +3785,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a916e2541eb403b2",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a99f79b62442233f",
       "text": "Thickness se coating ki quality aur cost tay hoti hai.",
       "producer": "why"
@@ -3488,6 +3843,21 @@
       "id": "ac7f50f923750307",
       "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. Workshop me kaunsi machine par haath aazmaya hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "acc8d4fb4e1fd4be",
+      "text": "Hydraulic jaanne wale fitter ki plant me alag maang hai.",
+      "producer": "why"
+    },
+    {
+      "id": "acdac218a0856cb1",
+      "text": "Line ke kitne station ka kaam aata hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ad6c473e707d5311",
+      "text": "CMM, profile projector ya height gauge, kaunsa chalaya hai?",
+      "producer": "retry"
     },
     {
       "id": "ad9ed65379f291e0",
@@ -3570,6 +3940,11 @@
       "producer": "why"
     },
     {
+      "id": "b0edde2ab8abe4a8",
+      "text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai. Audit ya customer ka kaunsa kaam sambhalte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "b166f6b612a1d3e1",
       "text": "Epoxy, polyester, PU ya primer, kya lagaya hai?",
       "producer": "retry"
@@ -3613,6 +3988,16 @@
       "id": "b3b1ad2be1deab25",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Sheet par kaunsa kaam khud karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "b49ad5b5b256b36e",
+      "text": "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "b49be5d2a6833a5c",
+      "text": "Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "b4c68d0d6c6205d8",
@@ -3670,6 +4055,11 @@
       "producer": "clarify"
     },
     {
+      "id": "b6f58de465dd03ee",
+      "text": "Kis industry ke plant me fitting ka kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "b7c5baacc2c9c6b4",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ki fabrication me kaam kiya hai?",
       "producer": "clarify"
@@ -3725,6 +4115,11 @@
       "producer": "clarify"
     },
     {
+      "id": "baf56e2a0d129c9a",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. CMM, profile projector ya height gauge, kaunsa chalaya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "bb34f950d21862c1",
       "text": "Cash wale par bharosa chahiye hota hai.",
       "producer": "why"
@@ -3772,6 +4167,11 @@
     {
       "id": "bc21aec5c7bfb418",
       "text": "Aap din me kitne ghante kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "bc4edd2f8cbb3aef",
+      "text": "Kis industry ke parts ki checking ki hai?",
       "producer": "prompt"
     },
     {
@@ -3885,6 +4285,11 @@
       "producer": "constant"
     },
     {
+      "id": "c090e2d4c2ad3c7d",
+      "text": "Product ka tajurba usi line ke employer dhoondhte hain.",
+      "producer": "why"
+    },
+    {
       "id": "c0bfb454971e67bf",
       "text": "Level se employer ko aapka darja saaf pata chalta hai. Helper, operator ya skilled, kaunsa level hai?",
       "producer": "clarify"
@@ -3905,6 +4310,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c2159cca13df1506",
+      "text": "Assembly, maintenance ya erection, kaunsi fitting karte hain?",
+      "producer": "retry"
+    },
+    {
       "id": "c26174084c6f58e6",
       "text": "Press shop me aap kis level par kaam karte hain?",
       "producer": "prompt"
@@ -3922,6 +4332,11 @@
     {
       "id": "c3010fce0e8b9d75",
       "text": "Finish grinding ke kaam ki sabse badi pehchaan hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c30bb0603c1327e3",
+      "text": "Erection aur commissioning jaanne wale ko site ka kaam milta hai.",
       "producer": "why"
     },
     {
@@ -3970,6 +4385,11 @@
       "producer": "why"
     },
     {
+      "id": "c3de5c26e0615a81",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal quality inspection ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "c46134cd2a498616",
       "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai. Cutting aur bending ke alawa kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -3985,6 +4405,11 @@
       "producer": "why"
     },
     {
+      "id": "c4fb6ae0881986b8",
+      "text": "Coupling alignment kitni accuracy tak kar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "c512a3b4d36db5f1",
       "text": "Thickness se coating ki quality aur cost tay hoti hai. Kitne micron ki coating thickness rakhte hain?",
       "producer": "clarify"
@@ -3993,6 +4418,16 @@
       "id": "c525438a57b3ead4",
       "text": "Kaunse joint weld kar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "c5a7983fec37c127",
+      "text": "Product ka tajurba usi line ke employer dhoondhte hain. Kaunsi assembly par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "c5aad9db79968521",
+      "text": "Incoming, patrol ya final, kaunsi inspection karte hain?",
+      "producer": "retry"
     },
     {
       "id": "c5b148ff6535753c",
@@ -4245,6 +4680,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d0e307e0263668a3",
+      "text": "Line ke har stage ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
       "id": "d0fd2686cb1167ec",
       "text": "Training kahaan hui, ye employer sabse pehle dekhte hain. CAD kahaan se seekha hai?",
       "producer": "clarify"
@@ -4263,6 +4703,11 @@
       "id": "d1afc759d4713880",
       "text": "Motor ki kaunsi kharabi khud pakad lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "d1b7c7851845aca5",
+      "text": "Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?",
+      "producer": "retry"
     },
     {
       "id": "d20d756f234b9878",
@@ -4325,6 +4770,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d540b93f67369e3c",
+      "text": "Hydraulic ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "d5ff946d5cb28216",
       "text": "Tractor wale ko zyada kaam milta hai. Kya aap tractor chala lete hain?",
       "producer": "clarify"
@@ -4360,6 +4810,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d7d414b6506f01f9",
+      "text": "Sahi naap lene wale ko accurate kaam milta hai. Kaunse measuring instrument chala lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "d7e63b9cea379a49",
       "text": "Bhasha se kaam ke mauke badh jaate hain. Aap kaun kaun si bhasha bolte hain?",
       "producer": "clarify"
@@ -4378,6 +4833,11 @@
       "id": "d8f7660181858b96",
       "text": "Armed guard ka vetan zyada hota hai. Kya aap hathiyar wali duty kar sakte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "d8fae78ac461fa8b",
+      "text": "Kis tarah ke parts ki checking karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "d937bf1883283c29",
@@ -4415,6 +4875,11 @@
       "producer": "clarify"
     },
     {
+      "id": "db7d2cbd1b7ed994",
+      "text": "Kis machine ka poora overhaul khud kar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "dbab2912758df65f",
       "text": "Kis line ke press parts par kaam kiya hai?",
       "producer": "prompt"
@@ -4428,6 +4893,11 @@
       "id": "dc11d02237a0da4f",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Power press, hydraulic ya pneumatic, kaunsi chalayi hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "dc5082e6735ddd8e",
+      "text": "Kai station jaanne wale ko line par aage rakha jaata hai.",
+      "producer": "why"
     },
     {
       "id": "dc78002e6b0e17d1",
@@ -4510,6 +4980,11 @@
       "producer": "clarify"
     },
     {
+      "id": "e0b1f985fcada8e8",
+      "text": "Audit aur customer sambhalne wale ki har plant me zaroorat hai.",
+      "producer": "why"
+    },
+    {
       "id": "e0e58b0abb222bc9",
       "text": "Spray ka kaam alag hunar hai.",
       "producer": "why"
@@ -4550,8 +5025,18 @@
       "producer": "prompt"
     },
     {
+      "id": "e2d55f2d9f4421ba",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal assembly line par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "e2d62d452a00f168",
       "text": "Bridal ka paisa sabse zyada hota hai. Kya aap dulhan ka makeup karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e2e48067b90dc815",
+      "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Bench aur assembly ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
     },
     {
@@ -4660,6 +5145,11 @@
       "producer": "retry"
     },
     {
+      "id": "e9e01961c050c9f3",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Assembly line par kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "eb513a1d8d3331cb",
       "text": "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai. Burr, punch tootna ya strip jam, kya theek karte hain?",
       "producer": "clarify"
@@ -4695,6 +5185,11 @@
       "producer": "clarify"
     },
     {
+      "id": "ec9d61c498221a87",
+      "text": "Tool ke hisaab se sahi kaam dikhaya jaata hai. Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "ec9f6eaa3ce2df69",
       "text": "Ek minute me kitne stroke tak chalate hain?",
       "producer": "prompt"
@@ -4707,6 +5202,11 @@
     {
       "id": "ecd60de7d2d481cd",
       "text": "Poora kaam jaanne wale ko shop me aage rakha jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "ecd89c1972f73368",
+      "text": "Tool ke hisaab se sahi kaam dikhaya jaata hai.",
       "producer": "why"
     },
     {
@@ -4728,6 +5228,11 @@
       "id": "ed561d1c8b8afc64",
       "text": "Drawing banane ke liye aapko kya milta hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "ed77337732bb95ee",
+      "text": "Chhota least count naapne wale ko fine kaam milta hai. Kitne least count tak naap lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "edb0b08063aecec1",
@@ -4758,6 +5263,11 @@
       "id": "ef8daaea9ee37bfc",
       "text": "Aas-paas ki naukri dikhane ke liye doori pata honi chahiye.",
       "producer": "why"
+    },
+    {
+      "id": "efa413fe27c85edc",
+      "text": "Line ke har stage ka kaam alag hota hai. Line ke kaunse stage par kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "efabd886813c0c62",
@@ -4835,6 +5345,11 @@
       "producer": "clarify"
     },
     {
+      "id": "f371f5340e83a56e",
+      "text": "Aapki line ka takt time kitna tha?",
+      "producer": "prompt"
+    },
+    {
       "id": "f3dfd8ac838c6427",
       "text": "Sabse bada job kitne dia ka kiya hai?",
       "producer": "retry"
@@ -4843,6 +5358,11 @@
       "id": "f40965d0cf92faab",
       "text": "Programme wale operator ko zyada vetan milta hai. Kya aap programme feed kar lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "f40b782741a0a817",
+      "text": "Assembly me jodne ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "f4f1e7ce5a97dfdc",
@@ -4862,6 +5382,11 @@
     {
       "id": "f6b5de62d33ffd95",
       "text": "Kai jagah sirf veg cook chahiye. Aap veg banate hain ya non-veg bhi?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f7348ea0385c01f8",
+      "text": "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai. Shop floor par kaunse tareeke follow karte hain?",
       "producer": "clarify"
     },
     {
@@ -4902,6 +5427,11 @@
     {
       "id": "f8aa579fea356076",
       "text": "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai. Press part ki kaunsi kharabi aap sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f8f95791c1a5cc40",
+      "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Coupling alignment kitni accuracy tak kar lete hain?",
       "producer": "clarify"
     },
     {
@@ -4980,6 +5510,16 @@
       "producer": "why"
     },
     {
+      "id": "fd398a3b0db03fb5",
+      "text": "Standard jaanne wale ko badi company me kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fd9fc3424db92e44",
+      "text": "Zimmedaari sambhalne wale ko zyada vetan milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "fda15a624e4c3002",
       "text": "Har badi gaadi ka kaam alag hai. Aap kaunsi badi gaadi chalate hain?",
       "producer": "clarify"
@@ -4997,6 +5537,11 @@
     {
       "id": "fedaf70383b14e82",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ke press parts par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "fee436269baa559f",
+      "text": "Inspector aur QC engineer ka kaam aur vetan alag hota hai. Aap khud ko kis level ka quality inspector maante hain?",
       "producer": "clarify"
     },
     {

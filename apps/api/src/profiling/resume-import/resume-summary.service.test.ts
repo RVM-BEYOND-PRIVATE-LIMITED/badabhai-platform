@@ -55,15 +55,15 @@ function setup(
 describe("ResumeSummaryService — summarize (best-effort, never shown in chat)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("sends the storage KEY with the 12 enabled kinds, never the document", async () => {
+  it("sends the storage KEY with the 15 enabled kinds, never the document", async () => {
     const { svc, ai } = setup();
     await svc.summarize(WORKER, STORAGE_KEY, MIME, CTX);
 
     const sent = ai.summarizeResume.mock.calls[0]![0];
     expect(sent.storage_key).toBe(STORAGE_KEY);
     expect(sent.role_kinds).toEqual([...TRADE_FORM_KINDS]);
-    // 12 enabled forms, not the 21 declared kinds.
-    expect(sent.role_kinds).toHaveLength(12);
+    // 15 enabled forms, not the 21 declared kinds.
+    expect(sent.role_kinds).toHaveLength(15);
     expect(JSON.stringify(sent)).not.toContain("lines");
   });
 

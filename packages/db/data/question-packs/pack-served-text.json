@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 157,
+  "pack_count": 160,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -21,6 +21,10 @@
     "qp_assembly@1": {
       "served_text_sha256": "ed9616e6187796afa6da484d170afbd0123b5df19c571f7599c5667d166e376a",
       "served_text_count": 15
+    },
+    "qp_assembly_line@1": {
+      "served_text_sha256": "c46be08bccf14acc7275cada256da23b5866f520ce3803d803b1a940aa2a30eb",
+      "served_text_count": 62
     },
     "qp_auto_mechanic@1": {
       "served_text_sha256": "311f55097eb662e2e063e5026acb4e846b3c9d7a6f8d07c3ca5c24e71d351f48",
@@ -234,6 +238,10 @@
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
     },
+    "qp_fitter@1": {
+      "served_text_sha256": "f9a198a1a00c3afd87e68d57a7377a286db5a9ea0401f73d90afda627e0e8c84",
+      "served_text_count": 62
+    },
     "qp_fitting@1": {
       "served_text_sha256": "cb75eeb88a93a38147c74c0f2ce66aac859704d7dd4613ce78b7ab5fb7280efc",
       "served_text_count": 15
@@ -425,6 +433,10 @@
     "qp_protective_service@2": {
       "served_text_sha256": "1da8114154227582e684bb00d895317cbe3968e6433a6f3d6f3b74b2c3185369",
       "served_text_count": 9
+    },
+    "qp_quality_inspection@1": {
+      "served_text_sha256": "738450e08410a0f1048815fd3a26add6d4f9775eb7d2fe8a4901b09ed5322ad5",
+      "served_text_count": 60
     },
     "qp_rail_operation@1": {
       "served_text_sha256": "022525eb08ffedb26443c8293873dafa03f7341b4fa72e9f39693d8d827965a0",

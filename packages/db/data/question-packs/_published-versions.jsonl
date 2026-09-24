@@ -24,6 +24,7 @@ qp_animal_rearing@1
 qp_assemblers_other@1
 qp_assemblers_other@2
 qp_assembly@1
+qp_assembly_line@1
 qp_auto_mechanic@1
 qp_baking@1
 qp_bar_service@1
@@ -77,6 +78,7 @@ qp_electronics_install@1
 qp_farm_labour@1
 qp_farming@1
 qp_fishery@1
+qp_fitter@1
 qp_fitting@1
 qp_food_prep_assist@1
 qp_food_processing@1
@@ -125,6 +127,7 @@ qp_press_operation@1
 qp_printing@1
 qp_protective_service@1
 qp_protective_service@2
+qp_quality_inspection@1
 qp_rail_operation@1
 qp_rail_operation@2
 qp_refuse_work@1

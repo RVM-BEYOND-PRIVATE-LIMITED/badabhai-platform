@@ -120,6 +120,21 @@ describe("FAMILY_CHIP_LABELS", () => {
       // bound codes are shown by it (Tool Setter Press, Press Shop Operator and Press Shop
       // Helper carry no vernacular alias), so this row is what hands those workers the form.
       fam_press_operation: "press_operator",
+      // "assembly line" IS an occupation term of the assembly line role, so a worker pinned here
+      // is handed the line form — intended. The generic `fam_assembly` and `fam_assemblers_other`
+      // ("assembly ka kaam") stay off this table: bare "assembly" is not a term, "assembly line" is.
+      fam_assembly_line: "assembly_line_worker",
+      // "fitting ka kaam" carries "fitting", a CORROBORATED term (owner ruling 2026-09-24), and
+      // this row's pin IS fam_fitter — so a worker pinned there on the label alone is handed the
+      // fitter form, as intended. The generic `fam_fitting` ("fitter aur maintenance") names
+      // "fitter" too and STAYS OFF this table twice over: its pin is not fam_fitter, so the bare
+      // word corroborates nothing, and "maintenance" — the maintenance technician's occupation
+      // term, derived into the fitter's veto through the shared `maintenance` cluster — vetoes.
+      fam_fitter: "fitter",
+      // The same for quality inspection: "quality control aur inspection" carries the occupation
+      // term "quality control", so the pin hands over to the QC form. The generic
+      // `fam_other_craft` ("anya karigari") names no trade and stays off this table.
+      fam_quality_inspection: "quality_inspector",
     });
   });
 });
@@ -202,6 +217,64 @@ describe("the served catalogue", () => {
     // Vacuity guard: the overlay alone gives 106 occupations their own word.
     expect(withOwnWord).toBeGreaterThan(500);
     expect(fellThrough).toEqual([]);
+  });
+
+  it("hands over the FITTER form on a bare catalogue pin exactly where this table says", () => {
+    // THE OCCUPATION-LEVEL HALF of the family table above. A pinned occupation's chip label is
+    // routing evidence on turn one, before the model has said anything. "fitter" and "fitting"
+    // are CORROBORATED terms (owner ruling 2026-09-24), so a chip label carrying one hands over
+    // the fitter form only when the occupation also sits in fam_fitter.
+    const routes: Record<string, string> = {};
+    for (const d of snapshot.domains.values()) {
+      const kind = routeToTradeForm({
+        draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+        occupationFamilyId: d.familyId,
+        occupationLabel: d.chipLabel,
+      });
+      if (kind === "fitter") routes[d.jobDomainId] = `${d.familyId} / ${d.chipLabel}`;
+    }
+    // Exactly the three codes fam_fitter binds, and nothing else in the catalogue.
+    expect(routes).toEqual({
+      jd_nco_7233_0100: "fam_fitter / Fitter, General",
+      jd_nco_7233_0101: "fam_fitter / fitter",
+      jd_nco_7233_0200: "fam_fitter / bench fitter",
+    });
+    // RULED OUT. With the bare words as occupation terms, these five occupations outside
+    // fam_fitter were offered the fitter form on turn one: a pipe fitter, a CCTV installer, a die
+    // fitter, a control-panel fitter and anyone pinned to the ISCO 7233 node (tractor and
+    // mining-machinery mechanics among them). Asserted by id as well, so the table above cannot be
+    // satisfied by a snapshot that stopped carrying them.
+    for (const [id, label] of [
+      ["jd_isco_7233", "Train engine fitter"],
+      ["jd_nco_7126_0301", "pipe fitting"],
+      ["jd_nco_7222_0500", "Die Fitter"],
+      ["jd_nco_7411_0102", "camera fitting"],
+      ["jd_nco_7412_1001", "Mechanical Fitter-Control Panel"],
+    ] as const) {
+      expect(snapshot.domains.get(id)?.chipLabel, id).toBe(label);
+      expect(routes[id], id).toBeUndefined();
+    }
+  });
+
+  it("hands the QC form on a pinned label to the metal QC code alone", () => {
+    // Bare "qc" is a QC occupation term, so every chip label containing it is routing evidence.
+    // The 2026-09-24 guard aliases gave the sewing-line QC and the QC chemist codes chip labels
+    // that do ("garment qc", "pharma qc"); the QC descriptor's extra conflict terms are what keep
+    // those two off the form. A future alias that puts "qc" into another occupation's chip lands
+    // here, as a routing change to review rather than a copy edit.
+    const handedTheQcForm = [...snapshot.domains.values()]
+      .filter(
+        (d) =>
+          routeToTradeForm({
+            draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+            occupationFamilyId: d.familyId,
+            occupationLabel: d.chipLabel,
+          }) === "quality_inspector",
+      )
+      .map((d) => d.jobDomainId);
+    expect(handedTheQcForm).toEqual(["jd_nco_7543_2001"]);
+    expect(snapshot.domains.get("jd_nco_7543_0201")?.chipLabel).toBe("garment qc");
+    expect(snapshot.domains.get("jd_nco_2113_0601")?.chipLabel).toBe("pharma qc");
   });
 
   it("gives the two Devanagari-only occupations their Latin twins", () => {

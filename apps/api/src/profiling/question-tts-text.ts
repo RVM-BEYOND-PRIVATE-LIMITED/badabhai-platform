@@ -572,6 +572,79 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press part ki kaunsi kharabi aap sudhaar lete hain?":
     "प्रेस पार्ट की कौनसी खराबी आप सुधार लेते हैं?",
   "Press ki kaunsi dekhbhaal khud karte hain?": "प्रेस की कौनसी देखभाल खुद करते हैं?",
+  // qp_assembly_line@1 — Batch 2 part two. The drawing prompt and the three fresher items'
+  // prompts and retries are the welder's verbatim and reuse its twins above, so they are not
+  // repeated here.
+  "Assembly line par kitna tajurba hai?": "असेंबली लाइन पर कितना तजुर्बा है?",
+  "Lagbhag kitne saal assembly line par kaam kiya hai?":
+    "लगभग कितने साल असेंबली लाइन पर काम किया है?",
+  "Line ke kaunse stage par kaam kiya hai?": "लाइन के कौनसे स्टेज पर काम किया है?",
+  "Sub-assembly, final assembly ya testing, kahan kaam kiya hai?":
+    "सब-असेंबली, फ़ाइनल असेंबली या टेस्टिंग, कहाँ काम किया है?",
+  "Aap khud ko kis level ka assembly line worker maante hain?":
+    "आप खुद को किस लेवल का असेंबली लाइन वर्कर मानते हैं?",
+  "Kaunsi assembly par kaam kiya hai?": "कौनसी असेंबली पर काम किया है?",
+  "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?":
+    "इंजन, गियरबॉक्स, सीट या वायरिंग, कौनसा काम किया है?",
+  "Line par kaunse tool chalate hain?": "लाइन पर कौनसे टूल चलाते हैं?",
+  "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?":
+    "नट रनर, टॉर्क रिंच या न्यूमैटिक गन, कौनसा चलाया है?",
+  "Shop floor par kaunse tareeke follow karte hain?": "शॉप फ़्लोर पर कौनसे तरीके फ़ॉलो करते हैं?",
+  "Aapki line ka takt time kitna tha?": "आपकी लाइन का टैक्ट टाइम कितना था?",
+  "Kis cheez ki assembly line par kaam kiya hai?": "किस चीज़ की असेंबली लाइन पर काम किया है?",
+  "Assembly me jodne ka kaunsa kaam khud karte hain?": "असेंबली में जोड़ने का कौनसा काम खुद करते हैं?",
+  "Line ke kitne station ka kaam aata hai?": "लाइन के कितने स्टेशन का काम आता है?",
+  "Line par aur kaunsi zimmedaari sambhalte hain?": "लाइन पर और कौनसी ज़िम्मेदारी संभालते हैं?",
+  "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?":
+    "असेंबली की कौनसी खराबी पकड़ कर सुधार लेते हैं?",
+  // qp_fitter@1 — Batch 2 part two. Six prompts reuse a twin above verbatim and are not
+  // repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
+  // "Aap kis tarah ka fitting kaam karte hain?" (qp_fitting's) and "Machine ki kaunsi dikkat aap
+  // sudhaar lete hain?" (the turner's).
+  "Fitting ka kitna tajurba hai?": "फिटिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal fitter ka kaam kiya hai?": "लगभग कितने साल फिटर का काम किया है?",
+  "Assembly, maintenance ya erection, kaunsi fitting karte hain?":
+    "असेंबली, मेंटेनेंस या इरेक्शन, कौनसी फिटिंग करते हैं?",
+  "Aap khud ko kis level ka fitter maante hain?": "आप खुद को किस लेवल का फिटर मानते हैं?",
+  "Kaunsi machine ya equipment par fitting ka kaam kiya hai?":
+    "कौनसी मशीन या इक्विपमेंट पर फिटिंग का काम किया है?",
+  "Gearbox, pump, conveyor ya hydraulic, kis par kaam kiya hai?":
+    "गियरबॉक्स, पंप, कन्वेयर या हाइड्रॉलिक, किस पर काम किया है?",
+  "Bench aur assembly ka kaunsa kaam khud karte hain?": "बेंच और असेंबली का कौनसा काम खुद करते हैं?",
+  "Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?":
+    "फाइलिंग, ड्रिलिंग, बेयरिंग या अलाइनमेंट, कौनसा काम करते हैं?",
+  "Naap aur fitting ke liye kaunse aujaar istemaal karte hain?":
+    "नाप और फिटिंग के लिए कौनसे औज़ार इस्तेमाल करते हैं?",
+  "Coupling alignment kitni accuracy tak kar lete hain?":
+    "कपलिंग अलाइनमेंट कितनी एक्यूरेसी तक कर लेते हैं?",
+  "Kis industry ke plant me fitting ka kaam kiya hai?":
+    "किस इंडस्ट्री के प्लांट में फिटिंग का काम किया है?",
+  "Hydraulic ka kaunsa kaam khud karte hain?": "हाइड्रॉलिक का कौनसा काम खुद करते हैं?",
+  "Kis machine ka poora overhaul khud kar lete hain?": "किस मशीन का पूरा ओवरहॉल खुद कर लेते हैं?",
+  "Erection me kaunsa kaam khud sambhalte hain?": "इरेक्शन में कौनसा काम खुद संभालते हैं?",
+  // qp_quality_inspection@1 — Batch 2 part two. The instrument and drawing prompts are the CAD and
+  // welder strings verbatim, and the three fresher prompts the welder's, so they reuse the twins
+  // above and are not repeated here.
+  "Quality inspection ka kitna tajurba hai?": "क्वालिटी इंस्पेक्शन का कितना तजुर्बा है?",
+  "Lagbhag kitne saal quality inspection ka kaam kiya hai?":
+    "लगभग कितने साल क्वालिटी इंस्पेक्शन का काम किया है?",
+  "CMM, profile projector ya height gauge, kaunsa chalaya hai?":
+    "सीएमएम, प्रोफाइल प्रोजेक्टर या हाइट गेज, कौनसा चलाया है?",
+  "Aap khud ko kis level ka quality inspector maante hain?":
+    "आप खुद को किस लेवल का क्वालिटी इंस्पेक्टर मानते हैं?",
+  "Kis tarah ke parts ki checking karte hain?": "किस तरह के पार्ट्स की चेकिंग करते हैं?",
+  "Kis stage par inspection karte hain?": "किस स्टेज पर इंस्पेक्शन करते हैं?",
+  "Incoming, patrol ya final, kaunsi inspection karte hain?":
+    "इनकमिंग, पैट्रोल या फाइनल, कौनसी इंस्पेक्शन करते हैं?",
+  "Kitne least count tak naap lete hain?": "कितने लीस्ट काउंट तक नाप लेते हैं?",
+  "Kaunse quality standard ke hisaab se kaam kiya hai?":
+    "कौनसे क्वालिटी स्टैंडर्ड के हिसाब से काम किया है?",
+  "Kaunse quality document khud banate ya bharte hain?":
+    "कौनसे क्वालिटी डॉक्यूमेंट खुद बनाते या भरते हैं?",
+  "Kis industry ke parts ki checking ki hai?": "किस इंडस्ट्री के पार्ट्स की चेकिंग की है?",
+  "CMM par kaunsa kaam khud karte hain?": "सीएमएम पर कौनसा काम खुद करते हैं?",
+  "Rejection aane par kaunsa kaam khud karte hain?": "रिजेक्शन आने पर कौनसा काम खुद करते हैं?",
+  "Audit ya customer ka kaunsa kaam sambhalte hain?": "ऑडिट या कस्टमर का कौनसा काम संभालते हैं?",
 };
 
 /**
@@ -948,6 +1021,50 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "हर डाई का काम अलग होता है, इससे सही नौकरी मिलती है।",
   "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.":
     "खराबी सुधारने वाले सेटर की शॉप पर ज़रूरत रहती है।",
+  // qp_assembly_line@1 — why-texts. Eight more (tenure, level, drawing, sector, joining and the
+  // three fresher ones) are shared verbatim with the welder's and sheet metal packs and already
+  // twinned above.
+  "Line ke har stage ka kaam alag hota hai.": "लाइन के हर स्टेज का काम अलग होता है।",
+  "Product ka tajurba usi line ke employer dhoondhte hain.":
+    "प्रोडक्ट का तजुर्बा उसी लाइन के एम्प्लॉयर ढूँढते हैं।",
+  "Tool ke hisaab se sahi kaam dikhaya jaata hai.": "टूल के हिसाब से सही काम दिखाया जाता है।",
+  "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai.":
+    "लाइन के नियम जानने वाले को जल्दी ज़िम्मेदारी मिलती है।",
+  "Tez line par kaam karne wale ki alag maang hoti hai.":
+    "तेज़ लाइन पर काम करने वाले की अलग माँग होती है।",
+  "Kai station jaanne wale ko line par aage rakha jaata hai.":
+    "कई स्टेशन जानने वाले को लाइन पर आगे रखा जाता है।",
+  "Zimmedaari sambhalne wale ko zyada vetan milta hai.":
+    "ज़िम्मेदारी संभालने वाले को ज़्यादा वेतन मिलता है।",
+  "Kharabi pakadne wale ki line par zaroorat rehti hai.":
+    "खराबी पकड़ने वाले की लाइन पर ज़रूरत रहती है।",
+  // qp_fitter@1 — why-texts. Twelve more are shared verbatim with packs twinned above: the
+  // tenure, drawing, sector and three fresher ones (the welder's), "Fitting ke kai tarah hote
+  // hain." (qp_fitting's), the level and equipment ones (the painter's), the tolerance one (the
+  // turner's), and the work and measuring ones (the sheet metal worker's).
+  "Hydraulic jaanne wale fitter ki plant me alag maang hai.":
+    "हाइड्रॉलिक जानने वाले फिटर की प्लांट में अलग माँग है।",
+  "Overhaul karne wale fitter ko senior kaam milta hai.": "ओवरहॉल करने वाले फिटर को सीनियर काम मिलता है।",
+  "Erection aur commissioning jaanne wale ko site ka kaam milta hai.":
+    "इरेक्शन और कमीशनिंग जानने वाले को साइट का काम मिलता है।",
+  "Dikkat sudhaarne wale fitter ki plant par zaroorat rehti hai.":
+    "दिक्कत सुधारने वाले फिटर की प्लांट पर ज़रूरत रहती है।",
+  // qp_quality_inspection@1 — why-texts. Nine more (tenure, instruments, material, stage, drawing,
+  // sector and the three fresher ones) are shared verbatim with the welder's and sheet metal's
+  // packs and already twinned above.
+  "Inspector aur QC engineer ka kaam aur vetan alag hota hai.":
+    "इंस्पेक्टर और क्यूसी इंजीनियर का काम और वेतन अलग होता है।",
+  "Chhota least count naapne wale ko fine kaam milta hai.":
+    "छोटा लीस्ट काउंट नापने वाले को फाइन काम मिलता है।",
+  "Standard jaanne wale ko badi company me kaam milta hai.":
+    "स्टैंडर्ड जानने वाले को बड़ी कंपनी में काम मिलता है।",
+  "Document sambhalne wale ko QC engineer ka kaam milta hai.":
+    "डॉक्यूमेंट संभालने वाले को क्यूसी इंजीनियर का काम मिलता है।",
+  "CMM program banane wale ko zyada vetan milta hai.": "सीएमएम प्रोग्राम बनाने वाले को ज़्यादा वेतन मिलता है।",
+  "Rejection ki wajah dhoondhne wale ko aage badhaya jaata hai.":
+    "रिजेक्शन की वजह ढूंढने वाले को आगे बढ़ाया जाता है।",
+  "Audit aur customer sambhalne wale ki har plant me zaroorat hai.":
+    "ऑडिट और कस्टमर संभालने वाले की हर प्लांट में ज़रूरत है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

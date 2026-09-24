@@ -171,4 +171,16 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // Batch 2 part two. The Latin reading of the family's `label_hi` ("पावर प्रेस और स्टैम्पिंग") —
   // the tranche's two ratified phrases, "power press" and "stamping", joined as the others are.
   fam_press_operation: "power press aur stamping",
+  // The Latin reading of `label_hi` ("असेंबली लाइन"), and deliberately NOT the "assembly ka kaam"
+  // the two generic assembly families share: "assembly line" is this role's occupation term, so
+  // the label routes its pin to the form (pinned in the test), and theirs does not.
+  fam_assembly_line: "assembly line",
+  // The Latin reading of `label_hi` ("फिटिंग का काम"). Distinct from the generic `fam_fitting`
+  // ("fitter aur maintenance") on purpose: that label carries the maintenance technician's veto
+  // word and must keep NOT routing, while this one names the trade and — pinned to fam_fitter,
+  // which corroborates the bare "fitting" — routes to its form.
+  fam_fitter: "fitting ka kaam",
+  // Batch 2 part two. The Latin reading of `label_hi` ("क्वालिटी कंट्रोल और इंस्पेक्शन"), spelled as
+  // the tranche's own alias "quality control" is.
+  fam_quality_inspection: "quality control aur inspection",
 });

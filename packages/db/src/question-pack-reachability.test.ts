@@ -832,10 +832,15 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         // shipped — so these five moved off the generic minor-721 pack in that change, by design.
         "sheet metal", "शीट मेटल", "press brake", "laser cutting", "chadar ka kaam", "fabricator",
         "fabrication ka kaam",
-        // Quality inspection — items 6-10, all on 7543.2001.
+        // Quality inspection — items 6-10, all on 7543.2001, which fam_quality_inspection binds since
+        // its pack shipped — so these eight moved off the generic minor-754 pack in that change, by
+        // design.
         "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection ka kaam",
         "quality check karna", "quality wala",
         // Maintenance — items 12-14, on 7233.0101, the code ruling A1 gives Maintenance Technician.
+        // fam_fitter binds 0101 as an OWNER-DECIDED INTERIM (plain "fitter" is still an alias on it),
+        // so these four moved off the generic fam_fitting to the FITTER pack in that change — a known
+        // imprecision, pinned in the part-two fitter block below; they move again with 0101.
         "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
         // Industrial electrician — items 17-19, on 7412.0200, which fam_industrial_electrician binds
         // since its pack shipped — so these five moved off the generic minor-741 pack in that
@@ -845,7 +850,8 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         // Press — items 20 and 22, on 7223.2300 and 7223.3000, which fam_press_operation binds since
         // its pack shipped — so both moved off the generic unit-7223 machining pack in that change.
         "power press", "stamping",
-        // Assembly line — item 25.
+        // Assembly line — item 25, on 8219.0100, which fam_assembly_line binds since its pack
+        // shipped — so it moved off the generic unit-8219 pack in that change, by design.
         "assembly ka kaam",
       ].map((p) => [p, familyFor(p)]),
     );
@@ -857,18 +863,18 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "chadar ka kaam": "fam_sheet_metal_fab",
       fabricator: "fam_sheet_metal_fab",
       "fabrication ka kaam": "fam_sheet_metal_fab",
-      qc: "fam_other_craft",
-      "qc inspector": "fam_other_craft",
-      "qa qc": "fam_other_craft",
-      "quality control": "fam_other_craft",
-      "क्वालिटी": "fam_other_craft",
-      "inspection ka kaam": "fam_other_craft",
-      "quality check karna": "fam_other_craft",
-      "quality wala": "fam_other_craft",
-      "machine ki marammat": "fam_fitting",
-      "machine repair": "fam_fitting",
-      "breakdown maintenance": "fam_fitting",
-      "plant maintenance": "fam_fitting",
+      qc: "fam_quality_inspection",
+      "qc inspector": "fam_quality_inspection",
+      "qa qc": "fam_quality_inspection",
+      "quality control": "fam_quality_inspection",
+      "क्वालिटी": "fam_quality_inspection",
+      "inspection ka kaam": "fam_quality_inspection",
+      "quality check karna": "fam_quality_inspection",
+      "quality wala": "fam_quality_inspection",
+      "machine ki marammat": "fam_fitter",
+      "machine repair": "fam_fitter",
+      "breakdown maintenance": "fam_fitter",
+      "plant maintenance": "fam_fitter",
       "panel wiring": "fam_industrial_electrician",
       "industrial electrician": "fam_industrial_electrician",
       "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_industrial_electrician",
@@ -876,7 +882,7 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "plant electrician": "fam_industrial_electrician",
       "power press": "fam_press_operation",
       stamping: "fam_press_operation",
-      "assembly ka kaam": "fam_assembly",
+      "assembly ka kaam": "fam_assembly_line",
     });
   });
 
@@ -929,13 +935,17 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     expect(familyFor("fabrication welder")).toBe("fam_welding_trade");
     expect(familyFor("welding fabrication")).toBe("fam_welding_trade");
     // "assembly fitter" routed to the fitting pack through "fitter" before the tranche, and bare
-    // "assembly" would have taken it at span 0. The worksheet ruled it stays.
-    expect(familyFor("assembly fitter")).toBe("fam_fitting");
+    // "assembly" would have taken it at span 0. The worksheet ruled it stays WITH THE FITTER — on
+    // the guard row's 7233.0200, which fam_fitter binds since its pack shipped, so it now reaches
+    // the fitter pack rather than the generic one: the ruling honoured, not reversed.
+    expect(familyFor("assembly fitter")).toBe("fam_fitter");
     // Longer rows another trade already owned keep winning on longest-first.
     expect(familyFor("pipe fitting")).toBe("fam_plumbing");
     expect(familyFor("silai machine repair")).toBe("fam_fitting");
     expect(familyFor("mobile repair")).toBe("fam_electronics");
     expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    // "quality inspector" STAYS on fam_other_craft even with the QC family bound: its only alias row
+    // is on the unbound ISCO node jd_isco_7543. A known gap, pinned in the QC block at the end.
     expect(familyFor("quality inspector")).toBe("fam_other_craft");
   });
 
@@ -948,8 +958,12 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
 
   it("PINS THE IMPRECISIONS THIS TRANCHE KNOWINGLY LEAVES", () => {
     // 1. "vehicle inspection" REACHES THE QC CODE through bare "inspection" (item 8). Accepted
-    //    2026-09-24: it is not a factory-trade phrase, and it lands on a generic pack, not a form.
-    expect(familyFor("vehicle inspection")).toBe("fam_other_craft");
+    //    2026-09-24 as not a factory-trade phrase that "lands on a generic pack, not a form" —
+    //    and the second half of that no longer holds: fam_quality_inspection binds 7543.2001 since
+    //    the QC pack shipped, so this phrase now reaches the QC family, and the code's chip label
+    //    ("qc") is a QC occupation term, so a pin here hands over to the QC form. RE-AFFIRMED by
+    //    the owner 2026-09-24, knowing it now reaches a form: still accepted, still pinned.
+    expect(familyFor("vehicle inspection")).toBe("fam_quality_inspection");
     // 2. THE THREE RETIREMENTS ARE STILL PENDING, so their misroutes stand. These go green-to-red
     //    — deliberately — in the PR that builds the retirement path:
     //    A4: every bare "machine …" still reaches dairy through the junk "Machine" alias,
@@ -1164,6 +1178,334 @@ describe("Batch 2 part two — press / machine operator", () => {
 
   it("no ratified press phrase falls through to the universal pack", () => {
     for (const p of ["power press", "stamping", "tool setter press", "press shop operator"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — ASSEMBLY LINE, the second of the seven to ship its pack.
+ *
+ * Three bindings, all measured before they were written. 8219.0100 carries the role's whole
+ * vocabulary — "assembly line", "असेंबली", "असेंबलर" and the tranche's stem "assembly" — despite
+ * its published title "Assembler, Bicycle". 8211.1100 ("Assembler, Continuity", conveyor work by
+ * definition) and 8211.1200 ("Assembler, Automobile", the reference page's own worker) carry only
+ * their titles. Every other assembler stays on a generic pack, and the fitter keeps "assembly
+ * fitter", which is the one cross-cluster phrase this family must never take.
+ */
+describe("Batch 2 part two — assembly line", () => {
+  it("binds exactly the three codes, and the role's words reach them", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_assembly_line")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_8219_0100", "jd_nco_8211_1100", "jd_nco_8211_1200"]);
+    for (const p of [
+      "assembly line",
+      "असेंबली",
+      "असेंबलर",
+      "assembly",
+      "assembly ka kaam",
+      "assembly line worker",
+      "final assembly",
+      "sub assembly",
+      "assembler continuity",
+      "assembler automobile",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_assembly_line");
+    }
+    // The L1 folds of the stem come with it — misspellings, not new claims.
+    expect(familyFor("asembly")).toBe("fam_assembly_line");
+    expect(familyFor("assembley")).toBe("fam_assembly_line");
+  });
+
+  it("'assembly fitter' stays with the fitter — the cross-cluster guard row holds", () => {
+    // The worksheet ruled it (Part 5); the 2-token guard row on Bench Fitter keeps it off bare
+    // "assembly" on longest-first. Binding 8219.0100 must not have moved it.
+    expect(resolveOccupation(occupationIndex, "assembly fitter")?.jobDomainId).toBe(
+      "jd_nco_7233_0200",
+    );
+    // fam_fitting while this block was written; fam_fitter once the fitter pack bound 7233.0200.
+    expect(familyFor("assembly fitter")).toBe("fam_fitter");
+    expect(familyFor("assembly fitter")).not.toBe("fam_assembly_line");
+    expect(familyFor("fitter")).not.toBe("fam_assembly_line");
+  });
+
+  it("leaves every rejected neighbour where it was", () => {
+    // 8211 — machinery, motor-cycle, tractor and fitter-titled assemblers stay on the minor-821
+    // generic pack; 8212 electronics likewise.
+    for (const p of [
+      "assembler motor cycle",
+      "assembler tractor",
+      "vehicle assembly fitter",
+      "fitter-mechanical assembly",
+      "mechanical sub-assembly technician",
+      "assembler workshop machine and equipment",
+      "electrical assembly operator",
+      "pcb assembly operator",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_assemblers_other");
+    }
+    // 8219 — sewing machine and plastic product assemblers, and the ISCO node that claims the
+    // published "Assembler, Bicycle" title first, stay on the unit-8219 generic pack.
+    for (const p of ["assembler sewing machine", "plastic assembly", "assembler bicycle"]) {
+      expect(familyFor(p), p).toBe("fam_assembly");
+    }
+  });
+
+  it("PINS THE IMPRECISION IT KNOWINGLY LEAVES — bare English 'assembler'", () => {
+    // Two claimants share the span: 8211.1300's published split alias "Assembler" and 8219.0100's
+    // rvm row. 8211.1300 ("Assembler, Motor Cycle" — batch OR line) is a rejected neighbour and is
+    // the first claimant, so the word lands on the generic pack. The Devanagari has one claimant
+    // and comes here. This goes red, deliberately, when a retirement path removes the split alias.
+    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8211_1300");
+    expect(familyFor("assembler")).toBe("fam_assemblers_other");
+    expect(familyFor("असेंबलर")).toBe("fam_assembly_line");
+  });
+
+  it("the STRUCK phrases stay unauthored — 'fitting line' and 'production line'", () => {
+    // Worksheet Part 5 items 26-27: one collides with the fitter, the other is any factory hand.
+    for (const p of ["fitting line", "production line"]) {
+      expect(familyFor(p), p).not.toBe("fam_assembly_line");
+      expect(familyFor(p), p).toBeNull();
+    }
+  });
+
+  it("no assembly line phrase falls through to the universal pack", () => {
+    for (const p of ["assembly line", "असेंबली", "assembly", "assembly ka kaam", "असेंबलर"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — FITTER, the second of the seven to ship its pack.
+ *
+ * The fitter needed bindings, not vocabulary: "fitter", "फिटर", "bench fitter" and "assembly
+ * fitter" all reached the generic fam_fitting before this change. Three bindings, each measured
+ * before it was written — 7233.0200 "Fitter, Bench" (the ruled home, ruling A1), 7233.0100
+ * "Fitter, General" (reached by its published title; every worker under it is a fitter), and
+ * 7233.0101 "Maintenance Fitter-Mechanical" as an OWNER-DECIDED INTERIM (2026-09-24): A1 gives it
+ * to Maintenance Technician, but plain "fitter" cannot be retired from it yet, so it is bound here
+ * until the retirement path and the Maintenance Technician pack ship, then moves to
+ * fam_maintenance_tech. Everything else in unit 7233, and every "… fitter" in another unit, stays
+ * where it resolves today.
+ */
+describe("Batch 2 part two — fitter", () => {
+  const codeFor = (p: string): string | null =>
+    resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+
+  it("binds exactly the three codes its words reach — 0101 as the owner's interim", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_fitter")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7233_0200", "jd_nco_7233_0100", "jd_nco_7233_0101"]);
+    // The phrase, the code it lands on, and the family that answers it — each binding earns a row.
+    expect(codeFor("फिटर")).toBe("jd_nco_7233_0200");
+    expect(codeFor("bench fitter")).toBe("jd_nco_7233_0200");
+    expect(codeFor("assembly fitter")).toBe("jd_nco_7233_0200");
+    expect(codeFor("fitter general")).toBe("jd_nco_7233_0100");
+    expect(codeFor("fitter")).toBe("jd_nco_7233_0101");
+    for (const p of [
+      "fitter", "फिटर", "bench fitter", "assembly fitter", "fitter general", "iti fitter",
+      "senior fitter", "fitter helper", "फिटर का काम",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_fitter");
+    }
+  });
+
+  it("PINS THE KNOWN INTERIM IMPRECISION — 7233.0101's maintenance words reach the fitter pack", () => {
+    // NOT AN ASPIRATION — these rows are wrong, they are bound anyway, and they are pinned so the
+    // harm stays visible rather than being discovered on a worker's screen.
+    //
+    // 1. THE #1685 TRANCHE'S FOUR MAINTENANCE PHRASES (items 12-14) sit on 7233.0101, so binding
+    //    0101 for the word "fitter" takes them too. A man who says "machine repair" is a
+    //    maintenance man first, and he now gets fitting questions — and on "machine repair" and
+    //    "machine ki marammat" he is OFFERED the fitter form as well: 0101's pin label is "fitter"
+    //    and its pin IS fam_fitter, which is exactly what the owner's pin-required rule for the
+    //    bare word accepts (trade-form-router.test.ts pins that half). Before this change all four
+    //    reached the generic fam_fitting.
+    for (const p of [
+      "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
+    ]) {
+      expect(codeFor(p), p).toBe("jd_nco_7233_0101");
+      expect(familyFor(p), p).toBe("fam_fitter");
+    }
+    // 2. RULING A1'S OWN WORDS FOR THE MAINTENANCE TECHNICIAN come with the code. Their form route
+    //    is vetoed ("maintenance" is a sibling's occupation term), but the pack is the fitter's.
+    expect(familyFor("maintenance fitter")).toBe("fam_fitter");
+    expect(familyFor("मेंटेनेंस फिटर")).toBe("fam_fitter");
+    // 3. ANY "… fitter" WHOSE ONLY HIT IS THE BARE WORD lands on 0101 too. These reached the
+    //    generic fam_fitting before; an AC installer is the one that is plainly another trade.
+    expect(familyFor("ac fitter")).toBe("fam_fitter");
+    expect(familyFor("structural fitter")).toBe("fam_fitter");
+    // ALL OF IT MOVES in the change that ships the retirement path and the maintenance pack: plain
+    // "fitter" to 7233.0200 (still this family), and 0101 — with every row above — to
+    // fam_maintenance_tech. This test goes red in that change, by design.
+  });
+
+  it("leaves every rejected neighbour where it resolves today", () => {
+    const stays: Record<string, string> = {
+      // Unit 7233's maintenance side — Maintenance Technician's when it ships.
+      "fitter levelling alignment and balancing": "fam_fitting",
+      "fitter hydraulic and pneumatic system": "fam_fitting",
+      "bearing maintenance": "fam_fitting",
+      millwright: "fam_fitting",
+      "mechanic maintenance": "fam_fitting",
+      // Engine, vehicle and pump mechanics, and the catch-all — a fitter title is not the trade.
+      "diesel mechanic": "fam_fitting",
+      "mechanic pump": "fam_fitting",
+      "fitter marine": "fam_fitting",
+      "fitter loco": "fam_fitting",
+      "machinery mechanics and fitters other": "fam_fitting",
+      // 8211.1202 — decided, not skipped: spliced with a motorcycle line assembler's description,
+      // and on Assembly Line Worker's side of the declared veto pair.
+      "fitter-mechanical assembly": "fam_assemblers_other",
+      "vehicle assembly fitter": "fam_assemblers_other",
+      "assembly line": "fam_assembly_line", // Assembly Line Worker binds 8219.0100
+      // Fabrication fit-up, structural and site steel.
+      "fitter-fabrication": "fam_blacksmithing",
+      "fitter structural": "fam_sheet_metal",
+      "fitter construction": "fam_sheet_metal",
+      "boiler fitter": "fam_sheet_metal",
+      // Other trades whose title carries the word.
+      "mechanical fitter": "fam_electrical_equipment",
+      "electrical fitter": "fam_industrial_electrician", // the industrial electrician binds 7412.0200
+      "pipe fitter": "fam_plumbing",
+      "pipe fitting": "fam_plumbing",
+      "gas fitter": "fam_plumbing",
+      "fitter automobile": "fam_auto_mechanic",
+      "mechanic fitter": "fam_auto_mechanic",
+      "die fitter": "fam_tool_die_making",
+    };
+    const got = Object.fromEntries(Object.keys(stays).map((p) => [p, familyFor(p)]));
+    expect(got).toEqual(stays);
+  });
+
+  it("no fitter phrase falls through to the universal pack", () => {
+    for (const p of ["fitter", "फिटर", "bench fitter", "assembly fitter", "fitter general"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — QUALITY INSPECTION, the second of the seven to ship its pack.
+ *
+ * Two bindings, both measured before they were written: 7543.2001 carries the tranche's whole QC
+ * vocabulary, and 7311.0500 "Viewer, Workshop / Examiner, Metal Working" carries its own two
+ * titles — a metal-working inspector that fell to fam_handicraft before. Every other code in unit
+ * 7543 stays on the generic minor-754 pack: the cloth, footwear, wood and apparel graders, the
+ * electronics testers, and the five rubber-sector line-QC codes (3001-3005) that belong to Batch
+ * 3's Plastic Process Technician question (worksheet R4-b, unresolved).
+ */
+describe("Batch 2 part two — quality inspection", () => {
+  const unit7543Codes = resolveJobDomainCorpus()
+    .filter((d) => d.jobDomainId.startsWith("jd_nco_7543_") && d.selectable)
+    .map((d) => d.jobDomainId);
+  const familyForCode = (jobDomainId: string): string | null =>
+    resolveFamily(bindings, {
+      jobDomainId,
+      iscoUnitCode: occupationIndex.unitByDomain.get(jobDomainId) ?? null,
+    })?.familyId ?? null;
+
+  it("binds exactly the two codes its words reach", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_quality_inspection")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7543_2001", "jd_nco_7311_0500"]);
+    for (const p of [
+      "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection", "quality check",
+      "quality", "qc engineer", "final inspection", "patrol inspection", "incoming inspection",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_quality_inspection");
+    }
+    // 7311.0500's two published titles — its whole reach; no vernacular alias lands on it.
+    expect(familyFor("viewer workshop")).toBe("fam_quality_inspection");
+    expect(familyFor("examiner metal working")).toBe("fam_quality_inspection");
+  });
+
+  it("leaves every other 7543 code on the generic pack — pinned by CODE", () => {
+    // By code rather than by phrase: most of these published titles never self-resolve (garbled
+    // or hyphenated labels), so a phrase table would pass without testing the binding at all.
+    // Vacuity guard: the unit has 31 selectable NCO codes; an empty filter would pass on nothing.
+    expect(unit7543Codes.length).toBeGreaterThan(20);
+    const moved = unit7543Codes.filter(
+      (id) => id !== "jd_nco_7543_2001" && familyForCode(id) !== "fam_other_craft",
+    );
+    expect(moved).toEqual([]);
+    // Named, because each was a decision: 0301 "Measurement Checker" is an APPAREL checker by its
+    // description, and 3001-3005 are rubber-sector line QC (R4-b).
+    for (const id of [
+      "jd_nco_7543_0301", "jd_nco_7543_3001", "jd_nco_7543_3002", "jd_nco_7543_3003",
+      "jd_nco_7543_3004", "jd_nco_7543_3005",
+    ]) {
+      expect(familyForCode(id), id).toBe("fam_other_craft");
+    }
+    for (const p of [
+      "measurement checker", "cloth examiner", "incoming qc technician", "functional tester",
+      "safety testing technician", "factory compliance auditor",
+      "product graders and testers others",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_other_craft");
+    }
+    // The ISCO node is not bound, so what it alone carries stays generic.
+    expect(familyFor("wool classer")).toBe("fam_other_craft");
+    expect(familyFor("product grader")).toBe("fam_other_craft");
+  });
+
+  it("PINS THE GAPS AND IMPRECISIONS THIS BINDING KNOWINGLY LEAVES", () => {
+    // 1. THE EXACT PHRASE "quality inspector" DOES NOT REACH THIS FAMILY. Its only alias row is on
+    //    the unbound ISCO node jd_isco_7543, so offline it resolves to fam_other_craft. In
+    //    production that node's aliases are SHADOWED (F4 — 7543 has selectable NCO children,
+    //    `alias-lifecycle.ts`), so the row is not searchable there at all. Moving the phrase is an
+    //    alias change and needs an owner ruling; binding the node would take every grader with it.
+    expect(resolveOccupation(occupationIndex, "quality inspector")?.jobDomainId).toBe(
+      "jd_isco_7543",
+    );
+    expect(familyFor("quality inspector")).toBe("fam_other_craft");
+    // 2. THE TRADE'S OTHER TITLES LAND ON UNBOUND CODES. "quality control inspector" is the
+    //    published title of 3139.5001, whose description is generic ("manufactured products"), not
+    //    metal — so it is not bound without a ruling, and the phrase keeps the universal pack.
+    //    "quality engineer" is 2152.0601, a medical-devices professional. Both are gaps.
+    expect(familyFor("quality control inspector")).toBe("fam_universal");
+    expect(familyFor("quality engineer")).toBe("fam_universal");
+    // 3. BARE "quality" IS RATIFIED ON THE METAL CODE (item 10), so "quality manager" reaches this
+    //    family. NOT in the 2026-09-24 guard ruling — left as an accepted imprecision.
+    expect(familyFor("quality manager")).toBe("fam_quality_inspection");
+  });
+
+  it("GUARD ROWS (2026-09-24) — four non-metal QC phrases reach their own trade", () => {
+    // Bare "qc" (item 6) took every one of these to the metal code once this family bound it.
+    // Each guard is an exact multi-token row that wins on longest-first before "qc" is tried.
+    // Before the guards all four were fam_quality_inspection; before THIS binding, fam_other_craft.
+    const codeFor = (p: string): string | null =>
+      resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+    // The apparel sewing-line QC code, on the generic minor-754 pack.
+    for (const p of ["garment qc", "qc executive sewing line"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7543_0201");
+      expect(familyFor(p), p).toBe("fam_other_craft");
+    }
+    // The published title keeps its hyphen through normalization, so it matched on its own and
+    // needed no row — only the spaced form a worker types did.
+    expect(codeFor("QC Executive-Sewing Line")).toBe("jd_nco_7543_0201");
+    // 2113.0601 "Quality Control Chemist" — the pharma QC lab. Its unit has no family binding.
+    for (const p of ["pharma qc", "qc chemist"]) {
+      expect(codeFor(p), p).toBe("jd_nco_2113_0601");
+      expect(familyFor(p), p).toBe("fam_universal");
+    }
+    // Longest-first keeps them when the worker adds the metal code's own words after them.
+    expect(familyFor("garment qc inspector")).toBe("fam_other_craft");
+    expect(familyFor("pharma qc chemist")).toBe("fam_universal");
+    // And the guards take nothing back from the trade itself.
+    expect(familyFor("qc")).toBe("fam_quality_inspection");
+    expect(familyFor("qc inspector")).toBe("fam_quality_inspection");
+  });
+
+  it("no quality-inspection phrase falls through to the universal pack", () => {
+    for (const p of ["qc", "qc inspector", "quality control", "क्वालिटी", "inspection ka kaam"]) {
       expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
       expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
     }
