@@ -1006,10 +1006,11 @@ retirement that A1 needs.
 - **B2 — `jd_nco_7233_0101` is bound to Fitter as an interim.** A1 gives that code to
   Maintenance Technician, but plain `fitter` is still one of its aliases and nothing can
   retire it yet. Leaving 0101 unbound would keep the most common way a fitter names the
-  trade on the generic fitting pack. The code moves to Maintenance Technician when the retirement path and that pack
-  ship. **Accepted cost:** the tranche's maintenance phrases on 0101 (`machine ki marammat`,
-  `machine repair`, `breakdown maintenance`, `plant maintenance`) reach the Fitter pack in
-  the meantime, and the first two are offered the Fitter form.
+  trade on the generic fitting pack. The code moves to Maintenance Technician when the
+  retirement path and that pack ship. **Accepted cost:** the tranche's maintenance phrases
+  on 0101 (`machine ki marammat`, `machine repair`, `breakdown maintenance`,
+  `plant maintenance`) reach the Fitter pack in the meantime, and the first two are offered
+  the Fitter form.
 - **B3 — The bare words hand over the form only with the family pin.** `fitter`, `fitting`,
   `फिटर`, `फिटिंग` and `fitting ka kaam` sit inside other trades' titles (pipe fitting, AC
   fitting, Die Fitter, …), so on their own they are corroborating words, not an occupation.
