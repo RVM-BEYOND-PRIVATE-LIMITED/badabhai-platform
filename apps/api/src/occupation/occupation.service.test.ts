@@ -42,6 +42,9 @@ const snapshot = buildOccupationSnapshot({
     { jobDomainId: "jd_lathe", text: "kharad" },
   ],
   bindings: BINDINGS,
+  // NO family labels in either script. Left to its default the builder would supply the
+  // committed Latin ones, and the collision guard below would qualify instead of abandoning.
+  familyChipLabels: {},
 });
 
 /**
@@ -51,6 +54,10 @@ const snapshot = buildOccupationSnapshot({
  * guard there must abandon, and this one has them, so it must qualify instead. Two fixtures
  * is what makes those two behaviours separately assertable — with one, whichever branch the
  * fixture happened to exercise would be the only one ever tested.
+ *
+ * The catalogue's labels here are Devanagari, as `profiling_family.label_hi` is, and the Latin
+ * ones are left to their committed default — so the qualifier this fixture produces is the one
+ * production produces (#1679).
  */
 const snapshotWithFamilyLabels = buildOccupationSnapshot({
   catalogVersion: "cat-1",
@@ -102,9 +109,11 @@ describe("OccupationService.resolve — the ladder", () => {
     expect(skills.nearestDomains).not.toHaveBeenCalled();
   });
 
-  it("shows the vernacular label, never the official English title", async () => {
+  it("shows the worker's own word in Latin script — never the English title, never label_hi", async () => {
+    // jd_weld carries `label_hi: "वेल्डर"`. It used to win outright; the display script is
+    // Latin (#1679), so the worker's own "welder" is what they see and what gets recorded.
     const { svc } = make();
-    expect((await svc.resolve("welder")).pinned?.label).toBe("वेल्डर");
+    expect((await svc.resolve("welder")).pinned?.label).toBe("welder");
   });
 
   it("climbs to L2 when the lexical layers found nothing", async () => {
@@ -180,7 +189,8 @@ describe("OccupationService.resolve — refusing", () => {
     expect(r.status).toBe("disambiguate");
     expect(r.needsDisambiguation).toBe(true);
     // The escape rides last on EVERY offer and is not counted against the four-chip cap.
-    expect(r.disambiguationOptions.map((o) => o.label)).toEqual(["वेल्डर", "darzi", "Kuch aur"]);
+    // One script across the whole offer, the escape included (#1679).
+    expect(r.disambiguationOptions.map((o) => o.label)).toEqual(["welder", "darzi", "Kuch aur"]);
   });
 
   it("appends the 'Kuch aur' escape with a NULL job_domain_id", async () => {
@@ -200,14 +210,15 @@ describe("OccupationService.resolve — refusing", () => {
 
   it("QUALIFIES colliding chips from the family label before abandoning", async () => {
     // "mistri" reaches a mason and a plumber. Two chips reading "mistri" would be a coin
-    // flip recorded as a deliberate answer — but the families have distinct vernacular
-    // names, so the offer survives instead of being thrown away.
+    // flip recorded as a deliberate answer — but the families have distinct names, so the
+    // offer survives instead of being thrown away. The qualifier is the family's LATIN label,
+    // not the catalogue's Devanagari one: qualifying must not put a second script in the list.
     const { svc } = make({ snapshot: snapshotWithFamilyLabels });
     const r = await svc.resolve("mistri");
     expect(r.status).toBe("disambiguate");
     expect(r.disambiguationOptions.map((o) => o.label)).toEqual([
-      "राजमिस्त्री का काम",
-      "प्लंबर का काम",
+      "raj mistri",
+      "plumber ka kaam",
       "Kuch aur",
     ]);
   });
@@ -324,7 +335,7 @@ describe("OccupationService.describeDomain", () => {
     expect(svc.describeDomain("jd_weld")).toMatchObject({
       jobDomainId: "jd_weld",
       labelEn: "Welder, Gas",
-      label: "वेल्डर",
+      label: "welder",
       familyId: "fam_welding",
       catalogVersion: "cat-1",
     });

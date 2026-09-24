@@ -2,13 +2,14 @@
  * The in-process occupation snapshot.
  *
  * The two properties worth the most here are both about what a WORKER ends up seeing:
- * a chip is never NCO's official English title, and every candidate carries its family so
- * the margin can be computed where it means something.
+ * a chip is never NCO's official English title (and is always Latin script, #1679), and every
+ * candidate carries its family so the margin can be computed where it means something.
  */
 import { describe, expect, it } from "vitest";
 import type { ResolvableBinding } from "@badabhai/db";
 
-import { buildOccupationSnapshot, pickChipLabel } from "./occupation-index";
+import { FAMILY_CHIP_LABELS } from "./family-chip-labels";
+import { buildOccupationSnapshot, isLatinScript, pickChipLabel } from "./occupation-index";
 
 const BINDINGS: ResolvableBinding[] = [
   { familyId: "fam_welding", iscoUnitCode: "7212" },
@@ -23,9 +24,34 @@ const domain = (id: string, labelEn: string, unit: string | null, labelHi: strin
   iscoUnitCode: unit,
 });
 
+describe("isLatinScript", () => {
+  it("accepts Latin with the script-neutral characters every script shares", () => {
+    expect(isLatinScript("raj mistri")).toBe(true);
+    expect(isLatinScript("CNC Operator-Turning (2)")).toBe(true);
+    expect(isLatinScript("café")).toBe(true);
+  });
+
+  it("rejects ANY other script, not only Devanagari", () => {
+    expect(isLatinScript("नक्शा")).toBe(false);
+    expect(isLatinScript("cad कैड")).toBe(false);
+    expect(isLatinScript("ਤਰਖਾਣ")).toBe(false); // Gurmukhi
+    expect(isLatinScript("१२")).toBe(false); // Devanagari digits are Devanagari, not Common
+  });
+});
+
 describe("pickChipLabel", () => {
-  it("prefers label_hi — the language the conversation is actually in", () => {
-    expect(pickChipLabel("वेल्डर", ["welder"], "Welder, Gas")).toBe("वेल्डर");
+  it("prefers a Latin alias over the occupation's own Devanagari label_hi (#1679)", () => {
+    // label_hi used to win outright as "the language of the conversation". The conversation is
+    // romanized Hinglish; Devanagari is for read-aloud only.
+    expect(pickChipLabel("वेल्डर", ["welder"], "Welder, Gas")).toBe("welder");
+  });
+
+  it("ranks by SCRIPT before length — a shorter Devanagari alias never beats a Latin one", () => {
+    // The #1675 draughtsman: `नक्शा` is 5 UTF-16 code units and `naksha` is 6, so a pure
+    // length ranking offered him the Devanagari word beside a Latin `cad` and `Kuch aur`.
+    expect(pickChipLabel(null, ["नक्शा", "naksha", "drafting"], "Draughtsman, General")).toBe(
+      "naksha",
+    );
   });
 
   it("falls back to the SHORTEST alias, never the official English title", () => {
@@ -40,28 +66,58 @@ describe("pickChipLabel", () => {
     // exactly one alias — that title. Without this skip the shortest alias IS the English
     // title for 1,808 of 2,156 blue-collar occupations, and the guarantee this function is
     // named after is delivered for 348 of them.
-    expect(pickChipLabel(null, ["Cooks"], "Cooks", "खाना बनाने का काम")).toBe("खाना बनाने का काम");
+    expect(pickChipLabel(null, ["Cooks"], "Cooks", { latin: "khana banana", hi: "खाना बनाना" })).toBe(
+      "khana banana",
+    );
   });
 
   it("compares against label_en NORMALIZED, not raw", () => {
     // "Welder, Gas" and "welder gas" are the same title wearing different punctuation. A
     // raw comparison would call the second one vernacular and put it on a chip.
-    expect(pickChipLabel(null, ["welder gas"], "Welder, Gas", "वेल्डिंग")).toBe("वेल्डिंग");
+    expect(pickChipLabel(null, ["welder gas"], "Welder, Gas", { latin: "welding", hi: null })).toBe(
+      "welding",
+    );
   });
 
   it("prefers a genuine vernacular alias OVER the family label", () => {
     // The family label is coarser. When the worker's own word exists, it wins.
-    expect(pickChipLabel(null, ["kharad", "Lathe Machinist"], "Lathe Machinist", "मशीन का काम")).toBe(
-      "kharad",
+    expect(
+      pickChipLabel(null, ["kharad", "Lathe Machinist"], "Lathe Machinist", {
+        latin: "machine ka kaam",
+        hi: "मशीन का काम",
+      }),
+    ).toBe("kharad");
+  });
+
+  it("prefers the family's Latin label over a finer word in Devanagari", () => {
+    // `धान` is the only alias its occupation owns. A coarser label in the list's own script
+    // beats a finer one in a second script — the mixed list is the defect.
+    expect(pickChipLabel(null, ["धान"], "Paddy Farmer", { latin: "fasal ugana", hi: "फसल उगाना" })).toBe(
+      "fasal ugana",
     );
   });
 
-  it("uses label_en only when there is no family label either", () => {
-    expect(pickChipLabel(null, ["Cooks"], "Cooks", null)).toBe("Cooks");
+  it("prefers the family's Latin label over the occupation's own label_hi", () => {
+    expect(pickChipLabel("वेल्डर", [], "Welder, Gas", { latin: "welding", hi: "वेल्डिंग" })).toBe(
+      "welding",
+    );
   });
 
-  it("ignores a blank family label", () => {
-    expect(pickChipLabel(null, ["Cooks"], "Cooks", "   ")).toBe("Cooks");
+  it("keeps the old Devanagari order ONLY for a family with no Latin label", () => {
+    // A catalogue seeded from a newer corpus than this build. A label in the wrong script
+    // still beats a chip reading NCO's English title.
+    const noLatin = { latin: null, hi: "फसल" };
+    expect(pickChipLabel("वेल्डर", ["धान"], "X", noLatin)).toBe("वेल्डर");
+    expect(pickChipLabel(null, ["धान"], "X", noLatin)).toBe("धान");
+    expect(pickChipLabel(null, [], "X", noLatin)).toBe("फसल");
+  });
+
+  it("uses label_en only when there is no family label either", () => {
+    expect(pickChipLabel(null, ["Cooks"], "Cooks")).toBe("Cooks");
+  });
+
+  it("ignores a blank family label in either script", () => {
+    expect(pickChipLabel(null, ["Cooks"], "Cooks", { latin: "   ", hi: "  " })).toBe("Cooks");
   });
 
   it("breaks equal-length ties lexicographically, not by arrival order", () => {
@@ -71,6 +127,7 @@ describe("pickChipLabel", () => {
     expect(pickChipLabel(null, ["welder", "cutter"], "X")).toBe(
       pickChipLabel(null, ["cutter", "welder"], "X"),
     );
+    expect(pickChipLabel(null, ["धान", "खेत"], "X")).toBe(pickChipLabel(null, ["खेत", "धान"], "X"));
   });
 
   it("ignores blank aliases and blank label_hi", () => {
@@ -125,7 +182,7 @@ describe("buildOccupationSnapshot", () => {
     expect(snap().catalogVersion).toBe("v1");
   });
 
-  it("threads the FAMILY label into the chip when the occupation has no vernacular name", () => {
+  it("threads the family's LATIN label into the chip when the occupation has no vernacular name", () => {
     const s = buildOccupationSnapshot({
       catalogVersion: "v1",
       domains: [domain("jd_cook", "Cooks", "5120")],
@@ -133,8 +190,53 @@ describe("buildOccupationSnapshot", () => {
       aliases: [{ jobDomainId: "jd_cook", text: "Cooks" }],
       bindings: [{ familyId: "fam_cooking", iscoUnitCode: "5120" }],
       familyLabels: new Map([["fam_cooking", "खाना बनाने का काम"]]),
+      familyChipLabels: { fam_cooking: "khana banana" },
     });
-    expect(s.domains.get("jd_cook")?.chipLabel).toBe("खाना बनाने का काम");
+    expect(s.domains.get("jd_cook")?.chipLabel).toBe("khana banana");
+  });
+
+  it("DEFAULTS to the committed Latin labels, so no caller can forget them", () => {
+    // `OccupationIndexService` passes only what the database holds, which is Devanagari. A
+    // builder that needed telling would serve Devanagari the day someone forgot to tell it.
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [domain("jd_cook", "Cooks", "5120")],
+      aliases: [{ jobDomainId: "jd_cook", text: "Cooks" }],
+      bindings: [{ familyId: "fam_cooking", iscoUnitCode: "5120" }],
+      familyLabels: new Map([["fam_cooking", "खाना बनाना"]]),
+    });
+    expect(s.domains.get("jd_cook")?.chipLabel).toBe(FAMILY_CHIP_LABELS.fam_cooking);
+    expect(s.familyLabels.get("fam_cooking")).toBe(FAMILY_CHIP_LABELS.fam_cooking);
+  });
+
+  it("falls back to the catalogue's label_hi for a family this code has no Latin label for", () => {
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [domain("jd_cook", "Cooks", "5120")],
+      aliases: [{ jobDomainId: "jd_cook", text: "Cooks" }],
+      bindings: [{ familyId: "fam_new", iscoUnitCode: "5120" }],
+      familyLabels: new Map([["fam_new", "खाना बनाना"]]),
+      familyChipLabels: {},
+    });
+    expect(s.domains.get("jd_cook")?.chipLabel).toBe("खाना बनाना");
+    expect(s.familyLabels.get("fam_new")).toBe("खाना बनाना");
+  });
+
+  it("qualifies with the Latin label even where the catalogue holds a Devanagari one", () => {
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [],
+      aliases: [],
+      bindings: [],
+      familyLabels: new Map<string, string | null>([
+        ["fam_masonry", "राज मिस्त्री"],
+        ["fam_blank", null],
+      ]),
+      familyChipLabels: { fam_masonry: "raj mistri", fam_only_latin: "naya kaam" },
+    });
+    expect(s.familyLabels.get("fam_masonry")).toBe("raj mistri");
+    expect(s.familyLabels.get("fam_only_latin")).toBe("naya kaam");
+    expect(s.familyLabels.has("fam_blank")).toBe(false);
   });
 
   it("falls back to label_en when a domain has no family at all", () => {

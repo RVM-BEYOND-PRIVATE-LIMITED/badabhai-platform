@@ -411,12 +411,14 @@ export function validateQuestionPackCorpus(
       problems.push(`${where}: label_en is required`);
     if (f.status && !STATUSES.includes(f.status))
       problems.push(`${where}: unknown status ${JSON.stringify(f.status)}`);
-    // label_hi is what a worker is SHOWN when the engine confirms their trade. Its
-    // absence is not fatal (label_en is the fallback) but it is worth flagging, because
-    // "Metal Working Machine Tool Setters and Operators" is unusable as a confirmation.
+    // label_hi is the family's Devanagari name. What a worker is SHOWN is its Latin twin in
+    // apps/api's FAMILY_CHIP_LABELS (#1679), which that app's tests hold complete; label_hi is
+    // the fallback when the twin is missing, and label_en after it. Its absence is not fatal
+    // but it is worth flagging, because "Metal Working Machine Tool Setters and Operators" is
+    // unusable as a confirmation.
     if (!f.label_hi) {
       problems.push(
-        `${where}: WARN label_hi is missing — the worker-facing confirmation will fall back to label_en`,
+        `${where}: WARN label_hi is missing — without its Latin twin the confirmation falls back to label_en`,
       );
     }
   }

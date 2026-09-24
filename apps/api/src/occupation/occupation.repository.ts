@@ -174,13 +174,12 @@ export class OccupationRepository {
   }
 
   /**
-   * The families' vernacular labels — the chip's fallback when an occupation has no
-   * vernacular name of its own.
+   * The families' Devanagari labels — the chip's LAST-RESORT fallback, behind the committed
+   * Latin-script `FAMILY_CHIP_LABELS` (#1679).
    *
-   * Only 348 of 2,156 blue-collar occupations own an alias that is not just their English
-   * title, and `job_domain.label_hi` is NULL for every row in the catalogue. The families
-   * are where the Hindi actually lives (all 101 have `label_hi`, enforced by
-   * `db:verify:packs`), and a chip is a family-level choice anyway.
+   * Only reached for a family the running code has no Latin label for, which is a catalogue
+   * seeded from a newer corpus than this build. Kept rather than dropped because a family
+   * label in the wrong script beats a chip reading NCO's English title.
    */
   async loadFamilyLabels(): Promise<Map<string, string | null>> {
     const rows = await this.db.execute(sql`

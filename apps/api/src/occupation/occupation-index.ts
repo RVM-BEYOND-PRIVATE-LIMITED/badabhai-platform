@@ -27,6 +27,8 @@
 import { buildSpanIndex, normalizeOccupationText, type SpanIndex } from "@badabhai/profiling-lexicon";
 import { resolveFamily, type ResolvableBinding } from "@badabhai/db";
 
+import { FAMILY_CHIP_LABELS } from "./family-chip-labels";
+
 /** One alias row, as the index needs to see it. */
 export interface IndexAliasRow {
   readonly jobDomainId: string;
@@ -47,9 +49,9 @@ export interface IndexDomainRow {
  * `chipLabel` IS NEVER `labelEn`, and that is a product rule with teeth. NCO's official
  * title for unit 7223 is "Metal Working Machine Tool Setters and Operators" — nobody has
  * ever said that out loud, and a disambiguation chip becomes the worker's answer of record
- * verbatim. `labelHi` first because it is the language of the conversation; otherwise the
- * shortest alias, because the alias corpus IS the worker's own vocabulary by construction.
- * `labelEn` stays on the record for logs and ops, where a stable official name is the point.
+ * verbatim. It is also LATIN SCRIPT (#1679), the script every other line of the interview is
+ * written in — see {@link pickChipLabel}. `labelEn` stays on the record for logs and ops,
+ * where a stable official name is the point.
  */
 export interface IndexedDomain {
   readonly jobDomainId: string;
@@ -70,9 +72,10 @@ export interface OccupationSnapshot {
   readonly domains: ReadonlyMap<string, IndexedDomain>;
   readonly aliasCount: number;
   /**
-   * family id -> its vernacular label. Kept on the snapshot, not only folded into
-   * `chipLabel`, because the disambiguation collision guard needs it as a QUALIFIER: when
-   * two chips share a shortest alias, the family label is what tells them apart.
+   * family id -> its display label (Latin first, see {@link familyDisplayLabel}). Kept on the
+   * snapshot, not only folded into `chipLabel`, because the disambiguation collision guard
+   * needs it as a QUALIFIER: when two chips share a shortest alias, the family label is what
+   * tells them apart — and a qualifier is a chip label too, so it follows the same script rule.
    */
   readonly familyLabels: ReadonlyMap<string, string>;
   /** Rough retained size, in bytes. Observability for the plan's ~2–4 MB budget. */
@@ -80,14 +83,47 @@ export interface OccupationSnapshot {
 }
 
 /**
- * Pick the chip label for one domain, in strict order of how much it sounds like a worker.
+ * Is every character of `text` Latin script (or script-neutral: digits, spaces, punctuation)?
  *
- *   1. the occupation's own `label_hi`
- *   2. the shortest alias that is NOT merely the English title again
- *   3. the FAMILY's `label_hi`
+ * A SCRIPT TEST, NOT A DEVANAGARI TEST. The display rule (#1679) is "Latin", so a label in any
+ * other script fails it — asking "does it contain Devanagari?" would let a Gurmukhi or Bengali
+ * alias through the day the corpus grows one. `Common` and `Inherited` are the Unicode scripts of
+ * digits, punctuation and combining accents, which every script shares.
+ */
+const NON_LATIN_SCRIPT = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
+
+export function isLatinScript(text: string): boolean {
+  return !NON_LATIN_SCRIPT.test(text);
+}
+
+/** A family's two labels, as the chip picker sees them. */
+export interface FamilyChipLabels {
+  /** The committed Latin-script label, {@link FAMILY_CHIP_LABELS}. */
+  readonly latin: string | null;
+  /** `profiling_family.label_hi` — Devanagari. The last-resort fallback only. */
+  readonly hi: string | null;
+}
+
+const NO_FAMILY: FamilyChipLabels = { latin: null, hi: null };
+
+/**
+ * Pick the chip label for one domain: the most worker-sounding label, in LATIN SCRIPT.
+ *
+ *   1. the shortest Latin-script alias that is NOT merely the English title again
+ *   2. the FAMILY's Latin-script label ({@link FAMILY_CHIP_LABELS})
+ *   3. then, only for a family with no Latin label — a catalogue that is ahead of this code —
+ *      the Devanagari chain this function used to lead with: the occupation's own `label_hi`,
+ *      the shortest remaining alias, the family's `label_hi`
  *   4. `label_en`, and only when a domain has no family and no alias of its own
  *
- * STEP 2 HAD TO LEARN TO SKIP `label_en`, AND STEP 3 HAD TO EXIST AT ALL. The first version
+ * WHY LATIN FIRST (#1679, owner ruling 2026-09-24). Display script is romanized Hinglish: every
+ * served pack string, the "Kuch aur" escape appended to every offer, and every persona line are
+ * Latin, and Devanagari is for read-aloud only. This function used to rank by length alone, and
+ * UTF-16 length is not script-neutral — `नक्शा` (5) beat `naksha` (6), so a CAD draughtsman was
+ * offered `cad`, `नक्शा`, `Kuch aur`, and would have been recorded in Devanagari had they tapped.
+ * Behind the aliases, the family's `label_hi` was the chip for 2,915 of 3,515 occupations.
+ *
+ * STEP 1 HAD TO LEARN TO SKIP `label_en`, AND STEP 2 HAD TO EXIST AT ALL. The first version
  * of this function took the shortest alias outright, on the reasoning that "aliases ARE the
  * worker's vocabulary by design". Measured against the seeded catalogue, that reasoning was
  * wrong for most of it: `label_hi` is NULL on all 4,071 occupations (plan finding F1), the
@@ -98,9 +134,13 @@ export interface OccupationSnapshot {
  *
  * The family label is the right fallback rather than a convenient one. Chips are already
  * deduplicated to ONE PER FAMILY (see `decide`), so a chip is a family-level choice in the
- * first place — labelling it with the family's own vernacular name says exactly what the
- * worker is being asked to choose between. All 101 families have `label_hi`; the pack
- * corpus validator makes that a build-time gate, so step 3 cannot silently become step 4.
+ * first place — labelling it with the family's own name says exactly what the worker is being
+ * asked to choose between. `family-chip-labels.test.ts` holds every corpus family to a Latin
+ * label, so step 2 cannot silently become step 3.
+ *
+ * A LATIN FAMILY LABEL BEATS A DEVANAGARI ALIAS. Two occupations own only Devanagari aliases
+ * (`धान`, `कुआं खोदना`). Their family's Latin label is coarser, but it is in the script of the
+ * rest of the list; a finer word in the wrong script is exactly the mixed list this rule ends.
  *
  * TIES ARE BROKEN LEXICOGRAPHICALLY, NOT BY ARRIVAL ORDER, and this is a multi-instance
  * correctness rule rather than tidiness. Every API instance builds its own snapshot from
@@ -112,30 +152,50 @@ export function pickChipLabel(
   labelHi: string | null,
   aliases: readonly string[],
   labelEn: string,
-  familyLabelHi: string | null = null,
+  family: FamilyChipLabels = NO_FAMILY,
 ): string {
-  if (labelHi !== null && labelHi.trim().length > 0) return labelHi;
-
   // Compared NORMALIZED, not raw. "Welder, Gas" and "welder gas" are the same title wearing
   // different punctuation, and a raw comparison would call the second one vernacular.
   const officialNorm = normalizeOccupationText(labelEn);
+  const vernacular = aliases
+    .map((alias) => alias.trim())
+    .filter((alias) => alias.length > 0 && normalizeOccupationText(alias) !== officialNorm);
+
+  return (
+    shortest(vernacular.filter(isLatinScript)) ??
+    nonBlank(family.latin) ??
+    nonBlank(labelHi) ??
+    shortest(vernacular) ??
+    nonBlank(family.hi) ??
+    labelEn
+  );
+}
+
+/** The shortest string, ties broken lexicographically — see {@link pickChipLabel}. */
+function shortest(candidates: readonly string[]): string | null {
   let best: string | null = null;
-  for (const alias of aliases) {
-    const candidate = alias.trim();
-    if (candidate.length === 0) continue;
-    if (normalizeOccupationText(candidate) === officialNorm) continue;
-    if (best === null) {
-      best = candidate;
-      continue;
-    }
-    if (candidate.length < best.length || (candidate.length === best.length && candidate < best)) {
+  for (const candidate of candidates) {
+    if (
+      best === null ||
+      candidate.length < best.length ||
+      (candidate.length === best.length && candidate < best)
+    ) {
       best = candidate;
     }
   }
-  if (best !== null) return best;
+  return best;
+}
 
-  if (familyLabelHi !== null && familyLabelHi.trim().length > 0) return familyLabelHi;
-  return labelEn;
+function nonBlank(value: string | null | undefined): string | null {
+  return value !== null && value !== undefined && value.trim().length > 0 ? value : null;
+}
+
+/**
+ * The label a family is shown by, as a chip or as a collision qualifier: Latin first, the
+ * catalogue's `label_hi` only for a family this code has no Latin label for.
+ */
+function familyDisplayLabel(family: FamilyChipLabels): string | null {
+  return nonBlank(family.latin) ?? nonBlank(family.hi);
 }
 
 /**
@@ -151,8 +211,13 @@ export function buildOccupationSnapshot(input: {
   readonly domains: readonly IndexDomainRow[];
   readonly aliases: readonly IndexAliasRow[];
   readonly bindings: readonly ResolvableBinding[];
-  /** `profiling_family.label_hi`, keyed by family id. The chip's third fallback. */
+  /** `profiling_family.label_hi`, keyed by family id. The chip's last-resort fallback. */
   readonly familyLabels?: ReadonlyMap<string, string | null>;
+  /**
+   * The Latin-script family labels. Defaults to the committed {@link FAMILY_CHIP_LABELS} so
+   * that no caller can forget them and quietly serve Devanagari; a test passes its own.
+   */
+  readonly familyChipLabels?: Readonly<Record<string, string>>;
 }): OccupationSnapshot {
   const aliasesByDomain = new Map<string, string[]>();
   const known = new Set(input.domains.map((d) => d.jobDomainId));
@@ -166,6 +231,12 @@ export function buildOccupationSnapshot(input: {
     aliasCount++;
   }
 
+  const latinLabels = input.familyChipLabels ?? FAMILY_CHIP_LABELS;
+  const familyOf = (familyId: string): FamilyChipLabels => ({
+    latin: Object.hasOwn(latinLabels, familyId) ? (latinLabels[familyId] ?? null) : null,
+    hi: input.familyLabels?.get(familyId) ?? null,
+  });
+
   const domains = new Map<string, IndexedDomain>();
   for (const d of input.domains) {
     const aliases = aliasesByDomain.get(d.jobDomainId) ?? [];
@@ -174,14 +245,18 @@ export function buildOccupationSnapshot(input: {
       iscoUnitCode: d.iscoUnitCode,
     });
     const familyId = family?.familyId ?? null;
-    const familyLabelHi = familyId === null ? null : (input.familyLabels?.get(familyId) ?? null);
     domains.set(d.jobDomainId, {
       jobDomainId: d.jobDomainId,
       labelEn: d.labelEn,
       labelHi: d.labelHi,
       iscoUnitCode: d.iscoUnitCode,
       familyId,
-      chipLabel: pickChipLabel(d.labelHi, aliases, d.labelEn, familyLabelHi),
+      chipLabel: pickChipLabel(
+        d.labelHi,
+        aliases,
+        d.labelEn,
+        familyId === null ? NO_FAMILY : familyOf(familyId),
+      ),
     });
   }
 
@@ -193,8 +268,10 @@ export function buildOccupationSnapshot(input: {
   // collision guard's `?? null` fall through anyway, so storing them would be storing
   // nothing but ambiguity about whether a miss meant "absent" or "null".
   const familyLabels = new Map<string, string>();
-  for (const [familyId, label] of input.familyLabels ?? []) {
-    if (label !== null && label.trim().length > 0) familyLabels.set(familyId, label);
+  const familyIds = new Set([...(input.familyLabels?.keys() ?? []), ...Object.keys(latinLabels)]);
+  for (const familyId of familyIds) {
+    const label = familyDisplayLabel(familyOf(familyId));
+    if (label !== null) familyLabels.set(familyId, label);
   }
 
   return {

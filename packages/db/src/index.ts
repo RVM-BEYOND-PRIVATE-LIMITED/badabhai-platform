@@ -25,6 +25,11 @@ export * from "./rfs-vocabulary";
 // harness publishes and what `OccupationIndexService` actually does - see
 // `occupation-retrieval-parity.test.ts`. Nothing on a request path imports it.
 export * from "./occupation-retrieval-eval";
+// The corpus that harness is built from, with the alias overlay merged in. Exported for the same
+// reason and with the same caveat: `apps/api`'s `family-chip-labels.test.ts` builds the REAL
+// snapshot from it to hold every served chip to the display-script rule (#1679). Named rather
+// than `export *`: the module's other exports are seeder internals nobody outside this package needs.
+export { resolveJobDomainCorpus, type ResolvedJobDomain } from "./job-domain-corpus";
 // The chat-road fill ruler: the field universe + the pure per-road aggregation. Exported so
 // `apps/api` can hold the fact half of the field list to `WORKER_FACT_IDS` (the named mirror in
 // `chat-fill-coverage.ts` cannot import it) and so the Phase 3 settled-vs-missing view can reuse

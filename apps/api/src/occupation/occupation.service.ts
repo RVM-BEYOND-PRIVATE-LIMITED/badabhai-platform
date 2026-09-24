@@ -288,9 +288,10 @@ export class OccupationService {
    *
    * QUALIFY FIRST, ABANDON SECOND — the plan's two-step repair. Chips are already one per
    * FAMILY, so two colliding chips are two genuinely different trades that happen to share
-   * their shortest alias. The family's own `label_hi` is exactly the qualifier that
-   * separates them, and it is vernacular rather than an English parent title, so it stays
-   * readable for the worker being shown it. Only when qualification ALSO collides — two
+   * their shortest alias. The family's own label is exactly the qualifier that separates
+   * them, and it is the worker's register rather than an English parent title — Latin script,
+   * like every other chip (#1679), so qualifying one chip cannot leave the list in two
+   * scripts. Only when qualification ALSO collides — two
    * families sharing a label, or one lacking one — is the offer abandoned for an open
    * narrowing question.
    */
