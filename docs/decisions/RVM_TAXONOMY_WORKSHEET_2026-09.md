@@ -107,14 +107,14 @@ open until RVM writes in the verdict column.**
 | 5   | CAD Designer / Draughtsman             | **⚠ BLANK — no locked domain. See Q2.**                                                 | Programming Desk       | _(blank — see Unmapped rungs)_                        | `?technician`                                      | 1 cad designer `[N]` · 2 draughtsman / ड्राफ्ट्समैन `[N]` · 3 drawing banana `[N]` · 4 autocad ka kaam `[N]` · 5 design ka kaam `[N]`                             |             |
 | 6   | Conventional Machinist                 | Machining & Cutting                                                                     | Conventional Machining | operator                                              | `?elementary` · `?semi-skilled` · skilled trade    | 1 machinist `[E]` · 2 machine shop `[E]` · 3 manual lathe `[N]` · 4 traditional kharad `[N]` · 5 milling drilling ka kaam `[N]`                                   |             |
 | 7   | Welder                                 | Forming & Fabrication                                                                   | Welding & Fabrication  | _(blank — see Unmapped rungs)_                        | `?elementary` · skilled trade                      | 1 welder / वेल्डर `[E]` · 2 welding / वेल्डिंग `[E]` · 3 welding mistri `[E]` · 4 jodai ka kaam / जोड़ाई `[E]` · 5 veldar `[E]`                                   |             |
-| 8   | Fitter                                 | Assembly & Integration _(straddles Maintenance & Plant — note F)_                       | Fitting & Maintenance  | _(blank — see Unmapped rungs)_                        | `?elementary` · skilled trade                      | 1 fitter / फिटर `[E]` · 2 bench fitter `[E]` · 3 maintenance fitter `[E]` · 4 fitting ka kaam `[E]` · 5 assembly fitter `[N]`                                     |             |
-| 9   | Quality Inspector / QC                 | Quality & Inspection                                                                    | Quality                | inspector                                             | skilled trade · `?technician`                      | 1 quality check karna `[E]` · 2 qc inspector `[N]` · 3 quality wala `[N]` · 4 naap tol `[E]` · 5 inspection ka kaam `[N]`                                         |             |
-| 10  | Sheet Metal Worker                     | Forming & Fabrication                                                                   | Welding & Fabrication  | operator                                              | `?elementary` · skilled trade                      | 1 chadar ka kaam `[E]` · 2 sheet metal `[N]` · 3 press brake `[N]` · 4 laser cutting `[N]` · 5 fabrication ka kaam `[N]`                                          |             |
-| 11  | Assembly Line Worker                   | Assembly & Integration                                                                  | General Production     | operator                                              | `?elementary` · `?semi-skilled`                    | 1 assembler / असेंबलर `[E]` · 2 assembly line / असेंबली `[E]` · 3 assembly ka kaam `[N]` · 4 fitting line `[N]` · 5 production line `[N]`                         |             |
-| 12  | Maintenance Technician                 | Maintenance & Plant                                                                     | Fitting & Maintenance  | `?maintenance`                                        | `?elementary` · technician                         | 1 machine ki marammat `[E]` · 2 maintenance `[N]` · 3 breakdown maintenance `[N]` · 4 machine repair `[N]` · 5 marammat ka kaam `[N]`                             |             |
-| 13  | Industrial Electrician                 | Maintenance & Plant                                                                     | Fitting & Maintenance  | `?maintenance`                                        | `?elementary` · skilled trade                      | 1 bijli mistri / बिजली मिस्त्री `[E]` · 2 electric mistri `[E]` · 3 wiring ka kaam / वायरिंग `[E]` · 4 ilectrician `[E]` · 5 panel wiring `[N]`                   |             |
+| 8   | Fitter                                 | Assembly & Integration _(straddles Maintenance & Plant — note F)_                       | Fitting & Maintenance  | _(blank — see Unmapped rungs)_                        | `?elementary` · skilled trade                      | 1 fitter / फिटर `[E]` · 2 bench fitter `[E]` · 3 maintenance fitter `[E]` · 4 fitting ka kaam `[E]` · 5 assembly fitter `[N]`                                     | Aliases only — Part 5, 2026-09-24. Other cells open. |
+| 9   | Quality Inspector / QC                 | Quality & Inspection                                                                    | Quality                | inspector                                             | skilled trade · `?technician`                      | 1 quality check karna `[E]` · 2 qc inspector `[N]` · 3 quality wala `[N]` · 4 naap tol `[E]` · 5 inspection ka kaam `[N]`                                         | Aliases only — Part 5, 2026-09-24. Other cells open. |
+| 10  | Sheet Metal Worker                     | Forming & Fabrication                                                                   | Welding & Fabrication  | operator                                              | `?elementary` · skilled trade                      | 1 chadar ka kaam `[E]` · 2 sheet metal `[N]` · 3 press brake `[N]` · 4 laser cutting `[N]` · 5 fabrication ka kaam `[N]`                                          | Aliases only — Part 5, 2026-09-24. Other cells open. |
+| 11  | Assembly Line Worker                   | Assembly & Integration                                                                  | General Production     | operator                                              | `?elementary` · `?semi-skilled`                    | 1 assembler / असेंबलर `[E]` · 2 assembly line / असेंबली `[E]` · 3 assembly ka kaam `[N]` · 4 fitting line `[N]` · 5 production line `[N]`                         | Aliases only — Part 5, 2026-09-24. Other cells open. |
+| 12  | Maintenance Technician                 | Maintenance & Plant                                                                     | Fitting & Maintenance  | `?maintenance`                                        | `?elementary` · technician                         | 1 machine ki marammat `[E]` · 2 maintenance `[N]` · 3 breakdown maintenance `[N]` · 4 machine repair `[N]` · 5 marammat ka kaam `[N]`                             | Aliases only — Part 5, 2026-09-24. Other cells open. |
+| 13  | Industrial Electrician                 | Maintenance & Plant                                                                     | Fitting & Maintenance  | `?maintenance`                                        | `?elementary` · skilled trade                      | 1 bijli mistri / बिजली मिस्त्री `[E]` · 2 electric mistri `[E]` · 3 wiring ka kaam / वायरिंग `[E]` · 4 ilectrician `[E]` · 5 panel wiring `[N]`                   | Aliases only — Part 5, 2026-09-24. Other cells open. |
 | 14  | Tool & Die Maker                       | Tooling, Die & Mould                                                                    | Tooling                | `?apprentice`                                         | `?semi-skilled` · skilled trade · `?technician`    | 1 tool maker / टूल मेकर `[E]` · 2 tool room / टूल रूम `[E]` · 3 **die maker / डाई मेकर** `[E]` ⚠ **R4-c** · 4 jig fixture `[E]` · 5 tool room ka kaam `[N]`       |             |
-| 15  | Press / Machine Operator               | Forming & Fabrication _(⚠ §23 splits this — see R4-a)_                                  | General Production     | operator · setter                                     | `?elementary` · `?semi-skilled`                    | 1 power press `[N]` · 2 press operator `[N]` · 3 press ka kaam `[N]` · 4 machine operator `[N]` · 5 stamping `[N]`                                                |             |
+| 15  | Press / Machine Operator               | Forming & Fabrication _(⚠ §23 splits this — see R4-a)_                                  | General Production     | operator · setter                                     | `?elementary` · `?semi-skilled`                    | 1 power press `[N]` · 2 press operator `[N]` · 3 press ka kaam `[N]` · 4 machine operator `[N]` · 5 stamping `[N]`                                                | Aliases only — Part 5, 2026-09-24. Other cells open. |
 | 16  | Painter / Powder Coating               | Heat Treatment & Finishing                                                              | General Production     | operator                                              | `?elementary` · `?semi-skilled` · `?skilled trade` | 1 industrial painter `[E]` · 2 spray painter / स्प्रे पेंटिंग `[E]` · 3 powder coating `[N]` · 4 booth painter `[N]` · 5 paint ka kaam `[E]` ⚠ **note P**         |             |
 | 17  | Injection Moulding Operator            | Plastics & Polymer                                                                      | Moulding & Polymer     | operator · setter                                     | `?semi-skilled` · `?technician`                    | 1 injection moulding `[N]` ⚠ **R4-a** · 2 moulding operator `[N]` · 3 plastic moulding `[N]` · 4 moulding ka kaam `[N]` · 5 plastic machine chalana `[N]`         |             |
 | 18  | Mould / Die Maker (Plastics)           | **⚠ Tooling, Die & Mould** _(§23) — but the sheet files it under 1D Plastics. See R4-c_ | Tooling                | `?apprentice`                                         | `?semi-skilled` · skilled trade                    | 1 mould maker `[N]` · 2 mould fitting `[N]` · 3 **die maker** `[E]` → today resolves to row 14 ⚠ **R4-c** · 4 spark erosion / EDM `[N]` · 5 mould polishing `[N]` |             |
@@ -189,14 +189,14 @@ if it is wrong — not because they need re-approval.
 | CAD Designer                   | cad designer · draughtsman/ड्राफ्ट्समैन · drawing banana · autocad ka kaam · design ka kaam            |       |
 | Conventional Machinist         | manual lathe · traditional kharad · milling drilling ka kaam                                           |       |
 | Welder                         | _(none — all 5 exist)_                                                                                 | —     |
-| Fitter                         | assembly fitter                                                                                        |       |
-| Quality Inspector              | qc inspector · quality wala · inspection ka kaam                                                       |       |
-| Sheet Metal Worker             | sheet metal · press brake · laser cutting · fabrication ka kaam                                        |       |
-| Assembly Line Worker           | assembly ka kaam · fitting line · production line                                                      |       |
-| Maintenance Technician         | maintenance · breakdown maintenance · machine repair · marammat ka kaam                                |       |
-| Industrial Electrician         | panel wiring                                                                                           |       |
+| Fitter                         | assembly fitter                                                                                        | — already routes via `fitter`; see Part 5 |
+| Quality Inspector              | qc inspector · quality wala · inspection ka kaam                                                       | A · A · A (Part 5) |
+| Sheet Metal Worker             | sheet metal · press brake · laser cutting · fabrication ka kaam                                        | A · A · A · A (Part 5) |
+| Assembly Line Worker           | assembly ka kaam · fitting line · production line                                                      | A · S · S (Part 5) |
+| Maintenance Technician         | maintenance · breakdown maintenance · machine repair · marammat ka kaam                                | S · A · A · S (Part 5) |
+| Industrial Electrician         | panel wiring                                                                                           | A (Part 5) |
 | Tool & Die Maker               | tool room ka kaam                                                                                      |       |
-| Press / Machine Operator       | power press · press operator · press ka kaam · machine operator · stamping                             |       |
+| Press / Machine Operator       | power press · press operator · press ka kaam · machine operator · stamping                             | A · A · S · S · A (Part 5) |
 | Painter / Powder Coating       | powder coating · booth painter _(+ strike `paint ka kaam`? — note P)_                                  |       |
 | Injection Moulding Op          | injection moulding · moulding operator · plastic moulding · moulding ka kaam · plastic machine chalana |       |
 | Mould / Die Maker              | mould maker · mould fitting · spark erosion/EDM · mould polishing                                      |       |
@@ -524,7 +524,14 @@ destination today.
 **Engineering recommends (a).**
 
 ```
-RVM verdict: .................................................................
+RVM verdict: OPTION (a) — Press / Machine Operator is metal forming only; all
+moulding goes to row 17.
+
+Signed: Divyanshu, 2026-09-24.
+
+Reason: the press-operator descriptor merged in #1440 already declares "injection
+moulding" as a conflict term rather than a machine term, so this signs what the code
+does. "machine operator" routes to no role (Part 5, item 24).
 ```
 
 ---
@@ -834,3 +841,121 @@ Per spec Part D, the ordered next steps are:
 Alias seeding (~2,100 total; ~105 role aliases from this worksheet) runs in parallel from
 step 1 and is **on the critical path for anything to match at all**. It is RVM-corpus
 work, not engineering work, and it is the single largest non-code dependency.
+
+---
+
+# Part 5 — Batch 2 routing rulings (signed 2026-09-24)
+
+**Scope: routing vocabulary for the seven undeclared Batch 2 roles only** — Fitter, Quality
+Inspector, Sheet Metal Worker, Assembly Line Worker, Maintenance Technician, Industrial
+Electrician, Press / Machine Operator. Everything else in this worksheet that was open
+before this part stays open, including every `proposed_domain`, `proposed_family`,
+`function` and `collar_tier` cell for these same seven rows.
+
+### What engineering measured before these were signed
+
+Every phrase below was run through the offline chain the deploy gate uses
+(`buildOccupationIndex` → `resolveOccupation` → `resolveFamily`) against the committed
+corpus at `origin/main` `1dae955e`. The "today" column in the table is that measurement.
+
+- **Five of the seven roles were unreachable.** Sheet Metal, Quality Inspector,
+  Maintenance, Industrial Electrician and Press Operator had no phrase that routed to them,
+  and several routed somewhere actively wrong.
+- **Fitter and Assembly Line were already reachable** through existing aliases
+  (`fitter`, `bench fitter`, `assembly line`, `असेंबली`). They need bindings, not vocabulary.
+- **Five `[E]` markers in Part 1 were wrong for routing.** `chadar ka kaam`,
+  `quality check karna`, `naap tol`, `machine ki marammat` and `fitting ka kaam` exist only
+  as skill aliases, TTS text or descriptor terms — not as occupation aliases — so none of
+  them routed a worker anywhere. Part 1 is left as written; this is the correction.
+
+### Rulings
+
+**A1 — Note F, the `jd_nco_7233_0101` split.** That code's published title is
+_Maintenance Fitter-Mechanical_, and it held both `fitter` and `maintenance fitter`.
+**Ruling: Maintenance Technician owns `maintenance fitter` (`jd_nco_7233_0101`); plain
+`fitter` moves to Bench Fitter (`jd_nco_7233_0200`) and stays with Fitter.** Reason: the
+role descriptors merged in #1440 already place `maintenance fitter` on Maintenance
+Technician, and this makes routing agree with them. This rules the alias split only — the
+Note F anchor-domain question for Fitter remains open.
+
+**A2 — Industrial Electrician scope.** **Ruling: generic electrician vocabulary
+(`bijli mistri`, `electric mistri`, `wiring ka kaam`, `ilectrician`, bare `electrician`)
+stays on the domestic wireman (`jd_nco_7411_0100`). Industrial Electrician is reached only
+by industrial phrases (items 17–19).** Reason: re-binding the domestic code would hand
+every house electrician the factory form. These four `[E]` aliases are therefore struck
+from row 13's list.
+
+**A3 — R4-a.** Recorded in the R4-a block above: option (a).
+
+**A4 — The junk `Machine` alias.** The published title _"Milker, Machine"_
+(`jd_nco_6121_0800`) is split on its comma, leaving a bare `Machine` alias that routes
+`machine operator`, `machine repair`, `machine ki marammat` and `machine chalana` to dairy
+cattle. **Ruling: strike it.**
+
+### Alias verdicts
+
+`A` accept · `S` strike. The phrase is what a worker says; the corpus stores its stem,
+per the normalization rule at the top of `rvm-aliases.jsonl`, and the engineering PR
+re-measures each one.
+
+| #  | Role                   | Phrase                                             | Today                                         | Verdict |
+| -- | ---------------------- | -------------------------------------------------- | --------------------------------------------- | ------- |
+| 1  | Sheet Metal Worker     | sheet metal / शीट मेटल                             | no match                                      | A       |
+| 2  | Sheet Metal Worker     | press brake                                        | no match                                      | A       |
+| 3  | Sheet Metal Worker     | laser cutting                                      | Welding (via `cutting`)                       | A       |
+| 4  | Sheet Metal Worker     | chadar ka kaam                                     | no match                                      | A       |
+| 5  | Sheet Metal Worker     | fabricator / fabrication ka kaam                   | no match                                      | A       |
+| 6  | Quality Inspector      | qc / qc inspector / qa qc                          | no match                                      | A       |
+| 7  | Quality Inspector      | quality control / क्वालिटी                         | no match                                      | A       |
+| 8  | Quality Inspector      | inspection ka kaam                                 | no match                                      | A       |
+| 9  | Quality Inspector      | quality check karna                                | Cooking (via `check`)                         | A       |
+| 10 | Quality Inspector      | quality wala                                       | no match                                      | A       |
+| 11 | Quality Inspector      | naap tol                                           | Cart puller (via `tol`)                       | S       |
+| 12 | Maintenance Technician | machine ki marammat                                | Dairy (via `Machine`)                         | A       |
+| 13 | Maintenance Technician | machine repair                                     | Dairy (via `Machine`)                         | A       |
+| 14 | Maintenance Technician | breakdown maintenance / plant maintenance          | no match                                      | A       |
+| 15 | Maintenance Technician | maintenance / मेंटेनेंस (bare)                      | no match                                      | S       |
+| 16 | Maintenance Technician | marammat ka kaam                                   | no match                                      | S       |
+| 17 | Industrial Electrician | panel wiring                                       | Domestic wireman                              | A       |
+| 18 | Industrial Electrician | industrial electrician / इंडस्ट्रियल इलेक्ट्रीशियन | Domestic wireman                              | A       |
+| 19 | Industrial Electrician | panel electrician / plant electrician              | Domestic wireman                              | A       |
+| 20 | Press / Machine Op     | power press                                        | Masonry (via `power`)                         | A       |
+| 21 | Press / Machine Op     | press operator / प्रेस ऑपरेटर                      | Woollen-cloth press (`jd_nco_8159_0400`)      | A — means the metal press |
+| 22 | Press / Machine Op     | stamping                                           | no match                                      | A       |
+| 23 | Press / Machine Op     | press ka kaam                                      | no match                                      | S       |
+| 24 | Press / Machine Op     | machine operator / machine chalana                 | Dairy (via `Machine`)                         | S       |
+| 25 | Assembly Line Worker   | assembly ka kaam                                   | no match                                      | A       |
+| 26 | Assembly Line Worker   | fitting line                                       | no match                                      | S       |
+| 27 | Assembly Line Worker   | production line                                    | no match                                      | S       |
+| 28 | Fitter                 | fitting ka kaam                                    | no match                                      | A       |
+
+Why each strike: **11** also means shop weighing — kept as a skill alias only. **15** is a
+one-word magnet (building, AC and house maintenance), the same defect class as A4.
+**16** means "repair work" of any kind; the cobbler pack already uses _marammat_. **23**
+collides with ironing clothes (_kapde press karna_). **24** is the generic catch-all R4-a
+warns about. **26** collides with Fitter. **27** is something any factory worker says.
+
+Items 6, 7, 14 (`plant maintenance`), 18 and 19 are not in the Part 1 lists; they come from
+the #1440 descriptors' `occupationTerms` or from the misroutes measured above.
+
+### What these rulings do not do by themselves
+
+- **The alias overlay can only add.** A4 and item 21 each require retiring a _published_
+  NCO alias, and the A1 move requires retiring an `rvm` row already seeded live — the
+  domain seed is `ON CONFLICT DO NOTHING` and never deletes. Those three need a retirement
+  mechanism before they can take effect; the pure additions do not.
+- **A role becomes reachable only when its family is bound, and a family is bound in the
+  same change as its question pack.** Binding a family with no active pack sends its
+  workers to the universal pack, which would be a regression for Fitter and Assembly Line
+  workers who get a generic pack today.
+
+```
+Verdict: A1 (b), A2 (a), A3 = R4-a (a), A4 strike; alias verdicts 1–28 as tabled.
+
+Signed: Divyanshu, 2026-09-24.
+
+Reason: each ruling follows the fail-safe direction this corpus already uses — a wrong
+family is worse than no family, because a wrong role scores 0.0 where an unknown one
+scores 0.4 (R5). Accepted phrases are the ones a worker in that role says and a worker
+outside it does not; every strike is a phrase that is honestly shared with another trade.
+```
