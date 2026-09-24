@@ -84,6 +84,9 @@ export const OPS_ROUTES = [
   ["GET", "/workers?limit=1"],
   ["GET", `/workers/${ABSENT_ID}/profile`],
   ["PUT", `/workers/${ABSENT_ID}/name`, {}],
+  // ADR-0043 launch gate. `{}` fails validation (`dry_run` is required), so even a broken guard
+  // could neither read nor render.
+  ["POST", "/workers/resume-erasure-backfill", {}],
   ["GET", `/workers/${ABSENT_ID}/applications`],
   ["GET", "/ai-jobs?limit=1"],
   ["GET", `/ai-jobs/${ABSENT_ID}`],

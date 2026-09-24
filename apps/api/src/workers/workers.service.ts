@@ -26,6 +26,7 @@ import type {
   WorkerProfileSummary,
   WorkerResumeFields,
   UpdateResumePrefsDto,
+  ResumeErasureBackfillResponse,
 } from "./workers.dto";
 
 /** ADR-0032 — photo-confirm validation bounds (ruled in the ADR, enforced here). */
@@ -155,6 +156,86 @@ export class WorkersService {
         );
       }
     }
+  }
+
+  /**
+   * ADR-0043 LAUNCH GATE — queue a fail-closed re-render of every résumé PDF drawn before its
+   * worker's latest erasure (the rule: `erasureBackfillTargetsSql` in the repository).
+   *
+   * THE SAME RENDER AN ERASURE ENQUEUES, through the same slots: `force` + `failClosed`, the
+   * worker's CURRENT data. A render that cannot finish marks the row failed (download 409s) rather
+   * than keep serving a PDF that may carry what the worker erased — including when
+   * RESUME_RENDER_ENABLED is off, where erasure already outranks the kill switch. It also redraws
+   * the older entry with today's data, the trade the erasure fan-out already makes.
+   *
+   * A DRY RUN IS A PURE READ: counts only. A real run is bounded by `limit` and paged by résumé id;
+   * one résumé that cannot be queued is logged and counted, never the end of the page. Each queued
+   * résumé emits `resume.erasure_backfill_enqueued`, ids only. Re-running is safe: a résumé still
+   * waiting in its slot is not queued twice, and a rendered one has left the set.
+   */
+  async backfillErasureRerenders(
+    opts: { dryRun: boolean; limit: number; after: string | null },
+    ctx: RequestContext,
+  ): Promise<ResumeErasureBackfillResponse> {
+    const [targets, stale] = await Promise.all([
+      this.workers.listErasureBackfillTargets(opts.limit, opts.after),
+      this.workers.countErasureBackfillTargets(),
+    ]);
+    const nextAfter = targets.length === opts.limit ? (targets.at(-1)?.resumeId ?? null) : null;
+    const result = {
+      dry_run: opts.dryRun,
+      stale,
+      batch: targets.length,
+      enqueued: 0,
+      failed: 0,
+      next_after: nextAfter,
+    };
+    if (opts.dryRun) return result;
+
+    for (const { resumeId, workerId } of targets) {
+      try {
+        await this.enqueueErasure(resumeId, {
+          resumeId,
+          workerId,
+          force: true,
+          failClosed: true,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      } catch (err) {
+        result.failed += 1;
+        this.logger.warn(
+          `erasure backfill could not queue résumé ${resumeId} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+        continue;
+      }
+      result.enqueued += 1;
+      try {
+        await this.events.emit({
+          event_name: "resume.erasure_backfill_enqueued",
+          actor: { actor_type: "ops", actor_id: null },
+          subject: { subject_type: "resume", subject_id: resumeId },
+          payload: { worker_id: workerId, resume_id: resumeId },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      } catch (err) {
+        // The render is queued, and it is what removes the erased data; a lost audit row must not
+        // un-queue it. Loud, so the gap in the spine is visible.
+        this.logger.error(
+          `erasure backfill queued résumé ${resumeId} but its audit event failed (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    }
+    this.logger.log(
+      `erasure backfill: stale=${stale} batch=${result.batch} enqueued=${result.enqueued} ` +
+        `failed=${result.failed} next_after=${nextAfter ?? "none"}`,
+    );
+    return result;
   }
 
   /**
