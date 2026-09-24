@@ -1,0 +1,677 @@
+{
+  "_why": "Role track for the ASSEMBLY LINE, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's second pack. fam_assembly stays the generic ISCO-unit-8219 interview and fam_assemblers_other the generic minor-821 one; neither is touched. This pack belongs to fam_assembly_line, which binds three NCO occupations directly (job_domain specificity 50 beats unit 40 and minor 30), so a line worker who says 'assembly line' or 'असेंबली' gets line depth and every other assembler keeps the generic pack.",
+  "_scope": "WORK ON A PACED LINE -- sub-assembly, final assembly and end-of-line testing, to a takt, with nut runners, torque tools and poka-yoke fixtures. The level ladder (Helper / Operator / Skilled) is asked as assembly_level so the sheet can say which rung the man stands on. Bench and machinery assembly (workshop machines, engines, turbines, printing and textile machinery) stays on fam_assemblers_other, electronics and PCB assembly on the same, and 'assembly fitter' stays with the fitter; none is bound here.",
+  "_depth": "THE TIER GATE IS assembly_experience, asked FIRST, and it is ASSEMBLY_LINE_WORKER.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (assembly_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15, and 13 + 18 = 31 against the 48 ceiling. The three fresher items are gated assembly_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED ASSEMBLY LINE REFERENCE RESUME (Deepak Jadhav, page 6), not invented. Its seven rows are Assembly stage, Products assembled, Tools used, Shop-floor practice, Line rate worked to, Drawings and Sector worked, and every one has a question here that fills it. Tools used and Shop-floor practice each carry SIX options plus the escape chip because the page prints six values in each; trimming to the chip guideline would drop a value the ratified sheet shows. Line rate is a BANDED single_select, the welder's plate ruling: the page's cell 'Worked to 90-second takt on final line' is hand-set prose around one figure, a free number would not render through a closed dictionary, and the stage ('on final line') is already assembly_stage's row -- so the sheet prints the band that holds 90 seconds, a RECORDED DIVERGENCE. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable, which is why the page's '5S' is option_key five_s. drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first) to keep a sheet on one page, and a private key would opt this trade out of that. The page has no materials or measuring-instruments row, so material_worked and measuring_tools are not asked. assembly_line_product is NOT qp_assembly's assembly_product: that key is an rfs skills question with a different vocabulary, and one key meaning two things across packs is how an answer lands in the wrong row.",
+  "pack_id": "qp_assembly_line",
+  "version": 1,
+  "family_id": "fam_assembly_line",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising assembly line worker -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific. The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "assembly_experience",
+      "prompt_text": "Assembly line par kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal assembly line par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "assembly_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_stage",
+      "prompt_text": "Line ke kaunse stage par kaam kiya hai?",
+      "why_text": "Line ke har stage ka kaam alag hota hai.",
+      "retry_text": "Sub-assembly, final assembly ya testing, kahan kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "assembly_stage",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "sub_assembly",
+          "label_text": "Sub-assembly",
+          "value_text": "sub_assembly"
+        },
+        {
+          "option_key": "final_assembly",
+          "label_text": "Final assembly",
+          "value_text": "final_assembly"
+        },
+        {
+          "option_key": "end_of_line",
+          "label_text": "End-of-line testing",
+          "value_text": "end_of_line"
+        },
+        {
+          "option_key": "line_feeding",
+          "label_text": "Line feeding aur kitting",
+          "value_text": "line_feeding"
+        },
+        {
+          "option_key": "rework",
+          "label_text": "Rework aur repair",
+          "value_text": "rework"
+        },
+        {
+          "option_key": "other_stage",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_level",
+      "prompt_text": "Aap khud ko kis level ka assembly line worker maante hain?",
+      "why_text": "Helper aur skilled worker ka kaam aur vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled",
+          "value_text": "skilled"
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_line_product",
+      "prompt_text": "Kaunsi assembly par kaam kiya hai?",
+      "why_text": "Product ka tajurba usi line ke employer dhoondhte hain.",
+      "retry_text": "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "assembly_line_product",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "engine_sub_assembly",
+          "label_text": "Engine sub-assembly",
+          "value_text": "engine_sub_assembly"
+        },
+        {
+          "option_key": "transmission",
+          "label_text": "Gearbox ya transmission",
+          "value_text": "transmission"
+        },
+        {
+          "option_key": "seat_assembly",
+          "label_text": "Seat assembly",
+          "value_text": "seat_assembly"
+        },
+        {
+          "option_key": "wiring_harness",
+          "label_text": "Wiring harness routing",
+          "value_text": "wiring_harness"
+        },
+        {
+          "option_key": "door_trim",
+          "label_text": "Door, dashboard aur trim",
+          "value_text": "door_trim"
+        },
+        {
+          "option_key": "other_product",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_tool",
+      "prompt_text": "Line par kaunse tool chalate hain?",
+      "why_text": "Tool ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?",
+      "target_kind": "attribute",
+      "target_field": "assembly_tool",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "dc_nut_runner",
+          "label_text": "DC nut runner",
+          "value_text": "dc_nut_runner"
+        },
+        {
+          "option_key": "torque_wrench",
+          "label_text": "Torque wrench",
+          "value_text": "torque_wrench"
+        },
+        {
+          "option_key": "pneumatic_gun",
+          "label_text": "Pneumatic gun",
+          "value_text": "pneumatic_gun"
+        },
+        {
+          "option_key": "poka_yoke",
+          "label_text": "Poka-yoke fixture",
+          "value_text": "poka_yoke"
+        },
+        {
+          "option_key": "leak_test_rig",
+          "label_text": "Leak test rig",
+          "value_text": "leak_test_rig"
+        },
+        {
+          "option_key": "go_no_go_gauge",
+          "label_text": "Go / no-go gauge",
+          "value_text": "go_no_go_gauge"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_practice",
+      "prompt_text": "Shop floor par kaunse tareeke follow karte hain?",
+      "why_text": "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_practice",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "sop_adherence",
+          "label_text": "SOP ke hisaab se kaam",
+          "value_text": "sop_adherence"
+        },
+        {
+          "option_key": "kanban_pull",
+          "label_text": "Kanban pull",
+          "value_text": "kanban_pull"
+        },
+        {
+          "option_key": "five_s",
+          "label_text": "5S",
+          "value_text": "five_s"
+        },
+        {
+          "option_key": "kaizen",
+          "label_text": "Kaizen suggestion dena",
+          "value_text": "kaizen"
+        },
+        {
+          "option_key": "line_balancing",
+          "label_text": "Line balancing me madad",
+          "value_text": "line_balancing"
+        },
+        {
+          "option_key": "first_off_check",
+          "label_text": "First-off checking",
+          "value_text": "first_off_check"
+        },
+        {
+          "option_key": "other_practice",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh paata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "work_instruction",
+          "label_text": "Sirf work instruction sheet",
+          "value_text": "work_instruction"
+        },
+        {
+          "option_key": "assembly_drawing",
+          "label_text": "Assembly drawing aur work instruction dono",
+          "value_text": "assembly_drawing"
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_takt_time",
+      "prompt_text": "Aapki line ka takt time kitna tha?",
+      "why_text": "Tez line par kaam karne wale ki alag maang hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_takt_time",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "under_one_minute",
+          "label_text": "1 minute se kam",
+          "value_text": "under_one_minute"
+        },
+        {
+          "option_key": "one_to_two_minutes",
+          "label_text": "1 se 2 minute",
+          "value_text": "one_to_two_minutes"
+        },
+        {
+          "option_key": "two_to_five_minutes",
+          "label_text": "2 se 5 minute",
+          "value_text": "two_to_five_minutes"
+        },
+        {
+          "option_key": "over_five_minutes",
+          "label_text": "5 minute se zyada",
+          "value_text": "over_five_minutes"
+        },
+        {
+          "option_key": "unknown_takt",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis cheez ki assembly line par kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "passenger_vehicle",
+          "label_text": "Car ya passenger vehicle",
+          "value_text": "passenger_vehicle"
+        },
+        {
+          "option_key": "two_wheeler",
+          "label_text": "Bike ya scooter",
+          "value_text": "two_wheeler"
+        },
+        {
+          "option_key": "commercial_vehicle",
+          "label_text": "Truck, bus ya tractor",
+          "value_text": "commercial_vehicle"
+        },
+        {
+          "option_key": "auto_components",
+          "label_text": "Auto parts ya component",
+          "value_text": "auto_components"
+        },
+        {
+          "option_key": "appliances",
+          "label_text": "Electronics ya appliance",
+          "value_text": "appliances"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_joining",
+      "prompt_text": "Assembly me jodne ka kaunsa kaam khud karte hain?",
+      "why_text": "Har kaam alag hunar hai, isse sahi naukri milti hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_joining",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "bolt_torque",
+          "label_text": "Nut bolt torque karna",
+          "value_text": "bolt_torque"
+        },
+        {
+          "option_key": "clip_snap",
+          "label_text": "Clip aur snap fit",
+          "value_text": "clip_snap"
+        },
+        {
+          "option_key": "hose_clamp",
+          "label_text": "Hose aur clamp lagana",
+          "value_text": "hose_clamp"
+        },
+        {
+          "option_key": "connector_coupling",
+          "label_text": "Wiring connector jodna",
+          "value_text": "connector_coupling"
+        },
+        {
+          "option_key": "sealant_glue",
+          "label_text": "Sealant ya glue lagana",
+          "value_text": "sealant_glue"
+        },
+        {
+          "option_key": "no_joining",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_station_count",
+      "prompt_text": "Line ke kitne station ka kaam aata hai?",
+      "why_text": "Kai station jaanne wale ko line par aage rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_station_count",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "one_station",
+          "label_text": "Sirf ek station",
+          "value_text": "one_station"
+        },
+        {
+          "option_key": "few_stations",
+          "label_text": "2 se 4 station",
+          "value_text": "few_stations"
+        },
+        {
+          "option_key": "many_stations",
+          "label_text": "5 ya zyada station",
+          "value_text": "many_stations"
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_responsibility",
+      "prompt_text": "Line par aur kaunsi zimmedaari sambhalte hain?",
+      "why_text": "Zimmedaari sambhalne wale ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_responsibility",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "train_new",
+          "label_text": "Naye operator ko sikhana",
+          "value_text": "train_new"
+        },
+        {
+          "option_key": "relief_operator",
+          "label_text": "Relief operator, kisi bhi station par",
+          "value_text": "relief_operator"
+        },
+        {
+          "option_key": "line_stop",
+          "label_text": "Line rukne par problem sulajhana",
+          "value_text": "line_stop"
+        },
+        {
+          "option_key": "output_record",
+          "label_text": "Shift ka output aur rejection likhna",
+          "value_text": "output_record"
+        },
+        {
+          "option_key": "no_responsibility",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "assembly_defect",
+      "prompt_text": "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?",
+      "why_text": "Kharabi pakadne wale ki line par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "assembly_defect",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "wrong_torque",
+          "label_text": "Torque kam ya zyada",
+          "value_text": "wrong_torque"
+        },
+        {
+          "option_key": "missing_part",
+          "label_text": "Part chhoot jaana",
+          "value_text": "missing_part"
+        },
+        {
+          "option_key": "wrong_part",
+          "label_text": "Galat part lag jaana",
+          "value_text": "wrong_part"
+        },
+        {
+          "option_key": "leak_defect",
+          "label_text": "Leak aana",
+          "value_text": "leak_defect"
+        },
+        {
+          "option_key": "loose_connector",
+          "label_text": "Connector dheela rehna",
+          "value_text": "loose_connector"
+        },
+        {
+          "option_key": "no_defect",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "engine_stand",
+          "label_text": "Engine assembly stand",
+          "value_text": "engine_stand"
+        },
+        {
+          "option_key": "pneumatic_tools",
+          "label_text": "Pneumatic tools",
+          "value_text": "pneumatic_tools"
+        },
+        {
+          "option_key": "hydraulic_press",
+          "label_text": "Hydraulic press",
+          "value_text": "hydraulic_press"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "assembly_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
+    }
+  ]
+}

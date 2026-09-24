@@ -572,6 +572,31 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press part ki kaunsi kharabi aap sudhaar lete hain?":
     "प्रेस पार्ट की कौनसी खराबी आप सुधार लेते हैं?",
   "Press ki kaunsi dekhbhaal khud karte hain?": "प्रेस की कौनसी देखभाल खुद करते हैं?",
+  // qp_assembly_line@1 — Batch 2 part two. The drawing prompt and the three fresher items'
+  // prompts and retries are the welder's verbatim and reuse its twins above, so they are not
+  // repeated here.
+  "Assembly line par kitna tajurba hai?": "असेंबली लाइन पर कितना तजुर्बा है?",
+  "Lagbhag kitne saal assembly line par kaam kiya hai?":
+    "लगभग कितने साल असेंबली लाइन पर काम किया है?",
+  "Line ke kaunse stage par kaam kiya hai?": "लाइन के कौनसे स्टेज पर काम किया है?",
+  "Sub-assembly, final assembly ya testing, kahan kaam kiya hai?":
+    "सब-असेंबली, फ़ाइनल असेंबली या टेस्टिंग, कहाँ काम किया है?",
+  "Aap khud ko kis level ka assembly line worker maante hain?":
+    "आप खुद को किस लेवल का असेंबली लाइन वर्कर मानते हैं?",
+  "Kaunsi assembly par kaam kiya hai?": "कौनसी असेंबली पर काम किया है?",
+  "Engine, gearbox, seat ya wiring, kaunsa kaam kiya hai?":
+    "इंजन, गियरबॉक्स, सीट या वायरिंग, कौनसा काम किया है?",
+  "Line par kaunse tool chalate hain?": "लाइन पर कौनसे टूल चलाते हैं?",
+  "Nut runner, torque wrench ya pneumatic gun, kaunsa chalaya hai?":
+    "नट रनर, टॉर्क रिंच या न्यूमैटिक गन, कौनसा चलाया है?",
+  "Shop floor par kaunse tareeke follow karte hain?": "शॉप फ़्लोर पर कौनसे तरीके फ़ॉलो करते हैं?",
+  "Aapki line ka takt time kitna tha?": "आपकी लाइन का टैक्ट टाइम कितना था?",
+  "Kis cheez ki assembly line par kaam kiya hai?": "किस चीज़ की असेंबली लाइन पर काम किया है?",
+  "Assembly me jodne ka kaunsa kaam khud karte hain?": "असेंबली में जोड़ने का कौनसा काम खुद करते हैं?",
+  "Line ke kitne station ka kaam aata hai?": "लाइन के कितने स्टेशन का काम आता है?",
+  "Line par aur kaunsi zimmedaari sambhalte hain?": "लाइन पर और कौनसी ज़िम्मेदारी संभालते हैं?",
+  "Assembly ki kaunsi kharabi pakad kar sudhaar lete hain?":
+    "असेंबली की कौनसी खराबी पकड़ कर सुधार लेते हैं?",
 };
 
 /**
@@ -948,6 +973,23 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "हर डाई का काम अलग होता है, इससे सही नौकरी मिलती है।",
   "Kharabi sudhaarne wale setter ki shop par zaroorat rehti hai.":
     "खराबी सुधारने वाले सेटर की शॉप पर ज़रूरत रहती है।",
+  // qp_assembly_line@1 — why-texts. Eight more (tenure, level, drawing, sector, joining and the
+  // three fresher ones) are shared verbatim with the welder's and sheet metal packs and already
+  // twinned above.
+  "Line ke har stage ka kaam alag hota hai.": "लाइन के हर स्टेज का काम अलग होता है।",
+  "Product ka tajurba usi line ke employer dhoondhte hain.":
+    "प्रोडक्ट का तजुर्बा उसी लाइन के एम्प्लॉयर ढूँढते हैं।",
+  "Tool ke hisaab se sahi kaam dikhaya jaata hai.": "टूल के हिसाब से सही काम दिखाया जाता है।",
+  "Line ke niyam jaanne wale ko jaldi zimmedaari milti hai.":
+    "लाइन के नियम जानने वाले को जल्दी ज़िम्मेदारी मिलती है।",
+  "Tez line par kaam karne wale ki alag maang hoti hai.":
+    "तेज़ लाइन पर काम करने वाले की अलग माँग होती है।",
+  "Kai station jaanne wale ko line par aage rakha jaata hai.":
+    "कई स्टेशन जानने वाले को लाइन पर आगे रखा जाता है।",
+  "Zimmedaari sambhalne wale ko zyada vetan milta hai.":
+    "ज़िम्मेदारी संभालने वाले को ज़्यादा वेतन मिलता है।",
+  "Kharabi pakadne wale ki line par zaroorat rehti hai.":
+    "खराबी पकड़ने वाले की लाइन पर ज़रूरत रहती है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

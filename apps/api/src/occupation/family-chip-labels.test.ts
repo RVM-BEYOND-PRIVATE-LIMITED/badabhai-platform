@@ -120,6 +120,10 @@ describe("FAMILY_CHIP_LABELS", () => {
       // bound codes are shown by it (Tool Setter Press, Press Shop Operator and Press Shop
       // Helper carry no vernacular alias), so this row is what hands those workers the form.
       fam_press_operation: "press_operator",
+      // "assembly line" IS an occupation term of the assembly line role, so a worker pinned here
+      // is handed the line form — intended. The generic `fam_assembly` and `fam_assemblers_other`
+      // ("assembly ka kaam") stay off this table: bare "assembly" is not a term, "assembly line" is.
+      fam_assembly_line: "assembly_line_worker",
     });
   });
 });

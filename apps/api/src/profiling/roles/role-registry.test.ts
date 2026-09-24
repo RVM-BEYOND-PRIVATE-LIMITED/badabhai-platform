@@ -108,6 +108,8 @@ describe("the role registry", () => {
       // `industrial_electrician` follows, the first of the `maintenance` cluster, so it sits after
       // `painter_coating` — the last `fabrication` role — for the same reason.
       // `press_operator` is second, and sits between sheet metal and painting for the same reason.
+      // `assembly_line_worker` lands last for the same reason: `production` is declared after
+      // `fabrication` and `maintenance`.
       expect([...TRADE_FORM_KINDS]).toEqual([
         "cnc_turner",
         "vmc_milling",
@@ -121,6 +123,7 @@ describe("the role registry", () => {
         "press_operator",
         "painter_coating",
         "industrial_electrician",
+        "assembly_line_worker",
       ]);
     });
 

@@ -845,7 +845,8 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         // Press — items 20 and 22, on 7223.2300 and 7223.3000, which fam_press_operation binds since
         // its pack shipped — so both moved off the generic unit-7223 machining pack in that change.
         "power press", "stamping",
-        // Assembly line — item 25.
+        // Assembly line — item 25, on 8219.0100, which fam_assembly_line binds since its pack
+        // shipped — so it moved off the generic unit-8219 pack in that change, by design.
         "assembly ka kaam",
       ].map((p) => [p, familyFor(p)]),
     );
@@ -876,7 +877,7 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "plant electrician": "fam_industrial_electrician",
       "power press": "fam_press_operation",
       stamping: "fam_press_operation",
-      "assembly ka kaam": "fam_assembly",
+      "assembly ka kaam": "fam_assembly_line",
     });
   });
 
@@ -1164,6 +1165,100 @@ describe("Batch 2 part two — press / machine operator", () => {
 
   it("no ratified press phrase falls through to the universal pack", () => {
     for (const p of ["power press", "stamping", "tool setter press", "press shop operator"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — ASSEMBLY LINE, the second of the seven to ship its pack.
+ *
+ * Three bindings, all measured before they were written. 8219.0100 carries the role's whole
+ * vocabulary — "assembly line", "असेंबली", "असेंबलर" and the tranche's stem "assembly" — despite
+ * its published title "Assembler, Bicycle". 8211.1100 ("Assembler, Continuity", conveyor work by
+ * definition) and 8211.1200 ("Assembler, Automobile", the reference page's own worker) carry only
+ * their titles. Every other assembler stays on a generic pack, and the fitter keeps "assembly
+ * fitter", which is the one cross-cluster phrase this family must never take.
+ */
+describe("Batch 2 part two — assembly line", () => {
+  it("binds exactly the three codes, and the role's words reach them", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_assembly_line")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_8219_0100", "jd_nco_8211_1100", "jd_nco_8211_1200"]);
+    for (const p of [
+      "assembly line",
+      "असेंबली",
+      "असेंबलर",
+      "assembly",
+      "assembly ka kaam",
+      "assembly line worker",
+      "final assembly",
+      "sub assembly",
+      "assembler continuity",
+      "assembler automobile",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_assembly_line");
+    }
+    // The L1 folds of the stem come with it — misspellings, not new claims.
+    expect(familyFor("asembly")).toBe("fam_assembly_line");
+    expect(familyFor("assembley")).toBe("fam_assembly_line");
+  });
+
+  it("'assembly fitter' stays with the fitter — the cross-cluster guard row holds", () => {
+    // The worksheet ruled it (Part 5); the 2-token guard row on Bench Fitter keeps it off bare
+    // "assembly" on longest-first. Binding 8219.0100 must not have moved it.
+    expect(resolveOccupation(occupationIndex, "assembly fitter")?.jobDomainId).toBe(
+      "jd_nco_7233_0200",
+    );
+    expect(familyFor("assembly fitter")).toBe("fam_fitting");
+    expect(familyFor("assembly fitter")).not.toBe("fam_assembly_line");
+    expect(familyFor("fitter")).not.toBe("fam_assembly_line");
+  });
+
+  it("leaves every rejected neighbour where it was", () => {
+    // 8211 — machinery, motor-cycle, tractor and fitter-titled assemblers stay on the minor-821
+    // generic pack; 8212 electronics likewise.
+    for (const p of [
+      "assembler motor cycle",
+      "assembler tractor",
+      "vehicle assembly fitter",
+      "fitter-mechanical assembly",
+      "mechanical sub-assembly technician",
+      "assembler workshop machine and equipment",
+      "electrical assembly operator",
+      "pcb assembly operator",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_assemblers_other");
+    }
+    // 8219 — sewing machine and plastic product assemblers, and the ISCO node that claims the
+    // published "Assembler, Bicycle" title first, stay on the unit-8219 generic pack.
+    for (const p of ["assembler sewing machine", "plastic assembly", "assembler bicycle"]) {
+      expect(familyFor(p), p).toBe("fam_assembly");
+    }
+  });
+
+  it("PINS THE IMPRECISION IT KNOWINGLY LEAVES — bare English 'assembler'", () => {
+    // Two claimants share the span: 8211.1300's published split alias "Assembler" and 8219.0100's
+    // rvm row. 8211.1300 ("Assembler, Motor Cycle" — batch OR line) is a rejected neighbour and is
+    // the first claimant, so the word lands on the generic pack. The Devanagari has one claimant
+    // and comes here. This goes red, deliberately, when a retirement path removes the split alias.
+    expect(resolveOccupation(occupationIndex, "assembler")?.jobDomainId).toBe("jd_nco_8211_1300");
+    expect(familyFor("assembler")).toBe("fam_assemblers_other");
+    expect(familyFor("असेंबलर")).toBe("fam_assembly_line");
+  });
+
+  it("the STRUCK phrases stay unauthored — 'fitting line' and 'production line'", () => {
+    // Worksheet Part 5 items 26-27: one collides with the fitter, the other is any factory hand.
+    for (const p of ["fitting line", "production line"]) {
+      expect(familyFor(p), p).not.toBe("fam_assembly_line");
+      expect(familyFor(p), p).toBeNull();
+    }
+  });
+
+  it("no assembly line phrase falls through to the universal pack", () => {
+    for (const p of ["assembly line", "असेंबली", "assembly", "assembly ka kaam", "असेंबलर"]) {
       expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
       expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
     }

@@ -571,3 +571,53 @@
 {"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_0200"}
 {"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_2300"}
 {"kind":"binding","family_id":"fam_press_operation","job_domain_id":"jd_nco_7223_3000"}
+
+# ── Assembly line ────────────────────────────────────────────────────────────────────────────
+{"kind":"family","family_id":"fam_assembly_line","label_en":"Assembly Line (sub-assembly, final assembly and testing)","label_hi":"असेंबली लाइन","industry_id":"ind_industrial_manufacturing"}
+# 8219.0100 "Assembler, Bicycle" is the anchor, and it is the anchor for its ALIASES, not its
+# title: it already owned "assembly line", "असेंबली", "असेंबलर" and "cycle assembler", and the
+# tranche's item 25 put the stem "assembly" ("assembly ka kaam") on it. Every one of those words
+# is a line worker's, so the pack follows the vocabulary. THE ACCEPTED IMPRECISION is the code's
+# own title: "cycle assembler" (an rvm row on this code) gets the line pack too. The published
+# title "Assembler, Bicycle" does not — its span is claimed first by the ISCO node jd_isco_8219,
+# which stays on fam_assembly. The NCO description is sub-assembly, jig assembly and testing of
+# a complete cycle: the pack's stage and tool questions fit that worker; the automotive product
+# chips do not, and he answers none-of-above there.
+# It sits in unit 8219 under fam_assembly at specificity 40; this job-domain row at 50 takes it.
+#
+# 8211.1100 "Assembler, Continuity" is the trade BY DEFINITION — "as member of team usually on
+# mechanical conveyor... sits on either side of moving conveyor... fits allotted component".
+# 8211.1200 "Assembler, Automobile" is the reference page's own worker: vehicle assembly across
+# sub-assembly lines and the trim line, "may assemble only engine, gear boxes, axles... in
+# sub-assembly line". Only their published titles reach them today, which is the 7223.2400 case
+# the sheet metal block above binds on the same rule. Both sit under fam_assemblers_other at
+# minor 821 (specificity 30).
+#
+# REJECTED NEIGHBOURS, each staying where it is for a stated reason:
+#   8211.1300  "Assembler, Motor Cycle" — "may work on BATCH or line assembly", builds engines at a
+#              work table and road-tests: not every worker is line work. It is also where bare
+#              English "assembler" lands: the span is claimed by its published alias "Assembler"
+#              AND by 8219.0100's rvm row, and 8211.1300 is the first claimant. Binding it would
+#              hand every bench, PCB and furniture assembler who types that one word the line
+#              form. "असेंबलर" has one claimant, 8219.0100, and does come here. Stays on
+#              fam_assemblers_other.
+#   8211.1201 "Vehicle Assembly Fitter", 8211.1202 "Fitter-Mechanical Assembly" — fitter titles.
+#              The worksheet ruled "assembly fitter" stays with the fitter; the boundary is kept
+#              on the word, not re-argued per code. Stay on fam_assemblers_other.
+#   8211.0100-0300, 0500, 0600, 0800, 0900, 1000, 1400, 0101  workshop machines, printing and
+#              textile machinery, stationary engines, turbines, locomotives, erection, aircraft
+#              frames, mechanical sub-assembly technicians — machinery assembly "by further
+#              tooling", scraping and filing, not a paced line. 8211.0400 (refrigerator / AC
+#              units) carries the petrol-engine code's text and 8211.0700 "Assembler, Tractor"
+#              carries none, so nothing on the page establishes either as line work. All stay on
+#              fam_assemblers_other.
+#   8212.*     electrical and electronic assembly — soldering, PCB and winding, a different tool
+#              set from nut runners and torque tools. Stays on fam_assemblers_other.
+#   8219.0200/0300/0400/9900  sewing machine, plastic product, metal furniture and paperboard /
+#              textile assemblers — product-specific bench assembly. Stay on fam_assembly.
+#   jd_isco_8219 — an ISCO unit node; never bound (guide §2).
+# "fitting line" and "production line" were STRUCK by worksheet Part 5 (items 26-27) and are not
+# authored anywhere; both measure NO MATCH.
+{"kind":"binding","family_id":"fam_assembly_line","job_domain_id":"jd_nco_8219_0100"}
+{"kind":"binding","family_id":"fam_assembly_line","job_domain_id":"jd_nco_8211_1100"}
+{"kind":"binding","family_id":"fam_assembly_line","job_domain_id":"jd_nco_8211_1200"}
