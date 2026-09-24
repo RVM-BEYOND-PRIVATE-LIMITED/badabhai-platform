@@ -36,6 +36,7 @@ import 'cubit/resume_cubit.dart';
 import 'widgets/resume_action_row.dart';
 import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
+import '../../trade_form/presentation/widgets/add_more_detail_button.dart';
 import 'widgets/resume_history_section.dart';
 import 'widgets/resume_profile_card.dart';
 import 'widgets/resume_sections.dart';
@@ -343,6 +344,10 @@ class _ResumeViewState extends State<_ResumeView> {
         ),
         if (state.history.items.isNotEmpty)
           const SizedBox(height: kResumeCardGap),
+        // #1698 — "Aur detail add karein": a tier UPGRADE, offered only when
+        // the server says one is available. Renders nothing otherwise, which
+        // is every box today.
+        const AddMoreDetailButton(),
         const _ReportCorrectionButton(),
         const SizedBox(height: 10),
         const _ReviewExtractedButton(),

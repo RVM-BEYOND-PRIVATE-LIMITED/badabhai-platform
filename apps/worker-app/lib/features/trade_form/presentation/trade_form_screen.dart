@@ -117,15 +117,27 @@ class TradeFormScreen extends StatelessWidget {
   /// Technical Skills pilot (`trade_form_section_walk.dart`). The router feeds
   /// this from the Bada Bhai menu's `option_key` (`state.extra`); every other
   /// pusher passes nothing and gets exactly today's full walk.
-  const TradeFormScreen({super.key, this.sectionKey});
+  const TradeFormScreen({
+    super.key,
+    this.sectionKey,
+    this.upgradeView = false,
+  });
 
   /// The served menu's section key, or null for the full walk.
   final String? sectionKey;
 
+  /// #1698 — open the NARROWED form (`?view=upgrade`): only the questions this
+  /// worker has not answered yet, plus the pages a tier upgrade added fields
+  /// to. Set for exactly one navigation — the one straight after the server
+  /// answered a tier tap with `change: "upgraded"` — so an ordinary re-entry
+  /// still gets the whole form.
+  final bool upgradeView;
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider<TradeFormCubit>(
-      create: (_) => locator<TradeFormCubit>()..load(sectionKey: sectionKey),
+      create: (_) => locator<TradeFormCubit>()
+        ..load(sectionKey: sectionKey, upgradeView: upgradeView),
       child: const _TradeFormView(),
     );
   }

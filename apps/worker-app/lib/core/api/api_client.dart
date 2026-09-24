@@ -1527,8 +1527,52 @@ class ApiClient {
   /// GET /profiling/form — the WHOLE form, every already-given answer filled
   /// in. A 404 (this worker was never handed a form) surfaces as an
   /// [ApiException] for the caller to distinguish from an empty form.
-  Future<Map<String, dynamic>> getTradeForm({required String authToken}) =>
-      _get('/profiling/form', authToken: authToken);
+  ///
+  /// [view] is `'upgrade'` ONLY after a tier upgrade (#1698): the server then
+  /// serves just the questions the worker has not answered yet, plus the pages
+  /// that gained fields. Omitted (the default) is today's full form, byte for
+  /// byte — and the parameter is left off the url entirely rather than sent as
+  /// `view=full`, so a server built before tiers sees exactly the request it
+  /// has always seen.
+  Future<Map<String, dynamic>> getTradeForm({
+    required String authToken,
+    String? view,
+  }) => _get(
+    view == null || view.isEmpty ? '/profiling/form' : '/profiling/form?view=$view',
+    authToken: authToken,
+  );
+
+  /// GET /profiling/form/tiers — may this worker choose how long profiling
+  /// takes, and what do the three tiers cost them (#1698, ADR tiered
+  /// profiling)? Worker auth + consent.
+  ///
+  /// `{enabled, kind, needs_choice, current_tier, upgradable_to, tiers[]}`.
+  /// `enabled: false` is the ordinary answer while `PROFILING_TIERS_ENABLED`
+  /// is off AND for any pack not yet re-seeded — both mean the same thing to
+  /// the app: no tier screen, open the full form exactly as today.
+  ///
+  /// A 404 means this worker was never handed a form. Left to throw as an
+  /// [ApiException], like [getTradeForm]; the repository decides what it
+  /// means, and for this route it means the same as `enabled: false`.
+  Future<Map<String, dynamic>> getProfilingTiers({required String authToken}) =>
+      _get('/profiling/form/tiers', authToken: authToken);
+
+  /// POST /profiling/form/tier — the worker tapped a tier card (#1698).
+  ///
+  /// `{tier}` in, `{tier, previous_tier, change}` out, where `change` is
+  /// `selected` | `upgraded` | `unchanged`. Idempotent: the same tier again is
+  /// a 200 with `unchanged`, so a retried tap on a flaky link is harmless.
+  ///
+  /// A LOWER tier than the one held is a **409** — tiers are only ever raised,
+  /// and the app must never offer a downgrade in the first place.
+  Future<Map<String, dynamic>> chooseProfilingTier({
+    required String authToken,
+    required String tier,
+  }) => _post(
+    '/profiling/form/tier',
+    <String, dynamic>{'tier': tier},
+    authToken: authToken,
+  );
 
   /// POST /profiling/form/answer — save ONE answer. [body] is
   /// `{question_key, answer}`; option KEYS only, never labels. Returns
