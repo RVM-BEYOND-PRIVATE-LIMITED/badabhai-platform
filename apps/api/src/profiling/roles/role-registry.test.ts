@@ -105,6 +105,8 @@ describe("the role registry", () => {
       // BATCH 2 PART TWO ADDS THEM ONE AT A TIME, once the 2026-09-24 alias tranche (worksheet
       // Part 5) gave their words a code to land on. `sheet_metal_worker` is first; it sits after
       // `welder` because this list is the registry's DECLARATION order, not the order they shipped.
+      // `industrial_electrician` follows, the first of the `maintenance` cluster, so it sits after
+      // `painter_coating` — the last `fabrication` role — for the same reason.
       expect([...TRADE_FORM_KINDS]).toEqual([
         "cnc_turner",
         "vmc_milling",
@@ -116,6 +118,7 @@ describe("the role registry", () => {
         "welder",
         "sheet_metal_worker",
         "painter_coating",
+        "industrial_electrician",
       ]);
     });
 

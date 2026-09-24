@@ -3,7 +3,12 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
 /**
  * INDUSTRIAL ELECTRICIAN — MCC/PCC panels, VFD and AC drives, starters, motors, LT distribution.
  *
- * DECLARED IN BATCH 2, form to follow. `fam_electrical` and `fam_lineman` stay as they are.
+ * DECLARED IN BATCH 2, SHIPPED IN PART TWO once the 2026-09-24 alias tranche made its words
+ * reachable — before it, every electrician phrase reached `fam_electrical`'s house wiring, and
+ * "panel wiring" / "industrial electrician" reached only the generic minor-741 interview. The
+ * tranche put them on 7412.0200 "Electrical Fitter", which is the one code this role binds.
+ * `fam_electrical`, `fam_electrical_equipment` and `fam_lineman` stay exactly as they are: a role
+ * pack sits beside the family pack, never instead of it (authoring guide §2).
  *
  * ⚠ ═══ THE HOUSE WIRING PROBLEM, WHICH IS THIS ROLE'S VERSION OF THE PAINTER TRAP ═══
  *
@@ -18,6 +23,12 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  * "MCC", "VFD". A man who types only "electrician" or "bijli ka kaam" stays in the generic
  * interview, which already disambiguates him — the same reasoning, and the same fail-safe
  * direction, as `painter-coating.role.ts`.
+ *
+ * THE OWNER HAS SINCE RULED IT FOR RETRIEVAL TOO (worksheet Part 5, ruling A2): the generic
+ * electrician vocabulary — "bijli mistri", "electric mistri", "wiring ka kaam", "ilectrician", bare
+ * "electrician" — stays on the domestic wireman (7411.0100 / isco 7411, `fam_electrical`), and this
+ * family binds no 7411 code. The router and the resolver now refuse the bare word for the same
+ * reason, and `question-pack-reachability.test.ts` pins both halves.
  *
  * ═══ THE LICENCE IS EVIDENCE OF THE TRADE, AND IT IS STILL NOT A ROUTE ═══
  *
@@ -35,11 +46,46 @@ export const INDUSTRIAL_ELECTRICIAN = {
   packId: "qp_industrial_electrician",
   familyId: "fam_industrial_electrician",
   cluster: "maintenance",
-  formEnabled: false,
+  formEnabled: true,
   displayName: "Industrial Electrician",
   offerName: "industrial electrician",
   levelLadder: ["Helper", "Electrician", "Senior"],
   tenureQuestionKey: "electrical_experience",
+  fresher: {
+    // KEYED BY STORED `value_text`, read off `iti_workshop_machines` in qp_industrial_electrician@1.
+    // An ITI Electrician trainee wires a practice board and starts a motor through a starter on a
+    // bench; he does not stand at the MCC his employer will run — so this list is the WORKSHOP's
+    // equipment, not the capability row's.
+    workshopMachines: {
+      wiring_board: "Wiring practice board",
+      motor_starter: "Induction motor & starter",
+      dc_machine: "DC motor / generator",
+      transformer: "Transformer",
+      winding_machine: "Motor winding machine",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
+  /**
+   * AUTOCOMPLETE, NOT A CLOSED SET. The ratified page carries two credentials — "Wireman /
+   * Electrician Licence (Electrical Licensing Board, Uttar Pradesh)" and "VFD & Soft Starter
+   * Commissioning (Drive OEM training)" — and the education line "ITI — Electrician · NCVT". Those
+   * lead; the rest are what a plant's electrical department actually asks about. The licence is
+   * ALSO asked as `electrical_licence` in the pack, because the page prints it twice: once as the
+   * capability row "Licence" and once in the certificates line.
+   */
+  suggestedCertificates: [
+    "Wireman / Electrician Licence",
+    "VFD & Soft Starter Commissioning",
+    "ITI Electrician — NCVT",
+    "Trade Test — Electrician",
+    "Electrical Supervisor Licence",
+    "Electrical Safety Training",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
   detection: {
     occupationTerms: [
       "industrial electrician",

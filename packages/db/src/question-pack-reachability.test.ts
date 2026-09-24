@@ -837,7 +837,9 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         "quality check karna", "quality wala",
         // Maintenance — items 12-14, on 7233.0101, the code ruling A1 gives Maintenance Technician.
         "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
-        // Industrial electrician — items 17-19, on 7412.0200.
+        // Industrial electrician — items 17-19, on 7412.0200, which fam_industrial_electrician binds
+        // since its pack shipped — so these five moved off the generic minor-741 pack in that
+        // change, by design.
         "panel wiring", "industrial electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "panel electrician",
         "plant electrician",
         // Press — items 20 and 22.
@@ -866,11 +868,11 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "machine repair": "fam_fitting",
       "breakdown maintenance": "fam_fitting",
       "plant maintenance": "fam_fitting",
-      "panel wiring": "fam_electrical_equipment",
-      "industrial electrician": "fam_electrical_equipment",
-      "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_electrical_equipment",
-      "panel electrician": "fam_electrical_equipment",
-      "plant electrician": "fam_electrical_equipment",
+      "panel wiring": "fam_industrial_electrician",
+      "industrial electrician": "fam_industrial_electrician",
+      "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_industrial_electrician",
+      "panel electrician": "fam_industrial_electrician",
+      "plant electrician": "fam_industrial_electrician",
       "power press": "fam_machining",
       stamping: "fam_machining",
       "assembly ka kaam": "fam_assembly",
@@ -993,6 +995,101 @@ describe("Batch 2 part two — sheet metal", () => {
     for (const p of ["sheet metal", "press brake", "laser cutting", "fabricator", "शीट मेटल"]) {
       expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
       expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — INDUSTRIAL ELECTRICIAN.
+ *
+ * ONE binding, measured before it was written: 7412.0200 "Electrical Fitter" carries the tranche's
+ * whole industrial vocabulary (worksheet Part 5, items 17-19) and its own published title. Every
+ * other code in unit 7412 stays on the generic minor-741 pack (`fam_electrical_equipment`) —
+ * automation, winding, relays, PCB test, vehicle electricians, the "Mechanical Fitter" codes whose
+ * alias every mechanical fitter says, and the unit's catch-all — and the ISCO node jd_isco_7412 is
+ * NOT bound, because its aliases are the automotive electrician and the lift mechanic.
+ *
+ * RULING A2 is the other half: the generic electrician vocabulary stays on the domestic wireman,
+ * so nothing in 7411 is bound and every one of those words still reaches `fam_electrical`.
+ */
+describe("Batch 2 part two — industrial electrician", () => {
+  it("binds exactly the one code its words reach", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_industrial_electrician")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual(["jd_nco_7412_0200"]);
+    const codeFor = (p: string): string | null => resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+    // The two tranche phrases the ruled-code test above does not pin, and the code's own title.
+    for (const p of ["panel electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "electrical fitter"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7412_0200");
+    }
+    expect(familyFor("electrical fitter")).toBe("fam_industrial_electrician");
+    // A rung or a filler beside the trade word keeps the route: the span search takes the longest
+    // alias it finds and the rest of the sentence costs nothing.
+    for (const p of ["senior industrial electrician", "panel wiring helper", "panel wiring ka kaam"]) {
+      expect(familyFor(p), p).toBe("fam_industrial_electrician");
+    }
+  });
+
+  it("ruling A2 — no generic electrician word moves off the domestic wireman", () => {
+    for (const p of [
+      "bijli mistri", "बिजली मिस्त्री", "electric mistri", "wiring ka kaam", "ilectrician",
+      "electrician", "bijli", "bijli ka kaam", "वायरिंग", "wireman", "electrician general",
+    ]) {
+      expect(familyFor(p), p).toBe("fam_electrical");
+    }
+    // AN UNQUALIFIED "… electrician" IS STILL THE BARE WORD. "maintenance electrician" and
+    // "factory electrician" own no alias, so the span search lands on "electrician" and the house
+    // wireman's interview — the fail-safe direction A2 chose, recorded so a future alias shows here.
+    for (const p of ["maintenance electrician", "factory electrician", "auto electrician"]) {
+      expect(familyFor(p), p).toBe("fam_electrical");
+    }
+  });
+
+  it("leaves every other 7412 neighbour, and the ISCO node, on the generic pack", () => {
+    for (const p of [
+      "automation specialist", // 7412.0101 — process-control systems
+      "fitter-electrical and electronic assembly", // 7412.0201 — panels and electronics
+      "mechanical fitter", // 7412.0202 — the alias every mechanical fitter says
+      "iron and steel fitter electrical assembly", // 7412.0203 — machine assembly
+      "adjuster relays", // 7412.0300
+      "armature winder", // 7412.0400 — the winding trade
+      "coil winder machine", // 7412.0500
+      "electrician automobile", // 7412.0701
+      "site engineer-control panel", // 7412.1002 — a panel OEM's commissioning engineer
+      "electrical mechanics and fitters other", // 7412.9900 — the catch-all
+      "electrical mechanic", // jd_isco_7412
+      "lift mechanic", // jd_isco_7412
+    ]) {
+      expect(familyFor(p), p).toBe("fam_electrical_equipment");
+    }
+    // Overhead lines and cable jointing are the lineman's.
+    expect(familyFor("lineman")).toBe("fam_lineman");
+    expect(familyFor("cable jointer")).toBe("fam_lineman");
+  });
+
+  it("no industrial electrician phrase falls through to the universal pack", () => {
+    for (const p of [
+      "panel wiring", "industrial electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "panel electrician",
+      "plant electrician", "electrical fitter",
+    ]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
+  });
+
+  it("PINS THE GAP THIS BINDING DOES NOT CLOSE — the descriptor's machine words reach no trade", () => {
+    // The role's `machineTerms` are CORROBORATION for a family pin, not routes, so none of them was
+    // ever meant to land a worker here on its own. But measured, a worker who says only the
+    // equipment reaches NOTHING, or a wrong code on the universal pack. Closing it is an alias
+    // tranche for the owner to rule, not a binding; this pin makes that change show up as a diff.
+    for (const p of ["vfd", "megger", "star delta", "induction motor", "cable termination", "pcc panel"]) {
+      expect(familyFor(p), p).toBeNull();
+    }
+    // Three reach a wrong code at the universal pack: "mcc" folds onto "Mimic" (2659.0800),
+    // "starter" is the motor-transport time-keeper (4110.0600), "pit" folds onto isco 2641.
+    for (const p of ["mcc panel", "dol starter", "earth pit"]) {
+      expect(familyFor(p), p).toBe("fam_universal");
     }
   });
 });

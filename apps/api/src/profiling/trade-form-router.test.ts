@@ -155,9 +155,10 @@ describe("routeToTradeForm", () => {
       // NO form would now be the bug. Moved rather than deleted, because the reason it changed is
       // the thing a reviewer needs to see.
       //
-      // "Construction / Electrician" STAYS. `industrial_electrician` is declared but disabled —
-      // its words all reach fam_electrical's house wiring, so there is no form to route to and a
-      // domestic wireman must not be handed a VFD questionnaire.
+      // "Construction / Electrician" STAYS, and for a stronger reason now that
+      // `industrial_electrician` ships. Bare "electrician" is a LEVEL term on that role, never an
+      // occupation term, so with no family pin it routes nowhere — a domestic wireman must not be
+      // handed a VFD questionnaire (ruling A2 keeps the word on fam_electrical's house wiring).
       [null, null],
       ["", ""],
       [null, "   "],
@@ -198,6 +199,33 @@ describe("routeToTradeForm", () => {
       ).toBe("sheet_metal_worker");
       expect(route("Manufacturing", "Laser cutting aur press brake operator", null)).toBeNull();
       expect(route("Fabrication", "Welder and sheet metal worker", null)).toBeNull();
+    });
+
+    it("routes an industrial electrician to the industrial electrician form — Batch 2 part two", () => {
+      // OCCUPATION TERMS route on their own: these are the tranche's ratified phrases.
+      expect(route("Manufacturing", "Industrial electrician", null)).toBe("industrial_electrician");
+      expect(route("Electrical", "Panel wiring", null)).toBe("industrial_electrician");
+      expect(route("Factory", "Plant electrician", null)).toBe("industrial_electrician");
+      expect(route("विनिर्माण", "इंडस्ट्रियल इलेक्ट्रीशियन", null)).toBe("industrial_electrician");
+      // MACHINE WORDS AND THE BARE RUNG NEED THE FAMILY PIN, the turner's rule: "VFD", "MCC panel"
+      // and "electrician" corroborate a pin on fam_industrial_electrician and never route alone.
+      expect(route("Manufacturing", "VFD aur MCC panel ka kaam", "fam_industrial_electrician")).toBe(
+        "industrial_electrician",
+      );
+      expect(route("Manufacturing", "VFD aur MCC panel ka kaam", null)).toBeNull();
+      expect(route("Manufacturing", "Senior electrician", "fam_industrial_electrician")).toBe(
+        "industrial_electrician",
+      );
+      // RULING A2, from the router's side: the bare word pinned on the HOUSE WIREMAN's family is
+      // not this form, and neither is it with no pin at all.
+      expect(route("Construction", "Electrician", "fam_electrical", "bijli ka kaam")).toBeNull();
+      expect(route("Construction", "Bijli mistri", null)).toBeNull();
+      // House wiring is an extra conflict term: a man who names both keeps talking.
+      expect(route("Electrical", "Industrial electrician, ghar ki wiring bhi", null)).toBeNull();
+      // THE `maintenance` CLUSTER VETO. Fitter and maintenance technician are this role's cluster
+      // siblings, so their words veto the handover even while their forms are still disabled.
+      expect(route("Maintenance", "Plant electrician aur maintenance fitter", null)).toBeNull();
+      expect(route("Manufacturing", "Industrial electrician, fitter ka kaam bhi", null)).toBeNull();
     });
 
     it("a pinned turning family alone does not route a label that never mentions turning", () => {

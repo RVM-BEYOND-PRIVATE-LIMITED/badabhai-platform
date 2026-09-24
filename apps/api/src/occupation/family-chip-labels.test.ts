@@ -109,6 +109,11 @@ describe("FAMILY_CHIP_LABELS", () => {
       // a worker the resolver pins here is handed the sheet metal form — the intended route, and
       // the generic `fam_sheet_metal` ("chadar aur dhancha") stays off this table.
       fam_sheet_metal_fab: "sheet_metal_worker",
+      // The same shape for the industrial electrician: "industrial electrician" IS an occupation
+      // term, so the pin routes to the form. The generic `fam_electrical` ("bijli ka kaam") and
+      // `fam_electrical_equipment` ("bijli upkaran") stay off this table — ruling A2's house
+      // wireman must not be handed the panel-and-drive form on a pin.
+      fam_industrial_electrician: "industrial_electrician",
     });
   });
 });

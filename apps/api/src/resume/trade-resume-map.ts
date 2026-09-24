@@ -2247,6 +2247,168 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE INDUSTRIAL ELECTRICIAN SHEET — Batch 2 part two.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Balwant Singh, Industrial Electrician — Senior, page
+     * 9), row for row. Its capability block has EIGHT rows and this map has eight `from`s, in the
+     * page's own order: Work type, Equipment, Panel & motor work, Instruments, Voltage worked on,
+     * Drawings, Licence, Sector worked. That order is also the template's bands — three chip rows,
+     * one tick row, four fact rows — so array order and band order agree.
+     *
+     * ONE CELL IS HALF-CAPTURED, noted on its row rather than papered over: "Licence" prints the
+     * licence TYPE, and the page's "· Uttar Pradesh, valid to 2028" is an issuing state and an
+     * expiry year that no question in the pack stores. Every other cell reproduces the page's text
+     * from a closed dictionary. This pack has no case in role-sheet-parity.render.test.ts yet, so
+     * nothing renders the persona end to end against page 9 — the map-vs-pack cross-checks in
+     * trade-resume-map.test.ts are what guard it.
+     *
+     * `electrician_level` IS DELIBERATELY ABSENT. The rung prints in the HEADLINE ("Industrial
+     * Electrician — Senior"), not in this block. The tier-2 items (`control_circuit`,
+     * `motor_fault`, `electrical_safety`) have no row because the ratified page has none; they are
+     * matching data in `worker_attributes`, the welder's ruling.
+     */
+    pack_id: "qp_industrial_electrician",
+    // AN ELECTRICIAN'S ADVERTISEMENT IS WRITTEN IN WORK AND EQUIPMENT — "panel wiring electrician,
+    // MCC / VFD" — so the heading is the page's own.
+    section_title: "Electrical work, equipment & capability",
+    capability: [
+      {
+        from: "electrical_work_type",
+        // §5.1 rank 2 beside the equipment: "panel wiring" is itself the job-ad phrase (it is the
+        // tranche alias that reaches this pack). 22, not 21, because the HEADLINE is the equipment.
+        rank: 22,
+        // NO CAP. §4.3 caps machines, controllers and materials; this is none of them, and the pack
+        // offers one value the page does not print ("Lighting & power wiring"), which follows the
+        // page's four in dictionary order.
+        label: "Work type",
+        kind: "chips",
+        values: {
+          panel_wiring: "Panel wiring",
+          motor_drive: "Motor & drive work",
+          cable_laying: "Cable laying",
+          earthing: "Earthing",
+          lighting_power: "Lighting & power wiring",
+        },
+      },
+      {
+        from: "electrical_equipment",
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page reads "MCC & PCC panels, VFD / AC drives, DOL &
+        // star-delta starters" — this row's first three values in dictionary order, and
+        // `toolsPhrase` caps the headline at three, so the segment reproduces character for
+        // character.
+        inHeadline: true,
+        // §4.3 machines max 4, and the page prints exactly four. "DG sets" is the pack's fifth
+        // option and the one a worker who ticks everything loses — dictionary order, not usage.
+        maxValues: 4,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          mcc_pcc: "MCC & PCC panels",
+          vfd_drive: "VFD / AC drives",
+          starter: "DOL & star-delta starters",
+          induction_motor: "Induction motors",
+          dg_set: "DG sets",
+        },
+      },
+      {
+        from: "panel_motor_work",
+        // §5.1 rank 4: drive parameter setting and fault finding are what separate a man who pulls
+        // cable from one who can bring a line back after a trip.
+        rank: 41,
+        // NO CAP. The page prints SIX, and a cap would drop a value the ratified sheet shows.
+        label: "Panel & motor work",
+        kind: "chips",
+        values: {
+          panel_assembly: "Panel assembly & wiring",
+          drive_parameter: "Drive parameter setting",
+          fault_finding: "Fault finding",
+          motor_rewind: "Motor rewind coordination",
+          cable_termination: "Cable termination & glanding",
+          earth_pit_testing: "Earth pit testing",
+        },
+      },
+      {
+        from: "measuring_tools",
+        // §5.1 rank 5, the measuring row. Keyed by the SHARED attribute name on purpose — the
+        // label is this page's "Instruments", and the dictionary is this trade's own meters.
+        rank: 51,
+        label: "Instruments",
+        kind: "ticks",
+        values: {
+          multimeter: "Multimeter",
+          clamp_meter: "Clamp meter",
+          megger: "Megger",
+          tong_tester: "Tong tester",
+          phase_sequence: "Phase sequence meter",
+        },
+      },
+      {
+        from: "electrical_voltage",
+        // 6x, the plate-thickness reading: the voltage band is a capacity the job is scoped by.
+        rank: 62,
+        label: "Voltage worked on",
+        kind: "fact",
+        // A MULTI-SELECT, SO THE DEFAULT " · " JOIN REPRODUCES THE PAGE: "LT up to 415 V · HT
+        // switchyard exposure under supervision" is two values, not one sentence. "under
+        // supervision" is the chip's "senior ke saath" — the sheet must not turn exposure into an
+        // HT authorisation the worker never claimed.
+        values: {
+          lt_three_phase: "LT up to 415 V",
+          ht_supervised: "HT switchyard exposure under supervision",
+          ht_independent: "HT operation & maintenance",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs.
+        values: {
+          schematic: "Reads electrical schematics",
+          schematic_ga: "Reads electrical schematics and panel GA drawings",
+        },
+      },
+      {
+        from: "electrical_licence",
+        // 6x — a statutory credential the guideline's §5.1 list does not name. Eight rows against
+        // a `CAPABILITY_ROW_BUDGET` of ten, so no rank here is ever shed today; flagged for the
+        // RVM redline with the rest of the ordering.
+        rank: 63,
+        label: "Licence",
+        kind: "fact",
+        // A CAPTURE GAP, recorded rather than hidden: the page reads "Electrician licence · Uttar
+        // Pradesh, valid to 2028", and the issuing state and expiry year have no question behind
+        // them, so this row prints "Electrician licence" alone. `none` ("Nahi hai") has no label —
+        // the same no-negative-claims rule as `drawing_reading`.
+        values: {
+          electrician_licence: "Electrician licence",
+          supervisor_licence: "Electrical supervisor licence",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. The page's single value "Manufacturing
+        // plant electrical" is authored here verbatim, so this sector row, unlike most shipped
+        // ones, reproduces its page exactly for the ratified persona.
+        values: {
+          manufacturing_plant: "Manufacturing plant electrical",
+          panel_builder: "Panel manufacturing",
+          process_plant: "Process plant — chemical, pharma, food",
+          building_services: "Commercial building services",
+          power_substation: "Power plant & substation",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

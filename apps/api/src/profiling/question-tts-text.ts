@@ -527,6 +527,31 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Press brake ki kaunsi setting khud karte hain?": "प्रेस ब्रेक की कौनसी सेटिंग खुद करते हैं?",
   "Flat pattern ka hisaab kaise nikaalte hain?": "फ्लैट पैटर्न का हिसाब कैसे निकालते हैं?",
   "Cutting aur bending ke alawa kaunsa kaam karte hain?": "कटिंग और बेंडिंग के अलावा कौनसा काम करते हैं?",
+  // qp_industrial_electrician@1 — Batch 2 part two. Four prompts reuse shipped twins and are not
+  // repeated here: the work-type, voltage and licence asks are qp_electrical's own wording, and
+  // the drawing ask is the welder's; the three fresher prompts are the welder's verbatim.
+  // Initialisms (MCC, VFD) stay Latin, as everywhere in this table.
+  "Electrician ke kaam ka kitna tajurba hai?": "इलेक्ट्रीशियन के काम का कितना तजुर्बा है?",
+  "Lagbhag kitne saal electrician ka kaam kiya hai?":
+    "लगभग कितने साल इलेक्ट्रीशियन का काम किया है?",
+  "Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?":
+    "पैनल वायरिंग, मोटर, केबल या अर्थिंग, कौनसा काम करते हैं?",
+  "Kaunse electrical equipment par kaam karte hain?":
+    "कौनसे इलेक्ट्रिकल इक्विपमेंट पर काम करते हैं?",
+  "MCC panel, VFD, starter ya motor, kispar kaam kiya hai?":
+    "MCC पैनल, VFD, स्टार्टर या मोटर, किसपर काम किया है?",
+  "Aap khud ko kis level ka electrician maante hain?":
+    "आप खुद को किस लेवल का इलेक्ट्रीशियन मानते हैं?",
+  "Panel aur motor ka kaunsa kaam khud karte hain?": "पैनल और मोटर का कौनसा काम खुद करते हैं?",
+  "Panel wiring, drive setting ya fault finding, kaunsa kaam karte hain?":
+    "पैनल वायरिंग, ड्राइव सेटिंग या फॉल्ट फाइंडिंग, कौनसा काम करते हैं?",
+  "Testing ke liye kaunse meter istemaal karte hain?":
+    "टेस्टिंग के लिए कौनसे मीटर इस्तेमाल करते हैं?",
+  "Kis tarah ke plant ya company me kaam kiya hai?": "किस तरह के प्लांट या कंपनी में काम किया है?",
+  "Kaunsa control circuit khud wire kar lete hain?": "कौनसा कंट्रोल सर्किट खुद वायर कर लेते हैं?",
+  "Motor ki kaunsi kharabi khud pakad lete hain?": "मोटर की कौनसी खराबी खुद पकड़ लेते हैं?",
+  "Kaam shuru karne se pehle kaunsi safety khud karte hain?":
+    "काम शुरू करने से पहले कौनसी सेफ्टी खुद करते हैं?",
 };
 
 /**
@@ -885,6 +910,17 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "डेवलपमेंट का हिसाब जानने वाले से गलती कम होती है।",
   "Poora kaam jaanne wale ko shop me aage rakha jaata hai.":
     "पूरा काम जानने वाले को शॉप में आगे रखा जाता है।",
+  // qp_industrial_electrician@1 — why-texts. Nine more are shared verbatim and already twinned
+  // above: tenure, work type, equipment, level and sector (welder / sheet metal), drawing
+  // (welder), voltage, licence and safety (qp_electrical / qp_lineman), and the fresher three.
+  "Fault finding aur drive setting jaanne wale ki maang zyada hai.":
+    "फॉल्ट फाइंडिंग और ड्राइव सेटिंग जानने वाले की माँग ज़्यादा है।",
+  "Meter chalana jaanne wala fault jaldi pakadta hai.":
+    "मीटर चलाना जानने वाला फॉल्ट जल्दी पकड़ता है।",
+  "Control wiring jaanne wale ko panel ki zimmedaari milti hai.":
+    "कंट्रोल वायरिंग जानने वाले को पैनल की ज़िम्मेदारी मिलती है।",
+  "Kharabi pakadne wale electrician ki plant me zaroorat rehti hai.":
+    "खराबी पकड़ने वाले इलेक्ट्रीशियन की प्लांट में ज़रूरत रहती है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

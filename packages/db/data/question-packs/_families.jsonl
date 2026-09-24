@@ -474,3 +474,41 @@
 # fam_machining.
 {"kind":"binding","family_id":"fam_sheet_metal_fab","job_domain_id":"jd_nco_7213_0101"}
 {"kind":"binding","family_id":"fam_sheet_metal_fab","job_domain_id":"jd_nco_7223_2400"}
+
+# ── Industrial electrician ───────────────────────────────────────────────────────────────────
+# 7412.0200 "Electrical Fitter" is the anchor and the only binding: the tranche put "panel wiring",
+# "industrial electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "panel electrician" and "plant electrician"
+# on it (worksheet Part 5, items 17-19), and its NCO description is the trade — "fits and assembles
+# electrical machinery and equipment such as motors, transformers, generators, switchgears...
+# follows wiring diagrams... checks for continuity, resistance, circuit shorting, leakage, earthing
+# ... using megger". It sits in unit 7412 under fam_electrical_equipment's minor-741 binding at
+# specificity 30; this job-domain row at 50 takes it and nothing else in the minor moves.
+#
+# RULING A2 BINDS NOTHING IN 7411. "bijli mistri", "electric mistri", "wiring ka kaam",
+# "ilectrician" and bare "electrician" stay on the domestic wireman (7411.0100 / isco 7411,
+# fam_electrical): re-binding them would hand every house electrician the factory form.
+# THE ISCO NODE jd_isco_7412 IS NOT BOUND: its aliases are "Automotive electrician", "Lift
+# mechanic", "Armature builder" and "Electrical mechanic" — four trades, none of them this one.
+#
+# EVERY OTHER 7412 CODE STAYS ON fam_electrical_equipment, each for a stated reason:
+#   7412.0101  Automation Specialist — maintains process-control systems: instrumentation, not
+#              panel and drive work.
+#   7412.0201  Fitter-Electrical and Electronic Assembly — panels AND electronic products, with
+#              soldering and anti-static practice: half of it is an electronics assembler.
+#   7412.0202  Mechanical Fitter / 7412.1001 Mechanical Fitter-Control Panel — fits devices into a
+#              panel shell; and its alias "mechanical fitter" is what every mechanical fitter says.
+#   7412.0203  Iron and Steel Fitter: Electrical Assembly — machine assembly to engineering drawings.
+#   7412.0300  Adjuster, Relays / 7412.0100 Precision Instrument Mechanic — bench repair of relays
+#              and meters.
+#   7412.0400  Armature Winder / 7412.0500 Coil Winder — the winding trade; this trade sends a motor
+#              out for rewinding ("motor rewind coordination" on the page), it does not wind it.
+#   7412.0600  Aircraft / 7412.0701 Automobile electrician — vehicle trades.
+#   7412.0801  Maintenance Assistant/Helper — an automotive-skills-council helper, any trade.
+#   7412.0102 / 0103 / 0104 / 0901  PCB test, optical inspection, bare-board test, potting —
+#              electronics production.
+#   7412.1002  Site Engineer-Control Panel — a panel OEM's after-sales commissioning engineer; close
+#              to the trade but not every worker under it is a plant electrician, and it reaches
+#              only its own formal title.
+#   7412.9900  Electrical Mechanics and Fitters, Other — the unit's catch-all.
+{"kind":"family","family_id":"fam_industrial_electrician","label_en":"Industrial Electrician (panels, drives and motors)","label_hi":"इंडस्ट्रियल इलेक्ट्रीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_industrial_electrician","job_domain_id":"jd_nco_7412_0200"}
