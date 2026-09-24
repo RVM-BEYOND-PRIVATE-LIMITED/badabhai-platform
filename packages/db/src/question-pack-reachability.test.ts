@@ -812,3 +812,150 @@ describe("Batch 2 part one — the four roles whose words already reached a bind
     }
   });
 });
+
+/**
+ * THE BATCH 2 ROUTING TRANCHE — the ratified vocabulary for the seven roles above that no worker's
+ * words could reach (worksheet Part 5, signed 2026-09-24).
+ *
+ * WHAT A PASS HERE MEANS, precisely. Every phrase lands on the NCO code the ruling chose, and that
+ * code sits under a GENERIC unit pack today — fam_sheet_metal, fam_other_craft, fam_fitting,
+ * fam_electrical_equipment, fam_machining, fam_assembly. None of the seven role families is bound:
+ * a family binds with its pack, because a binding with no active pack sends a worker to the
+ * universal pack. So the families below are an INTERIM routing, and each one is expected to move
+ * to its role family, in a diff, in the PR that ships that role's pack.
+ */
+describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () => {
+  it("CHARACTERIZES every accepted phrase — the ruled code, on today's generic pack", () => {
+    const routing = Object.fromEntries(
+      [
+        // Sheet metal — items 1-5, all on 7213.0101.
+        "sheet metal", "शीट मेटल", "press brake", "laser cutting", "chadar ka kaam", "fabricator",
+        "fabrication ka kaam",
+        // Quality inspection — items 6-10, all on 7543.2001.
+        "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection ka kaam",
+        "quality check karna", "quality wala",
+        // Maintenance — items 12-14, on 7233.0101, the code ruling A1 gives Maintenance Technician.
+        "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
+        // Industrial electrician — items 17-19, on 7412.0200.
+        "panel wiring", "industrial electrician", "इंडस्ट्रियल इलेक्ट्रीशियन", "panel electrician",
+        "plant electrician",
+        // Press — items 20 and 22.
+        "power press", "stamping",
+        // Assembly line — item 25.
+        "assembly ka kaam",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      "sheet metal": "fam_sheet_metal",
+      "शीट मेटल": "fam_sheet_metal",
+      "press brake": "fam_sheet_metal",
+      "laser cutting": "fam_sheet_metal",
+      "chadar ka kaam": "fam_sheet_metal",
+      fabricator: "fam_sheet_metal",
+      "fabrication ka kaam": "fam_sheet_metal",
+      qc: "fam_other_craft",
+      "qc inspector": "fam_other_craft",
+      "qa qc": "fam_other_craft",
+      "quality control": "fam_other_craft",
+      "क्वालिटी": "fam_other_craft",
+      "inspection ka kaam": "fam_other_craft",
+      "quality check karna": "fam_other_craft",
+      "quality wala": "fam_other_craft",
+      "machine ki marammat": "fam_fitting",
+      "machine repair": "fam_fitting",
+      "breakdown maintenance": "fam_fitting",
+      "plant maintenance": "fam_fitting",
+      "panel wiring": "fam_electrical_equipment",
+      "industrial electrician": "fam_electrical_equipment",
+      "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_electrical_equipment",
+      "panel electrician": "fam_electrical_equipment",
+      "plant electrician": "fam_electrical_equipment",
+      "power press": "fam_machining",
+      stamping: "fam_machining",
+      "assembly ka kaam": "fam_assembly",
+    });
+  });
+
+  it("every accepted phrase lands on the exact code the ruling chose", () => {
+    // The family table above cannot see a phrase landing on the WRONG CODE inside the right unit,
+    // and the code is what a role family will bind. Pinned by code for exactly that reason.
+    const codeFor = (p: string): string | null => resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+    for (const p of ["sheet metal", "press brake", "chadar ka kaam", "fabricator"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7213_0101");
+    }
+    for (const p of ["qc", "quality control", "inspection ka kaam", "quality wala"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7543_2001");
+    }
+    for (const p of ["machine ki marammat", "machine repair", "breakdown maintenance"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7233_0101");
+    }
+    for (const p of ["panel wiring", "industrial electrician", "plant electrician"]) {
+      expect(codeFor(p), p).toBe("jd_nco_7412_0200");
+    }
+    expect(codeFor("power press")).toBe("jd_nco_7223_2300");
+    expect(codeFor("stamping")).toBe("jd_nco_7223_3000");
+    expect(codeFor("assembly ka kaam")).toBe("jd_nco_8219_0100");
+  });
+
+  it("the STRUCK phrases reach none of the tranche's codes", () => {
+    const tranche = new Set([
+      "jd_nco_7213_0101", "jd_nco_7543_2001", "jd_nco_7233_0101", "jd_nco_7412_0200",
+      "jd_nco_7223_2300", "jd_nco_7223_3000", "jd_nco_8219_0100",
+    ]);
+    // 11, 15, 16, 23, 24, 26, 27 — and 28, withdrawn after measurement (see the footing test).
+    for (const p of [
+      "naap tol", "maintenance", "मेंटेनेंस", "marammat ka kaam", "press ka kaam", "machine operator",
+      "machine chalana", "fitting line", "production line", "fitting ka kaam",
+    ]) {
+      const id = resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+      expect(id !== null && tranche.has(id), `struck "${p}" reached tranche code ${id}`).toBe(false);
+    }
+  });
+
+  it("ruling A2 — the generic electrician vocabulary stays on the domestic wireman", () => {
+    for (const p of ["bijli mistri", "बिजली मिस्त्री", "electric mistri", "wiring ka kaam", "electrician", "wireman"]) {
+      expect(familyFor(p), p).toBe("fam_electrical");
+    }
+  });
+
+  it("takes nothing from a neighbouring trade — the two guard rows, and the words that stay put", () => {
+    // GUARDS. Both phrases moved when the tranche's bare rows landed and both are ruled back.
+    expect(familyFor("chadar silai")).toBe("fam_tailoring");
+    expect(familyFor("chadar ki silai")).toBe("fam_tailoring");
+    expect(familyFor("fabrication welder")).toBe("fam_welding_trade");
+    expect(familyFor("welding fabrication")).toBe("fam_welding_trade");
+    // "assembly fitter" routed to the fitting pack through "fitter" before the tranche, and bare
+    // "assembly" would have taken it at span 0. The worksheet ruled it stays.
+    expect(familyFor("assembly fitter")).toBe("fam_fitting");
+    // Longer rows another trade already owned keep winning on longest-first.
+    expect(familyFor("pipe fitting")).toBe("fam_plumbing");
+    expect(familyFor("silai machine repair")).toBe("fam_fitting");
+    expect(familyFor("mobile repair")).toBe("fam_electronics");
+    expect(familyFor("gas cutting")).toBe("fam_welding_trade");
+    expect(familyFor("quality inspector")).toBe("fam_other_craft");
+  });
+
+  it("item 28 stays withdrawn — 'footing' is construction work, not fitting", () => {
+    // "fitting" -> "ftng" == "footing". With a bare "fitting" row, both of these went NO MATCH ->
+    // Fitter at L1. This goes red the moment anyone re-authors the row without a guard.
+    expect(familyFor("footing")).toBeNull();
+    expect(familyFor("footing ka kaam")).toBeNull();
+  });
+
+  it("PINS THE IMPRECISIONS THIS TRANCHE KNOWINGLY LEAVES", () => {
+    // 1. "vehicle inspection" REACHES THE QC CODE through bare "inspection" (item 8). Accepted
+    //    2026-09-24: it is not a factory-trade phrase, and it lands on a generic pack, not a form.
+    expect(familyFor("vehicle inspection")).toBe("fam_other_craft");
+    // 2. THE THREE RETIREMENTS ARE STILL PENDING, so their misroutes stand. These go green-to-red
+    //    — deliberately — in the PR that builds the retirement path:
+    //    A4: every bare "machine …" still reaches dairy through the junk "Machine" alias,
+    expect(familyFor("machine operator")).toBe("fam_animal_rearing");
+    //    21: "press operator" is still the woollen-cloth press,
+    expect(familyFor("press operator")).toBe("fam_textile_machines");
+    //    A1: plain "fitter" is still on 7233.0101, the maintenance-fitter code.
+    expect(resolveOccupation(occupationIndex, "fitter")?.jobDomainId).toBe("jd_nco_7233_0101");
+    // 3. "naap tol" is STRUCK from QC but was a cart puller before the tranche and still is — the
+    //    strike keeps it off the inspector's code, it does not repair the L1 fold on "tol".
+    expect(familyFor("naap tol")).toBe("fam_cart");
+  });
+});
