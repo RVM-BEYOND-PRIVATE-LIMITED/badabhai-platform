@@ -11,13 +11,21 @@ import '../../../../core/widgets/onboarding/primary_action_button.dart';
 /// The heading over the older resumes (#1687).
 const String kResumeHistoryTitle = 'Pichle resume';
 
-/// How many history cards this section will ever draw.
+/// A SAFETY ceiling on how many cards this section will draw — not the product
+/// rule.
 ///
-/// The server already windows the list, so in practice this changes nothing.
-/// It is here because the acceptance criterion is stated about the APP ("3 or
-/// more rows → 3 cards"): if the window is ever widened server-side, the tab
-/// must not silently grow an unbounded list of cards under the resume.
-const int kResumeHistoryMaxCards = 3;
+/// THE SERVER OWNS THE WINDOW. `GET /resume/history` returns the newest
+/// `RESUME_HISTORY_VISIBLE_LIMIT` rows (`packages/config`, default 3, ruling R4
+/// "keep all, show three"), and nothing is ever deleted — every older resume
+/// stays on file and stays downloadable by id. So if that limit is raised
+/// server-side, the app must SHOW the extra rows rather than quietly trim them
+/// back to three; a client that re-trims makes a server config change look
+/// broken.
+///
+/// This bound exists only so a surprising response cannot render an unbounded
+/// list of cards under the resume. It is deliberately well above the server's
+/// default.
+const int kResumeHistoryMaxCards = 10;
 
 /// The waiting / failed copy for an update the worker accepted in chat (#1688).
 const String kResumeUpdateInProgress = 'Resume update ho raha hai…';
@@ -76,9 +84,15 @@ class ResumeHistorySection extends StatelessWidget {
     super.key,
     required this.history,
     required this.actionsBuilder,
+    this.showHeading = true,
   });
 
   final ResumeHistory history;
+
+  /// The "PICHLE RESUME" label. Off on the dedicated history SCREEN, whose own
+  /// header already says what the list is — a second heading there would read
+  /// as a section inside a screen of one section.
+  final bool showHeading;
 
   /// Builds the per-entry actions. Injected rather than built here so this
   /// widget stays presentation-only and the screen keeps owning the download /
@@ -95,8 +109,10 @@ class ResumeHistorySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const KitMicroLabel(kResumeHistoryTitle),
-        const SizedBox(height: 8),
+        if (showHeading) ...<Widget>[
+          const KitMicroLabel(kResumeHistoryTitle),
+          const SizedBox(height: 8),
+        ],
         for (int i = 0; i < items.length; i++) ...<Widget>[
           if (i > 0) const SizedBox(height: 10),
           _HistoryCard(item: items[i], actions: actionsBuilder(items[i])),

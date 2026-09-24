@@ -496,6 +496,8 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // `apps/worker-app`, the CI path filter skipped the Node job that owns this contract, and the
   // route landed on main with a green check on a suite that never ran. It was caught by the
   // first api-touching branch to merge main — the same way, one release later.
+  // #1687 — the worker's own resume history, pushed from the Profile tab.
+  "/profile/resumes", // Routes.resumeHistory
   "/trade-form", // Routes.tradeForm
   // #1698 — the tier chooser ("Kitna time de sakte hain?"), between the form
   // handover and the first form question. Listed here for the same reason the

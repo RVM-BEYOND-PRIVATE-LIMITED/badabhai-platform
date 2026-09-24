@@ -316,7 +316,7 @@ class _ResumeViewState extends State<_ResumeView> {
           // as a deep-blue commitment, and SHARE that PDF in green (#336).
           actions: const ResumeActionRow(
             share: ResumeShareButton(),
-            download: _DownloadResumeButton(),
+            download: ResumeDownloadButton(),
           ),
         ),
         const SizedBox(height: kResumeCardGap),
@@ -339,7 +339,7 @@ class _ResumeViewState extends State<_ResumeView> {
           history: state.history,
           actionsBuilder: (ResumeHistoryItem item) => ResumeActionRow(
             share: ResumeShareButton(resumeId: item.resumeId),
-            download: _DownloadResumeButton(resumeId: item.resumeId),
+            download: ResumeDownloadButton(resumeId: item.resumeId),
           ),
         ),
         if (state.history.items.isNotEmpty)
@@ -637,18 +637,18 @@ Future<String?> resolveSignedResumeUrl(
 /// this screen (started/complete SnackBars, "Kholein" opens the saved file).
 /// The button stays busy (disabled) for the WHOLE download so a double-tap
 /// can't produce double files. The url is fetched in memory, never logged.
-class _DownloadResumeButton extends StatefulWidget {
-  const _DownloadResumeButton({this.resumeId});
+class ResumeDownloadButton extends StatefulWidget {
+  const ResumeDownloadButton({super.key, this.resumeId});
 
   /// Null = the CURRENT resume (every caller before #1687). Non-null = one
   /// specific history entry, which downloads its own pdf.
   final String? resumeId;
 
   @override
-  State<_DownloadResumeButton> createState() => _DownloadResumeButtonState();
+  State<ResumeDownloadButton> createState() => ResumeDownloadButtonState();
 }
 
-class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
+class ResumeDownloadButtonState extends State<ResumeDownloadButton> {
   bool _loading = false;
 
   /// True once the ready-poll has seen at least one "still rendering" 409 — the

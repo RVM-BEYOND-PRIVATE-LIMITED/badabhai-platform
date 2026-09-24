@@ -605,6 +605,13 @@ class _ProfileTabView extends StatelessWidget {
             ),
             _hairline,
             BbListRow.kit(
+              icon: Icons.history_edu_outlined,
+              title: 'Mere resume',
+              subtitle: 'Purane resume dekhein aur download karein',
+              onTap: () => context.pushOnce(Routes.resumeHistory),
+            ),
+            _hairline,
+            BbListRow.kit(
               icon: Icons.work_history,
               title: 'Applied jobs',
               subtitle: 'Aapki apply ki gayi jobs',
