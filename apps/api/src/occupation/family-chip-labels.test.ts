@@ -124,6 +124,13 @@ describe("FAMILY_CHIP_LABELS", () => {
       // is handed the line form — intended. The generic `fam_assembly` and `fam_assemblers_other`
       // ("assembly ka kaam") stay off this table: bare "assembly" is not a term, "assembly line" is.
       fam_assembly_line: "assembly_line_worker",
+      // "fitting ka kaam" carries "fitting", a CORROBORATED term (owner ruling 2026-09-24), and
+      // this row's pin IS fam_fitter — so a worker pinned there on the label alone is handed the
+      // fitter form, as intended. The generic `fam_fitting` ("fitter aur maintenance") names
+      // "fitter" too and STAYS OFF this table twice over: its pin is not fam_fitter, so the bare
+      // word corroborates nothing, and "maintenance" — the maintenance technician's occupation
+      // term, derived into the fitter's veto through the shared `maintenance` cluster — vetoes.
+      fam_fitter: "fitter",
     });
   });
 });
@@ -206,6 +213,43 @@ describe("the served catalogue", () => {
     // Vacuity guard: the overlay alone gives 106 occupations their own word.
     expect(withOwnWord).toBeGreaterThan(500);
     expect(fellThrough).toEqual([]);
+  });
+
+  it("hands over the FITTER form on a bare catalogue pin exactly where this table says", () => {
+    // THE OCCUPATION-LEVEL HALF of the family table above. A pinned occupation's chip label is
+    // routing evidence on turn one, before the model has said anything. "fitter" and "fitting"
+    // are CORROBORATED terms (owner ruling 2026-09-24), so a chip label carrying one hands over
+    // the fitter form only when the occupation also sits in fam_fitter.
+    const routes: Record<string, string> = {};
+    for (const d of snapshot.domains.values()) {
+      const kind = routeToTradeForm({
+        draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+        occupationFamilyId: d.familyId,
+        occupationLabel: d.chipLabel,
+      });
+      if (kind === "fitter") routes[d.jobDomainId] = `${d.familyId} / ${d.chipLabel}`;
+    }
+    // Exactly the three codes fam_fitter binds, and nothing else in the catalogue.
+    expect(routes).toEqual({
+      jd_nco_7233_0100: "fam_fitter / Fitter, General",
+      jd_nco_7233_0101: "fam_fitter / fitter",
+      jd_nco_7233_0200: "fam_fitter / bench fitter",
+    });
+    // RULED OUT. With the bare words as occupation terms, these five occupations outside
+    // fam_fitter were offered the fitter form on turn one: a pipe fitter, a CCTV installer, a die
+    // fitter, a control-panel fitter and anyone pinned to the ISCO 7233 node (tractor and
+    // mining-machinery mechanics among them). Asserted by id as well, so the table above cannot be
+    // satisfied by a snapshot that stopped carrying them.
+    for (const [id, label] of [
+      ["jd_isco_7233", "Train engine fitter"],
+      ["jd_nco_7126_0301", "pipe fitting"],
+      ["jd_nco_7222_0500", "Die Fitter"],
+      ["jd_nco_7411_0102", "camera fitting"],
+      ["jd_nco_7412_1001", "Mechanical Fitter-Control Panel"],
+    ] as const) {
+      expect(snapshot.domains.get(id)?.chipLabel, id).toBe(label);
+      expect(routes[id], id).toBeUndefined();
+    }
   });
 
   it("gives the two Devanagari-only occupations their Latin twins", () => {

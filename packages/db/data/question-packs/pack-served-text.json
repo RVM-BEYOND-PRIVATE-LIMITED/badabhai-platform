@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 158,
+  "pack_count": 159,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -237,6 +237,10 @@
     "qp_fishery@1": {
       "served_text_sha256": "b0cad98ec0b0f12590196e301d67c113fc8209b9a398d80079422d50da1e3259",
       "served_text_count": 12
+    },
+    "qp_fitter@1": {
+      "served_text_sha256": "f9a198a1a00c3afd87e68d57a7377a286db5a9ea0401f73d90afda627e0e8c84",
+      "served_text_count": 62
     },
     "qp_fitting@1": {
       "served_text_sha256": "cb75eeb88a93a38147c74c0f2ce66aac859704d7dd4613ce78b7ab5fb7280efc",

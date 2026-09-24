@@ -292,6 +292,92 @@ describe("routeToTradeForm", () => {
       expect(route("Manufacturing", "Assembly line aur quality inspector", null)).toBeNull();
     });
 
+    it("routes a fitter to the fitter form — Batch 2 part two's second", () => {
+      // THE BARE WORD NEEDS THE FAMILY PIN (owner ruling 2026-09-24): "fitter", "फिटर" and
+      // "fitting" are CORROBORATED terms, so a worker the resolver placed in fam_fitter is handed
+      // the form — and that is every worker who says them, because each resolves to a code
+      // fam_fitter binds.
+      expect(route("Manufacturing", "Fitter", "fam_fitter")).toBe("fitter");
+      expect(route("Manufacturing", "Senior fitter", "fam_fitter")).toBe("fitter");
+      expect(route("विनिर्माण", "फिटर", "fam_fitter")).toBe("fitter");
+      expect(route("Manufacturing", "Fitting ka kaam", "fam_fitter")).toBe("fitter");
+      // THE PIN ALONE, on turn one with the model silent: every code fam_fitter binds carries a
+      // catalogue label that names the trade — "fitter" (7233.0101), "bench fitter" (7233.0200,
+      // which also owns "फिटर" and "assembly fitter") and "Fitter, General" (7233.0100).
+      for (const label of ["fitter", "bench fitter", "Fitter, General"]) {
+        expect(route(null, null, "fam_fitter", label), label).toBe("fitter");
+      }
+      // WITHOUT the pin the bare word routes nowhere — the half of the ruling that keeps a plumber
+      // who is a "pipe fitter" off this form. Only the one compound no other trade says routes
+      // on its own.
+      expect(route("Manufacturing", "Fitter", null)).toBeNull();
+      expect(route("विनिर्माण", "फिटर", null)).toBeNull();
+      expect(route("Manufacturing", "General fitter", null)).toBe("fitter");
+      // MACHINE WORDS NEED THE FAMILY PIN, the turner's rule.
+      expect(route("Manufacturing", "Gearbox aur centrifugal pump", "fam_fitter")).toBe("fitter");
+      expect(route("Manufacturing", "Gearbox aur centrifugal pump", null)).toBeNull();
+    });
+
+    it("RULED OUT — another trade whose name carries 'fitter' or 'fitting' is not handed the form", () => {
+      // Measured when the form was enabled with the bare words as occupation terms: every row
+      // below reached the fitter form. Owner ruling 2026-09-24 made the bare words corroborated,
+      // and each now reaches NOTHING — the trade keeps its own interview.
+      //
+      // The model's own label, with the pin retrieval actually lands for that phrase.
+      const modelWritten: readonly (readonly [string, string | null, string | null])[] = [
+        ["Pipe fitter", "fam_plumbing", "Plumber"],
+        ["Glass fitter", "fam_building_finishing", "Glazier"],
+        ["Tile fitting", "fam_cart", "rehdi"],
+        ["AC fitting", "fam_ac_refrigeration", "fridge"],
+        ["Fitter automobile", "fam_auto_mechanic", "gaadi mechanic"],
+      ];
+      for (const [role, family, label] of modelWritten) {
+        expect(route(null, role, family, label, role), role).toBeNull();
+        expect(route(null, role, null, null, role), `${role}, unpinned`).toBeNull();
+      }
+      // The catalogue pin alone — each occupation's own chip label, on turn one.
+      const pinned: readonly (readonly [string, string])[] = [
+        ["fam_plumbing", "pipe fitting"],
+        ["fam_electrical", "camera fitting"],
+        ["fam_tool_die_making", "Die Fitter"],
+        ["fam_electrical_equipment", "Mechanical Fitter-Control Panel"],
+        ["fam_fitting", "Train engine fitter"],
+      ];
+      for (const [family, label] of pinned) {
+        expect(route(null, null, family, label), label).toBeNull();
+      }
+    });
+
+    it("a fitter who names a maintenance-cluster sibling reaches NO form", () => {
+      // THE CLUSTER VETO, and it holds with the fitter form ENABLED and both siblings disabled.
+      // `maintenance_technician` and `industrial_electrician` share `maintenance`, so their
+      // vocabulary is derived into the fitter's veto: a man who says both keeps talking. PINNED to
+      // fam_fitter, so each row would route if the veto were gone — the "Fitter" row above is the
+      // discriminating case.
+      expect(route("Manufacturing", "Maintenance fitter", "fam_fitter")).toBeNull();
+      expect(route("Manufacturing", "Fitter, plant maintenance", "fam_fitter")).toBeNull();
+      expect(route("Manufacturing", "Fitter aur panel wiring", "fam_fitter")).toBeNull();
+      // And the declared cross-cluster pair: production-line assembly vetoes the fitter.
+      expect(route("Manufacturing", "Fitter, assembly line", "fam_fitter")).toBeNull();
+      // The generic unit pack's own label names "fitter" and "maintenance" together, and a
+      // fam_fitting pin does not corroborate the fitter's bare word in any case.
+      expect(route(null, null, "fam_fitting", "fitter aur maintenance")).toBeNull();
+    });
+
+    it("PINS THE INTERIM 7233.0101 IMPRECISION at the form, as the reachability test does at the pack", () => {
+      // 7233.0101 is bound to fam_fitter by owner decision until "fitter" can be retired from it
+      // (ruling A1), and the #1685 tranche put four maintenance phrases on the same code. Their
+      // pin label is the code's shortest alias — "fitter" — so the form-level outcome splits:
+      //   "machine repair" / "machine ki marammat" carry no veto word: the FITTER FORM IS OFFERED.
+      expect(route(null, null, "fam_fitter", "fitter", "machine repair")).toBe("fitter");
+      expect(route(null, null, "fam_fitter", "fitter", "machine ki marammat")).toBe("fitter");
+      //   "breakdown maintenance" / "plant maintenance" carry "maintenance" in the worker's own
+      //   words, which vetoes — no form; the chat interview serves qp_fitter's questions instead.
+      expect(route(null, null, "fam_fitter", "fitter", "breakdown maintenance")).toBeNull();
+      expect(route(null, null, "fam_fitter", "fitter", "plant maintenance")).toBeNull();
+      // Both halves move when 0101 moves to fam_maintenance_tech with its pack.
+    });
+
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.

@@ -175,4 +175,9 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // the two generic assembly families share: "assembly line" is this role's occupation term, so
   // the label routes its pin to the form (pinned in the test), and theirs does not.
   fam_assembly_line: "assembly line",
+  // The Latin reading of `label_hi` ("फिटिंग का काम"). Distinct from the generic `fam_fitting`
+  // ("fitter aur maintenance") on purpose: that label carries the maintenance technician's veto
+  // word and must keep NOT routing, while this one names the trade and — pinned to fam_fitter,
+  // which corroborates the bare "fitting" — routes to its form.
+  fam_fitter: "fitting ka kaam",
 });
