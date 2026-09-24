@@ -138,9 +138,13 @@ const NO_FAMILY: FamilyChipLabels = { latin: null, hi: null };
  * asked to choose between. `family-chip-labels.test.ts` holds every corpus family to a Latin
  * label, so step 2 cannot silently become step 3.
  *
- * A LATIN FAMILY LABEL BEATS A DEVANAGARI ALIAS. Two occupations own only Devanagari aliases
- * (`धान`, `कुआं खोदना`). Their family's Latin label is coarser, but it is in the script of the
- * rest of the list; a finer word in the wrong script is exactly the mixed list this rule ends.
+ * A LATIN FAMILY LABEL BEATS A DEVANAGARI ALIAS, WHICH MAKES A DEVANAGARI-ONLY ALIAS A DATA GAP.
+ * The family label is not merely coarser than the occupation's own word, it can be a different
+ * trade: "Well Digger" (7119) is bound to `fam_construction_other`, whose label is "safedi aur
+ * scaffolding". So an occupation that owns a vernacular alias must own a LATIN one, and the fix
+ * for one that does not is a Latin twin in `rvm-aliases.jsonl` (`kuan khodna` beside `कुआं खोदना`),
+ * never a Devanagari chip. `family-chip-labels.test.ts` fails on any occupation that has its own
+ * word and still falls through to its family.
  *
  * TIES ARE BROKEN LEXICOGRAPHICALLY, NOT BY ARRIVAL ORDER, and this is a multi-instance
  * correctness rule rather than tidiness. Every API instance builds its own snapshot from

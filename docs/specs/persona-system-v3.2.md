@@ -251,7 +251,8 @@ wrong look.
 - **Chips and the pinned trade are Latin.** The worker's own alias comes first; after it, the trade
   family's Latin label (`FAMILY_CHIP_LABELS`, `apps/api/src/occupation/family-chip-labels.ts`).
 - **Devanagari stays for read-aloud** (the `question-tts-text.ts` sidecar) **and for recognition**
-  (a Devanagari alias is how a Devanagari speech transcript is still understood). It is never
-  displayed.
+  (a Devanagari alias is how a Devanagari speech transcript is still understood). It is not a
+  display script. The one path left that can still show it is a fallback for a trade family the
+  running code has no Latin label for, and that path logs a warning naming the family.
 - The family labels were written as the same words as the family's Devanagari `label_hi`, in Latin
   letters. They are drafted, not ratified; see `docs/registers/trade-content-ratification.md`.

@@ -121,8 +121,9 @@ the same number.
 ### Disambiguation chips
 
 Never `label_en` — *"Metal Working Machine Tool Setters and Operators"* is not a thing a worker
-says. Chips use `label_hi` or the shortest alias, because **aliases are the worker's own vocabulary
-by design**. Max 4 plus an escape. The chip→id map is held **server-side** in the envelope and a
+says. Chips use the shortest **Latin-script** alias, because **aliases are the worker's own vocabulary
+by design**, and otherwise the family's Latin label (`FAMILY_CHIP_LABELS`). Display script is Latin,
+like every served string; Devanagari is for read-aloud and recognition (#1679). Max 4 plus an escape. The chip→id map is held **server-side** in the envelope and a
 tap resolves through that map, never by re-matching the label text — which would re-enter the very
 ambiguity the chips exist to settle.
 

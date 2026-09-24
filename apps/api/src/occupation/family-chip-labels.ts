@@ -2,10 +2,10 @@
  * THE LATIN-SCRIPT FAMILY LABEL (#1679) — what a worker is shown for an occupation family, in the
  * script every other line of the interview is written in.
  *
- * THE RULING. Display script is Latin: romanized Hinglish, the register of all 3,269 served pack
- * strings, the "Kuch aur" escape and every persona line. Devanagari is for read-aloud only (the
- * #896 sidecar in `question-tts-text.ts`). Owner ruling, 2026-09-24; recorded in
- * `docs/specs/persona-system-v3.2.md`.
+ * THE RULING. Display script is Latin: romanized Hinglish, the register of every served pack
+ * string, the "Kuch aur" escape and every persona line. Devanagari is for read-aloud (the #896
+ * sidecar in `question-tts-text.ts`) and for recognition, not for display. Owner ruling,
+ * 2026-09-24; recorded in `docs/specs/persona-system-v3.2.md`.
  *
  * WHY THIS MAP EXISTS. `profiling_family.label_hi` is Devanagari for every family, and it was the
  * chip label for 2,915 of 3,515 reachable occupations, measured over the committed corpus: those
@@ -14,6 +14,13 @@
  * on the trust pill and settles `primary_trade` when the model gave none. A policy applied only to
  * the alias step would have fixed 39 occupations and left 83% of them in Devanagari.
  *
+ * A LABEL HERE IS ALSO ROUTING EVIDENCE. The pinned label joins the haystack `routeToTradeForm`
+ * reads (`trade-form-router.ts`), both to route and to veto, and that router's terms are mostly
+ * Latin — so these labels are evidence in a way the Devanagari ones mostly were not. Putting
+ * "turning" into `fam_machining`'s label would hand the turner form to every occupation that falls
+ * back to it, on the pin alone. `family-chip-labels.test.ts` pins where every label routes; a
+ * wording change that moves a route fails there, and is a routing decision, not a copy edit.
+ *
  * WHY HERE AND NOT A `profiling_family` COLUMN. The occupation index loads family labels at boot.
  * A new column read by that loader would fail every snapshot build on a database where the
  * migration has not been applied by hand yet, and a failed first build leaves retrieval with NO
@@ -21,15 +28,17 @@
  * script twin, committed beside the code that serves it, and held complete by a test.
  *
  * HOW EACH LABEL WAS WRITTEN. As a transliteration of the family's `label_hi`: the same words, in
- * Latin letters, spelled the way the alias corpus spells them (`dukan`, `godam`, `gaadi`), with
+ * Latin letters, spelled the way the alias corpus spells them (`dukan`, `gaadi`, `mistri`), with
  * English loanwords in their English spelling and acronyms in capitals. There are two deliberate
  * departures:
  *
- *   - `fam_universal` is "General", NOT a transliteration of सामान्य. It is the resolver's
- *     fallback, not a trade, and the worker app hides exactly two strings on the trust pill:
- *     "सामान्य" and "General" (`kUniversalOccupationLabels` in `apps/worker-app/lib/core/api/
- *     occupation_label.dart`). Any other spelling would show a worker the word "General" as their
- *     trade. `family-chip-labels.test.ts` reads that Dart file, so the pairing cannot drift.
+ *   - `fam_universal` is "General", NOT a transliteration of सामान्य. The worker app hides exactly
+ *     two strings on the trust pill, "सामान्य" and "General" (`kUniversalOccupationLabels` in
+ *     `apps/worker-app/lib/core/api/occupation_label.dart`); any other spelling would put the word
+ *     "General" on the pill as if it were a trade. Hidden there, it is still SHOWN as a
+ *     disambiguation chip and still settles `trade`, exactly as सामान्य did before. The pairing is
+ *     held from both sides: `family-chip-labels.test.ts` reads the Dart, and
+ *     `occupation_label_test.dart` pins "General" as hidden.
  *   - `fam_security` is "security guard", not "suraksha guard". That is what a guard calls the job
  *     (it is an authored alias; the Hindi is a translation of it).
  *

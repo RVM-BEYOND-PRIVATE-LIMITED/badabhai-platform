@@ -6,6 +6,7 @@
  * as an unresolved phrase and treats as an ordinary day — a total retrieval outage with no
  * symptom. The assertions below are mostly assertions that this class refuses to do that.
  */
+import { Logger } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
 import { OccupationIndexService } from "./occupation-index.service";
@@ -129,6 +130,34 @@ describe("OccupationIndexService", () => {
     // A turn holding the old reference must keep reading a coherent old snapshot.
     expect(svc.snapshot()).not.toBe(before);
     expect(before?.catalogVersion).toBe("v1");
+  });
+
+  it("WARNS, by family id, when the catalogue holds a family with no Latin chip label", async () => {
+    // Its chips fall back to Devanagari (#1679). Correct as a fallback, invisible as a symptom
+    // unless something says so.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const repo = fakeRepo({
+      loadFamilyLabels: vi.fn().mockResolvedValue(
+        new Map([
+          ["fam_welding", "वेल्डिंग"],
+          ["fam_from_a_newer_corpus", "नया"],
+        ]),
+      ),
+    } as Partial<OccupationRepository>);
+    await new OccupationIndexService(repo).refresh();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]?.[0]);
+    expect(line).toContain("fam_from_a_newer_corpus");
+    expect(line).not.toContain("fam_welding");
+    expect(line).not.toContain("नया");
+    warn.mockRestore();
+  });
+
+  it("stays quiet when every catalogue family has a Latin chip label", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    await new OccupationIndexService(fakeRepo()).refresh();
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("clears its timer on destroy", () => {

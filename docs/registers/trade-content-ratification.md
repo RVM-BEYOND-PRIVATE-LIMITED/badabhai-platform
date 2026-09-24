@@ -107,6 +107,11 @@ reviewer's question for each row is the one a chip asks: *would a worker in this
 this as the name of their work?* `fam_assembly` and `fam_assemblers_other` share
 "assembly ka kaam", as their `label_hi` already do. If both appear in one offer, the
 collision guard drops the chips and asks an open question instead.
+**Each label is also routing evidence.** The pinned label is one of the inputs the trade-form
+router reads (`trade-form-router.ts`). Nine families hand over to a form on their label alone,
+each to its own trade's form. `family-chip-labels.test.ts` pins that table. So a wording
+change that adds a routing word, such as "turning" in `fam_machining`'s label, fails that test.
+Engineering must then review it as a routing change, not as a copy edit.
 
 ---
 
@@ -277,7 +282,7 @@ Checklist meaning (applies to every trade):
 | ------- | ---- | ----- |
 | Resume content | [`apps/api/src/resume/trade-content.ts`](../../apps/api/src/resume/trade-content.ts) | `TRADE_CONTENT` rows; also the single source of every trade's `display_name`. |
 | Interview-kit content | [`apps/api/src/interview-kit/interview-kit-content.ts`](../../apps/api/src/interview-kit/interview-kit-content.ts) | `INTERVIEW_KITS` rows; `REQUIRED_KIT_TRADE_KEYS` lists the required 15. |
-| Family display labels (Flag C) | [`apps/api/src/occupation/family-chip-labels.ts`](../../apps/api/src/occupation/family-chip-labels.ts) | `FAMILY_CHIP_LABELS`, keyed by `family_id`. No version bump. A label is read when the occupation index is next built, so an edit reaches workers on the next deploy. |
+| Family display labels (Flag C) | [`apps/api/src/occupation/family-chip-labels.ts`](../../apps/api/src/occupation/family-chip-labels.ts) | `FAMILY_CHIP_LABELS`, keyed by `family_id`. No version bump. A label is read when the occupation index is next built, so an edit reaches workers on the next deploy. **Labels are also trade-form routing evidence.** If a test fails on the routing table, route the edit through engineering. |
 
 **When RVM edits interview-kit copy:** bump
 `INTERVIEW_KIT_CONTENT_VERSION` (typed env, default `1`, in

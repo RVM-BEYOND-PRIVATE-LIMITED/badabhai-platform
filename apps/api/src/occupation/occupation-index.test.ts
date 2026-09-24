@@ -89,9 +89,9 @@ describe("pickChipLabel", () => {
     ).toBe("kharad");
   });
 
-  it("prefers the family's Latin label over a finer word in Devanagari", () => {
-    // `धान` is the only alias its occupation owns. A coarser label in the list's own script
-    // beats a finer one in a second script — the mixed list is the defect.
+  it("prefers the family's Latin label over a word in Devanagari", () => {
+    // Script first, always. An occupation whose only word is Devanagari is a DATA gap, closed
+    // with a Latin twin alias (see family-chip-labels.test.ts), never with a Devanagari chip.
     expect(pickChipLabel(null, ["धान"], "Paddy Farmer", { latin: "fasal ugana", hi: "फसल उगाना" })).toBe(
       "fasal ugana",
     );
@@ -220,6 +220,20 @@ describe("buildOccupationSnapshot", () => {
     });
     expect(s.domains.get("jd_cook")?.chipLabel).toBe("खाना बनाना");
     expect(s.familyLabels.get("fam_new")).toBe("खाना बनाना");
+  });
+
+  it("reads only the map's OWN keys, never its prototype's", () => {
+    // `labels["toString"]` is a function on any plain object. Family ids are `fam_*` by a
+    // CHECK constraint today; the lookup should not depend on that staying true.
+    const s = buildOccupationSnapshot({
+      catalogVersion: "v1",
+      domains: [domain("jd_cook", "Cooks", "5120")],
+      aliases: [{ jobDomainId: "jd_cook", text: "Cooks" }],
+      bindings: [{ familyId: "toString", iscoUnitCode: "5120" }],
+      familyLabels: new Map([["toString", "खाना बनाना"]]),
+      familyChipLabels: {},
+    });
+    expect(s.domains.get("jd_cook")?.chipLabel).toBe("खाना बनाना");
   });
 
   it("qualifies with the Latin label even where the catalogue holds a Devanagari one", () => {

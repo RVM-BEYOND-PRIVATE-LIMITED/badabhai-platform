@@ -4,8 +4,9 @@
  * `occupation-index.test.ts` proves the picker's ORDER on hand-built rows. What it cannot see is
  * whether the order is enough: a family with no Latin label falls through to Devanagari, and a
  * fixture only contains the families someone thought to write down. So this file reads the
- * committed corpus — every family, every reachable occupation, the #1675 draughtsman — and the
- * Dart the worker app ships, and asserts on what a worker would actually be shown.
+ * committed corpus — every family, every selectable occupation, the #1675 draughtsman — and the
+ * Dart the worker app ships, and asserts on what a worker would actually be shown, and on where
+ * each label sends them (a pinned label is trade-form routing evidence).
  *
  * PRIVACY: public reference data only.
  */
@@ -18,6 +19,9 @@ import {
   type ResolvableBinding,
 } from "@badabhai/db";
 
+import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+
+import { routeToTradeForm, type TradeFormKind } from "../profiling/trade-form-router";
 import { FAMILY_CHIP_LABELS } from "./family-chip-labels";
 import { buildOccupationSnapshot, isLatinScript } from "./occupation-index";
 
@@ -74,6 +78,35 @@ describe("FAMILY_CHIP_LABELS", () => {
     );
     expect(vanishing).toEqual([]);
   });
+
+  it("routes to a trade form exactly where this table says, and nowhere else", () => {
+    // A pinned label is ROUTING EVIDENCE, not only copy: `routeToTradeForm` reads it on the
+    // turn the pin lands, before the model has said anything. These nine hand over on the
+    // label alone, each into its own trade's form (`fam_welding` -> welder did so in
+    // Devanagari too). A label edit that adds or moves a row here is a routing change and
+    // must be reviewed as one — "kharad aur CNC" growing a "turning" would hand the turner
+    // form to every occupation that falls back to `fam_machining`.
+    const routes: Record<string, TradeFormKind> = {};
+    for (const [familyId, label] of Object.entries(FAMILY_CHIP_LABELS)) {
+      const kind = routeToTradeForm({
+        draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+        occupationFamilyId: familyId,
+        occupationLabel: label,
+      });
+      if (kind !== null) routes[familyId] = kind;
+    }
+    expect(routes).toEqual({
+      fam_welding: "welder",
+      fam_welding_trade: "welder",
+      fam_cnc_turning: "cnc_turner",
+      fam_vmc_milling: "vmc_milling",
+      fam_cnc_grinding: "cnc_grinding",
+      fam_cam_programming: "cam_programmer",
+      fam_cad_drafting: "cad_draughtsman",
+      fam_tool_die_making: "tool_die_maker",
+      fam_powder_coating: "painter_coating",
+    });
+  });
 });
 
 describe("the served catalogue", () => {
@@ -97,7 +130,7 @@ describe("the served catalogue", () => {
       jobDomainId: d.jobDomainId,
       labelEn: d.label_en,
       labelHi: d.label_hi,
-      iscoUnitCode: d.isco_unit ?? /^jd_(?:nco|isco)_(\d{4})/.exec(d.jobDomainId)?.[1] ?? null,
+      iscoUnitCode: d.isco_unit,
     })),
     aliases: selectable.flatMap((d) =>
       (d.aliases ?? []).map((a) => ({ jobDomainId: d.jobDomainId, text: a.text })),
@@ -106,7 +139,10 @@ describe("the served catalogue", () => {
     familyLabels: new Map(corpus.families.map((f) => [f.family_id, f.label_hi ?? null])),
   });
 
-  it("offers every reachable occupation in Latin script", () => {
+  // Every SELECTABLE occupation and every alias, searchable or not: a superset of what the
+  // production index serves (it also drops shadowed ISCO units and de-duplicated aliases), so
+  // a clean result here is a clean result there.
+  it("offers every selectable occupation in Latin script", () => {
     // Before #1679 this list held 2,956 occupations: 41 whose shortest alias was Devanagari and
     // 2,915 that fell through to their family's `label_hi`.
     expect(snapshot.domains.size).toBeGreaterThan(3000);
@@ -129,10 +165,32 @@ describe("the served catalogue", () => {
     expect(snapshot.domains.get("jd_nco_3118_0401")?.chipLabel).toBe("cad");
   });
 
-  it("gives an occupation with only Devanagari aliases its family's Latin label", () => {
-    // `धान` is this occupation's only alias besides its English title.
-    const paddy = snapshot.domains.get("jd_nco_6111_0101");
-    expect(paddy?.familyId).not.toBeNull();
-    expect(paddy?.chipLabel).toBe(FAMILY_CHIP_LABELS[paddy?.familyId ?? ""]);
+  it("labels every occupation that owns its own word BY that word, never by its family", () => {
+    // Script comes first, so an occupation whose only word is Devanagari falls through to its
+    // family — and the family can be another trade. "Well Digger" is bound to
+    // `fam_construction_other`, "safedi aur scaffolding": without its Latin twin `kuan khodna`
+    // a worker who said कुआं खोदना would be pinned, and recorded, as a whitewasher. The fix for
+    // a row here is a Latin twin in `rvm-aliases.jsonl`, never a Devanagari chip.
+    const fellThrough: string[] = [];
+    let withOwnWord = 0;
+    for (const d of selectable) {
+      const official = normalizeOccupationText(d.label_en);
+      const own = (d.aliases ?? [])
+        .map((a) => a.text.trim())
+        .filter((t) => t.length > 0 && normalizeOccupationText(t) !== official);
+      if (own.length === 0) continue;
+      withOwnWord++;
+      const chip = snapshot.domains.get(d.jobDomainId)?.chipLabel;
+      if (chip === undefined || !own.includes(chip))
+        fellThrough.push(`${d.jobDomainId} -> ${chip}`);
+    }
+    // Vacuity guard: the overlay alone gives 106 occupations their own word.
+    expect(withOwnWord).toBeGreaterThan(500);
+    expect(fellThrough).toEqual([]);
+  });
+
+  it("gives the two Devanagari-only occupations their Latin twins", () => {
+    expect(snapshot.domains.get("jd_nco_7119_0100")?.chipLabel).toBe("kuan khodna");
+    expect(snapshot.domains.get("jd_nco_6111_0101")?.chipLabel).toBe("dhaan");
   });
 });

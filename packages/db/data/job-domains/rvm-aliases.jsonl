@@ -399,6 +399,7 @@
 {"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"खेत मजदूर","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_6111_0100","text":"krishak","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_6111_0101","text":"धान","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_6111_0101","text":"dhaan","lang":"en"}
 
 # ── White washer / scaffolder / well digger — 7119 ──────────────────────────
 {"kind":"alias","job_domain_id":"jd_nco_7119_0200","text":"white wash","lang":"en"}
@@ -407,6 +408,7 @@
 {"kind":"alias","job_domain_id":"jd_nco_7119_0301","text":"scaffolder","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_7119_0301","text":"स्कैफोल्डिंग","lang":"hi"}
 {"kind":"alias","job_domain_id":"jd_nco_7119_0100","text":"कुआं खोदना","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_7119_0100","text":"kuan khodna","lang":"en"}
 
 # ── Tool maker — 7222 ───────────────────────────────────────────────────────
 {"kind":"alias","job_domain_id":"jd_nco_7222_0200","text":"टूल मेकर","lang":"hi"}
