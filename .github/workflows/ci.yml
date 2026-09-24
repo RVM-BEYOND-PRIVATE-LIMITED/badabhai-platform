@@ -527,8 +527,19 @@ jobs:
       # a sideloadable build. If that trade stops being acceptable, split this into a separate
       # QA-only build+publish job rather than quietly dropping the flag — a stock
       # `flutter build apk --release` is what the public artifact should be.
+      #
+      # ---- APP_BUILD — which build is on the phone (#966) ----
+      #
+      # `kAppBuild` (apps/worker-app/lib/core/config/build_info.dart) reads
+      # `String.fromEnvironment('APP_BUILD')` — a compile-time define, like ENABLE_TEST_DELETE
+      # above — and falls back to `dev`. #966 wired the app to show it on the Settings screen
+      # and send it as `x-app-build`, but nothing ever passed it, so every published APK said
+      # "build dev" and a tester could not tell a days-old install from today's. The value is
+      # the same short SHA the release tag and the APK filename carry, so Settings can be read
+      # straight against the Releases page. PII-free: a commit SHA only.
+      # `app-build-stamp.guard.test.ts` (apps/api) holds this line and the Dart key together.
       - name: Build release APK
-        run: flutter build apk --release --dart-define=ENABLE_TEST_DELETE=true
+        run: flutter build apk --release --dart-define=ENABLE_TEST_DELETE=true --dart-define=APP_BUILD="${GITHUB_SHA::7}"
 
       # Rename with the commit's short SHA so the artifact carries its own provenance
       # in the filename — trivial, obviously-correct traceability. Does not attempt
