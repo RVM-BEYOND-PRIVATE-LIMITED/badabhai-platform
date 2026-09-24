@@ -24,8 +24,6 @@ const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle =
     'Aap 1 se $kTradeFormMaxPreferredCities sheher chun sakte hain.';
-const String _kCityNotFoundError =
-    'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
 const String _kCityAddedToast = 'Sheher add ho gaya';
 const String _kLoadError = 'Kuch gadbad ho gayi. Dobara koshish karein.';
 const String _kRetry = 'Dobara koshish karein';
@@ -156,19 +154,15 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   late TradeFormPreferences _prefs =
       widget.initialPreferences ?? const TradeFormPreferences();
 
-  final TextEditingController _city = TextEditingController();
-
-  /// The DESIGN2 browse box — filters the hub/city cards. Separate from
-  /// [_city], which stays the exact "Koi sheher?" entry with alias resolution.
+  /// The DESIGN2 browse box — filters the hub/city cards as the worker types.
+  ///
+  /// It is the ONLY city text input now. The separate "Koi sheher?" exact-entry
+  /// box is gone: it accepted only a full canonical name or alias, so it
+  /// answered a worker who typed "Kol" with a red "not in the list" while the
+  /// cards below were already showing him Kolhapur and Kolkata. Tapping a card
+  /// is the single add path, and it carries the canonical value the server's
+  /// `preferred_cities` validator accepts (#1406/#1410).
   final TextEditingController _search = TextEditingController();
-  String? _searchError;
-
-  /// Set when submitted text doesn't resolve against the server's gazetteer
-  /// (`options.cities`) — never a bare string add any more (#1406/#1410):
-  /// the server's `preferred_cities` 400s on anything outside the same
-  /// catalogue, so accepting an unresolved city client-side would just move
-  /// the dead end from submit-time to save-time.
-  String? _cityError;
 
   /// The state currently narrowing the city search (#1429) — a PURE UI
   /// filter, never part of [_prefs]/the write contract (`preferred_cities`
@@ -208,7 +202,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
 
   @override
   void dispose() {
-    _city.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -390,9 +383,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     setState(() {
       _cityState = _cityState == state ? null : state;
       _search.clear();
-      _city.clear();
-      _cityError = null;
-      _searchError = null;
     });
   }
 
@@ -415,33 +405,38 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       popularHubs: _popularHubs(options),
       searchResults: _searchResults(options),
       searchController: _search,
-      onSearchChanged: (String _) => setState(() => _searchError = null),
-      onSearchSubmit: () => _submitSearch(options),
-      searchError: _searchError,
-      cityController: _city,
-      onCityChanged: (String _) => setState(() => _cityError = null),
-      onCitySubmit: () => _submitTypedCity(options),
-      cityError: _cityError,
+      // Typing IS the search: the rebuild re-resolves [_searchResults] and the
+      // matching cards appear underneath. There is no submit step and no
+      // not-found error — a tap on a card is the only way to add a city, which
+      // is also the only way to get the canonical value the server accepts.
+      onSearchChanged: (String _) => setState(() {}),
       onSelectState: _selectState,
       onToggleHub: _toggleHub,
       onRemoveCity: _removeCity,
     );
   }
 
-  /// The selected state's hubs: the curated catalogue when present, else its
-  /// real cities (title-only cards — no invented industrial areas).
+  /// The selected state's places: the curated hubs (with their industrial-area
+  /// sub-labels) PLUS every real city in the state the hubs do not already
+  /// represent.
+  ///
+  /// The hub catalogue is a curated SUBSET (#1639) — 18 hubs across 11 states
+  /// against the 83-city gazetteer — so treating it as the state's whole list
+  /// left every hub-less state (Bihar, Odisha, Punjab, …) reading "sheher jald
+  /// aa rahe hain" and hid real cities in hub states (Navi Mumbai beside the
+  /// Mumbai/Thane hub). Hubs stay first: they are the ones with area labels.
   List<Design2Hub> _stateHubs(WorkPrefOptionsDto options) {
     final String? state = _cityState;
     if (state == null) return const <Design2Hub>[];
-    if (options.cityHubs.isNotEmpty) {
-      return <Design2Hub>[
-        for (final CityHubDto h in options.cityHubs)
-          if (h.state == state) h.toView(selected: _isPicked(h.cityValue)),
-      ];
-    }
+    final Set<String> hubValues = <String>{
+      for (final CityHubDto h in options.cityHubs)
+        if (h.state == state) h.cityValue.toLowerCase(),
+    };
     return <Design2Hub>[
+      for (final CityHubDto h in options.cityHubs)
+        if (h.state == state) h.toView(selected: _isPicked(h.cityValue)),
       for (final CityOptionDto c in options.cities)
-        if (c.state == state)
+        if (c.state == state && !hubValues.contains(c.value.toLowerCase()))
           Design2Hub(
             cityValue: c.value,
             title: c.value,
@@ -459,30 +454,37 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// Cards matching the browse box — a hub's display/areas/ city, or a city's
   /// value/alias — scoped to [_cityState] when one is picked. Empty while the
   /// box is empty, so the state's hub list stays the default view.
+  ///
+  /// Searches BOTH lists: hubs carry the area vocabulary ("Chakan"), cities
+  /// carry the full gazetteer, and a hub's `city_value` may differ from its
+  /// display ("Mumbai / Thane" submits Thane) — so dropping the city list
+  /// whenever hubs exist made most canonical cities unfindable.
   List<Design2Hub> _searchResults(WorkPrefOptionsDto options) {
     final String q = _search.text.trim().toLowerCase();
     if (q.isEmpty) return const <Design2Hub>[];
     final String? state = _cityState;
     final List<Design2Hub> out = <Design2Hub>[];
-    if (options.cityHubs.isNotEmpty) {
-      for (final CityHubDto h in options.cityHubs) {
-        if (state != null && h.state != state) continue;
-        final String hay = '${h.display} ${h.areas.join(' ')}'.toLowerCase();
-        if (hay.contains(q) || h.cityValue.toLowerCase().contains(q)) {
+    final Set<String> seen = <String>{};
+    for (final CityHubDto h in options.cityHubs) {
+      if (state != null && h.state != state) continue;
+      final String hay = '${h.display} ${h.areas.join(' ')}'.toLowerCase();
+      if (hay.contains(q) || h.cityValue.toLowerCase().contains(q)) {
+        if (seen.add(h.cityValue.toLowerCase())) {
           out.add(h.toView(selected: _isPicked(h.cityValue)));
         }
       }
-    } else {
-      for (final CityOptionDto c in options.cities) {
-        if (state != null && c.state != state) continue;
-        if (c.value.toLowerCase().contains(q) ||
-            c.aliases.any((String a) => a.toLowerCase().contains(q))) {
-          out.add(Design2Hub(
-            cityValue: c.value,
-            title: c.value,
-            selected: _isPicked(c.value),
-          ));
-        }
+    }
+    for (final CityOptionDto c in options.cities) {
+      if (state != null && c.state != state) continue;
+      if (seen.contains(c.value.toLowerCase())) continue;
+      if (c.value.toLowerCase().contains(q) ||
+          c.aliases.any((String a) => a.toLowerCase().contains(q))) {
+        seen.add(c.value.toLowerCase());
+        out.add(Design2Hub(
+          cityValue: c.value,
+          title: c.value,
+          selected: _isPicked(c.value),
+        ));
       }
     }
     return out.take(_kMaxCitySuggestions).toList();
@@ -502,18 +504,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         preferredCities: _prefs.preferredCities
             .where((String c) => c.toLowerCase() != q)
             .toList()));
-  }
-
-  void _submitSearch(WorkPrefOptionsDto options) {
-    final String typed = _search.text.trim();
-    if (typed.isEmpty) return;
-    final CityOptionDto? resolved = _resolveCity(options, typed);
-    if (resolved == null) {
-      setState(() => _searchError = _kCityNotFoundError);
-      return;
-    }
-    _addCityValue(resolved.value);
-    setState(() => _search.clear());
   }
 
   Widget _relocateAccommodationSalaryPage() {
@@ -557,58 +547,23 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  /// Resolves typed text against the gazetteer — an exact match (`value` OR
-  /// any `alias`, case-insensitive) — or null. There is no fuzzy/partial
-  /// accept: [_searchResults] is how a worker finds the right card to tap; this
-  /// is only for submitting the full name already typed. Scoped to
-  /// [_cityState] when one is picked, so an exact city name that belongs to a
-  /// DIFFERENT state is treated as not-found rather than silently resolving
-  /// against the wrong cascade branch; unscoped when no state is picked (the
-  /// "Koi sheher?" box is meaningful before any state).
-  CityOptionDto? _resolveCity(WorkPrefOptionsDto options, String typed) {
-    final String? state = _cityState;
-    final String q = typed.trim().toLowerCase();
-    if (q.isEmpty) return null;
-    for (final CityOptionDto c in options.cities) {
-      if (state != null && c.state != state) continue;
-      if (c.value.toLowerCase() == q) return c;
-      if (c.aliases.any((String a) => a.toLowerCase() == q)) return c;
-    }
-    return null;
-  }
-
-  void _submitTypedCity(WorkPrefOptionsDto options) {
-    final String typed = _city.text.trim();
-    if (typed.isEmpty) return;
-    final CityOptionDto? resolved = _resolveCity(options, typed);
-    if (resolved == null) {
-      setState(() => _cityError = _kCityNotFoundError);
-      return;
-    }
-    _addCityValue(resolved.value);
-    _city.clear();
-  }
-
   /// Adds the CANONICAL `value` — never raw typed text and never a hub label —
   /// so `preferred_cities` always sends exactly the spelling the server's own
   /// validator already accepted (`worker-cities.catalogue.ts`'s round-trip
   /// guarantee). A hub tap, a search result and a typed exact match all funnel
-  /// through here. At the 5-city cap a new add is ignored (the `n/5` badge
-  /// already states the limit); removing always works.
+  /// through here. At the 5-city cap a new add is refused WITH the honest cap
+  /// banner (a silent no-op reads as a broken card); removing always works.
   void _addCityValue(String value) {
     if (value.isEmpty) return;
-    final bool exists = _isPicked(value);
-    final bool atCap =
-        _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
+    if (_isPicked(value)) return;
+    if (_prefs.preferredCities.length >= kTradeFormMaxPreferredCities) {
+      _showBanner(_kCitiesSubtitle, OnboardingColors.shiftBlue);
+      return;
+    }
     setState(() {
-      _cityError = null;
-      _searchError = null;
-      if (!exists && !atCap) {
-        _prefs = _prefs.copyWith(
-            preferredCities: <String>[..._prefs.preferredCities, value]);
-      }
+      _prefs = _prefs.copyWith(
+          preferredCities: <String>[..._prefs.preferredCities, value]);
     });
-    if (exists || atCap) return;
     _showBanner(_kCityAddedToast, OnboardingColors.successGreen);
   }
 

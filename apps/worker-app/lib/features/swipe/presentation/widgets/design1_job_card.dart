@@ -88,42 +88,61 @@ class Design1JobCard extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            _TitleRow(data: data, onTitleTap: onTitleTap),
-            const SizedBox(height: 2),
-            _PlaceRow(place: data.place),
-            if (payFull != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _SalaryBox(payFull: payFull!, payNote: data.payNote),
-            ],
-            _DutySection(data: data),
-            if (data.matchNote != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _MatchLine(text: data.matchNote!),
-            ],
-            if (showTeaser) ...<Widget>[
-              const SizedBox(height: 16),
-              _OptionsHeader(onSeeAll: onSeeAll),
-              if (next != null) ...<Widget>[
-                const SizedBox(height: 8),
-                _NextTeaser(
-                  next: next!,
-                  nextPayFull: nextPayFull,
-                  onTap: onNextTap,
+        // THE PAPER FILLS ITS BOX; THE CONTENT CLIPS INSIDE IT.
+        //
+        // The clip belongs HERE, around the content — not around the whole
+        // card. The deck hands this card a TIGHT height (the deck box less the
+        // peek strip); measuring the PAPER at its own text height instead drew
+        // a short card with a white gap above the dock, and let the taller card
+        // behind it show through underneath. That is the "card became half"
+        // a worker sees when a swipe brings a shorter job to the front.
+        //
+        // `ConstraintsTransformBox`, not `OverflowBox`: it lays the column out
+        // at its natural height and takes the SMALLER of that and the height it
+        // was given, so a card with more chips than fit clips at the bottom
+        // edge instead of reporting an overflow. A scroll view here would steal
+        // the deck's vertical follow-drag (#374), so the clip IS the contract.
+        child: ConstraintsTransformBox(
+          constraintsTransform: ConstraintsTransformBox.heightUnconstrained,
+          alignment: Alignment.topLeft,
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _TitleRow(data: data, onTitleTap: onTitleTap),
+              const SizedBox(height: 2),
+              _PlaceRow(place: data.place),
+              if (payFull != null) ...<Widget>[
+                const SizedBox(height: 12),
+                _SalaryBox(payFull: payFull!, payNote: data.payNote),
+              ],
+              _DutySection(data: data),
+              if (data.matchNote != null) ...<Widget>[
+                const SizedBox(height: 12),
+                _MatchLine(text: data.matchNote!),
+              ],
+              if (showTeaser) ...<Widget>[
+                const SizedBox(height: 16),
+                _OptionsHeader(onSeeAll: onSeeAll),
+                if (next != null) ...<Widget>[
+                  const SizedBox(height: 8),
+                  _NextTeaser(
+                    next: next!,
+                    nextPayFull: nextPayFull,
+                    onTap: onNextTap,
+                  ),
+                ],
+              ],
+              if (showDock) ...<Widget>[
+                const SizedBox(height: 14),
+                _ActionRow(
+                  onFeedback: onFeedback!,
+                  onApply: onApply!,
                 ),
               ],
             ],
-            if (showDock) ...<Widget>[
-              const SizedBox(height: 14),
-              _ActionRow(
-                onFeedback: onFeedback!,
-                onApply: onApply!,
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );

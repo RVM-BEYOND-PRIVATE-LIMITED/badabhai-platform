@@ -18,8 +18,6 @@ import 'trade_form_text_field.dart';
 ///    cards (title only, no industrial-area sub-label), so the picker is useful
 ///    today and simply gains its sub-labels when the catalogue lands.
 ///  - an empty [selectedCities] hides the "CHUNE HUE SHEHER" strip.
-///  - [searchError] is the caller's own resolution message (unknown city),
-///    never padded or invented here.
 ///
 /// Static chrome labels ("INDUSTRIAL STATES", "1-Tap Fast Select+", "Jodein",
 /// "Chuna hua", "100% Free • Verified Factory Jobs only") are the design
@@ -36,15 +34,9 @@ class Design2CitiesPage extends StatelessWidget {
     required this.searchResults,
     required this.searchController,
     required this.onSearchChanged,
-    required this.onSearchSubmit,
-    required this.cityController,
-    required this.onCityChanged,
-    required this.onCitySubmit,
     required this.onSelectState,
     required this.onToggleHub,
     required this.onRemoveCity,
-    this.searchError,
-    this.cityError,
     this.enabled = true,
   });
 
@@ -62,19 +54,13 @@ class Design2CitiesPage extends StatelessWidget {
   /// Hub/city matches for the current search text, already resolved.
   final List<Design2Hub> searchResults;
 
+  /// The browse box. TYPING IS THE SEARCH: every keystroke re-resolves
+  /// [searchResults] and the matching cards appear under it, so there is no
+  /// "Dhoondhein" button and no submit step to get wrong. A worker adds a city
+  /// by TAPPING a card — the only path that can produce the canonical value the
+  /// server's catalogue accepts.
   final TextEditingController searchController;
   final ValueChanged<String> onSearchChanged;
-
-  /// Resolve the search box's exact/alias match and add it (or surface
-  /// [searchError]).
-  final VoidCallback onSearchSubmit;
-  final String? searchError;
-
-  /// The "Koi sheher?" exact-entry field.
-  final TextEditingController cityController;
-  final ValueChanged<String> onCityChanged;
-  final VoidCallback onCitySubmit;
-  final String? cityError;
 
   final ValueChanged<String> onSelectState;
 
@@ -86,12 +72,9 @@ class Design2CitiesPage extends StatelessWidget {
   static const String _kTitle = 'Kahan kaam karna chahte hain?';
   static const String _kChosenLabel = 'CHUNE HUE SHEHER';
   static const String _kSearchHint = 'Sheher ya industrial area khojein';
-  static const String _kSearchAction = 'Dhoondhein';
   static const String _kStatesLabel = 'INDUSTRIAL STATES';
   static const String _kFastSelect = '1-Tap Fast Select+';
   static const String _kPopularLabel = 'POPULAR FACTORY HUBS';
-  static const String _kAnyCityLabel = 'Koi sheher?';
-  static const String _kAnyCityHint = 'Apna sheher likhein';
   static const String _kTrust = '100% Free • Verified Factory Jobs only';
   static const String _kAdd = 'Jodein';
   static const String _kChosen = 'Chuna hua';
@@ -119,32 +102,18 @@ class Design2CitiesPage extends StatelessWidget {
             ),
             const SizedBox(height: 18),
           ],
+          // No search BUTTON and no error line: the cards below ARE the
+          // answer to what is typed, and a worker who could already see
+          // "Kolhapur" and "Kolkata" underneath was being told in red that his
+          // text "was not found in the list".
           TradeFormTextField(
             controller: searchController,
             hint: _kSearchHint,
             label: _kSearchHint,
             textInputAction: TextInputAction.search,
-            errorText: searchError,
             onChanged: onSearchChanged,
-            onSubmitted: (_) => onSearchSubmit(),
-          ),
-          const SizedBox(height: 8),
-          TradeFormSecondaryButton(
-            label: _kSearchAction,
-            icon: Icons.search_rounded,
-            onPressed: onSearchSubmit,
           ),
           const SizedBox(height: 18),
-          if (states.isNotEmpty) ...<Widget>[
-            const _SectionHeader(label: _kStatesLabel),
-            const SizedBox(height: 10),
-            _StateChips(
-              states: states,
-              selected: selectedState,
-              onSelect: onSelectState,
-            ),
-            const SizedBox(height: 18),
-          ],
           if (searchResults.isNotEmpty) ...<Widget>[
             const _SectionHeader(label: 'SEARCH RESULTS'),
             const SizedBox(height: 10),
@@ -168,23 +137,26 @@ class Design2CitiesPage extends StatelessWidget {
               _HubGrid(hubs: stateHubs, onToggle: onToggleHub),
             const SizedBox(height: 18),
           ],
+          // INDUSTRIAL STATES sits UNDER the suggested cities and ABOVE the
+          // popular hubs: the cities are what a worker came here to pick, the
+          // states are the narrowing control he reaches for when they are not
+          // enough, and the popular hubs are the browse-anywhere fallback.
+          if (states.isNotEmpty) ...<Widget>[
+            const _SectionHeader(label: _kStatesLabel),
+            const SizedBox(height: 10),
+            _StateChips(
+              states: states,
+              selected: selectedState,
+              onSelect: onSelectState,
+            ),
+            const SizedBox(height: 18),
+          ],
           if (popularHubs.isNotEmpty) ...<Widget>[
             const _SectionHeader(label: _kPopularLabel),
             const SizedBox(height: 10),
             _PopularHubs(hubs: popularHubs, onToggle: onToggleHub),
             const SizedBox(height: 18),
           ],
-          const TradeFormFieldLabel(_kAnyCityLabel),
-          TradeFormTextField(
-            controller: cityController,
-            hint: _kAnyCityHint,
-            label: _kAnyCityLabel,
-            textInputAction: TextInputAction.done,
-            errorText: cityError,
-            onChanged: onCityChanged,
-            onSubmitted: (_) => onCitySubmit(),
-          ),
-          const SizedBox(height: 18),
           const _TrustFooter(text: _kTrust),
         ],
       ),

@@ -9,12 +9,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/onboarding_theme.dart';
 import '../../../core/util/education_label.dart';
 import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/util/trade_key_label.dart';
 import '../../../core/widgets/bottom_bar_inset.dart';
+import '../../../core/widgets/kit/kit_callout.dart';
+import '../../../core/widgets/kit/kit_header_actions.dart';
 import '../../../core/widgets/onboarding/onboarding_body.dart';
 import '../../../core/widgets/onboarding/primary_action_button.dart';
 import '../../../core/widgets/onboarding/questionnaire_bottom_bar.dart';
@@ -177,6 +180,17 @@ class _ProfileViewState extends State<_ProfileView> {
                     ? 'Neeche di gayi jaankari confirm karein.'
                     : null,
                 onBack: canGoBack ? () => Navigator.maybePop(context) : null,
+                // The brand lockup is OFF here, and the Feedback WORD takes its
+                // slot. Owner's call on the preparing screen: the worker is
+                // watching their own profile being made, and a logo in that
+                // corner is not what they need there.
+                //
+                // This makes the header the screen's ONLY Feedback entry point,
+                // so the floating pill is hidden on this route — see
+                // `feedback_fab.dart`. Two identical actions on one screen is
+                // exactly what that list exists to prevent.
+                showBrandBadge: false,
+                actions: const <Widget>[KitFeedbackTextAction()],
               ),
               Expanded(
                 child: SafeArea(
@@ -223,12 +237,7 @@ class _ProfileViewState extends State<_ProfileView> {
     );
   }
 
-  Widget _buildWaiting() {
-    return const _ProgressPanel(
-      title: 'Bada Bhai is preparing your profile…',
-      caption: 'This takes a few seconds. Please wait.',
-    );
-  }
+  Widget _buildWaiting() => const _PreparingPanel();
 
   Widget _buildFailed(BuildContext context, ProfileState state) {
     return _StatusPanel(
@@ -706,40 +715,479 @@ class _SecondaryButton extends StatelessWidget {
 /// A centred shiftBlue spinner with an optional [title] and [caption] beneath —
 /// the extracting and routing views. Scrolls, so a large system font on a small
 /// phone never overflows.
-class _ProgressPanel extends StatelessWidget {
-  const _ProgressPanel({this.title, this.caption});
+/// The extraction wait's headline and subline.
+///
+/// Public so a test can pin the copy without re-typing it.
+const String kPreparingProfileTitle = 'Bada Bhai is preparing your profile…';
+const String kPreparingProfileCaption =
+    'This takes a few seconds. Please wait while we curate your tailored '
+    'experience.';
 
-  final String? title;
-  final String? caption;
+/// The tip under the ticker — a real, checkable statement about this app:
+/// everything on the profile can be changed later from Settings.
+const String kPreparingProfileTipTitle = 'Quick tip';
+const String kPreparingProfileTipText =
+    'You can change your details, privacy settings and notifications anytime '
+    'from account preferences.';
+
+/// The three rows of the preparation ticker, in order.
+const List<String> kPreparingProfileSteps = <String>[
+  'Verifying account credentials',
+  'Customizing recommendations',
+  'Finalizing profile sync',
+];
+
+/// The state of one ticker row, derived from the paced step.
+enum _StepState { done, live, pending }
+
+/// The `extracting` surface: a pulsing avatar, the headline + subline, a white
+/// three-row progress card and one quick tip.
+///
+/// Replaces the bare spinner this state used to show. The extraction is ONE
+/// opaque server call — there is no per-step signal on the wire — so the ticker
+/// is a PACED client-side drawing, exactly like the resume-building screen's
+/// (kit 22) and under the same rule: it never runs to "all done". The pacing
+/// stops inside the second row, and the screen leaves on the cubit's state
+/// change, never on a timer.
+class _PreparingPanel extends StatefulWidget {
+  const _PreparingPanel();
+
+  @override
+  State<_PreparingPanel> createState() => _PreparingPanelState();
+}
+
+class _PreparingPanelState extends State<_PreparingPanel>
+    with SingleTickerProviderStateMixin {
+  /// The avatar's ripple. REPEATS for as long as this panel is up: the wait has
+  /// no known end, and a one-shot would freeze mid-wait and read as a hang.
+  ///
+  /// It is the only looping animation here — the ticker and the row entrance
+  /// are finite tweens. A widget test must therefore `pump(duration)` and never
+  /// `pumpAndSettle` while this panel is on screen. That is not a new rule: the
+  /// bare `CircularProgressIndicator` it replaces looped just the same, which is
+  /// why the existing tests already step the extracting state with `pump()`.
+  late final AnimationController _ripple = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 2),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ripple.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return _CentredBody(
+    return Stack(
+      children: <Widget>[
+        const Positioned.fill(child: _TopGlow()),
+        _CentredBody(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              _PulseAvatar(ripple: _ripple),
+              const SizedBox(height: 26),
+              Text(
+                kPreparingProfileTitle,
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.questionHeadline(
+                  color: OnboardingColors.shiftBlue,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                kPreparingProfileCaption,
+                textAlign: TextAlign.center,
+                style: OnboardingTypography.bodyMuted(),
+              ),
+              const SizedBox(height: 24),
+              const _PrepareTicker(),
+              const SizedBox(height: 16),
+              const _QuickTip(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The design's top-centred radial glow: a whisper of navy over the canvas.
+/// Decoration only — no hit test, nothing for a screen reader.
+class _TopGlow extends StatelessWidget {
+  const _TopGlow();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              center: const Alignment(0, -0.95),
+              radius: 0.9,
+              colors: <Color>[
+                OnboardingColors.shiftBlue.withValues(alpha: 0.07),
+                OnboardingColors.shiftBlue.withValues(alpha: 0),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The hero: the worker's own profile mark, breathing in the brand's two
+/// colours while the server works.
+///
+/// Drawn rather than photographic on purpose — there is no worker photo at this
+/// point in onboarding (the profile is still being extracted), so a real avatar
+/// would be a placeholder pretending to be data.
+///
+/// The colour animation is the POINT of this widget, not decoration on top of
+/// it: it is the only thing on the screen that proves the app is alive during a
+/// wait with no progress to report. So it is deliberately loud — two ripples
+/// leaving the disc half a cycle apart, each travelling navy → safety yellow as
+/// it goes, over a glow that breathes with them, and a disc outline that cycles
+/// between the same two colours.
+///
+/// The PERSON GLYPH itself stays navy at all times. It is the one element that
+/// has to stay readable, and a mid-cycle yellow on white drops it to roughly
+/// 2:1 contrast.
+///
+/// Decorative to a screen reader — the headline beneath already says what is
+/// happening, so nothing here is announced.
+class _PulseAvatar extends StatelessWidget {
+  const _PulseAvatar({required this.ripple});
+
+  /// 0 → 1, repeating. Drives every colour, scale and alpha below.
+  final Animation<double> ripple;
+
+  /// The box, which is also a ripple's widest drawing.
+  static const double _box = 140;
+
+  /// The avatar disc, and therefore where a ripple is born (`_disc / _box`).
+  static const double _disc = 92;
+
+  static const double _birth = _disc / _box;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: _box,
+        height: _box,
+        child: AnimatedBuilder(
+          animation: ripple,
+          builder: (BuildContext context, _) {
+            final double t = ripple.value;
+            // 0 → 1 → 0 across one cycle, so the disc BREATHES instead of
+            // snapping back to navy at the wrap.
+            final double wave = 0.5 - 0.5 * math.cos(2 * math.pi * t);
+            return Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                _glow(wave),
+                // Half a cycle apart, so a ring is always in flight.
+                _ring((t + 0.5) % 1),
+                _ring(t),
+                _face(wave),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// One ripple at [phase] of its life: it leaves the disc's edge, grows to the
+  /// full box, warms from navy to safety yellow and fades out.
+  Widget _ring(double phase) {
+    final Color colour = Color.lerp(
+      OnboardingColors.shiftBlue,
+      OnboardingColors.safetyYellow,
+      phase,
+    )!;
+    return Transform.scale(
+      scale: _birth + (1 - _birth) * phase,
+      child: Container(
+        width: _box,
+        height: _box,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: colour.withValues(alpha: (1 - phase) * 0.85),
+            width: 3,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The warm halo hugging the disc, brightest at the top of the breath.
+  Widget _glow(double wave) {
+    return Container(
+      width: _disc + 26,
+      height: _disc + 26,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: <Color>[
+            OnboardingColors.safetyYellow.withValues(alpha: 0.10 + 0.22 * wave),
+            OnboardingColors.safetyYellow.withValues(alpha: 0),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The disc itself: a tint that deepens with the breath, an outline cycling
+  /// navy → yellow, and the constant navy person glyph.
+  Widget _face(double wave) {
+    return Container(
+      width: _disc,
+      height: _disc,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: Color.lerp(
+          OnboardingColors.paperWhite,
+          OnboardingColors.shieldCircle,
+          wave,
+        ),
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: Color.lerp(
+            OnboardingColors.shiftBlue,
+            OnboardingColors.safetyYellow,
+            wave,
+          )!,
+          width: 2.5,
+        ),
+      ),
+      child: const Icon(
+        Icons.person_outline_rounded,
+        size: 44,
+        color: OnboardingColors.shiftBlue,
+      ),
+    );
+  }
+}
+
+/// The paced ticker. ONE finite tween drives both the staggered entrance and
+/// which row is live, so there is no second animation to keep in step.
+class _PrepareTicker extends StatelessWidget {
+  const _PrepareTicker();
+
+  /// The pacing ceiling. `floor(0.66 * 3) == 1`, so the LAST row is never
+  /// reached and the card never claims the profile is finished.
+  static const double _pacedTo = 0.66;
+
+  /// How much faster the entrance runs than the pacing, and the per-row offset
+  /// within it — row `i` finishes appearing at `t == (i * _stagger + 1) / _rush`.
+  static const double _rush = 5;
+  static const double _stagger = 0.6;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: AppMotion.slower * 5, // ~2.4s across the first two rows
+      curve: AppMotion.easeInOut,
+      builder: (BuildContext context, double t, _) {
+        final int live = (t * _pacedTo * kPreparingProfileSteps.length)
+            .clamp(0, kPreparingProfileSteps.length - 1)
+            .floor();
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: OnboardingColors.paperWhite,
+            borderRadius: BorderRadius.circular(OnboardingRadii.card),
+            border: Border.all(color: OnboardingColors.borderSubtle),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (int i = 0; i < kPreparingProfileSteps.length; i++)
+                _PrepareStepRow(
+                  label: kPreparingProfileSteps[i],
+                  state: i < live
+                      ? _StepState.done
+                      : (i == live ? _StepState.live : _StepState.pending),
+                  reveal: ((t * _rush) - i * _stagger).clamp(0.0, 1.0),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One ticker row: the state indicator and the label, faded and slid up by
+/// [reveal] on entry.
+class _PrepareStepRow extends StatelessWidget {
+  const _PrepareStepRow({
+    required this.label,
+    required this.state,
+    required this.reveal,
+  });
+
+  final String label;
+  final _StepState state;
+
+  /// 0 (not yet shown) → 1 (in place).
+  final double reveal;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool pending = state == _StepState.pending;
+    return Opacity(
+      opacity: reveal,
+      child: Transform.translate(
+        offset: Offset(0, 8 * (1 - reveal)),
+        child: MergeSemantics(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              children: <Widget>[
+                SizedBox(width: 22, height: 22, child: _indicator()),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: OnboardingTypography.inter(
+                      size: 13,
+                      weight: state == _StepState.live
+                          ? FontWeight.w700
+                          : FontWeight.w500,
+                      height: 1.35,
+                      color: pending
+                          ? OnboardingColors.ink500
+                          : OnboardingColors.ink900,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _indicator() {
+    switch (state) {
+      case _StepState.done:
+        return Container(
+          decoration: const BoxDecoration(
+            color: OnboardingColors.successBg,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.check_rounded,
+            size: 15,
+            color: OnboardingColors.successGreen,
+            semanticLabel: 'Done',
+          ),
+        );
+      case _StepState.live:
+        return const Padding(
+          padding: EdgeInsets.all(2.5),
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: OnboardingColors.shiftBlue,
+          ),
+        );
+      case _StepState.pending:
+        return Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: OnboardingColors.borderDefault,
+              width: 1.5,
+            ),
+          ),
+        );
+    }
+  }
+}
+
+/// The tip panel: the kit's informational callout, carrying a round glyph disc
+/// instead of the callout's square navy tile (the design draws it round).
+class _QuickTip extends StatelessWidget {
+  const _QuickTip();
+
+  @override
+  Widget build(BuildContext context) {
+    return KitCallout(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            width: 28,
+            height: 28,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: OnboardingColors.paperWhite,
+              shape: BoxShape.circle,
+              border: Border.all(color: OnboardingColors.infoBorder),
+            ),
+            child: const Icon(
+              Icons.info_outline_rounded,
+              size: 16,
+              color: OnboardingColors.infoTitle,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  kPreparingProfileTipTitle.toUpperCase(),
+                  style: OnboardingTypography.inter(
+                    size: 10,
+                    weight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                    color: OnboardingColors.infoTitle,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  kPreparingProfileTipText,
+                  style: OnboardingTypography.inter(
+                    size: 12,
+                    weight: FontWeight.w600,
+                    height: 1.4,
+                    color: OnboardingColors.infoText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProgressPanel extends StatelessWidget {
+  const _ProgressPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _CentredBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          const CircularProgressIndicator(
+          CircularProgressIndicator(
             color: OnboardingColors.shiftBlue,
             strokeWidth: 3,
           ),
-          if (title != null) ...<Widget>[
-            const SizedBox(height: 24),
-            Text(
-              title!,
-              textAlign: TextAlign.center,
-              style: OnboardingTypography.questionHeadline(
-                color: OnboardingColors.shiftBlue,
-              ),
-            ),
-          ],
-          if (caption != null) ...<Widget>[
-            const SizedBox(height: 8),
-            Text(
-              caption!,
-              textAlign: TextAlign.center,
-              style: OnboardingTypography.bodyMuted(),
-            ),
-          ],
         ],
       ),
     );
