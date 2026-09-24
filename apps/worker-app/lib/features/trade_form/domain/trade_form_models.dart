@@ -175,23 +175,95 @@ class TradeFormQuestionStep extends TradeFormStep {
       <Object?>[question, searchable, answer, suggestion];
 }
 
+/// `tier_scope` on a marker screen (#1698/#1710) — which of the page's own
+/// fields this tier ASKS FOR.
+///
+/// ASK-ONLY, NEVER A FILTER ON WHAT IS STORED. Each marker page is a
+/// whole-record PUT, so a field this scope hides is still round-tripped: the
+/// page simply does not PROMPT for it. Reading `hidden_fields` as "drop these"
+/// would make choosing Easy delete the answers a worker gave at Medium.
+///
+/// The names are wire names of the PUT body the page owns — `documents_ready`
+/// for preferences, `work_done` / `additional_entries` for employment,
+/// `certificates` / `trainings` for qualifications — never question ids.
+/// The field names `tier_scope` uses, as the server spells them
+/// (`profiling-tier.policy.ts`). They are WIRE NAMES OF THE PUT BODY each page
+/// owns, not question ids, and are named here so the pages and the cubit
+/// cannot drift from one another on a string literal.
+const String kTierFieldDocumentsReady = 'documents_ready';
+const String kTierFieldWorkDone = 'work_done';
+const String kTierFieldAdditionalEntries = 'additional_entries';
+const String kTierFieldCertificates = 'certificates';
+const String kTierFieldTrainings = 'trainings';
+
+class TradeFormTierScope extends Equatable {
+  const TradeFormTierScope({
+    this.hiddenFields = const <String>{},
+    this.revealFields,
+  });
+
+  /// Fields this tier does NOT ask for. Empty at Hard, and empty on a server
+  /// with tiers switched off — which is exactly today's page.
+  final Set<String> hiddenFields;
+
+  /// Present ONLY on `?view=upgrade`: the fields this upgrade ADDS to this
+  /// page. The page then asks only these, and of these only the ones with no
+  /// saved value; when none are left the page is skipped entirely.
+  ///
+  /// Null (the ordinary load) is a DIFFERENT thing from empty (an upgrade that
+  /// adds nothing to this page): null means "ask this page normally", empty
+  /// means "there is nothing left to ask here".
+  final Set<String>? revealFields;
+
+  /// The absent-`tier_scope` value: ask everything, reveal nothing special —
+  /// byte-for-byte today's behaviour on a server that never heard of tiers.
+  static const TradeFormTierScope unscoped = TradeFormTierScope();
+
+  bool hides(String field) => hiddenFields.contains(field);
+
+  /// Null for anything unusable, so a malformed `tier_scope` degrades to
+  /// [unscoped] at the call site rather than hiding fields by accident —
+  /// the fail-open direction here, because hiding a field the worker owes an
+  /// answer to is the harm.
+  static TradeFormTierScope? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Map<String, dynamic> m = raw.cast<String, dynamic>();
+    Set<String>? strings(Object? v) => v is List
+        ? v.whereType<String>().toSet()
+        : null;
+    return TradeFormTierScope(
+      hiddenFields: strings(m['hidden_fields']) ?? const <String>{},
+      revealFields: strings(m['reveal_fields']),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[hiddenFields, revealFields];
+}
+
 /// `type: "preferences"` — a MARKER naming where the closed-set preferences
 /// page (`PUT /workers/me/work-preferences`) sits in the journey. Not a copy
 /// of that contract; the endpoint owns its own vocabulary and validation.
 class TradeFormPreferencesStep extends TradeFormStep {
-  const TradeFormPreferencesStep();
+  const TradeFormPreferencesStep({this.tierScope = TradeFormTierScope.unscoped});
+
+  /// Which of this page's fields the chosen tier asks for (#1698). Defaults to
+  /// [TradeFormTierScope.unscoped] — what a tier-less server serves.
+  final TradeFormTierScope tierScope;
 
   @override
-  List<Object?> get props => const <Object?>[];
+  List<Object?> get props => <Object?>[tierScope];
 }
 
 /// `type: "employment"` — a MARKER for the work-history page
 /// (`PUT /workers/me/employment`). Same argument as [TradeFormPreferencesStep].
 class TradeFormEmploymentStep extends TradeFormStep {
-  const TradeFormEmploymentStep();
+  const TradeFormEmploymentStep({this.tierScope = TradeFormTierScope.unscoped});
+
+  final TradeFormTierScope tierScope;
 
   @override
-  List<Object?> get props => const <Object?>[];
+  List<Object?> get props => <Object?>[tierScope];
 }
 
 /// `type: "qualifications"` — a MARKER for the credentials page
@@ -209,12 +281,15 @@ class TradeFormEmploymentStep extends TradeFormStep {
 class TradeFormQualificationsStep extends TradeFormStep {
   const TradeFormQualificationsStep({
     this.suggestedCertificates = const <String>[],
+    this.tierScope = TradeFormTierScope.unscoped,
   });
 
   final List<String> suggestedCertificates;
 
+  final TradeFormTierScope tierScope;
+
   @override
-  List<Object?> get props => <Object?>[suggestedCertificates];
+  List<Object?> get props => <Object?>[suggestedCertificates, tierScope];
 }
 
 /// One zone of the form (`sections[]`) — a heading the sheet itself prints,
@@ -422,9 +497,13 @@ class TradeFormPreferences extends Equatable {
   /// Wire keys of the list and yes/no fields the worker CHANGED, set by
   /// [copyWith] (every page edit goes through it). [toJson] sends those fields
   /// only when touched — the same idea as [TradeFormQualifications]'s touched
-  /// flags. A fresh cubit opens this page BLANK (the endpoint has no read), so
-  /// sending an untouched `[]` or `false` would erase what the worker saved
-  /// earlier; the server leaves an absent key alone.
+  /// flags — so an untouched `[]` or `false` is never sent and the server
+  /// leaves the stored value alone.
+  ///
+  /// Since #1710 the page also PREFILLS from `GET /workers/me/work-preferences`
+  /// (see `TradeFormRepository.loadSavedPreferences`), so an untouched field
+  /// now holds the worker's real stored answer rather than a blank default.
+  /// That is what makes [toJson]'s `touched_only` signal honest.
   final Set<String> touched;
 
   TradeFormPreferences copyWith({
@@ -462,9 +541,23 @@ class TradeFormPreferences extends Equatable {
   /// Wire body for `PUT /workers/me/work-preferences` — a list or yes/no key
   /// only when [touched] (`[]` then means "none of these"; absent = leave the
   /// stored value alone); scalars only when chosen (absent = leave the stored
-  /// value alone). An untouched page therefore sends `{}`, which writes nothing.
+  /// value alone). An untouched page therefore sends `{touched_only: true}`,
+  /// which writes nothing.
+  ///
+  /// `touched_only: true` IS THE NEW-BUILD SIGNAL (#1504, sent since #1710).
+  /// Its ABSENCE tells the server the client cannot say which keys the worker
+  /// touched — true of every build that sent `languages`/`documents_ready`/
+  /// `preferred_cities` as `[]` on every save — so the server ignores an empty
+  /// list wherever a stored value exists, and the worker CANNOT clear one.
+  /// This body has always sent touched keys only, and since #1710 it also
+  /// prefills from the stored record, so the claim is now true in both
+  /// directions: with the signal, an emptied list finally clears.
+  ///
+  /// A LITERAL `true` — the server 400s on `false`, which would be a second
+  /// spelling of "old build".
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> body = <String, dynamic>{
+      'touched_only': true,
       if (touched.contains(_kPrefLanguagesKey))
         _kPrefLanguagesKey: languages.toList(),
       if (touched.contains(_kPrefDocumentsKey))
@@ -520,6 +613,7 @@ class TradeFormEmploymentEntry extends Equatable {
     this.workDone,
     this.workDoneVoiceNoteId,
     this.stillWorking = true,
+    this.storedRoles = const <Map<String, dynamic>>[],
   });
 
   final String employerName;
@@ -552,6 +646,28 @@ class TradeFormEmploymentEntry extends Equatable {
   /// description must clear this too — see [toJson].
   final String? workDoneVoiceNoteId;
 
+  /// THIS EMPLOYER'S STORED STINTS, VERBATIM, when the card cannot express
+  /// them (#1710). Empty for every entry the worker typed here, and for a
+  /// stored row the server's own projection rule maps to the single-role
+  /// shorthand — those round-trip through the flat fields above and this stays
+  /// empty, so nothing about today's wire shape changes.
+  ///
+  /// WHY IT EXISTS. One employer can hold SEVERAL roles over time, each with
+  /// its own dates (`GET /workers/me/employment` returns them as `roles[]`),
+  /// and a résumé import or the chat interview can create exactly that. This
+  /// page draws ONE role per employer, so prefilling a two-stint employer into
+  /// a flat card and saving it back would delete the second stint — the very
+  /// class of loss #1710 exists to stop. The stints therefore ride along
+  /// untouched and [toJson] re-emits them.
+  ///
+  /// The FIRST element is the stint the card is showing: [toJson] overwrites
+  /// its `role_label`/`work_done` with what the worker has in front of them,
+  /// so their edit lands on the role they were actually editing, and every
+  /// other stint is sent back exactly as it was read.
+  ///
+  /// Carried through [copyWith], so an ordinary field edit never drops it.
+  final List<Map<String, dynamic>> storedRoles;
+
   bool get isComplete =>
       employerName.trim().isNotEmpty && roleLabel.trim().isNotEmpty;
 
@@ -574,6 +690,7 @@ class TradeFormEmploymentEntry extends Equatable {
     Object? workDone = _sentinel,
     Object? workDoneVoiceNoteId = _sentinel,
     bool? stillWorking,
+    List<Map<String, dynamic>>? storedRoles,
   }) {
     return TradeFormEmploymentEntry(
       employerName: employerName ?? this.employerName,
@@ -591,6 +708,7 @@ class TradeFormEmploymentEntry extends Equatable {
           ? this.workDoneVoiceNoteId
           : workDoneVoiceNoteId as String?,
       stillWorking: stillWorking ?? this.stillWorking,
+      storedRoles: storedRoles ?? this.storedRoles,
     );
   }
 
@@ -608,12 +726,32 @@ class TradeFormEmploymentEntry extends Equatable {
     }
 
     final String? work = trimOrNull(workDone);
-    return <String, dynamic>{
+    final Map<String, dynamic> employer = <String, dynamic>{
       'employer_name': titleCaseName(employerName.trim()),
       'employer_city': trimOrNull(employerCity),
       'employer_state': trimOrNull(employerState),
       'start_ym': startYm,
       'end_ym': endYm,
+    };
+
+    // A MULTI-STINT EMPLOYER GOES BACK AS `roles[]` (#1710). The entry schema
+    // is `.strict()` and demands EXACTLY ONE of the shorthand or `roles[]`, so
+    // the two shapes can never be mixed. The card's own text replaces the
+    // stint it was showing; every other stint is re-sent verbatim.
+    if (storedRoles.isNotEmpty) {
+      final List<Map<String, dynamic>> roles = <Map<String, dynamic>>[
+        for (final Map<String, dynamic> r in storedRoles)
+          Map<String, dynamic>.of(r),
+      ];
+      roles[0]['role_label'] = titleCaseName(roleLabel.trim());
+      roles[0]['work_done'] = work;
+      roles[0]['work_done_voice_note_id'] =
+          work == null ? null : workDoneVoiceNoteId;
+      return <String, dynamic>{...employer, 'roles': roles};
+    }
+
+    return <String, dynamic>{
+      ...employer,
       'role_label': titleCaseName(roleLabel.trim()),
       'work_done': work,
       // GATED ON THE TEXT, deliberately (#1472). The server refuses an id with
@@ -637,11 +775,44 @@ class TradeFormEmploymentEntry extends Equatable {
         stillWorking,
         workDone,
         workDoneVoiceNoteId,
+        storedRoles,
       ];
 }
 
 /// Server render budget, mirrors `features/finishing`'s own cap.
 const int kTradeFormMaxEmployers = 4;
+
+/// What `GET /workers/me/employment` gave the `employment` marker page to
+/// prefill from (#1710) — the stored rows AND the count the save must echo.
+///
+/// THE TWO TRAVEL TOGETHER ON PURPOSE. `expected_existing_count` is only
+/// meaningful for the exact read [entries] came from: it is that read's
+/// `employments.length + unreadable_count`, and the server 409s when the rows
+/// it finds at write time disagree. Handing the page a list without its count —
+/// or a count from a different read — is the stale-prefill overwrite the count
+/// exists to prevent.
+class TradeFormStoredEmployment extends Equatable {
+  const TradeFormStoredEmployment({
+    this.entries = const <TradeFormEmploymentEntry>[],
+    this.expectedExistingCount = 0,
+  });
+
+  /// The stored history, already projected onto the page's own entry shape.
+  /// Rows the server could not decrypt are NOT here — they are counted in
+  /// [expectedExistingCount] and survive the replace untouched.
+  final List<TradeFormEmploymentEntry> entries;
+
+  /// What the following `PUT /workers/me/employment` must send as
+  /// `expected_existing_count`. Includes the rows withheld from [entries].
+  final int expectedExistingCount;
+
+  /// Whether this worker has any stored history at all — the signal the page
+  /// uses to tell "nothing saved yet" apart from "saved, and here it is".
+  bool get isEmpty => entries.isEmpty && expectedExistingCount == 0;
+
+  @override
+  List<Object?> get props => <Object?>[entries, expectedExistingCount];
+}
 
 /// ---- The `qualifications` marker's write (#1384/#1385, migration 0098) ----
 ///

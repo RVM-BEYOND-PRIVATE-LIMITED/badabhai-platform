@@ -3,12 +3,19 @@ import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models
 import 'package:flutter_test/flutter_test.dart';
 
 /// Review round 1: `PUT /workers/me/work-preferences` clears a key sent as `[]`
-/// and leaves an ABSENT key alone. Both preference pages open blank (there is
-/// no read route), so an untouched field must never be sent.
+/// and leaves an ABSENT key alone, so an untouched field must never be sent.
+///
+/// #1710 — the trade-form page now PREFILLS from `GET /workers/me/work-preferences`
+/// and therefore also sends `touched_only: true`, the server's new-build signal
+/// (`worker-preferences.dto.ts`). It is a REQUEST MODE, not an answer: it is never
+/// stored, and it is what finally lets an emptied list clear rather than be
+/// ignored as a tap-through. Every assertion below therefore expects it beside
+/// the answer keys — and the "sends nothing" case means "no ANSWER key".
 void main() {
   group('TradeFormPreferences.toJson — only what the worker touched', () {
-    test('an untouched page sends nothing', () {
-      expect(const TradeFormPreferences().toJson(), isEmpty);
+    test('an untouched page sends no answer key — only the request mode', () {
+      expect(const TradeFormPreferences().toJson(),
+          <String, dynamic>{'touched_only': true});
     });
 
     test('a touched list or yes/no is sent, even when emptied again', () {
@@ -18,6 +25,7 @@ void main() {
           .copyWith(willingToRelocate: true);
 
       expect(prefs.toJson(), <String, dynamic>{
+        'touched_only': true,
         'languages': <String>[],
         'willing_to_relocate': true,
       });
@@ -28,7 +36,11 @@ void main() {
           .copyWith(shift: 'day', salaryExpectedMax: 20000)
           .toJson();
 
-      expect(body, <String, dynamic>{'shift': 'day', 'salary_expected_max': 20000});
+      expect(body, <String, dynamic>{
+        'touched_only': true,
+        'shift': 'day',
+        'salary_expected_max': 20000,
+      });
     });
   });
 

@@ -75,6 +75,7 @@ class TradeFormPreferencesPage extends StatefulWidget {
     required this.enabled,
     required this.onSave,
     this.initialPreferences,
+    this.tierScope = TradeFormTierScope.unscoped,
     this.onPageChanged,
     this.knownFacts = const <WorkerFact>{},
   });
@@ -97,6 +98,15 @@ class TradeFormPreferencesPage extends StatefulWidget {
   /// this widget has been fully unmounted (see the doc on
   /// `TradeFormState.savedPreferences`).
   final TradeFormPreferences? initialPreferences;
+
+  /// Which of this page's fields the chosen tier ASKS FOR (#1698/#1710).
+  ///
+  /// ASK-ONLY. A hidden field is not prompted; its stored value is untouched
+  /// and goes back unchanged, because [TradeFormPreferences.toJson] sends a
+  /// key only when the worker touched it — and a page that never draws a
+  /// field can never touch it. Hiding is therefore free of data loss BY
+  /// CONSTRUCTION here, not by a rule someone has to remember.
+  final TradeFormTierScope tierScope;
 
   /// #1384 item 2 — reports `(currentPage, pageCount)` every time this
   /// widget's OWN internal page changes, including once right after this
@@ -140,10 +150,16 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       if (!_isKnown(page)) page,
   ];
 
+  /// Whether this internal page is NOT asked — either the chat already
+  /// recorded the fact ([TradeFormPreferencesPage.knownFacts]) or the chosen
+  /// tier does not ask for it ([TradeFormPreferencesPage.tierScope]). Both are
+  /// the same decision to this walk: do not put the question on screen.
   bool _isKnown(_PrefsPage page) => switch (page) {
         _PrefsPage.shift => widget.knownFacts.contains(WorkerFact.shift),
         _PrefsPage.cities =>
           widget.knownFacts.contains(WorkerFact.preferredCities),
+        _PrefsPage.documents =>
+          widget.tierScope.hides(kTierFieldDocumentsReady),
         _ => false,
       };
 

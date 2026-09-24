@@ -2223,6 +2223,12 @@ class WorkPreferencesDto extends Equatable {
     this.willingToTravel,
     this.salaryPeriod,
     this.availability,
+    this.documentsReady,
+    this.preferredCities,
+    this.shift,
+    this.willingToRelocate,
+    this.accommodationNeeded,
+    this.salaryExpectedMax,
     this.partial = const <String>[],
   });
 
@@ -2255,6 +2261,28 @@ class WorkPreferencesDto extends Equatable {
   /// precision, no timezone arithmetic — same rule as the server).
   final WorkAvailabilityDto? availability;
 
+  /// Stored document slugs, or null when no row (#1710). Parsed because the
+  /// `preferences` marker page PREFILLS from this read — it is the one field
+  /// an Easy tier hides, and a page that could not see it would re-ask it.
+  final List<String>? documentsReady;
+
+  /// Stored preferred-city values, or null when no row (#1710).
+  final List<String>? preferredCities;
+
+  /// Stored shift slug (`shift_preference` in storage), or null when no row.
+  final String? shift;
+
+  /// Stored relocation willingness (`relocation_willingness` in storage), or
+  /// null when no row. A real stored `false` is NOT null — the two are kept
+  /// apart for the same reason `null` and `[]` are.
+  final bool? willingToRelocate;
+
+  /// Stored accommodation need, or null when no row.
+  final bool? accommodationNeeded;
+
+  /// Stored expected monthly maximum in rupees, or null when no row.
+  final int? salaryExpectedMax;
+
   /// Wire keys whose stored value was withheld; a client must not re-send.
   final List<String> partial;
 
@@ -2277,6 +2305,12 @@ class WorkPreferencesDto extends Equatable {
       availability: availabilityRaw is Map<String, dynamic>
           ? WorkAvailabilityDto.fromJson(availabilityRaw)
           : null,
+      documentsReady: _slugList(values['documents_ready']),
+      preferredCities: _slugList(values['preferred_cities']),
+      shift: values['shift'] as String?,
+      willingToRelocate: values['willing_to_relocate'] as bool?,
+      accommodationNeeded: values['accommodation_needed'] as bool?,
+      salaryExpectedMax: (values['salary_expected_max'] as num?)?.toInt(),
       partial: (json['partial'] as List<dynamic>?)
               ?.whereType<String>()
               .toList() ??
@@ -2293,6 +2327,12 @@ class WorkPreferencesDto extends Equatable {
         willingToTravel,
         salaryPeriod,
         availability,
+        documentsReady,
+        preferredCities,
+        shift,
+        willingToRelocate,
+        accommodationNeeded,
+        salaryExpectedMax,
         partial,
       ];
 }
@@ -3408,6 +3448,199 @@ class MyQualificationsDto extends Equatable {
   @override
   List<Object?> get props =>
       <Object?>[certificates, educations, trainings, partial, droppedCount];
+}
+
+/// One stint as `GET /workers/me/employment` returns it (#1504, read by #1710).
+///
+/// A STINT, NOT AN EMPLOYMENT. One employer can hold several roles over time,
+/// each with its own dates, which is why the dates repeat here — the
+/// employment's own [EmploymentViewDto.startYm]/[EmploymentViewDto.endYm]
+/// span the whole tenure and these span one role inside it.
+class EmploymentRoleViewDto extends Equatable {
+  const EmploymentRoleViewDto({
+    required this.roleLabel,
+    this.startYm,
+    this.endYm,
+    this.workDone,
+    this.workDoneVoiceNoteId,
+    this.descriptionSource,
+  });
+
+  final String roleLabel;
+  final String? startYm;
+  final String? endYm;
+
+  /// PRIVACY: free text, encrypted at rest server-side — never logged here.
+  final String? workDone;
+
+  final String? workDoneVoiceNoteId;
+
+  /// NOT A PUT FIELD (`own_words` | `polished` | null) — read-only context.
+  /// Dropped by [EmploymentViewDto.toPutEntry]; the choice is changed through
+  /// `PUT me/employment/:id/description-source`.
+  final String? descriptionSource;
+
+  factory EmploymentRoleViewDto.fromJson(Map<String, dynamic> json) =>
+      EmploymentRoleViewDto(
+        roleLabel: json['role_label'] as String? ?? '',
+        startYm: json['start_ym'] as String?,
+        endYm: json['end_ym'] as String?,
+        workDone: json['work_done'] as String?,
+        workDoneVoiceNoteId: json['work_done_voice_note_id'] as String?,
+        descriptionSource: json['description_source'] as String?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        roleLabel,
+        startYm,
+        endYm,
+        workDone,
+        workDoneVoiceNoteId,
+        descriptionSource,
+      ];
+}
+
+/// One employment as `GET /workers/me/employment` returns it (#1504).
+///
+/// PRIVACY: [employerName] and every stint's `work_done` are free text,
+/// encrypted at rest server-side and never logged on this client.
+class EmploymentViewDto extends Equatable {
+  const EmploymentViewDto({
+    required this.employmentId,
+    required this.employerName,
+    this.employerCity,
+    this.employerState,
+    this.startYm,
+    this.endYm,
+    this.roles = const <EmploymentRoleViewDto>[],
+  });
+
+  /// NOT A PUT FIELD — it addresses the description-source route. Stripped by
+  /// [toPutEntry].
+  final String employmentId;
+
+  final String employerName;
+  final String? employerCity;
+  final String? employerState;
+  final String? startYm;
+  final String? endYm;
+  final List<EmploymentRoleViewDto> roles;
+
+  factory EmploymentViewDto.fromJson(Map<String, dynamic> json) =>
+      EmploymentViewDto(
+        employmentId: json['employment_id'] as String? ?? '',
+        employerName: json['employer_name'] as String? ?? '',
+        employerCity: json['employer_city'] as String?,
+        employerState: json['employer_state'] as String?,
+        startYm: json['start_ym'] as String?,
+        endYm: json['end_ym'] as String?,
+        roles: (json['roles'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(EmploymentRoleViewDto.fromJson)
+                .toList() ??
+            const <EmploymentRoleViewDto>[],
+      );
+
+  /// THE PROJECTION RULE FROM A GET ROW BACK TO A PUT ENTRY (#1504), the Dart
+  /// half of `projectEmploymentForPut` in `worker-employment.dto.ts` — which
+  /// states the rule as server code precisely so this client can implement it
+  /// and both halves can be tested against the same sentence.
+  ///
+  /// `EmploymentEntrySchema` is `.strict()` and demands EXACTLY ONE of the
+  /// single-role shorthand or `roles[]`, so a GET row CANNOT be echoed back
+  /// unchanged — a client has to choose, and choosing wrong loses data:
+  ///
+  ///   ONE stint whose dates EQUAL the employment's → the shorthand.
+  ///   anything else                                → `roles[]`.
+  ///
+  /// A single stint with DIFFERENT dates must go through `roles[]`, because
+  /// the shorthand gives its one role the employment's dates and would
+  /// silently widen the stint to the whole tenure.
+  ///
+  /// [employmentId] and every `description_source` are dropped — neither is a
+  /// PUT field, and a `.strict()` schema rejects the whole body for either.
+  Map<String, dynamic> toPutEntry() {
+    final Map<String, dynamic> base = <String, dynamic>{
+      'employer_name': employerName,
+      'employer_city': employerCity,
+      'employer_state': employerState,
+      'start_ym': startYm,
+      'end_ym': endYm,
+    };
+    final EmploymentRoleViewDto? only = roles.length == 1 ? roles.first : null;
+    if (only != null && only.startYm == startYm && only.endYm == endYm) {
+      return <String, dynamic>{
+        ...base,
+        'role_label': only.roleLabel,
+        'work_done': only.workDone,
+        'work_done_voice_note_id': only.workDoneVoiceNoteId,
+      };
+    }
+    return <String, dynamic>{
+      ...base,
+      'roles': roles
+          .map((EmploymentRoleViewDto r) => <String, dynamic>{
+                'role_label': r.roleLabel,
+                'start_ym': r.startYm,
+                'end_ym': r.endYm,
+                'work_done': r.workDone,
+                'work_done_voice_note_id': r.workDoneVoiceNoteId,
+              })
+          .toList(),
+    };
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        employmentId,
+        employerName,
+        employerCity,
+        employerState,
+        startYm,
+        endYm,
+        roles,
+      ];
+}
+
+/// `GET /workers/me/employment` (#1504) — the stored work history the
+/// `employment` marker page prefills from (#1710).
+///
+/// WHY THE PAGE MUST READ THIS FIRST. `PUT /workers/me/employment` REPLACES
+/// the whole list. A page that rendered blank and then saved one new job
+/// deleted every job the worker had already given — which is exactly what an
+/// Easy→Medium upgrade did, because the upgrade re-serves the employment page
+/// to add `work_done`.
+class MyEmploymentDto extends Equatable {
+  const MyEmploymentDto({
+    this.employments = const <EmploymentViewDto>[],
+    this.unreadableCount = 0,
+  });
+
+  final List<EmploymentViewDto> employments;
+
+  /// Stored rows whose employer name would not decrypt, withheld from
+  /// [employments]. They are NOT erased by a replace — the repository carries
+  /// them across — and they DO count toward [expectedExistingCount].
+  final int unreadableCount;
+
+  /// What `PUT /workers/me/employment` takes as `expected_existing_count`:
+  /// the rows this read actually saw PLUS the ones it was told about but could
+  /// not show. Sending only `employments.length` would 409 forever for a
+  /// worker with one undecryptable row.
+  int get expectedExistingCount => employments.length + unreadableCount;
+
+  factory MyEmploymentDto.fromJson(Map<String, dynamic> json) => MyEmploymentDto(
+        employments: (json['employments'] as List<dynamic>?)
+                ?.whereType<Map<String, dynamic>>()
+                .map(EmploymentViewDto.fromJson)
+                .toList() ??
+            const <EmploymentViewDto>[],
+        unreadableCount: (json['unreadable_count'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[employments, unreadableCount];
 }
 
 /// POST /profile/corrections (#1595 — the client half of #1593): correct the

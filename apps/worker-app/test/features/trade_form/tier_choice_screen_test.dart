@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/profiling_tier.dart';
@@ -48,6 +49,13 @@ void main() {
   setUp(() async {
     await locator.reset();
     repo = _MockTradeFormRepository();
+      // #1710 — every load() now READS each marker page's stored record before
+      // it draws. Nothing is stored in these tests, so the reads answer
+      // "nothing saved", which is the state they were written against.
+      when(() => repo.loadSavedPreferences()).thenAnswer((_) async => null);
+      when(() => repo.loadSavedEmployment())
+          .thenAnswer((_) async => const TradeFormStoredEmployment());
+      when(() => repo.loadSavedQualifications()).thenAnswer((_) async => null);
     locator.registerFactory<TradeFormRepository>(() => repo);
   });
 

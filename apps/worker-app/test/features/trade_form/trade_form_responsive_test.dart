@@ -118,6 +118,13 @@ void main() {
   setUp(() async {
     await locator.reset();
     repo = _MockRepo();
+      // #1710 — every load() now READS each marker page's stored record before
+      // it draws. Nothing is stored in these tests, so the reads answer
+      // "nothing saved", which is the state they were written against.
+      when(() => repo.loadSavedPreferences()).thenAnswer((_) async => null);
+      when(() => repo.loadSavedEmployment())
+          .thenAnswer((_) async => const TradeFormStoredEmployment());
+      when(() => repo.loadSavedQualifications()).thenAnswer((_) async => null);
     when(
       () => repo.loadPreferenceOptions(),
     ).thenAnswer((_) async => _prefOptions);
@@ -125,7 +132,7 @@ void main() {
       () => repo.loadQualificationOptions(),
     ).thenAnswer((_) async => _qualOptions);
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
-    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any(), expectedExistingCount: any(named: 'expectedExistingCount'))).thenAnswer((_) async {});
     when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
     locator.registerFactory<TradeFormCubit>(() => TradeFormCubit(repo));
   });

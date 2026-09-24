@@ -323,13 +323,121 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// THE THREE MARKER PAGES' STORED RECORDS, IN MEMORY (#1710).
+  ///
+  /// These used to be write-only no-ops, which was harmless while nothing read
+  /// them back. Since #1710 every marker page PREFILLS from its `GET` before it
+  /// draws, so a mock that answered nothing would either reach the network
+  /// (this class extends the real [ApiClient]) or show a blank page — and mock
+  /// mode would demonstrate exactly the bug the issue is about. They persist
+  /// for the life of the process; nothing reaches disk.
+  final List<Map<String, dynamic>> _employments = <Map<String, dynamic>>[];
+  final Map<String, dynamic> _workPreferences = <String, dynamic>{};
+
+  @override
+  Future<MyEmploymentDto> getMyEmployment({required String authToken}) async {
+    await _delay();
+    return MyEmploymentDto.fromJson(<String, dynamic>{
+      'employments': <Map<String, dynamic>>[
+        for (int i = 0; i < _employments.length; i++)
+          _storedEmploymentAsView(_employments[i], i),
+      ],
+      'unreadable_count': 0,
+    });
+  }
+
+  /// One saved PUT entry rendered back in the GET's own shape, so mock mode
+  /// round-trips through the SAME projection rule the real client implements
+  /// rather than a shortcut only mock mode would ever exercise.
+  static Map<String, dynamic> _storedEmploymentAsView(
+    Map<String, dynamic> put,
+    int index,
+  ) {
+    final Object? roles = put['roles'];
+    return <String, dynamic>{
+      'employment_id': 'mock-emp-$index',
+      'employer_name': put['employer_name'],
+      'employer_city': put['employer_city'],
+      'employer_state': put['employer_state'],
+      'start_ym': put['start_ym'],
+      'end_ym': put['end_ym'],
+      'roles': roles is List
+          ? roles
+          : <Map<String, dynamic>>[
+              <String, dynamic>{
+                'role_label': put['role_label'],
+                'start_ym': put['start_ym'],
+                'end_ym': put['end_ym'],
+                'work_done': put['work_done'],
+                'work_done_voice_note_id': put['work_done_voice_note_id'],
+                'description_source': null,
+              },
+            ],
+    };
+  }
+
   @override
   Future<void> updateEmployment({
     required List<Map<String, dynamic>> employments,
     required String authToken,
+    int? expectedExistingCount,
   }) async {
-    // No-op: nothing is persisted in mock mode.
     await _delay();
+    // THE 409 IS REAL HERE TOO. A mock that always accepted the write would
+    // let the stale-prefill path ship untested through every mock-mode run.
+    if (expectedExistingCount != null &&
+        expectedExistingCount != _employments.length) {
+      throw ApiException(
+        409,
+        'work history changed since it was loaded; reload and retry',
+      );
+    }
+    _employments
+      ..clear()
+      ..addAll(employments);
+  }
+
+  /// The qualifications page's stored rows (#1710). Mock mode never overrode
+  /// this endpoint at all before, which was survivable while nothing read it;
+  /// now that the page prefills, an un-mocked read would reach the network on
+  /// every form load and fail the whole form.
+  final Map<String, dynamic> _qualifications = <String, dynamic>{};
+
+  @override
+  Future<MyQualificationsDto> getMyQualifications({
+    required String authToken,
+  }) async {
+    await _delay();
+    return MyQualificationsDto.fromJson(<String, dynamic>{
+      'certificates': _qualifications['certificates'] ?? <dynamic>[],
+      'educations': _qualifications['educations'] ?? <dynamic>[],
+      'trainings': _qualifications['trainings'] ?? <dynamic>[],
+      'partial': <String>[],
+    });
+  }
+
+  @override
+  Future<void> updateQualifications({
+    required Map<String, dynamic> fields,
+    required String authToken,
+  }) async {
+    await _delay();
+    // TRI-STATE, mirrored: a key ABSENT from the body leaves that half's
+    // stored rows alone; a present list replaces them (`[]` clears).
+    fields.forEach((String name, dynamic value) {
+      _qualifications[name] = value;
+    });
+  }
+
+  @override
+  Future<WorkPreferencesDto> getWorkPreferences({
+    required String authToken,
+  }) async {
+    await _delay();
+    return WorkPreferencesDto.fromJson(<String, dynamic>{
+      'values': Map<String, dynamic>.of(_workPreferences),
+      'partial': <String>[],
+    });
   }
 
   @override
@@ -337,8 +445,14 @@ class MockApiClient extends ApiClient {
     required Map<String, dynamic> fields,
     required String authToken,
   }) async {
-    // No-op: nothing is persisted in mock mode.
     await _delay();
+    // MERGE, NEVER REPLACE — the endpoint's own rule: an absent key leaves the
+    // stored value alone. `touched_only` is a request mode, not an answer, so
+    // it is never stored.
+    fields.forEach((String name, dynamic value) {
+      if (name == 'touched_only') return;
+      _workPreferences[name] = value;
+    });
   }
 
   /// #1353/#1354 — PUT .../description-source. No-op: mock mode's

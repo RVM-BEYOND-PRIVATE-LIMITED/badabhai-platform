@@ -189,6 +189,46 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
   }
 
   @override
+  Future<TradeFormPreferences?> loadSavedPreferences() async {
+    final String token = _requireToken();
+    final WorkPreferencesDto dto;
+    try {
+      dto = await _api.getWorkPreferences(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+    // EVERY FIELD NULL MEANS NO STORED ROW, which the caller must be able to
+    // tell apart from a stored "none of these" (an empty list). Coalescing the
+    // two is the erase this whole read exists to prevent.
+    if (dto.languages == null &&
+        dto.documentsReady == null &&
+        dto.preferredCities == null &&
+        dto.jobType == null &&
+        dto.shift == null &&
+        dto.willingToRelocate == null &&
+        dto.accommodationNeeded == null &&
+        dto.salaryExpectedMax == null) {
+      return null;
+    }
+    // `touched` IS DELIBERATELY LEFT EMPTY. Prefilling is not touching: a page
+    // the worker passes through must send none of these keys, so the stored
+    // values stay exactly as they are. It also honours the read's `partial`
+    // contract — a key whose stored value was withheld must not be re-sent
+    // unless the worker edits it, and editing is the only thing that marks it
+    // touched.
+    return TradeFormPreferences(
+      languages: dto.languages?.toSet() ?? const <String>{},
+      documentsReady: dto.documentsReady?.toSet() ?? const <String>{},
+      preferredCities: dto.preferredCities ?? const <String>[],
+      jobType: dto.jobType,
+      shift: dto.shift,
+      willingToRelocate: dto.willingToRelocate ?? false,
+      accommodationNeeded: dto.accommodationNeeded ?? false,
+      salaryExpectedMax: dto.salaryExpectedMax,
+    );
+  }
+
+  @override
   Future<void> savePreferences(TradeFormPreferences prefs) async {
     final String token = _requireToken();
     try {
@@ -204,15 +244,78 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
   }
 
   @override
+  Future<TradeFormStoredEmployment> loadSavedEmployment() async {
+    final String token = _requireToken();
+    final MyEmploymentDto dto;
+    try {
+      dto = await _api.getMyEmployment(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+    return TradeFormStoredEmployment(
+      entries: dto.employments.map(_entryFromView).toList(growable: false),
+      expectedExistingCount: dto.expectedExistingCount,
+    );
+  }
+
+  /// One stored employment → the flat card the page draws (#1710).
+  ///
+  /// THE SERVER'S OWN PROJECTION RULE, in reverse. An employment the server
+  /// would project to the single-role shorthand (exactly one stint whose dates
+  /// equal the employment's) becomes a plain flat entry, and the save sends
+  /// the shorthand back — byte-for-byte the shape this page has always sent.
+  ///
+  /// ANYTHING ELSE KEEPS ITS `roles[]`. A second stint cannot be drawn by a
+  /// page with one role field, and flattening it would delete it on the next
+  /// save, so the stints ride along on
+  /// [TradeFormEmploymentEntry.storedRoles] and the card edits the first.
+  static TradeFormEmploymentEntry _entryFromView(EmploymentViewDto view) {
+    final EmploymentRoleViewDto? only =
+        view.roles.length == 1 ? view.roles.first : null;
+    final bool shorthand =
+        only != null && only.startYm == view.startYm && only.endYm == view.endYm;
+    final EmploymentRoleViewDto? primary =
+        view.roles.isEmpty ? null : view.roles.first;
+    return TradeFormEmploymentEntry(
+      employerName: view.employerName,
+      roleLabel: primary?.roleLabel ?? '',
+      employerCity: view.employerCity,
+      employerState: view.employerState,
+      startYm: view.startYm,
+      endYm: view.endYm,
+      workDone: primary?.workDone,
+      workDoneVoiceNoteId: primary?.workDoneVoiceNoteId,
+      // A stored row with no end date IS the worker's current job — the same
+      // reading `TradeFormEmploymentEntry.stillWorking` documents. Never
+      // "missing": the switch must come back ON so the résumé keeps printing
+      // "Present" rather than demanding an end date the worker never gave.
+      stillWorking: view.endYm == null,
+      storedRoles: shorthand
+          ? const <Map<String, dynamic>>[]
+          : view.roles
+              .map((EmploymentRoleViewDto r) => <String, dynamic>{
+                    'role_label': r.roleLabel,
+                    'start_ym': r.startYm,
+                    'end_ym': r.endYm,
+                    'work_done': r.workDone,
+                    'work_done_voice_note_id': r.workDoneVoiceNoteId,
+                  })
+              .toList(growable: false),
+    );
+  }
+
+  @override
   Future<void> saveEmployment(
-    List<TradeFormEmploymentEntry> employments,
-  ) async {
+    List<TradeFormEmploymentEntry> employments, {
+    int? expectedExistingCount,
+  }) async {
     final String token = _requireToken();
     try {
       await _api.updateEmployment(
         employments:
             employments.map((TradeFormEmploymentEntry e) => e.toJson()).toList(),
         authToken: token,
+        expectedExistingCount: expectedExistingCount,
       );
     } on ApiException catch (error) {
       if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
@@ -232,6 +335,42 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     } catch (error) {
       throw mapError(error);
     }
+  }
+
+  @override
+  Future<TradeFormQualifications?> loadSavedQualifications() async {
+    final String token = _requireToken();
+    final MyQualificationsDto dto;
+    try {
+      dto = await _api.getMyQualifications(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+    // `trainings` is read but not mapped: this page has no trainings section
+    // to draw one in, and the PUT leaves an absent key alone, so a stored
+    // training survives every save from here untouched.
+    if (dto.certificates.isEmpty && dto.educations.isEmpty) return null;
+    // BOTH `*Touched` FLAGS STAY FALSE — see the interface doc. A prefilled
+    // page the worker passes through sends neither key, and the stored rows
+    // are left exactly as they are.
+    return TradeFormQualifications(
+      certificates: dto.certificates
+          .map((CertificateEntryDto c) => TradeFormCertificateEntry(
+                name: c.name,
+                issuer: c.issuer,
+                year: c.year,
+              ))
+          .toList(growable: false),
+      educations: dto.educations
+          .map((EducationEntryDto e) => TradeFormEducationEntry(
+                credential: e.credential,
+                field: e.field,
+                council: e.council,
+                year: e.year,
+                institute: e.institute,
+              ))
+          .toList(growable: false),
+    );
   }
 
   @override
@@ -312,20 +451,30 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
           suggestion: _parseSuggestion(json['suggestion']),
         );
       case 'preferences':
-        return const TradeFormPreferencesStep();
+        return TradeFormPreferencesStep(tierScope: _tierScope(json));
       case 'employment':
-        return const TradeFormEmploymentStep();
+        return TradeFormEmploymentStep(tierScope: _tierScope(json));
       case 'qualifications':
         return TradeFormQualificationsStep(
           suggestedCertificates: (json['suggested_certificates'] as List<dynamic>?)
                   ?.whereType<String>()
                   .toList() ??
               const <String>[],
+          tierScope: _tierScope(json),
         );
       default:
         return null;
     }
   }
+
+  /// `tier_scope` on a marker screen (#1698/#1710), or [unscoped] when the
+  /// server did not send one — a tier-less server, tiers switched off, or a
+  /// body this build cannot read. Degrading to "ask everything" is the
+  /// fail-open direction on purpose: hiding a field the worker still owes an
+  /// answer to is the harm, not asking one twice.
+  TradeFormTierScope _tierScope(Map<String, dynamic> json) =>
+      TradeFormTierScope.fromJson(json['tier_scope']) ??
+      TradeFormTierScope.unscoped;
 
   VoiceQuestion _parseQuestion(Map<String, dynamic> q) {
     return VoiceQuestion(
