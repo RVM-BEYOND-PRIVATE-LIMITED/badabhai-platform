@@ -60,7 +60,7 @@ cp .env.example .env                                    # root — API + db + re
 cp apps/payer-web/.env.example apps/payer-web/.env.local # PAYER_API_URL=http://localhost:3001
 
 pnpm db:up          # postgres + redis via docker compose
-pnpm db:migrate     # apply all 74 migrations (0000 → 0073)
+pnpm db:migrate     # apply every migration in packages/db/migrations
 
 pnpm build          # REQUIRED FIRST — workspace packages must exist in dist/
                     # before apps/api typechecks or runs
@@ -71,6 +71,20 @@ pnpm --filter @badabhai/payer-web dev   # :3002
 
 `pnpm build` before running is not optional — `apps/api` imports 11 workspace packages from
 their built `dist/`.
+
+**The migrations assume Supabase's roles** — `anon`, `authenticated`, `service_role` and
+`postgres`. The compose Postgres creates them on an **empty** data dir from
+`infra/docker/postgres-init/00-supabase-roles.sql`. A volume initialised before `postgres` was
+added to that file (#1724) makes `db:migrate` die on `0085` with `role "postgres" does not exist`
+and **zero tables** (the whole run is one transaction; drizzle-kit exits 1 with no message).
+Create the role once, then migrate again:
+
+```bash
+docker compose exec postgres psql -U badabhai -d badabhai \
+  -c "CREATE ROLE postgres NOLOGIN NOINHERIT;"
+```
+
+Or start clean: `docker compose down -v`, then `pnpm db:up`.
 
 There is **no `payer-web` service in any compose file** (`docker-compose.yml`,
 `.override.yml`, `.e2e.yml`, `.staging.yml` define only `postgres`, `redis`, `adminer`, `api`,
@@ -93,17 +107,17 @@ So you cannot complete a payer login without capturing the email. Start Mailpit:
 pnpm mail:up
 ```
 
-> **`GAP-LOCAL-01` (P1).** Whether `EMAIL_PROVIDER=smtp` is actually wired to Mailpit in the
-> compose network — and therefore whether local payer login works at all out of the box — was
-> **not verified in this audit**. `PAYER_LOGIN_METHOD` ∈ `email_otp | whatsapp | supabase`
-> selects the channel (`packages/config/src/server.ts:429`); the ZeptoMail implementation is
+> **`GAP-LOCAL-01` — CLOSED 2026-09-25 (#1724).** Local payer email OTP works end to end,
+> verified by the worker-app owner: with the API on the host, `EMAIL_PROVIDER=smtp`,
+> `SMTP_HOST=127.0.0.1` and `SMTP_PORT=1025`, Mailpit (`pnpm mail:up`, UI on `:8025`) receives
+> the code. `PAYER_LOGIN_METHOD` ∈ `email_otp | whatsapp | supabase` selects the channel
+> (`packages/config/src/server.ts:429`); the ZeptoMail implementation is
 > `apps/api/src/payers/zeptomail-email-login-channel.ts`.
 >
-> **This is the first thing to check before any local E2E work**, because it gates every payer
-> and agency flow. If it does not work, the smallest correct fix is a payer test-login seam
-> mirroring `apps/api/src/auth/test-login.guard.ts` — neutral-404 unless enabled, HMAC token,
-> boot-refused in production. That seam also un-blocks the four hard-skipped e2e suites
-> (`GAP-XC-07`), so it is one fix for two problems.
+> **Automated E2E is still unserved.** A browser suite cannot read the code without driving
+> Mailpit's API, so the four hard-skipped e2e suites (`GAP-XC-07`) still want a payer test-login
+> seam mirroring `apps/api/src/auth/test-login.guard.ts` — neutral-404 unless enabled, HMAC
+> token, boot-refused in production.
 
 `tests/e2e/helpers/payer-session.ts` still assumes a payer `dev_otp` echo that no longer exists —
 `tests/e2e/README.md` records this as an unresolved gap.
@@ -178,7 +192,7 @@ Based on the audit, on a clean machine today you should expect:
 |---|---|
 | Install, migrate, build, boot API + portal | should work |
 | Reach `/login` | should work |
-| **Complete a payer login** | ⚠️ **blocked unless Mailpit↔SMTP is wired** — verify first |
+| **Complete a payer login** | works with Mailpit — `EMAIL_PROVIDER=smtp` → `127.0.0.1:1025` (verified 2026-09-25, #1724) |
 | Post a job, view postings | should work once logged in |
 | `/credits`, `/team` | **404** unless `PAYER_DEV_ORG_ROLE=owner` in dev |
 | Applicants / unlock / reveal | needs seeded workers **and** an applied application |
