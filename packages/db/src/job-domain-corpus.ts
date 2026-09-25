@@ -21,12 +21,14 @@
  * written to the database until `validateJobDomainCorpus` returns clean — the same
  * discipline `seed-skills.ts` applies via `validateSkillCorpus`.
  *
- * TWO KINDS OF LINE (Phase 2). A line is a DOMAIN unless tagged `"kind":"alias"`, in
- * which case it is a vernacular ALIAS OVERLAY attached to an existing domain. The
- * published files carry no tag and are therefore untouched. See
+ * THREE KINDS OF LINE. A line is a DOMAIN unless tagged `"kind":"alias"`, in which case it
+ * is a vernacular ALIAS OVERLAY attached to an existing domain (Phase 2), or
+ * `"kind":"retire"`, a reviewed decision that an existing alias must stop routing workers.
+ * The published files carry no tag and are therefore untouched. See
  * `JobDomainAliasOverlayRecord` for why the authored aliases live in their own file
- * rather than inside the scraped domain lines, and `validateAliasOverlay` for the checks
- * that make an unreachable or PII-bearing alias impossible to commit.
+ * rather than inside the scraped domain lines, `validateAliasOverlay` for the checks
+ * that make an unreachable or PII-bearing alias impossible to commit, and
+ * `JobDomainAliasRetirementRecord` for why a retirement is a record rather than a deletion.
  *
  * PRIVACY: published occupation titles, definitions and codes. No worker PII, by
  * construction — nothing worker-derived can reach this file.
@@ -123,11 +125,62 @@ export interface JobDomainAliasOverlayRecord {
   source?: JobDomainSource;
 }
 
-/** One line of a corpus file: a domain by default, an alias overlay when tagged. */
-export type JobDomainCorpusLine = JobDomainSeedRecord | JobDomainAliasOverlayRecord;
+/**
+ * A RETIREMENT line — a reviewed decision that one alias must stop routing workers.
+ *
+ * WHY A RECORD AND NOT A DELETION. The corpus can only ever ADD to the database: the domain
+ * seed inserts `ON CONFLICT DO NOTHING` and never deletes, and CLAUDE.md §10 forbids deleting
+ * production rows anyway. So removing a line from a file changes nothing live — the row
+ * stays, and stays searchable. Three signed rulings needed exactly that and were blocked on
+ * it: A1 (plain `fitter` off Maintenance Fitter), A4 (the junk `Machine` split off "Milker,
+ * Machine") and item 21 (`Press Operator`, the woollen-cloth press title). Two of those are
+ * PUBLISHED aliases, which no authored file could ever have removed.
+ *
+ * WHAT IT DOES. A retirement never removes a row. It takes the alias out of RETRIEVAL,
+ * everywhere at once: `resolveJobDomainCorpus` drops it from the index every offline
+ * consumer builds, and `db:normalize:aliases` clears `is_searchable` on the live row, which
+ * every retrieval layer (L0/L1 snapshot, L2 trigram, L3 vector) filters on. Because the
+ * normalizer recomputes the flag FROM THIS FILE on every run, the decision is durable — a
+ * later seed or `--renormalize` cannot quietly undo it — and reversible: delete the line and
+ * re-run the normalizer.
+ *
+ * KEYED ON THE PHRASE, NOT THE ROW ID. `(job_domain_id, lang, text)` is how a reviewer names
+ * an alias, and it resolves identically on production, staging and a CI database, where row
+ * ids exist only once seeded. The effect covers the alias's whole normalized group — every
+ * row on that domain whose text normalizes to the same key — because retrieval matches on
+ * `text_norm`, and retiring one spelling while its twin stays searchable would retire nothing.
+ *
+ * Every field beyond the key is EVIDENCE, as in `alias-exclusions.ts`: a year from now the
+ * reason and the ruling are the whole value of the line.
+ */
+export interface JobDomainAliasRetirementRecord {
+  kind: "retire";
+  /** The domain the alias hangs off. */
+  job_domain_id: string;
+  /** The alias EXACTLY as the corpus spells it — validated to name a real alias. */
+  text: string;
+  lang: JobDomainLang;
+  /** The signed ruling this implements, e.g. "RVM worksheet Part 5, A4". */
+  ruling: string;
+  /** Why this alias must stop routing workers, in one sentence. */
+  reason: string;
+  decided_by: string;
+  /** ISO date, YYYY-MM-DD. */
+  decided_on: string;
+}
+
+/** One line of a corpus file: a domain by default, an overlay or a retirement when tagged. */
+export type JobDomainCorpusLine =
+  | JobDomainSeedRecord
+  | JobDomainAliasOverlayRecord
+  | JobDomainAliasRetirementRecord;
 
 function isAliasOverlay(line: JobDomainCorpusLine): line is JobDomainAliasOverlayRecord {
   return (line as JobDomainAliasOverlayRecord).kind === "alias";
+}
+
+function isAliasRetirement(line: JobDomainCorpusLine): line is JobDomainAliasRetirementRecord {
+  return (line as JobDomainAliasRetirementRecord).kind === "retire";
 }
 
 /** A corpus record with its derived, immutable `job_domain_id` attached. */
@@ -207,10 +260,12 @@ export function jobDomainIdFor(record: Pick<JobDomainSeedRecord, "source" | "cod
 export function loadJobDomainCorpusLines(dir: string = JOB_DOMAIN_DATA_DIR): {
   domains: JobDomainSeedRecord[];
   overlays: JobDomainAliasOverlayRecord[];
+  retirements: JobDomainAliasRetirementRecord[];
 } {
   const domains: JobDomainSeedRecord[] = [];
   const overlays: JobDomainAliasOverlayRecord[] = [];
-  if (!existsSync(dir)) return { domains, overlays };
+  const retirements: JobDomainAliasRetirementRecord[] = [];
+  if (!existsSync(dir)) return { domains, overlays, retirements };
   const files = readdirSync(dir)
     .filter((f) => f.endsWith(".jsonl"))
     .sort();
@@ -231,14 +286,17 @@ export function loadJobDomainCorpusLines(dir: string = JOB_DOMAIN_DATA_DIR): {
       // line is how a corpus loses 3,000 aliases while every count still looks
       // plausible; the loader would rather refuse to run.
       const kind = (parsed as { kind?: unknown }).kind;
-      if (kind !== undefined && kind !== "alias" && kind !== "domain") {
-        throw new Error(`${file}:${i + 1} has unknown kind ${JSON.stringify(kind)} (expected "domain" or "alias")`);
+      if (kind !== undefined && kind !== "alias" && kind !== "retire" && kind !== "domain") {
+        throw new Error(
+          `${file}:${i + 1} has unknown kind ${JSON.stringify(kind)} (expected "domain", "alias" or "retire")`,
+        );
       }
       if (isAliasOverlay(parsed)) overlays.push(parsed);
+      else if (isAliasRetirement(parsed)) retirements.push(parsed);
       else domains.push(parsed as JobDomainSeedRecord);
     });
   }
-  return { domains, overlays };
+  return { domains, overlays, retirements };
 }
 
 /**
@@ -493,11 +551,191 @@ export function validateAliasOverlay(
 }
 
 /**
- * Load + validate + attach derived ids, with the alias overlay merged into each domain's
- * `aliases`. Throws with EVERY problem listed.
+ * A retired alias as retrieval sees it: the domain, the language and the NORMALIZED text —
+ * the same triple `is_searchable` dedupes on and every lexical layer matches against.
  */
-export function resolveJobDomainCorpus(dir: string = JOB_DOMAIN_DATA_DIR): ResolvedJobDomain[] {
-  const { domains: records, overlays } = loadJobDomainCorpusLines(dir);
+export interface RetiredAliasKey {
+  jobDomainId: string;
+  lang: JobDomainLang;
+  textNorm: string;
+}
+
+/** The retrieval key a retirement line names. Runs the REAL normalizer, never a lookalike. */
+export function retiredAliasKey(
+  r: Pick<JobDomainAliasRetirementRecord, "job_domain_id" | "lang" | "text">,
+): RetiredAliasKey {
+  return { jobDomainId: r.job_domain_id, lang: r.lang, textNorm: normalizeOccupationText(r.text) };
+}
+
+/** A retirement key as one comparable string — the only spelling of it anywhere. */
+export function retiredKeyString(jobDomainId: string, lang: string, textNorm: string): string {
+  return `${jobDomainId}|${lang}|${textNorm}`;
+}
+
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const RETIREMENT_EVIDENCE_FIELDS = ["ruling", "reason", "decided_by"] as const;
+
+/**
+ * Every problem with the RETIREMENT lines, as human-readable strings. EMPTY MEANS APPLICABLE.
+ *
+ * `domains` is the corpus AFTER the overlay merge and BEFORE any retirement, because a
+ * retirement may name a published alias or an authored one.
+ *
+ * The two checks that matter most are the ones that stop a retirement doing the wrong
+ * amount. One that names no alias would retire NOTHING — a typo that reads as a decision
+ * taken. One that removes a selectable domain's last alias would make that occupation
+ * unreachable by any phrase; that is sometimes the right answer, but it is a second
+ * decision, so it is refused until a replacement alias names what workers should say instead.
+ */
+export function validateAliasRetirements(
+  retirements: readonly JobDomainAliasRetirementRecord[],
+  domains: readonly ResolvedJobDomain[],
+): string[] {
+  const problems: string[] = [];
+  const byId = new Map(domains.map((d) => [d.jobDomainId, d]));
+  const seen = new Set<string>();
+  const retiredByDomain = new Map<string, Set<string>>();
+
+  for (const [i, r] of retirements.entries()) {
+    const where = `retire[${i}] ${JSON.stringify(r.text ?? "")} -> ${r.job_domain_id ?? "<no id>"}`;
+
+    if (!r.job_domain_id || !ID_RE.test(r.job_domain_id)) {
+      problems.push(`${where}: job_domain_id is missing or does not match ${ID_RE}`);
+      continue;
+    }
+    const domain = byId.get(r.job_domain_id);
+    if (!domain) {
+      problems.push(`${where}: job_domain_id is not in the domain corpus`);
+      continue;
+    }
+    if (!LANGS.includes(r.lang)) {
+      problems.push(`${where}: lang must be one of ${LANGS.join("|")}, got ${JSON.stringify(r.lang)}`);
+      continue;
+    }
+    for (const field of RETIREMENT_EVIDENCE_FIELDS) {
+      const value = r[field];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        problems.push(`${where}: ${field} is required — a retirement is a recorded decision, not a silent edit`);
+      }
+    }
+    if (typeof r.decided_on !== "string" || !ISO_DATE_RE.test(r.decided_on) || Number.isNaN(Date.parse(r.decided_on))) {
+      problems.push(`${where}: decided_on must be an ISO date (YYYY-MM-DD), got ${JSON.stringify(r.decided_on)}`);
+    }
+
+    const text = r.text ?? "";
+    const named = (domain.aliases ?? []).some((a) => a.text === text && a.lang === r.lang);
+    if (!named) {
+      problems.push(
+        `${where}: names no alias on that domain — the text and lang must match an existing alias exactly, ` +
+          `or this line would retire nothing while reading as a decision taken`,
+      );
+      continue;
+    }
+
+    const { textNorm } = retiredAliasKey(r);
+    const key = retiredKeyString(r.job_domain_id, r.lang, textNorm);
+    if (seen.has(key)) {
+      problems.push(`${where}: duplicate — this alias (or a spelling that normalizes alike) is already retired`);
+      continue;
+    }
+    seen.add(key);
+    const set = retiredByDomain.get(r.job_domain_id) ?? new Set<string>();
+    set.add(key);
+    retiredByDomain.set(r.job_domain_id, set);
+  }
+
+  for (const [jobDomainId, retired] of retiredByDomain) {
+    const domain = byId.get(jobDomainId);
+    if (!domain?.selectable) continue;
+    const kept = (domain.aliases ?? []).filter(
+      (a) => !retired.has(retiredKeyString(jobDomainId, a.lang, normalizeOccupationText(a.text))),
+    );
+    if (kept.length === 0) {
+      problems.push(
+        `${jobDomainId}: the retirements remove EVERY alias it has, so no phrase could ever reach this ` +
+          `occupation. Add the alias workers should use instead to rvm-aliases.jsonl in the same change.`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * The corpus with every retired alias removed — what retrieval can actually see.
+ *
+ * Returns NEW domain objects for the domains it touches and the originals for the rest, so a
+ * caller holding the unretired corpus is never mutated under it.
+ */
+export function applyAliasRetirements(
+  domains: readonly ResolvedJobDomain[],
+  retirements: readonly JobDomainAliasRetirementRecord[],
+): ResolvedJobDomain[] {
+  if (retirements.length === 0) return [...domains];
+  const retiredByDomain = new Map<string, Set<string>>();
+  for (const r of retirements) {
+    const { textNorm } = retiredAliasKey(r);
+    const set = retiredByDomain.get(r.job_domain_id) ?? new Set<string>();
+    set.add(retiredKeyString(r.job_domain_id, r.lang, textNorm));
+    retiredByDomain.set(r.job_domain_id, set);
+  }
+  return domains.map((d) => {
+    const retired = retiredByDomain.get(d.jobDomainId);
+    if (!retired) return d;
+    return {
+      ...d,
+      aliases: (d.aliases ?? []).filter(
+        (a) => !retired.has(retiredKeyString(d.jobDomainId, a.lang, normalizeOccupationText(a.text))),
+      ),
+    };
+  });
+}
+
+export interface ResolveJobDomainCorpusOptions {
+  /**
+   * Keep retired aliases in each domain's `aliases`. ONLY for the two consumers that reason
+   * about ROWS rather than retrieval: the seed, which writes every row so a fresh database
+   * ends up in the same state as production (the row exists, the normalizer marks it
+   * unsearchable), and the id-by-id audit, which would otherwise report every retired row
+   * as an unexplained extra. Everything that builds an index or measures routing wants the
+   * default.
+   */
+  includeRetiredAliases?: boolean;
+}
+
+/**
+ * Load + validate + attach derived ids, with the alias overlay merged into each domain's
+ * `aliases` and — by default — every retired alias removed. Throws with EVERY problem listed.
+ *
+ * THE DEFAULT IS THE RETRIEVAL VIEW, deliberately. The consumers that build an occupation
+ * index (the eval, the reachability pins, the chat miner, the chip-label tests) must measure
+ * the phrases a worker can actually reach, and a forgotten option would otherwise let them
+ * report a route production no longer takes. A row-level consumer that forgets the option
+ * fails loudly instead (the audit reports extras), which is the safe direction.
+ */
+export function resolveJobDomainCorpus(
+  dir: string = JOB_DOMAIN_DATA_DIR,
+  options: ResolveJobDomainCorpusOptions = {},
+): ResolvedJobDomain[] {
+  const { domains, retirements } = resolveMergedCorpus(dir);
+  return options.includeRetiredAliases === true ? domains : applyAliasRetirements(domains, retirements);
+}
+
+/**
+ * The retrieval keys of every retirement on file, after validating the WHOLE corpus — so the
+ * normalizer and the verifiers refuse to act on a retirement list the seed would reject.
+ */
+export function loadRetiredAliasKeys(dir: string = JOB_DOMAIN_DATA_DIR): RetiredAliasKey[] {
+  return resolveMergedCorpus(dir).retirements.map(retiredAliasKey);
+}
+
+/** Domains with ids, parents and the overlay merged; retirements validated but NOT applied. */
+function resolveMergedCorpus(dir: string): {
+  domains: ResolvedJobDomain[];
+  retirements: JobDomainAliasRetirementRecord[];
+} {
+  const { domains: records, overlays, retirements } = loadJobDomainCorpusLines(dir);
   const problems = validateJobDomainCorpus(records);
   if (problems.length > 0) {
     throw new Error(`job-domain corpus invalid:\n  - ${problems.join("\n  - ")}`);
@@ -534,7 +772,15 @@ export function resolveJobDomainCorpus(dir: string = JOB_DOMAIN_DATA_DIR): Resol
     domain.aliases = [...(domain.aliases ?? []), { text: o.text, lang: o.lang, source: o.source ?? "rvm" }];
   }
 
-  return resolved;
+  // ── Retirements ───────────────────────────────────────────────────────────
+  // Validated against the MERGED aliases, because a retirement may name a published alias
+  // or an authored one. Applied by the caller, never here — see `resolveJobDomainCorpus`.
+  const retirementProblems = validateAliasRetirements(retirements, resolved);
+  if (retirementProblems.length > 0) {
+    throw new Error(`job-domain alias retirements invalid:\n  - ${retirementProblems.join("\n  - ")}`);
+  }
+
+  return { domains: resolved, retirements };
 }
 
 /** Counts for the seed's dry-run summary. Ids + integers only (never row contents). */

@@ -29,6 +29,8 @@ import {
   type AliasTableSpec,
   type VerifyReport,
 } from "./alias-lifecycle";
+import { retiredAliasIds } from "./job-domain-alias-retirement";
+import { loadRetiredAliasKeys } from "./job-domain-corpus";
 import { argValue } from "./match-v1-cli";
 
 config({ path: "../../.env" });
@@ -41,13 +43,17 @@ async function verifyTable(
 ): Promise<VerifyReport> {
   const aliasRows = (await db.execute(aliasFetchSql(spec))) as unknown as Record<string, unknown>[];
   const parentRows = (await db.execute(parentFetchSql(spec))) as unknown as Record<string, unknown>[];
+  const aliases = aliasRows.map(toLifecycleAlias);
   return verifyElection({
     spec,
-    aliases: aliasRows.map(toLifecycleAlias),
+    aliases,
     parents: parentRows.map(toLifecycleParent),
-    // No demotion register exists yet. Passing none is correct and is why a demoted row
-    // would currently REPORT as a mismatch rather than being silently accepted.
-    demotions: new Set<string>(),
+    // REASON 4. `job_domain_alias` has a demotion register — the committed retirements in
+    // `rvm-alias-retirements.jsonl`, matched exactly as the normalizer matches them.
+    // `skill_alias` has none yet; passing none there is correct and is why a demoted skill
+    // row would REPORT as a mismatch rather than being silently accepted.
+    demotions:
+      spec.table === "job_domain_alias" ? retiredAliasIds(aliases, loadRetiredAliasKeys()) : new Set<string>(),
   });
 }
 

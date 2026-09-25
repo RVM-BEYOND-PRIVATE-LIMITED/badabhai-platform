@@ -130,9 +130,33 @@ correctly. Routing it to turning would ask a milling operator about chucks and t
 The rule: **bind a code when every worker under it is unambiguously your trade.** Otherwise leave it
 to the generic family pack and let its disambiguator do the work.
 
-### The two guards that now catch this
+### When a phrase routes the wrong way: retire it, never delete it
+
+Sometimes the fix is not a binding but an alias that must stop routing workers: a published title
+split into junk (`Machine`, off "Milker, Machine", sends "machine operator" to dairy), or a phrase a
+ruling moved to another trade. Deleting the line changes nothing live, because the domain seed never
+deletes and a published alias has no line of ours to delete. Instead:
+
+1. **Get the ruling.** Retiring a phrase changes which form a worker gets. That is an owner decision,
+   recorded in the RVM taxonomy worksheet, not an engineering tidy-up.
+2. **Add one line to `packages/db/data/job-domains/rvm-alias-retirements.jsonl`** naming the domain,
+   the alias exactly as the corpus spells it, its `lang`, the `ruling`, a `reason`, `decided_by` and
+   `decided_on`. The file header shows the format.
+3. **If it was the occupation's only alias**, add the phrase workers should use instead to
+   `rvm-aliases.jsonl` in the same change. The validator refuses a retirement that would leave an
+   occupation unreachable.
+4. **Update the reachability pins.** The retired phrase now routes elsewhere, or nowhere, and
+   `question-pack-reachability.test.ts` should say which.
+5. **Ship it via runbook P3-0.** `db:normalize:aliases --apply` is the step that takes the phrase out
+   of retrieval in production, and `db:verify:domains` fails while it is still searchable.
+
+Nothing is deleted: the row keeps its id and its embedding, and deleting the line and re-running the
+normalizer brings it back.
+
+### The guards that now catch this
 
 - `packages/db/src/question-pack-reachability.test.ts` — pins which phrases reach which family.
+- `db:verify:domains` — fails while a retired alias is still searchable in the live database.
 - `packages/db/src/question-pack-coverage.test.ts` — asserts the specificity-50 count equals the
   number of job-domain bindings, so a binding pointing at a job domain that is not in the catalogue
   (which resolves nothing and silently falls back to the unit tier) fails the build.

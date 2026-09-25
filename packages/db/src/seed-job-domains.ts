@@ -56,7 +56,12 @@ async function main(): Promise<void> {
   // Never seed an invalid corpus. Throws with EVERY problem listed, not just the first —
   // a truncated scrape produces orphans in families and fixing them one run at a time is
   // miserable.
-  const corpus = resolveJobDomainCorpus();
+  //
+  // RETIRED ALIASES ARE SEEDED TOO. A retirement is a searchability decision, applied by
+  // `db:normalize:aliases`, never a row decision: production keeps its retired rows (nothing
+  // is deleted), so a fresh database must hold them as well, or staging and CI would run on a
+  // catalogue production does not have.
+  const corpus = resolveJobDomainCorpus(undefined, { includeRetiredAliases: true });
   const summary = summariseCorpus(corpus);
   printCounts(SCRIPT, { ...summary });
 

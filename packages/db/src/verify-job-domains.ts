@@ -19,7 +19,8 @@ import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { deterministicJobDomainAliasId } from "./job-domain-alias-id";
-import { loadJobDomainCorpusLines } from "./job-domain-corpus";
+import { retiredAliasPredicate } from "./job-domain-alias-retirement";
+import { loadJobDomainCorpusLines, loadRetiredAliasKeys } from "./job-domain-corpus";
 
 config({ path: "../../.env" });
 
@@ -352,6 +353,24 @@ async function main(): Promise<void> {
       `),
     });
 
+    // A RETIREMENT that has not reached the database. The file says a phrase must stop routing
+    // workers; if its row is still searchable, it still routes them — the ruling is on paper
+    // only. Unlike "aliases with no text_norm" this is not a state the deploy passes through:
+    // the normalizer applies retirements in the same pass that sets `is_searchable` at all, so
+    // a searchable retired row means the normalizer has not run since the line landed.
+    const retiredKeys = loadRetiredAliasKeys();
+    checks.push({
+      name: "retired aliases still searchable",
+      level: "fail",
+      detail:
+        "a signed retirement has not reached retrieval — the phrase still routes workers. " +
+        "Run `pnpm db:normalize:aliases --apply`",
+      count: await one(dsql`
+        SELECT count(*) AS n FROM "job_domain_alias" a
+         WHERE a."is_searchable" AND ${retiredAliasPredicate(retiredKeys)}
+      `),
+    });
+
     // A selectable domain with aliases but NO searchable one is unreachable by retrieval —
     // the same class of silent coverage hole as "selectable with zero aliases" above, but
     // introduced by the normalization pass rather than by the corpus.
@@ -453,6 +472,7 @@ async function main(): Promise<void> {
     console.log(
       `  curated (rvm) aliases      = ${curated.length - missingCurated.length} / ${curated.length}`,
     );
+    console.log(`  retired aliases on file    = ${retiredKeys.length}`);
     console.log(`  crosswalked to a role      = ${crosswalked}`);
     console.log(`  searchable aliases         = ${searchableAliases}`);
     console.log(`  searchable domains         = ${searchableDomains}`);
