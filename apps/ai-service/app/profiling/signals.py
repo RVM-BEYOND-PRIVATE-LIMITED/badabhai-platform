@@ -474,7 +474,9 @@ _CERTIFICATION_LABELS: tuple[str, ...] = tuple(_EDUCATION["certificationLabels"]
 # the label-CERTIFICATION path, to decide whether a label the gateway masked as an
 # EMPLOYER is in fact vocabulary; and, since issue #1728 (owner ruling 2026-09-25),
 # `pseudonymize()`'s no-cue LEADING-NAME guess, which no longer masks a 4+ letter leading
-# word this set recognises ("Welding, grinding"). See `is_curated_vocabulary_label`.
+# word this set recognises ("Welding, grinding") — with `pseudonymize.is_certified_clean`
+# then requiring the WHOLE label to be vocabulary before a clean-or-withhold gate passes it
+# raw. See `is_curated_vocabulary_label`.
 #
 # THE DISCRIMINATOR, and why it holds. A label qualifies only when EVERY one of its
 # tokens is curated vocabulary. A real company name always carries at least one token
@@ -569,7 +571,10 @@ def is_curated_vocabulary_label(label: str) -> bool:
     - ``pseudonymize.pseudonymize``'s no-cue leading-name guess — to NOT mask a 4+ letter
       leading word ("Welding, grinding") as a person (issue #1728, owner ruling 2026-09-25).
       So this set now also decides which leading words the gateway does not guess as
-      names; the cue-based name rule ("mera naam X") never consults it.
+      names; the cue-based name rule ("mera naam X") never consults it. Its gate-side
+      counterpart, ``pseudonymize.is_certified_clean``, asks this function about the WHOLE
+      label before a clean-or-withhold consumer may pass such a label raw — so "Welding,
+      Anil Kumar" is still withheld there (it can only ever narrow what is released).
 
     This function grants nothing on its own.
     """

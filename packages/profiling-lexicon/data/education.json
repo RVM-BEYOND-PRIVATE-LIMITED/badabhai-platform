@@ -9,7 +9,17 @@
     "",
     "_ID_LABELS and _ID_ACRONYMS are deliberately NOT here: _ID_LABELS is DERIVED from the",
     "machines/controllers/welding/skills tables, so extracting it would mint a second source",
-    "of truth for the same facts."
+    "of truth for the same facts.",
+    "",
+    "PRIVACY: these values feed VOCABULARY_TOKENS too (see trades.json), which has TWO",
+    "consumers, both via pseudonymize._is_known_trade_vocabulary: (1)",
+    "certified_clean_skill_labels' EMPLOYER rescue; (2) pseudonymize()'s no-cue LEADING-NAME",
+    "guess — a 4+ letter leading word in the set is NOT masked as a person (#1728), and the",
+    "clean-or-withhold gates (pseudonymize.is_certified_clean) then pass such a label raw only",
+    "when the WHOLE label is vocabulary. So adding a value that is also a surname or first",
+    "name makes the gateway stop masking it in '<Word>, ...' position. The set is pinned by",
+    "checksum in tests/test_lexicon_parity.py; a failing pin is a privacy decision, not a",
+    "re-baseline."
   ],
   "educationLabels": ["ITI", "Diploma", "Degree"],
   "certificationLabels": ["RVM CAD", "NSDC", "NCVT", "SCVT", "NSQF", "Apprenticeship"],

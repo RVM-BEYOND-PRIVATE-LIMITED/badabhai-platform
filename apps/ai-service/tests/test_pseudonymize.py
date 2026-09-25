@@ -948,8 +948,10 @@ def test_the_name_CUE_rule_is_untouched_by_the_city_carve_out():
 #     pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
 #     pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
 #
-# The payer's job-posting chat then stored the masked text and told the payer to retype a
-# harmless skills answer; on the worker side the model saw [PERSON_1] instead of the trade.
+# The payer's job-posting chat then SILENTLY stored a bracketless "PERSON_1" remnant in place of
+# the trade on the draft — no retype prompt fired, because the phrase cleaner strips the brackets
+# and the remnant no longer reads as a placeholder; on the worker side the model saw [PERSON_1]
+# instead of the trade.
 #
 # The carve-out is the ONE curated vocabulary (`signals.VOCABULARY_TOKENS`, already pinned by
 # checksum in test_lexicon_parity.py) at 4+ letters. Every test below that PERMITS is paired
@@ -1014,6 +1016,31 @@ def test_the_vocabulary_carve_out_4_letter_floor_keeps_a_3_letter_token_masked(w
     assert word.lower() in signals.VOCABULARY_TOKENS  # precondition: the floor is what decides
     result = pseudonymize(f"{word}, welder")
     assert result.text == "[PERSON_1], welder"
+
+
+@pytest.mark.parametrize(
+    "text, rest",
+    [
+        ("Cnc, vmc", "vmc"),
+        ("Iti, fitter", "fitter"),
+        ("Mig, tig welding", "tig welding"),
+        ("Vmc, hmc operator", "hmc operator"),
+        ("Cmm, vernier", "vernier"),
+    ],
+)
+def test_KNOWN_RESIDUAL_a_title_cased_3_letter_trade_acronym_is_still_masked(text, rest):
+    # PINNED ON PURPOSE — AN OWNER DECISION, NOT A BUG TO "FIX" SILENTLY. Phone keyboards
+    # title-case the first letter of a message, so a CNC operator or an ITI holder naturally
+    # types "Cnc, vmc" / "Iti, fitter", and `[A-Z][a-z]+` matches it. These acronyms ARE curated
+    # vocabulary, but they are 3 letters, and the ruled 4-letter floor (which keeps "Max, welder"
+    # masked) keeps them masked too: #1728 is NOT fixed for them. Releasing them needs its own
+    # ruling (e.g. a narrow acronym list kept apart from name-like tokens such as max / mag /
+    # arc / gas / cam / oxy). If this test goes red, that ruling must exist first.
+    from app.profiling import signals
+
+    leading = text.split(",", 1)[0]
+    assert len(leading) == 3 and leading.lower() in signals.VOCABULARY_TOKENS  # precondition
+    assert pseudonymize(text).text == f"[PERSON_1], {rest}"
 
 
 @pytest.mark.parametrize(

@@ -47,7 +47,7 @@ from ..profiling.interview_prompts import (
     work_history_polish_prompt,
 )
 from ..profiling.parse_masking import Masker, default_masker, mask_transcript_lines
-from ..pseudonymize import pseudonymize
+from ..pseudonymize import is_certified_clean, pseudonymize
 from ._shared import logger, resolve_prompt, router, workflow_scope
 
 api_router = APIRouter()
@@ -570,19 +570,20 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         # so. That helper asks only whether the gateway would BLOCK a value, and the gateway does
         # not block a phone — it MASKS it and reports `blocked=False`, so a certified-scalar check
         # would have handed the number straight to the model. Here the label is accepted only if
-        # the gateway found nothing to mask at all (`replaced_entities == 0`), the same rule
-        # `certified_clean_skill_labels` applies at the resume boundary.
+        # `is_certified_clean` holds — the gateway found nothing to mask at all AND, when a
+        # leading trade word survived only by the #1728 vocabulary carve-out, the WHOLE label is
+        # vocabulary. That second half is not decoration: without it "Operator, Ramesh sir ke
+        # under" (the exact threat above) reached the model verbatim once the gateway stopped
+        # minting an incidental [PERSON_1] for "Operator". It is the SAME predicate
+        # `certified_clean_skill_labels` applies at the resume boundary, so the two gates cannot
+        # drift apart.
         #
         # AND IT FALLS BACK TO A LITERAL RATHER THAN TO THE MASKED TEXT. This value is prompt
         # CONTEXT, not printed output: "[PERSON_1] ke under" tells the model nothing "worker" does
         # not, so there is no reason to spend a mask token on it. The `or "worker"` fallback
         # already stood here for the empty case and now covers this one too.
-        role_gate = pseudonymize(body.role_label) if body.role_label else None
-        role = (
-            body.role_label
-            if role_gate is not None and not role_gate.blocked and role_gate.replaced_entities == 0
-            else "worker"
-        )
+        role_label = body.role_label
+        role = role_label if role_label and is_certified_clean(role_label) else "worker"
         messages = [
             {"role": "system", "content": system_prompt},
             {

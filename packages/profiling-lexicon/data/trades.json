@@ -12,10 +12,16 @@
     "roleCues/welding/machiningContext/weldingRoleBlockers/plumbing/carpentry/design/",
     "interiorDesign IS A REGEX SOURCE.",
     "",
-    "PRIVACY: these tables derive VOCABULARY_TOKENS, whose only consumer is",
-    "pseudonymize.certified_clean_skill_labels — it rescues a label the gateway masked as an",
-    "EMPLOYER. Changing a token here changes what the gateway un-masks. The extraction was",
-    "proven by asserting the derived frozenset is byte-identical, and a test keeps it so."
+    "PRIVACY: these tables derive VOCABULARY_TOKENS, which has TWO consumers, both via",
+    "pseudonymize._is_known_trade_vocabulary: (1) certified_clean_skill_labels' EMPLOYER",
+    "rescue — it keeps a label the gateway masked as an EMPLOYER when the whole label is",
+    "vocabulary; (2) pseudonymize()'s no-cue LEADING-NAME guess — a 4+ letter leading word in",
+    "the set is NOT masked as a person (#1728), and the clean-or-withhold gates",
+    "(pseudonymize.is_certified_clean) then pass such a label raw only when the WHOLE label is",
+    "vocabulary. So adding a token that is also a surname or first name (e.g. 'mistry',",
+    "'lohar') makes the gateway stop masking it in '<Word>, ...' position. Changing a token here",
+    "changes what the gateway un-masks. The extraction was proven by asserting the derived",
+    "frozenset is byte-identical, and a checksum test keeps it so."
   ],
   "machines": [
     {
