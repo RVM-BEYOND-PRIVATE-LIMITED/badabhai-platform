@@ -1476,3 +1476,54 @@ describe("ResumeRenderProcessor — a fresher's refused rewrite (#1485)", () => 
     expect(polish.polishAttribute).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * #1714 — THE HISTORY CARD, recorded in the same write as the PDF it describes.
+ *
+ * The page count is read off the bytes that are uploaded, and the facts are the Verdict Line's
+ * from the input the template drew. Neither may cost the worker the PDF: a file the counter cannot
+ * read records no count and renders exactly as before.
+ */
+describe("ResumeRenderProcessor — the history card's facts (#1714)", () => {
+  // REAL WeasyPrint output — the producer the API image runs — so the count is proved on the
+  // object-stream layout the render actually emits, not on a hand-built file.
+  const fixture = (name: string) =>
+    readFileSync(join(__dirname, "../common/pdf/__fixtures__/page-count", name));
+  const recorded = (resumes: { markRendered: { mock: { calls: unknown[][] } } }) =>
+    (resumes.markRendered.mock.calls[0]![2] as { glance: Record<string, unknown> }).glance;
+
+  it("records the page count of the PDF it uploads", async () => {
+    const pdf = fixture("two-pages.pdf");
+    const { proc, storage, resumes } = setup({ renderResult: pdf });
+    await proc.process(makeJob());
+    expect(storage.uploadPdf).toHaveBeenCalledWith(expect.any(String), pdf);
+    expect(recorded(resumes).pageCount).toBe(2);
+  });
+
+  it("an uncountable PDF records NO count and still renders — never a guess, never a failure", async () => {
+    const { proc, resumes } = setup(); // `PDF` is bytes no counter can read
+    expect(await proc.process(makeJob())).toEqual({ rendered: true });
+    expect(resumes.markRendered).toHaveBeenCalledOnce();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    expect(recorded(resumes).pageCount).toBeNull();
+  });
+
+  it("records the Verdict Line's facts from the SAME input the template drew", async () => {
+    const { proc, renderer, resumes } = setup({ renderResult: fixture("two-pages.pdf") });
+    await proc.process(makeJob());
+    const drawn = renderer.renderPdf.mock.calls[0]![0];
+    const facts = drawn.verdictFacts!;
+    // Not vacuous: the default snapshot is a five-year VMC operator with machines on file.
+    expect(facts.role).not.toBeNull();
+    expect(facts.years).toBe(5);
+    expect(facts.tools.length).toBeGreaterThan(0);
+    expect(recorded(resumes)).toEqual({
+      role: facts.role,
+      experienceYears: facts.years,
+      machines: facts.tools,
+      axes: facts.axes,
+      city: facts.city,
+      pageCount: 2,
+    });
+  });
+});

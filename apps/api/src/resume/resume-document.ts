@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 import { QUAL_SECTION_TITLES } from "./resume-tier-headings";
 import type {
@@ -105,6 +106,42 @@ export interface ResumeDocumentSection {
   readonly factRows: readonly ResumeFactRow[];
 }
 
+/**
+ * THE RÉSUMÉ AT A GLANCE — what its card in the worker's history prints (#1714):
+ *
+ *   VMC Operator
+ *   Exp: 2 yrs • 3 & 4-axis • Manesar
+ *   1 page
+ *
+ * RECORDED WITH THE RENDER, NOT DERIVED ON READ. A history entry is a record of what was
+ * generated THEN — ADR-0043 skips the cosmetic re-render of any entry that is no longer current
+ * precisely so it keeps what it was generated with — so its card cannot be filled from the
+ * worker's profile TODAY, which may name a different trade and a different city. The document
+ * is already the one record written in the same UPDATE as the PDF it describes, so the card's
+ * facts ride it rather than a second write that could fall out of step with the paper.
+ *
+ * THE FACTS ARE THE VERDICT LINE'S (`ResumeRenderInput.verdictFacts`), taken as the line printed
+ * them, so the card and the top of the sheet cannot disagree. `pageCount` is the one fact the
+ * input does not hold: the render worker counts it off the PDF's own bytes.
+ *
+ * ABSENT from every document rendered before #1714; {@link readResumeGlance} reads that as
+ * "nothing recorded", never as an empty résumé.
+ */
+export interface ResumeGlance {
+  /** The role title the Verdict Line printed ("VMC Operator"), or null. */
+  readonly role: string | null;
+  /** The tenure figure the Verdict Line printed, in years; null when it printed none. */
+  readonly experienceYears: number | null;
+  /** The Verdict Line's tools segment — controllers or machines, else skills — at most three. */
+  readonly machines: readonly string[];
+  /** Machine axes as printed ("3-axis"). Empty for every trade without an axis ask. */
+  readonly axes: readonly string[];
+  /** The city the Verdict Line's second line printed. */
+  readonly city: string | null;
+  /** Pages in the PDF drawn from this document, or null when they could not be counted. */
+  readonly pageCount: number | null;
+}
+
 interface ResumeDocumentBase {
   readonly header: ResumeDocumentHeader;
   /**
@@ -115,6 +152,8 @@ interface ResumeDocumentBase {
    * asserting facts the render input does not hold.
    */
   readonly footerMeta: string | null;
+  /** The history card's facts — see {@link ResumeGlance}. */
+  readonly glance: ResumeGlance;
 }
 
 export interface GenericResumeDocument extends ResumeDocumentBase {
@@ -171,16 +210,31 @@ export type ResumeDocument = GenericResumeDocument | TradeSheetResumeDocument;
 /**
  * Project a render input into the document a client draws.
  *
- * PURE, and reading ONLY the input the template reads. Anything it had to fetch for itself would
- * be a fact the screen could hold and the PDF could not, which is the drift this exists to end.
+ * PURE, and reading ONLY the input the template reads — plus `pageCount`, which is a fact about
+ * the PDF drawn from that input rather than about the input, and so is the caller's to supply.
+ * Anything it had to fetch for itself would be a fact the screen could hold and the PDF could
+ * not, which is the drift this exists to end.
  */
-export function toResumeDocument(input: ResumeRenderInput, packId: string | null): ResumeDocument {
+export function toResumeDocument(
+  input: ResumeRenderInput,
+  packId: string | null,
+  pageCount: number | null = null,
+): ResumeDocument {
   const header: ResumeDocumentHeader = {
     name: input.displayName ?? null,
     phone: input.phone ?? null,
     trustBadge: input.trustBadge ?? null,
   };
   const footerMeta = input.footerMeta ?? null;
+  const facts = input.verdictFacts;
+  const glance: ResumeGlance = {
+    role: facts?.role ?? null,
+    experienceYears: facts?.years ?? null,
+    machines: facts?.tools ?? [],
+    axes: facts?.axes ?? [],
+    city: facts?.city ?? null,
+    pageCount,
+  };
 
   const trade = tradeKindForPack(packId);
   if (trade === null) {
@@ -189,6 +243,7 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
       trade: null,
       header,
       footerMeta,
+      glance,
       // Layer A (h): the deterministic headline when the mapper built one, else the role alone —
       // the pre-existing behaviour, so an old server or an old snapshot renders unchanged.
       headline: input.profileHeadline ?? input.canonicalRole,
@@ -212,6 +267,7 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
     trade,
     header,
     footerMeta,
+    glance,
     headline: { line1: input.headlineLine ?? null, line2: input.subheadLine ?? null },
     // THE SHEET'S OWN ZONES, in the order it prints them. A section with no rows is kept rather
     // than dropped: the client decides whether an empty zone shows a heading, and dropping it
@@ -243,4 +299,32 @@ export function toResumeDocument(input: ResumeRenderInput, packId: string | null
     employmentsMore: input.employmentsMore ?? null,
     experiences: input.experiences,
   };
+}
+
+// ── reading a stored document back ───────────────────────────────────────────────────────────
+
+/**
+ * The glance's stored shape, checked field by field. `resume_document` is a `jsonb` column whose
+ * rows were written by every build since 0095, so what comes back is validated, never cast.
+ */
+const StoredGlanceSchema = z.object({
+  role: z.string().nullable(),
+  experienceYears: z.number().finite().positive().nullable(),
+  machines: z.array(z.string()),
+  axes: z.array(z.string()),
+  city: z.string().nullable(),
+  pageCount: z.number().int().positive().nullable(),
+});
+
+/**
+ * The glance a stored `resume_document` carries, or null when it carries none.
+ *
+ * NULL IS THE ORDINARY ANSWER for every document rendered before #1714 and for a row that has
+ * never rendered — and it is also the answer for a glance that does not validate, because a card
+ * showing a malformed fact is worse than a card showing none. It is never an error.
+ */
+export function readResumeGlance(stored: unknown): ResumeGlance | null {
+  if (stored === null || typeof stored !== "object") return null;
+  const parsed = StoredGlanceSchema.safeParse((stored as { glance?: unknown }).glance);
+  return parsed.success ? parsed.data : null;
 }

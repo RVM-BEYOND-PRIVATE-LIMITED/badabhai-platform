@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 import {
   packUsesUniversalSheet,
+  readResumeGlance,
   templateIdForPack,
   toResumeDocument,
   tradeKindForPack,
@@ -172,5 +173,100 @@ describe("toResumeDocument", () => {
     expect(doc.header.trustBadge).toBeNull();
     expect(doc.employments).toEqual([]);
     expect(doc.employmentsMore).toBeNull();
+  });
+});
+
+/**
+ * #1714 — THE HISTORY CARD'S FACTS, recorded with the render.
+ *
+ * Two properties. The glance is the Verdict Line's facts and nothing the input does not hold, so
+ * a card cannot say what the sheet does not. And a stored document is read back VALIDATED: every
+ * row rendered before this shipped has no glance, and that must read as "nothing recorded".
+ */
+describe("the glance (#1714)", () => {
+  const FACTS = {
+    role: "VMC Operator",
+    years: 2,
+    tools: ["VMC"],
+    axes: ["3-axis", "4-axis"],
+    city: "Manesar",
+  } as const;
+  const WITH_FACTS: ResumeRenderInput = { ...BASE, verdictFacts: FACTS };
+
+  it("projects the Verdict Line's facts and the page count onto BOTH formats", () => {
+    const expected = {
+      role: "VMC Operator",
+      experienceYears: 2,
+      machines: ["VMC"],
+      axes: ["3-axis", "4-axis"],
+      city: "Manesar",
+      pageCount: 1,
+    };
+    expect(toResumeDocument(WITH_FACTS, "qp_vmc_milling", 1).glance).toEqual(expected);
+    expect(toResumeDocument(WITH_FACTS, null, 1).glance).toEqual(expected);
+  });
+
+  it("reads the facts off `verdictFacts`, NOT the classic slots that share their names", () => {
+    // BASE's own slots say "CNC Turner", 8 years, "CNC lathe", "Faridabad". A glance built from
+    // them would describe a different sheet from the Verdict Line this input prints.
+    const glance = toResumeDocument(WITH_FACTS, "qp_vmc_milling").glance;
+    expect(glance.role).toBe("VMC Operator");
+    expect(glance.experienceYears).toBe(2);
+    expect(glance.machines).toEqual(["VMC"]);
+    expect(glance.city).toBe("Manesar");
+  });
+
+  it("records nothing it was not given: no facts, no count", () => {
+    expect(toResumeDocument(BASE, "qp_cnc_turning").glance).toEqual({
+      role: null,
+      experienceYears: null,
+      machines: [],
+      axes: [],
+      city: null,
+      pageCount: null,
+    });
+  });
+
+  it("round-trips through the jsonb column", () => {
+    const stored: unknown = JSON.parse(
+      JSON.stringify(toResumeDocument(WITH_FACTS, "qp_vmc_milling", 2)),
+    );
+    expect(readResumeGlance(stored)).toEqual({
+      role: "VMC Operator",
+      experienceYears: 2,
+      machines: ["VMC"],
+      axes: ["3-axis", "4-axis"],
+      city: "Manesar",
+      pageCount: 2,
+    });
+  });
+
+  it("reads a document rendered BEFORE #1714 as nothing recorded — and a row with none at all", () => {
+    const legacy = JSON.parse(JSON.stringify(toResumeDocument(WITH_FACTS, "qp_vmc_milling")));
+    delete legacy.glance;
+    expect(readResumeGlance(legacy)).toBeNull();
+    expect(readResumeGlance(null)).toBeNull();
+    expect(readResumeGlance(undefined)).toBeNull();
+    expect(readResumeGlance("not a document")).toBeNull();
+  });
+
+  it("refuses a malformed glance whole, rather than showing part of one", () => {
+    const good = JSON.parse(JSON.stringify(toResumeDocument(WITH_FACTS, "qp_vmc_milling", 1)));
+    // Not vacuous: the unmodified document reads back.
+    expect(readResumeGlance(good)).not.toBeNull();
+    const broken: Record<string, unknown>[] = [
+      { pageCount: 0 },
+      { pageCount: 1.5 },
+      { pageCount: "1" },
+      { experienceYears: -1 },
+      { experienceYears: 0 },
+      { machines: "VMC" },
+      { axes: [3] },
+      { city: 7 },
+      { role: undefined },
+    ];
+    for (const change of broken) {
+      expect(readResumeGlance({ ...good, glance: { ...good.glance, ...change } })).toBeNull();
+    }
   });
 });

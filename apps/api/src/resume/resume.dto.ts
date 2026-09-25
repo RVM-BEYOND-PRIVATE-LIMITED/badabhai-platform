@@ -52,6 +52,36 @@ export interface ResumeHistoryItem {
   rendered_at: string | null;
   /** The résumé every other read treats as the worker's current one. Exactly one when non-empty. */
   is_current: boolean;
+  /**
+   * A short reference a worker can read out to support — the same code the sheet's footer
+   * prints after "Ref" (`RK8M2Q`), so the card and the paper name the résumé the same way.
+   *
+   * Derived from `resume_id` by a one-way hash (`resumeRefCode`): stable across reads and
+   * re-renders, and it reveals nothing about the worker. A LABEL, NOT AN IDENTIFIER — six
+   * characters can repeat across the platform, so nothing may look a résumé up or authorise by it.
+   */
+  display_ref: string;
+
+  // ── THE CARD'S FACTS (#1714) ──────────────────────────────────────────────────────────────
+  //
+  // AS THAT RÉSUMÉ PRINTED THEM, never the worker's profile today: an older entry was generated
+  // from a different profile (`profile_id`), and today's trade or city on it would be a claim the
+  // PDF does not make. Recorded when the PDF is drawn (see `ResumeGlance`), so all six are NULL
+  // until `render_status` is 'rendered', and NULL on every résumé rendered before #1714 shipped.
+  // A client renders each one only when present.
+
+  /** The role title the sheet's headline printed ("VMC Operator"). */
+  trade_label: string | null;
+  /** The tenure figure the headline printed, in years. Null when it printed none ("Fresher"). */
+  experience_years: number | null;
+  /** The headline's tools — controllers or machines, else skills — at most three. */
+  machines: string[] | null;
+  /** Machine axes as printed ("3-axis", "4-axis"). Empty for a trade with no axis ask. */
+  axes: string[] | null;
+  /** The city the sheet printed. */
+  city: string | null;
+  /** Pages in the rendered PDF. */
+  page_count: number | null;
 }
 
 /**

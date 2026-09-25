@@ -21,6 +21,13 @@ describe("the Verdict Line (§6.2)", () => {
     expect(buildVerdictLine(FULL)).toEqual({
       headlineLine: "CNC Turner (Setter-cum-Operator) · 8 yrs · Fanuc, Siemens, Mitsubishi",
       subheadLine: "Faridabad · available in 15 days · expects ₹24,000 – ₹28,000 / month",
+      verdictFacts: {
+        role: "CNC Turner (Setter-cum-Operator)",
+        years: 8,
+        tools: ["Fanuc", "Siemens", "Mitsubishi"],
+        axes: [],
+        city: "Faridabad",
+      },
     });
   });
 
@@ -252,5 +259,74 @@ describe("the masthead location line", () => {
     // §8: the renderer may reshape what the worker said and may never add to it. A state is not
     // inferred from a city here and must never be: "Faridabad" alone prints alone.
     expect(buildLocationLine({ city: "Faridabad", state: null })).not.toMatch(/Haryana/);
+  });
+});
+
+/**
+ * #1714 — THE FACTS THE LINE WAS COMPOSED FROM, as the worker's history card reads them.
+ *
+ * The card must say what the sheet says. Each case below is a place the line prints something
+ * other than the raw input — a trim, a cap, a figure it declines to print — and the facts must
+ * follow the line there rather than the input, or the card would claim what the paper does not.
+ */
+describe("the Verdict Line's facts (#1714)", () => {
+  it("stops at the three tools the segment prints, and they are the SAME three", () => {
+    const out = buildVerdictLine({ ...FULL, tools: ["Fanuc", "Siemens", "Mitsubishi", "Haas"] });
+    expect(out.verdictFacts.tools).toEqual(["Fanuc", "Siemens", "Mitsubishi"]);
+    // Agreement with the paper, not just a cap: a fourth tool the line dropped is not on the card.
+    expect(out.headlineLine).not.toContain("Haas");
+    for (const tool of out.verdictFacts.tools) expect(out.headlineLine).toContain(tool);
+  });
+
+  it("records NO figure wherever the line prints none — unknown, zero, rounds-to-nothing, Fresher", () => {
+    for (const years of [null, 0, -2, Number.NaN, 0.01]) {
+      const out = buildVerdictLine({ ...FULL, years });
+      expect(out.verdictFacts.years).toBeNull();
+      expect(out.headlineLine).toContain("duration not stated");
+    }
+    const fresher = buildVerdictLine({ ...FULL, years: null, tenureLabel: "Fresher" });
+    expect(fresher.headlineLine).toContain("Fresher");
+    expect(fresher.verdictFacts.years).toBeNull();
+  });
+
+  it("keeps the figure the line prints, unrounded — the reader formats it", () => {
+    const out = buildVerdictLine({ ...FULL, years: 2.5 });
+    expect(out.headlineLine).toContain("2 yrs 6 mo");
+    expect(out.verdictFacts.years).toBe(2.5);
+  });
+
+  it("trims what the line trims and drops the blanks it drops", () => {
+    const out = buildVerdictLine({
+      ...FULL,
+      role: "  VMC Operator  ",
+      tools: ["", "  VMC  ", "   "],
+      axes: [" 3-axis ", "", "4-axis"],
+      city: "  Manesar ",
+    });
+    expect(out.verdictFacts).toEqual({
+      role: "VMC Operator",
+      years: 8,
+      tools: ["VMC"],
+      axes: ["3-axis", "4-axis"],
+      city: "Manesar",
+    });
+    expect(out.headlineLine).toBe("VMC Operator · 8 yrs · VMC · 3 & 4-axis");
+  });
+
+  it("an all-blank role or city is null, never an empty string", () => {
+    const out = buildVerdictLine({ ...FULL, role: "   ", city: "  " });
+    expect(out.verdictFacts.role).toBeNull();
+    expect(out.verdictFacts.city).toBeNull();
+  });
+
+  it("records the facts even where the strip is omitted — they are still that résumé's", () => {
+    const out = buildVerdictLine({ ...FULL, role: null });
+    expect(out.headlineLine).toBeNull();
+    expect(out.verdictFacts).toMatchObject({
+      role: null,
+      years: 8,
+      tools: ["Fanuc", "Siemens", "Mitsubishi"],
+      city: "Faridabad",
+    });
   });
 });

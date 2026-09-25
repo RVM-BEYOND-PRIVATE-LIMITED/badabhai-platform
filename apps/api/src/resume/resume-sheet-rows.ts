@@ -1,4 +1,4 @@
-import type { ResumeFactRow, ResumeListRow } from "./resume-renderer.service";
+import type { ResumeFactRow, ResumeListRow, ResumeVerdictFacts } from "./resume-renderer.service";
 import { formatWorkerPhone } from "./resume-phone";
 import { titleCaseName } from "./resume-text-case";
 
@@ -75,7 +75,8 @@ export function buildVerdictLine(facts: {
    * reaches this function as `years`. Handing this a bare 0 still yields "duration not stated".
    */
   tenureLabel?: string | null;
-}): { headlineLine: string | null; subheadLine: string | null } {
+}): { headlineLine: string | null; subheadLine: string | null; verdictFacts: ResumeVerdictFacts } {
+  const verdictFacts = verdictFactsOf(facts);
   // FILL-GAP PHASE 4 — NO SUBJECT, NO STRIP. Without a role this line degrades to its modifiers
   // ("8 yrs · Fanuc") or, for a worker with no source at all, to the bare system phrase
   // "duration not stated" standing alone at the top of the sheet. Neither is a headline: §11 #3
@@ -91,6 +92,7 @@ export function buildVerdictLine(facts: {
         availabilityPhrase(facts.availability),
         facts.salary ? `expects ${facts.salary}` : null,
       ]),
+      verdictFacts,
     };
   }
   return {
@@ -105,6 +107,30 @@ export function buildVerdictLine(facts: {
       availabilityPhrase(facts.availability),
       facts.salary ? `expects ${facts.salary}` : null,
     ]),
+    verdictFacts,
+  };
+}
+
+/**
+ * The Verdict Line's facts as the line prints them — the same trims, the same figure rule, the
+ * same cap of three tools (#1714). See {@link ResumeVerdictFacts}.
+ *
+ * INDEPENDENT OF WHETHER THE HEADLINE PRINTS. A sheet with no role omits the strip, but the
+ * worker's years and machines are still that résumé's facts; the reader decides what to show.
+ */
+function verdictFactsOf(facts: {
+  role: string | null;
+  years: number | null;
+  tools: readonly string[];
+  axes?: readonly string[];
+  city: string | null;
+}): ResumeVerdictFacts {
+  return {
+    role: facts.role?.trim() || null,
+    years: knownYearsPhrase(facts.years) === null ? null : facts.years,
+    tools: printedTools(facts.tools),
+    axes: (facts.axes ?? []).map((a) => a.trim()).filter(Boolean),
+    city: facts.city?.trim() || null,
   };
 }
 
@@ -188,11 +214,16 @@ function axesPhrase(axes: readonly string[]): string | null {
 
 /** Up to three, guideline §4.3 (controllers max 3). More than three stops being scannable. */
 export function toolsPhrase(tools: readonly string[]): string | null {
-  const kept = tools
+  const kept = printedTools(tools);
+  return kept.length > 0 ? kept.join(", ") : null;
+}
+
+/** The tools the segment actually prints: trimmed, blanks dropped, the first three. */
+function printedTools(tools: readonly string[]): string[] {
+  return tools
     .map((t) => t.trim())
     .filter(Boolean)
     .slice(0, 3);
-  return kept.length > 0 ? kept.join(", ") : null;
 }
 
 /**

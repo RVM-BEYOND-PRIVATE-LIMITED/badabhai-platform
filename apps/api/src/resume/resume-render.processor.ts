@@ -19,6 +19,7 @@ import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
 import { FontResolutionError } from "../common/pdf/font-resolution";
+import { countPdfPages } from "../common/pdf/pdf-page-count";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 import { buildResumeQrDataUri } from "./resume-qr";
@@ -635,6 +636,15 @@ export class ResumeRenderProcessor extends WorkerHost {
       return { rendered: false };
     }
 
+    // THE PAGE COUNT ON THE WORKER'S HISTORY CARD (#1714), read off the PDF's own bytes — the
+    // degradation ladder's `degradationOverflows` is an ESTIMATE made before the render, and the
+    // card states a fact about the file. Null when the bytes cannot be read, never a guess, and
+    // never a failed render: the card loses one line and the worker keeps the PDF.
+    const pageCount = countPdfPages(pdf);
+    if (pageCount === null) {
+      this.logger.warn(`resume ${resumeId}: could not count the PDF's pages; recording none`);
+    }
+
     // Object key: opaque UUIDs only (worker + resume + version) — no PII in the
     // path. The key is NOT the security boundary (UUIDs are guessable in theory);
     // a PRIVATE bucket + short-TTL signed URL is. The name lives in the PDF bytes only.
@@ -647,7 +657,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       await this.resumes.markRendered(
         resumeId,
         objectKey,
-        toResumeDocument(input, loaded?.packId ?? null),
+        toResumeDocument(input, loaded?.packId ?? null, pageCount),
       );
     } catch (err) {
       // The PDF rendered but upload/persist failed. Let BullMQ retry; only on the
