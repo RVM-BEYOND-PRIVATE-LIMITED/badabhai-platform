@@ -332,10 +332,16 @@ def test_the_salary_unit_alternation_matches_the_unit_lists():
 def test_the_curated_vocabulary_is_pinned():
     """VOCABULARY_TOKENS decides what the PSEUDONYMIZER un-masks. Changing it is a privacy change.
 
-    Its only consumer is `pseudonymize.certified_clean_skill_labels`, which rescues a label the
-    gateway masked as an EMPLOYER — so a token added here makes the gateway release a string it
-    was previously withholding, and a token removed silently deletes a real qualification from a
-    worker's profile ("Diploma Mechanical Engineering" was lost to exactly that collision).
+    It has two consumers, and a token added here makes the gateway release a string it was
+    previously withholding in BOTH:
+
+    - `pseudonymize.certified_clean_skill_labels` rescues a label the gateway masked as an
+      EMPLOYER — and a token removed silently deletes a real qualification from a worker's
+      profile ("Diploma Mechanical Engineering" was lost to exactly that collision);
+    - `pseudonymize`'s no-cue leading-name guess does not mask a 4+ letter leading word this set
+      recognises ("Welding, grinding" — issue #1728). So this set also decides which leading
+      words the gateway does NOT guess as person names: a first name that entered it would stop
+      being masked in "<Name>, ..." position. `test_pseudonymize.py` pins that reach exactly.
 
     The set is DERIVED from the role/machine/welding/skill/education tables in trades.json and
     education.json, which means an innocent-looking keyword edit moves it. Pinned by checksum so

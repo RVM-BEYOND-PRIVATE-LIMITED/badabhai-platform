@@ -468,10 +468,15 @@ _CERTIFICATION_LABELS: tuple[str, ...] = tuple(_EDUCATION["certificationLabels"]
 # those two were silently deleted from workers' persisted profiles and résumés. Real
 # skills and real qualifications, gone, with no signal anywhere.
 #
-# WHAT IT IS NOT. It does NOT weaken employer masking. `pseudonymize()` is untouched:
-# on general worker free text "Stainless Steel Industries Pvt Ltd" still masks exactly
-# as before. This set is consulted ONLY by the label-CERTIFICATION path, and only to
-# decide whether a label the gateway masked as an EMPLOYER is in fact vocabulary.
+# WHAT IT IS NOT. It does NOT weaken employer masking: on general worker free text
+# "Stainless Steel Industries Pvt Ltd" still masks exactly as before. It is consulted in
+# two places, both via `pseudonymize._is_known_trade_vocabulary` (fails closed to False):
+# the label-CERTIFICATION path, to decide whether a label the gateway masked as an
+# EMPLOYER is in fact vocabulary; and, since issue #1728 (owner ruling 2026-09-25),
+# `pseudonymize()`'s no-cue LEADING-NAME guess, which no longer masks a 4+ letter leading
+# word this set recognises ("Welding, grinding") — with `pseudonymize.is_certified_clean`
+# then requiring the WHOLE label to be vocabulary before a clean-or-withhold gate passes it
+# raw. See `is_curated_vocabulary_label`.
 #
 # THE DISCRIMINATOR, and why it holds. A label qualifies only when EVERY one of its
 # tokens is curated vocabulary. A real company name always carries at least one token
@@ -551,6 +556,21 @@ def _build_vocabulary_tokens() -> frozenset[str]:
 VOCABULARY_TOKENS: frozenset[str] = _build_vocabulary_tokens()
 
 
+# How a LABEL is tokenised for the whole-label test — deliberately NOT `_VOCAB_TOKEN_RE`.
+# That regex HARVESTS the vocabulary and must stay `[a-z0-9]+`; reading a label with it made
+# every non-ASCII letter invisible, so "Welding, रमेश कुमार" tokenised to ["welding"] and
+# passed as all-vocabulary (PR #1729 review round 2, measured). `[^\W_]+` is Unicode-aware: a
+# Devanagari, Tamil, fullwidth or math-alphanumeric word is a token of its own, is in no
+# (all-ASCII) vocabulary, and so fails the label closed.
+_LABEL_TOKEN_RE = re.compile(r"[^\W_]+")
+# AND the label must be printable ASCII end to end. Tokenising letters is not enough: circled /
+# squared / regional-indicator letters, Braille and invisible Unicode TAG characters are not
+# word characters, so a name written in them is SKIPPED by any tokeniser and the label still
+# reads as all-vocabulary (PR #1729 review round 3). The vocabulary is all-ASCII, so a real
+# vocabulary label never needs anything outside this range — the allowlist costs nothing.
+_PRINTABLE_ASCII_RE = re.compile(r"[\x20-\x7e]+")
+
+
 def is_curated_vocabulary_label(label: str) -> bool:
     """True when EVERY token of ``label`` is curated trade/education vocabulary.
 
@@ -558,12 +578,24 @@ def is_curated_vocabulary_label(label: str) -> bool:
     alphanumeric token at all (punctuation only) is NOT vocabulary — there is nothing
     to recognise, so it fails closed.
 
-    Callers: ``pseudonymize.certified_clean_skill_labels`` ONLY, and only to rescue a
-    label the gateway masked as an EMPLOYER. This function grants nothing on its own.
+    Callers, both through ``pseudonymize._is_known_trade_vocabulary`` (which fails closed
+    to False):
+
+    - ``pseudonymize.certified_clean_skill_labels`` — to rescue a label the gateway masked
+      as an EMPLOYER;
+    - ``pseudonymize.pseudonymize``'s no-cue leading-name guess — to NOT mask a 4+ letter
+      leading word ("Welding, grinding") as a person (issue #1728, owner ruling 2026-09-25).
+      So this set now also decides which leading words the gateway does not guess as
+      names; the cue-based name rule ("mera naam X") never consults it. Its gate-side
+      counterpart, ``pseudonymize.is_certified_clean``, asks this function about the WHOLE
+      label before a clean-or-withhold consumer may pass such a label raw — so "Welding,
+      Anil Kumar" is still withheld there (it can only ever narrow what is released).
+
+    This function grants nothing on its own.
     """
-    if not isinstance(label, str):
+    if not isinstance(label, str) or not _PRINTABLE_ASCII_RE.fullmatch(label):
         return False
-    tokens = _VOCAB_TOKEN_RE.findall(label.lower())
+    tokens = _LABEL_TOKEN_RE.findall(label.lower())
     if not tokens:
         return False
     return all(tok in VOCABULARY_TOKENS for tok in tokens)

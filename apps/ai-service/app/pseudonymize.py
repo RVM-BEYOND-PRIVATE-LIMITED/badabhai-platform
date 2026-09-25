@@ -281,6 +281,19 @@ _NAME_CUE_RE = re.compile(
     r"\bmera naam\b|\bnaam\b)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"
 )
 _LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
+# The shortest leading word the trade-vocabulary carve-out may release (issue #1728, owner
+# ruling 2026-09-25; see `replace_leading_name`). The curated vocabulary holds 3-letter tokens
+# that ALSO read as names in a leading position — "Max", "Mag", "Arc", "Gas", "Cam", "Oxy" —
+# and "Max, welder" is exactly the shape the no-cue guess exists to catch, so below this floor
+# the guess still wins. That is the RULED TRADE-OFF, and it has a real cost, stated here so
+# nobody reads the floor as free: an all-caps acronym ("CNC", "ITI", "VMC") never matches
+# `[A-Z][a-z]+`, but phone keyboards title-case the first letter of a message, so the natural
+# shapes "Cnc, vmc", "Iti, fitter", "Mig, tig welding", "Vmc, hmc operator" and "Cmm, vernier"
+# DO match — and at 3 letters they stay masked as [PERSON_1]. #1728 is not fixed for them.
+# Releasing them is an owner decision (e.g. a narrow acronym list kept apart from name-like
+# tokens such as max / mag / arc / gas / cam / oxy), not a floor to lower quietly; the residual
+# is pinned by `test_KNOWN_RESIDUAL_a_title_cased_3_letter_trade_acronym_is_still_masked`.
+_LEADING_VOCABULARY_MIN_LEN = 4
 _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 
 # Credential / registration IDs, masked on their CUE rather than their shape.
@@ -467,7 +480,7 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
             return match.group(0).replace(name, token_for(name, prefix))
 
         def replace_leading_name(match: re.Match[str]) -> str:
-            """The leading-name heuristic, with the city carve-out step 5 already ruled.
+            """The leading-name heuristic, with two carve-outs: a city, and a trade word.
 
             A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
             followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
@@ -481,11 +494,37 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
             the four filters that actually reject a candidate, so the worker silently loses the
             signal that decides whether he is reachable at all.
 
-            The cue-based rule keeps its own replacer untouched. "Mera naam X" is explicit
-            evidence of a name and stays masked whatever X is; only the no-cue guess defers.
+            A TRADE WORD IS NOT A NAME EITHER (issue #1728, owner ruling 2026-09-25). The same
+            guess masked ordinary vocabulary that opens a list. Measured before this carve-out:
+
+                pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
+                pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
+
+            On the payer side the job-posting chat then stored the masked text, so the skills
+            answer on the draft lost the trade; on the worker side the model saw [PERSON_1]
+            instead of the trade the worker named. So a leading word that the ONE curated
+            trade/education vocabulary positively recognises (``_is_known_trade_vocabulary``,
+            the set pinned by checksum in tests/test_lexicon_parity.py) is kept — but only at
+            ``_LEADING_VOCABULARY_MIN_LEN``+ characters, because the 3-letter vocabulary tokens
+            ("Max", "Arc", "Gas") are exactly the shape this guess exists for. The vocabulary
+            check FAILS CLOSED: any error consulting it returns False and the word is masked.
+
+            THE RELEASE IS THE LEADING WORD, NOT THE STRING. A consumer that passes a string raw
+            when this function masked nothing ("clean or withhold") would otherwise release
+            whatever follows the kept word — "Welding, Anil Kumar" used to mint an incidental
+            [PERSON_1] and be withheld whole. `is_certified_clean` closes that: it reads the SAME
+            regex and the SAME predicate (`_is_leading_trade_word`) to tell that the vocabulary
+            carve-out released the word, and then requires the WHOLE label to be vocabulary.
+
+            What neither carve-out does: the cue-based rule keeps its own replacer untouched.
+            "Mera naam X" is explicit evidence of a name and stays masked whatever X is — a
+            city, a trade word, anything; only the no-cue guess defers. Employers, phones,
+            emails, ID tokens and the residual-digit net are not consulted and do not move. It
+            is also not a route, flag or principal exemption (ADR-0035 §2/§3): the rule is the
+            same for a worker's turn and a payer's.
             """
-            candidate = match.group(1).strip().lower()
-            if candidate in KNOWN_CITIES or candidate in CITY_ALIASES:
+            candidate = _leading_candidate(match)
+            if _is_leading_city(candidate) or _is_leading_trade_word(candidate):
                 return match.group(0)
             return replace_group1(match, "PERSON")
 
@@ -580,29 +619,143 @@ def _is_known_trade_vocabulary(label: str) -> bool:
     module-level import here would be a cycle, and this module is deliberately
     dependency-light. By call time both modules are fully loaded.
 
-    Any failure to consult the vocabulary returns False, i.e. the label is DROPPED —
-    the pre-existing behaviour. The rescue can only ever keep a label the vocabulary
-    positively recognises; it can never widen the gate by failing.
+    Two consumers. `certified_clean_skill_labels` keeps a label the gateway masked as an
+    EMPLOYER. `pseudonymize`'s `replace_leading_name` keeps a 4+ letter leading trade word
+    the no-cue name guess would have masked (issue #1728, via `_is_leading_trade_word`), and
+    `is_certified_clean` then asks it about the WHOLE label before a clean-or-withhold gate
+    may pass that label raw.
+
+    Any failure to consult the vocabulary returns False — the label is DROPPED, the leading
+    word is MASKED, the clean-or-withhold gate WITHHOLDS: the pre-existing behaviour in each.
+    Only a positive recognition can keep anything; no caller can widen a gate by failing.
     """
     try:
         from .profiling.signals import is_curated_vocabulary_label
 
         return is_curated_vocabulary_label(label)
-    except Exception:  # pragma: no cover - defensive; degrade to today's behaviour
+    except Exception:  # defensive; degrade to the pre-carve-out behaviour (fail closed)
         return False
+
+
+def _leading_candidate(match: re.Match[str]) -> str:
+    """The word `_LEADING_NAME_RE` captured, normalised the way both carve-outs look it up."""
+    return match.group(1).strip().lower()
+
+
+def _is_leading_city(candidate: str) -> bool:
+    """The CITY carve-out of the no-cue leading-name guess (owner ruling 2026-07-31)."""
+    return candidate in KNOWN_CITIES or candidate in CITY_ALIASES
+
+
+def _is_leading_trade_word(candidate: str) -> bool:
+    """The TRADE-VOCABULARY carve-out of the no-cue leading-name guess (#1728, 2026-09-25).
+
+    ONE predicate, read by BOTH `replace_leading_name` (to keep the word) and
+    `is_certified_clean` (to know this carve-out released the word and so demand the whole
+    label be vocabulary). Two copies of this condition could disagree — e.g. a floor lowered in
+    one — and the gate would stop recognising what the gateway released.
+    """
+    return len(candidate) >= _LEADING_VOCABULARY_MIN_LEN and _is_known_trade_vocabulary(candidate)
+
+
+def _leading_word_survived_by_carve_out(label: str) -> bool:
+    """True when ``label`` opens "<Word>," and that word would owe its survival to the
+    trade-vocabulary carve-out — decided WITHOUT consulting the vocabulary.
+
+    Called only on a label the gateway left UNTOUCHED, so a "<Word>," it matched survived for one
+    of exactly three reasons: a known city, the name stoplist ("Hello, ..."), or the trade
+    carve-out. Ruling out the first two by their own (pure, in-module) sets leaves the third.
+
+    WHY NOT ASK THE VOCABULARY "WAS IT RELEASED?" (PR #1729 review round 2). That second lookup
+    could fail after the gateway's first one succeeded, and a failure read as "not released"
+    skipped the whole-label demand and passed "Welding, Anil Kumar" raw — the gate failing OPEN.
+    Deciding it structurally means the only vocabulary call left on this path is the whole-label
+    test itself, and its failure withholds.
+    """
+    match = _LEADING_NAME_RE.match(label)
+    if match is None:
+        return False
+    candidate = _leading_candidate(match)
+    return not _is_leading_city(candidate) and candidate not in _NAME_STOPLIST
+
+
+def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
+    """`is_certified_clean` over an already-computed ``result = pseudonymize(label)``.
+
+    Split out only so `certified_clean_skill_labels` can reuse the one gateway pass it also
+    needs for the EMPLOYER rescue; every clean-or-withhold decision still goes through here.
+    """
+    if result.blocked or result.replaced_entities != 0 or result.text != label:
+        return False
+    if _leading_word_survived_by_carve_out(label):
+        return _is_known_trade_vocabulary(label)
+    return True
+
+
+def is_certified_clean(label: str) -> bool:
+    """May a CLEAN-OR-WITHHOLD consumer pass ``label`` to the model / the page RAW?
+
+    The predicate the clean-or-withhold WALLS use: `certified_clean_skill_labels` (profile
+    extraction + the résumé boundary), the work-history polish role gate, and gate 6 of
+    /profile/parse (through `certify_value`). NOT `parse_masking._publishable_normalized`, which
+    only decides whether a deterministic value is shown to the model as a hint: the transcript it
+    sits beside is masked by the same gateway and already carries the same text, so withholding
+    the hint would protect nothing. True only when ``pseudonymize(label)``:
+
+    (a) did not block, (b) masked nothing, (c) returned the label byte-identical, AND
+    (d) if the leading "<Word>," is one the trade-vocabulary carve-out releases
+        (`_leading_word_survived_by_carve_out`), the WHOLE label is curated vocabulary
+        (`_is_known_trade_vocabulary` — the FIX-5 whole-label rule, never a token-by-token
+        exemption).
+
+    WHY (d) EXISTS (PR #1729 review round 1, measured). The #1728 ruling stops the gateway
+    masking a leading trade word; it does not license a consumer that passes a string raw
+    "because nothing was masked" to release what FOLLOWS the word. Before the carve-out,
+    "Welding, Anil Kumar", "Diploma, Anil Sharma" and the polish role "Operator, Ramesh sir ke
+    under" all minted an incidental [PERSON_1] and were withheld whole; without (d) they
+    passed verbatim — to the persisted profile, the résumé, and the model. With (d):
+    "Welding, grinding" / "Fanuc, tool offset" (vocabulary whole) pass; those do not.
+
+    Never raises (every step is fail-closed by construction), never logs, never returns text.
+    """
+    return _certifies_clean(label, pseudonymize(label))
+
+
+# What `certify_value` hands back for a value it WITHHOLDS although the gateway masked nothing:
+# never equal to any input (a NUL cannot survive into a certified value), so a wall that
+# compares "certified == value" reads it as altered.
+_WITHHELD = "\x00withheld\x00"
+
+
+def certify_value(text: str) -> tuple[bool, str]:
+    """``(blocked, certified)`` for a wall that accepts a value only when ``certified == text``.
+
+    The `is_certified_clean` semantics in the masker-shaped contract gate 6 of /profile/parse
+    uses (`parse_gates.certify`): blocked when the gateway blocks; otherwise the gateway's text,
+    EXCEPT that a value the gateway left untouched but `is_certified_clean` withholds ("Welding,
+    Ramesh Kumar" — condition (d)) comes back as a withheld marker that equals no input, so the
+    wall reports it altered and rejects it, exactly as it did before the #1728 carve-out.
+    """
+    result = pseudonymize(text)
+    if result.blocked:
+        return True, result.text
+    if result.text == text and not _certifies_clean(text, result):
+        return False, _WITHHELD
+    return False, result.text
 
 
 def certified_clean_skill_labels(labels: list[str]) -> list[str]:
     """Keep only labels this gateway certifies CLEAN (Q14/ADR-0030 OQ#3 — SG-2).
 
-    A label passes when ``pseudonymize(label)`` (a) does not block,
-    (b) masks nothing (``replaced_entities == 0``), and (c) returns the label
-    byte-identical. Anything else — blocked, masked, altered, or an internal
-    gateway error (which returns ``blocked=True``) — is DROPPED (fail-closed:
-    over-drop, never keep a suspect label). Purely additive certification: it
-    never relaxes the gateway, never returns masked text or the token mapping,
-    and never logs. Used to certify ``DraftProfile.skill_labels`` AT REST when
-    populated (profile extraction) and to RE-certify at the résumé boundary.
+    A label passes when `is_certified_clean` holds: ``pseudonymize(label)`` (a) does not
+    block, (b) masks nothing (``replaced_entities == 0``), (c) returns the label
+    byte-identical, and (d) a leading word released by the #1728 trade-vocabulary carve-out
+    comes with a label that is vocabulary WHOLE. Anything else — blocked, masked, altered,
+    a name behind a leading trade word, or an internal gateway error (which returns
+    ``blocked=True``) — is DROPPED (fail-closed: over-drop, never keep a suspect label).
+    Purely additive certification: it never relaxes the gateway, never returns masked text
+    or the token mapping, and never logs. Used to certify ``DraftProfile.skill_labels`` AT
+    REST when populated (profile extraction) and to RE-certify at the résumé boundary.
 
     PLUS ONE NARROW RESCUE (the FIX-5 silent-data-loss bug). MEASURED on main:
 
@@ -631,7 +784,7 @@ def certified_clean_skill_labels(labels: list[str]) -> list[str]:
         result = pseudonymize(label)
         if result.blocked:
             continue
-        if result.replaced_entities == 0 and result.text == label:
+        if _certifies_clean(label, result):
             kept.append(label)
             continue
         if _is_employer_only_mask(result) and _is_known_trade_vocabulary(label):

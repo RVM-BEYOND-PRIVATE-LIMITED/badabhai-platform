@@ -23,11 +23,20 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 
 ### One rule with a privacy consequence
 
-`trades.json` and `education.json` derive `signals.VOCABULARY_TOKENS`, whose **only** consumer is
-`pseudonymize.certified_clean_skill_labels` — the rescue that releases a label the gateway masked as
-an *employer*. A keyword added there makes the gateway release a string it was withholding; one
-removed silently deletes a real qualification from a worker's profile, which is how
-"Diploma Mechanical Engineering" was once lost.
+`trades.json` and `education.json` derive `signals.VOCABULARY_TOKENS`, which has **two** consumers,
+both through `pseudonymize._is_known_trade_vocabulary`:
+
+1. `pseudonymize.certified_clean_skill_labels` — the rescue that releases a label the gateway masked
+   as an *employer*, when the whole label is vocabulary;
+2. `pseudonymize()`'s no-cue **leading-name guess** — a 4+ letter leading word in the set is not
+   masked as a person (#1728, owner ruling 2026-09-25). The clean-or-withhold gates
+   (`pseudonymize.is_certified_clean`) then pass such a label raw only when the **whole** label is
+   vocabulary.
+
+A keyword added there makes the gateway release a string it was withholding — and if it is also a
+surname or first name, the gateway stops masking it in `"<Word>, ..."` position. One removed silently
+deletes a real qualification from a worker's profile, which is how "Diploma Mechanical Engineering"
+was once lost.
 
 So the set is **pinned by checksum** in `tests/test_lexicon_parity.py`. If that test fails, the diff
 is a privacy decision and wants a security review — not a re-baselined hash.
