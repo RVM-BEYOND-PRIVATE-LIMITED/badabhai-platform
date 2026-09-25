@@ -423,22 +423,32 @@ describe("retiredAliasIds — REASON 4 for the lifecycle verifier", () => {
 // ── The committed file ───────────────────────────────────────────────────────
 
 describe("the committed retirement file", () => {
+  // Loaded ONCE, at collection, like the reachability suite's index: each is a full corpus
+  // resolve, and inside a test body two of them timed out under the parallel turbo run.
+  // `loadRetiredAliasKeys` validates as it loads, so a bad file fails collection loudly.
+  const keys = loadRetiredAliasKeys();
+  const retrievalView = resolveJobDomainCorpus();
+
   it("validates against the real corpus", () => {
-    expect(() => loadRetiredAliasKeys()).not.toThrow();
+    expect(Array.isArray(keys)).toBe(true);
   });
 
   it("leaves no retired alias in the retrieval view the routing tests are built from", () => {
     const keyOf = (k: RetiredAliasKey) => retiredKeyString(k.jobDomainId, k.lang, k.textNorm);
-    const retired = new Set(loadRetiredAliasKeys().map(keyOf));
-    const leaked = resolveJobDomainCorpus().flatMap((d) =>
-      d.aliases
-        .filter((a) =>
-          retired.has(
-            keyOf(retiredAliasKey({ job_domain_id: d.jobDomainId, lang: a.lang, text: a.text })),
-          ),
-        )
-        .map((a) => `${d.jobDomainId} ${a.text}`),
-    );
+    const retired = new Set(keys.map(keyOf));
+    // Only the domains a retirement names can leak, so only their aliases are normalized.
+    const named = new Set(keys.map((k) => k.jobDomainId));
+    const leaked = retrievalView
+      .filter((d) => named.has(d.jobDomainId))
+      .flatMap((d) =>
+        d.aliases
+          .filter((a) =>
+            retired.has(
+              keyOf(retiredAliasKey({ job_domain_id: d.jobDomainId, lang: a.lang, text: a.text })),
+            ),
+          )
+          .map((a) => `${d.jobDomainId} ${a.text}`),
+      );
     expect(leaked).toEqual([]);
   });
 });

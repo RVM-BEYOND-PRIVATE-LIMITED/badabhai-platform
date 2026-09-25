@@ -34,3 +34,5 @@
 # SHIPPING ONE (runbook P3-0): merge, then `db:seed:domains` (no-op for a retirement-only
 # change) and `db:normalize:aliases --apply` against production, then `db:verify:domains`,
 # which FAILS while any retired alias is still searchable.
+{"kind":"retire","job_domain_id":"jd_nco_6121_0800","text":"Machine","lang":"en","ruling":"RVM worksheet Part 5, A4","reason":"A comma-split of the published title 'Milker, Machine': the bare word sends machine operator, machine chalana, press machine and every '<x> machine' a worker says to dairy cattle. The occupation keeps 'Milker, Machine' and 'Milker'.","decided_by":"Divyanshu","decided_on":"2026-09-24"}
+{"kind":"retire","job_domain_id":"jd_nco_8159_0400","text":"Press Operator","lang":"en","ruling":"RVM worksheet Part 5, item 21; replacement code and phrase ruled 2026-09-25","reason":"'press operator' means the metal press (jd_nco_7211_0101, same change). The woollen-cloth press keeps 'woollen press operator'.","decided_by":"Divyanshu","decided_on":"2026-09-25"}

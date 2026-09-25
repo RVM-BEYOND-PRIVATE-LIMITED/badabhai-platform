@@ -964,13 +964,13 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     //    ("qc") is a QC occupation term, so a pin here hands over to the QC form. RE-AFFIRMED by
     //    the owner 2026-09-24, knowing it now reaches a form: still accepted, still pinned.
     expect(familyFor("vehicle inspection")).toBe("fam_quality_inspection");
-    // 2. THE THREE RETIREMENTS ARE STILL PENDING, so their misroutes stand. These go green-to-red
-    //    — deliberately — in the PR that builds the retirement path:
-    //    A4: every bare "machine …" still reaches dairy through the junk "Machine" alias,
-    expect(familyFor("machine operator")).toBe("fam_animal_rearing");
-    //    21: "press operator" is still the woollen-cloth press,
-    expect(familyFor("press operator")).toBe("fam_textile_machines");
-    //    A1: plain "fitter" is still on 7233.0101, the maintenance-fitter code.
+    // 2. TWO OF THE THREE RETIREMENTS HAVE LANDED (rvm-alias-retirements.jsonl, 2026-09-25; the
+    //    full picture is pinned in "Retirements — A4 and item 21" at the end):
+    //    A4: bare "machine …" no longer reaches dairy — it reaches nothing, and the interview asks,
+    expect(familyFor("machine operator")).toBeNull();
+    //    21: "press operator" is the metal press shop,
+    expect(familyFor("press operator")).toBe("fam_press_operation");
+    //    A1 is STILL PENDING: plain "fitter" is still on 7233.0101, the maintenance-fitter code.
     expect(resolveOccupation(occupationIndex, "fitter")?.jobDomainId).toBe("jd_nco_7233_0101");
     // 3. "naap tol" is STRUCK from QC but was a cart puller before the tranche and still is — the
     //    strike keeps it off the inspector's code, it does not repair the L1 fold on "tol".
@@ -1162,13 +1162,14 @@ describe("Batch 2 part two — press / machine operator", () => {
   });
 
   it("PINS THE GAPS IT KNOWINGLY LEAVES", () => {
-    // Item 21 and A4 need an alias-retirement mechanism (see the tranche block above, whose
-    // assertions these restate for this family): the role's own first word still lands elsewhere.
-    expect(familyFor("press operator")).toBe("fam_textile_machines");
-    expect(familyFor("machine operator")).toBe("fam_animal_rearing");
-    // Neither the Devanagari occupation term nor the struck "press ka kaam" reaches anything, and
-    // "press tool setter" folds to the tile setter at L1 ("tool setter" ~ "tile setter").
-    expect(familyFor("प्रेस ऑपरेटर")).toBeNull();
+    // Item 21 and A4 were retired into place 2026-09-25 — see "Retirements — A4 and item 21" at
+    // the end: the role's own first word now reaches it, in both scripts, and "machine operator"
+    // reaches nothing.
+    expect(familyFor("press operator")).toBe("fam_press_operation");
+    expect(familyFor("प्रेस ऑपरेटर")).toBe("fam_press_operation");
+    expect(familyFor("machine operator")).toBeNull();
+    // The struck "press ka kaam" still reaches nothing, and "press tool setter" folds to the tile
+    // setter at L1 ("tool setter" ~ "tile setter").
     expect(familyFor("press ka kaam")).toBeNull();
     expect(familyFor("press tool setter")).toBe("fam_building_finishing");
     // The helper code's title matches only WITH its slash; without it the one span left is
@@ -1509,5 +1510,113 @@ describe("Batch 2 part two — quality inspection", () => {
       expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
       expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
     }
+  });
+});
+
+/**
+ * RETIREMENTS — A4 AND ITEM 21, landed 2026-09-25 through `rvm-alias-retirements.jsonl` (#1718).
+ *
+ * A4 retires the junk "Machine" alias split off "Milker, Machine"; item 21 retires the woollen-cloth
+ * press's published title "Press Operator" and gives the phrase to 7211.0101 "Press Shop Operator",
+ * with "woollen press operator" left as the woollen press's way in. Owner rulings of 2026-09-25 add
+ * the guards for what those two moves exposed: the printing presses, which would otherwise reach the
+ * metal press on bare "press operator", and "sewing machine operator", which production routed to
+ * dairy through the same junk alias.
+ *
+ * TWO VIEWS, because production and this offline index disagree on exactly these phrases. The
+ * offline index keeps every selectable ISCO unit; production shadows the 370 with selectable NCO
+ * children (F4). The printing presses' and the sewing machine operator's own titles sit ONLY on
+ * shadowed units 7322 and 8153, so offline they look fine with or without a guard — the
+ * prod-like view below is the one that shows why the guards exist.
+ */
+describe("Retirements — A4 and item 21", () => {
+  const codeFor = (p: string): string | null =>
+    resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+
+  // PRODUCTION'S VIEW: the offline corpus with the F4 shadow rule applied, as the normalizer does.
+  const offline = resolveJobDomainCorpus();
+  const parentsOfSelectable = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const prodIndex = buildOccupationIndex(
+    offline.map((d) =>
+      d.source === "isco08" && parentsOfSelectable.has(d.jobDomainId) ? { ...d, aliases: [] } : d,
+    ),
+  );
+  const prodFamilyFor = (p: string): string | null => {
+    const hit = resolveOccupation(prodIndex, p);
+    if (!hit) return null;
+    const iscoUnitCode = prodIndex.unitByDomain.get(hit.jobDomainId) ?? null;
+    return resolveFamily(bindings, { jobDomainId: hit.jobDomainId, iscoUnitCode })?.familyId ?? null;
+  };
+
+  it("A4 — no bare 'machine' phrase reaches dairy any more; each reaches nothing", () => {
+    for (const p of [
+      "machine", "machine operator", "machine chalana", "machine wala", "machine helper",
+      "boring machine", "press machine", "press machine operator",
+    ]) {
+      expect(familyFor(p), p).toBeNull();
+      expect(prodFamilyFor(p), `${p} (prod view)`).toBeNull();
+    }
+    // The milker keeps its own two aliases — nothing else about the occupation moved.
+    expect(codeFor("milker machine")).toBe("jd_nco_6121_0800");
+    expect(familyFor("machine milker")).toBe("fam_animal_rearing");
+  });
+
+  it("A4 — every '<x> machine' that names a real trade still reaches it", () => {
+    expect(familyFor("machine shop")).toBe("fam_conventional_machining");
+    expect(familyFor("milling machine")).toBe("fam_vmc_milling");
+    expect(familyFor("cnc machine")).toBe("fam_machining");
+    expect(familyFor("silai machine")).toBe("fam_sewing_machine");
+    // A1 is still pending, so the maintenance phrases on 7233.0101 stay on the Fitter interim.
+    expect(familyFor("machine repair")).toBe("fam_fitter");
+    expect(familyFor("machine ki marammat")).toBe("fam_fitter");
+  });
+
+  it("item 21 — 'press operator' is the metal press shop, in both scripts and both views", () => {
+    for (const p of ["press operator", "प्रेस ऑपरेटर", "hydraulic press operator", "mechanical press operator"]) {
+      expect(familyFor(p), p).toBe("fam_press_operation");
+      expect(prodFamilyFor(p), `${p} (prod view)`).toBe("fam_press_operation");
+    }
+    expect(codeFor("press operator")).toBe("jd_nco_7211_0101");
+    expect(codeFor("प्रेस ऑपरेटर")).toBe("jd_nco_7211_0101");
+  });
+
+  it("item 21 — the woollen-cloth press keeps a way in, and wins as the longer span", () => {
+    expect(codeFor("woollen press operator")).toBe("jd_nco_8159_0400");
+    expect(familyFor("woollen press operator")).toBe("fam_textile_machines");
+    expect(prodFamilyFor("woollen press operator")).toBe("fam_textile_machines");
+  });
+
+  it("the printing-press guards keep printing workers in printing — in PRODUCTION's view", () => {
+    const guards: Record<string, string> = {
+      "printing press operator": "jd_nco_7322_1300",
+      "offset press operator": "jd_nco_7322_2100",
+      "web press operator": "jd_nco_7322_2000",
+      "digital press operator": "jd_nco_7322_1300",
+      "flexographic press operator": "jd_nco_7322_1300",
+      "screen printing press operator": "jd_nco_7322_1300",
+    };
+    for (const [p, code] of Object.entries(guards)) {
+      expect(resolveOccupation(prodIndex, p)?.jobDomainId, p).toBe(code);
+      expect(prodFamilyFor(p), p).toBe("fam_printing");
+      expect(familyFor(p), `${p} (offline)`).toBe("fam_printing");
+    }
+    // KNOWINGLY LEFT: "small press operator" is honestly ambiguous — a small power press is metal
+    // work too — so it takes the metal press in production. Pinned so a change shows in review.
+    expect(prodFamilyFor("small press operator")).toBe("fam_press_operation");
+  });
+
+  it("the sewing machine operator reaches the sewing pack, not dairy, in production's view", () => {
+    expect(resolveOccupation(prodIndex, "sewing machine operator")?.jobDomainId).toBe("jd_nco_8153_0101");
+    expect(prodFamilyFor("sewing machine operator")).toBe("fam_sewing_machine");
+    expect(familyFor("sewing machine operator")).toBe("fam_sewing_machine");
+  });
+
+  it("retires nothing it was not asked to — both rows are still in the catalogue", () => {
+    const rows = resolveJobDomainCorpus(undefined, { includeRetiredAliases: true });
+    const aliasesOf = (id: string) => rows.find((d) => d.jobDomainId === id)?.aliases.map((a) => a.text);
+    expect(aliasesOf("jd_nco_6121_0800")).toContain("Machine");
+    expect(aliasesOf("jd_nco_8159_0400")).toContain("Press Operator");
   });
 });
