@@ -33,6 +33,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
+
 import { resolveJobDomainCorpus } from "./job-domain-corpus";
 import { buildOccupationIndex, resolveOccupation } from "./occupation-retrieval-eval";
 import { loadQuestionPackCorpus, QUESTION_PACK_DATA_DIR } from "./question-pack-corpus";
@@ -1573,13 +1575,36 @@ describe("Retirements — A4 and item 21", () => {
     expect(familyFor("machine ki marammat")).toBe("fam_fitter");
   });
 
-  it("item 21 — 'press operator' is the metal press shop, in both scripts and both views", () => {
+  it("item 21 — 'press operator' puts the metal press shop FIRST, in both scripts and views", () => {
+    // FIRST CLAIMANT ONLY. `resolveOccupation` reads a span's first claimant — see the next test
+    // for what production does with the second.
     for (const p of ["press operator", "प्रेस ऑपरेटर", "hydraulic press operator", "mechanical press operator"]) {
       expect(familyFor(p), p).toBe("fam_press_operation");
       expect(prodFamilyFor(p), `${p} (prod view)`).toBe("fam_press_operation");
     }
     expect(codeFor("press operator")).toBe("jd_nco_7211_0101");
     expect(codeFor("प्रेस ऑपरेटर")).toBe("jd_nco_7211_0101");
+  });
+
+  it("item 21 — bare 'press operator' has a SECOND claimant, so production asks, not pins", () => {
+    // The ceramics pressman (8181.0400) carries "Press Operator" as a published alias. Two
+    // claimants in two families is exactly where the live resolver refuses to guess: measured
+    // 2026-09-25 with the real OccupationService on this corpus, bare "press operator" asks one
+    // question — "press operator" (7211.0101, the Press form) or "Pressman" (ceramics).
+    // The Devanagari phrase has one claimant and pins outright. Honest ambiguity, pinned not
+    // ruled (worksheet Part 7); retiring the ceramics alias is the owner's call.
+    const claimantsOf = (norm: string) =>
+      offline
+        .filter((d) => d.selectable && !(d.source === "isco08" && parentsOfSelectable.has(d.jobDomainId)))
+        .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+        .map((d) => d.jobDomainId)
+        .sort();
+    expect(claimantsOf(normalizeOccupationText("press operator"))).toEqual([
+      "jd_nco_7211_0101",
+      "jd_nco_8181_0400",
+    ]);
+    expect(prodFamilyFor("pressman ceramics")).not.toBe("fam_press_operation");
+    expect(claimantsOf(normalizeOccupationText("प्रेस ऑपरेटर"))).toEqual(["jd_nco_7211_0101"]);
   });
 
   it("item 21 — the woollen-cloth press keeps a way in, and wins as the longer span", () => {
