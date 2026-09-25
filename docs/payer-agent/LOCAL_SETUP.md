@@ -108,10 +108,22 @@ pnpm mail:up
 ```
 
 > **`GAP-LOCAL-01` — CLOSED 2026-09-25 (#1724).** Local payer email OTP works end to end,
-> verified by the worker-app owner: with the API on the host, `EMAIL_PROVIDER=smtp`,
-> `SMTP_HOST=127.0.0.1` and `SMTP_PORT=1025`, Mailpit (`pnpm mail:up`, UI on `:8025`) receives
-> the code. `PAYER_LOGIN_METHOD` ∈ `email_otp | whatsapp | supabase` selects the channel
-> (`packages/config/src/server.ts:429`); the ZeptoMail implementation is
+> verified by the worker-app owner: Mailpit (`pnpm mail:up`, UI on `:8025`) receives the code.
+> With the API on the host, set all of these — the API refuses to boot with `EMAIL_PROVIDER=smtp`
+> unless `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` and `EMAIL_FROM_ADDRESS` are all present
+> (`packages/config/src/server.ts:2329`), and Mailpit accepts any credentials:
+>
+> ```bash
+> EMAIL_PROVIDER=smtp
+> SMTP_HOST=127.0.0.1
+> SMTP_PORT=1025
+> SMTP_USER=local        # any value
+> SMTP_PASS=local        # any value
+> EMAIL_FROM_ADDRESS=no-reply@badabhai.local
+> ```
+>
+> `PAYER_LOGIN_METHOD` ∈ `email_otp | whatsapp | supabase` selects the channel
+> (`packages/config/src/server.ts:1003`); the ZeptoMail implementation is
 > `apps/api/src/payers/zeptomail-email-login-channel.ts`.
 >
 > **Automated E2E is still unserved.** A browser suite cannot read the code without driving
