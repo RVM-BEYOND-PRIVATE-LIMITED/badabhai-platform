@@ -3042,6 +3042,159 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE MAINTENANCE SHEET — Batch 2 part two's last.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Arif Khan, Maintenance Technician — Senior Technician,
+     * page 10), row for row. Its capability block has EIGHT rows and this map has eight `from`s, in
+     * the page's own order: Disciplines, Equipment maintained, Maintenance type, Instruments &
+     * tools, Drawings, Response worked to, Documentation, Sector worked. That order is also the
+     * template's bands — three chip rows, one tick row, four fact rows — so array order and band
+     * order agree.
+     *
+     * ONE CELL IS NOT REPRODUCED VERBATIM, noted on its row: the page's Documentation row is prose.
+     * This pack has no case in role-sheet-parity.render.test.ts yet, so nothing renders the persona
+     * end to end against page 10 — the map-vs-pack cross-checks in trade-resume-map.test.ts are
+     * what guard it.
+     */
+    pack_id: "qp_maintenance_tech",
+    // THE PAGE'S OWN HEADING. A maintenance advertisement is written in disciplines and the
+    // machines kept running — "maintenance technician, hydraulic & pneumatic, CNC and press".
+    section_title: "Disciplines, equipment & capability",
+    tier_section_titles: { easy: "Disciplines & equipment" },
+    capability: [
+      {
+        from: "maintenance_discipline",
+        rank: 21,
+        // THE HEADLINE'S THIRD SEGMENT: the page's header reads "Mechanical, Hydraulic, Pneumatic"
+        // — the first three of the four this row prints, in the page's order, under the
+        // guideline's three-tool headline cap.
+        inHeadline: true,
+        // The page prints four disciplines, and four is the trade: mechanical, hydraulic,
+        // pneumatic and basic electrical.
+        maxValues: 4,
+        label: "Disciplines",
+        kind: "chips",
+        values: {
+          mechanical: "Mechanical",
+          hydraulic: "Hydraulic",
+          pneumatic: "Pneumatic",
+          basic_electrical: "Basic electrical",
+        },
+      },
+      {
+        from: "maintenance_equipment",
+        // §5.1 rank 2: the machines a technician keeps running are what the job ad names.
+        rank: 22,
+        // §4.3 machines max 4, and the page prints exactly four.
+        maxValues: 4,
+        label: "Equipment maintained",
+        kind: "chips",
+        values: {
+          cnc_machines: "CNC machines",
+          power_presses: "Power presses",
+          air_compressors: "Air compressors",
+          conveyors: "Conveyors",
+          hydraulic_power_packs: "Hydraulic power packs",
+          pumps_blowers: "Pumps & blowers",
+        },
+      },
+      {
+        from: "maintenance_type",
+        // §5.1 rank 4: preventive against breakdown is what separates the technician who owns a PM
+        // schedule from the helper who is called when a machine stops — this role's ladder.
+        rank: 41,
+        // NO CAP. The page prints SIX values, and a cap would drop one the ratified sheet shows —
+        // the sheet metal map's Operations ruling.
+        label: "Maintenance type",
+        kind: "chips",
+        values: {
+          preventive: "Preventive maintenance",
+          breakdown: "Breakdown attending",
+          condition_monitoring: "Condition monitoring",
+          spare_planning: "Spare planning",
+          lubrication_schedule: "Lubrication schedule",
+          shutdown_overhaul: "Shutdown overhaul",
+        },
+      },
+      {
+        from: "measuring_tools",
+        // The tick row — where measuring instruments sit on every machining sheet.
+        rank: 51,
+        label: "Instruments & tools",
+        kind: "ticks",
+        values: {
+          multimeter: "Multimeter",
+          megger: "Megger",
+          vibration_pen: "Vibration pen",
+          hydraulic_test_kit: "Hydraulic test kit",
+          alignment_kit: "Alignment kit",
+          infrared_thermometer: "Infrared thermometer",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO LABEL, deliberately — the welder's ruling: "cannot read drawings" is real
+        // matching data, but a worker's own sheet is not where a negative claim belongs. The
+        // persona's answer prints the page's cell verbatim.
+        values: {
+          machine_layout: "Reads machine layout drawings",
+          circuit_drawing: "Reads hydraulic, pneumatic and machine layout drawings",
+        },
+      },
+      {
+        from: "maintenance_response",
+        rank: 62,
+        label: "Response worked to",
+        kind: "fact",
+        // Banded, the welder's plate ruling; the persona's band prints the page's cell verbatim.
+        values: {
+          within_fifteen: "Attended breakdowns within a 15-minute response window",
+          within_thirty: "Attended breakdowns within a 30-minute response window",
+          within_hour: "Attended breakdowns within an hour",
+          within_shift: "Attended breakdowns within the same shift",
+        },
+      },
+      {
+        from: "maintenance_documentation",
+        rank: 63,
+        label: "Documentation",
+        kind: "fact",
+        // A RECORDED DIVERGENCE: the page's cell is prose, "Maintains PM checklists, breakdown log
+        // and MTTR record". The pack asks WHICH records the worker keeps, and a fact row prints its
+        // values " · "-joined, so the persona's row reads "PM checklists · Breakdown log · MTTR
+        // record" — the same three records, without the sentence around them.
+        values: {
+          pm_checklist: "PM checklists",
+          breakdown_log: "Breakdown log",
+          mttr_record: "MTTR record",
+          history_card: "Machine history card",
+          spare_register: "Spare register",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 `sector_tag`, display only — ranks last. The page's cell is "Automotive plant
+        // maintenance", authored here as the automotive value, so the persona's row reproduces it.
+        values: {
+          automotive_plant: "Automotive plant maintenance",
+          auto_components: "Auto components",
+          steel_cement: "Steel & cement plant",
+          process_plant: "Chemical & process plant",
+          food_pharma: "Food & pharma plant",
+          general_engg: "General engineering",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

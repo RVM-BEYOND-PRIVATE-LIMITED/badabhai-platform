@@ -183,6 +183,10 @@ export const FAMILY_CHIP_LABELS: Readonly<Record<string, string>> = Object.freez
   // Batch 2 part two. The Latin reading of `label_hi` ("क्वालिटी कंट्रोल और इंस्पेक्शन"), spelled as
   // the tranche's own alias "quality control" is.
   fam_quality_inspection: "quality control aur inspection",
+  // Batch 2 part two's last. The Latin reading of `label_hi` ("मेंटेनेंस टेक्नीशियन"). It IS the
+  // role's occupation term, so an occupation that falls back to this label hands over the form on
+  // the pin — the intended route, pinned in the test.
+  fam_maintenance_tech: "maintenance technician",
 });
 
 /**

@@ -1108,9 +1108,30 @@ way to carry them out; the owner approved it, then ruled on what applying two of
   General". Its only alias sat on the shadowed ISCO unit 8153, so in production the phrase
   reached dairy cattle through the junk `Machine` alias, and after A4 a dairy sieving code.
 
+### A1 and the Maintenance Technician form
+
+- **A1 applied.** Plain `fitter` is retired off `jd_nco_7233_0101` and added to Bench Fitter
+  `jd_nco_7233_0200`; 0101 leaves the Fitter's interim binding (B2) for
+  `fam_maintenance_tech`, with the Maintenance Technician pack. The interim's cost ends with
+  it: `machine repair`, `machine ki marammat`, `breakdown maintenance` and `plant maintenance`
+  reach the Maintenance family, and `maintenance fitter` goes where A1 put it.
+- **C5 — Bare `maintenance` / `मेंटेनेंस` hands over the form only with the family pin** (the
+  B3 rule). Declared as an occupation term, it offered the Maintenance form to AC, building,
+  house, road, computer and vehicle maintenance, and to maintenance electricians, engineers
+  and supervisors — the magnet item 15 struck as an alias. `machine repair` and
+  `machine ki marammat` follow the same rule, so a worker pinned to 0101 is offered the form.
+- **C6 — The factory "Maintenance Technician" codes of the technician band are bound**:
+  `jd_nco_3113_0601` Maintenance Technician, `jd_nco_3113_0401` Machine Maintenance
+  Technician, `jd_nco_3115_0102` / `0103` Maintenance Technician-Mechanical and its assistant.
+  They are the first technician-band codes any family binds; without them the role's own name
+  fell to the universal pack.
+- **Known, not ruled:** `maintenance fitter` hands over the form on its pin, but a model label
+  reading "maintenance fitter" is vetoed by the Fitter's word `fitter` (the cluster veto), and
+  `maintenance mechanic` still reaches a telephone code (`jd_nco_7422_0200`) — a guard alias
+  would fix it.
+
 ### Still open
 
-- **A1** — plain `fitter` off `jd_nco_7233_0101` — ships with the Maintenance Technician pack.
 - `small press operator` is honestly ambiguous (a small power press is metal work) and reaches
   the metal press in production. Pinned, not ruled.
 - Bare `press operator` asks metal press shop or ceramics pressman (C2). That is an honest
@@ -1121,7 +1142,8 @@ way to carry them out; the owner approved it, then ruled on what applying two of
 ```
 Verdict: C1 retire, never delete; C2 press operator -> 7211.0101, woollen press keeps
 "woollen press operator"; A4 applied as signed; C3 six printing guards + printing vetoes;
-C4 sewing machine operator guard.
+C4 sewing machine operator guard; A1 applied with the Maintenance Technician form; C5 bare
+"maintenance" needs the family pin; C6 technician-band maintenance codes bound.
 
 Decided by: Divyanshu, 2026-09-25 (recorded by engineering from the decisions given
 while the retirements were built).

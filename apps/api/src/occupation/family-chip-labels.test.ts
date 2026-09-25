@@ -169,6 +169,11 @@ describe("FAMILY_CHIP_LABELS", () => {
       // term "quality control", so the pin hands over to the QC form. The generic
       // `fam_other_craft` ("anya karigari") names no trade and stays off this table.
       fam_quality_inspection: "quality_inspector",
+      // "maintenance technician" IS the maintenance technician's occupation term, so a worker the
+      // resolver pins here is handed that form. The generic `fam_fitting` ("fitter aur
+      // maintenance") and `fam_machinery_repair` stay off this table: bare "maintenance" is a
+      // corroborated term (owner ruling 2026-09-25), so it routes only under this family's pin.
+      fam_maintenance_tech: "maintenance_technician",
     });
   });
 });
@@ -281,11 +286,12 @@ describe("the served catalogue", () => {
       });
       if (kind === "fitter") routes[d.jobDomainId] = `${d.familyId} / ${d.chipLabel}`;
     }
-    // Exactly the three codes fam_fitter binds, and nothing else in the catalogue.
+    // Exactly the two codes fam_fitter binds, and nothing else in the catalogue. 7233.0101 left with
+    // ruling A1 (it is the maintenance technician's now), and 7233.0200's chip became plain
+    // "fitter" when that alias moved onto it.
     expect(routes).toEqual({
       jd_nco_7233_0100: "fam_fitter / Fitter, General",
-      jd_nco_7233_0101: "fam_fitter / fitter",
-      jd_nco_7233_0200: "fam_fitter / bench fitter",
+      jd_nco_7233_0200: "fam_fitter / fitter",
     });
     // RULED OUT. With the bare words as occupation terms, these five occupations outside
     // fam_fitter were offered the fitter form on turn one: a pipe fitter, a CCTV installer, a die
@@ -300,6 +306,43 @@ describe("the served catalogue", () => {
       ["jd_nco_7412_1001", "Mechanical Fitter-Control Panel"],
     ] as const) {
       expect(snapshot.domains.get(id)?.chipLabel, id).toBe(label);
+      expect(routes[id], id).toBeUndefined();
+    }
+  });
+
+  it("hands over the MAINTENANCE form on a bare catalogue pin exactly where this table says", () => {
+    // Bare "maintenance", "machine repair" and "machine ki marammat" are CORROBORATED terms (owner
+    // ruling 2026-09-25), so they hand over the form only inside fam_maintenance_tech; the
+    // occupation term "maintenance technician" routes anywhere, and is the family's own label.
+    const routes: Record<string, string> = {};
+    for (const d of snapshot.domains.values()) {
+      const kind = routeToTradeForm({
+        draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+        occupationFamilyId: d.familyId,
+        occupationLabel: d.chipLabel,
+      });
+      if (kind === "maintenance_technician")
+        routes[d.jobDomainId] = `${d.familyId} / ${d.chipLabel}`;
+    }
+    // Eight of the nine bound codes, and nothing outside the family. The ninth, 7233.1200, is
+    // shown by "Millwright", which names no maintenance term: it reaches the pack, not the form.
+    expect(routes).toEqual({
+      jd_nco_3113_0401: "fam_maintenance_tech / maintenance technician",
+      jd_nco_3113_0601: "fam_maintenance_tech / maintenance technician",
+      jd_nco_3115_0102: "fam_maintenance_tech / maintenance technician",
+      jd_nco_3115_0103: "fam_maintenance_tech / maintenance technician",
+      jd_nco_7233_0101: "fam_maintenance_tech / machine repair",
+      jd_nco_7233_0301: "fam_maintenance_tech / maintenance technician",
+      jd_nco_7233_1100: "fam_maintenance_tech / Mechanic Maintenance",
+      jd_nco_7233_2901: "fam_maintenance_tech / maintenance technician",
+    });
+    // RULED OUT: occupations outside the family whose chip names maintenance keep their trade.
+    for (const id of [
+      "jd_nco_7231_0101",
+      "jd_nco_7422_0200",
+      "jd_nco_7233_0402",
+      "jd_nco_3113_0102",
+    ]) {
       expect(routes[id], id).toBeUndefined();
     }
   });
