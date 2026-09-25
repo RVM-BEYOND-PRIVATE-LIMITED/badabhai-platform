@@ -44,20 +44,20 @@ import { inflateSync } from "node:zlib";
  */
 export const MAX_OBJECT_STREAM_BYTES = 4 * 1024 * 1024;
 
-/**
- * A PDF name ends at whitespace, a delimiter, or the end of the text. This is what keeps
- * `/Page` from matching `/Pages` while still matching `/Page/Parent` (no space, as written).
+/*
+ * `/Key /Value` as whole names, with the optional whitespace PDF allows between them.
+ *
+ * Each ends in the same lookahead: a PDF name ends at whitespace, a delimiter, or the end of
+ * the text. That is what keeps `/Page` from matching `/Pages` while still matching
+ * `/Page/Parent` (no space, as written).
+ *
+ * FOUR LITERALS, NOT ONE HELPER. A `new RegExp` built from arguments is what semgrep's
+ * `detect-non-literal-regexp` blocks, and a literal is also what a reader can check at a glance.
  */
-const NAME_END = String.raw`(?=[\s()<>[\]{}/%]|$)`;
-
-/** `/Key /Value` as whole names, with the optional whitespace PDF allows between them. */
-const nameEntry = (key: string, value: string, flags = ""): RegExp =>
-  new RegExp(String.raw`/${key}\s*/${value}${NAME_END}`, flags);
-
-const PAGES_TYPE_RE = nameEntry("Type", "Pages");
-const PAGE_LEAF_RE = nameEntry("Type", "Page", "g");
-const OBJECT_STREAM_TYPE_RE = nameEntry("Type", "ObjStm");
-const FLATE_FILTER_RE = nameEntry("Filter", "FlateDecode");
+const PAGES_TYPE_RE = /\/Type\s*\/Pages(?=[\s()<>[\]{}/%]|$)/;
+const PAGE_LEAF_RE = /\/Type\s*\/Page(?=[\s()<>[\]{}/%]|$)/g;
+const OBJECT_STREAM_TYPE_RE = /\/Type\s*\/ObjStm(?=[\s()<>[\]{}/%]|$)/;
+const FLATE_FILTER_RE = /\/Filter\s*\/FlateDecode(?=[\s()<>[\]{}/%]|$)/;
 
 /** A dictionary with no nested `<<`/`>>`. Its body is group 1. */
 const FLAT_DICT_RE = /<<([^<>]*)>>/g;
