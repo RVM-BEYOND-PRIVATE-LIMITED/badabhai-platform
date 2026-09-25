@@ -117,26 +117,33 @@ export interface ResumeDocumentSection {
  * generated THEN — ADR-0043 skips the cosmetic re-render of any entry that is no longer current
  * precisely so it keeps what it was generated with — so its card cannot be filled from the
  * worker's profile TODAY, which may name a different trade and a different city. The document
- * is already the one record written in the same UPDATE as the PDF it describes, so the card's
- * facts ride it rather than a second write that could fall out of step with the paper.
+ * is already the one record written in the same UPDATE as the PDF key, so the card's facts ride
+ * it rather than a second write of their own.
  *
- * THE FACTS ARE THE VERDICT LINE'S (`ResumeRenderInput.verdictFacts`), taken as the line printed
- * them, so the card and the top of the sheet cannot disagree. `pageCount` is the one fact the
- * input does not hold: the render worker counts it off the PDF's own bytes.
+ * ONE KNOWN WAY THEY LAG THE FILE. A forced re-render overwrites the PDF at the same key BEFORE
+ * that UPDATE; if the upload lands and the UPDATE then fails on the final attempt, the row keeps
+ * 'rendered' with the previous document, and so the previous glance, until the next re-render.
+ * It needs an infrastructure fault after a good upload, and it predates the glance (the document
+ * always lagged the same way).
+ *
+ * THE FACTS ARE THE VERDICT LINE'S (`ResumeRenderInput.verdictFacts`), normalised as the line
+ * prints them. They are recorded even where the sheet omits the line — no role, or the older
+ * `classic` layout — so they are that résumé's facts, not a transcript of its paper. `pageCount`
+ * is the one fact the input does not hold: the render worker counts it off the PDF's own bytes.
  *
  * ABSENT from every document rendered before #1714; {@link readResumeGlance} reads that as
  * "nothing recorded", never as an empty résumé.
  */
 export interface ResumeGlance {
-  /** The role title the Verdict Line printed ("VMC Operator"), or null. */
+  /** The Verdict Line's role title ("VMC Operator"), or null. */
   readonly role: string | null;
-  /** The tenure figure the Verdict Line printed, in years; null when it printed none. */
+  /** The tenure figure in years; null wherever the Verdict Line would print none. */
   readonly experienceYears: number | null;
   /** The Verdict Line's tools segment — controllers or machines, else skills — at most three. */
   readonly machines: readonly string[];
   /** Machine axes as printed ("3-axis"). Empty for every trade without an axis ask. */
   readonly axes: readonly string[];
-  /** The city the Verdict Line's second line printed. */
+  /** The city the Verdict Line's second line was composed with. */
   readonly city: string | null;
   /** Pages in the PDF drawn from this document, or null when they could not be counted. */
   readonly pageCount: number | null;
