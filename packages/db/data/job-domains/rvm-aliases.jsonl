@@ -906,3 +906,36 @@
 # land on the universal pack — the chemist's honest interview, not a CMM form.
 {"kind":"alias","job_domain_id":"jd_nco_2113_0601","text":"pharma qc","lang":"en"}
 {"kind":"alias","job_domain_id":"jd_nco_2113_0601","text":"qc chemist","lang":"en"}
+
+# ── 2026-09-25 — item 21 lands with its retirement (rvm-alias-retirements.jsonl) ─────────
+# RVM worksheet Part 5, item 21: "press operator" means the METAL press. The published title
+# "Press Operator" on the woollen-cloth press jd_nco_8159_0400 is retired in the same change,
+# so this is the only claimant and nothing is ambiguous. Owner ruled 2026-09-25:
+#   - the metal-press code is jd_nco_7211_0101 "Press Shop Operator" (operates the press for
+#     blanking, drawing etc.), already bound to fam_press_operation;
+#   - the woollen-cloth press keeps a way in: "woollen press operator", which no metal-press
+#     worker says, and which wins as the longer span over "press operator".
+{"kind":"alias","job_domain_id":"jd_nco_7211_0101","text":"press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7211_0101","text":"प्रेस ऑपरेटर","lang":"hi"}
+{"kind":"alias","job_domain_id":"jd_nco_8159_0400","text":"woollen press operator","lang":"en"}
+
+# ── 2026-09-25 — guards for item 21's printing collateral (owner ruling) ─────────────────
+# With "press operator" on the metal press shop, every "<printing> press operator" a worker
+# says would reach fam_press_operation: their specific titles sit only on ISCO unit 7322,
+# which production shadows (F4), so bare "press operator" is the span left. Each longer span
+# below wins over it and keeps the worker in printing. The Press descriptor vetoes the same
+# words, because these phrases become their codes' chip labels and still contain the Press
+# occupation term "press operator" — the QC guard pattern of 2026-09-24.
+{"kind":"alias","job_domain_id":"jd_nco_7322_1300","text":"printing press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7322_2100","text":"offset press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7322_2000","text":"web press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7322_1300","text":"digital press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7322_1300","text":"flexographic press operator","lang":"en"}
+{"kind":"alias","job_domain_id":"jd_nco_7322_1300","text":"screen printing press operator","lang":"en"}
+
+# ── 2026-09-25 — guard: "sewing machine operator" (owner ruling) ─────────────────────────
+# Its only alias is on ISCO unit 8153, which production shadows (F4), so live it reached dairy
+# cattle through the junk "Machine" alias (A4, retired in the same change) — and without that,
+# an L1 fold onto "Sieving Machine Operator", a dairy code. This is the general code's own
+# published title without ", General".
+{"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"sewing machine operator","lang":"en"}

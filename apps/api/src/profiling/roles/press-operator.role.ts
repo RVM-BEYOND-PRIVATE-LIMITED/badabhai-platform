@@ -16,14 +16,22 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  * Moulding Operator, and `qp_press_operation` asks no moulding question and offers no moulding
  * chip. The section below is the reasoning the ruling adopted.
  *
- * ═══ TWO OF THIS ROLE'S OWN WORDS STILL LAND ELSEWHERE, AND ARE PINNED RATHER THAN FIXED ═══
+ * ═══ "press operator" IS THE METAL PRESS — ITEM 21, RETIRED INTO PLACE 2026-09-25 ═══
  *
- * "press operator" (worksheet item 21) is ruled to mean the metal press, but the published NCO
- * title of the woollen-cloth press (8159.0400) still wins retrieval, so the resolver pins
- * `fam_textile_machines`. The occupation term below still routes a model label that says it — it
- * is only the pin that is wrong. "machine operator" and "machine chalana" (item 24, struck) still
- * reach dairy through the junk "Machine" alias (A4). Both need an alias-retirement mechanism the
- * overlay does not have; `question-pack-reachability.test.ts` pins them so the fix shows as a diff.
+ * The woollen-cloth press's published title "Press Operator" (8159.0400) is retired
+ * (`rvm-alias-retirements.jsonl`), and the phrase now reaches 7211.0101 "Press Shop Operator";
+ * the woollen press keeps "woollen press operator". The junk "Machine" alias is retired with it
+ * (A4), so "machine operator" and "machine chalana" (item 24, struck) reach no trade at all
+ * instead of dairy — the interview keeps asking.
+ *
+ * ═══ PRINTING PRESSES ARE VETOED ═══
+ *
+ * "press operator" is also how a printing-press worker names the trade, and every more specific
+ * title ("offset", "web", "flexographic" …) sits on ISCO unit 7322, which production shadows — so
+ * without help that worker would reach this family AND, because "press operator" is an occupation
+ * term, this form. Guard aliases send those phrases to printing codes; they then become those codes'
+ * chip labels, which still contain "press operator", so the words that make them printing are
+ * vetoed below as well (owner ruling 2026-09-25, the QC guard pattern).
  *
  * ═══ THE TAXONOMY PUTS "injection moulding" ON THIS ROLE'S ATTRIBUTE LIST. WE DO NOT ═══
  *
@@ -111,11 +119,13 @@ export const PRESS_OPERATOR = {
     ],
     levelTerms: ["helper", "operator", "setter", "सेटर"],
     /**
-     * Two cross-cluster rivals, both real and neither derivable.
+     * Three rivals this role cannot derive a veto from.
      *
      * The tool room (`machining`) shares this role's entire setting vocabulary — it BUILDS the die
      * this role changes. The moulding shop (`polymer`) is what the taxonomy's own attribute list
-     * would have folded into this role; see the header for why it is a veto instead.
+     * would have folded into this role; see the header for why it is a veto instead. The printing
+     * press is not a modelled trade at all; see the header. Its words are matched as whole words,
+     * so "offset press" rather than bare "offset", which a press setter can say about a die.
      */
     extraConflictTerms: [
       "die setting",
@@ -124,6 +134,15 @@ export const PRESS_OPERATOR = {
       "injection moulding",
       "injection molding",
       "moulding machine",
+      "printing",
+      "प्रिंटिंग",
+      "offset press",
+      "web press",
+      "digital press",
+      "flexographic",
+      // The woollen-cloth press (8159.0400) keeps "woollen press operator" as its way in, and
+      // that phrase is also its chip label — which contains "press operator".
+      "woollen",
     ],
   },
 } as const satisfies RoleFormDescriptor;

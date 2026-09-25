@@ -233,12 +233,33 @@ describe("routeToTradeForm", () => {
       expect(route("Manufacturing", "Press operator", null)).toBe("press_operator");
       expect(route("Manufacturing", "Power press operator", null)).toBe("press_operator");
       expect(route("विनिर्माण", "प्रेस ऑपरेटर", null)).toBe("press_operator");
-      // ...even under the WRONG pin. Worksheet item 21 is still pending, so "press operator"
-      // resolves to the woollen-cloth press in fam_textile_machines; an occupation term never
-      // consults the pin, so the model's label still hands the worker the metal press form.
+      // ...and under ANY pin: an occupation term never consults the pin. Since item 21 was retired
+      // into place (2026-09-25) "press operator" also resolves to the metal press shop itself, but
+      // a pin elsewhere would still not stop the model's own label handing over the form.
       expect(route("Manufacturing", "Press operator", "fam_textile_machines")).toBe(
         "press_operator",
       );
+      // PRINTING PRESSES ARE VETOED (owner ruling 2026-09-25). "press operator" is inside every
+      // printing-press title, so the words that make it printing withhold the form — from the
+      // model's label, from the guard aliases' chip labels under fam_printing, and in Devanagari.
+      for (const label of [
+        "Printing press operator",
+        "Offset press operator",
+        "Web press operator",
+        "Digital press operator",
+        "Flexographic press operator",
+        "Screen printing press operator",
+      ]) {
+        expect(route("Printing", label, null), label).toBeNull();
+        expect(route(null, null, "fam_printing", label.toLowerCase()), `${label} (pin)`).toBeNull();
+      }
+      expect(route("मुद्रण", "प्रिंटिंग प्रेस ऑपरेटर", null)).toBeNull();
+      // The woollen-cloth press keeps "woollen press operator" as its way in and its chip label;
+      // the veto keeps that off the metal-press form too.
+      expect(route(null, null, "fam_textile_machines", "woollen press operator")).toBeNull();
+      // The vetoes are whole words, so a metal-press worker's own words still route.
+      expect(route("Manufacturing", "Mechanical press operator", null)).toBe("press_operator");
+      expect(route("Manufacturing", "Hydraulic press operator", null)).toBe("press_operator");
       // MACHINE WORDS NEED THE FAMILY PIN: "power press" (the tranche's item 20, and the chip
       // label 7223.2300 is shown by) and "hydraulic press" route only once the resolver has landed
       // the worker on fam_press_operation.

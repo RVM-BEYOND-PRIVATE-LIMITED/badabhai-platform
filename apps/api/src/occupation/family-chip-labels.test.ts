@@ -31,6 +31,18 @@ import { buildOccupationSnapshot, isLatinScript } from "./occupation-index";
 
 const corpus = loadQuestionPackCorpus();
 
+/**
+ * The occupations whose pinned chip label alone hands over the Press form — the four metal-press
+ * codes whose label names the machine. 7223.3000 ("stamping") is bound to the family but its label
+ * is not a Press term, so it reaches the pack and not the form on a pin (a known gap).
+ */
+const PRESS_FORM_BY_PIN: readonly string[] = [
+  "jd_nco_7211_0101",
+  "jd_nco_7211_0102",
+  "jd_nco_7223_0200",
+  "jd_nco_7223_2300",
+];
+
 const OCCUPATION_LABEL_DART = join(
   __dirname,
   "../../../worker-app/lib/core/api/occupation_label.dart",
@@ -311,6 +323,33 @@ describe("the served catalogue", () => {
     expect(handedTheQcForm).toEqual(["jd_nco_7543_2001"]);
     expect(snapshot.domains.get("jd_nco_7543_0201")?.chipLabel).toBe("garment qc");
     expect(snapshot.domains.get("jd_nco_2113_0601")?.chipLabel).toBe("pharma qc");
+  });
+
+  it("hands the Press form on a pinned label to metal-press codes alone, never to printing", () => {
+    // "press operator" is a Press occupation term, and since item 21 (2026-09-25) it is 7211.0101's
+    // own alias. The printing guard aliases of the same day gave four printing codes chip labels
+    // that contain it too ("offset press operator" …); the Press descriptor's printing vetoes are
+    // what keep those off the metal-press form. Same pattern, and same reason, as the QC pin above.
+    const handedThePressForm = [...snapshot.domains.values()]
+      .filter(
+        (d) =>
+          routeToTradeForm({
+            draft: { domain_label: null, role_label: null, skills: [], experiences: [] },
+            occupationFamilyId: d.familyId,
+            occupationLabel: d.chipLabel,
+          }) === "press_operator",
+      )
+      .map((d) => d.jobDomainId)
+      .sort();
+    expect(handedThePressForm).toEqual(PRESS_FORM_BY_PIN);
+    for (const id of ["jd_nco_7322_1300", "jd_nco_7322_2000", "jd_nco_7322_2100"]) {
+      expect(snapshot.domains.get(id)?.familyId, id).toBe("fam_printing");
+      expect(handedThePressForm, id).not.toContain(id);
+    }
+    // The woollen-cloth press keeps its own phrase as its chip, and the "woollen" veto keeps that
+    // chip off the metal-press form — without it this code was the fifth row above.
+    expect(snapshot.domains.get("jd_nco_8159_0400")?.chipLabel).toBe("woollen press operator");
+    expect(handedThePressForm).not.toContain("jd_nco_8159_0400");
   });
 
   it("gives the two Devanagari-only occupations their Latin twins", () => {

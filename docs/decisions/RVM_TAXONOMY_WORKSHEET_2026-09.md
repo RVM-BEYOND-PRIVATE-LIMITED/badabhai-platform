@@ -1054,3 +1054,66 @@ B6 F4 re-affirmed; B7 7311.0500 kept.
 Decided by: Divyanshu, 2026-09-24 (recorded by engineering from the decisions given
 while the packs were built).
 ```
+
+---
+
+# Part 7 — Retiring aliases, and the two retirements it unblocked (decided 2026-09-25)
+
+**Scope: the retirement mechanism and rulings A4 and item 21 from Part 5.** Part 5 signed
+three retirements that the add-only alias overlay could not carry out. Engineering proposed a
+way to carry them out; the owner approved it, then ruled on what applying two of them exposed.
+
+### The mechanism
+
+- **C1 — Retire, never delete** (#1718). A retirement is a reviewed line in
+  `packages/db/data/job-domains/rvm-alias-retirements.jsonl` naming the alias, the ruling and
+  the reason. The row stays in the database; `db:normalize:aliases` stops it being searchable
+  and the offline index drops it, so production and every routing test agree. Deleting the
+  line undoes it.
+
+### Item 21 and A4, applied
+
+- **C2 — Item 21's details.** `press operator` / `प्रेस ऑपरेटर` reach `jd_nco_7211_0101`
+  "Press Shop Operator", already bound to the Press form. The woollen-cloth press
+  (`jd_nco_8159_0400`) loses its published title "Press Operator" and keeps one way in:
+  `woollen press operator`, which no metal-press worker says.
+- **A4** needed no new decision: the junk `Machine` alias is retired as ruled, and every bare
+  "machine …" phrase now reaches no trade instead of dairy.
+
+### What applying them exposed
+
+- **C3 — Printing presses: guard aliases plus veto words.** Every printing-press title sits
+  only on ISCO unit 7322, which production shadows, so after C2 a printing worker would have
+  reached the metal Press family — and, because "press operator" is a Press occupation term,
+  was already being offered the Press form. Each of these now reaches a printing code:
+
+  | Phrase                                                             | Code               |
+  | ------------------------------------------------------------------ | ------------------ |
+  | printing / digital / flexographic / screen printing press operator | `jd_nco_7322_1300` |
+  | offset press operator                                              | `jd_nco_7322_2100` |
+  | web press operator                                                 | `jd_nco_7322_2000` |
+
+  The Press form vetoes `printing`, `प्रिंटिंग`, `offset press`, `web press`, `digital press`
+  and `flexographic`, because the guard phrases become their codes' chip labels and still
+  contain "press operator" (the QC pattern of B4–B5). Engineering added `woollen` to the same
+  list to carry out C2: without it, the woollen press's new chip label would have handed its
+  workers the metal-press form.
+
+- **C4 — Guard `sewing machine operator` → `jd_nco_8153_0101`** "Sewing Machine Operator,
+  General". Its only alias sat on the shadowed ISCO unit 8153, so in production the phrase
+  reached dairy cattle through the junk `Machine` alias, and after A4 a dairy sieving code.
+
+### Still open
+
+- **A1** — plain `fitter` off `jd_nco_7233_0101` — ships with the Maintenance Technician pack.
+- `small press operator` is honestly ambiguous (a small power press is metal work) and reaches
+  the metal press in production. Pinned, not ruled.
+
+```
+Verdict: C1 retire, never delete; C2 press operator -> 7211.0101, woollen press keeps
+"woollen press operator"; A4 applied as signed; C3 six printing guards + printing vetoes;
+C4 sewing machine operator guard.
+
+Decided by: Divyanshu, 2026-09-25 (recorded by engineering from the decisions given
+while the retirements were built).
+```
