@@ -69,7 +69,7 @@ export function buildSheetFooterMeta(input: {
   trustBadge?: string | null;
   refCode?: string | null;
   /**
-   * TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Standard profile", LAST,
+   * TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Recommended profile", LAST,
    * after the ref. Absent while tiers are off, so every sheet's footer is exactly today's.
    */
   tierLabel?: string | null;

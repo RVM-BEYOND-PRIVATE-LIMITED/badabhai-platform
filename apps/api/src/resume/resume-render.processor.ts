@@ -471,7 +471,7 @@ export class ResumeRenderProcessor extends WorkerHost {
         generatedAt: renderedAt,
         trustBadge,
         refCode: resumeRefCode(resumeId),
-        // TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Standard profile".
+        // TIERED PROFILING — "Quick profile" / "Detailed profile" / "BadaBhai Recommended profile".
         // Absent while tiers are off, so the footer is exactly today's.
         tierLabel: tierScope ? PROFILING_TIER_FOOTER_LABEL[tierScope.tier] : null,
       }),
