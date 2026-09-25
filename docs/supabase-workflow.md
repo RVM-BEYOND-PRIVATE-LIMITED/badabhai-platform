@@ -68,6 +68,13 @@ non-Supabase Postgres from scratch must pre-create them (idempotently) first —
 "Create Supabase-compatible roles" step (`ci.yml` §e2e job) for the exact `CREATE ROLE ... NOLOGIN`
 pattern this repo already uses.
 
+**And `postgres`, when the migrating superuser is anyone else (#1724).** `0085`/`0087` run
+`ALTER DEFAULT PRIVILEGES FOR ROLE postgres`, so a target whose superuser is not `postgres` dies
+there with `role "postgres" does not exist`. The CI step above omits it only because that job
+runs **as** `postgres`. The canonical list is
+[`infra/docker/postgres-init/00-supabase-roles.sql`](../infra/docker/postgres-init/00-supabase-roles.sql),
+and `packages/db/src/local-init-roles.test.ts` fails when a migration names a role it lacks.
+
 ## Row Level Security — current status (verify before relying on this)
 
 Per `docs/audit/24_RISK_REGISTER.md` R1 (re-verified independently for that audit, not merely

@@ -30,6 +30,20 @@
 -- up MORE faithful to production, not less. `service_role` carries BYPASSRLS to match
 -- Supabase — which is precisely the role ADR-0004 revokes the `workers` grant from, and
 -- the reason that REVOKE is the real control rather than the RLS policy.
+--
+-- AND `postgres` (#1724). 0085 and 0087 run `ALTER DEFAULT PRIVILEGES FOR ROLE postgres`,
+-- which on Supabase names the project owner. Here the superuser is `badabhai`
+-- (docker-compose.yml's POSTGRES_USER), so there was no `postgres` role at all and a fresh
+-- `pnpm db:migrate` died on 0085 with `role "postgres" does not exist` — the same class of
+-- gap as `anon` on 0004, not extended when 0085 landed. CI never saw it because its E2E
+-- Postgres runs AS `postgres`. `packages/db/src/local-init-roles.test.ts` now fails when a
+-- migration names a role this file does not create.
+--
+-- AN EXISTING VOLUME DOES NOT RE-RUN THIS FILE. If your data dir was initialised before
+-- `postgres` was added, create it once by hand, the same way it is created below:
+--
+--     docker compose exec postgres psql -U badabhai -d badabhai \
+--       -c "CREATE ROLE postgres NOLOGIN NOINHERIT;"
 
 DO $$
 BEGIN
@@ -46,6 +60,13 @@ BEGIN
   -- anything anyway.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;
+  END IF;
+
+  -- Only so 0085/0087's `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` resolves off Supabase.
+  -- NOLOGIN and owning nothing: locally every object is created by `badabhai`, so the
+  -- defaults set FOR this role govern nothing here. It exists to be named, not to act.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    CREATE ROLE postgres NOLOGIN NOINHERIT;
   END IF;
 END
 $$;

@@ -353,12 +353,13 @@ pnpm mail:up          # docker compose --profile mail up -d mailpit
 #   Windows note: if a host Postgres already owns 5432 the compose one is shadowed —
 #   use docker-compose.e2e.yml (publishes 5433) and repoint DATABASE_URL.
 #   infra/docker/postgres-init/00-supabase-roles.sql pre-creates anon/authenticated/
-#   service_role on first boot; without it migration 0004 dies with role "anon" does not exist.
+#   service_role/postgres on first boot; without it migration 0004 dies with role "anon" does
+#   not exist, and 0085 with role "postgres" does not exist (#1724).
 
 # ── 4. Build workspace packages to dist/ FIRST (README.md:237 troubleshooting)
 pnpm build            # turbo: topological; also runs next build for payer-web
 
-# ── 5. Schema: 74 migrations, 0000..0073
+# ── 5. Schema: every migration in packages/db/migrations
 pnpm db:migrate
 
 # ── 6. Reference data the interview reads on every turn (order matters)

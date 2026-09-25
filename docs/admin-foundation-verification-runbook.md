@@ -49,7 +49,9 @@ defect on its own — report it and stop.
 > created against Supabase. Fixed by
 > [`infra/docker/postgres-init/00-supabase-roles.sql`](../infra/docker/postgres-init/00-supabase-roles.sql),
 > which the container runs automatically on an empty data dir — you do not need to do
-> anything, but if you see that error, check the volume mount survived.
+> anything, but if you see that error, check the volume mount survived. The same gap hit again
+> at `0085` (`role "postgres" does not exist`, #1724): the file now creates `postgres` too, and
+> `packages/db/src/local-init-roles.test.ts` fails if a migration names a role it does not create.
 >
 > **If `db:migrate` fails, do not trust its output.** `drizzle-kit migrate` reports a failed
 > migration as a **silent exit 1** with no message (TD133). To see the real error:
