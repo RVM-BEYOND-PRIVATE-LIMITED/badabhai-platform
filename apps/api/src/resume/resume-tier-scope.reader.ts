@@ -19,7 +19,7 @@ import type { ResumeTierScope } from "./resume-tier-scope";
  * NULL WHILE `PROFILING_TIERS_ENABLED` IS OFF, and nothing is queried: the sheet is then exactly
  * today's, and migration 0126 need not be applied. NULL TOO for a sheet whose pack carries no
  * tags (a trade with no form, or a pack not yet re-seeded). Otherwise a worker with no tier row
- * renders at Hard — every row he has, plus the "BadaBhai Standard profile" footer label.
+ * renders at Hard — every row he has, plus the "BadaBhai Recommended profile" footer label.
  *
  * MAY THROW; callers degrade a failure to a null scope (today's sheet, no tier label) on the same
  * one-load-one-section rule as every other read the render worker makes.
