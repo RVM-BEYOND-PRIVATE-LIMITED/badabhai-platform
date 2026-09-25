@@ -1,0 +1,717 @@
+{
+  "_why": "Role track for MAINTENANCE TECHNICIAN, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2 part two's seventh and last pack. The generic packs it sits beside stay exactly as they are: fam_fitting keeps ISCO unit 7233 and fam_machinery_repair keeps minor 723 for everybody this family does not bind. It shipped only once ruling A1 could be carried out -- plain 'fitter' retired off 7233.0101 Maintenance Fitter-Mechanical (rvm-alias-retirements.jsonl) and moved to Bench Fitter -- so that code could leave the Fitter's interim binding and come here. fam_maintenance_tech binds its NCO occupations directly (job_domain specificity 50 beats unit 40 and minor 30).",
+  "_scope": "PLANT MAINTENANCE -- keeping a factory's machines running: mechanical, hydraulic, pneumatic and basic electrical, preventive and breakdown, from maintenance helper to senior technician. The level ladder (Helper / Technician / Senior Technician) is asked as maintenance_level so the sheet can say which rung the man stands on. Vehicle workshops (fam_auto_mechanic), building and AC maintenance, telephone and electronics repair, and pure electrical maintenance (Industrial Electrician) are not bound here; the family row in _families.jsonl records each.",
+  "_depth": "THE TIER GATE IS maintenance_experience, asked FIRST, and it is MAINTENANCE_TECHNICIAN.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber, so a value_text beside the number would turn every gte gate below into a string comparison that is false forever.",
+  "_budget": "MAX_ENGINE_ASKS is 48 and qp_universal@4 spends at most 18. Tier 0 is 7 items, tier 1 (maintenance_experience >= 2) adds 3, tier 2 (>= 5) adds 3 -- a senior walks 13, two fewer than the welder's 15, and 13 + 18 = 31 against the ceiling of 48. The three fresher items are gated maintenance_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 7 + 3 = 10.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED MAINTENANCE REFERENCE RESUME (Arif Khan, Maintenance Technician -- Senior Technician, page 10), not invented. Its eight rows are Disciplines, Equipment maintained, Maintenance type, Instruments & tools, Drawings, Response worked to, Documentation and Sector worked, and every one has a question here that fills it. Maintenance type and Instruments & tools carry SIX values plus the escape chip because the page prints six in each. Equipment keeps the page's 'CNC machines' as a chip: the descriptor deliberately does NOT make it a machine term (a CNC operator says it about the machine he runs), but a pack chip is never routing evidence -- it is only served to a worker whose family already resolved here. Response time is a BANDED single_select, the welder's plate ruling. ONE CELL IS NOT REPRODUCED VERBATIM: the page's Documentation row is prose ('Maintains PM checklists, breakdown log and MTTR record'); the pack asks which records the man keeps, and the row prints them ' · '-joined. This pack has no case in role-sheet-parity.render.test.ts yet.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime -- which is why the response bands are within_fifteen / within_thirty and not within_30. measuring_tools, drawing_reading and sector_worked are the SHARED keys other packs already use, deliberately: resume-degradation.ts sheds rows BY KEY (sector_worked first) to keep a sheet on one page, and a private key would opt this trade out of that.",
+  "pack_id": "qp_maintenance_tech",
+  "version": 1,
+  "family_id": "fam_maintenance_tech",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review. Shop-floor vocabulary NOT yet corrected by a practising maintenance technician -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific (the page's worker came through ITI Mechanic Machine Tool Maintenance). The three prompts are the welder's verbatim, so they reuse its served text and its voice clips.",
+  "items": [
+    {
+      "question_key": "maintenance_experience",
+      "min_tier": "easy",
+      "prompt_text": "Maintenance ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal maintenance ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "maintenance_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_discipline",
+      "min_tier": "easy",
+      "prompt_text": "Aap kis tarah ki maintenance karte hain?",
+      "why_text": "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.",
+      "retry_text": "Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?",
+      "target_kind": "attribute",
+      "target_field": "maintenance_discipline",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mechanical",
+          "label_text": "Mechanical",
+          "value_text": "mechanical"
+        },
+        {
+          "option_key": "hydraulic",
+          "label_text": "Hydraulic",
+          "value_text": "hydraulic"
+        },
+        {
+          "option_key": "pneumatic",
+          "label_text": "Pneumatic",
+          "value_text": "pneumatic"
+        },
+        {
+          "option_key": "basic_electrical",
+          "label_text": "Basic electrical",
+          "value_text": "basic_electrical"
+        },
+        {
+          "option_key": "other_discipline",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_level",
+      "min_tier": "easy",
+      "prompt_text": "Aap khud ko kis level ka maintenance technician maante hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "technician",
+          "label_text": "Technician",
+          "value_text": "technician"
+        },
+        {
+          "option_key": "senior_technician",
+          "label_text": "Senior technician",
+          "value_text": "senior_technician"
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_equipment",
+      "min_tier": "easy",
+      "prompt_text": "Kaunsi machines ki maintenance karte hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "CNC, power press, compressor ya conveyor, kiski maintenance ki hai?",
+      "target_kind": "attribute",
+      "target_field": "maintenance_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cnc_machines",
+          "label_text": "CNC machines",
+          "value_text": "cnc_machines"
+        },
+        {
+          "option_key": "power_presses",
+          "label_text": "Power presses",
+          "value_text": "power_presses"
+        },
+        {
+          "option_key": "air_compressors",
+          "label_text": "Air compressors",
+          "value_text": "air_compressors"
+        },
+        {
+          "option_key": "conveyors",
+          "label_text": "Conveyors",
+          "value_text": "conveyors"
+        },
+        {
+          "option_key": "hydraulic_power_packs",
+          "label_text": "Hydraulic power packs",
+          "value_text": "hydraulic_power_packs"
+        },
+        {
+          "option_key": "pumps_blowers",
+          "label_text": "Pumps aur blowers",
+          "value_text": "pumps_blowers"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_type",
+      "min_tier": "medium",
+      "prompt_text": "Maintenance me kaunse kaam aap khud karte hain?",
+      "why_text": "Preventive aur breakdown dono jaanne wale ki maang zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "preventive",
+          "label_text": "Preventive maintenance",
+          "value_text": "preventive"
+        },
+        {
+          "option_key": "breakdown",
+          "label_text": "Breakdown attending",
+          "value_text": "breakdown"
+        },
+        {
+          "option_key": "condition_monitoring",
+          "label_text": "Condition monitoring",
+          "value_text": "condition_monitoring"
+        },
+        {
+          "option_key": "spare_planning",
+          "label_text": "Spare planning",
+          "value_text": "spare_planning"
+        },
+        {
+          "option_key": "lubrication_schedule",
+          "label_text": "Lubrication schedule",
+          "value_text": "lubrication_schedule"
+        },
+        {
+          "option_key": "shutdown_overhaul",
+          "label_text": "Shutdown overhaul",
+          "value_text": "shutdown_overhaul"
+        },
+        {
+          "option_key": "other_type",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "min_tier": "medium",
+      "prompt_text": "Maintenance me kaunse instrument istemaal karte hain?",
+      "why_text": "Instrument chalane wale technician par employer zyada bharosa karte hain.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "multimeter",
+          "label_text": "Multimeter",
+          "value_text": "multimeter"
+        },
+        {
+          "option_key": "megger",
+          "label_text": "Megger",
+          "value_text": "megger"
+        },
+        {
+          "option_key": "vibration_pen",
+          "label_text": "Vibration pen",
+          "value_text": "vibration_pen"
+        },
+        {
+          "option_key": "hydraulic_test_kit",
+          "label_text": "Hydraulic test kit",
+          "value_text": "hydraulic_test_kit"
+        },
+        {
+          "option_key": "alignment_kit",
+          "label_text": "Alignment kit",
+          "value_text": "alignment_kit"
+        },
+        {
+          "option_key": "infrared_thermometer",
+          "label_text": "Infrared thermometer",
+          "value_text": "infrared_thermometer"
+        },
+        {
+          "option_key": "other_tool",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "min_tier": "medium",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "none",
+          "label_text": "Nahi padh paata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "machine_layout",
+          "label_text": "Machine ki layout drawing",
+          "value_text": "machine_layout"
+        },
+        {
+          "option_key": "circuit_drawing",
+          "label_text": "Layout aur hydraulic-pneumatic circuit dono",
+          "value_text": "circuit_drawing"
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_response",
+      "min_tier": "hard",
+      "prompt_text": "Breakdown aane par kitni der me machine tak pahunchna hota tha?",
+      "why_text": "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_response",
+      "answer_type": "single_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "within_fifteen",
+          "label_text": "15 minute ke andar",
+          "value_text": "within_fifteen"
+        },
+        {
+          "option_key": "within_thirty",
+          "label_text": "30 minute ke andar",
+          "value_text": "within_thirty"
+        },
+        {
+          "option_key": "within_hour",
+          "label_text": "1 ghante ke andar",
+          "value_text": "within_hour"
+        },
+        {
+          "option_key": "within_shift",
+          "label_text": "Usi shift me",
+          "value_text": "within_shift"
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_documentation",
+      "min_tier": "hard",
+      "prompt_text": "Maintenance ka kaunsa record aap khud rakhte hain?",
+      "why_text": "Record rakhne wale technician ko badi plant me kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_documentation",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "pm_checklist",
+          "label_text": "PM checklist",
+          "value_text": "pm_checklist"
+        },
+        {
+          "option_key": "breakdown_log",
+          "label_text": "Breakdown log",
+          "value_text": "breakdown_log"
+        },
+        {
+          "option_key": "mttr_record",
+          "label_text": "MTTR record",
+          "value_text": "mttr_record"
+        },
+        {
+          "option_key": "history_card",
+          "label_text": "Machine history card",
+          "value_text": "history_card"
+        },
+        {
+          "option_key": "spare_register",
+          "label_text": "Spare register",
+          "value_text": "spare_register"
+        },
+        {
+          "option_key": "no_record",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "min_tier": "hard",
+      "prompt_text": "Kis industry ke plant me maintenance ka kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "automotive_plant",
+          "label_text": "Automotive plant",
+          "value_text": "automotive_plant"
+        },
+        {
+          "option_key": "auto_components",
+          "label_text": "Auto components",
+          "value_text": "auto_components"
+        },
+        {
+          "option_key": "steel_cement",
+          "label_text": "Steel ya cement plant",
+          "value_text": "steel_cement"
+        },
+        {
+          "option_key": "process_plant",
+          "label_text": "Chemical ya process plant",
+          "value_text": "process_plant"
+        },
+        {
+          "option_key": "food_pharma",
+          "label_text": "Food ya pharma plant",
+          "value_text": "food_pharma"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_fluid_power",
+      "min_tier": "hard",
+      "prompt_text": "Hydraulic aur pneumatic ka kaunsa kaam khud karte hain?",
+      "why_text": "Hydraulic aur pneumatic jaanne wale technician ki alag maang hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_fluid_power",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "power_pack_service",
+          "label_text": "Power pack ka oil aur filter",
+          "value_text": "power_pack_service"
+        },
+        {
+          "option_key": "cylinder_seal",
+          "label_text": "Cylinder ki seal kit badalna",
+          "value_text": "cylinder_seal"
+        },
+        {
+          "option_key": "valve_solenoid",
+          "label_text": "Valve aur solenoid badalna",
+          "value_text": "valve_solenoid"
+        },
+        {
+          "option_key": "pneumatic_line",
+          "label_text": "Pneumatic line aur FRL",
+          "value_text": "pneumatic_line"
+        },
+        {
+          "option_key": "hose_pipe",
+          "label_text": "Hose aur pipe line badalna",
+          "value_text": "hose_pipe"
+        },
+        {
+          "option_key": "no_fluid_power",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_fault_finding",
+      "min_tier": "hard",
+      "prompt_text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale technician ki plant par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_fault_finding",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "vibration_noise",
+          "label_text": "Vibration aur awaaz",
+          "value_text": "vibration_noise"
+        },
+        {
+          "option_key": "bearing_heating",
+          "label_text": "Bearing garam hona",
+          "value_text": "bearing_heating"
+        },
+        {
+          "option_key": "oil_leakage",
+          "label_text": "Oil leakage",
+          "value_text": "oil_leakage"
+        },
+        {
+          "option_key": "air_leakage",
+          "label_text": "Air leakage",
+          "value_text": "air_leakage"
+        },
+        {
+          "option_key": "motor_tripping",
+          "label_text": "Motor trip hona",
+          "value_text": "motor_tripping"
+        },
+        {
+          "option_key": "misalignment",
+          "label_text": "Alignment bigadna",
+          "value_text": "misalignment"
+        },
+        {
+          "option_key": "no_fault",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "maintenance_overhaul",
+      "min_tier": "hard",
+      "prompt_text": "Kis machine ka poora overhaul khud kar lete hain?",
+      "why_text": "Overhaul karne wale technician ko senior kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "maintenance_overhaul",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "gearbox_overhaul",
+          "label_text": "Gearbox overhaul",
+          "value_text": "gearbox_overhaul"
+        },
+        {
+          "option_key": "pump_overhaul",
+          "label_text": "Pump overhaul",
+          "value_text": "pump_overhaul"
+        },
+        {
+          "option_key": "cylinder_overhaul",
+          "label_text": "Hydraulic cylinder overhaul",
+          "value_text": "cylinder_overhaul"
+        },
+        {
+          "option_key": "compressor_overhaul",
+          "label_text": "Compressor overhaul",
+          "value_text": "compressor_overhaul"
+        },
+        {
+          "option_key": "press_clutch_brake",
+          "label_text": "Press clutch aur brake",
+          "value_text": "press_clutch_brake"
+        },
+        {
+          "option_key": "no_overhaul",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "min_tier": "easy",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fitting_bench",
+          "label_text": "Fitting bench aur vice ka kaam",
+          "value_text": "fitting_bench"
+        },
+        {
+          "option_key": "lathe",
+          "label_text": "Lathe machine",
+          "value_text": "lathe"
+        },
+        {
+          "option_key": "drilling_machine",
+          "label_text": "Drilling machine",
+          "value_text": "drilling_machine"
+        },
+        {
+          "option_key": "hydraulic_trainer",
+          "label_text": "Hydraulic trainer kit",
+          "value_text": "hydraulic_trainer"
+        },
+        {
+          "option_key": "pneumatic_trainer",
+          "label_text": "Pneumatic trainer kit",
+          "value_text": "pneumatic_trainer"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "min_tier": "medium",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "min_tier": "medium",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "maintenance_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "max_asks": 2
+    }
+  ]
+}

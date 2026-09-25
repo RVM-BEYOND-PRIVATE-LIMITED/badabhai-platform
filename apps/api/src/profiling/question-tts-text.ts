@@ -645,6 +645,30 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "CMM par kaunsa kaam khud karte hain?": "सीएमएम पर कौनसा काम खुद करते हैं?",
   "Rejection aane par kaunsa kaam khud karte hain?": "रिजेक्शन आने पर कौनसा काम खुद करते हैं?",
   "Audit ya customer ka kaunsa kaam sambhalte hain?": "ऑडिट या कस्टमर का कौनसा काम संभालते हैं?",
+  // qp_maintenance_tech@1 — Batch 2 part two's last. Five prompts reuse a twin above verbatim and
+  // are not repeated: the three fresher ones and "Kya aap drawing padh lete hain?" (the welder's),
+  // "Machine ki kaunsi dikkat aap sudhaar lete hain?" (the turner's) and "Kis machine ka poora
+  // overhaul khud kar lete hain?" (the fitter's).
+  "Maintenance ka kitna tajurba hai?": "मेंटेनेंस का कितना तजुर्बा है?",
+  "Lagbhag kitne saal maintenance ka kaam kiya hai?": "लगभग कितने साल मेंटेनेंस का काम किया है?",
+  "Aap kis tarah ki maintenance karte hain?": "आप किस तरह की मेंटेनेंस करते हैं?",
+  "Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?":
+    "मैकेनिकल, हाइड्रॉलिक, न्यूमैटिक या इलेक्ट्रिकल, कौनसी मेंटेनेंस की है?",
+  "Aap khud ko kis level ka maintenance technician maante hain?":
+    "आप खुद को किस लेवल का मेंटेनेंस टेक्नीशियन मानते हैं?",
+  "Kaunsi machines ki maintenance karte hain?": "कौनसी मशीनों की मेंटेनेंस करते हैं?",
+  "CNC, power press, compressor ya conveyor, kiski maintenance ki hai?":
+    "सीएनसी, पावर प्रेस, कंप्रेसर या कन्वेयर, किसकी मेंटेनेंस की है?",
+  "Maintenance me kaunse kaam aap khud karte hain?": "मेंटेनेंस में कौनसे काम आप खुद करते हैं?",
+  "Maintenance me kaunse instrument istemaal karte hain?":
+    "मेंटेनेंस में कौनसे इंस्ट्रूमेंट इस्तेमाल करते हैं?",
+  "Breakdown aane par kitni der me machine tak pahunchna hota tha?":
+    "ब्रेकडाउन आने पर कितनी देर में मशीन तक पहुँचना होता था?",
+  "Maintenance ka kaunsa record aap khud rakhte hain?": "मेंटेनेंस का कौनसा रिकॉर्ड आप खुद रखते हैं?",
+  "Kis industry ke plant me maintenance ka kaam kiya hai?":
+    "किस इंडस्ट्री के प्लांट में मेंटेनेंस का काम किया है?",
+  "Hydraulic aur pneumatic ka kaunsa kaam khud karte hain?":
+    "हाइड्रॉलिक और न्यूमैटिक का कौनसा काम खुद करते हैं?",
 };
 
 /**
@@ -1065,6 +1089,24 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "रिजेक्शन की वजह ढूंढने वाले को आगे बढ़ाया जाता है।",
   "Audit aur customer sambhalne wale ki har plant me zaroorat hai.":
     "ऑडिट और कस्टमर संभालने वाले की हर प्लांट में ज़रूरत है।",
+  // qp_maintenance_tech@1 — why-texts. Eight more (tenure, level, equipment, drawing, sector and
+  // the three fresher ones) are shared verbatim with packs twinned above.
+  "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.":
+    "काम की किस्म से सही प्लांट का काम दिखाया जाता है।",
+  "Preventive aur breakdown dono jaanne wale ki maang zyada hai.":
+    "प्रिवेंटिव और ब्रेकडाउन दोनों जानने वाले की माँग ज़्यादा है।",
+  "Instrument chalane wale technician par employer zyada bharosa karte hain.":
+    "इंस्ट्रूमेंट चलाने वाले टेक्नीशियन पर एम्प्लॉयर ज़्यादा भरोसा करते हैं।",
+  "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai.":
+    "जल्दी ब्रेकडाउन संभालने वाले टेक्नीशियन की प्लांट पर ज़रूरत रहती है।",
+  "Record rakhne wale technician ko badi plant me kaam milta hai.":
+    "रिकॉर्ड रखने वाले टेक्नीशियन को बड़े प्लांट में काम मिलता है।",
+  "Hydraulic aur pneumatic jaanne wale technician ki alag maang hai.":
+    "हाइड्रॉलिक और न्यूमैटिक जानने वाले टेक्नीशियन की अलग माँग है।",
+  "Dikkat sudhaarne wale technician ki plant par zaroorat rehti hai.":
+    "दिक्कत सुधारने वाले टेक्नीशियन की प्लांट पर ज़रूरत रहती है।",
+  "Overhaul karne wale technician ko senior kaam milta hai.":
+    "ओवरहॉल करने वाले टेक्नीशियन को सीनियर काम मिलता है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

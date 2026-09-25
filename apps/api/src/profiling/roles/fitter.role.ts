@@ -5,12 +5,11 @@ import type { RoleFormDescriptor } from "./role-form-descriptor";
  *
  * DECLARED IN BATCH 2, SHIPPED IN PART TWO. `fam_fitting` stays exactly where it is as the generic
  * unit pack; this role binds the NCO fitting occupations beside it at specificity 50 — 7233.0200
- * "Fitter, Bench" and 7233.0100 "Fitter, General" on their own merits, and 7233.0101
- * "Maintenance Fitter-Mechanical" as an INTERIM, by owner decision (2026-09-24). Ruling A1 gives
- * 0101 to the maintenance technician, but plain "fitter" is still an alias on it and there is no
- * way yet to retire one; until there is, binding it is what lets the trade's commonest word reach
- * this form. The cost — four maintenance phrases the #1685 tranche put on 0101 now reach this
- * pack too — is written down in `_families.jsonl` and pinned in the reachability test.
+ * "Fitter, Bench" and 7233.0100 "Fitter, General". 7233.0101 "Maintenance Fitter-Mechanical" was
+ * bound here as an interim (owner decision 2026-09-24) until ruling A1 could be carried out; since
+ * the alias-retirement mechanism, plain "fitter" is retired off 0101 and added to 7233.0200, and
+ * 0101 moved to the maintenance technician with that pack — ending the interim's cost, the four
+ * tranche maintenance phrases that reached this pack through it.
  *
  * ═══ THE ITI TRADE NAME IS WHY THIS ROLE NEEDS A TIGHT CLUSTER ═══
  *

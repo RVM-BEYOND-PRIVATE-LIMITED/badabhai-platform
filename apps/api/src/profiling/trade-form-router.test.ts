@@ -323,8 +323,9 @@ describe("routeToTradeForm", () => {
       expect(route("विनिर्माण", "फिटर", "fam_fitter")).toBe("fitter");
       expect(route("Manufacturing", "Fitting ka kaam", "fam_fitter")).toBe("fitter");
       // THE PIN ALONE, on turn one with the model silent: every code fam_fitter binds carries a
-      // catalogue label that names the trade — "fitter" (7233.0101), "bench fitter" (7233.0200,
-      // which also owns "फिटर" and "assembly fitter") and "Fitter, General" (7233.0100).
+      // catalogue label that names the trade — "fitter" (7233.0200 since ruling A1 moved the word
+      // there; it also owns "फिटर", "bench fitter" and "assembly fitter") and "Fitter, General"
+      // (7233.0100).
       for (const label of ["fitter", "bench fitter", "Fitter, General"]) {
         expect(route(null, null, "fam_fitter", label), label).toBe("fitter");
       }
@@ -370,9 +371,9 @@ describe("routeToTradeForm", () => {
     });
 
     it("a fitter who names a maintenance-cluster sibling reaches NO form", () => {
-      // THE CLUSTER VETO, and it holds with the fitter form ENABLED and both siblings disabled.
-      // `maintenance_technician` and `industrial_electrician` share `maintenance`, so their
-      // vocabulary is derived into the fitter's veto: a man who says both keeps talking. PINNED to
+      // THE CLUSTER VETO, now with all three `maintenance` forms enabled. `maintenance_technician`
+      // and `industrial_electrician` share the cluster, so their vocabulary is derived into the
+      // fitter's veto: a man who says both keeps talking. PINNED to
       // fam_fitter, so each row would route if the veto were gone — the "Fitter" row above is the
       // discriminating case.
       expect(route("Manufacturing", "Maintenance fitter", "fam_fitter")).toBeNull();
@@ -385,18 +386,70 @@ describe("routeToTradeForm", () => {
       expect(route(null, null, "fam_fitting", "fitter aur maintenance")).toBeNull();
     });
 
-    it("PINS THE INTERIM 7233.0101 IMPRECISION at the form, as the reachability test does at the pack", () => {
-      // 7233.0101 is bound to fam_fitter by owner decision until "fitter" can be retired from it
-      // (ruling A1), and the #1685 tranche put four maintenance phrases on the same code. Their
-      // pin label is the code's shortest alias — "fitter" — so the form-level outcome splits:
-      //   "machine repair" / "machine ki marammat" carry no veto word: the FITTER FORM IS OFFERED.
-      expect(route(null, null, "fam_fitter", "fitter", "machine repair")).toBe("fitter");
-      expect(route(null, null, "fam_fitter", "fitter", "machine ki marammat")).toBe("fitter");
-      //   "breakdown maintenance" / "plant maintenance" carry "maintenance" in the worker's own
-      //   words, which vetoes — no form; the chat interview serves qp_fitter's questions instead.
-      expect(route(null, null, "fam_fitter", "fitter", "breakdown maintenance")).toBeNull();
-      expect(route(null, null, "fam_fitter", "fitter", "plant maintenance")).toBeNull();
-      // Both halves move when 0101 moves to fam_maintenance_tech with its pack.
+    it("the 7233.0101 interim is over — its maintenance phrases no longer reach the fitter form", () => {
+      // Until ruling A1 landed, 7233.0101 sat in fam_fitter with the pin label "fitter", and the
+      // tranche's "machine repair" / "machine ki marammat" were offered the FITTER form. 0101 is
+      // the maintenance technician's now, and those words are that role's: under a fitter pin they
+      // are a sibling's vocabulary, so they VETO — no worker who says them gets the fitter form.
+      for (const words of ["machine repair", "machine ki marammat", "breakdown maintenance", "plant maintenance"]) {
+        expect(route(null, null, "fam_fitter", "fitter", words), words).toBeNull();
+      }
+    });
+
+    it("routes a maintenance technician to the maintenance form — Batch 2 part two's last", () => {
+      // OCCUPATION TERMS route on their own: names nobody outside the trade uses.
+      expect(route("Manufacturing", "Maintenance technician", null)).toBe("maintenance_technician");
+      expect(route("Manufacturing", "Plant maintenance", null)).toBe("maintenance_technician");
+      // THE BARE WORD NEEDS THE FAMILY PIN (owner ruling 2026-09-25), the fitter's B3 rule:
+      // "maintenance", "मेंटेनेंस", "machine repair" and "machine ki marammat" route only once the
+      // resolver has placed the worker in fam_maintenance_tech.
+      expect(route("Manufacturing", "Maintenance", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route("विनिर्माण", "मेंटेनेंस", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route(null, "Machine repair", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route(null, "Machine ki marammat", "fam_maintenance_tech")).toBe("maintenance_technician");
+      expect(route("Manufacturing", "Breakdown maintenance", "fam_maintenance_tech")).toBe(
+        "maintenance_technician",
+      );
+      expect(route("Manufacturing", "Maintenance", null)).toBeNull();
+      expect(route("विनिर्माण", "मेंटेनेंस", null)).toBeNull();
+      // THE PIN ALONE, on turn one: 7233.0101's chip is "machine repair", the technician band's
+      // codes fall back to the family label "maintenance technician".
+      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe("maintenance_technician");
+      expect(route(null, null, "fam_maintenance_tech", "maintenance technician")).toBe(
+        "maintenance_technician",
+      );
+    });
+
+    it("RULED OUT — every other trade that says 'maintenance' is not handed the form", () => {
+      // Measured before shipping with bare "maintenance" as an occupation term: each of these
+      // labels reached the maintenance form. Each now reaches NOTHING, and the interview keeps
+      // asking — none of them resolves to fam_maintenance_tech, so there is no pin to corroborate.
+      for (const role of [
+        "Maintenance",
+        "Maintenance ka kaam",
+        "AC maintenance",
+        "Building maintenance",
+        "House maintenance",
+        "Road maintenance",
+        "Computer maintenance",
+        "Vehicle maintenance",
+        "Maintenance electrician",
+        "Maintenance supervisor",
+        "Maintenance engineer",
+        "Maintenance mechanic",
+      ]) {
+        expect(route(null, role, null, null, role), role).toBeNull();
+      }
+    });
+
+    it("'maintenance fitter' hands over on the PIN, and the model's label is vetoed", () => {
+      // Ruling A1 gives the phrase to this role, and retrieval pins 7233.0101 for it — whose chip
+      // "machine repair" hands over the form on turn one. But the phrase contains "fitter", the
+      // fitter's word, and cluster vetoes derive from every sibling term, so once the MODEL writes
+      // "maintenance fitter" the handover is withheld and the worker keeps talking (fail-safe).
+      expect(route(null, null, "fam_maintenance_tech", "machine repair")).toBe("maintenance_technician");
+      expect(route(null, "Maintenance fitter", "fam_maintenance_tech", "machine repair")).toBeNull();
+      expect(route("विनिर्माण", "मेंटेनेंस फिटर", "fam_maintenance_tech", "machine repair")).toBeNull();
     });
 
     it("routes a quality inspector to the QC form — Batch 2 part two's second", () => {

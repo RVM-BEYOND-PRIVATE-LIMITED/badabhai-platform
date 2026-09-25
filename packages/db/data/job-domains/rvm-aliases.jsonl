@@ -939,3 +939,9 @@
 # an L1 fold onto "Sieving Machine Operator", a dairy code. This is the general code's own
 # published title without ", General".
 {"kind":"alias","job_domain_id":"jd_nco_8153_0101","text":"sewing machine operator","lang":"en"}
+
+# ── 2026-09-25 — ruling A1 lands with its retirement (rvm-alias-retirements.jsonl) ───────────
+# RVM worksheet Part 5, A1: plain "fitter" moves off jd_nco_7233_0101 (Maintenance
+# Fitter-Mechanical, which goes to Maintenance Technician in the same change) to Bench Fitter,
+# where "फिटर" and "bench fitter" already are. The 0101 row is retired, not deleted.
+{"kind":"alias","job_domain_id":"jd_nco_7233_0200","text":"fitter","lang":"en"}

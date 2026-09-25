@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "clip_count": 1110,
+  "clip_count": 1146,
   "producers": {
-    "retry": 96,
-    "clarify": 429,
-    "prompt": 309,
-    "why": 268,
+    "retry": 99,
+    "clarify": 444,
+    "prompt": 319,
+    "why": 276,
     "constant": 8
   },
   "clips": [
@@ -330,6 +330,11 @@
       "producer": "clarify"
     },
     {
+      "id": "0cd0f462c2c9e88e",
+      "text": "Preventive aur breakdown dono jaanne wale ki maang zyada hai.",
+      "producer": "why"
+    },
+    {
       "id": "0d078d2617f1e02f",
       "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Turning ka kitna tajurba hai?",
       "producer": "clarify"
@@ -342,6 +347,11 @@
     {
       "id": "0da00b5c4e974f4f",
       "text": "Kya aap overhead welding kar lete hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "0dc817b0fa81949a",
+      "text": "Maintenance me kaunse kaam aap khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -363,6 +373,11 @@
       "id": "0e04ffc7ae1dce8e",
       "text": "Panel wiring, motor, cable ya earthing, kaunsa kaam karte hain?",
       "producer": "retry"
+    },
+    {
+      "id": "0e2a1037080bbf84",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal maintenance ka kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "0e3b4513d6c2036c",
@@ -395,6 +410,11 @@
       "producer": "retry"
     },
     {
+      "id": "0ef688690d809b6d",
+      "text": "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai. Aap kis tarah ki maintenance karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "0efdec8f405b0973",
       "text": "Aap plant me kya karte hain?",
       "producer": "prompt"
@@ -413,6 +433,11 @@
       "id": "0f43e276959d8b42",
       "text": "Apni gaadi wale ki kamai alag hoti hai. Kya gaadi aapki apni hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "0f70b161fbc02b60",
+      "text": "Record rakhne wale technician ko badi plant me kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "0fdaf128b01465cb",
@@ -975,6 +1000,11 @@
       "producer": "retry"
     },
     {
+      "id": "2b1fd0eb8aa976c8",
+      "text": "CNC, power press, compressor ya conveyor, kiski maintenance ki hai?",
+      "producer": "retry"
+    },
+    {
       "id": "2b2ed8faeacf40a7",
       "text": "Har dukan ka kaam alag hota hai. Aap kaunsi dukan par kaam karte hain?",
       "producer": "clarify"
@@ -1340,6 +1370,16 @@
       "producer": "prompt"
     },
     {
+      "id": "3b1f3fff0c843d4c",
+      "text": "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai. Breakdown aane par kitni der me machine tak pahunchna hota tha?",
+      "producer": "clarify"
+    },
+    {
+      "id": "3bd1fcb0858d5a37",
+      "text": "Dikkat sudhaarne wale technician ki plant par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
       "id": "3bffb7c6c0fe39ec",
       "text": "Press ka size batata hai ki kitni badi tooling banayi hai. Chhoti press ya badi press, kis par tryout kiya hai?",
       "producer": "clarify"
@@ -1500,6 +1540,11 @@
       "producer": "clarify"
     },
     {
+      "id": "43a0949d2d8bd198",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Maintenance ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "43f71774dc4cf35f",
       "text": "Kya aap nayi machine lagate hain?",
       "producer": "prompt"
@@ -1528,6 +1573,11 @@
       "id": "44eb782703d052b5",
       "text": "Aap kaunsi turning machine chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "44fe349fa24fe251",
+      "text": "Level se employer ko aapka darja saaf pata chalta hai. Aap khud ko kis level ka maintenance technician maante hain?",
+      "producer": "clarify"
     },
     {
       "id": "44ff7d290ed09184",
@@ -1633,6 +1683,11 @@
       "id": "48bae775750eba9a",
       "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke parts ki checking ki hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "48d082b9c0be80fa",
+      "text": "Overhaul karne wale technician ko senior kaam milta hai.",
+      "producer": "why"
     },
     {
       "id": "4919f2d3245d0086",
@@ -1935,6 +1990,11 @@
       "producer": "retry"
     },
     {
+      "id": "561e04fd1b0238e7",
+      "text": "Jaldi breakdown sambhaalne wale technician ki plant par zaroorat rehti hai.",
+      "producer": "why"
+    },
+    {
       "id": "562e3504a8dc4ca7",
       "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai. Belt, gear ya bearing ki dikkat kya khud theek karte hain?",
       "producer": "clarify"
@@ -2043,6 +2103,16 @@
       "id": "599873c51498f19a",
       "text": "Finish grinding ke kaam ki sabse badi pehchaan hai. Kitna surface finish nikaal lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "59b149d02dd61c02",
+      "text": "Hydraulic aur pneumatic ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "59c473c15e38502a",
+      "text": "Aap khud ko kis level ka maintenance technician maante hain?",
+      "producer": "prompt"
     },
     {
       "id": "59e2fd2d7781105a",
@@ -2255,6 +2325,11 @@
       "producer": "prompt"
     },
     {
+      "id": "6462b3ca288c1edd",
+      "text": "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "646a4c272d531321",
       "text": "Drawing padhna kai jagah zaroori hota hai. Drawing dekh kar job bana lete hain?",
       "producer": "clarify"
@@ -2267,6 +2342,11 @@
     {
       "id": "649b829837dc22be",
       "text": "Kya aap chip level ka kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "64d8497196c7419a",
+      "text": "Maintenance ka kaunsa record aap khud rakhte hain?",
       "producer": "prompt"
     },
     {
@@ -2338,6 +2418,11 @@
       "id": "674917c8cfccf94f",
       "text": "Plant me safety zaroori hoti hai. Kya aapne safety training li hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "675098ad323e3f9f",
+      "text": "Kaunsi machines ki maintenance karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "67b66c7f694ad04e",
@@ -2555,6 +2640,11 @@
       "producer": "retry"
     },
     {
+      "id": "6fcc7e63ee1e0a8c",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. CNC, power press, compressor ya conveyor, kiski maintenance ki hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "6ffb4d760f47031b",
       "text": "Ghar aur hotel ka kaam alag hota hai.",
       "producer": "why"
@@ -2735,6 +2825,11 @@
       "producer": "why"
     },
     {
+      "id": "78d4999130484489",
+      "text": "Maintenance me kaunse instrument istemaal karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "78fd6cfb106d4661",
       "text": "Aap kaunsi welding karte hain?",
       "producer": "prompt"
@@ -2803,6 +2898,11 @@
       "id": "7c5b051373532235",
       "text": "Finishing se saman ka daam badhta hai.",
       "producer": "why"
+    },
+    {
+      "id": "7ca6d74f12ea3403",
+      "text": "Kaam ki kism se sahi plant ka kaam dikhaya jaata hai. Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?",
+      "producer": "clarify"
     },
     {
       "id": "7cb4c28733f66d38",
@@ -2880,6 +2980,11 @@
       "producer": "prompt"
     },
     {
+      "id": "80239e9fd017b6e3",
+      "text": "Hydraulic aur pneumatic jaanne wale technician ki alag maang hai.",
+      "producer": "why"
+    },
+    {
       "id": "802f2335fd265242",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
       "producer": "why"
@@ -2952,6 +3057,16 @@
     {
       "id": "82f09e1609414cfc",
       "text": "Micrometer wale ko fine kaam milta hai. Aap kaunse maapne ke auzaar use karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "83079646ed38fdc5",
+      "text": "Instrument chalane wale technician par employer zyada bharosa karte hain. Maintenance me kaunse instrument istemaal karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "83271e8d4ef7058f",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi machines ki maintenance karte hain?",
       "producer": "clarify"
     },
     {
@@ -3122,6 +3237,11 @@
     {
       "id": "89d7f3e79236a51c",
       "text": "Har kachre ka kaam alag hota hai. Aap kaunsa kachra uthate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "89eeed3bf7280088",
+      "text": "Record rakhne wale technician ko badi plant me kaam milta hai. Maintenance ka kaunsa record aap khud rakhte hain?",
       "producer": "clarify"
     },
     {
@@ -3520,6 +3640,11 @@
       "producer": "clarify"
     },
     {
+      "id": "9dc499ba2c0c63e2",
+      "text": "Maintenance ka kitna tajurba hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "9de97bb233478719",
       "text": "Kis stage par inspection karte hain?",
       "producer": "prompt"
@@ -3675,6 +3800,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a508d2cc2ceca870",
+      "text": "Dikkat sudhaarne wale technician ki plant par zaroorat rehti hai. Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a547c5dcaa250346",
       "text": "Aap kahaan safai karte hain?",
       "producer": "prompt"
@@ -3785,6 +3915,11 @@
       "producer": "prompt"
     },
     {
+      "id": "a8d8bd10f522b475",
+      "text": "Preventive aur breakdown dono jaanne wale ki maang zyada hai. Maintenance me kaunse kaam aap khud karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a916e2541eb403b2",
       "text": "Har kaam alag hunar hai, isse sahi naukri milti hai. Filing, drilling, bearing ya alignment, kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -3815,9 +3950,19 @@
       "producer": "why"
     },
     {
+      "id": "aadd66390ac2ab4d",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke plant me maintenance ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "aaf7da1bacce20ab",
       "text": "Aap kis cheez par kaam karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "ab2ca0405e6edbc2",
+      "text": "Lagbhag kitne saal maintenance ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "ab74a6d42365bb64",
@@ -3852,6 +3997,11 @@
     {
       "id": "acdac218a0856cb1",
       "text": "Line ke kitne station ka kaam aata hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ad3967413c503437",
+      "text": "Aap kis tarah ki maintenance karte hain?",
       "producer": "prompt"
     },
     {
@@ -4030,6 +4180,11 @@
       "producer": "clarify"
     },
     {
+      "id": "b6515998b25328b5",
+      "text": "Kis industry ke plant me maintenance ka kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "b66fa078e6fb67f4",
       "text": "CAD model ke saath kaunsa kaam karte hain?",
       "producer": "prompt"
@@ -4073,6 +4228,11 @@
       "id": "b8764c8dedd0d67d",
       "text": "Workshop me kaunsi machine chalayi thi?",
       "producer": "retry"
+    },
+    {
+      "id": "b8a0e67eeeaaac72",
+      "text": "Overhaul karne wale technician ko senior kaam milta hai. Kis machine ka poora overhaul khud kar lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "b8e0bf8dae16cbc5",
@@ -4610,6 +4770,11 @@
       "producer": "clarify"
     },
     {
+      "id": "cdaa84607ea4a2de",
+      "text": "Mechanical, hydraulic, pneumatic ya electrical, kaunsi maintenance ki hai?",
+      "producer": "retry"
+    },
+    {
       "id": "cdb9815c3de2ba03",
       "text": "Doosra kaam bhi dikhane se naukri ke mauke badhte hain.",
       "producer": "why"
@@ -4847,6 +5012,11 @@
     {
       "id": "d93fc057d2f0eccb",
       "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi grinding machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d9cca46f6a7bbe7d",
+      "text": "Hydraulic aur pneumatic jaanne wale technician ki alag maang hai. Hydraulic aur pneumatic ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
     },
     {
@@ -5375,6 +5545,11 @@
       "producer": "why"
     },
     {
+      "id": "f5ebad64965e1788",
+      "text": "Breakdown aane par kitni der me machine tak pahunchna hota tha?",
+      "producer": "prompt"
+    },
+    {
       "id": "f64554a6654f3b01",
       "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain. ITI me banaya hua koi ek kaam bata dijiye.",
       "producer": "clarify"
@@ -5507,6 +5682,11 @@
     {
       "id": "fca2d7c7306c6b45",
       "text": "Steel aur aluminium ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "fcdaefe59e48714a",
+      "text": "Instrument chalane wale technician par employer zyada bharosa karte hain.",
       "producer": "why"
     },
     {

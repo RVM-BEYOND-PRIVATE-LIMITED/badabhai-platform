@@ -840,9 +840,9 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
         "qc", "qc inspector", "qa qc", "quality control", "क्वालिटी", "inspection ka kaam",
         "quality check karna", "quality wala",
         // Maintenance — items 12-14, on 7233.0101, the code ruling A1 gives Maintenance Technician.
-        // fam_fitter binds 0101 as an OWNER-DECIDED INTERIM (plain "fitter" is still an alias on it),
-        // so these four moved off the generic fam_fitting to the FITTER pack in that change — a known
-        // imprecision, pinned in the part-two fitter block below; they move again with 0101.
+        // They reached the FITTER pack while fam_fitter held 0101 as an owner-decided interim; A1
+        // landed (plain "fitter" retired off 0101) and 0101 moved to fam_maintenance_tech with its
+        // pack, so these four are on the role family now, by design.
         "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
         // Industrial electrician — items 17-19, on 7412.0200, which fam_industrial_electrician binds
         // since its pack shipped — so these five moved off the generic minor-741 pack in that
@@ -873,10 +873,10 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
       "inspection ka kaam": "fam_quality_inspection",
       "quality check karna": "fam_quality_inspection",
       "quality wala": "fam_quality_inspection",
-      "machine ki marammat": "fam_fitter",
-      "machine repair": "fam_fitter",
-      "breakdown maintenance": "fam_fitter",
-      "plant maintenance": "fam_fitter",
+      "machine ki marammat": "fam_maintenance_tech",
+      "machine repair": "fam_maintenance_tech",
+      "breakdown maintenance": "fam_maintenance_tech",
+      "plant maintenance": "fam_maintenance_tech",
       "panel wiring": "fam_industrial_electrician",
       "industrial electrician": "fam_industrial_electrician",
       "इंडस्ट्रियल इलेक्ट्रीशियन": "fam_industrial_electrician",
@@ -966,14 +966,14 @@ describe("Batch 2 routing tranche — the seven roles' ratified vocabulary", () 
     //    ("qc") is a QC occupation term, so a pin here hands over to the QC form. RE-AFFIRMED by
     //    the owner 2026-09-24, knowing it now reaches a form: still accepted, still pinned.
     expect(familyFor("vehicle inspection")).toBe("fam_quality_inspection");
-    // 2. TWO OF THE THREE RETIREMENTS HAVE LANDED (rvm-alias-retirements.jsonl, 2026-09-25; the
-    //    full picture is pinned in "Retirements — A4 and item 21" at the end):
+    // 2. ALL THREE RETIREMENTS HAVE LANDED (rvm-alias-retirements.jsonl, 2026-09-25; pinned in
+    //    full in "Retirements — A4 and item 21" and the maintenance block at the end):
     //    A4: bare "machine …" no longer reaches dairy — it reaches nothing, and the interview asks,
     expect(familyFor("machine operator")).toBeNull();
     //    21: "press operator" is the metal press shop,
     expect(familyFor("press operator")).toBe("fam_press_operation");
-    //    A1 is STILL PENDING: plain "fitter" is still on 7233.0101, the maintenance-fitter code.
-    expect(resolveOccupation(occupationIndex, "fitter")?.jobDomainId).toBe("jd_nco_7233_0101");
+    //    A1: plain "fitter" is Bench Fitter's, off 7233.0101 (now the maintenance technician's).
+    expect(resolveOccupation(occupationIndex, "fitter")?.jobDomainId).toBe("jd_nco_7233_0200");
     // 3. "naap tol" is STRUCK from QC but was a cart puller before the tranche and still is — the
     //    strike keeps it off the inspector's code, it does not repair the L1 fold on "tol".
     expect(familyFor("naap tol")).toBe("fam_cart");
@@ -1288,28 +1288,28 @@ describe("Batch 2 part two — assembly line", () => {
  * The fitter needed bindings, not vocabulary: "fitter", "फिटर", "bench fitter" and "assembly
  * fitter" all reached the generic fam_fitting before this change. Three bindings, each measured
  * before it was written — 7233.0200 "Fitter, Bench" (the ruled home, ruling A1), 7233.0100
- * "Fitter, General" (reached by its published title; every worker under it is a fitter), and
- * 7233.0101 "Maintenance Fitter-Mechanical" as an OWNER-DECIDED INTERIM (2026-09-24): A1 gives it
- * to Maintenance Technician, but plain "fitter" cannot be retired from it yet, so it is bound here
- * until the retirement path and the Maintenance Technician pack ship, then moves to
- * fam_maintenance_tech. Everything else in unit 7233, and every "… fitter" in another unit, stays
- * where it resolves today.
+ * "Fitter, General" (reached by its published title; every worker under it is a fitter). 7233.0101
+ * "Maintenance Fitter-Mechanical" was bound here as an OWNER-DECIDED INTERIM (2026-09-24) until
+ * ruling A1 could be carried out; it has been — plain "fitter" retired off 0101 and added to
+ * 7233.0200 — and 0101 moved to fam_maintenance_tech with that pack. Everything else in unit
+ * 7233, and every "… fitter" in another unit, stays where it resolves today.
  */
 describe("Batch 2 part two — fitter", () => {
   const codeFor = (p: string): string | null =>
     resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
 
-  it("binds exactly the three codes its words reach — 0101 as the owner's interim", () => {
+  it("binds exactly the two codes its words reach, now that A1 has landed", () => {
     const codes = corpus.bindings
       .filter((b) => b.family_id === "fam_fitter")
       .map((b) => b.job_domain_id);
-    expect(codes).toEqual(["jd_nco_7233_0200", "jd_nco_7233_0100", "jd_nco_7233_0101"]);
+    expect(codes).toEqual(["jd_nco_7233_0200", "jd_nco_7233_0100"]);
     // The phrase, the code it lands on, and the family that answers it — each binding earns a row.
     expect(codeFor("फिटर")).toBe("jd_nco_7233_0200");
     expect(codeFor("bench fitter")).toBe("jd_nco_7233_0200");
     expect(codeFor("assembly fitter")).toBe("jd_nco_7233_0200");
     expect(codeFor("fitter general")).toBe("jd_nco_7233_0100");
-    expect(codeFor("fitter")).toBe("jd_nco_7233_0101");
+    // Ruling A1: plain "fitter" is Bench Fitter's, retired off 7233.0101.
+    expect(codeFor("fitter")).toBe("jd_nco_7233_0200");
     for (const p of [
       "fitter", "फिटर", "bench fitter", "assembly fitter", "fitter general", "iti fitter",
       "senior fitter", "fitter helper", "फिटर का काम",
@@ -1318,44 +1318,33 @@ describe("Batch 2 part two — fitter", () => {
     }
   });
 
-  it("PINS THE KNOWN INTERIM IMPRECISION — 7233.0101's maintenance words reach the fitter pack", () => {
-    // NOT AN ASPIRATION — these rows are wrong, they are bound anyway, and they are pinned so the
-    // harm stays visible rather than being discovered on a worker's screen.
-    //
-    // 1. THE #1685 TRANCHE'S FOUR MAINTENANCE PHRASES (items 12-14) sit on 7233.0101, so binding
-    //    0101 for the word "fitter" takes them too. A man who says "machine repair" is a
-    //    maintenance man first, and he now gets fitting questions — and on "machine repair" and
-    //    "machine ki marammat" he is OFFERED the fitter form as well: 0101's pin label is "fitter"
-    //    and its pin IS fam_fitter, which is exactly what the owner's pin-required rule for the
-    //    bare word accepts (trade-form-router.test.ts pins that half). Before this change all four
-    //    reached the generic fam_fitting.
+  it("A1 LANDED — the interim's maintenance words left with 7233.0101", () => {
+    // While fam_fitter held 0101 as an interim, the tranche's four maintenance phrases and A1's
+    // own "maintenance fitter" reached THIS pack. 0101 is the maintenance technician's now, and
+    // every one of them went with it — the diff this block promised when it pinned the interim.
     for (const p of [
       "machine ki marammat", "machine repair", "breakdown maintenance", "plant maintenance",
+      "maintenance fitter", "मेंटेनेंस फिटर",
     ]) {
       expect(codeFor(p), p).toBe("jd_nco_7233_0101");
-      expect(familyFor(p), p).toBe("fam_fitter");
+      expect(familyFor(p), p).toBe("fam_maintenance_tech");
     }
-    // 2. RULING A1'S OWN WORDS FOR THE MAINTENANCE TECHNICIAN come with the code. Their form route
-    //    is vetoed ("maintenance" is a sibling's occupation term), but the pack is the fitter's.
-    expect(familyFor("maintenance fitter")).toBe("fam_fitter");
-    expect(familyFor("मेंटेनेंस फिटर")).toBe("fam_fitter");
-    // 3. ANY "… fitter" WHOSE ONLY HIT IS THE BARE WORD lands on 0101 too. These reached the
-    //    generic fam_fitting before; an AC installer is the one that is plainly another trade.
+    // STILL PINNED, and not fixed by A1: any "… fitter" whose only hit is the bare word lands on
+    // the word's code, now 7233.0200 — still this family. An AC installer is plainly another trade;
+    // alias guard rows, not routing, would fix it.
     expect(familyFor("ac fitter")).toBe("fam_fitter");
     expect(familyFor("structural fitter")).toBe("fam_fitter");
-    // ALL OF IT MOVES in the change that ships the retirement path and the maintenance pack: plain
-    // "fitter" to 7233.0200 (still this family), and 0101 — with every row above — to
-    // fam_maintenance_tech. This test goes red in that change, by design.
   });
 
   it("leaves every rejected neighbour where it resolves today", () => {
     const stays: Record<string, string> = {
-      // Unit 7233's maintenance side — Maintenance Technician's when it ships.
+      // Unit 7233's maintenance side — Maintenance Technician's since that pack shipped. Levelling
+      // and alignment is on BOTH pages, so it stays generic for either.
       "fitter levelling alignment and balancing": "fam_fitting",
-      "fitter hydraulic and pneumatic system": "fam_fitting",
-      "bearing maintenance": "fam_fitting",
-      millwright: "fam_fitting",
-      "mechanic maintenance": "fam_fitting",
+      "fitter hydraulic and pneumatic system": "fam_maintenance_tech",
+      "bearing maintenance": "fam_maintenance_tech",
+      millwright: "fam_maintenance_tech",
+      "mechanic maintenance": "fam_maintenance_tech",
       // Engine, vehicle and pump mechanics, and the catch-all — a fitter title is not the trade.
       "diesel mechanic": "fam_fitting",
       "mechanic pump": "fam_fitting",
@@ -1570,9 +1559,9 @@ describe("Retirements — A4 and item 21", () => {
     expect(familyFor("milling machine")).toBe("fam_vmc_milling");
     expect(familyFor("cnc machine")).toBe("fam_machining");
     expect(familyFor("silai machine")).toBe("fam_sewing_machine");
-    // A1 is still pending, so the maintenance phrases on 7233.0101 stay on the Fitter interim.
-    expect(familyFor("machine repair")).toBe("fam_fitter");
-    expect(familyFor("machine ki marammat")).toBe("fam_fitter");
+    // A1 has landed, so the maintenance phrases on 7233.0101 reach the maintenance technician.
+    expect(familyFor("machine repair")).toBe("fam_maintenance_tech");
+    expect(familyFor("machine ki marammat")).toBe("fam_maintenance_tech");
   });
 
   it("item 21 — 'press operator' puts the metal press shop FIRST, in both scripts and views", () => {
@@ -1643,5 +1632,113 @@ describe("Retirements — A4 and item 21", () => {
     const aliasesOf = (id: string) => rows.find((d) => d.jobDomainId === id)?.aliases.map((a) => a.text);
     expect(aliasesOf("jd_nco_6121_0800")).toContain("Machine");
     expect(aliasesOf("jd_nco_8159_0400")).toContain("Press Operator");
+  });
+});
+
+/**
+ * BATCH 2 PART TWO — MAINTENANCE TECHNICIAN, the last of the seven to ship its pack.
+ *
+ * It shipped with ruling A1: plain "fitter" retired off 7233.0101 "Maintenance Fitter-Mechanical"
+ * and moved to Bench Fitter, so 0101 left the Fitter's interim binding and came here. Nine bindings,
+ * each measured in a production view of the index before it was written (see _families.jsonl):
+ * 0101, the factory maintenance technicians of the technician band (3113.0601, 3113.0401,
+ * 3115.0102, 3115.0103 — owner ruling 2026-09-25), and unit 7233's plant maintenance mechanics
+ * (hydraulic & pneumatic, bearing, chemical plant, millwright).
+ */
+describe("Batch 2 part two — maintenance technician", () => {
+  const codeFor = (p: string): string | null =>
+    resolveOccupation(occupationIndex, p)?.jobDomainId ?? null;
+
+  // PRODUCTION'S VIEW, with every claimant — the offline helper reads only a span's first.
+  const offline = resolveJobDomainCorpus();
+  const parentsOfSelectable = new Set(
+    offline.filter((d) => d.selectable && d.parentJobDomainId).map((d) => d.parentJobDomainId),
+  );
+  const live = offline.filter(
+    (d) => d.selectable && !(d.source === "isco08" && parentsOfSelectable.has(d.jobDomainId)),
+  );
+  const liveClaimants = (phrase: string) => {
+    const norm = normalizeOccupationText(phrase);
+    return live
+      .filter((d) => d.aliases.some((a) => normalizeOccupationText(a.text) === norm))
+      .map((d) => d.jobDomainId)
+      .sort();
+  };
+
+  it("binds exactly the nine codes its words reach", () => {
+    const codes = corpus.bindings
+      .filter((b) => b.family_id === "fam_maintenance_tech")
+      .map((b) => b.job_domain_id);
+    expect(codes).toEqual([
+      "jd_nco_7233_0101",
+      "jd_nco_3113_0601",
+      "jd_nco_3113_0401",
+      "jd_nco_3115_0102",
+      "jd_nco_3115_0103",
+      "jd_nco_7233_2901",
+      "jd_nco_7233_0301",
+      "jd_nco_7233_1100",
+      "jd_nco_7233_1200",
+    ]);
+  });
+
+  it("reaches the family on the trade's own words — each the ONLY claimant in production", () => {
+    const claimed: Record<string, string> = {
+      "maintenance technician": "jd_nco_3113_0601",
+      "machine maintenance technician": "jd_nco_3113_0401",
+      "maintenance fitter": "jd_nco_7233_0101",
+      "मेंटेनेंस फिटर": "jd_nco_7233_0101",
+      "machine repair": "jd_nco_7233_0101",
+      "breakdown maintenance": "jd_nco_7233_0101",
+      "plant maintenance": "jd_nco_7233_0101",
+      "bearing maintenance": "jd_nco_7233_0301",
+      "mechanic maintenance": "jd_nco_7233_1100",
+      millwright: "jd_nco_7233_1200",
+    };
+    for (const [p, code] of Object.entries(claimed)) {
+      expect(codeFor(p), p).toBe(code);
+      expect(familyFor(p), p).toBe("fam_maintenance_tech");
+      expect(liveClaimants(p), `${p} (production claimants)`).toEqual([code]);
+    }
+    // The particle-stripped tranche phrase folds onto its stem, "machine marammat".
+    expect(familyFor("machine ki marammat")).toBe("fam_maintenance_tech");
+  });
+
+  it("BARE 'maintenance' reaches no occupation — worksheet item 15, struck", () => {
+    for (const p of ["maintenance", "मेंटेनेंस", "maintenance ka kaam", "ac maintenance", "building maintenance"]) {
+      expect(familyFor(p), p).toBeNull();
+    }
+  });
+
+  it("leaves every rejected neighbour where it resolves today", () => {
+    const stays: Record<string, string> = {
+      // Electrical maintenance is the industrial electrician's side of the cluster; unbound.
+      "maintenance technician electrical": "fam_universal",
+      // A vehicle workshop, an operator's job, a sector title left for review.
+      "maintenance technician-service workshop": "fam_auto_mechanic",
+      "conveyor operation and maintenance": "fam_fitting",
+      "mechanic dairy maintenance": "fam_fitting",
+      // Alignment is on the fitter's page too, so it stays generic for either.
+      "fitter levelling alignment and balancing": "fam_fitting",
+      // Supervisory.
+      "manager maintenance mechanical and electrical": "fam_universal",
+    };
+    const got = Object.fromEntries(Object.keys(stays).map((p) => [p, familyFor(p)]));
+    expect(got).toEqual(stays);
+  });
+
+  it("PINS A PRE-EXISTING MISROUTE it does not fix", () => {
+    // "Maintenance Mechanic" is the published title of a TELEPHONE maintenance code (7422.0200), so
+    // a plant maintenance mechanic who says it reaches electronics installation. A guard alias would
+    // fix it; that is an owner decision, not made here.
+    expect(codeFor("maintenance mechanic")).toBe("jd_nco_7422_0200");
+    expect(familyFor("maintenance mechanic")).toBe("fam_electronics_install");
+  });
+
+  it("no maintenance phrase falls through to the universal pack", () => {
+    for (const p of ["maintenance technician", "maintenance fitter", "machine repair", "plant maintenance"]) {
+      expect(familyFor(p), `"${p}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(p), `"${p}" reaches nothing`).not.toBeNull();
+    }
   });
 });

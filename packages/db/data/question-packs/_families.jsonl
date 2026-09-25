@@ -626,7 +626,8 @@
 # The fitter's words were reachable BEFORE the tranche — "fitter", "फिटर", "bench fitter" and
 # "assembly fitter" all landed on unit 7233's generic fam_fitting — so this family needed
 # bindings, not vocabulary (worksheet Part 5, "Fitter and Assembly Line were already reachable").
-# Three codes, each measured through buildOccupationIndex -> resolveOccupation -> resolveFamily:
+# Two codes since ruling A1 landed (three before; 0101 moved to Maintenance), each measured through
+# buildOccupationIndex -> resolveOccupation -> resolveFamily:
 #
 #   7233.0200  "Fitter, Bench" — the ruled home of the trade (ruling A1). Owns "फिटर", "bench
 #              fitter" and the tranche's "assembly fitter" guard row. Its NCO description is the
@@ -638,22 +639,12 @@
 #              removes worn out, broken or defective parts... tests completed article". Every
 #              worker under it is a fitter. Reached only by its published title ("fitter
 #              general"); bound because that title is unambiguous, not to raise a count.
-#   7233.0101  "Maintenance Fitter-Mechanical" — AN INTERIM BINDING, BY OWNER DECISION 2026-09-24.
-#              Ruling A1 gives this code to Maintenance Technician. It cannot move there yet:
-#              plain "fitter" is still an alias ON THIS CODE, and neither the alias overlay
-#              (add-only) nor the domain seed (ON CONFLICT DO NOTHING) can retire it. Leaving it
-#              unbound would leave the trade's commonest word on the generic pack — the
-#              qp_cnc_turning failure the authoring guide opens with. So 0101 is bound to the
-#              Fitter ONLY UNTIL the alias-retirement path ships AND the Maintenance Technician
-#              pack ships; then plain "fitter" moves to 7233.0200 and this row moves to
-#              fam_maintenance_tech, in that change.
-#
-# ⚠ THE INTERIM'S KNOWN COST, measured and pinned rather than hidden. The #1685 tranche put four
-# MAINTENANCE phrases on 7233.0101 — "machine ki marammat", "machine repair", "breakdown
-# maintenance", "plant maintenance" — so binding 0101 sends every one of them to this Fitter pack
-# too, where before they reached the generic fam_fitting. A worker who says "machine repair"
-# is a maintenance man first; he now gets fitting questions. question-pack-reachability.test.ts
-# pins all four as a KNOWN INTERIM IMPRECISION, and they move to fam_maintenance_tech with 0101.
+#   7233.0101  "Maintenance Fitter-Mechanical" — WAS an interim binding here (owner decision
+#              2026-09-24) until ruling A1 could be carried out. It has been: plain "fitter" is
+#              retired off this code (rvm-alias-retirements.jsonl) and added to 7233.0200, and the
+#              row moved to fam_maintenance_tech with that pack. The interim's cost — "machine
+#              repair", "machine ki marammat", "breakdown maintenance" and "plant maintenance"
+#              reaching this Fitter pack — ended with it; those phrases now reach Maintenance.
 #
 # REJECTED NEIGHBOURS — each stays where it resolves today, for a stated reason:
 #   7233.0121  "Fitter Levelling, Alignment and Balancing" — a maintenance-department specialism
@@ -686,7 +677,6 @@
 {"kind":"family","family_id":"fam_fitter","label_en":"Fitter (bench, assembly and maintenance fitting)","label_hi":"फिटिंग का काम","industry_id":"ind_industrial_manufacturing"}
 {"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0200"}
 {"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0100"}
-{"kind":"binding","family_id":"fam_fitter","job_domain_id":"jd_nco_7233_0101"}
 
 # ── Quality inspection ───────────────────────────────────────────────────────────────────────
 # The machine-shop QC inspector: CMM, profile projector and height gauge on machined, cast and
@@ -739,3 +729,54 @@
 #   8122.6000 "Sample Checker, Metal Making" — furnace and rolling-mill sampling, a metal-plant role.
 {"kind":"binding","family_id":"fam_quality_inspection","job_domain_id":"jd_nco_7543_2001"}
 {"kind":"binding","family_id":"fam_quality_inspection","job_domain_id":"jd_nco_7311_0500"}
+
+# ── Maintenance Technician — Batch 2 part two, the last of the seven ─────────────────────────
+# qp_maintenance_tech, read off the ratified reference page 10 (Arif Khan, Senior Technician). It
+# shipped only once RULING A1 could be carried out: plain "fitter" is RETIRED off 7233.0101
+# (rvm-alias-retirements.jsonl) and moved to Bench Fitter 7233.0200, so 0101 leaves the Fitter's
+# interim binding and comes here. Every binding below was measured before it was written, in a
+# production view of the index (retirements and F4 shadowing applied), and each is the ONLY
+# claimant of the phrase that reaches it.
+#   7233.0101  "Maintenance Fitter-Mechanical" — ruling A1. Carries the tranche's maintenance
+#              vocabulary: maintenance fitter / मेंटेनेंस फिटर, machine repair, machine ki marammat,
+#              breakdown maintenance, plant maintenance.
+#   3113.0601  "Maintenance Technician" — the role's own name. Its NCO text is this page's worker:
+#              "maintaining and repairing machines, equipment and electrical systems installed at
+#              the factory premises ... periodical preventive maintenance". Unbound before (the
+#              technician band has no family), so the phrase fell to the universal pack.
+#   3113.0401  "Machine Maintenance Technician" — "preventive maintenance of machines as per the
+#              maintenance schedule and attends to any breakdown complaints".
+#   3115.0102  "Maintenance Technician-Mechanical" — the mechanical systems of plant equipment.
+#   3115.0103  "Maintenance Technician Assistant-Mechanical" — the ladder's Helper rung (ASC/Q6805).
+#   7233.2901  "Fitter: Hydraulic and Pneumatic System" — "regular upkeep of hydraulic/pneumatic
+#              equipment ... rectifying breakdowns": this role's hydraulic and pneumatic disciplines.
+#   7233.0301  "Bearing Maintenance" — plant bearing upkeep and routine maintenance.
+#   7233.1100 / 1200  chemical-plant "Mechanic Maintenance" and "Millwright" — "repairs and
+#              overhauls plant, machinery and equipment periodically and on break downs".
+#              Sector-specific, but every worker under them is a plant maintenance mechanic.
+#
+# REJECTED NEIGHBOURS — each stays where it resolves today, for a stated reason:
+#   3113.0102  "Maintenance Technician Electrical" — electrical/electronic systems: Industrial
+#              Electrician's side of the maintenance cluster, not this role's. Stays universal.
+#   7233.0121  "Fitter Levelling, Alignment and Balancing" — alignment is on BOTH the fitter's page
+#              and this one; it fails the every-worker rule for either, so it stays on fam_fitting.
+#   7233.0402  "Conveyor Operation and Maintenance" — mostly an operator's job with basic upkeep.
+#   7233.1400  "Mechanic, Dairy Maintenance" — reached only by its own title; left for review
+#              rather than widening the family on a phrase no worker was measured saying.
+#   7231.0101  "Maintenance Technician-Service Workshop" — a VEHICLE workshop (fam_auto_mechanic).
+#   7412.0801  "Maintenance Assistant/Helper" — its NCO text is a control-panel assembler.
+#   7422.0200  "Maintenance Mechanic" — TELEPHONE equipment (fam_electronics_install). The phrase
+#              "maintenance mechanic" therefore still reaches electronics: a pre-existing misroute,
+#              pinned in the reachability test; a guard alias would be an owner decision.
+#   3115.0501  "Manager Maintenance Mechanical and Electrical" — supervisory.
+# Bare "maintenance" / "मेंटेनेंस" reach no occupation at all (worksheet Part 5, item 15, struck).
+{"kind":"family","family_id":"fam_maintenance_tech","label_en":"Maintenance Technician (plant maintenance)","label_hi":"मेंटेनेंस टेक्नीशियन","industry_id":"ind_industrial_manufacturing"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_0101"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_3113_0601"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_3113_0401"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_3115_0102"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_3115_0103"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_2901"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_0301"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1100"}
+{"kind":"binding","family_id":"fam_maintenance_tech","job_domain_id":"jd_nco_7233_1200"}
