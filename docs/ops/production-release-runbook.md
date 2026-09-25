@@ -236,6 +236,10 @@ OPS_ALLOW_PRODUCTION=seed:domains \
 # 2. REQUIRED, and separately, between the seed and any retrieval. Without it the new aliases
 #    have no `text_norm`, which verify-job-domains.ts calls "invisible to L0/L2 retrieval" —
 #    the ladder silently degrades to trigram-only and nothing looks wrong.
+#    It is ALSO the step that applies alias RETIREMENTS (rvm-alias-retirements.jsonl): a
+#    retirement-only release seeds nothing new, and this is the only command that takes the
+#    phrase out of retrieval. Its dry run prints `retired_still_searchable` — the rows it
+#    will switch off.
 OPS_ALLOW_PRODUCTION=normalize:aliases \
   pnpm --filter @badabhai/db db:normalize:aliases --apply --i-am-authorised-to-write-to-production
 

@@ -13,8 +13,8 @@
  *                    written in SQL would drift, and drift is silent — L0 simply stops
  *                    matching and every profiling turn falls through to a paid embedding.
  *
- *   `is_searchable`  may retrieval SEE this row. Three independent reasons it may not,
- *                    resolved in one set-based pass (see `recomputeSearchable`).
+ *   `is_searchable`  may retrieval SEE this row. Four independent reasons it may not,
+ *                    resolved in one set-based pass (see `recomputeSearchableSql`).
  *
  * RESUMABLE / IDEMPOTENT. Only `text_norm IS NULL` rows are fetched, so a completed corpus
  * re-run is a no-op. `--renormalize` is the deliberate escape hatch for a particles.json
@@ -32,6 +32,8 @@ import { and, isNull, notInArray, sql as dsql } from "drizzle-orm";
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 
 import { createDbClient } from "./client";
+import { retiredAliasPredicate } from "./job-domain-alias-retirement";
+import { loadRetiredAliasKeys, type RetiredAliasKey } from "./job-domain-corpus";
 import {
   argFlag,
   parseCommonCli,
@@ -53,7 +55,7 @@ const SCRIPT = "normalize:aliases";
  * it touches ~8.7k rows on a reference table, and it must be atomic — a half-applied pass
  * could leave two winners in one group and break the unique index.
  *
- * The three reasons a row is NOT searchable, in the order they appear below:
+ * The four reasons a row is NOT searchable, in the order they appear below:
  *
  *  1. THE DOMAIN IS NOT SELECTABLE. Bucket rows ("Craft and Related Trades Workers")
  *     organize the tree; nobody holds them as a job.
@@ -73,13 +75,22 @@ const SCRIPT = "normalize:aliases";
  *     (CLAUDE.md §10) and `text_norm` is left filled on the loser too, so the runner's
  *     `IS NULL` resumability predicate still terminates.
  *
+ *  4. A REVIEWED DECISION RETIRED IT. `rvm-alias-retirements.jsonl` names aliases that must
+ *     stop routing workers — a published title split into junk, or a phrase a ruling moved
+ *     to another trade. The row keeps everything, exactly as a dedupe loser does; it only
+ *     stops being retrievable. The list is read from the committed file on EVERY run, which
+ *     is what makes a retirement durable: nothing this runner does can flip the row back
+ *     while the line is on file.
+ *
  * The winner is chosen deterministically: a row that already carries an embedding wins
  * (never strand paid work), then the shortest raw text (the least parenthetical form),
  * then the lowest id. `PARTITION BY` treats NULL `lang` values as equal, which is the same
  * grouping the unique index's `NULLS NOT DISTINCT` uses — the two must agree or the pass
- * would elect a winner the index still rejects.
+ * would elect a winner the index still rejects. A retirement covers its whole group, so it
+ * does not interact with the ranking: every member of a retired group is unsearchable.
  */
-const RECOMPUTE_SEARCHABLE = dsql`
+export function recomputeSearchableSql(retired: readonly RetiredAliasKey[]) {
+  return dsql`
   WITH ranked AS (
     SELECT a."id",
            (
@@ -94,6 +105,7 @@ const RECOMPUTE_SEARCHABLE = dsql`
                )
              )
            ) AS eligible,
+           ${retiredAliasPredicate(retired)} AS retired,
            row_number() OVER (
              PARTITION BY a."job_domain_id", a."text_norm", a."lang"
              ORDER BY (a."embedding" IS NOT NULL) DESC, length(a."text") ASC, a."id" ASC
@@ -103,11 +115,12 @@ const RECOMPUTE_SEARCHABLE = dsql`
      WHERE a."text_norm" IS NOT NULL
   )
   UPDATE "job_domain_alias" t
-     SET "is_searchable" = (r.eligible AND r.rn = 1)
+     SET "is_searchable" = (r.eligible AND NOT r.retired AND r.rn = 1)
     FROM ranked r
    WHERE t."id" = r."id"
-     AND t."is_searchable" IS DISTINCT FROM (r.eligible AND r.rn = 1)
+     AND t."is_searchable" IS DISTINCT FROM (r.eligible AND NOT r.retired AND r.rn = 1)
 `;
+}
 
 /** A row that has not been normalized yet can never be searchable. */
 const CLEAR_UNNORMALIZED = dsql`
@@ -133,6 +146,11 @@ async function main(): Promise<void> {
             "rows whose text_norm is already NULL, not the full recompute it would perform.",
     );
   }
+
+  // Read and validate BEFORE connecting. `loadRetiredAliasKeys` validates the whole corpus,
+  // so a retirement file the seed would reject stops this run too, instead of being applied
+  // half-understood to production.
+  const retired = loadRetiredAliasKeys();
 
   const { db, sql } = createDbClient(opts.databaseUrl, { max: 1 });
 
@@ -239,7 +257,7 @@ async function main(): Promise<void> {
     let searchableChanged = 0;
     if (opts.apply) {
       await db.execute(CLEAR_UNNORMALIZED);
-      const res = await db.execute(RECOMPUTE_SEARCHABLE);
+      const res = await db.execute(recomputeSearchableSql(retired));
       searchableChanged = (res as unknown as { count?: number }).count ?? 0;
     }
 
@@ -251,11 +269,22 @@ async function main(): Promise<void> {
     `)) as unknown as Array<{ total: number; still_null: number; searchable: number }>;
     const row = stats[0] ?? { total: 0, still_null: 0, searchable: 0 };
 
+    // What a retirement actually changed, stated rather than inferred. On a dry run this is
+    // the number of live rows the apply will take out of retrieval; after an apply it must
+    // be 0, and `db:verify:domains` fails if it is not.
+    const retiredLive = (await db.execute(dsql`
+      SELECT count(*)::int AS n FROM "job_domain_alias" a
+       WHERE a."is_searchable" AND ${retiredAliasPredicate(retired)}
+    `)) as unknown as Array<{ n: number }>;
+    const retiredStillSearchable = retiredLive[0]?.n ?? 0;
+
     printCounts(SCRIPT, {
       batches,
       text_norm_written: normalized,
       normalized_to_empty_skipped: emptied,
       is_searchable_flipped: searchableChanged,
+      retirements_on_file: retired.length,
+      retired_still_searchable: retiredStillSearchable,
       aliases_total: row.total,
       aliases_still_null: row.still_null,
       aliases_searchable: row.searchable,
@@ -268,14 +297,21 @@ async function main(): Promise<void> {
       );
     }
 
-    printFooter(SCRIPT, opts, normalized + searchableChanged);
+    // A dry run has flipped nothing, so its plan must count the retirements it WOULD apply —
+    // otherwise a retirement-only change reports "0 row change(s) planned".
+    printFooter(SCRIPT, opts, normalized + (opts.apply ? searchableChanged : retiredStillSearchable));
   } finally {
     await sql.end({ timeout: 5 });
   }
 }
 
-main().catch((err) => {
-  // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
-  console.error(`[${SCRIPT}] failed:`, err);
-  process.exit(1);
-});
+// Only run when EXECUTED, never when imported — the retirement test imports
+// `recomputeSearchableSql` to render it, and an unguarded `main()` would open a connection
+// to whatever DATABASE_URL the environment holds. Same guard as `verify-job-domains.ts`.
+if (process.argv[1] && /normalize-job-domain-aliases/.test(process.argv[1])) {
+  main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
+    console.error(`[${SCRIPT}] failed:`, err);
+    process.exit(1);
+  });
+}

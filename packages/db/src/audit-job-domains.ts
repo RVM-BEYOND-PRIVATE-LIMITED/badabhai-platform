@@ -30,7 +30,9 @@ config({ path: "../../.env" });
 const diff = (a: Set<string>, b: Set<string>) => [...a].filter((x) => !b.has(x));
 
 async function main(): Promise<void> {
-  const corpus = resolveJobDomainCorpus();
+  // Every ROW the seed writes, retired aliases included — this diffs row ids, and a retired
+  // alias keeps its row. The retrieval view would report each one as an unexplained extra.
+  const corpus = resolveJobDomainCorpus(undefined, { includeRetiredAliases: true });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[audit:domains] DATABASE_URL is not set");
   const { db, sql: pg } = createDbClient(url, { max: 1 });

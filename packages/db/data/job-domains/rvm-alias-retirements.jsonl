@@ -1,0 +1,36 @@
+# BadaBhai alias RETIREMENTS — reviewed decisions that an alias must stop routing workers.
+#
+# WHY THIS FILE EXISTS. The alias corpus can only add. `db:seed:domains` inserts
+# ON CONFLICT DO NOTHING and never deletes, and production rows are never deleted anyway
+# (CLAUDE.md §10). So a wrong alias — a published title split into junk ("Machine" off
+# "Milker, Machine"), or a phrase a ruling moved to another trade — kept routing workers
+# no matter what any file said. A line here takes it out of retrieval instead.
+#
+# WHAT A LINE DOES. Nothing is deleted. The row stays in the database with its id and its
+# embedding; it only stops being searchable:
+#   - offline, `resolveJobDomainCorpus` drops it, so the eval, the reachability pins and the
+#     chip-label tests measure the routing workers will actually get;
+#   - live, `db:normalize:aliases --apply` clears `is_searchable` on it — the flag every
+#     retrieval layer filters on — and re-derives that from this file on every run, so no
+#     later seed or renormalize can quietly bring it back.
+# To undo a retirement, delete its line and re-run the normalizer.
+#
+# FORMAT. One retirement per line. Every field is required.
+#   {"kind":"retire","job_domain_id":"jd_nco_6121_0800","text":"Machine","lang":"en",
+#    "ruling":"RVM worksheet Part 5, A4","reason":"comma-split junk of 'Milker, Machine'",
+#    "decided_by":"Divyanshu","decided_on":"2026-09-24"}
+# (one line in the file — wrapped here only for reading)
+#
+# THE RULES, all enforced by `validateAliasRetirements`:
+#   - `text` + `lang` must match an alias on that domain EXACTLY, published or authored.
+#     A line that names nothing would retire nothing while reading as a decision taken.
+#   - The effect covers every spelling on that domain that normalizes to the same key,
+#     because retrieval matches on the normalized text.
+#   - A retirement may not remove a selectable occupation's LAST alias. If workers should
+#     reach it by another phrase, add that phrase to rvm-aliases.jsonl in the same change.
+#   - `ruling` must name the signed decision it implements. Retiring a phrase changes who
+#     gets which form; that is an owner decision, never an engineering tidy-up.
+#
+# SHIPPING ONE (runbook P3-0): merge, then `db:seed:domains` (no-op for a retirement-only
+# change) and `db:normalize:aliases --apply` against production, then `db:verify:domains`,
+# which FAILS while any retired alias is still searchable.
