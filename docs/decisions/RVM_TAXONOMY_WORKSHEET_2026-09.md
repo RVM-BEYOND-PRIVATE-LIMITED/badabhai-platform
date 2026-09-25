@@ -1073,10 +1073,15 @@ way to carry them out; the owner approved it, then ruled on what applying two of
 
 ### Item 21 and A4, applied
 
-- **C2 — Item 21's details.** `press operator` / `प्रेस ऑपरेटर` reach `jd_nco_7211_0101`
+- **C2 — Item 21's details.** `press operator` / `प्रेस ऑपरेटर` point at `jd_nco_7211_0101`
   "Press Shop Operator", already bound to the Press form. The woollen-cloth press
   (`jd_nco_8159_0400`) loses its published title "Press Operator" and keeps one way in:
-  `woollen press operator`, which no metal-press worker says.
+  `woollen press operator`, which no metal-press worker says. **As measured after it
+  shipped:** `प्रेस ऑपरेटर` pins the metal press outright, but bare `press operator` asks the
+  worker one question, because the ceramics pressman (`jd_nco_8181_0400`, "Pressman
+  (Ceramics)") also carries "Press Operator" as a published alias. The two choices are the
+  metal press shop, which hands over the Press form, and "Pressman". Before this change
+  neither choice was the metal press.
 - **A4** needed no new decision: the junk `Machine` alias is retired as ruled, and every bare
   "machine …" phrase now reaches no trade instead of dairy.
 
@@ -1108,6 +1113,10 @@ way to carry them out; the owner approved it, then ruled on what applying two of
 - **A1** — plain `fitter` off `jd_nco_7233_0101` — ships with the Maintenance Technician pack.
 - `small press operator` is honestly ambiguous (a small power press is metal work) and reaches
   the metal press in production. Pinned, not ruled.
+- Bare `press operator` asks metal press shop or ceramics pressman (C2). That is an honest
+  question — a ceramics pressman is a press operator too — so it is pinned, not ruled.
+  Retiring the ceramics code's "Press Operator" alias would make the phrase pin the metal
+  press outright; the code would keep "Pressman (Ceramics)" and "Pressman".
 
 ```
 Verdict: C1 retire, never delete; C2 press operator -> 7211.0101, woollen press keeps
