@@ -281,6 +281,14 @@ _NAME_CUE_RE = re.compile(
     r"\bmera naam\b|\bnaam\b)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"
 )
 _LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
+# The shortest leading word the trade-vocabulary carve-out may release (issue #1728, owner
+# ruling 2026-09-25; see `replace_leading_name`). The curated vocabulary holds 3-letter tokens
+# that ALSO read as names in a leading position — "Max", "Mag", "Arc", "Gas", "Cam", "Oxy" —
+# and "Max, welder" is exactly the shape the no-cue guess exists to catch, so below this floor
+# the guess still wins. Every trade word the carve-out is for is longer ("Welding", "Grinding",
+# "Fanuc", "Turner", "Fitting", "Diploma", "Siemens"), and an uppercase acronym ("CNC", "ITI",
+# "VMC") never matches `[A-Z][a-z]+` in the first place, so the floor costs nothing real.
+_LEADING_VOCABULARY_MIN_LEN = 4
 _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 
 # Credential / registration IDs, masked on their CUE rather than their shape.
@@ -467,7 +475,7 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
             return match.group(0).replace(name, token_for(name, prefix))
 
         def replace_leading_name(match: re.Match[str]) -> str:
-            """The leading-name heuristic, with the city carve-out step 5 already ruled.
+            """The leading-name heuristic, with two carve-outs: a city, and a trade word.
 
             A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
             followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
@@ -481,11 +489,34 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
             the four filters that actually reject a candidate, so the worker silently loses the
             signal that decides whether he is reachable at all.
 
-            The cue-based rule keeps its own replacer untouched. "Mera naam X" is explicit
-            evidence of a name and stays masked whatever X is; only the no-cue guess defers.
+            A TRADE WORD IS NOT A NAME EITHER (issue #1728, owner ruling 2026-09-25). The same
+            guess masked ordinary vocabulary that opens a list. Measured before this carve-out:
+
+                pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
+                pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
+
+            On the payer side the job-posting chat then stored the masked text, so the skills
+            answer on the draft lost the trade; on the worker side the model saw [PERSON_1]
+            instead of the trade the worker named. So a leading word that the ONE curated
+            trade/education vocabulary positively recognises (``_is_known_trade_vocabulary``,
+            the set pinned by checksum in tests/test_lexicon_parity.py) is kept — but only at
+            ``_LEADING_VOCABULARY_MIN_LEN``+ characters, because the 3-letter vocabulary tokens
+            ("Max", "Arc", "Gas") are exactly the shape this guess exists for. The vocabulary
+            check FAILS CLOSED: any error consulting it returns False and the word is masked.
+
+            What neither carve-out does: the cue-based rule keeps its own replacer untouched.
+            "Mera naam X" is explicit evidence of a name and stays masked whatever X is — a
+            city, a trade word, anything; only the no-cue guess defers. Employers, phones,
+            emails, ID tokens and the residual-digit net are not consulted and do not move. It
+            is also not a route, flag or principal exemption (ADR-0035 §2/§3): the rule is the
+            same for a worker's turn and a payer's.
             """
             candidate = match.group(1).strip().lower()
             if candidate in KNOWN_CITIES or candidate in CITY_ALIASES:
+                return match.group(0)
+            if len(candidate) >= _LEADING_VOCABULARY_MIN_LEN and _is_known_trade_vocabulary(
+                candidate
+            ):
                 return match.group(0)
             return replace_group1(match, "PERSON")
 
@@ -580,9 +611,14 @@ def _is_known_trade_vocabulary(label: str) -> bool:
     module-level import here would be a cycle, and this module is deliberately
     dependency-light. By call time both modules are fully loaded.
 
-    Any failure to consult the vocabulary returns False, i.e. the label is DROPPED —
-    the pre-existing behaviour. The rescue can only ever keep a label the vocabulary
-    positively recognises; it can never widen the gate by failing.
+    Two callers, both of which only ever RELEASE on a True: `certified_clean_skill_labels`
+    (keeps a label the gateway masked as an EMPLOYER) and `pseudonymize`'s
+    `replace_leading_name` (keeps a 4+ letter leading trade word the no-cue name guess would
+    have masked, issue #1728).
+
+    Any failure to consult the vocabulary returns False — the label is DROPPED, the leading
+    word is MASKED: the pre-existing behaviour in both. Each can only ever keep what the
+    vocabulary positively recognises; neither can widen the gate by failing.
     """
     try:
         from .profiling.signals import is_curated_vocabulary_label

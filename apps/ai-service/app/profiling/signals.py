@@ -468,10 +468,13 @@ _CERTIFICATION_LABELS: tuple[str, ...] = tuple(_EDUCATION["certificationLabels"]
 # those two were silently deleted from workers' persisted profiles and résumés. Real
 # skills and real qualifications, gone, with no signal anywhere.
 #
-# WHAT IT IS NOT. It does NOT weaken employer masking. `pseudonymize()` is untouched:
-# on general worker free text "Stainless Steel Industries Pvt Ltd" still masks exactly
-# as before. This set is consulted ONLY by the label-CERTIFICATION path, and only to
-# decide whether a label the gateway masked as an EMPLOYER is in fact vocabulary.
+# WHAT IT IS NOT. It does NOT weaken employer masking: on general worker free text
+# "Stainless Steel Industries Pvt Ltd" still masks exactly as before. It is consulted in
+# two places, both via `pseudonymize._is_known_trade_vocabulary` (fails closed to False):
+# the label-CERTIFICATION path, to decide whether a label the gateway masked as an
+# EMPLOYER is in fact vocabulary; and, since issue #1728 (owner ruling 2026-09-25),
+# `pseudonymize()`'s no-cue LEADING-NAME guess, which no longer masks a 4+ letter leading
+# word this set recognises ("Welding, grinding"). See `is_curated_vocabulary_label`.
 #
 # THE DISCRIMINATOR, and why it holds. A label qualifies only when EVERY one of its
 # tokens is curated vocabulary. A real company name always carries at least one token
@@ -558,8 +561,17 @@ def is_curated_vocabulary_label(label: str) -> bool:
     alphanumeric token at all (punctuation only) is NOT vocabulary — there is nothing
     to recognise, so it fails closed.
 
-    Callers: ``pseudonymize.certified_clean_skill_labels`` ONLY, and only to rescue a
-    label the gateway masked as an EMPLOYER. This function grants nothing on its own.
+    Callers, both through ``pseudonymize._is_known_trade_vocabulary`` (which fails closed
+    to False):
+
+    - ``pseudonymize.certified_clean_skill_labels`` — to rescue a label the gateway masked
+      as an EMPLOYER;
+    - ``pseudonymize.pseudonymize``'s no-cue leading-name guess — to NOT mask a 4+ letter
+      leading word ("Welding, grinding") as a person (issue #1728, owner ruling 2026-09-25).
+      So this set now also decides which leading words the gateway does not guess as
+      names; the cue-based name rule ("mera naam X") never consults it.
+
+    This function grants nothing on its own.
     """
     if not isinstance(label, str):
         return False

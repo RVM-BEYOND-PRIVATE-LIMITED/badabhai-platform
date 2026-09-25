@@ -937,3 +937,149 @@ def test_the_name_CUE_rule_is_untouched_by_the_city_carve_out():
     # defers to the gazetteer; a worker who says his name is Nagpur still gets masked.
     assert "[PERSON_1]" in pseudonymize("Mera naam Ramesh Kumar hai").text
     assert "[PERSON_1]" in pseudonymize("Mera naam Nagpur hai").text
+
+
+# --- #1728: a leading TRADE WORD is not a person's name either ----------------
+#
+# Owner ruling 2026-09-25, the same class of rule as the city carve-out above. The no-cue
+# guess `^\s*([A-Z][a-z]+)\s*,` masked ordinary trade vocabulary that opens a list.
+# MEASURED on main before the fix:
+#
+#     pseudonymize("Welding, grinding").text   -> "[PERSON_1], grinding"
+#     pseudonymize("Fanuc, tool offset").text  -> "[PERSON_1], tool offset"
+#
+# The payer's job-posting chat then stored the masked text and told the payer to retype a
+# harmless skills answer; on the worker side the model saw [PERSON_1] instead of the trade.
+#
+# The carve-out is the ONE curated vocabulary (`signals.VOCABULARY_TOKENS`, already pinned by
+# checksum in test_lexicon_parity.py) at 4+ letters. Every test below that PERMITS is paired
+# with one that REFUSES, and each probe asserts its own precondition first so a fixture that
+# stops containing the thing under test goes red instead of passing vacuously.
+
+_TRADE_LEADING_PROBES = [
+    "Welding, grinding",
+    "Fanuc, tool offset",
+    "Grinding, polishing",
+    "Turner, 5 saal",
+    "Diploma, ITI",
+    "Siemens, Fanuc",
+]
+
+
+@pytest.mark.parametrize("text", _TRADE_LEADING_PROBES)
+def test_a_leading_trade_vocabulary_word_is_not_masked_as_a_person(text):
+    from app.profiling import signals
+
+    leading = text.split(",", 1)[0]
+    assert leading.lower() in signals.VOCABULARY_TOKENS  # precondition: it IS vocabulary
+    result = pseudonymize(text)
+    assert result.text == text
+    assert result.blocked is False
+    assert result.replaced_entities == 0
+    assert not any(tok.startswith("[PERSON_") for tok in result.placeholder_tokens)
+
+
+@pytest.mark.parametrize(
+    "text, leading",
+    [
+        ("Ramesh, main welder hoon", "Ramesh"),
+        ("Suresh, Pune se", "Suresh"),
+        # A person's name before a trade word: the carve-out keys on the LEADING word only.
+        ("Anil, welding", "Anil"),
+        # Not trade vocabulary — stays masked BY DESIGN (owner ruling 2026-09-25). A benefit
+        # word is not in the curated set and the carve-out must not grow a second list.
+        ("Canteen, PF", "Canteen"),
+        # A locality outside the city gazetteer — stays masked BY DESIGN.
+        ("Chakan, Pune", "Chakan"),
+    ],
+)
+def test_the_vocabulary_carve_out_still_masks_a_leading_word_it_does_not_recognise(text, leading):
+    from app.profiling import signals
+    from app.pseudonymize import CITY_ALIASES, KNOWN_CITIES
+
+    low = leading.lower()
+    assert low not in signals.VOCABULARY_TOKENS  # precondition: NOT vocabulary
+    assert low not in KNOWN_CITIES and low not in CITY_ALIASES  # ...and not the city rule
+    result = pseudonymize(text)
+    assert result.text.startswith("[PERSON_1],")
+    assert leading not in result.text
+
+
+@pytest.mark.parametrize("word", ["Max", "Mag", "Arc", "Gas", "Cam", "Oxy"])
+def test_the_vocabulary_carve_out_4_letter_floor_keeps_a_3_letter_token_masked(word):
+    # These ARE curated vocabulary, and they are also exactly the shape the no-cue guess
+    # exists for ("Max, welder" reads as a name). The floor is what keeps them masked.
+    from app.profiling import signals
+
+    assert word.lower() in signals.VOCABULARY_TOKENS  # precondition: the floor is what decides
+    result = pseudonymize(f"{word}, welder")
+    assert result.text == "[PERSON_1], welder"
+
+
+@pytest.mark.parametrize(
+    "text, word",
+    [("mera naam Welding hai", "Welding"), ("my name is Turner", "Turner")],
+)
+def test_the_name_CUE_rule_is_untouched_by_the_vocabulary_carve_out(text, word):
+    # "Mera naam X" is explicit evidence of a name whatever X is. The cue replacer never
+    # consults the vocabulary; only the no-cue guess defers to it.
+    from app.profiling import signals
+
+    assert word.lower() in signals.VOCABULARY_TOKENS  # precondition: the cued word IS vocab
+    result = pseudonymize(text)
+    assert "[PERSON_1]" in result.text
+    assert word not in result.text
+
+
+def test_the_vocabulary_carve_out_fails_CLOSED_when_the_vocabulary_cannot_be_consulted(
+    monkeypatch,
+):
+    from app.profiling import signals
+
+    # Precondition: the unpatched gateway DOES release the trade word, so the patch below is
+    # what changes the outcome.
+    assert pseudonymize("Welding, grinding").text == "Welding, grinding"
+
+    calls: list[str] = []
+
+    def _boom(label):
+        calls.append(label)
+        raise RuntimeError("vocabulary unavailable")
+
+    monkeypatch.setattr(signals, "is_curated_vocabulary_label", _boom)
+
+    trade = pseudonymize("Welding, grinding")
+    name = pseudonymize("Ramesh, main welder hoon")
+    assert calls, "the carve-out never consulted the vocabulary - the probe proves nothing"
+    # Degrades to the pre-carve-out behaviour: masked, and the turn is NOT blocked.
+    assert trade.text == "[PERSON_1], grinding"
+    assert trade.blocked is False
+    assert name.text == "[PERSON_1], main welder hoon"
+    assert name.blocked is False
+
+
+def test_the_vocabulary_carve_out_reaches_exactly_the_pinned_vocabulary_at_4_plus_letters():
+    # EXHAUSTIVE over the pinned set, so the carve-out's reach is pinned to a list that is
+    # itself checksum-pinned (test_lexicon_parity.py). A token the leading-name pattern cannot
+    # see at all ("3D", "360", "G") is out of scope — it was never masked by this rule.
+    from app.profiling import signals
+
+    shape = re.compile(r"[A-Z][a-z]+")
+    permitted: set[str] = set()
+    masked: set[str] = set()
+    for token in signals.VOCABULARY_TOKENS:
+        word = token.title()
+        if not shape.fullmatch(word):
+            continue
+        if "[PERSON_" in pseudonymize(f"{word}, x").text:
+            masked.add(word)
+        else:
+            permitted.add(word)
+
+    assert permitted == {
+        t.title() for t in signals.VOCABULARY_TOKENS if len(t) >= 4 and t.isalpha()
+    }
+    assert masked == {
+        t.title() for t in signals.VOCABULARY_TOKENS if shape.fullmatch(t.title()) and len(t) < 4
+    }
+    assert permitted and masked  # both halves of the rule are actually exercised
