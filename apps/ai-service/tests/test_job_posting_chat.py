@@ -951,7 +951,8 @@ def test_the_experience_question_records_nothing_rather_than_a_guess(text: str):
     ("text", "last_asked", "window"),
     [
         ("3 years experience, ITI", "requirements", (3, None)),
-        ("Experience: 3-5 yrs", "description", (3, 5)),
+        # Was last_asked="description" — never read for experience since #1727 (F0).
+        ("Experience: 3-5 yrs", "skills", (3, 5)),
         ("3 saal ka experience", "requirements", (3, None)),
         ("freshers welcome", "requirements", (0, None)),
     ],
@@ -968,9 +969,11 @@ def test_experience_is_read_cross_topic_only_with_a_year_unit_and_a_cue(
     [
         ("we need 3", "role_title"),
         ("need 2 exp welders", "role_title"),  # a cue beside a unit-LESS number
-        ("6 days a week", "description"),
-        ("3 years", "description"),  # a unit, but no experience word
-        ("experienced candidates only, 1 year contract", "description"),  # other clause
+        # These three were last_asked="description", which #1727 stopped reading for
+        # experience at all — moved so they still exercise the CUE gate, not the skip.
+        ("6 days a week", "benefits"),
+        ("3 years", "requirements"),  # a unit, but no experience word
+        ("experienced candidates only, 1 year contract", "requirements"),  # other clause
         ("no freshers", "requirements"),
     ],
 )
@@ -1036,9 +1039,11 @@ def test_city_is_asked_only_when_the_location_answer_named_none():
     assert asked == ["location_label", "vacancy"]
     assert state.collected["city"] == "Pune"
 
-    asked, state = _drive(None, ["CNC Operator", "Chakan MIDC", "Chakan"])
+    # F11: the city question is now a FOLLOW-UP ("Which city or district is that area
+    # in?"), so the expected answer is the containing city — not the locality repeated.
+    asked, state = _drive(None, ["CNC Operator", "Chakan MIDC", "Pune district"])
     assert asked == ["location_label", "city", "vacancy"]
-    assert state.collected["city"] == "Chakan"
+    assert state.collected["city"] == "Pune"
     assert state.collected["location_label"] == "Chakan MIDC"
 
 
@@ -1244,3 +1249,691 @@ def test_an_interview_through_the_route_fills_all_thirteen_topics(
     assert draft["shift"] == "rotational"
     assert draft["needed_by"] == "soon"
     assert draft["clarification_questions"] == []
+
+
+# --- #1727: the PR #1727 review findings (F0..F15) ----------------------------------
+# Every input below was MEASURED giving a wrong value before this fix (the review's
+# verifier reproduced each on 1c53715e). The rule they all enforce is answers.py's:
+# FAIL TOWARD ASKING AGAIN — record nothing rather than a guess.
+
+
+# Experience (F0, F1, F2, F12) ------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "window"),
+    [
+        # F0 — an age range, an age cap or a course length is not the experience figure.
+        ("age 25-40, 5 years experience", (5, None)),
+        ("2 years, age up to 35", (2, None)),
+        ("ITI 2 year course + 1 year experience", (1, None)),
+        ("Age 20-35, 2-5 years", (2, 5)),
+        ("age 18 to 35, minimum 2 years", (2, None)),
+        ("age limit 35, 3 years", (3, None)),
+        ("umar 20 se 30, 2 saal", (2, None)),
+        ("25 years old, 3 years experience", (3, None)),
+        ("Welder with 3 years experience", (3, None)),
+        # Two clauses, one window: each side from the clause that states it.
+        ("minimum 2 years, maximum 5 years", (2, 5)),
+        # F1 / F12 — an upper bound is a MAX, whichever side of the number it sits on.
+        ("2 years max", (None, 2)),
+        ("2 years maximum", (None, 2)),
+        ("max. 3 years", (None, 3)),  # the abbreviation's dot is not a clause break
+        ("below 5 years", (None, 5)),
+        ("not more than 3 years", (None, 3)),
+        ("no more than 3 years", (None, 3)),
+        ("at most 4 years", (None, 4)),
+        ("upto 3 years", (None, 3)),
+        ("within 2 years", (None, 2)),
+        ("2 years or less", (None, 2)),
+        ("2 years and below", (None, 2)),
+        ("5 saal tak", (None, 5)),
+        ("3 saal tak", (None, 3)),
+        ("2 saal se kam", (None, 2)),
+        ("3 saal se kam", (None, 3)),
+        ("zyada se zyada 3 saal", (None, 3)),
+        ("Fresher or less than 1 year", (0, 1)),
+        # A lower bound is a MIN.
+        ("more than 3 years", (3, None)),
+        ("above 5 years", (5, None)),
+        ("over 5 years", (5, None)),
+        ("atleast 2 years", (2, None)),
+        ("kam se kam 2 saal", (2, None)),
+        ("5 years plus", (5, None)),
+        ("5 years and above", (5, None)),
+        ("3 years or above", (3, None)),
+        ("5 saal se zyada", (5, None)),
+        ("5 saal se upar", (5, None)),
+        # F12 — the Hinglish span separator the pay parser already accepts.
+        ("2 se 5 saal", (2, 5)),
+        ("between 2 and 5 years", (2, 5)),
+        # F2 — a NEGATED fresher never overwrites a stated minimum.
+        ("minimum 3 years, freshers are not allowed", (3, None)),
+        ("Freshers will not be considered, minimum 2 years", (2, None)),
+        # ...while an un-negated one still reads as 0.
+        ("Freshers with no experience", (0, None)),
+        ("freshers can apply", (0, None)),
+        # A thousands comma is not a clause break ("22,000" is not a window of 22).
+        ("3 years, salary Rs 22,000", (3, None)),
+    ],
+)
+def test_experience_reads_only_the_figure_tied_to_experience(text: str, window: tuple):
+    detected = answers.detect_answers(text, "experience")["experience"]
+    assert (detected["min"], detected["max"]) == window
+
+
+@pytest.mark.parametrize(
+    ("text", "ceiling"),
+    [
+        ("less than 2 years", 2),
+        ("less than 3 years", 3),
+        ("under 2 years", 2),
+        ("under 3 years", 3),
+    ],
+)
+def test_a_strict_comparative_records_the_payer_s_ceiling_inclusively(text: str, ceiling: int):
+    """A DELIBERATE, PINNED CHOICE (F1 asked for one): "less than 3 years" records max 3,
+    not max 2. It is the payer's own number, a worker with 3 years is the boundary
+    case either reading disputes, and inventing "2" would put a figure on the card
+    that the payer never typed. What it must NEVER do is record min 3 — the reversal
+    the review measured."""
+    detected = answers.detect_answers(text, "experience")["experience"]
+    assert detected == {"min": None, "max": ceiling}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # F2 — every measured way of saying "no freshers".
+        "Freshers will not be considered",
+        "we don't want freshers",
+        "Freshers are not allowed",
+        "fresher mat bhejna",
+        "freshers ko nahi lenge",
+        "freshers are not considered",
+        "we do not hire freshers",
+        "don't send freshers",
+        "freshers nahi chahiye",
+        "freshers not allowed",
+        "not for freshers",
+        "non-freshers only",
+        "freshers won't do",
+        "never freshers",
+        # F0 — screened: an age, and the company's OWN tenure.
+        "age 25-40",
+        "25 years old",
+        "We have 30 years experience in forging",
+        "our company has 20 years experience",
+        "We are a 25 years experienced company",
+        "established 20 years ago",
+        "in the business for 20 years",
+        "20 years experience since 2004",
+        # F1 / F12 — fail closed: a bound word that no shape consumed.
+        "3 years at most",
+        "up to 2-5 years",
+        "2-5 years max",
+        "3 years. Not more than that",
+        # Contradictions are not merged into a guess.
+        "minimum 5 years, maximum 2 years",
+        "1-2 years, 3-5 years",
+    ],
+)
+def test_the_experience_question_records_nothing_rather_than_a_guess_1727(text: str):
+    assert "experience" not in answers.detect_answers(text, "experience")
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked", "window"),
+    [
+        ("Age 18-35 years with 3 years experience", "requirements", (3, None)),
+        ("ITI, less than 3 years experience", "requirements", (None, 3)),
+        ("ITI, less than 3 years experience", None, (None, 3)),
+        ("ITI pass, experience below 2 years", "requirements", (None, 2)),
+        ("CNC turning, less than 3 years experience", "skills", (None, 3)),
+        ("Welder, 3 saal tak experience", "role_title", (None, 3)),
+    ],
+)
+def test_experience_cross_topic_reads_a_bound_the_right_way_round(
+    text: str, last_asked: str | None, window: tuple
+):
+    detected = answers.detect_answers(text, last_asked)["experience"]
+    assert (detected["min"], detected["max"]) == window
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        ("We are a 25 years experienced company making auto parts", "description"),
+        ("We are a 25 years experienced company making auto parts", "requirements"),
+        ("20 years experience in the industry, we make gears", "description"),
+        ("We have 30 years experience in forging, need 5 forging operators", "role_title"),
+        ("Age 18-35 years", "requirements"),
+        ("ITI fitter, freshers will not be considered", "requirements"),
+        ("20000 in hand, we don't hire freshers", "pay_range"),
+        # The description is never read for experience at all (see answers.py).
+        ("Experience: 3-5 yrs", "description"),
+    ],
+)
+def test_experience_is_not_read_cross_topic_from_tenure_age_or_a_refusal(
+    text: str, last_asked: str
+):
+    assert "experience" not in answers.detect_answers(text, last_asked)
+
+
+def test_a_negated_fresher_beside_a_pay_answer_still_records_the_pay():
+    detected = answers.detect_answers("20000 in hand, we don't hire freshers", "pay_range")
+    assert detected["pay_range"] == {"pay_min": 20000, "pay_max": None}
+    assert "experience" not in detected
+
+
+def test_a_company_s_tenure_in_the_opener_never_closes_the_experience_question():
+    """F0 end to end: the opener used to close `experience` at 30 years, so the question
+    was never served and the draft published min_experience_years=30."""
+    opener = "We have 30 years experience in forging, need 5 forging operators"
+    asked, state = _drive(None, [opener, "Pune, Chakan", "x", "x", "x", "x"])
+    assert "experience" in asked
+    draft = interview_engine.build_draft(state)
+    assert draft.min_experience_years is None and draft.max_experience_years is None
+
+
+def test_an_age_range_on_the_experience_question_never_reaches_the_draft():
+    state = JobPostingChatState(
+        asked_question_ids=["experience"], ask_counts={"experience": 1}, turn_count=3
+    )
+    _, _, state, _ = interview_engine.next_turn(state, "age 25-40, 5 years experience")
+    draft = interview_engine.build_draft(state)
+    assert (draft.min_experience_years, draft.max_experience_years) == (5, None)
+
+
+# Needed by (F3, F13) ---------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "needed_by"),
+    [
+        # F3 — a negated hurry is flexible, wherever the negation sits.
+        ("Not very urgent", "flexible"),
+        ("not that urgent", "flexible"),
+        ("not so urgent", "flexible"),
+        ("not required urgently", "flexible"),
+        ("urgent nahi hai", "flexible"),
+        ("bilkul urgent nahi", "flexible"),
+        ("koi jaldi nahi", "flexible"),
+        ("jaldi nahi hai", "flexible"),
+        ("not in a hurry", "flexible"),
+        ("no rush", "flexible"),
+        ("joining time is flexible", "flexible"),
+        # F3 — a "flexible" that belongs to another noun is not the joining timeline.
+        ("Immediate joining, timings flexible", "immediate"),
+        ("ASAP, salary flexible", "immediate"),
+        ("Immediately, shift timings are flexible", "immediate"),
+        ("today", "immediate"),
+        # F13 — counted timelines.
+        ("Within a week", "soon"),
+        ("in a week", "soon"),
+        ("7 days", "soon"),
+        ("2 weeks", "soon"),
+        ("1 week", "soon"),
+        ("one week", "soon"),
+        ("1 month", "soon"),
+        ("a month", "soon"),
+        ("next 10 days", "soon"),
+        ("1-2 weeks", "soon"),
+        ("2-3 days", "soon"),
+        ("ek hafte me", "soon"),
+        ("ek mahine me", "soon"),
+        ("10 din me", "soon"),
+        ("15 din", "soon"),
+        ("2 hafte", "soon"),
+        ("few weeks", "soon"),
+        ("this month", "soon"),
+        ("next week", "soon"),
+    ],
+)
+def test_needed_by_reads_negation_scope_and_counted_timelines(text: str, needed_by: str):
+    assert answers.detect_answers(text, "needed_by")["needed_by"] == needed_by
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # F3 — a negated immediacy alone is no answer.
+        "not required immediately",
+        "Not needed today",
+        "turant nahi",
+        "abhi nahi",
+        # F3 — "don't know yet" is not "abhi" (immediate).
+        "abhi pata nahi",
+        "abhi decide nahi kiya",
+        "pata nahi",
+        "not sure yet",
+        "not decided",
+        "not fixed",
+        "don't know",
+        "no idea",
+        "tbd",
+        "will tell later",
+        "will decide after interview",
+        "will confirm",
+        "baad me batayenge",
+        # F13 — two months or more: no enum value fits, so no guess.
+        "within 2 months",
+        "2 months",
+        "1-2 months",
+        "3 mahine",
+        "few months",
+        "in 90 days",
+        "10 weeks",
+        # ...even beside a "soon" cue: the counted horizon is what the payer measured.
+        "soon, within 2-3 months",
+        "jaldi, 2 mahine me",
+        # Contradictions.
+        "Immediately, but flexible",
+        "no hurry, but asap",
+        "flexible, within a month",
+    ],
+)
+def test_needed_by_records_nothing_when_unsure_negated_or_contradictory(text: str):
+    assert "needed_by" not in answers.detect_answers(text, "needed_by")
+
+
+# City (F4, F5, F10, F11, F14, F15) ---------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "city"),
+    [
+        # A city inside a ROUTE name is not where the job is.
+        ("Delhi-Jaipur highway, Neemrana", "Neemrana"),
+        ("Old Delhi Road, Gurgaon", "Gurugram"),
+        ("Bommasandra, Hosur Road, Bangalore", "Bangalore"),
+        ("Hosur Road, Bangalore", "Bangalore"),
+        ("Attibele, Hosur Road, Bengaluru", "Bangalore"),
+        ("Bangalore Road, Hosur", "Hosur"),
+        ("Bangalore-Hosur road, Hosur", "Hosur"),
+        ("Nashik Road, Pune", "Pune"),
+        ("Nashik Road, Nashik", "Nashik"),
+        ("Old Mumbai Road, Pune", "Pune"),
+        ("Ahmedabad Highway, Sanand", "Sanand"),
+        ("Ahmedabad Highway, Vadodara", "Vadodara"),
+        ("Chennai Bypass, Sriperumbudur", "Sriperumbudur"),
+        ("Thane Belapur Road, Navi Mumbai", "Navi Mumbai"),
+        # Unchanged: one city, or two names for the same city.
+        ("Pune, Chakan", "Pune"),
+        ("Navi Mumbai, Vashi", "Navi Mumbai"),
+        ("Gurgaon (Gurugram)", "Gurugram"),
+    ],
+)
+def test_the_location_answer_closes_city_only_on_one_unambiguous_city(text: str, city: str):
+    assert answers.detect_answers(text, "location_label")["city"] == city
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Mumbai-Agra highway, Bhiwandi",
+        "Mumbai-Pune, Lonavala",  # hyphen-joined on BOTH sides, no road word
+        "Mumbai-Pune expressway, Talegaon",
+        "Mumbai-Pune expressway, Lonavala",
+        "Mumbai Pune Highway, Lonavala",
+        "Pimpri, Old Mumbai-Pune Highway",
+        "Bhiwadi, Delhi Jaipur Highway",
+        "Delhi Road, Meerut",
+        "Jaipur Road, Ajmer",
+        "Electronic City, Hosur Road",
+        "Pune Nagar Road, Ranjangaon",
+        "Office in Delhi, factory in Manesar",
+        "Not Mumbai, Thane",
+        "Pune nahi, Nashik",
+        "Delhi NCR, Noida sector 63",
+        # F14 — the city comes from the span the location was parsed from ("Satara").
+        "Pune office, but site is in Satara",
+        "Pune side, but the job is in Satara",  # one site noun: ONLY the label read holds
+    ],
+)
+def test_the_location_answer_leaves_city_open_on_a_route_two_cities_or_a_negation(text: str):
+    detected = answers.detect_answers(text, "location_label")
+    assert "location_label" in detected  # the location itself still records
+    assert "city" not in detected
+
+
+def test_a_route_named_location_asks_the_city_question_end_to_end():
+    """F4/F10 end to end: the engine used to close `city` as Delhi and skip straight to
+    vacancy."""
+    asked, state = _drive(None, ["CNC operator", "Delhi-Jaipur highway, Neemrana"])
+    assert state.collected["city"] == "Neemrana"
+    asked, state = _drive(None, ["CNC operator", "Mumbai-Agra highway, Bhiwandi"])
+    assert asked == ["location_label", "city"]
+    assert "city" not in state.collected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # F4 — two places, or a negated one.
+        "Chakan (not Pune)",
+        "Not Pune, Nashik",
+        "Plant in Talegaon, office in Mumbai",
+        # ...and the same with a letters-only bare label, which the charset would pass:
+        # only "ambiguous -> no bare fallback" stops these becoming the city verbatim.
+        "Pune or Mumbai",
+        "Pune nahi Nashik",
+        "Chakan not Talegaon",
+        # F5 — the qualifier sits BEFORE the cue, so it must be read on the raw message.
+        "Anywhere in India",
+        "anywhere in Maharashtra",
+        "Not sure, somewhere in Gujarat",
+        "somewhere near Satara",
+        # F5 — "don't know yet" in its ordinary forms.
+        "no idea",
+        "not decided yet",
+        "will tell later",
+        "tbd",
+        "TBD",
+        "tba",
+        "later",
+        "depends",
+        "abhi decide nahi",
+        "not fixed yet",
+        "not final",
+        "multiple locations",
+        "many sites",
+        "various cities",
+        "different places",
+        "maybe",
+        "will let you know",
+        "will confirm",
+        "batayenge",
+        "baad me",
+        # F11 — a frustrated reply to a repeated question is not a city.
+        "already told",
+        "I already said, Vapi",
+        "told you",
+        "India",
+        "pan india",
+        # F15 — a bare label is letters only.
+        "Chakan (MIDC)",
+        "Pimpri \U0001f3ed",
+        "Chakan & Talegaon",
+    ],
+)
+def test_the_city_question_leaves_city_open_on_a_non_answer_or_an_ambiguous_one(text: str):
+    assert "city" not in answers.detect_answers(text, "city")
+
+
+@pytest.mark.parametrize(
+    ("text", "city"),
+    [
+        ("Pune district", "Pune"),
+        ("Pune, India", "Pune"),  # "india" is a non-answer only when it is ALL there is
+        ("[Chakan]", "Chakan"),
+        ("Vapi", "Vapi"),
+    ],
+)
+def test_the_city_question_still_accepts_a_real_answer(text: str, city: str):
+    assert answers.detect_answers(text, "city") == {"city": city}
+
+
+def test_the_city_question_is_a_follow_up_not_a_repeat_of_the_location_question():
+    """F11: the city question used to be "Which city is the workplace in?" served right
+    after "Which city is this job in?" — the same question twice in a row."""
+    location = question_bank.topic_by_id("location_label")
+    city = question_bank.topic_by_id("city")
+    assert location.question == (
+        "Which city and area is the workplace in — for example Pune, Chakan?"
+    )
+    assert city.question == "Which city or district is that area in?"
+    served = {location.question, location.retry_question, city.question, city.retry_question}
+    assert len(served) == 4  # no wording is ever served twice
+    # The retry is copied VERBATIM into clarification_questions, so it must stand
+    # alone: nothing for "that" to refer to.
+    assert city.retry_question == (
+        "Which city or district is the workplace in — for example Pune, Chennai or Ludhiana?"
+    )
+    assert " that " not in f" {city.retry_question.lower()} "
+
+
+def test_the_location_example_puts_the_city_first_because_the_gateway_masks_it_last():
+    """MEASURED, not assumed: the gateway exempts a KNOWN CITY from its leading-name
+    rule, so the example order the question teaches decides whether one answer records
+    both fields."""
+    from app.pseudonymize import pseudonymize
+
+    assert pseudonymize("Pune, Chakan").text == "Pune, Chakan"
+    assert pseudonymize("Chakan, Pune").text.startswith("[PERSON_")
+    location = question_bank.topic_by_id("location_label")
+    for wording in (location.question, location.retry_question):
+        assert "Pune, Chakan" in wording
+
+
+def _utf16_units(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+@pytest.mark.parametrize(
+    ("value", "cap"),
+    [
+        ("Pimpri" + "\U0001f3ed" * 41, 80),
+        ("\U0001f3ed" * 79 + "a", 80),
+        ("x" * 81, 80),
+        ("a" + "\U0001f3ed", 2),
+        ("", 5),
+    ],
+)
+def test_cap_utf16_counts_what_zod_counts(value: str, cap: int):
+    capped = answers.cap_utf16(value, cap)
+    assert _utf16_units(capped) <= cap
+    assert value.startswith(capped)
+    # The LONGEST prefix that fits — never cut shorter than the TS schema requires.
+    if capped != value:
+        assert _utf16_units(value[: len(capped) + 1]) > cap
+
+
+def test_every_draft_string_fits_the_zod_cap_in_utf16_units():
+    """F15: Python counted code points, zod counts UTF-16 units, so an emoji-padded value
+    passed Python and failed the TS parse — a 503 on every retry of that turn."""
+    from app.contracts import JobPostingDraft
+
+    emoji = "\U0001f3ed"
+    state = JobPostingChatState(
+        collected={
+            "role_title": emoji * 150,
+            "location_label": "Pimpri" + emoji * 120,
+            "city": "Pimpri" + emoji * 41,
+            "description": emoji * 1500,
+            "skills": [emoji * 50, "Fanuc"],
+            "benefits": [emoji * 50],
+            "requirements": [emoji * 50],
+        }
+    )
+    draft = interview_engine.build_draft(state)
+    assert _utf16_units(draft.city) <= answers.CITY_MAX
+    assert _utf16_units(draft.role_title) <= answers.LABEL_MAX
+    assert _utf16_units(draft.location_label) <= answers.LABEL_MAX
+    assert _utf16_units(draft.description) <= answers.DESCRIPTION_MAX
+    for phrase in [*draft.skills, *draft.benefits, *draft.requirements]:
+        assert _utf16_units(phrase) <= answers.PHRASE_MAX
+    assert draft.city.startswith("Pimpri")  # capped, not dropped
+    JobPostingDraft.model_validate(draft.model_dump())
+
+
+def test_an_emoji_padded_city_answer_is_never_recorded():
+    assert "city" not in answers.detect_answers("Pimpri" + "\U0001f3ed" * 41, "city")
+
+
+def test_the_city_cap_counts_utf16_even_if_the_charset_is_ever_widened(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Defence in depth. Today the letters-only charset admits only BMP characters, for
+    which code points and UTF-16 units agree — so the city cap is only OBSERVABLY in
+    UTF-16 units once that charset admits more. Widen it here and the cap must hold."""
+    import re
+
+    monkeypatch.setattr(answers, "_CITY_LABEL_CHARSET_RE", re.compile(r".+"))
+    city = answers.detect_answers("Pimpri" + "\U0001f3ed" * 41, "city")["city"]
+    assert _utf16_units(city) <= answers.CITY_MAX
+    assert city.startswith("Pimpri")
+
+
+# Pay type (F6, F9) -------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        # F9 — a negated type is not that type.
+        ("Not CTC", "pay_type"),
+        ("No CTC, straight salary", "pay_type"),
+        ("non-CTC", "pay_type"),
+        ("without CTC", "pay_type"),
+        ("CTC nahi", "pay_type"),
+        ("18k, not CTC", "pay_range"),
+        # F9 — "in hand" the SKILL is not "in hand" the pay.
+        ("in hand tools", "pay_type"),
+        ("Need fitters good in hand tools at 18k", "role_title"),
+        ("Need 2 fitters good in hand tools, salary 18k, Pune", "role_title"),
+        ("Need 2 fitters good in hand tools, salary 18k, Pune", None),
+        ("should know hand grinding, in hand work, salary 15k", "skills"),
+        ("fitter with in-hand tools skill, 20k pm", "role_title"),
+        # F6 — two figures: the cue could describe either, so neither.
+        ("gross 30k, in hand 25k", "pay_range"),
+        ("Salary 20-25k, in hand around 18k after PF", "pay_range"),
+        ("25k per month, 21k in hand", "pay_range"),
+        ("30k, in hand 25k", "pay_range"),
+        ("in hand 25k, gross 30k", "pay_range"),
+        # F6 — bare "gross" is a CONFLICT detector cross-topic, never a value.
+        ("20-25k in hand, gross", "pay_range"),
+        # F9 — the cue must share a clause with the money it describes.
+        ("salary 20k, good in hand fabrication", "skills"),
+    ],
+)
+def test_pay_type_records_nothing_rather_than_a_guess_1727(text: str, last_asked: str | None):
+    assert "pay_type" not in answers.detect_answers(text, last_asked)
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked", "pay_type"),
+    [
+        ("not CTC, in hand", "pay_type", "in_hand"),
+        ("CTC nahi, in hand", "pay_type", "in_hand"),
+        ("not in hand, it is CTC", "pay_type", "ctc"),
+        ("not net, gross", "pay_type", "gross"),
+        ("Rs 22,000 in hand", "pay_range", "in_hand"),
+        ("in hand 25000", "pay_range", "in_hand"),
+        ("20-25k in hand, 8 hours duty", "pay_range", "in_hand"),
+        ("we need 5 welders, 20-25k in hand", "role_title", "in_hand"),
+    ],
+)
+def test_pay_type_still_reads_a_clear_answer(text: str, last_asked: str, pay_type: str):
+    assert answers.detect_answers(text, last_asked)["pay_type"] == pay_type
+
+
+def test_two_figures_at_the_pay_question_leave_pay_type_to_be_asked():
+    """F6 end to end, in the REAL order (pay_range is asked before pay_type)."""
+    _, asked_id, state, _ = interview_engine.next_turn(
+        _at_the_pay_question(), "Salary 20-25k, in hand around 18k after PF"
+    )
+    assert "pay_type" not in state.collected
+    assert asked_id == "pay_type"
+
+
+# Vacancy (F7) ------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        ("Welder, need 2-5 years experience", "role_title"),
+        ("Welder (need 6-10 years exp)", "role_title"),
+        ("require 3-4 years experience", "requirements"),
+        ("ITI pass, require 2 to 5 years experience", "requirements"),
+        ("hiring 2-5 yrs experienced fitters", "role_title"),
+        ("looking for 2-5 years experience", "requirements"),
+        ("CNC operator need 1-2 years exp", "role_title"),
+        ("need 6-10 years", "role_title"),
+        ("need 2 se 5 saal experience", "role_title"),
+    ],
+)
+def test_a_cue_verb_before_an_experience_window_is_not_a_head_count(text: str, last_asked: str):
+    assert "vacancy" not in answers.detect_answers(text, last_asked)
+
+
+@pytest.mark.parametrize("text", ["we need 2-5 welders", "need 2 to 5 welders"])
+def test_a_real_head_count_range_still_bands(text: str):
+    assert answers.detect_answers(text, "role_title")["vacancy"] == "2-5"
+
+
+def test_the_verb_form_leaves_vacancy_to_be_asked_end_to_end():
+    _, asked_id, state, _ = interview_engine.next_turn(None, "Welder, need 2-5 years experience")
+    assert "vacancy" not in state.collected
+    assert state.collected["experience"] == {"min": 2, "max": 5}
+    asked, _ = _drive(state, ["Pune"])
+    assert asked == ["vacancy"]
+
+
+# Brackets (F8) -----------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "topic_id", "value"),
+    [
+        ("[PF, ESI]", "benefits", ["PF", "ESI"]),
+        ("[TIG, MIG]", "skills", ["TIG", "MIG"]),
+        ("[ITI], [10th pass]", "requirements", ["ITI", "10th pass"]),
+        ("[Pune]", "location_label", "Pune"),
+        ("[CNC Operator]", "role_title", "CNC Operator"),
+    ],
+)
+def test_ordinary_square_brackets_are_trimmed_again(text: str, topic_id: str, value: object):
+    assert answers.detect_answers(text, topic_id)[topic_id] == value
+
+
+def test_every_placeholder_token_at_an_edge_stays_whole():
+    """The bracket trim may never break a token: with a token at BOTH edges the
+    bracket-trimmed text still holds none of them intact, so the bracket-less strip is
+    used and both stay visible to the retype ask."""
+    detected = answers.detect_answers("[PERSON_1] will call [PHONE_1]", "description")
+    assert detected["description"] == "[PERSON_1] will call [PHONE_1]"
+    two = answers.detect_answers("[PERSON_1] met [PHONE_1] today", "description")
+    assert two["description"] == "[PERSON_1] met [PHONE_1] today"
+
+
+# --- #1727 round 2: the hardening must not blank real requirements ---------------
+# Experience is asked ONCE, so a screen that blanks a genuine requirement loses the card
+# field for good. Each case below was blanked or truncated by the first hardening pass.
+@pytest.mark.parametrize(
+    ("text", "window"),
+    [
+        # A bare "company" / "we are" states a REQUIREMENT, not the employer's tenure.
+        ("we are looking for 3 years experience", {"min": 3, "max": None}),
+        ("3 years experience in a reputed company", {"min": 3, "max": None}),
+        # "plus" / "under" as a connective or preposition is not a bound.
+        ("ITI plus 2 years experience", {"min": 2, "max": None}),
+        ("2 years, will work under supervisor", {"min": 2, "max": None}),
+        # A fresher welcome lowers the floor to 0 and keeps the stated ceiling.
+        ("1 to 3 years in CNC, freshers can also apply", {"min": 0, "max": 3}),
+        ("freshers or 1-2 years experience", {"min": 0, "max": 2}),
+        # "Fresher or 2 years" welcomes freshers: the floor is 0, and no ceiling was stated.
+        ("Fresher or 2 years", {"min": 0, "max": None}),
+        # ...and the hardened cases still hold.
+        ("We are a 25 years experienced company, need 2 years", {"min": 2, "max": None}),
+        ("minimum 3 years, freshers are not allowed", {"min": 3, "max": None}),
+        ("under 3 years", {"min": None, "max": 3}),
+        ("2 years max", {"min": None, "max": 2}),
+    ],
+)
+def test_the_experience_hardening_keeps_real_requirements(text: str, window: dict):
+    assert answers.detect_answers(text, "experience")["experience"] == window
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "We have 30 years experience in forging",  # the employer's own tenure
+        "3 years. Not more than that",  # an unread ceiling never becomes a floor
+        "Freshers will not be considered",
+    ],
+)
+def test_the_experience_hardening_still_refuses_to_guess(text: str):
+    assert "experience" not in answers.detect_answers(text, "experience")
+
+
+def test_flexible_timings_is_not_a_joining_timeline():
+    """An adjective-first "flexible timings" belongs to the timings, exactly like
+    "timings flexible": the immediate cue beside it is the answer."""
+    assert answers.detect_answers("flexible timings, join immediately", "needed_by") == {
+        "needed_by": "immediate"
+    }
+
+
+@pytest.mark.parametrize(("text", "city"), [("Chakan only", "Chakan"), ("only Bhiwadi", "Bhiwadi")])
+def test_only_is_emphasis_not_part_of_the_city(text: str, city: str):
+    assert answers.detect_answers(text, "city")["city"] == city

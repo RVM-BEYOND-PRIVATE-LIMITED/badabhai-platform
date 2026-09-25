@@ -95,21 +95,33 @@ _TOPICS: list[Topic] = [
         core=True,
     ),
     Topic(
+        # Asks for the city AND the area in one go, so one answer usually closes both
+        # `location_label` and `city`. The example puts the CITY FIRST on purpose: the
+        # gateway exempts a known city from its leading-name rule, so "Pune, Chakan"
+        # records both fields, while "Chakan, Pune" is masked to "[PERSON_1], Pune" and
+        # records neither (measured; pinned in tests/test_job_posting_chat.py).
         "location_label",
         "Work location",
-        "Which city is this job in?",
+        "Which city and area is the workplace in — for example Pune, Chakan?",
         core=True,
-        retry_question="Which city and area is the workplace in — for example Pune, Chakan?",
+        retry_question="Could you share the city first, then the area — like Pune, Chakan?",
     ),
     Topic(
         # The worker card's city (#1726). Usually closed by the location answer itself
-        # (a gazetteer city in "Pune, Chakan"), so it is only SERVED when that answer
-        # named no recognisable city. Open answer space: no options.
+        # (one gazetteer city in "Pune, Chakan"), so it is only SERVED when that answer
+        # named none, or more than one. A FOLLOW-UP about the containing city, never a
+        # repeat of the location question (#1727 F11: "Which city is the workplace in?"
+        # straight after "Which city is this job in?" drew the locality again). Open
+        # answer space: no options.
         "city",
         "City",
-        "Which city is the workplace in?",
+        "Which city or district is that area in?",
         core=True,
-        retry_question="Which city is that — for example Pune, Chennai or Ludhiana?",
+        # Copied VERBATIM into clarification_questions, where there is no preceding
+        # question — so it must stand alone (no "that").
+        retry_question=(
+            "Which city or district is the workplace in — for example Pune, Chennai or Ludhiana?"
+        ),
     ),
     Topic(
         "vacancy",

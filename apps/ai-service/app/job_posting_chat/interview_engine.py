@@ -423,11 +423,14 @@ def suggested_answers(asked_question_id: str | None, trade_hint: str | None = No
 
 
 # --- Draft assembly --------------------------------------------------------
+# Every draft string is capped in UTF-16 units — what zod's `.max()` counts — never in
+# Python code points. A code-point cap let an emoji-padded value through that the TS
+# contract then rejected, failing the turn with a 503 on every retry (#1727 F15).
 def _as_str(value: object, cap: int) -> str | None:
     if not isinstance(value, str):
         return None
-    text = value.strip()
-    return text[:cap] if text else None
+    text = answers.cap_utf16(value.strip(), cap).strip()
+    return text or None
 
 
 def _as_phrases(value: object, cap: int) -> list[str]:
@@ -435,8 +438,10 @@ def _as_phrases(value: object, cap: int) -> list[str]:
         return []
     out: list[str] = []
     for item in value:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip()[:80])
+        if isinstance(item, str):
+            phrase = answers.cap_utf16(item.strip(), answers.PHRASE_MAX).strip()
+            if phrase:
+                out.append(phrase)
         if len(out) >= cap:
             break
     return out
