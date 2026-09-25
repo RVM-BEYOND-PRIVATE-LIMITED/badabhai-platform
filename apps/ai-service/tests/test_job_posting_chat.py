@@ -143,20 +143,25 @@ def test_next_topic_serves_essentials_first_then_core_then_optional(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _blind(monkeypatch)
-    asked, _ = _drive(None, ["x"] * 13)
+    asked, _ = _drive(None, ["x"] * 17)
     assert asked == [
         # 1. Every unanswered ESSENTIAL, each with its ONE bounded re-ask.
         "role_title",
         "role_title",
         "location_label",
         "location_label",
+        "city",
+        "city",
         "vacancy",
         "vacancy",
-        # 2. Unanswered CORE topics, asked once.
+        # 2. Unanswered CORE topics, asked once. No pay_type: the pay question yielded
+        #    no figure, so "is that pay in-hand?" would ask about nothing (moot).
         "skills",
         "pay_range",
+        "experience",
         # 3. Unanswered OPTIONAL topics, asked once.
         "shift",
+        "needed_by",
         "benefits",
         "requirements",
         "description",
@@ -187,8 +192,9 @@ def test_an_answered_topic_is_never_served_again():
 
 
 def test_essentials_are_served_before_a_core_topic_even_when_core_comes_first():
-    """`skills` sits SECOND in the bank but is not essential, so it must wait for all
-    three essentials — the priority is the engine's, not the bank's reading order."""
+    """`skills` sits SECOND in the bank but is not essential, so it must wait for every
+    essential — the priority is the engine's, not the bank's reading order. ("Pune"
+    closes location_label AND city, so city is never served here.)"""
     asked, _ = _drive(None, ["MIG Welder", "Pune"])
     assert asked == ["location_label", "vacancy"]
 
@@ -207,13 +213,44 @@ def test_a_blind_interview_still_terminates_well_inside_the_ask_budget(
         served += 1
     else:  # pragma: no cover - only reached if the engine never wraps
         pytest.fail("the interview never wrapped up")
-    # 3 essentials x MAX_ASKS_PER_TOPIC + 6 ask-once topics.
-    assert served == 12
+    # 4 essentials x MAX_ASKS_PER_TOPIC + 8 ask-once topics (pay_type is moot: the
+    # blind pay answer yielded no figure) — a literal AND the arithmetic, so a bank
+    # edit that changes either is noticed here.
+    assert served == 16
+    essentials = len(interview_engine.ESSENTIAL_TOPICS)
+    ask_once = len(question_bank.topic_ids()) - essentials - 1
+    assert served == essentials * interview_engine.MAX_ASKS_PER_TOPIC + ask_once
     assert ready is True
-    # The ceiling must keep REAL headroom over the worst-case blind run, so a bank
-    # that grows by a topic or two cannot silently start truncating the interview
-    # (the exact zero-margin coupling the worker engine shipped and had to fix).
-    assert interview_engine.MAX_ENGINE_ASKS >= served + 4
+
+
+def test_the_worst_case_run_still_fits_the_ask_budget(monkeypatch: pytest.MonkeyPatch):
+    """The TRUE worst case is blind everywhere EXCEPT the pay figure: then pay_type is
+    owed too, so every topic is served — 4 essentials x 2 + 9 ask-once = 17."""
+    monkeypatch.setattr(
+        answers,
+        "detect_answers",
+        lambda _m, last_asked: (
+            {"pay_range": {"pay_min": 20000, "pay_max": 25000}} if last_asked == "pay_range" else {}
+        ),
+    )
+    state = None
+    served: list[str] = []
+    for _ in range(200):
+        _, asked_id, state, ready = interview_engine.next_turn(state, "x")
+        if asked_id is None:
+            break
+        served.append(asked_id)
+    else:  # pragma: no cover - only reached if the engine never wraps
+        pytest.fail("the interview never wrapped up")
+    assert "pay_type" in served
+    essentials = len(interview_engine.ESSENTIAL_TOPICS)
+    ask_once = len(question_bank.topic_ids()) - essentials
+    assert len(served) == 17 == essentials * interview_engine.MAX_ASKS_PER_TOPIC + ask_once
+    assert ready is True
+    # The ceiling must keep REAL headroom over the worst-case run, so a bank that
+    # grows by a topic or two cannot silently start truncating the interview (the
+    # exact zero-margin coupling the worker engine shipped and had to fix).
+    assert interview_engine.MAX_ENGINE_ASKS >= len(served) + 4
 
 
 def test_no_topic_is_ever_asked_more_than_max_asks_per_topic(
@@ -347,7 +384,7 @@ def test_a_multiplier_never_travels_beyond_its_own_range():
 
 
 def test_a_bare_small_number_is_not_read_as_pay():
-    """"8 hours" / "2 years" must not become a salary. Below the floor and with no
+    """ "8 hours" / "2 years" must not become a salary. Below the floor and with no
     multiplier we record NOTHING and ask again — a blank the payer can see beats a
     wrong number they do not."""
     assert "pay_range" not in answers.detect_answers("8 hours a day", "shift")
@@ -400,16 +437,20 @@ def test_list_answers_accumulate_across_turns():
 # --- Draft assembly ---------------------------------------------------------
 def test_build_draft_projects_the_collected_answers_onto_the_publishable_shape():
     state = JobPostingChatState(
-        answered_topics=["role_title", "location_label", "vacancy"],
+        answered_topics=["role_title", "location_label", "city", "vacancy"],
         collected={
             "role_title": "CNC Operator",
             "skills": ["Fanuc", "tool offset"],
-            "location_label": "Pune",
+            "location_label": "Pune, Chakan",
+            "city": "Pune",
             "vacancy": "6-10",
             "pay_range": {"pay_min": 18000, "pay_max": 22000},
+            "pay_type": "in_hand",
+            "experience": {"min": 1, "max": 2},
             "shift": "rotational",
+            "needed_by": "soon",
             "benefits": ["PF", "ESI"],
-            "requirements": ["2 years experience"],
+            "requirements": ["ITI"],
             "description": "Machine shop, 6 days a week.",
         },
     )
@@ -418,6 +459,10 @@ def test_build_draft_projects_the_collected_answers_onto_the_publishable_shape()
     assert draft.vacancy_band == "6-10"
     assert draft.pay_min == 18000 and draft.pay_max == 22000
     assert draft.shift == "rotational"
+    assert draft.city == "Pune"
+    assert draft.pay_type == "in_hand"
+    assert (draft.min_experience_years, draft.max_experience_years) == (1, 2)
+    assert draft.needed_by == "soon"
     assert draft.missing_fields == []
     assert draft.confidence == 1.0
     assert draft.clarification_questions == []
@@ -458,8 +503,19 @@ def test_an_inverted_pay_range_is_ordered_not_rejected():
 
 def test_missing_essentials_become_clarification_questions():
     draft = interview_engine.build_draft(JobPostingChatState())
-    assert draft.missing_fields[:3] == ["role_title", "skills", "location_label"]
-    assert len(draft.clarification_questions) == 3
+    assert draft.missing_fields[:4] == ["role_title", "skills", "location_label", "city"]
+    assert len(draft.clarification_questions) == len(interview_engine.ESSENTIAL_TOPICS)
+    assert question_bank.topic_by_id("city").retry_question in draft.clarification_questions
+
+
+def test_the_retype_ask_survives_even_when_every_essential_is_missing():
+    """REGRESSION. The cap was a literal 4; the fourth essential (city) filled it, so the
+    privacy affordance — "rewrite this field without contact details" — was the one
+    question silently truncated off the end."""
+    state = JobPostingChatState(collected={"description": "Call [PHONE_1] to apply"})
+    questions = interview_engine.build_draft(state).clarification_questions
+    assert len(questions) == len(interview_engine.ESSENTIAL_TOPICS) + 1
+    assert "contact details" in questions[-1]
 
 
 def test_a_field_holding_a_placeholder_token_asks_the_payer_to_retype_it():
@@ -484,7 +540,14 @@ def test_draft_ready_needs_every_essential_answered_and_every_must_ask_raised():
     assert ready is True
     assert state.unanswered_essentials == []
     for topic_id in interview_engine.MUST_ASK_TOPICS:
-        assert topic_id in state.answered_topics or topic_id in state.asked_question_ids
+        # pay_type is the one excused topic: "no" to the pay question left no figure
+        # for it to describe, so it is moot rather than raised.
+        assert (
+            topic_id in state.answered_topics
+            or topic_id in state.asked_question_ids
+            or (topic_id == "pay_type" and "pay_range" not in state.collected)
+        )
+    assert "pay_type" not in state.asked_question_ids
 
 
 # --- 2. Routes: pseudonymize first, fail closed, zero LLM calls -------------
@@ -596,6 +659,7 @@ def test_a_city_survives_onto_the_draft_even_though_it_is_masked_for_the_llm():
         },
     )
     assert res.json()["draft"]["location_label"] == "Pune"
+    assert res.json()["draft"]["city"] == "Pune"
 
 
 def test_the_respond_route_never_echoes_an_organisation_name_back():
@@ -610,10 +674,10 @@ def test_the_respond_route_never_echoes_an_organisation_name_back():
 
 def test_chips_are_served_for_the_topic_being_asked_and_none_on_the_wrap_up():
     state = JobPostingChatState(
-        answered_topics=["role_title", "location_label"],
+        answered_topics=["role_title", "location_label", "city"],
         asked_question_ids=["role_title", "location_label"],
         ask_counts={"role_title": 1, "location_label": 1},
-        collected={"role_title": "Welder", "location_label": "Pune"},
+        collected={"role_title": "Welder", "location_label": "Pune", "city": "Pune"},
     )
     res = client.post(
         "/job-posting-chat/respond",
@@ -626,3 +690,557 @@ def test_chips_are_served_for_the_topic_being_asked_and_none_on_the_wrap_up():
     body = res.json()
     assert body["asked_question_id"] == "vacancy"
     assert body["suggested_answers"] == list(answers.VACANCY_BANDS)
+
+
+# --- #1726: the worker-card topics (city, pay_type, experience, needed_by) --------
+# The worker's job card renders these; before #1726 a chat-published posting wrote
+# NULL into every one. The negatives matter more than the positives: each parser must
+# record NOTHING rather than guess (the answers.py "fail toward asking again" rule).
+def test_the_bank_order_is_the_agreed_contract():
+    assert question_bank.topic_ids() == (
+        "role_title",
+        "skills",
+        "location_label",
+        "city",
+        "vacancy",
+        "pay_range",
+        "pay_type",
+        "experience",
+        "shift",
+        "needed_by",
+        "benefits",
+        "requirements",
+        "description",
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        s
+        for t in question_bank.topics_for()
+        for s in (t.question, t.retry_question)
+        if s is not None
+    ],
+)
+def test_every_served_question_is_one_short_question(text: str):
+    """The bank's tone rule, executed: ONE question, under 20 words."""
+    assert text.count("?") == 1, text
+    assert len(text.split()) < 20, text
+
+
+def test_the_new_enums_match_the_contract_literals():
+    """`answers.PAY_TYPES` / `NEEDED_BY` and the Pydantic literals are two copies of one
+    closed set — pinned together like the vacancy bands above."""
+    from typing import get_args
+
+    from app.contracts import JobNeededBy, JobPayType
+
+    assert tuple(get_args(JobPayType)) == answers.PAY_TYPES
+    assert tuple(get_args(JobNeededBy)) == answers.NEEDED_BY
+
+
+# City -------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "city"),
+    [
+        ("Pune", "Pune"),
+        ("pune", "Pune"),  # title-cased like the TS gazetteer's titleCase
+        ("Bombay", "Mumbai"),  # alias -> canonical
+        ("gurgaon", "Gurugram"),
+        ("Navi Mumbai", "Navi Mumbai"),  # the multi-word city, not the "Mumbai" in it
+        ("greater  noida", "Greater Noida"),  # multi-word, whitespace-tolerant
+        ("Chakan, near Pune", "Pune"),  # a gazetteer hit beats the bare label
+        ("Chakan", "Chakan"),  # a small town: accepted as a short label
+        ("Sri City", "Sri City"),
+        ("It is in Chakan", "Chakan"),
+        ("Chakan?", "Chakan"),
+    ],
+)
+def test_the_city_question_accepts_a_gazetteer_city_or_a_short_label(text: str, city: str):
+    assert answers.detect_answers(text, "city") == {"city": city}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[PERSON_1]",  # a placeholder token never becomes a city
+        "[PERSON_1] Nagar",
+        "Sector 5",  # digits
+        "Plot 12 MIDC",
+        "Pimpri Chinchwad industrial area",  # more than three words
+        "same",
+        "don't know",
+        "anywhere",
+        "ok",
+        "no",  # a refusal leaves the essential OPEN
+        "our plant",
+    ],
+)
+def test_the_city_question_records_nothing_rather_than_a_guess(text: str):
+    assert "city" not in answers.detect_answers(text, "city")
+
+
+def test_a_placeholder_beside_a_real_city_keeps_only_the_city():
+    assert answers.detect_answers("[PERSON_1], Pune", "city") == {"city": "Pune"}
+
+
+def test_the_city_gazetteer_matches_whole_words_only():
+    # "Kota" is a gazetteer city; "Kotak" is not it. Nor is "Punekar" Pune.
+    assert "city" not in answers.detect_answers("Kotak Mahindra building", "location_label")
+    assert "city" not in answers.detect_answers("Punekar Road", "location_label")
+
+
+def test_the_location_answer_closes_the_city_too_with_no_extra_question():
+    assert answers.detect_answers("Pune, Chakan", "location_label") == {
+        "location_label": "Pune, Chakan",
+        "city": "Pune",
+    }
+    assert answers.detect_answers("Navi Mumbai, Vashi", "location_label")["city"] == "Navi Mumbai"
+
+
+def test_a_location_with_no_gazetteer_city_leaves_city_for_its_own_question():
+    """Gazetteer only on this path — the bare fallback would stamp "Chakan MIDC", a
+    locality, into the card's city bucket without the payer being asked."""
+    assert answers.detect_answers("Chakan MIDC", "location_label") == {
+        "location_label": "Chakan MIDC"
+    }
+
+
+def test_a_location_that_does_not_record_never_records_a_city():
+    """The city rides on a RECORDED location answer only. A masked name at the edge of
+    the answer used to be trimmed to "PERSON_1], Pune" and recorded; now the token is
+    seen, the location stays open, and so does the city."""
+    assert answers.detect_answers("[PERSON_1], Pune", "location_label") == {}
+
+
+def test_city_is_never_read_cross_topic():
+    detected = answers.detect_answers("CNC operator in Pune", "role_title")
+    assert "city" not in detected
+    assert "city" not in answers.detect_answers("Pune", "description")
+
+
+# Placeholder tokens at the EDGE of a label (the _TRIM_PUNCT fix) -------------------
+@pytest.mark.parametrize(
+    ("text", "topic_id"),
+    [
+        ("[PERSON_1], Chakan", "location_label"),
+        ("[EMPLOYER_1] Pimpri", "location_label"),
+        ("[EMPLOYER_1] Pimpri", "role_title"),
+        ("mera naam [PERSON_1]", "role_title"),
+    ],
+)
+def test_an_edge_token_can_no_longer_close_an_essential(text: str, topic_id: str):
+    """MEASURED BEFORE THE FIX: each of these recorded a bracket-trimmed token
+    ("PERSON_1], Chakan") that PLACEHOLDER_TOKEN_RE could not see, so the essential
+    closed on it and no retype ask was raised."""
+    assert topic_id not in answers.detect_answers(text, topic_id)
+
+
+def test_a_phone_at_the_end_of_a_description_still_raises_the_retype_ask(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _no_llm(monkeypatch)
+    state = JobPostingChatState(asked_question_ids=["description"], ask_counts={"description": 1})
+    body = client.post(
+        "/job-posting-chat/respond",
+        json={
+            "session_id": "s1",
+            "message_text": "Call 9876543210",
+            "conversation_state": state.model_dump(),
+        },
+    ).json()
+    assert "9876543210" not in body["draft"]["description"]
+    assert any("contact details" in q for q in body["draft"]["clarification_questions"])
+
+
+# Pay type ---------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "pay_type"),
+    [
+        ("In-hand", "in_hand"),
+        ("in hand", "in_hand"),
+        ("inhand", "in_hand"),
+        ("take-home", "in_hand"),
+        ("net salary", "in_hand"),
+        ("net", "in_hand"),  # bare "net" — ONLY as the answer to this question
+        ("haath mein", "in_hand"),
+        ("Gross", "gross"),
+        ("CTC", "ctc"),
+        ("c.t.c", "ctc"),
+        ("cost to company", "ctc"),
+    ],
+)
+def test_pay_type_parsing(text: str, pay_type: str):
+    assert answers.detect_answers(text, "pay_type")["pay_type"] == pay_type
+
+
+def test_two_different_pay_types_record_nothing():
+    assert "pay_type" not in answers.detect_answers("gross 30k, in hand 25k", "pay_type")
+    assert "pay_type" not in answers.detect_answers("CTC 3 lakh, take home 22k", "pay_range")
+
+
+def test_the_pay_answer_closes_pay_type_cross_topic():
+    detected = answers.detect_answers("20-25k in hand", "pay_range")
+    assert detected["pay_range"] == {"pay_min": 20000, "pay_max": 25000}
+    assert detected["pay_type"] == "in_hand"
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        ("20k gross", "pay_range"),  # bare "gross" is attributed-only
+        ("net 20k", "pay_range"),  # so is bare "net"
+        ("skilled in hand grinding", "requirements"),  # the cue with no money in sight
+    ],
+)
+def test_pay_type_is_not_guessed_cross_topic(text: str, last_asked: str):
+    assert "pay_type" not in answers.detect_answers(text, last_asked)
+
+
+# Experience -------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "window"),
+    [
+        ("Fresher", (0, None)),
+        ("freshers", (0, None)),
+        ("no experience needed", (0, None)),
+        ("experience not required", (0, None)),
+        ("1-2 years", (1, 2)),
+        ("3-5 years", (3, 5)),
+        ("2 to 4 yrs", (2, 4)),
+        ("5-3 years", (3, 5)),  # a reversed range is ordered
+        ("5+ years", (5, None)),
+        ("at least 2 years", (2, None)),
+        ("minimum 3", (3, None)),
+        ("min 3 years", (3, None)),
+        ("3 or more years", (3, None)),
+        ("3 years or more", (3, None)),
+        ("up to 3 years", (None, 3)),
+        ("max 4", (None, 4)),
+        ("minimum 2 maximum 5 years", (2, 5)),
+        ("3 years", (3, None)),
+        ("3 saal", (3, None)),
+        ("3", (3, None)),
+        ("freshers or up to 2 years", (0, 2)),
+        ("No freshers, 3+ years only", (3, None)),
+    ],
+)
+def test_experience_parsing(text: str, window: tuple):
+    detected = answers.detect_answers(text, "experience")["experience"]
+    assert (detected["min"], detected["max"]) == window
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "6 months",  # not years
+        "6 days a week",
+        "20-25k",
+        "70 years",  # outside 0..60
+        "2-80 years",
+        "1.5 years",  # not a whole number of years
+        "no freshers",  # names the word, means the opposite
+    ],
+)
+def test_the_experience_question_records_nothing_rather_than_a_guess(text: str):
+    assert "experience" not in answers.detect_answers(text, "experience")
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked", "window"),
+    [
+        ("3 years experience, ITI", "requirements", (3, None)),
+        ("Experience: 3-5 yrs", "description", (3, 5)),
+        ("3 saal ka experience", "requirements", (3, None)),
+        ("freshers welcome", "requirements", (0, None)),
+    ],
+)
+def test_experience_is_read_cross_topic_only_with_a_year_unit_and_a_cue(
+    text: str, last_asked: str, window: tuple
+):
+    detected = answers.detect_answers(text, last_asked)["experience"]
+    assert (detected["min"], detected["max"]) == window
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        ("we need 3", "role_title"),
+        ("need 2 exp welders", "role_title"),  # a cue beside a unit-LESS number
+        ("6 days a week", "description"),
+        ("3 years", "description"),  # a unit, but no experience word
+        ("experienced candidates only, 1 year contract", "description"),  # other clause
+        ("no freshers", "requirements"),
+    ],
+)
+def test_experience_is_never_guessed_cross_topic(text: str, last_asked: str):
+    assert "experience" not in answers.detect_answers(text, last_asked)
+
+
+def test_an_experience_window_is_never_read_as_a_vacancy_band():
+    """REGRESSION. The embedded-band search ignored units, so "2-5 years" in the ROLE
+    answer closed the vacancy essential as "2-5" — a head count nobody gave."""
+    detected = answers.detect_answers("Welder, 2-5 years experience", "role_title")
+    assert "vacancy" not in detected
+    assert detected["experience"] == {"min": 2, "max": 5}
+    # The band itself still reads — the guard is on the unit, not the band.
+    assert answers.detect_answers("we need 2-5 welders", "role_title")["vacancy"] == "2-5"
+
+
+# Needed by --------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("text", "needed_by"),
+    [
+        ("Immediately", "immediate"),
+        ("asap", "immediate"),
+        ("as soon as possible", "immediate"),
+        ("urgently", "immediate"),
+        ("tomorrow", "immediate"),
+        ("this week", "immediate"),
+        ("abhi", "immediate"),
+        ("Within a month", "soon"),
+        ("next month", "soon"),
+        ("in 10 days", "soon"),
+        ("within 2 weeks", "soon"),
+        ("15 days", "soon"),
+        ("jaldi", "soon"),
+        ("Flexible", "flexible"),
+        ("no hurry", "flexible"),
+        ("anytime", "flexible"),
+        ("whenever", "flexible"),
+        ("not urgent", "flexible"),  # FLEXIBLE is checked first
+        ("Not immediately, within a month", "soon"),  # a negated immediate is dropped
+        ("abhi nahi, next month", "soon"),
+    ],
+)
+def test_needed_by_parsing(text: str, needed_by: str):
+    assert answers.detect_answers(text, "needed_by")["needed_by"] == needed_by
+
+
+@pytest.mark.parametrize(
+    ("text", "last_asked"),
+    [
+        ("in 115 days", "needed_by"),  # "15 days" is not inside "115 days"
+        ("not immediately", "needed_by"),  # a negation with nothing else is no answer
+        ("urgent requirement", "description"),  # attributed only, never cross-topic
+    ],
+)
+def test_needed_by_records_nothing_rather_than_a_guess(text: str, last_asked: str):
+    assert "needed_by" not in answers.detect_answers(text, last_asked)
+
+
+# Engine -----------------------------------------------------------------------
+def test_city_is_asked_only_when_the_location_answer_named_none():
+    asked, state = _drive(None, ["CNC Operator", "Pune, Chakan"])
+    assert asked == ["location_label", "vacancy"]
+    assert state.collected["city"] == "Pune"
+
+    asked, state = _drive(None, ["CNC Operator", "Chakan MIDC", "Chakan"])
+    assert asked == ["location_label", "city", "vacancy"]
+    assert state.collected["city"] == "Chakan"
+    assert state.collected["location_label"] == "Chakan MIDC"
+
+
+def test_the_pay_answer_can_close_pay_type_without_asking_it():
+    state = JobPostingChatState(
+        answered_topics=["role_title", "location_label", "city", "vacancy", "skills"],
+        asked_question_ids=["role_title", "location_label", "vacancy", "skills", "pay_range"],
+        ask_counts={
+            "role_title": 1,
+            "location_label": 1,
+            "vacancy": 1,
+            "skills": 1,
+            "pay_range": 1,
+        },
+        turn_count=5,
+    )
+    _, asked_id, state, _ = interview_engine.next_turn(state, "20-25k in hand")
+    assert state.collected["pay_type"] == "in_hand"
+    assert asked_id == "experience"
+
+
+def _at_the_pay_question() -> JobPostingChatState:
+    return JobPostingChatState(
+        answered_topics=["role_title", "location_label", "city", "vacancy", "skills"],
+        asked_question_ids=["role_title", "location_label", "vacancy", "skills", "pay_range"],
+        ask_counts={
+            "role_title": 1,
+            "location_label": 1,
+            "vacancy": 1,
+            "skills": 1,
+            "pay_range": 1,
+        },
+        turn_count=5,
+    )
+
+
+@pytest.mark.parametrize(
+    "declined",
+    [
+        "no",  # an explicit refusal: pay_range ANSWERED with nothing
+        "depends on the interview",  # unparsed: pay_range ASKED, never answered
+    ],
+)
+def test_pay_type_is_never_asked_about_a_pay_the_payer_did_not_give(declined: str):
+    """Asking "Is that pay in-hand, gross or CTC?" after the payer gave no figure asks
+    about nothing. pay_type is MOOT then: never served, and it does not hold the draft
+    open."""
+    _, asked_id, state, _ = interview_engine.next_turn(_at_the_pay_question(), declined)
+    assert "pay_range" not in state.collected
+    assert asked_id == "experience"
+    asked, state = _drive(state, ["x"] * 12)
+    assert "pay_type" not in asked
+    assert "pay_type" not in state.asked_question_ids
+    assert asked[-1] is None  # the interview still wraps up without it
+    draft = interview_engine.build_draft(state)
+    assert draft.pay_type is None
+    assert "pay_type" in draft.missing_fields
+
+
+def test_a_moot_pay_type_does_not_hold_the_draft_open_on_a_clarify():
+    """The gate and the topic picker excuse a moot topic by the SAME test. Seen through
+    clarify_turn, which reports readiness while re-serving the last question."""
+    asked = [t for t in question_bank.topic_ids() if t != "pay_type"]
+    state = JobPostingChatState(
+        answered_topics=["role_title", "location_label", "city", "vacancy", "pay_range"],
+        asked_question_ids=asked,
+        ask_counts={t: 1 for t in asked},
+        turn_count=len(asked),
+    )
+    result = interview_engine.clarify_turn(state, "what do you mean?")
+    assert result is not None
+    _, last_id, _, ready = result
+    assert last_id == "description"
+    assert ready is True
+
+
+def test_a_pay_figure_given_later_revives_the_pay_type_question():
+    """Mootness is re-derived every turn, never recorded: once a figure arrives the
+    type question is owed again — and served before the later topics."""
+    _, asked_id, state, _ = interview_engine.next_turn(_at_the_pay_question(), "no")
+    assert asked_id == "experience"
+    _, asked_id, state, ready = interview_engine.next_turn(state, "3 years, salary Rs 22,000")
+    assert state.collected["pay_range"]["pay_min"] == 22000
+    assert state.collected["experience"] == {"min": 3, "max": None}
+    assert asked_id == "pay_type"
+    assert ready is False
+
+
+def test_an_experience_window_commits_whole_and_follows_the_overwrite_rule():
+    state = JobPostingChatState(
+        asked_question_ids=["experience"], ask_counts={"experience": 1}, turn_count=3
+    )
+    _, _, state, _ = interview_engine.next_turn(state, "3-5 years")
+    assert state.collected["experience"] == {"min": 3, "max": 5}
+    # Incidental: a later cross-topic mention does not rewrite the established window.
+    state.asked_question_ids.append("requirements")
+    _, _, state, _ = interview_engine.next_turn(state, "2 years experience, ITI")
+    assert state.collected["experience"] == {"min": 3, "max": 5}
+    # Deliberate: a correction replaces it WHOLE — no merge of halves.
+    _, _, state, _ = interview_engine.next_turn(state, "actually 1 year experience")
+    assert state.collected["experience"] == {"min": 1, "max": None}
+
+
+def test_the_engine_ask_budget_covers_the_new_worst_case():
+    """4 essentials x 2 + 9 ask-once = 17; the ceiling keeps >= 4 asks of headroom."""
+    assert interview_engine.MAX_ENGINE_ASKS == 22
+    assert interview_engine.MAX_INTERVIEW_TURNS == 22 * 3
+    for topic_id in ("pay_type", "experience", "needed_by"):
+        assert topic_id in interview_engine.MUST_ASK_TOPICS
+    assert interview_engine.ESSENTIAL_TOPICS == ("role_title", "location_label", "city", "vacancy")
+
+
+# Draft assembly ---------------------------------------------------------------
+def test_build_draft_swaps_an_inverted_experience_window():
+    """The create DTO refines max >= min, so an inverted window is ordered, never
+    dropped (the same rule as an inverted pay range)."""
+    state = JobPostingChatState(collected={"experience": {"min": 5, "max": 2}})
+    draft = interview_engine.build_draft(state)
+    assert (draft.min_experience_years, draft.max_experience_years) == (2, 5)
+
+
+@pytest.mark.parametrize(
+    "collected",
+    [
+        {"city": 42, "pay_type": "monthly", "experience": "3 years", "needed_by": "later"},
+        {"city": "   ", "pay_type": ["in_hand"], "experience": {"min": True}, "needed_by": 1},
+        {"city": None, "pay_type": {"x": 1}, "experience": {"min": -1, "max": 61}},
+        {"experience": {"min": "3", "max": 2.5}, "needed_by": ["soon"]},
+    ],
+)
+def test_build_draft_is_defensive_about_malformed_new_fields(collected: dict):
+    draft = interview_engine.build_draft(JobPostingChatState(collected=collected))
+    assert draft.city is None
+    assert draft.pay_type is None
+    assert draft.min_experience_years is None and draft.max_experience_years is None
+    assert draft.needed_by is None
+    for topic_id in ("city", "pay_type", "experience", "needed_by"):
+        assert topic_id in draft.missing_fields
+
+
+def test_build_draft_caps_a_stored_city_at_the_dto_limit():
+    draft = interview_engine.build_draft(JobPostingChatState(collected={"city": "x" * 500}))
+    assert draft.city == "x" * answers.CITY_MAX
+
+
+def test_missing_fields_and_confidence_count_the_new_topics():
+    state = JobPostingChatState(
+        collected={
+            "city": "Pune",
+            "pay_type": "ctc",
+            "experience": {"min": None, "max": 3},  # a max alone still fills the topic
+            "needed_by": "flexible",
+        }
+    )
+    draft = interview_engine.build_draft(state)
+    for topic_id in ("city", "pay_type", "experience", "needed_by"):
+        assert topic_id not in draft.missing_fields
+    assert len(draft.missing_fields) == len(question_bank.topic_ids()) - 4
+    assert draft.confidence == round(4 / len(question_bank.topic_ids()), 2)
+
+
+# End to end -------------------------------------------------------------------
+def test_an_interview_through_the_route_fills_all_thirteen_topics(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The whole #1726 claim in one transcript: every topic the worker card renders is
+    asked, answered, and on the draft — through the real route, gateway included."""
+    _no_llm(monkeypatch)
+    transcript = [
+        ("CNC Operator", "location_label"),
+        ("Pune, Chakan", "vacancy"),  # location + city in one answer
+        ("5", "skills"),
+        ("CNC turning and Fanuc control", "pay_range"),
+        ("20-25k", "pay_type"),
+        ("In-hand", "experience"),
+        ("3-5 years", "shift"),
+        ("Rotational", "needed_by"),
+        ("Within a month", "benefits"),
+        ("PF + ESI, canteen", "requirements"),
+        ("ITI fitter certificate", "description"),
+        ("Machine shop, 6 days a week.", None),
+    ]
+    state = None
+    body: dict = {}
+    for message, expected_next in transcript:
+        body = client.post(
+            "/job-posting-chat/respond",
+            json={"session_id": "s1", "message_text": message, "conversation_state": state},
+        ).json()
+        assert body["blocked"] is False, message
+        assert body["asked_question_id"] == expected_next, message
+        state = body["updated_state"]
+    draft = body["draft"]
+    assert body["draft_ready"] is True
+    assert state["unanswered_essentials"] == []
+    assert draft["missing_fields"] == []
+    assert draft["confidence"] == 1.0
+    assert draft["city"] == "Pune"
+    assert draft["location_label"] == "Pune, Chakan"
+    assert draft["vacancy_band"] == "2-5"
+    assert (draft["pay_min"], draft["pay_max"], draft["pay_type"]) == (20000, 25000, "in_hand")
+    assert (draft["min_experience_years"], draft["max_experience_years"]) == (3, 5)
+    assert draft["shift"] == "rotational"
+    assert draft["needed_by"] == "soon"
+    assert draft["clarification_questions"] == []

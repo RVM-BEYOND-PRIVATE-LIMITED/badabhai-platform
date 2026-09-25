@@ -30,7 +30,9 @@ const ASSISTANT_TEXT = "Got it. Which shift will they work?";
 const FULL_DRAFT = {
   role_title: "CNC Operator",
   skills: ["fanuc control"],
-  location_label: "Pune",
+  // Poster free text and the card city differ on purpose, so a test can tell which one a
+  // mapping read (#1726 — `city` is never derived from `location_label`).
+  location_label: "Chakan MIDC",
   vacancy_band: "2-5",
   pay_min: 20000,
   pay_max: 25000,
@@ -38,6 +40,11 @@ const FULL_DRAFT = {
   benefits: ["PF and ESI"],
   requirements: ["ITI preferred"],
   description: "Machining shop floor role on our production line",
+  city: "Pune",
+  pay_type: "in_hand",
+  min_experience_years: 1,
+  max_experience_years: 3,
+  needed_by: "soon",
   confidence: 1,
   missing_fields: [],
   clarification_questions: [],
@@ -605,9 +612,29 @@ describe("JobPostingChatService — ownership is a no-oracle 404 (IDOR)", () => 
       last_message_at: "2026-07-28T09:30:00.000Z",
       // FLAT, matching what both shipped clients read off a resume card.
       role_title: "CNC Operator",
-      location_label: "Pune",
+      location_label: "Chakan MIDC",
+      city: "Pune", // #1726 — the draft's card city, not the poster's free-text label
       vacancy_band: "2-5",
     });
+  });
+
+  it("a resume card whose draft has no city says null, never a guess from location_label (#1726)", async () => {
+    const d = make({
+      session: {
+        id: SESSION,
+        payerId: PAYER_A,
+        status: "active",
+        conversationState: ENGINE_STATE,
+        draft: { ...FULL_DRAFT, city: null },
+        publishedJobPostingId: null,
+        startedAt: new Date("2026-07-28T09:00:00.000Z"),
+        lastMessageAt: null,
+        endedAt: null,
+      },
+    });
+    const { sessions } = await d.svc.listSessions(PAYER_A);
+    expect(sessions[0]!.city).toBeNull();
+    expect(sessions[0]!.location_label).toBe("Chakan MIDC");
   });
 });
 
@@ -650,7 +677,7 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
     expect(dto).toEqual({
       org_label: ORG_NAME,
       role_title: "CNC Operator",
-      location_label: "Pune",
+      location_label: "Chakan MIDC",
       description: "Machining shop floor role on our production line",
       vacancy_band: "2-5",
       skills: ["fanuc control"],
@@ -659,6 +686,12 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       shift: "day",
       benefits: ["PF and ESI"],
       requirements: ["ITI preferred"],
+      // #1726 — the card fields the interview now collects.
+      city: "Pune",
+      pay_type: "in_hand",
+      min_experience_years: 1,
+      max_experience_years: 3,
+      needed_by: "soon",
     });
     expect(res).toMatchObject({ job_posting_id: POSTING, status: "published" });
   });
@@ -711,17 +744,128 @@ describe("JobPostingChatService — publish reuses the existing create path", ()
       ...publishable,
       session: {
         ...publishable.session,
-        draft: { ...FULL_DRAFT, pay_min: null, pay_max: null, shift: null, benefits: [] },
+        draft: {
+          ...FULL_DRAFT,
+          pay_min: null,
+          pay_max: null,
+          shift: null,
+          benefits: [],
+          city: null,
+          pay_type: null,
+          min_experience_years: null,
+          max_experience_years: null,
+          needed_by: null,
+        },
       },
     });
     await d.svc.publish(PAYER_A, SESSION, CTX);
     const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
-    expect("pay_min" in dto).toBe(false);
-    expect("pay_max" in dto).toBe(false);
-    expect("shift" in dto).toBe(false);
-    expect("benefits" in dto).toBe(false);
+    for (const key of [
+      "pay_min",
+      "pay_max",
+      "shift",
+      "benefits",
+      "city",
+      "pay_type",
+      "min_experience_years",
+      "max_experience_years",
+      "needed_by",
+    ]) {
+      expect(key in dto, key).toBe(false);
+    }
     // The one that WAS answered still rides — otherwise this would pass on an empty DTO.
     expect(dto.requirements).toEqual(["ITI preferred"]);
+  });
+
+  it("omits a whitespace-only city rather than 400ing the publish on it (#1726)", async () => {
+    d = make({
+      ...publishable,
+      session: { ...publishable.session, draft: { ...FULL_DRAFT, city: "   " } },
+    });
+    const res = await d.svc.publish(PAYER_A, SESSION, CTX);
+    const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+    expect("city" in dto).toBe(false);
+    // Measured on what was SENT: the draft held a (blank) string, the posting holds NULL.
+    expect(res.unset_card_fields).toEqual(["city"]);
+  });
+
+  describe("unset_card_fields — facts about the created posting, never a refusal (#1726)", () => {
+    it("is empty when the draft fills every card field", async () => {
+      const res = await d.svc.publish(PAYER_A, SESSION, CTX);
+      expect(res.unset_card_fields).toEqual([]);
+      // VACUITY GUARD: [] is also what a report that never looked would say, so pin that
+      // the create DTO really carried all eleven.
+      const dto = d.jobPostings.createForPayer.mock.calls[0]![1] as Record<string, unknown>;
+      for (const key of [
+        "city",
+        "pay_min",
+        "pay_max",
+        "pay_type",
+        "min_experience_years",
+        "max_experience_years",
+        "shift",
+        "needed_by",
+        "description",
+        "requirements",
+        "benefits",
+      ]) {
+        expect(dto[key], key).toBeDefined();
+      }
+    });
+
+    it("lists every card field a THIN draft left NULL — and still publishes", async () => {
+      const thin = make({
+        ...publishable,
+        session: {
+          ...publishable.session,
+          draft: {
+            role_title: "CNC Operator",
+            skills: ["fanuc control"],
+            location_label: "Chakan MIDC",
+            vacancy_band: "2-5",
+          },
+        },
+      });
+      const res = await thin.svc.publish(PAYER_A, SESSION, CTX);
+      expect(thin.jobPostings.createForPayer).toHaveBeenCalledTimes(1);
+      expect(res.job_posting_id).toBe(POSTING);
+      expect(res.unset_card_fields).toEqual([
+        "city",
+        "pay_min",
+        "pay_max",
+        "pay_type",
+        "min_experience_years",
+        "max_experience_years",
+        "shift",
+        "needed_by",
+        "description",
+        "requirements",
+        "benefits",
+      ]);
+      // Distinct from `unmapped_fields` ("collected, no column") — nothing was collected here.
+      expect(res.unmapped_fields).toEqual([]);
+    });
+
+    it("reports a legitimate open-ended window as a fact, and only that", async () => {
+      // "5+ years" has a min and no max; no benefits were stated. Both are NULL columns,
+      // and whether either is a hole is the client's card rule, not this report's.
+      const partial = make({
+        ...publishable,
+        session: {
+          ...publishable.session,
+          draft: {
+            ...FULL_DRAFT,
+            min_experience_years: 5,
+            max_experience_years: null,
+            benefits: [],
+          },
+        },
+      });
+      const res = await partial.svc.publish(PAYER_A, SESSION, CTX);
+      expect(res.unset_card_fields).toEqual(["max_experience_years", "benefits"]);
+      // KEYS only — no value from the draft rides the response.
+      expect(JSON.stringify(res)).not.toContain("Pune");
+    });
   });
 
   it("claims the session BEFORE creating, so a double-click cannot create two postings", async () => {
@@ -832,7 +976,8 @@ describe("JobPostingChatService — no free text and no org name on the event sp
       PAYER_TEXT,
       ASSISTANT_TEXT,
       "CNC Operator", // draft role_title
-      "Pune", // draft location_label
+      "Chakan MIDC", // draft location_label
+      "Pune", // draft city (#1726)
       "fanuc control", // draft skill phrase
       "Machining shop floor", // draft description
       "20000", // draft pay figure
@@ -908,6 +1053,7 @@ describe("JobPostingChatService — the frozen response key sets", () => {
     const d = make();
     const { sessions } = await d.svc.listSessions(PAYER_A);
     expect(keys(sessions[0]!)).toEqual([
+      "city",
       "draft_ready",
       "last_message_at",
       "location_label",
@@ -969,6 +1115,12 @@ describe("JobPostingChatService — the frozen response key sets", () => {
       },
     });
     const res = await d.svc.publish(PAYER_A, SESSION, CTX);
-    expect(keys(res)).toEqual(["job_posting_id", "session_id", "status", "unmapped_fields"]);
+    expect(keys(res)).toEqual([
+      "job_posting_id",
+      "session_id",
+      "status",
+      "unmapped_fields",
+      "unset_card_fields",
+    ]);
   });
 });

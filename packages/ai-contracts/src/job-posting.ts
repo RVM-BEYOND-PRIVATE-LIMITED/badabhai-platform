@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  AICallMetadataSchema,
-  PseudonymizationMetaSchema,
-  languageCode,
-} from "./common";
+import { AICallMetadataSchema, PseudonymizationMetaSchema, languageCode } from "./common";
 
 // Payer-side job-posting chat (ADR-0035): conversation state, the in-progress
 // posting draft, the opener, and the turn request/response.
@@ -21,11 +17,21 @@ import {
 const vacancyBand = z.enum(["1", "2-5", "6-10", "11-25", "25+"]);
 /** The closed `jobs.shift` enum (packages/db schema.ts jobs_shift_chk). */
 const jobShift = z.enum(["day", "night", "rotational"]);
+/** What the pay band means (#1648) — mirrors apps/api `payTypeSchema`. */
+const jobPayType = z.enum(["in_hand", "gross", "ctc"]);
+/** When the job needs someone — mirrors apps/api `neededBySchema`. */
+const jobNeededBy = z.enum(["immediate", "soon", "flexible"]);
 
-// Caps mirror apps/api/src/job-postings/job-postings.dto.ts so a draft the AI
-// service emits can never be one the publish DTO would reject.
+// Caps mirror apps/api/src/job-postings/job-postings.dto.ts (and, for experience,
+// apps/api/src/common/job-content.schemas.ts) so a draft the AI service emits can never
+// be one the publish DTO would reject. The API suite pins the enums and bounds by value
+// (payer-portal/job-posting-chat/job-posting-chat.contract.test.ts).
 const JP_LABEL_MAX = 200;
 const JP_DESCRIPTION_MAX = 2000;
+const JP_CITY_MAX = 80;
+const JP_EXPERIENCE_MAX_YEARS = 60;
+
+const experienceYears = z.number().int().nonnegative().max(JP_EXPERIENCE_MAX_YEARS);
 
 /**
  * Server-computed job-posting interview progress. Mirrors ConversationStateSchema's
@@ -95,14 +101,26 @@ export const JobPostingDraftSchema = z.object({
   requirements: z.array(z.string()).default([]),
   description: z.string().max(JP_DESCRIPTION_MAX).nullable().default(null),
   /**
+   * #1726 — the rest of the worker job card. `city` is the COARSE card bucket the worker
+   * feed reads, taken from the payer's answer to the city question; it is never derived
+   * from a stored `location_label` (poster free text the feed does not read).
+   */
+  city: z.string().max(JP_CITY_MAX).nullable().default(null),
+  pay_type: jobPayType.nullable().default(null),
+  /** Years, 0..60. A "5+ years" answer has a min and no max, so either may be null alone. */
+  min_experience_years: experienceYears.nullable().default(null),
+  max_experience_years: experienceYears.nullable().default(null),
+  needed_by: jobNeededBy.nullable().default(null),
+  /**
    * DETERMINISTIC coverage ratio (topics with a value / topics in the bank), NOT a
    * model score and never an input to ranking or a publish decision (invariant #4).
    */
   confidence: z.number().min(0).max(1).default(0),
   /**
-   * Topic ids still without a value, in bank order. `vacancy` maps to `vacancy_band`
-   * and `pay_range` to `pay_min`/`pay_max`; every other id is the draft field name.
-   * Ids only — never the values.
+   * Topic ids still without a value, in bank order. `vacancy` maps to `vacancy_band`,
+   * `pay_range` to `pay_min`/`pay_max` and `experience` to
+   * `min_experience_years`/`max_experience_years`; every other id is the draft field
+   * name. Ids only — never the values.
    */
   missing_fields: z.array(z.string()).default([]),
   clarification_questions: z.array(z.string()).default([]),

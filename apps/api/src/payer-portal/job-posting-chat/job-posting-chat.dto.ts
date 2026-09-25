@@ -78,6 +78,8 @@ export const JobPostingChatSessionSummarySchema = z.object({
   draft_ready: z.boolean(),
   role_title: z.string().nullable(),
   location_label: z.string().nullable(),
+  /** #1726 — the draft's coarse card city (the bucket the worker feed reads). */
+  city: z.string().nullable(),
   vacancy_band: z.string().nullable(),
   started_at: z.string(),
   last_message_at: z.string().nullable(),
@@ -192,6 +194,30 @@ export const UNMAPPED_DRAFT_FIELDS = [
 ] as const;
 export type UnmappedDraftField = (typeof UNMAPPED_DRAFT_FIELDS)[number];
 
+/**
+ * The worker job card's content fields, as `PayerCreateJobPostingSchema` keys (#1726).
+ *
+ * `unset_card_fields` reports FACTS, not policy: a key listed there means the created
+ * posting holds NULL in that column. Which absences are holes is the client's own card
+ * rule — a "5+ years" window legitimately has no `max_experience_years`, and a posting
+ * with no benefits may simply offer none. Distinct from `UNMAPPED_DRAFT_FIELDS`, which
+ * means "collected, and there was no column to put it in".
+ */
+export const WORKER_CARD_FIELDS = [
+  "city",
+  "pay_min",
+  "pay_max",
+  "pay_type",
+  "min_experience_years",
+  "max_experience_years",
+  "shift",
+  "needed_by",
+  "description",
+  "requirements",
+  "benefits",
+] as const;
+export type WorkerCardField = (typeof WORKER_CARD_FIELDS)[number];
+
 /** `POST .../publish` response — the created posting id + the honest gap report. */
 export const PublishJobPostingChatResponseSchema = z.object({
   session_id: uuidSchema,
@@ -199,5 +225,7 @@ export const PublishJobPostingChatResponseSchema = z.object({
   status: z.literal("published"),
   /** Field KEYS the draft held but the posting cannot store yet. Never values. */
   unmapped_fields: z.array(z.enum(UNMAPPED_DRAFT_FIELDS)).default([]),
+  /** Card field KEYS the created posting holds NULL for (see `WORKER_CARD_FIELDS`). Never values. */
+  unset_card_fields: z.array(z.enum(WORKER_CARD_FIELDS)).default([]),
 });
 export type PublishJobPostingChatResponse = z.infer<typeof PublishJobPostingChatResponseSchema>;

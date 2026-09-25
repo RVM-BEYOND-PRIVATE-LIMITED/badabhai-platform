@@ -37,20 +37,24 @@ _WRAP_UP = (
 )
 
 # Topics that MUST be ANSWERED before the draft is offered as ready. These are the
-# three the publish path genuinely cannot do without:
+# four the publish path genuinely cannot do without:
 #
 # - role_title  — REQUIRED by PayerCreateJobPostingSchema.
 # - vacancy     — REQUIRED by PayerCreateJobPostingSchema (as a band; ADR-0012).
-# - location_label — optional in the DTO, essential in PRACTICE: a posting with no
-#   city cannot be shown usefully to a worker, and the whole point of the chat is to
-#   stop a payer shipping a blank field they would have skipped on the form.
-ESSENTIAL_TOPICS: tuple[str, ...] = ("role_title", "location_label", "vacancy")
+# - location_label — optional in the DTO, essential in PRACTICE: the whole point of
+#   the chat is to stop a payer shipping a blank field they would have skipped on the
+#   form.
+# - city — the worker card's location, and the only one the worker feed reads
+#   (#1726); a posting without it cannot be shown usefully to a worker. Usually
+#   closed by the location answer itself, so it costs a question only when that
+#   answer named no recognisable city.
+ESSENTIAL_TOPICS: tuple[str, ...] = ("role_title", "location_label", "city", "vacancy")
 
 # Topics that must at least have been ASKED (asked-or-answered) before the draft is
 # offered as ready. This is the issue-#424 lesson from the worker engine, pointed the
 # other way: pay/shift/benefits are exactly what a WORKER filters on, so a payer must
 # be ASKED for them — but forcing an answer would block a posting on a field the DTO
-# does not even carry. The ask is the obligation; the answer stays the payer's to give.
+# does not require. The ask is the obligation; the answer stays the payer's to give.
 #
 # `description` is last in the bank AND must-ask on purpose: making the final topic
 # must-ask means readiness cannot be reached until the bank drains, which is what
@@ -58,11 +62,22 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role_title", "location_label", "vacancy")
 MUST_ASK_TOPICS: tuple[str, ...] = (
     "skills",
     "pay_range",
+    "pay_type",
+    "experience",
     "shift",
+    "needed_by",
     "benefits",
     "requirements",
     "description",
 )
+
+# A topic whose question only makes sense once its PARENT holds a value. "Is that pay
+# in-hand, gross or CTC?" served after the payer declined to give a figure asks about
+# nothing, so while the parent has been raised and yielded no value the dependent is
+# MOOT: never served, and not owed by the must-ask gate. It revives the moment a
+# figure arrives (a later cross-topic "20-25k"), because mootness is re-derived from
+# the state on every turn rather than recorded.
+_DEPENDS_ON: dict[str, str] = {"pay_type": "pay_range"}
 
 # THE SAFETY PROPERTY of the re-ask. "Answered" is judged by a local parser, and a
 # parser can be wrong; an UNBOUNDED re-ask would loop a payer who is answering
@@ -77,11 +92,11 @@ MAX_ASKS_PER_TOPIC = 2
 # of the interview. ``sum(ask_counts.values())`` only ever grows where a question is
 # actually served, so it is clarify-immune by construction.
 #
-# Sized with real headroom over the bank's worst-case blind run: 3 essentials x
-# MAX_ASKS_PER_TOPIC (= 6) + 6 ask-once topics = 12. The test suite pins that budget
+# Sized with real headroom over the bank's worst-case blind run: 4 essentials x
+# MAX_ASKS_PER_TOPIC (= 8) + 9 ask-once topics = 17. The test suite pins that budget
 # against this constant, so the zero-margin coupling cannot silently reappear if the
 # bank grows.
-MAX_ENGINE_ASKS = 16
+MAX_ENGINE_ASKS = 22
 
 # Max CONSECUTIVE re-serves of one question. ``needs_rephrase`` has false-positive
 # classes, so an unbounded re-serve could loop forever; past this the turn falls
@@ -92,6 +107,7 @@ _MAX_CONSECUTIVE_CLARIFIES = 2
 # between two engine asks a payer can spend at most _MAX_CONSECUTIVE_CLARIFIES
 # clarify turns, so the worst case is the ask budget times one ask plus its clarifies.
 MAX_INTERVIEW_TURNS = MAX_ENGINE_ASKS * (1 + _MAX_CONSECUTIVE_CLARIFIES)
+
 
 # The opener (question_bank.OPENING_MESSAGE) already asks the bank's FIRST question,
 # so the payer's first message is attributed to that topic. It is NOT marked asked —
@@ -172,11 +188,23 @@ def _unanswered_essentials(st: JobPostingChatState) -> list[str]:
     return [t for t in ESSENTIAL_TOPICS if t not in st.answered_topics]
 
 
+def _is_moot(st: JobPostingChatState, topic_id: str) -> bool:
+    """True while ``topic_id``'s parent was raised (asked or answered) with no value."""
+    parent = _DEPENDS_ON.get(topic_id)
+    if parent is None:
+        return False
+    raised = parent in st.answered_topics or _ask_count(st, parent) > 0
+    return raised and st.collected.get(parent) is None
+
+
 def _draft_ready(st: JobPostingChatState) -> bool:
-    """All ESSENTIAL topics answered AND every MUST_ASK topic asked-or-answered."""
+    """All ESSENTIAL topics answered AND every MUST_ASK topic asked, answered or moot."""
     if not all(t in st.answered_topics for t in ESSENTIAL_TOPICS):
         return False
-    return all(t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS)
+    return all(
+        t in st.answered_topics or t in st.asked_question_ids or _is_moot(st, t)
+        for t in MUST_ASK_TOPICS
+    )
 
 
 def _next_topic(topics: list[Topic], st: JobPostingChatState) -> Topic | None:
@@ -196,11 +224,12 @@ def _next_topic(topics: list[Topic], st: JobPostingChatState) -> Topic | None:
       which clamps at 0, so it holds for every state, not just validated ones.
 
     This is also why the must-ask gate is enforceable: a must-ask topic that is
-    neither answered nor asked has ``_ask_count == 0``, so branch 2 or 3 necessarily
-    returns it. ``_next_topic`` therefore cannot return None while a must-ask is
-    unraised; only the ask ceiling can end the interview first, and
+    neither answered, asked nor moot has ``_ask_count == 0``, so branch 2 or 3
+    necessarily returns it. ``_next_topic`` therefore cannot return None while a
+    must-ask is owed; only the ask ceiling can end the interview first, and
     :data:`MAX_ENGINE_ASKS` is sized above the bank's worst-case blind run so it does
-    not.
+    not. A MOOT topic (:data:`_DEPENDS_ON`) is skipped by branches 2 and 3 and excused
+    by the gate by the same test, so the two cannot disagree.
     """
     for topic in topics:
         if (
@@ -210,10 +239,19 @@ def _next_topic(topics: list[Topic], st: JobPostingChatState) -> Topic | None:
         ):
             return topic
     for topic in topics:
-        if topic.core and topic.id not in st.answered_topics and _ask_count(st, topic.id) == 0:
+        if (
+            topic.core
+            and topic.id not in st.answered_topics
+            and _ask_count(st, topic.id) == 0
+            and not _is_moot(st, topic.id)
+        ):
             return topic
     for topic in topics:
-        if topic.id not in st.answered_topics and _ask_count(st, topic.id) == 0:
+        if (
+            topic.id not in st.answered_topics
+            and _ask_count(st, topic.id) == 0
+            and not _is_moot(st, topic.id)
+        ):
             return topic
     return None
 
@@ -281,6 +319,8 @@ def next_turn(
                         union.append(item)
                 st.collected[topic_id] = union
         elif may_commit:
+            # Scalars AND dicts (pay_range, experience) replace whole: a window is one
+            # answer, and merging halves of two answers would invent a third.
             st.collected[topic_id] = value
 
     draft_ready = _draft_ready(st)
@@ -408,6 +448,22 @@ def _as_int(value: object) -> int | None:
     return value
 
 
+def _as_years(value: object) -> int | None:
+    years = _as_int(value)
+    return years if years is not None and years <= answers.EXPERIENCE_MAX_YEARS else None
+
+
+def _experience_window(value: object) -> tuple[int | None, int | None]:
+    """``{"min", "max"}`` -> an ordered pair. The create DTO refines max >= min, so an
+    inverted window is swapped rather than dropped."""
+    if not isinstance(value, dict):
+        return None, None
+    low, high = _as_years(value.get("min")), _as_years(value.get("max"))
+    if low is not None and high is not None and high < low:
+        low, high = high, low
+    return low, high
+
+
 def build_draft(
     state: JobPostingChatState | None, trade_hint: str | None = None
 ) -> JobPostingDraft:
@@ -432,6 +488,9 @@ def build_draft(
 
     band = collected.get("vacancy")
     shift = collected.get("shift")
+    pay_type = collected.get("pay_type")
+    needed_by = collected.get("needed_by")
+    min_years, max_years = _experience_window(collected.get("experience"))
     draft = JobPostingDraft(
         role_title=_as_str(collected.get("role_title"), answers.LABEL_MAX),
         skills=_as_phrases(collected.get("skills"), answers.MAX_SKILLS),
@@ -443,6 +502,11 @@ def build_draft(
         benefits=_as_phrases(collected.get("benefits"), answers.MAX_PHRASES),
         requirements=_as_phrases(collected.get("requirements"), answers.MAX_PHRASES),
         description=_as_str(collected.get("description"), answers.DESCRIPTION_MAX),
+        city=_as_str(collected.get("city"), answers.CITY_MAX),
+        pay_type=pay_type if pay_type in answers.PAY_TYPES else None,  # type: ignore[arg-type]
+        min_experience_years=min_years,
+        max_experience_years=max_years,
+        needed_by=needed_by if needed_by in answers.NEEDED_BY else None,  # type: ignore[arg-type]
     )
 
     topics = topics_for(trade_hint)
@@ -450,9 +514,14 @@ def build_draft(
         "role_title": draft.role_title is not None,
         "skills": bool(draft.skills),
         "location_label": draft.location_label is not None,
+        "city": draft.city is not None,
         "vacancy": draft.vacancy_band is not None,
         "pay_range": draft.pay_min is not None,
+        "pay_type": draft.pay_type is not None,
+        "experience": draft.min_experience_years is not None
+        or draft.max_experience_years is not None,
         "shift": draft.shift is not None,
+        "needed_by": draft.needed_by is not None,
         "benefits": bool(draft.benefits),
         "requirements": bool(draft.requirements),
         "description": draft.description is not None,
@@ -465,7 +534,9 @@ def build_draft(
     return draft
 
 
-_MAX_CLARIFICATION_QUESTIONS = 4
+# One per essential plus the single retype ask — DERIVED, because a fixed 4 silently
+# dropped the retype ask (the privacy affordance) once a fourth essential existed.
+_MAX_CLARIFICATION_QUESTIONS = len(ESSENTIAL_TOPICS) + 1
 
 
 def _clarification_questions(
@@ -491,9 +562,7 @@ def _clarification_questions(
     for topic in topics_for(trade_hint):
         value = st.collected.get(topic.id)
         texts = value if isinstance(value, list) else [value]
-        if any(
-            isinstance(t, str) and answers.PLACEHOLDER_TOKEN_RE.search(t) for t in texts
-        ):
+        if any(isinstance(t, str) and answers.PLACEHOLDER_TOKEN_RE.search(t) for t in texts):
             redacted.append(topic.label.lower())
     if redacted:
         questions.append(
