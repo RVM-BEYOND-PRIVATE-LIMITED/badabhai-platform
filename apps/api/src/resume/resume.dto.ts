@@ -53,8 +53,9 @@ export interface ResumeHistoryItem {
   /** The résumé every other read treats as the worker's current one. Exactly one when non-empty. */
   is_current: boolean;
   /**
-   * A short reference a worker can read out to support — the same code the sheet's footer
-   * prints after "Ref" (`RK8M2Q`), so the card and the paper name the résumé the same way.
+   * A short reference a worker can read out to support — the same code the trade sheet's footer
+   * prints after "Ref" (`RK8M2Q`), so the card and the paper name the résumé the same way. The
+   * older `classic` layout prints no footer; the code still names that résumé to support.
    *
    * Derived from `resume_id` by a one-way hash (`resumeRefCode`): stable across reads and
    * re-renders, and it reveals nothing about the worker. A LABEL, NOT AN IDENTIFIER — six
@@ -64,21 +65,24 @@ export interface ResumeHistoryItem {
 
   // ── THE CARD'S FACTS (#1714) ──────────────────────────────────────────────────────────────
   //
-  // AS THAT RÉSUMÉ PRINTED THEM, never the worker's profile today: an older entry was generated
-  // from a different profile (`profile_id`), and today's trade or city on it would be a claim the
-  // PDF does not make. Recorded when the PDF is drawn (see `ResumeGlance`), so all six are NULL
-  // until `render_status` is 'rendered', and NULL on every résumé rendered before #1714 shipped.
+  // AS THAT RÉSUMÉ RECORDED THEM, never the worker's profile today: an older entry was generated
+  // from a different profile (`profile_id`), and today's trade or city on it would be a claim
+  // that résumé does not make. They are the facts its Verdict Line was composed from, normalised
+  // as that line prints them — recorded even where the sheet omits the line (no role, or the
+  // older `classic` layout), so they describe the résumé rather than promise what its paper shows.
+  // Recorded when the PDF is drawn (see `ResumeGlance`), so all six are NULL until
+  // `render_status` is 'rendered', and NULL on every résumé rendered before #1714 shipped.
   // A client renders each one only when present.
 
-  /** The role title the sheet's headline printed ("VMC Operator"). */
+  /** The role title ("VMC Operator"). */
   trade_label: string | null;
-  /** The tenure figure the headline printed, in years. Null when it printed none ("Fresher"). */
+  /** The tenure figure in years. Null wherever the headline would print none ("Fresher"). */
   experience_years: number | null;
   /** The headline's tools — controllers or machines, else skills — at most three. */
   machines: string[] | null;
-  /** Machine axes as printed ("3-axis", "4-axis"). Empty for a trade with no axis ask. */
+  /** Machine axes as labels ("3-axis", "4-axis"). Empty for a trade with no axis ask. */
   axes: string[] | null;
-  /** The city the sheet printed. */
+  /** Where the worker was, as the résumé recorded it. */
   city: string | null;
   /** Pages in the rendered PDF. */
   page_count: number | null;

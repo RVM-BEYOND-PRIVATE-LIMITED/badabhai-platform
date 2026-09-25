@@ -7,6 +7,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import { ITI_PROJECT_WORK_KEY } from "./resume-fresher-rows";
+import { resumeRefCode } from "./resume-sheet-footer";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
@@ -1506,6 +1507,16 @@ describe("ResumeRenderProcessor — the history card's facts (#1714)", () => {
     expect(resumes.markRendered).toHaveBeenCalledOnce();
     expect(resumes.markRenderFailed).not.toHaveBeenCalled();
     expect(recorded(resumes).pageCount).toBeNull();
+  });
+
+  it("prints the SAME Ref the history card shows — resumeRefCode of the résumé id", async () => {
+    // The card's `display_ref` is `resumeRefCode(row.id)`; this is the paper's half of that
+    // contract. Deriving the footer's code from anything else (the version, the worker id) would
+    // leave every test green and give a worker two codes for one résumé.
+    const { proc, renderer } = setup();
+    await proc.process(makeJob());
+    const meta = renderer.renderPdf.mock.calls[0]![0].footerMeta!;
+    expect(meta).toContain(`Ref ${resumeRefCode(RESUME_ID)}`);
   });
 
   it("records the Verdict Line's facts from the SAME input the template drew", async () => {

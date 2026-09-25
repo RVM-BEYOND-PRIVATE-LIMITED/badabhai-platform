@@ -106,7 +106,8 @@ export class ResumeService {
    * overwrite and the converge write both reset the row to 'pending' and deliberately leave the
    * previous document in place, and a failed re-render keeps it too. Showing it would label a
    * new résumé with the facts of the one it replaced. A 'rendered' row's document was written in
-   * the same UPDATE as its PDF, so its facts are the facts of the file on offer.
+   * the same UPDATE as its PDF key — see `ResumeGlance` for the one fault that can leave it a
+   * render behind the file.
    */
   async history(workerId: string, now: Date = new Date()): Promise<ResumeHistoryResponse> {
     const rows = await this.resumes.listHistory(workerId, this.config.RESUME_HISTORY_VISIBLE_LIMIT);

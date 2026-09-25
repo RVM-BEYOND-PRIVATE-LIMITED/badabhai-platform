@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 
-import { countPdfPages, MAX_OBJECT_STREAM_BYTES } from "./pdf-page-count";
+import { countPdfPages, MAX_INFLATED_BYTES, MAX_OBJECT_STREAMS } from "./pdf-page-count";
 
 /**
  * The page counter is tested against REAL WeasyPrint 69.0 output first, hand-built bytes second.
@@ -135,10 +135,12 @@ describe("countPdfPages on hand-built PDFs", () => {
     expect(countPdfPages(buildPdf(CATALOG, pagesNode("99999999999999999999", "")))).toBeNull();
   });
 
-  it("reads an object stream whose /Length is an indirect reference, up to endstream", () => {
-    // `12 0 R` names object 12. Read as a length it is 12 (or 1, if the regex backtracks),
-    // either of which cuts the Flate data short and loses the tree.
-    expect(countPdfPages(buildPdf(flateStream(OBJECT_STREAM, ONE_PAGE_TREE, "12 0 R")))).toBe(1);
+  it("gives up on a stream whose /Length is an indirect reference — a body it cannot measure", () => {
+    // `12 0 R` names object 12, not a length. Without a direct length the body cannot be jumped,
+    // and reading on would parse its bytes as syntax — the hole the walk exists to close.
+    expect(countPdfPages(buildPdf(flateStream(OBJECT_STREAM, ONE_PAGE_TREE, "12 0 R")))).toBeNull();
+    // Control: the same stream with a direct length is read, so the null is the indirect length.
+    expect(countPdfPages(buildPdf(flateStream(OBJECT_STREAM, ONE_PAGE_TREE)))).toBe(1);
   });
 
   it("never inflates a Flate stream that is not an object stream — the photo case", () => {
@@ -147,14 +149,102 @@ describe("countPdfPages on hand-built PDFs", () => {
     expect(countPdfPages(buildPdf(flateStream(IMAGE_STREAM, ONE_PAGE_TREE)))).toBeNull();
   });
 
-  it("skips an object stream that inflates past the cap, instead of throwing", () => {
-    const within = buildPdf(flateStream(OBJECT_STREAM, ONE_PAGE_TREE + " ".repeat(1024)));
-    const past = buildPdf(
-      flateStream(OBJECT_STREAM, ONE_PAGE_TREE + " ".repeat(MAX_OBJECT_STREAM_BYTES)),
+  it("returns null once the object streams inflate past the budget IN TOTAL, not per stream", () => {
+    const half = " ".repeat(MAX_INFLATED_BYTES / 2 + 1024);
+    // Each stream alone is under the budget; together they are over it.
+    const over = buildPdf(
+      flateStream(OBJECT_STREAM, ONE_PAGE_TREE + half),
+      flateStream(OBJECT_STREAM, half),
     );
-    // Control: the same tree under the cap is read, so the null below is the cap.
-    expect(countPdfPages(within)).toBe(1);
-    expect(countPdfPages(past)).toBeNull();
+    // Control: the same two streams, small, are read — so the null below is the total.
+    const under = buildPdf(
+      flateStream(OBJECT_STREAM, ONE_PAGE_TREE + " ".repeat(1024)),
+      flateStream(OBJECT_STREAM, " ".repeat(1024)),
+    );
+    expect(countPdfPages(under)).toBe(1);
+    expect(countPdfPages(over)).toBeNull();
+  });
+
+  it("returns null past MAX_OBJECT_STREAMS object streams", () => {
+    const streams = (n: number) =>
+      buildPdf(
+        flateStream(OBJECT_STREAM, ONE_PAGE_TREE),
+        ...Array.from({ length: n - 1 }, () => flateStream(OBJECT_STREAM, " ")),
+      );
+    expect(countPdfPages(streams(MAX_OBJECT_STREAMS))).toBe(1);
+    expect(countPdfPages(streams(MAX_OBJECT_STREAMS + 1))).toBeNull();
+  });
+});
+
+/**
+ * A HOSTILE PHOTO. The worker uploads the photo; WeasyPrint embeds a JPEG byte for byte; so a
+ * photo's bytes can spell PDF syntax. The first version of the counter regex-scanned the whole
+ * file, and a crafted 2 MiB JPEG full of fake object-stream headers blocked the event loop for
+ * ~28 s per render, while fake page entries could set the count. Stream bodies are now jumped,
+ * never read.
+ */
+describe("countPdfPages on a photo that spells PDF syntax", () => {
+  // REAL WeasyPrint 69.0 output: a one-page sheet embedding a valid JPEG whose COM segments hold
+  // 400 fake `<</Type/ObjStm/Filter/FlateDecode>>stream` headers, a fake `/Count 9` page tree
+  // and nine fake page leaves. pypdf reads it as 1 page.
+  const HOSTILE = readFileSync(join(PAGE_COUNT_FIXTURES, "hostile-photo-one-page.pdf"));
+
+  it("VACUITY: the render really carries the photo's fake syntax in its raw bytes", () => {
+    const raw = HOSTILE.toString("latin1");
+    expect(raw).toContain("/DCTDecode"); // embedded as-is, not re-encoded
+    expect(raw).toContain("<</Type /Pages/Kids [1 0 R]/Count 9>>");
+    expect(raw.split("<</Type /Page/Parent 1 0 R>>").length - 1).toBe(9);
+    expect(raw.split("<</Type/ObjStm/Filter/FlateDecode>>stream").length - 1).toBe(400);
+  });
+
+  it("reads the real page tree and nothing the photo says", () => {
+    expect(countPdfPages(HOSTILE)).toBe(1);
+  });
+
+  it("CONTROL: the same fake syntax OUTSIDE a stream would change the reading", () => {
+    // Proves the test above passes because the body is skipped, not because the fake entries
+    // are unreadable: as object syntax they DO count, and here make the readings disagree.
+    const fake = `<</Type /Pages/Kids [1 0 R]/Count 9>>\n${"<</Type /Page/Parent 1 0 R>>\n".repeat(9)}`;
+    const inSyntax = buildPdf(flateStream(OBJECT_STREAM, ONE_PAGE_TREE), fake);
+    const inImage = buildPdf(
+      flateStream(OBJECT_STREAM, ONE_PAGE_TREE),
+      Buffer.concat([
+        Buffer.from(`<<${IMAGE_STREAM}/Filter /DCTDecode/Length ${fake.length}>>\nstream\n`),
+        Buffer.from(fake, "latin1"),
+        Buffer.from("\nendstream"),
+      ]),
+    );
+    expect(countPdfPages(inSyntax)).toBeNull();
+    expect(countPdfPages(inImage)).toBe(1);
+  });
+
+  it("stays linear on a 2 MiB photo of fake object-stream headers", () => {
+    const unit = "<</Type/ObjStm/Filter/FlateDecode>>stream\n";
+    const body = unit.repeat(Math.floor((2 * 1024 * 1024) / unit.length));
+    const pdf = buildPdf(
+      flateStream(OBJECT_STREAM, ONE_PAGE_TREE),
+      Buffer.concat([
+        Buffer.from(`<<${IMAGE_STREAM}/Filter /DCTDecode/Length ${body.length}>>\nstream\n`),
+        Buffer.from(body, "latin1"),
+        Buffer.from("\nendstream"),
+      ]),
+    );
+    const started = performance.now();
+    expect(countPdfPages(pdf)).toBe(1);
+    // The quadratic scan this replaced took ~28 s on this shape. Linear is milliseconds; the
+    // bound is generous so a slow CI runner cannot flake it, and still 20x under the old cost.
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+
+  it("stays linear on a long run of digits in object syntax", () => {
+    // BEFORE a stream, and that placement is the test: the run must sit in the syntax searched
+    // for the stream's `N G obj`, which is where an unbounded digit quantifier goes quadratic.
+    // 128 KiB: linear is about a millisecond, and an unbounded `\d+` measured ~6 s here — well
+    // past the bound on any runner, yet short enough to FAIL the bound rather than hang the suite.
+    const pdf = buildPdf("9".repeat(128 * 1024), flateStream(OBJECT_STREAM, ONE_PAGE_TREE));
+    const started = performance.now();
+    expect(countPdfPages(pdf)).toBe(1);
+    expect(performance.now() - started).toBeLessThan(1500);
   });
 });
 

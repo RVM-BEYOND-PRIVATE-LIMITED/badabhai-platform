@@ -111,18 +111,19 @@ toggle storm; a RUNNING job may have read the face before the erasure, so it nev
 
 ### 3.6 The card's facts, page count and reference (#1714)
 
-Each `GET /resume/history` item also carries what its card prints, **as that résumé printed it** —
+Each `GET /resume/history` item also carries what its card prints, **as that résumé recorded it** —
 never the worker's profile today, which an older entry was not generated from:
 
 | Field | Source |
 | --- | --- |
-| `trade_label`, `experience_years`, `machines`, `axes`, `city` | The Verdict Line's facts (`buildVerdictLine` → `verdictFacts`), normalised as the line prints them: tools capped at three, no years figure where the line prints "Fresher" or "duration not stated". |
-| `page_count` | Counted off the rendered PDF's bytes (`countPdfPages`). WeasyPrint writes its page tree inside compressed object streams. |
-| `display_ref` | `resumeRefCode(resume_id)`, the code the sheet's footer prints after "Ref". It is a label, not an identifier: six characters can repeat across the platform. |
+| `trade_label`, `experience_years`, `machines`, `axes`, `city` | The facts the Verdict Line is composed from (`buildVerdictLine` → `verdictFacts`), normalised as the line prints them: tools capped at three, no years figure where the line prints "Fresher" or "duration not stated". They are recorded even where the sheet omits the line (no role, or the `classic` layout). |
+| `page_count` | Counted off the rendered PDF's bytes (`countPdfPages`). WeasyPrint writes its page tree inside compressed object streams. The counter walks the file and jumps every stream body by its `/Length`, so the worker's embedded photo is never read as PDF syntax. |
+| `display_ref` | `resumeRefCode(resume_id)`, the code the trade sheet's footer prints after "Ref" (`classic` prints no footer). It is a label, not an identifier: six characters can repeat across the platform. |
 
-The first six are recorded **with the render**, as `glance` inside `resume_document`. That is the
-one write that stores the PDF key, so the card and the file cannot fall out of step. No migration
-is needed, so no deploy-ordering step either.
+The first six are recorded **with the render**, as `glance` inside `resume_document`, in the one
+write that stores the PDF key. No migration is needed, so no deploy-ordering step either. One fault
+can leave them a render behind the file: a forced re-render uploads to the same key first, and if
+its final database write then fails the row keeps the previous document. That predates the glance.
 
 The facts are returned only for a `rendered` row. A pending or failed row can still hold the
 document of the generation it replaced. They are null on every résumé rendered before #1714

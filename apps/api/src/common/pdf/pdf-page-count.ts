@@ -13,11 +13,22 @@ import { inflateSync } from "node:zlib";
  * So the raw buffer is read AND every Flate object stream in it; a scan of the raw bytes
  * alone answers "no pages" for every résumé we have ever rendered.
  *
+ * A STREAM'S BYTES ARE NEVER READ AS PDF SYNTAX. The file is walked with a cursor: object
+ * syntax is read, and each stream body is JUMPED by its direct `/Length`. This is the security
+ * property, not a tidy-up. A résumé embeds the worker's own photo, and WeasyPrint embeds a JPEG
+ * byte for byte, so a photo can carry text that looks exactly like PDF syntax. The first version
+ * of this file regex-scanned the whole buffer: a crafted 2 MiB JPEG full of fake object-stream
+ * headers made that scan quadratic and blocked the API's event loop for ~28 s per render, and
+ * fake `/Type /Page` entries in a photo could set the count. Skipping bodies makes the walk
+ * linear and leaves image bytes unread. A stream whose `/Length` is not a direct integer cannot
+ * be skipped safely, so it ends the walk with `null` — WeasyPrint writes direct lengths.
+ *
  * ONLY OBJECT STREAMS ARE INFLATED. Fonts, page content and images are Flate streams too, and
- * none of them can carry the page tree. A real résumé embeds the worker's own photo, so
- * inflating every stream would decompress a user-supplied image for nothing — needless memory,
- * and a decompression-bomb surface that buys no information. Each inflate is also capped at
- * {@link MAX_OBJECT_STREAM_BYTES}; a stream past the cap is skipped, not thrown.
+ * none of them can carry the page tree; inflating the worker's photo would buy nothing but a
+ * decompression-bomb surface. What is inflated is BUDGETED IN TOTAL, not per stream: at most
+ * {@link MAX_OBJECT_STREAMS} object streams and {@link MAX_INFLATED_BYTES} across all of them.
+ * Past either budget, or on any object stream that will not inflate, the answer is `null` — a
+ * page tree read in part is a guess.
  *
  * TWO INDEPENDENT READINGS, AND THEY MUST AGREE:
  *   - DECLARED: the largest `/Count` on a `/Type /Pages` dictionary. The root of the page
@@ -38,11 +49,14 @@ import { inflateSync } from "node:zlib";
  */
 
 /**
- * The inflate cap per object stream. WeasyPrint's object stream is a few KiB of dictionaries
- * (2.8 KiB for the 3-page fixture; a page dictionary is ~180 bytes), so 4 MiB is thousands of
- * pages of headroom — and the renderer already refuses any PDF over 8 MiB, compressed.
+ * The inflate budget across ALL object streams in one file. WeasyPrint's object stream is a few
+ * KiB of dictionaries (2.8 KiB for the 3-page fixture; a page dictionary is ~180 bytes), so
+ * 4 MiB is thousands of pages of headroom — and the renderer already refuses any PDF over 8 MiB.
  */
-export const MAX_OBJECT_STREAM_BYTES = 4 * 1024 * 1024;
+export const MAX_INFLATED_BYTES = 4 * 1024 * 1024;
+
+/** How many object streams one file may ask us to inflate. WeasyPrint writes one or two. */
+export const MAX_OBJECT_STREAMS = 16;
 
 /*
  * `/Key /Value` as whole names, with the optional whitespace PDF allows between them.
@@ -61,19 +75,20 @@ const FLATE_FILTER_RE = /\/Filter\s*\/FlateDecode(?=[\s()<>[\]{}/%]|$)/;
 
 /** A dictionary with no nested `<<`/`>>`. Its body is group 1. */
 const FLAT_DICT_RE = /<<([^<>]*)>>/g;
-/** A flat dictionary immediately followed by the `stream` keyword and its end-of-line. */
-const STREAM_HEADER_RE = /<<([^<>]*)>>\s*stream(?:\r\n|\n|\r)/g;
+/**
+ * The start of an indirect object, `12 0 obj` — where a stream's dictionary begins. Its digit
+ * runs are BOUNDED, like every quantifier over digits in this file: an unbounded `\d+` goes
+ * quadratic on a long run of digits, and this file exists to stay linear on hostile bytes.
+ */
+const OBJECT_START_RE = /\d{1,10}\s+\d{1,5}\s+obj(?=[\s<]|$)/g;
 
 /**
  * `/Count 2` or `/Length 670` as a DIRECT integer. An indirect `/Length 9 0 R` names another
  * object, not a length, and must not be read as 9. `(?!\d)` stops the regex backtracking to a
  * prefix of the number (`12 0 R` → `1`) to dodge the indirect-reference check.
  */
-const DIRECT_COUNT_RE = /\/Count\s+(\d+)(?!\d)(?!\s+\d+\s+R\b)/;
-const DIRECT_LENGTH_RE = /\/Length\s+(\d+)(?!\d)(?!\s+\d+\s+R\b)/;
-
-const LF = 0x0a;
-const CR = 0x0d;
+const DIRECT_COUNT_RE = /\/Count\s+(\d{1,9})(?!\d)(?!\s+\d{1,5}\s+R\b)/;
+const DIRECT_LENGTH_RE = /\/Length\s+(\d{1,9})(?!\d)(?!\s+\d{1,5}\s+R\b)/;
 
 interface PageTreeReadings {
   /** Largest `/Count` on a `/Type /Pages` dictionary, or null when none was found. */
@@ -87,15 +102,51 @@ export function countPdfPages(pdf: Buffer): number | null {
   try {
     // `latin1` is a byte-preserving decode: string offsets ARE buffer offsets.
     const raw = pdf.toString("latin1");
-    const readings: PageTreeReadings[] = [readPageTree(raw)];
-    for (const body of flateObjectStreamBodies(pdf, raw)) {
-      const text = inflateObjectStream(body);
-      if (text !== null) readings.push(readPageTree(text));
+    // Per call, never module state: its `lastIndex` is the walk's cursor.
+    const streamStart = />>\s*stream(?:\r\n|\n|\r)/g;
+    const readings: PageTreeReadings[] = [];
+    let budget = MAX_INFLATED_BYTES;
+    let objectStreams = 0;
+    let cursor = 0;
+
+    for (;;) {
+      streamStart.lastIndex = cursor;
+      const header = streamStart.exec(raw);
+      // The object syntax up to (and including) the next stream's dictionary.
+      const syntax = raw.slice(cursor, header ? header.index + 2 : raw.length);
+      readings.push(readPageTree(syntax));
+      if (!header) break;
+
+      const dict = streamDictionary(syntax);
+      const length = dict === null ? null : directInteger(dict, DIRECT_LENGTH_RE);
+      const start = header.index + header[0].length;
+      // A body we cannot measure cannot be skipped, and reading on would parse its bytes.
+      if (dict === null || length === null || start + length > pdf.length) return null;
+
+      if (OBJECT_STREAM_TYPE_RE.test(dict) && FLATE_FILTER_RE.test(dict)) {
+        objectStreams += 1;
+        if (objectStreams > MAX_OBJECT_STREAMS) return null;
+        const text = inflateSync(pdf.subarray(start, start + length), {
+          maxOutputLength: budget,
+        }).toString("latin1");
+        budget -= text.length;
+        readings.push(readPageTree(text));
+      }
+      cursor = start + length;
     }
     return reconcile(readings);
   } catch {
-    return null; // Any input, however malformed, degrades to "unknown".
+    // Any input, however malformed — an object stream that will not inflate, a spent budget —
+    // is "unknown". A page tree read in part would be a guess.
+    return null;
   }
+}
+
+/** The dictionary of the stream whose `>>` ends `syntax`: from its `N G obj` to the end. */
+function streamDictionary(syntax: string): string | null {
+  let last: number | null = null;
+  for (const object of syntax.matchAll(OBJECT_START_RE)) last = object.index;
+  return last === null ? null : syntax.slice(last);
 }
 
 /** Both readings from one decoded text source. */
@@ -129,46 +180,6 @@ function reconcile(readings: readonly PageTreeReadings[]): number | null {
   }
   const only = declared ?? leafCount;
   return only !== null && only >= 1 && Number.isSafeInteger(only) ? only : null;
-}
-
-/** The encoded bodies of every stream whose dictionary is a Flate `/Type /ObjStm`. */
-function flateObjectStreamBodies(pdf: Buffer, raw: string): Buffer[] {
-  const bodies: Buffer[] = [];
-  for (const header of raw.matchAll(STREAM_HEADER_RE)) {
-    const dict = header[1] ?? "";
-    if (!OBJECT_STREAM_TYPE_RE.test(dict) || !FLATE_FILTER_RE.test(dict)) continue;
-    const body = streamBody(pdf, header.index + header[0].length, dict);
-    if (body !== null) bodies.push(body);
-  }
-  return bodies;
-}
-
-/**
- * A stream's encoded bytes: exactly `/Length` of them when the length is direct, otherwise
- * everything up to `endstream` less the end-of-line that precedes it. A declared length that
- * overruns the buffer is truncated by `subarray`, and the inflate then fails and is skipped.
- */
-function streamBody(pdf: Buffer, start: number, dict: string): Buffer | null {
-  const length = directInteger(dict, DIRECT_LENGTH_RE);
-  if (length !== null) return pdf.subarray(start, start + length);
-
-  const end = pdf.indexOf("endstream", start);
-  if (end < 0) return null;
-  let stop = end;
-  if (stop > start && pdf[stop - 1] === LF) stop -= 1;
-  if (stop > start && pdf[stop - 1] === CR) stop -= 1;
-  return pdf.subarray(start, stop);
-}
-
-/** Inflate one object stream under the cap, or null when it is not readable Flate data. */
-function inflateObjectStream(body: Buffer): string | null {
-  try {
-    return inflateSync(body, { maxOutputLength: MAX_OBJECT_STREAM_BYTES }).toString("latin1");
-  } catch {
-    // Corrupt, truncated, or past the cap. A stream we cannot read is not evidence of
-    // anything; it contributes no reading, and no reading ends in null, not in a guess.
-    return null;
-  }
 }
 
 function directInteger(dict: string, re: RegExp): number | null {
