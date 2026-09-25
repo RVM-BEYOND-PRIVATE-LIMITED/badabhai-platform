@@ -8,7 +8,7 @@ import { TRADE_FORM_KINDS } from "../trade-form-router";
  * TIERED PROFILING — the wire contract of `GET /profiling/form/tiers` and
  * `POST /profiling/form/tier` (the tier screen and "add more detail").
  *
- * DATA, NOT COPY. The card titles, the "BadaBhai Standard" badge and the Hindi strings are the
+ * DATA, NOT COPY. The card titles, the "BadaBhai Recommended" badge and the Hindi strings are the
  * app's; the server serves what only it knows — whether the worker must choose, his current tier,
  * and each tier's minutes for his role. The estimates are never hard-coded on the client.
  */

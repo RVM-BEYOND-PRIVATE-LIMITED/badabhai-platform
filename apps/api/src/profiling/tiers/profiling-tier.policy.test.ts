@@ -311,7 +311,7 @@ describe("pages and labels", () => {
     expect(PROFILING_TIER_FOOTER_LABEL).toEqual({
       easy: "Quick profile",
       medium: "Detailed profile",
-      hard: "BadaBhai Standard profile",
+      hard: "BadaBhai Recommended profile",
     });
   });
 

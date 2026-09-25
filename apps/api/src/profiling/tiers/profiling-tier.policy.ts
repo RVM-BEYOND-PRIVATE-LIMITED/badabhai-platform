@@ -197,7 +197,7 @@ export function pageRevealFields(page: TieredPage, tier: ProfilingTier): string[
 export const PROFILING_TIER_FOOTER_LABEL: Readonly<Record<ProfilingTier, string>> = {
   easy: "Quick profile",
   medium: "Detailed profile",
-  hard: "BadaBhai Standard profile",
+  hard: "BadaBhai Recommended profile",
 };
 
 /** Is `to` strictly deeper than `from`? Upgrades only — a tier is never lowered. */

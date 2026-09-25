@@ -378,8 +378,8 @@ describe("Hard for an existing profile is today's sheet, apart from the footer l
     const { footerMeta: todayFooter, ...todayRest } = today.input;
     const { footerMeta: hardFooter, ...hardRest } = hard.input;
     expect(hardRest).toEqual(todayRest);
-    expect(hardFooter).toBe(`${todayFooter}  ·  BadaBhai Standard profile`);
-    expect(hard.html.replace("  ·  BadaBhai Standard profile", "")).toBe(today.html);
+    expect(hardFooter).toBe(`${todayFooter}  ·  BadaBhai Recommended profile`);
+    expect(hard.html.replace("  ·  BadaBhai Recommended profile", "")).toBe(today.html);
   });
 });
 
