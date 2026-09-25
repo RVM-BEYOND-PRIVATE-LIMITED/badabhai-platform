@@ -281,7 +281,9 @@ describe("WorkerProfileDraftSchema (contracts.py parity)", () => {
 
 describe("ProfileExtractionInputSchema", () => {
   it("accepts a transcript", () => {
-    expect(ProfileExtractionInputSchema.safeParse({ transcript: "I run a VMC" }).success).toBe(true);
+    expect(ProfileExtractionInputSchema.safeParse({ transcript: "I run a VMC" }).success).toBe(
+      true,
+    );
   });
   it("accepts messages", () => {
     expect(
@@ -315,8 +317,7 @@ describe("TranscriptionInputSchema", () => {
   it("accepts an optional opaque worker_ref (D-2 spend attribution) and rejects an empty one", () => {
     // contracts.py parity: TranscriptionInput.worker_ref (str | None = None).
     expect(
-      TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.m4a", worker_ref: "w-1" })
-        .success,
+      TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.m4a", worker_ref: "w-1" }).success,
     ).toBe(true);
     expect(
       TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.m4a", worker_ref: "" }).success,
@@ -359,7 +360,10 @@ describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)",
     expect(SkillCanonicalizationSchema.safeParse({ status: "ranked" }).success).toBe(false);
   });
   it("input defaults lang to en", () => {
-    const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
+    const inp = SkillCanonicalizationInputSchema.parse({
+      phrase: "VMC operator",
+      domain_id: "vmc-machining",
+    });
     expect(inp.lang).toBe("en");
   });
 
@@ -448,12 +452,9 @@ describe("Growth cluster schemas (contracts.py parity — ADR-0030/TAX-7)", () =
   const vec = (): number[] => new Array(768).fill(0);
   it("enforces the 768 house dim on phrase + anchor vectors", () => {
     expect(
-      GrowthPhraseSchema.safeParse({ id: "p1", phrase: "x", count: 1, vector: [0.1, 0.2] })
-        .success,
+      GrowthPhraseSchema.safeParse({ id: "p1", phrase: "x", count: 1, vector: [0.1, 0.2] }).success,
     ).toBe(false);
-    expect(
-      GrowthAnchorSchema.safeParse({ skill_id: "s", vector: vec() }).success,
-    ).toBe(true);
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: vec() }).success).toBe(true);
   });
   it("rejects non-finite vector components (matches Pydantic isfinite — NaN AND Infinity)", () => {
     const v = vec();
@@ -559,8 +560,7 @@ describe("Retag plan schemas (contracts.py parity — ADR-0030/TAX-9)", () => {
   });
   it("rejects zero-hop resolved entries (a terminal is never its own crosswalk key)", () => {
     expect(
-      RetagResolvedEntrySchema.safeParse({ deprecated_id: "a", terminal_id: "a", hops: 0 })
-        .success,
+      RetagResolvedEntrySchema.safeParse({ deprecated_id: "a", terminal_id: "a", hops: 0 }).success,
     ).toBe(false);
   });
 });
@@ -640,6 +640,35 @@ describe("Job-posting chat contract parity (ADR-0035 — contracts.py mirror)", 
     expect(draft.skills).toEqual([]);
     expect(draft.confidence).toBe(0);
     expect(draft.missing_fields).toEqual([]);
+    // #1726 — the card fields default to null ("never answered"), never a guessed value.
+    expect(draft.city).toBeNull();
+    expect(draft.pay_type).toBeNull();
+    expect(draft.min_experience_years).toBeNull();
+    expect(draft.max_experience_years).toBeNull();
+    expect(draft.needed_by).toBeNull();
+  });
+
+  it("pay_type and needed_by accept only their closed vocabularies (#1726)", () => {
+    for (const payType of ["in_hand", "gross", "ctc"]) {
+      expect(JobPostingDraftSchema.safeParse({ pay_type: payType }).success).toBe(true);
+    }
+    expect(JobPostingDraftSchema.safeParse({ pay_type: "net" }).success).toBe(false);
+    for (const neededBy of ["immediate", "soon", "flexible"]) {
+      expect(JobPostingDraftSchema.safeParse({ needed_by: neededBy }).success).toBe(true);
+    }
+    expect(JobPostingDraftSchema.safeParse({ needed_by: "urgent" }).success).toBe(false);
+  });
+
+  it("caps city at 80 chars and the experience window at whole years 0..60 (#1726)", () => {
+    expect(JobPostingDraftSchema.safeParse({ city: "x".repeat(80) }).success).toBe(true);
+    expect(JobPostingDraftSchema.safeParse({ city: "x".repeat(81) }).success).toBe(false);
+    for (const key of ["min_experience_years", "max_experience_years"]) {
+      expect(JobPostingDraftSchema.safeParse({ [key]: 0 }).success).toBe(true);
+      expect(JobPostingDraftSchema.safeParse({ [key]: 60 }).success).toBe(true);
+      expect(JobPostingDraftSchema.safeParse({ [key]: 61 }).success).toBe(false);
+      expect(JobPostingDraftSchema.safeParse({ [key]: -1 }).success).toBe(false);
+      expect(JobPostingDraftSchema.safeParse({ [key]: 2.5 }).success).toBe(false);
+    }
   });
 
   it("vacancy_band accepts ONLY the five shipped bands (ADR-0012 — never an integer)", () => {
@@ -908,7 +937,7 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     // result: the undeclared key must not survive.
     const parsed = PredicateSchema.safeParse(undeclaredKey);
     expect(parsed.success).toBe(true);
-    expect(parsed.success && ("clock" in (parsed.data as object))).toBe(false);
+    expect(parsed.success && "clock" in (parsed.data as object)).toBe(false);
   });
 
   it("per-op arity is enforced: a predicate cannot carry another op's operands", () => {
@@ -917,9 +946,9 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     // not at evaluation time inside a live interview.
     expect(PredicateSchema.safeParse({ op: "all" }).success).toBe(false);
     expect(PredicateSchema.safeParse({ op: "answered" }).success).toBe(false);
-    expect(
-      PredicateSchema.safeParse({ op: "answered", field: "trade", turn: 3 }).success,
-    ).toBe(false);
+    expect(PredicateSchema.safeParse({ op: "answered", field: "trade", turn: 3 }).success).toBe(
+      false,
+    );
     expect(PredicateSchema.safeParse({ op: "eq", left: { field: "x" } }).success).toBe(false);
     expect(
       PredicateSchema.safeParse({ op: "eq", left: { field: "x", const: 1 }, right: { const: 1 } })
@@ -971,8 +1000,12 @@ describe("availability — the model's vocabulary vs the canonical enum (product
    * experience, salary, city — over one optional field the prompt itself asked for.
    */
   it("accepts the notice-period tokens the prompt asks for, as notice_period", () => {
-    expect(WorkerProfileDraftSchema.parse({ availability: "15_days" }).availability).toBe("notice_period");
-    expect(WorkerProfileDraftSchema.parse({ availability: "1_month" }).availability).toBe("notice_period");
+    expect(WorkerProfileDraftSchema.parse({ availability: "15_days" }).availability).toBe(
+      "notice_period",
+    );
+    expect(WorkerProfileDraftSchema.parse({ availability: "1_month" }).availability).toBe(
+      "notice_period",
+    );
   });
 
   it("still accepts every canonical value unchanged", () => {
@@ -997,7 +1030,9 @@ describe("availability — the model's vocabulary vs the canonical enum (product
   });
 
   it("normalises case and surrounding whitespace", () => {
-    expect(WorkerProfileDraftSchema.parse({ availability: "  15_DAYS " }).availability).toBe("notice_period");
+    expect(WorkerProfileDraftSchema.parse({ availability: "  15_DAYS " }).availability).toBe(
+      "notice_period",
+    );
   });
 
   it("leaves absent/null to the existing default rather than the normaliser", () => {
@@ -1010,7 +1045,9 @@ describe("availability — the model's vocabulary vs the canonical enum (product
     expect(AvailabilitySchema.parse({ status: "1_month" }).status).toBe("notice_period");
     expect(AvailabilitySchema.parse({ status: "immediate" }).status).toBe("immediate");
     // The day count is where the granularity lives, and it is untouched.
-    expect(AvailabilitySchema.parse({ status: "15_days", notice_period_days: 15 }).notice_period_days).toBe(15);
+    expect(
+      AvailabilitySchema.parse({ status: "15_days", notice_period_days: 15 }).notice_period_days,
+    ).toBe(15);
   });
 });
 

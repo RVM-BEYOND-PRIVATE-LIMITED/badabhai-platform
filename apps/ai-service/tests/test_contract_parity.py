@@ -33,6 +33,8 @@ from app.contracts import (
     InterviewExtractInput,
     InterviewExtractOutput,
     JobDomainMatch,
+    JobNeededBy,
+    JobPayType,
     JobPostingChatOpeningInput,
     JobPostingChatOpeningOutput,
     JobPostingChatState,
@@ -474,3 +476,49 @@ def test_the_text_fields_default_to_none_so_an_older_service_still_parses():
     )
     assert meta.prompt_text is None
     assert meta.response_text is None
+
+
+# --- #1726: the job-posting draft's enum VALUES and bounds ---------------------
+#
+# `job-posting-chat.keys.json` pins key NAMES only — the same gap the OIE section above
+# closes for its enums. A member added to `pay_type` on one side, or a city cap moved on
+# one side, would be green on both suites without this.
+_JOB_POSTING_TS = _REPO / "packages" / "ai-contracts" / "src" / "job-posting.ts"
+
+
+def _job_posting_ts() -> str:
+    return _JOB_POSTING_TS.read_text(encoding="utf-8")
+
+
+def _zod_enum(const_name: str) -> list[str]:
+    match = re.search(rf"const {const_name} = z\.enum\(\[(.*?)\]\)", _job_posting_ts(), re.S)
+    assert match, f"{const_name} not found in job-posting.ts — the mirror has moved"
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def _ts_int(const_name: str) -> int:
+    match = re.search(rf"const {const_name} = (\d+);", _job_posting_ts())
+    assert match, f"{const_name} not found in job-posting.ts — the mirror has moved"
+    return int(match.group(1))
+
+
+def test_job_posting_draft_enums_match_the_zod_source():
+    assert _zod_enum("jobPayType") == list(get_args(JobPayType))
+    assert _zod_enum("jobNeededBy") == list(get_args(JobNeededBy))
+    # Non-vacuous: the regex found the real members, not an empty list on both sides.
+    assert "in_hand" in _zod_enum("jobPayType")
+
+
+def test_job_posting_draft_bounds_match_the_zod_source():
+    """Asserted as BEHAVIOUR at the boundary, so the Pydantic constraint itself is what is
+    compared — not a Python constant that could drift from the Field it names."""
+    city_max = _ts_int("JP_CITY_MAX")
+    years_max = _ts_int("JP_EXPERIENCE_MAX_YEARS")
+    JobPostingDraft(city="x" * city_max, min_experience_years=years_max, max_experience_years=0)
+    with pytest.raises(ValidationError):
+        JobPostingDraft(city="x" * (city_max + 1))
+    for field in ("min_experience_years", "max_experience_years"):
+        with pytest.raises(ValidationError):
+            JobPostingDraft(**{field: years_max + 1})
+        with pytest.raises(ValidationError):
+            JobPostingDraft(**{field: -1})

@@ -173,8 +173,14 @@ sync — verified by `packages/ai-contracts/src/ai-contracts.test.ts`):
   `ProfilingTurnInputSchema` / `ProfilingTurnOutputSchema`.
 - **`JobPostingDraft`** — mirrors the existing rich-draft precedent (`WorkerProfileDraftSchema`).
   Fields: `role_title`, trade/skill phrases, `location_label`, `vacancy_band`, `pay_min`,
-  `pay_max`, `shift`, `benefits`, `requirements`, `description`, `confidence`,
-  `missing_fields`, `clarification_questions`. This maps **1:1** onto the existing
+  `pay_max`, `shift`, `benefits`, `requirements`, `description`, `city`, `pay_type`,
+  `min_experience_years`, `max_experience_years`, `needed_by`, `confidence`,
+  `missing_fields`, `clarification_questions`. (The five card fields after `description`
+  were added by #1726 so a chat-published posting fills the worker job card; `city` is the
+  coarse card bucket read from the payer's answer, never derived from a stored
+  `location_label`. Publish reports the card columns it left NULL as `unset_card_fields`
+  and does not refuse a thin draft, because the posting is created as a `draft` the
+  hand-filled edit form can still complete.) This maps **1:1** onto the existing
   `PayerCreateJobPostingSchema` (`apps/api/src/job-postings/job-postings.dto.ts`) — the
   publish step (§Decision 5) is a direct field-for-field validation against that schema, not
   a new shape.

@@ -1452,12 +1452,20 @@ class TranscriptionOutput(BaseModel):
 VacancyBand = Literal["1", "2-5", "6-10", "11-25", "25+"]
 # The closed jobs.shift enum (packages/db schema.ts jobs_shift_chk).
 JobShift = Literal["day", "night", "rotational"]
+# What the pay band means (#1648) — mirrors apps/api `payTypeSchema`.
+JobPayType = Literal["in_hand", "gross", "ctc"]
+# When the job needs someone — mirrors apps/api `neededBySchema`.
+JobNeededBy = Literal["immediate", "soon", "flexible"]
 
-# Caps mirror apps/api/src/job-postings/job-postings.dto.ts so a draft this service
-# emits can never be one the publish DTO would reject.
+# Caps mirror apps/api/src/job-postings/job-postings.dto.ts (and, for experience,
+# apps/api/src/common/job-content.schemas.ts `EXPERIENCE_MAX_YEARS`) so a draft this
+# service emits can never be one the publish DTO would reject.
 _JP_LABEL_MAX = 200
 _JP_DESCRIPTION_MAX = 2000
+_JP_CITY_MAX = 80
+_JP_EXPERIENCE_MAX_YEARS = 60
 JobPostingSkillPhrase = Annotated[str, Field(min_length=1, max_length=80)]
+JobPostingExperienceYears = Annotated[int, Field(ge=0, le=_JP_EXPERIENCE_MAX_YEARS)]
 
 
 class JobPostingChatState(BaseModel):
@@ -1542,12 +1550,22 @@ class JobPostingDraft(BaseModel):
     benefits: list[str] = Field(default_factory=list)
     requirements: list[str] = Field(default_factory=list)
     description: str | None = Field(default=None, max_length=_JP_DESCRIPTION_MAX)
+    # #1726 — the rest of the worker job card. `city` is the COARSE card bucket the
+    # worker feed reads, taken from the payer's answer; it is never derived from a
+    # stored `location_label` (poster free text the feed does not read).
+    city: str | None = Field(default=None, max_length=_JP_CITY_MAX)
+    pay_type: JobPayType | None = None
+    # Years, 0..60. A "5+ years" answer has a min and no max, so either may be None alone.
+    min_experience_years: JobPostingExperienceYears | None = None
+    max_experience_years: JobPostingExperienceYears | None = None
+    needed_by: JobNeededBy | None = None
     # DETERMINISTIC coverage ratio (topics with a value / topics in the bank), NOT a
     # model score and never an input to ranking or a publish decision (invariant #4).
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     # Topic ids still without a value, in bank order. `vacancy` maps to
-    # `vacancy_band`, `pay_range` to `pay_min`/`pay_max`; every other id is the
-    # draft field name. Ids only — never the values.
+    # `vacancy_band`, `pay_range` to `pay_min`/`pay_max` and `experience` to
+    # `min_experience_years`/`max_experience_years`; every other id is the draft
+    # field name. Ids only — never the values.
     missing_fields: list[str] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
 

@@ -34,12 +34,14 @@ import {
   JobPostingChatTurnResponseSchema,
   PublishJobPostingChatResponseSchema,
   UNMAPPED_DRAFT_FIELDS,
+  WORKER_CARD_FIELDS,
   type JobPostingChatMessagesResponse,
   type JobPostingChatSessionsResponse,
   type JobPostingChatTurnResponse,
   type PostJobPostingChatMessageDto,
   type PublishJobPostingChatResponse,
   type UnmappedDraftField,
+  type WorkerCardField,
 } from "./job-posting-chat.dto";
 
 /**
@@ -392,6 +394,7 @@ export class JobPostingChatService {
         draft_ready: row.status === "draft_ready",
         role_title: draft?.role_title ?? null,
         location_label: draft?.location_label ?? null,
+        city: draft?.city ?? null,
         vacancy_band: draft?.vacancy_band ?? null,
         started_at: row.startedAt.toISOString(),
         last_message_at: row.lastMessageAt?.toISOString() ?? null,
@@ -499,8 +502,8 @@ export class JobPostingChatService {
     // meaning: an interview that collected no chips leaves the column NULL (honest
     // absence), it does not store an empty list.
     //
-    // NOT SENT, because the interview does not collect them: `area`, the experience window,
-    // `needed_by` and `pay_type` (#1648).
+    // NOT SENT, because the interview does not collect it: `area`. (`city`, `pay_type`, the
+    // experience window and `needed_by` were in this list until #1726 added their questions.)
     //
     // AND `match_skill_ids`, WHICH IS A RULED SPLIT AND NOT A GAP (#1659, owner ruling
     // 2026-09-22). The chat owns CONTENT; the publish step owns the closed-set skill pick,
@@ -572,6 +575,11 @@ export class JobPostingChatService {
     }
     await this.chat.bindPublishedPosting(sessionId, payerId, posting.id);
 
+    // A THIN DRAFT STILL PUBLISHES (#1726): `unset_card_fields` REPORTS the card holes, it
+    // does not refuse them. The posting is created as a `draft` that reaches no worker until
+    // the publish step's skill pick (#1659), where the hand-filled edit form can complete any
+    // field — and once the interview has wrapped up the payer cannot answer a missed topic in
+    // chat, so a refusal here would strand the session.
     return this.checked(
       PublishJobPostingChatResponseSchema,
       {
@@ -579,6 +587,7 @@ export class JobPostingChatService {
         job_posting_id: posting.id,
         status: "published" as const,
         unmapped_fields: JobPostingChatService.unmappedFields(draft),
+        unset_card_fields: JobPostingChatService.unsetCardFields(dto),
       },
       sessionId,
     );
@@ -674,12 +683,35 @@ export class JobPostingChatService {
    */
   private static contentFieldsFrom(draft: JobPostingDraft): Record<string, unknown> {
     return {
+      // #1726. A blank `city` is omitted too: the create DTO trims and then requires a
+      // character, so whitespace would 400 the publish instead of reading as unanswered.
+      ...(draft.city !== null && draft.city.trim() ? { city: draft.city } : {}),
       ...(draft.pay_min !== null ? { pay_min: draft.pay_min } : {}),
       ...(draft.pay_max !== null ? { pay_max: draft.pay_max } : {}),
+      ...(draft.pay_type !== null ? { pay_type: draft.pay_type } : {}),
+      ...(draft.min_experience_years !== null
+        ? { min_experience_years: draft.min_experience_years }
+        : {}),
+      ...(draft.max_experience_years !== null
+        ? { max_experience_years: draft.max_experience_years }
+        : {}),
       ...(draft.shift !== null ? { shift: draft.shift } : {}),
+      ...(draft.needed_by !== null ? { needed_by: draft.needed_by } : {}),
       ...(draft.benefits.length ? { benefits: draft.benefits } : {}),
       ...(draft.requirements.length ? { requirements: draft.requirements } : {}),
     };
+  }
+
+  /**
+   * Which worker-card columns the created posting holds NULL for (#1726).
+   *
+   * MEASURED ON THE VALIDATED DTO THE CREATE CALL WAS HANDED — the same "measure what was
+   * sent" rule as `unmappedFields` — and `createForPayer` stores `dto[key] ?? null`, so a key
+   * is listed exactly when its column is NULL. Facts only; which absences matter is the
+   * client's card rule. KEYS only, never values.
+   */
+  private static unsetCardFields(dto: PayerCreateJobPostingDto): WorkerCardField[] {
+    return WORKER_CARD_FIELDS.filter((f) => dto[f] === undefined);
   }
 
   /**

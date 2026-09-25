@@ -38,14 +38,15 @@ mechanically over every string in this module, so the rule survives a future edi
 that forgets this paragraph.
 
 OPTIONS ARE ANSWERS, NEVER QUESTIONS. A tapped chip is sent verbatim as the payer's
-message, so every option here becomes the payer's answer of record. Three topics
-carry options and they are exactly the three with a genuinely CLOSED answer space:
-``vacancy`` (the five ADR-0012 bands), ``shift`` (the three ``jobs.shift`` enum
-values) and ``benefits`` (standard statutory/site offerings). Every option is
-executed against ``answers.detect_answers`` by the test suite and must resolve ITS
-OWN topic. The open-ended topics — ``role_title``, ``location_label``, ``skills``,
-``pay_range``, ``requirements``, ``description`` — carry NONE: any four role titles,
-cities or pay figures we picked would be four we put in the employer's mouth.
+message, so every option here becomes the payer's answer of record. Only topics with
+a genuinely CLOSED answer space carry options: ``vacancy`` (the five ADR-0012 bands),
+``pay_type`` / ``shift`` / ``needed_by`` (the ``jobs`` enum values), ``experience``
+(coarse year bands the payer picks from) and ``benefits`` (standard statutory/site
+offerings). Every option is executed against ``answers.detect_answers`` by the test
+suite and must resolve ITS OWN topic. The open-ended topics — ``role_title``,
+``location_label``, ``city``, ``skills``, ``pay_range``, ``requirements``,
+``description`` — carry NONE: any four role titles, cities or pay figures we picked
+would be four we put in the employer's mouth.
 """
 
 from __future__ import annotations
@@ -76,8 +77,8 @@ class Topic:
 
 # The ordered bank. Reading order only — the ENGINE's ask order is
 # ``interview_engine._next_topic``'s strict priority (unanswered essential -> core
-# -> optional), so the first questions a payer actually sees are the three
-# essentials, whatever their position here.
+# -> optional), so the first questions a payer actually sees are the essentials,
+# whatever their position here.
 _TOPICS: list[Topic] = [
     Topic(
         "role_title",
@@ -94,11 +95,32 @@ _TOPICS: list[Topic] = [
         core=True,
     ),
     Topic(
+        # Asks for the city AND the area in one go, so one answer usually closes both
+        # `location_label` and `city`. The example puts the CITY FIRST on purpose: the
+        # gateway exempts a known city from its leading-name rule, so "Pune, Chakan"
+        # records both fields, while "Chakan, Pune" is masked to "[PERSON_1], Pune" and
+        # records neither (measured; pinned in tests/test_job_posting_chat.py).
         "location_label",
         "Work location",
-        "Which city is this job in?",
+        "Which city and area is the workplace in — for example Pune, Chakan?",
         core=True,
-        retry_question="Which city and area is the workplace in — for example Pune, Chakan?",
+        retry_question="Could you share the city first, then the area — like Pune, Chakan?",
+    ),
+    Topic(
+        # The worker card's city (#1726). Usually closed by the location answer itself
+        # (one gazetteer city in "Pune, Chakan"), so it is only SERVED when that answer
+        # named none, or more than one. Only a GAZETTEER city is ever recorded (#1727
+        # round 3), so the question asks for the city or district, and the re-ask for the
+        # nearest big city — the answer a payer at an unlisted industrial town can give.
+        # Neither refers back to "that area": the first ask is also served when no area
+        # was ever recorded (#1727 R27). Open answer space: no options.
+        "city",
+        "City",
+        "Which city or district is the workplace in?",
+        core=True,
+        # Copied VERBATIM into clarification_questions, where there is no preceding
+        # question — so it must stand alone.
+        retry_question="Which is the nearest big city — for example Pune, Chennai or Ludhiana?",
     ),
     Topic(
         "vacancy",
@@ -118,11 +140,33 @@ _TOPICS: list[Topic] = [
         core=True,
     ),
     Topic(
+        "pay_type",
+        "Pay type",
+        "Is that pay in-hand, gross or CTC?",
+        core=True,
+        # The closed `jobs.pay_type` enum (in_hand/gross/ctc).
+        options=("In-hand", "Gross", "CTC"),
+    ),
+    Topic(
+        "experience",
+        "Experience",
+        "How many years of experience should candidates have?",
+        core=True,
+        options=("Fresher", "1-2 years", "3-5 years", "5+ years"),
+    ),
+    Topic(
         "shift",
         "Shift",
         "Which shift is this — day, night or rotational?",
         # The closed `jobs.shift` enum (day/night/rotational), title-cased.
         options=("Day", "Night", "Rotational"),
+    ),
+    Topic(
+        "needed_by",
+        "Joining timeline",
+        "How soon do you need them to join?",
+        # The closed `jobs.needed_by` enum (immediate/soon/flexible).
+        options=("Immediately", "Within a month", "Flexible"),
     ),
     Topic(
         "benefits",
@@ -133,7 +177,8 @@ _TOPICS: list[Topic] = [
     Topic(
         "requirements",
         "Requirements",
-        "What experience or qualification must candidates have?",
+        # Years of experience has its own topic now, so this asks for the rest.
+        "Any other must-haves — a qualification, certificate or licence?",
     ),
     Topic(
         "description",

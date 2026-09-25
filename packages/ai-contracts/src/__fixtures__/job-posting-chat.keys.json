@@ -21,6 +21,11 @@
     "benefits",
     "requirements",
     "description",
+    "city",
+    "pay_type",
+    "min_experience_years",
+    "max_experience_years",
+    "needed_by",
     "confidence",
     "missing_fields",
     "clarification_questions"
