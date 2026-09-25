@@ -109,19 +109,18 @@ _TOPICS: list[Topic] = [
     Topic(
         # The worker card's city (#1726). Usually closed by the location answer itself
         # (one gazetteer city in "Pune, Chakan"), so it is only SERVED when that answer
-        # named none, or more than one. A FOLLOW-UP about the containing city, never a
-        # repeat of the location question (#1727 F11: "Which city is the workplace in?"
-        # straight after "Which city is this job in?" drew the locality again). Open
-        # answer space: no options.
+        # named none, or more than one. Only a GAZETTEER city is ever recorded (#1727
+        # round 3), so the question asks for the city or district, and the re-ask for the
+        # nearest big city — the answer a payer at an unlisted industrial town can give.
+        # Neither refers back to "that area": the first ask is also served when no area
+        # was ever recorded (#1727 R27). Open answer space: no options.
         "city",
         "City",
-        "Which city or district is that area in?",
+        "Which city or district is the workplace in?",
         core=True,
         # Copied VERBATIM into clarification_questions, where there is no preceding
-        # question — so it must stand alone (no "that").
-        retry_question=(
-            "Which city or district is the workplace in — for example Pune, Chennai or Ludhiana?"
-        ),
+        # question — so it must stand alone.
+        retry_question="Which is the nearest big city — for example Pune, Chennai or Ludhiana?",
     ),
     Topic(
         "vacancy",

@@ -180,6 +180,31 @@ def _may_commit(
     return topic_id not in st.collected
 
 
+def _pay_type_describes_another_band(
+    st: JobPostingChatState,
+    detected: dict[str, object | None],
+    last_asked: str | None,
+    correcting: bool,
+) -> bool:
+    """Would a pay type read IN PASSING end up labelling a band it was not said about?
+
+    The detector ties a cross-topic pay type to the figure in the same message. But the
+    overwrite rule may then DROP that figure (an established band wins), and the type
+    alone would commit onto the old band: "20-25k" established, then "salary 18k in
+    hand" on the shift question labelled 20-25k IN-HAND (#1727 R30). The type is kept
+    only when its figure is the band the draft will actually carry. The answer to the
+    pay-type question itself is the payer's deliberate answer and is never touched.
+    """
+    if last_asked == "pay_type" or detected.get("pay_type") is None:
+        return False
+    band = detected.get("pay_range")
+    if band is None:
+        return True
+    if _may_commit(st, "pay_range", last_asked, correcting):
+        return False
+    return st.collected.get("pay_range") != band
+
+
 def _unanswered_essentials(st: JobPostingChatState) -> list[str]:
     """Which ESSENTIAL topics the payer never actually answered, in a stable order.
 
@@ -295,7 +320,10 @@ def next_turn(
     if last_asked is None and st.turn_count == 1:
         last_asked = _opener_topic_id(trade_hint)
     correcting = answers.is_correction(payer_message_raw)
-    for topic_id, value in answers.detect_answers(recorded_text, last_asked).items():
+    detected = answers.detect_answers(recorded_text, last_asked)
+    if _pay_type_describes_another_band(st, detected, last_asked, correcting):
+        del detected["pay_type"]
+    for topic_id, value in detected.items():
         if topic_id not in st.answered_topics:
             st.answered_topics.append(topic_id)
         if value is None:

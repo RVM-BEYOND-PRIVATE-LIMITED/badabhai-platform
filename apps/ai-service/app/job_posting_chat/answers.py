@@ -26,6 +26,16 @@ location. So detection is:
    employer's mouth, so neither is ever read cross-topic — and experience is never
    read from the description answer (see ``_NOT_READ_CROSS_TOPIC_FROM``).
 
+AN ALLOWLIST, NOT A PARSER (#1727 round 3). The four worker-card fields — experience,
+needed_by, pay_type and city — are recorded only when the answer (or, read in passing,
+one clause of it) FULLY matches one of a small set of known shapes: the chips, and the
+plain ways of writing them. Two review rounds of clause-splitting, negation screens and
+bound detection still left dozens of free-text answers recording a WRONG value ("Not
+less than 3 years" -> "up to 3", "no urgent requirement" -> immediate, a road name as
+the city). The long tail of free text is unbounded; the allowlist is not. Anything
+outside it records NOTHING — what these fields held before #1726 — so a phrasing we do
+not know costs a question, never a wrong card.
+
 FAIL TOWARD ASKING AGAIN. Every parser here returns "no value" rather than a
 guess. An unparsed ESSENTIAL is re-asked once (bounded) and then declared in
 ``unanswered_essentials`` — a visibly incomplete draft the payer can fix is always
@@ -35,6 +45,7 @@ better than a confidently wrong one they do not notice.
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 # The ONE city gazetteer (packages/profiling-lexicon cities.json). Read from the privacy
 # module this route already depends on — never from ``app.profiling`` (see __init__).
@@ -107,10 +118,13 @@ _HAS_ALNUM_RE = re.compile(r"[0-9A-Za-zऀ-ॿ]")
 # `_clean_label` tries the bracket trim and falls back when it cost a token.
 _TRIM_PUNCT = " \t\r\n.,;:!\"'`(){}-–—"
 _TRIM_PUNCT_WITH_BRACKETS = _TRIM_PUNCT + "[]"
+# closer -> its opener, for the unbalanced-bracket sweep in `_clean_label`.
+_BRACKET_OPENER: dict[str, str] = {")": "(", "]": "[", "}": "{"}
 
 
 def cap_utf16(value: str, cap: int) -> str:
-    """The longest prefix of ``value`` that is at most ``cap`` UTF-16 code units.
+    """The longest prefix of ``value`` that is at most ``cap`` UTF-16 code units and
+    that never ends INSIDE a placeholder token.
 
     zod's ``z.string().max(n)`` counts JavaScript string length — UTF-16 units — while
     Python's ``len`` counts code points, so a non-BMP character (an emoji) is 2 units
@@ -118,13 +132,45 @@ def cap_utf16(value: str, cap: int) -> str:
     contract rejects, and that turn then 503'd on every retry (#1727 F15). Equivalent
     to trimming until ``len(s.encode("utf-16-le")) // 2 <= cap``; never splits a
     character.
+
+    A cut that falls inside a token moves to BEFORE it (#1727 R20): "...supervisor
+    [PER" no longer matches PLACEHOLDER_TOKEN_RE, so the half-token reached the card and
+    the retype ask was never raised. A token wholly past the cap is dropped, as before.
     """
+    cut = len(value)
     units = 0
     for index, char in enumerate(value):
         units += 2 if ord(char) > 0xFFFF else 1
         if units > cap:
-            return value[:index]
-    return value
+            cut = index
+            break
+    for token in PLACEHOLDER_TOKEN_RE.finditer(value):
+        if token.start() < cut < token.end():
+            return value[: token.start()]
+    return value[:cut]
+
+
+def _drop_unbalanced_brackets(text: str) -> str:
+    """``text`` without the bracket characters that have no partner (#1727 R19).
+
+    The edge trim removes a closing "]" or ")" whose opener sits inside the value —
+    "Welder [TIG]" became "Welder [TIG" — so every opener without a closer, and every
+    closer without an opener, is removed. A placeholder token is never touched, by
+    construction: its "[" and "]" enclose no bracket, so the walk always pairs them with
+    each other — the retype ask's only handle on the token survives.
+    """
+    open_at: list[int] = []
+    unmatched: set[int] = set()
+    for index, char in enumerate(text):
+        if char in "([{":
+            open_at.append(index)
+        elif char in _BRACKET_OPENER:
+            if open_at and text[open_at[-1]] == _BRACKET_OPENER[char]:
+                open_at.pop()
+            else:
+                unmatched.add(index)
+    unmatched.update(open_at)
+    return "".join(char for index, char in enumerate(text) if index not in unmatched)
 
 
 # A short, explicit "there is nothing to give here". Only honoured for NON-essential
@@ -153,15 +199,19 @@ def _clean_label(text: str, max_len: int = LABEL_MAX) -> str | None:
 
     "[PF" -> "PF", "[Pune]" -> "Pune" — but a placeholder token at an edge stays whole:
     if the bracket trim leaves FEWER intact tokens than the text had, the bracket-less
-    trim is used instead, so every token stays visible to the retype ask.
+    trim is used instead, so every token stays visible to the retype ask. A bracket the
+    trim left without its partner is then removed ("Welder [TIG" -> "Welder TIG"), and
+    the cap never cuts a token in half (see :func:`cap_utf16`).
     """
     collapsed = _WS_RE.sub(" ", (text or "").strip())
     cleaned = collapsed.strip(_TRIM_PUNCT_WITH_BRACKETS)
     if len(PLACEHOLDER_TOKEN_RE.findall(cleaned)) < len(PLACEHOLDER_TOKEN_RE.findall(collapsed)):
         cleaned = collapsed.strip(_TRIM_PUNCT)
-    if not cleaned or not _HAS_ALNUM_RE.search(cleaned):
+    cleaned = _WS_RE.sub(" ", _drop_unbalanced_brackets(cleaned)).strip()
+    capped = cap_utf16(cleaned, max_len).strip()
+    if not capped or not _HAS_ALNUM_RE.search(capped):
         return None
-    return cleaned[:max_len].strip()
+    return capped
 
 
 def _split_phrases(text: str, max_items: int = MAX_PHRASES) -> list[str]:
@@ -185,6 +235,29 @@ def _split_phrases(text: str, max_items: int = MAX_PHRASES) -> list[str]:
         if len(out) >= max_items:
             break
     return out
+
+
+# Explicit ASCII lookarounds, not `\b`: "in-hand" must match as ONE cue, and a `\b`
+# sits happily between "in" and "-". Digits count as word characters so "15 days"
+# never matches inside "115 days".
+def _cue(body: str) -> str:
+    return r"(?<![A-Za-z0-9])(?:" + body + r")(?![A-Za-z0-9])"
+
+
+# Every hyphen/dash code point ("Mumbai–Pune", "1—2 years") is read as "-".
+_DASHES_RE = re.compile("[\u2010-\u2015\u2212]")
+# Stripped from the ends of a normalised answer. Deliberately NOT "<", ">", "+", "-" or
+# "~" — each changes what the answer means ("<2 yrs") — and "." / "," only at the END:
+# a leading one is the start of a number (".5 years").
+_LEAD_PUNCT = " \t\r\n\"'`()[]{}:;!?"
+_TRAIL_PUNCT = _LEAD_PUNCT + ".,"
+
+
+def _normalise(text: str | None) -> str:
+    """The form every allowlist below matches against: lowercase, one kind of dash and
+    apostrophe, single spaces, and no surrounding punctuation or trailing ".!?"."""
+    lowered = _DASHES_RE.sub("-", (text or "").lower()).replace("’", "'")
+    return _WS_RE.sub(" ", lowered).lstrip(_LEAD_PUNCT).rstrip(_TRAIL_PUNCT).strip()
 
 
 # --- Vacancy ---------------------------------------------------------------
@@ -222,16 +295,27 @@ _WORD_NUMBERS: dict[str, int] = {
 }
 # A number followed by a UNIT is not a head count. Without this, "we need 3 years
 # experience" banded a vacancy of 3 — the cue ("need") and the number were both
-# there, they just had nothing to do with each other.
-_UNIT_GUARD = (
-    r"(?!\s*(?:years?|yrs?|saal|months?|mahine|weeks?|hours?|hrs?|days?|km|%|k\b|"
-    r"lakh|lac|thousand|rs\b|rupees?|shifts?|am\b|pm\b))"
+# there, they just had nothing to do with each other. ONE unit list serves both guards
+# below; it also carries the Hinglish units, "exp", an ordinal ("10th pass"), "kg" and
+# "age" — each measured banding a head count nobody gave (#1727 R8/R16/R18).
+_UNIT_ALT = (
+    r"years?|yrs?|saal|months?|mahine|mahina|weeks?|hafte|haftey|hafta|hours?|hrs?|"
+    r"ghante?|ghanta|days?|din\b|km|kgs?\b|%|k\b|lakh|lac|thousand|hazaa?r|rs\b|rupees?|"
+    r"shifts?|am\b|pm\b|exp\b|age\b|th\b|st\b|nd\b|rd\b"
 )
-# ...and neither is a number that BEGINS a unit-bearing window. The unit guard looks
-# only at what follows N, which in "need 2-5 years" is "-5 years" — so the cue-verb arm
-# banded the 2 and closed the vacancy essential on a count nobody gave (#1727 F7).
-_WINDOW_GUARD = r"(?!\s*(?:-|to|se)\s*\d{1,4}\s*(?:years?|yrs?|saal|months?|mahine))"
-_NUM = r"(?<![\d,.])(\d{1,4})" + _UNIT_GUARD + _WINDOW_GUARD
+_UNIT_GUARD = r"(?!\s*(?:" + _UNIT_ALT + r"))"
+# ...and neither is a number that BEGINS a unit-bearing window: "2-5 years", "2 or 3
+# years", "5+ years", "5 plus years", "2 or more years". The unit guard looks only at
+# what follows N, which in "need 2-5 years" is "-5 years" — so the cue-verb arm banded
+# the 2 and closed the vacancy essential on a count nobody gave (#1727 F7/R17).
+_WINDOW_GUARD = (
+    r"(?!\s*(?:(?:-|to|se|or)\s*\d{1,4}|\+|plus|or\s+more|and\s+above)\s*(?:" + _UNIT_ALT + r"))"
+)
+# `(?![\d,.]?\d)`: the digit group can never be CUT SHORT. Without it a guard that
+# rejected "10" let the engine backtrack to "1" — whose lookaheads see "0 years" and
+# pass — so "need 10-15 years experience" banded a vacancy of 1 (#1727 R8/R16). The
+# optional separator also keeps "18,000" and "1.5 lakh" from yielding their first digits.
+_NUM = r"(?<![\d,.])(\d{1,4})(?![\d,.]?\d)" + _UNIT_GUARD + _WINDOW_GUARD
 _VACANCY_NOUNS = (
     r"vacanc(?:y|ies)|openings?|positions?|seats?|people|persons?|workers?|"
     r"candidates?|hires?|staff"
@@ -347,149 +431,226 @@ def _scale(digits: str, suffix: str | None, partner: str | None) -> int | None:
     return value if _PAY_MIN_INR <= value <= _PAY_MAX_INR else None
 
 
-def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
-    """Parse a monthly pay answer into ``{"pay_min": int, "pay_max": int | None}``."""
-    message = text or ""
-    if require_cue and not _MONEY_CUE_RE.search(message):
-        return None
+# The CLAUSE an amount sits in, for the add-on screen below: the shared boundaries plus
+# "+", "plus" and " and " — "Salary 20k + 2k bonus" is two statements. A boundary inside
+# a RANGE ("between 18000 and 22000", "18,000 - 22,000") is not one.
+_PAY_CLAUSE_BOUNDARY_RE = re.compile(
+    r"[;\n]|(?<!\d),|,(?!\d)|\+|(?<![A-Za-z])plus(?![A-Za-z])|\s+and\s+", re.IGNORECASE
+)
+# An amount in a clause about an ADD-ON — overtime, a bonus, an allowance, a statutory
+# deduction, a perk — is not the wage. Folded into the band it became the band's
+# MINIMUM: "in hand 20k, OT extra 2000" read as Rs 2,000-20,000 (#1727 R34, pre-existing).
+_PAY_ADDON_RE = re.compile(
+    _cue(
+        r"bonus(?:es)?|allowances?|incentives?|overtime|ot|extra|increments?|hikes?|pf|esi|"
+        r"esic|gratuity|food|canteen|room|rent|travel|conveyance|da|hra"
+    ),
+    re.IGNORECASE,
+)
+# A bare four-digit YEAR is not pay ("Established 1998" became pay_min 1998, R34). It is
+# pay only with a currency word before it or a per-month / "/-" after it ("Rs 2000").
+_PAY_YEAR_RE = re.compile(r"19[5-9]\d|20\d\d")
+_PAY_CURRENCY_BEFORE_RE = re.compile(r"(?:₹|\brs\.?|\binr|\brupees?)\s*$", re.IGNORECASE)
+_PAY_CURRENCY_AFTER_RE = re.compile(
+    r"\s*(?:/-|rs\b|rupees?\b|inr\b|per\s+month|pm\b|p\.m\b|monthly|/\s*month)", re.IGNORECASE
+)
+# Every word that names a pay BASIS. Two figures in an answer that also names a basis are
+# figures on different bases ("gross 30k, in hand 25k", "CTC 3 lakh, take home 22k"): no
+# single band describes both, so the pay answer records nothing rather than a fold.
+_PAY_BASIS_KINDS: dict[str, re.Pattern[str]] = {
+    "in_hand": re.compile(_cue(r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|haath"), re.I),
+    "gross": re.compile(_cue(r"gross"), re.IGNORECASE),
+    "ctc": re.compile(_cue(r"ctc|c\.?t\.?c\.?|cost\s+to\s+company"), re.IGNORECASE),
+}
 
-    # 1. A RANGE wins outright — it is the one place a multiplier may travel.
-    span = _PAY_RANGE_RE.search(message)
-    if span:
-        low_s, low_x, high_s, high_x = span.groups()
+
+class _PayFigure(NamedTuple):
+    """One pay figure a message states: a range, or a single amount, with its span."""
+
+    start: int
+    end: int
+    low: int
+    high: int | None
+    from_range: bool
+
+
+def _is_bare_year(message: str, match: re.Match[str]) -> bool:
+    """A four-digit 1950..2099 with no suffix and no currency beside it. (The amount
+    regex keeps a trailing comma — "1998, salary" — which is punctuation, not a digit.)"""
+    digits, suffix = match.group(1), match.group(2)
+    if suffix or not _PAY_YEAR_RE.fullmatch(digits.rstrip(",")):
+        return False
+    return not (
+        _PAY_CURRENCY_BEFORE_RE.search(message[: match.start()])
+        or _PAY_CURRENCY_AFTER_RE.match(message, match.end())
+    )
+
+
+def _pay_figures(message: str) -> list[_PayFigure]:
+    """Every pay figure ``message`` states, in order. A range is ONE figure; any other
+    amount that scales into the monthly window is one more. A figure below the floor
+    ("5 welders", "8 hours") or a bare year is not pay and is not a figure."""
+    figures: list[_PayFigure] = []
+    residue = message
+    for match in _PAY_RANGE_RE.finditer(message):
+        low_s, low_x, high_s, high_x = match.groups()
+        if (
+            not (low_x or high_x)
+            and _PAY_YEAR_RE.fullmatch(low_s.rstrip(","))
+            and _PAY_YEAR_RE.fullmatch(high_s.rstrip(","))
+        ):
+            continue  # "1998-2005" is a span of years; its halves are screened below
         low = _scale(low_s, low_x, high_x)
         high = _scale(high_s, high_x, low_x)
         if low is not None and high is not None:
-            return {"pay_min": min(low, high), "pay_max": max(low, high)}
-        single = low if low is not None else high
-        if single is not None:
-            return {"pay_min": single, "pay_max": None}
+            figures.append(
+                _PayFigure(match.start(), match.end(), min(low, high), max(low, high), True)
+            )
+        elif low is not None or high is not None:
+            single = low if low is not None else high
+            assert single is not None
+            figures.append(_PayFigure(match.start(), match.end(), single, None, True))
+        else:
+            continue  # neither half is pay: its digits stay for the amount scan
+        # Blanked with spaces of the same length, so every later span stays true.
+        residue = (
+            residue[: match.start()] + " " * (match.end() - match.start()) + residue[match.end() :]
+        )
+    for match in _AMOUNT_RE.finditer(residue):
+        value = _scale(match.group(1), match.group(2), None)
+        if value is None or _is_bare_year(residue, match):
+            continue
+        figures.append(_PayFigure(match.start(), match.end(), value, None, False))
+    return sorted(figures, key=lambda figure: figure.start)
+
+
+def _pay_clause(message: str, figure: _PayFigure) -> str:
+    """The clause ``figure`` sits in. A boundary INSIDE the figure ("between 18000 and
+    22000") is neither before nor after it, so it never splits a range."""
+    start, end = 0, len(message)
+    for boundary in _PAY_CLAUSE_BOUNDARY_RE.finditer(message):
+        if boundary.end() <= figure.start:
+            start = boundary.end()
+        elif boundary.start() >= figure.end:
+            end = boundary.start()
+            break
+    return message[start:end]
+
+
+def _parse_pay(text: str, *, require_cue: bool) -> dict[str, int | None] | None:
+    """Parse a monthly pay answer into ``{"pay_min": int, "pay_max": int | None}``.
+
+    An amount in an ADD-ON clause (bonus, OT, allowance, PF...) is dropped, and so is a
+    bare year; two figures on different bases record nothing (see the regexes above).
+    """
+    message = text or ""
+    if require_cue and not _MONEY_CUE_RE.search(message):
+        return None
+    figures = _pay_figures(message)
+    kept = [f for f in figures if not _PAY_ADDON_RE.search(_pay_clause(message, f))]
+    if len(kept) > 1 and any(basis.search(message) for basis in _PAY_BASIS_KINDS.values()):
+        return None
+
+    # 1. A RANGE wins outright — it is the one place a multiplier may travel.
+    for figure in kept:
+        if figure.from_range:
+            return {"pay_min": figure.low, "pay_max": figure.high}
 
     # 2. Otherwise every amount stands alone with its OWN suffix. A bare number
-    #    below the floor ("8 hours", "5 welders") is dropped, not rescaled.
-    amounts: list[int] = []
-    for match in _AMOUNT_RE.finditer(message):
-        value = _scale(match.group(1), match.group(2), None)
-        if value is not None and value not in amounts:
-            amounts.append(value)
+    #    below the floor ("8 hours", "5 welders") was never a figure at all.
+    amounts = sorted({figure.low for figure in kept})
     if not amounts:
         return None
-    amounts.sort()
-    if len(amounts) == 1:
-        return {"pay_min": amounts[0], "pay_max": None}
-    return {"pay_min": amounts[0], "pay_max": amounts[-1]}
+    return {"pay_min": amounts[0], "pay_max": amounts[-1] if len(amounts) > 1 else None}
 
 
-# --- Pay type (#1726) --------------------------------------------------------
-# Explicit ASCII lookarounds, not `\b`: "in-hand" must match as ONE cue, and a `\b`
-# sits happily between "in" and "-". Digits count as word characters so "15 days"
-# never matches inside "115 days".
-def _cue(body: str) -> str:
-    return r"(?<![A-Za-z0-9])(?:" + body + r")(?![A-Za-z0-9])"
-
-
-# A clause boundary — but not the point inside "1.5", nor the comma inside "22,000".
-_CLAUSE_SPLIT_RE = re.compile(r"[;\n]|(?<!\d),|,(?!\d)|\.(?!\d)")
-
-# "in hand" the SKILL ("good in hand tools", "in-hand grinding") is not "in hand" the pay.
-_IN_HAND_SKILL_NOUNS = r"tools?|work|grinding|skills?|experience|machines?|operations?|job"
-# The MULTI-WORD cues — trusted cross-topic ("20-25k in hand" answered to the pay
-# question closes pay_type too). "ctc" rides with them as the acronym of one.
-_PAY_TYPE_CUES: dict[str, re.Pattern[str]] = {
-    "in_hand": re.compile(
-        _cue(
-            r"in[\s-]*hand(?![\s-]+(?:" + _IN_HAND_SKILL_NOUNS + r")(?![A-Za-z0-9]))|"
-            r"take[\s-]*home|net\s+(?:pay|salary)|haath\s+me(?:in)?"
+# --- Pay type (#1726; an allowlist since #1727 round 3) ------------------------------
+# ANSWERED DIRECTLY — the pay-type question on screen. The WHOLE answer must be one of
+# these (optionally "it is ..." / "... salary"). No shape contains a digit, so an answer
+# with ANY digit records nothing: a restated figure ("in hand 18k") may describe a
+# different band than the one collected (R31). No negation handling exists because none
+# is needed — "not CTC" is simply not a shape.
+_PAY_TYPE_ANSWER_RES: dict[str, re.Pattern[str]] = {
+    kind: re.compile(
+        r"(?:(?:it\s+is|its|it's|salary\s+is|pay\s+is)\s*)?(?:" + body + r")(?:\s*(?:salary|pay))?"
+    )
+    for kind, body in (
+        (
+            "in_hand",
+            r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|net\s+(?:salary|pay)|haath\s+me(?:in)?",
         ),
-        re.IGNORECASE,
+        ("gross", r"gross"),
+        ("ctc", r"ctc|c\.?t\.?c\.?|cost\s+to\s+company"),
+    )
+}
+
+
+def _parse_pay_type(text: str) -> str | None:
+    """The answer to "Is that pay in-hand, gross or CTC?" — a whole-answer match only."""
+    answer = _normalise(text)
+    kinds = [kind for kind, shape in _PAY_TYPE_ANSWER_RES.items() if shape.fullmatch(answer)]
+    return kinds[0] if len(kinds) == 1 else None
+
+
+# READ IN PASSING — usually the pay answer itself ("20-25k in hand"). Recorded only when
+# the message states EXACTLY ONE pay figure, that figure is the band this same message
+# recorded, and the cue is ATTACHED to it: "<figure>[ per month][,] <cue>" or "<cue>[:]
+# [Rs] <figure>". "in hand" the SKILL ("good in hand tools") is not the pay cue.
+_IN_HAND_SKILL_NOUNS = r"tools?|work|grinding|skills?|experience|machines?|operations?|job"
+_PAY_TYPE_CROSS_CUES: dict[str, str] = {
+    "in_hand": (
+        r"in\s*-?\s*hand(?![\s-]+(?:" + _IN_HAND_SKILL_NOUNS + r")(?![A-Za-z0-9]))|inhand|"
+        r"take\s*-?\s*home|net\s+(?:salary|pay)"
     ),
-    "gross": re.compile(_cue(r"gross\s+(?:pay|salary)"), re.IGNORECASE),
-    "ctc": re.compile(_cue(r"ctc|c\.t\.c\.?|cost\s+to\s+company"), re.IGNORECASE),
+    "gross": r"gross\s+(?:salary|pay)",
+    "ctc": r"ctc|c\.t\.c\.?|cost\s+to\s+company",
 }
-# Bare single words, trusted as a VALUE only as the answer to the pay-type question
-# itself: "net" and "gross" are too ordinary to read out of an unrelated sentence. Cross
-# -topic they still count as CONFLICT detectors ("gross 30k, in hand 25k").
-_PAY_TYPE_BARE: dict[str, re.Pattern[str]] = {
-    "in_hand": re.compile(_cue(r"net"), re.IGNORECASE),
-    "gross": re.compile(_cue(r"gross"), re.IGNORECASE),
+_PAY_TYPE_AFTER_RES: dict[str, re.Pattern[str]] = {
+    kind: re.compile(
+        r"\s*,?\s*(?:(?:per\s+month|pm|p\.m\.?|monthly|/\s*month)(?![a-z]))?\s*,?\s*" + _cue(body)
+    )
+    for kind, body in _PAY_TYPE_CROSS_CUES.items()
 }
-# A NEGATED type is removed before any cue is read: "Not CTC" is not CTC, and "not CTC,
-# in hand" is in-hand (#1727 F9).
-_PAY_TYPE_NEGATED_RE = re.compile(
+_PAY_TYPE_BEFORE_RES: dict[str, re.Pattern[str]] = {
+    kind: re.compile(_cue(body) + r"\s*[:\-]?\s*(?:(?:rs\.?|₹|inr)\s*)?$")
+    for kind, body in _PAY_TYPE_CROSS_CUES.items()
+}
+# Anything that can NEGATE, QUALIFY or ADD TO the figure the cue is attached to: "20k,
+# CTC nhi", "20k in hand before PF", "2000 incentive in hand" (#1727 F9/R30/R32).
+_PAY_TYPE_REFUSE_RE = re.compile(
     _cue(
-        r"(?:not|no|non|without)[\s-]+(?:in[\s-]*hand|take[\s-]*home|ctc|c\.t\.c\.?|gross|net)"
-        r"|(?:in[\s-]*hand|ctc|gross)\s+nahin?"
+        r"not|no|non|without|nahi|nhi|nahin|nai|ni|na|never|isnt|dont|doesnt|cannot|mat|bina|"
+        r"except|excluding|[a-z]+n't|"
+        r"bonus(?:es)?|allowances?|incentives?|overtime|ot|extra|increments?|hikes?|"
+        r"before|after|including|incl|inclusive|deduct\w*|minus|less"
     ),
     re.IGNORECASE,
 )
 
 
-def _pay_figure_groups(message: str) -> int:
-    """How many distinct pay figures the message states. A range is ONE group; any
-    other amount that scales into the monthly window is one more. A figure below the
-    floor ("5 welders", "8 hours") is not pay and does not count."""
-    groups = 0
-    ranges = [m for m in _PAY_RANGE_RE.finditer(message) if _range_scales(m)]
-    residue = message
-    for match in reversed(ranges):
-        groups += 1
-        residue = residue[: match.start()] + " " + residue[match.end() :]
-    amounts = {
-        value
-        for match in _AMOUNT_RE.finditer(residue)
-        if (value := _scale(match.group(1), match.group(2), None)) is not None
-    }
-    return groups + len(amounts)
-
-
-def _range_scales(match: re.Match[str]) -> bool:
-    low_s, low_x, high_s, high_x = match.groups()
-    return _scale(low_s, low_x, high_x) is not None or _scale(high_s, high_x, low_x) is not None
-
-
-def _names_pay(clause: str) -> bool:
-    """A money word, or an amount that scales into the monthly pay window."""
-    if _MONEY_CUE_RE.search(clause):
-        return True
-    return any(
-        _scale(m.group(1), m.group(2), None) is not None for m in _AMOUNT_RE.finditer(clause)
-    )
-
-
-def _parse_pay_type(text: str, *, require_cue: bool) -> str | None:
-    """Map a pay-type answer onto the closed ``jobs.pay_type`` set.
-
-    Negated types are removed first ("Not CTC" records nothing). Two DIFFERENT types in
-    one message record nothing — on the pay-type question itself, "gross 30k, in hand
-    25k" names both.
-
-    Cross-topic (``require_cue``) — the real order, where "gross 30k, in hand 25k"
-    arrives as the answer to the PAY question — additionally demands:
-
-    - bare "gross"/"net" anywhere count as conflicts (never as the value), so that
-      answer sees two types and records nothing;
-    - exactly ONE pay figure group in the message, so the cue can only describe the
-      band that was recorded ("Salary 20-25k, in hand around 18k" records nothing);
-    - the cue shares a CLAUSE with an amount or a money word: "skilled in hand
-      grinding" says nothing about pay.
-    """
-    message = _PAY_TYPE_NEGATED_RE.sub(" ", text or "")
-    if not require_cue:
-        found = {kind for kind, cue in _PAY_TYPE_CUES.items() if cue.search(message)}
-        found |= {kind for kind, cue in _PAY_TYPE_BARE.items() if cue.search(message)}
-        return found.pop() if len(found) == 1 else None
-    every = {kind for kind, cue in _PAY_TYPE_CUES.items() if cue.search(message)}
-    every |= {kind for kind, cue in _PAY_TYPE_BARE.items() if cue.search(message)}
-    if len(every) != 1 or _pay_figure_groups(message) != 1:
+def _cross_topic_pay_type(text: str, band: object) -> str | None:
+    """A pay type stated in passing, for the ``band`` this same message recorded."""
+    message = _WS_RE.sub(" ", _DASHES_RE.sub("-", (text or "").lower()))
+    if _PAY_TYPE_REFUSE_RE.search(message):
         return None
-    qualified = {
+    figures = _pay_figures(message)
+    if len(figures) != 1:
+        return None
+    figure = figures[0]
+    # The type describes the band THIS message recorded — never a figure that recorded
+    # nothing (an allowance, a bonus, a cue-less amount) and never another band (R30).
+    if band != {"pay_min": figure.low, "pay_max": figure.high}:
+        return None
+    attached = {
         kind
-        for clause in _CLAUSE_SPLIT_RE.split(message)
-        if _names_pay(clause)
-        for kind, cue in _PAY_TYPE_CUES.items()
-        if cue.search(clause)
+        for kind in _PAY_TYPE_CROSS_CUES
+        if _PAY_TYPE_AFTER_RES[kind].match(message, figure.end)
+        or _PAY_TYPE_BEFORE_RES[kind].search(message[: figure.start])
     }
-    return qualified.pop() if len(qualified) == 1 else None
+    named = {kind for kind, basis in _PAY_BASIS_KINDS.items() if basis.search(message)}
+    if len(attached) != 1 or named != attached:
+        return None
+    return attached.pop()
 
 
 # --- Shift -----------------------------------------------------------------
@@ -524,401 +685,238 @@ def _parse_shift(text: str, *, require_cue: bool) -> str | None:
     return None
 
 
-# --- Experience (#1726, hardened #1727) ---------------------------------------
+# --- Experience (#1726; an allowlist since #1727 round 3) --------------------------
 # Stored as ``{"min": int | None, "max": int | None}`` — "5+ years" has no max, "up to
-# 2 years" has no min. The same shapes serve both paths; only the tail after a number
-# differs: cross-topic demands a year unit, an attributed answer may omit it.
-#
-# THE ANSWER IS READ CLAUSE BY CLAUSE, and a figure counts only when it is tied to
-# experience. The #1727 review measured the whole-message read recording an AGE range
-# ("age 25-40, 5 years experience" -> 25..40), a company's own TENURE ("we have 30
-# years experience in forging" -> 30) and every trailing ceiling as a FLOOR ("2 years
-# max" -> min 2). Each clause is screened, read by explicit shapes, and a clause with a
-# bound word no shape consumed records NOTHING — a ceiling must never become a floor.
-_EXP_UNIT = r"(?:years?|yrs?|saal)(?![A-Za-z])"
+# 2 years" has no min. The answer to the experience question is recorded only when the
+# WHOLE normalised answer is one of the shapes below; read in passing, only a CLAUSE that
+# is wholly one of them AND names experience counts. The clause-splitting, age/tenure
+# screens and bound detector this replaces still recorded "Not less than 3 years" as "up
+# to 3" and "6 months to 1 year" as "1+" — a shape list cannot be surprised that way.
+_Window = dict[str, int | None]
 
 
-def _exp_num(name: str) -> str:
+def _years_num(name: str) -> str:
     """A whole number of years: never half of "1.5", never the "22" of "22,000"."""
     return rf"(?<![\d.])(?<!\d,)(?P<{name}>\d{{1,2}})(?![\d.])(?!,\d)"
 
 
-# The bound vocabulary. PREFIX words come before the number, SUFFIX words after it.
-# "Not/no more than" is an UPPER prefix even though it contains the lower "more than";
-# the prefixes are matched in ONE left-to-right scan, so the negated form wins.
-_EXP_LOWER_PREFIX = r"at\s*least|minimum|min|more\s+than|above|over|kam\s+se\s+kam"
-_EXP_UPPER_PREFIX = (
-    r"(?:not|no)\s+more\s+than|up\s*to|maximum|max|at\s+most|less\s+than|below|under|"
-    r"within|zyada\s+se\s+zyada"
+_YEAR_UNIT = r"(?:years?|yrs?|saal|sal)(?![a-z])"
+_EXP_WORD = r"(?:of\s+)?(?:experience|experienced|exp)(?![a-z])"
+_EXP_WORD_RE = re.compile(_cue(r"experience|experienced|exp"))
+# What may wrap a shape: "need 3 years", "experience: 2-5 years", "3 years experience
+# required". The lead is captured so a "minimum experience" lead can never front a MAX.
+_EXP_LEAD = (
+    r"(?P<lead>(?:we\s+need|need|required|require|looking\s+for|candidates?\s+with|"
+    r"should\s+have|must\s+have|minimum\s+experience|experience(?:\s+required)?|exp)"
+    r"(?![a-z])\s*[:\-]?\s*)?"
 )
-_EXP_LOWER_SUFFIX = r"plus|or\s+more|and\s+above|or\s+above|se\s+zyada|se\s+upar"
-_EXP_UPPER_SUFFIX = r"maximum|max|or\s+less|and\s+below|tak|se\s+kam"
-# Any bound marker the shapes failed to consume. "+" is the lower suffix of "5+ years";
-# "between" opens a span. The words that are ALSO ordinary prepositions or connectives —
-# under / over / above / below / within, and plus / tak — count only NEXT TO A NUMBER: "2
-# years, will work under the supervisor" and "ITI plus 2 years experience" say nothing
-# about a bound, and blanking them would lose a real requirement (experience is asked
-# once). The unambiguous phrases ("not more than", "at most", "or less") count anywhere.
-_EXP_BOUND_RE = re.compile(
-    r"\+|"
-    + _cue(
-        r"at\s*least|minimum|min|(?:not|no)\s+more\s+than|more\s+than|up\s*to|maximum|max|"
-        r"at\s+most|less\s+than|zyada\s+se\s+zyada|kam\s+se\s+kam|or\s+more|and\s+above|"
-        r"or\s+above|se\s+zyada|se\s+upar|or\s+less|and\s+below|se\s+kam|between"
-    )
-    + r"|"
-    + _cue(r"under|over|above|below|within")
-    + r"\s+\d|\d\s*(?:(?:years?|yrs?|saal)\s*)?"
-    + _cue(r"plus|tak"),
-    re.IGNORECASE,
-)
-# Without a unit, a number must END the answer or meet punctuation, an experience word,
-# or the other half of a window ("minimum 2 maximum 5 years"). That is what keeps "6
-# months" and "20k" from becoming years.
-_EXP_BARE_END = (
-    r"(?=\s*(?:$|[,;.!?/)]|(?:of\s+)?(?:experience|exp)(?![A-Za-z])|"
-    r"(?:and\s+)?(?:" + _EXP_UPPER_PREFIX + "|" + _EXP_LOWER_PREFIX + r")(?![A-Za-z])))"
-)
-_EXP_CUE_RE = re.compile(_cue(r"experience|experienced|exp"), re.IGNORECASE)
-_FRESHER_RE = re.compile(_cue(r"freshers?"), re.IGNORECASE)
-# Attributed-only phrases that MEAN fresher without the word — not negations of it.
-_FRESHER_PHRASE_RE = re.compile(_cue(r"no\s+experience|experience\s+not\s+required"), re.IGNORECASE)
-# A negator ANYWHERE in the clause negates its "fresher(s)": "freshers will not be
-# considered", "we don't want freshers", "freshers ko nahi lenge". The old adjacency
-# rule ("no freshers" only) recorded all of those as min 0 — the job advertised as open
-# to exactly the candidates the payer refused (#1727 F2).
-_NEGATOR_RE = re.compile(
-    _cue(
-        r"not|no|non|never|don[’']?t|do\s+not|won[’']?t|will\s+not|can[’']?t|cannot|"
-        r"nahi|nahin|mat"
+_EXP_TRAIL = r"(?:\s*" + _EXP_WORD + r")?(?:\s+(?:required|needed|preferred|chahiye))?"
+_EXP_SHAPE_BODIES: tuple[tuple[str, str], ...] = (
+    # "2-5 years", "2 to 5 yrs", Hinglish "2 se 5 saal" -> (a, b), only when a <= b.
+    ("span", _years_num("a") + r"\s*(?:-|to|se)\s*" + _years_num("b") + r"\s*" + _YEAR_UNIT),
+    # Floors -> min.
+    ("floor", _years_num("a") + r"\s*(?:\+|plus)(?:\s*" + _YEAR_UNIT + r")?"),
+    ("floor", _years_num("a") + r"\s*" + _YEAR_UNIT + r"\s*(?:\+|plus|or\s+more|and\s+above)"),
+    (
+        "floor",
+        r"(?:minimum|min|at\s*least|atleast|kam\s+se\s+kam)\s*"
+        + _years_num("a")
+        + r"\s*"
+        + _YEAR_UNIT,
     ),
-    re.IGNORECASE,
+    ("floor", _years_num("a") + r"\s*" + _YEAR_UNIT + r"\s*(?:minimum|min)"),
+    # Ceilings -> max. A strict comparative is the payer's own number, inclusive: "less
+    # than 3 years" records max 3 (pinned), never an invented 2.
+    (
+        "ceiling",
+        r"(?:up\s*to|upto|maximum|max|at\s+most|less\s+than|under|below)\s*"
+        + _years_num("b")
+        + r"\s*"
+        + _YEAR_UNIT,
+    ),
+    ("ceiling", _years_num("b") + r"\s*" + _YEAR_UNIT + r"\s*(?:maximum|max|tak)"),
+    # A bare "3 years" -> min.
+    ("floor", _years_num("a") + r"\s*" + _YEAR_UNIT),
+    # Freshers welcome -> (0, None). A refusal ("no freshers", "fresher nhi chahiye") is
+    # simply not one of these shapes.
+    (
+        "fresher",
+        r"freshers?(?:\s+(?:ok|okay|welcome|can\s+apply|also|chalega|chalenge))?|"
+        r"no\s+experience(?:\s+(?:needed|required))?|experience\s+not\s+required",
+    ),
+    # "fresher or up to 2 years" -> (0, 2).
+    (
+        "fresher",
+        r"freshers?\s+(?:or|to|-)\s*(?:up\s*to\s*)?" + _years_num("b") + r"\s*" + _YEAR_UNIT,
+    ),
 )
-# SCREENS — a clause carrying either is skipped whole: its figure is somebody's AGE, or
-# the COMPANY's own tenure, never the candidate requirement.
-_EXP_AGE_RE = re.compile(
-    _cue(r"age|aged|umar|umr|umra") + r"|(?<![\d.])\d{1,2}[\s-]*(?:years?|yrs?)[\s-]*old\b",
-    re.IGNORECASE,
+_EXP_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (kind, re.compile(_EXP_LEAD + r"(?:" + body + r")" + _EXP_TRAIL))
+    for kind, body in _EXP_SHAPE_BODIES
 )
-# Deliberately NARROW: only phrasings that can only be the employer's own history. A bare
-# "company" or "we are" is how a payer states a REQUIREMENT too ("3 years experience in a
-# reputed company", "we are looking for 3 years experience"), and experience is asked once,
-# so screening those out would blank the card field for good.
+# The answer that is ONLY a number ("3") -> min. No lead, no trail: "need 3" may be people.
+_EXP_ONLY_NUMBER_RE = re.compile(_years_num("a"))
+
+# READ IN PASSING. Clauses end at , ; newline and a sentence break ". ".
+_EXP_CLAUSE_SPLIT_RE = re.compile(r"[,;\n]|\.\s")
+# A clause that is NOT itself a qualifying shape but could change what one means: a
+# bound, a negation, a year/month figure or an experience/fresher word. "3 years
+# experience, max" and "3 years experience. Not more than that" must never become min 3.
+_EXP_SIBLING_RE = re.compile(
+    _cue(
+        r"years?|yrs?|saal|sal|months?|mahin[ae]|max|maximum|min|minimum|least|atleast|most|"
+        r"up\s*to|upto|less|lesser|more|above|below|under|over|within|tak|kam|kum|zyada|upar|"
+        r"neeche|niche|andar|plus|limit|exceed\w*|not|no|non|nahi|nahin|nhi|nai|never|"
+        r"cannot|[a-z]+n't|dont|freshers?|experience|experienced|exp"
+    )
+    + r"|[+<>]"
+)
+# The employer's OWN history, anywhere in the message: "Established in 1995, 28 years
+# experience, need welders" is the company's tenure, not the candidate's (#1727 F0/R4).
 _EXP_TENURE_RE = re.compile(
     _cue(
-        r"we\s+have|we[’']ve|we\s+got|we\s+are\s+(?:a|an)|we[’']re\s+(?:a|an)|"
-        r"our\s+(?:company|firm|group|plant|factory)|established|since\s+\d+|"
-        r"(?:experienced|old)\s+(?:company|firm|team|group|manufacturer|organi[sz]ation)|"
-        r"in\s+(?:the\s+)?(?:business|market)"
-    ),
-    re.IGNORECASE,
+        r"established|estd|founded|since|company|companies|firm|industry|business|"
+        r"manufacturer|manufacturing|organi[sz]ation|we\s+are|we\s+have|we've|we're|our|"
+        r"hamar\w*|humar\w*|has|having"
+    )
 )
-# Clauses: the shared boundaries, plus " + " (spaced, so "5+ years" survives) and "with"
-# ("Age 18-35 years with 3 years experience" is two statements).
-_EXP_CLAUSE_SPLIT_RE = re.compile(
-    _CLAUSE_SPLIT_RE.pattern + r"|\s+\+\s+|" + _cue(r"with"), re.IGNORECASE
-)
-# "max. 3 years" — an abbreviation's dot is not a clause boundary. Splitting there left
-# a bare "3 years" clause, which read as a MINIMUM.
-_EXP_ABBREV_DOT_RE = re.compile(r"(?<![A-Za-z0-9])(min|max|yrs?|exp)\.", re.IGNORECASE)
-# Where a consumed shape was; never a terminator, a digit or a bound word.
-_CONSUMED = " \x00 "
+# ...and a requirement read in passing above this is far likelier to be tenure or an age
+# ("ABC Forgings, 30 years experience") than a blue-collar requirement. Skipping it costs
+# nothing: experience is a must-ask, so the question is then served.
+_CROSS_TOPIC_MAX_YEARS = 15
 
 
-class _ExperienceShapes:
-    """The compiled window shapes for one posture (unit required, or optional)."""
-
-    def __init__(self, *, unit_required: bool) -> None:
-        self.unit_required = unit_required
-        end = rf"\s*{_EXP_UNIT}" if unit_required else rf"(?:\s*{_EXP_UNIT}|{_EXP_BARE_END})"
-        flags = re.IGNORECASE
-        # "2-5 years", "2 to 5 saal", Hinglish "2 se 5 saal", "between 2 and 5 years".
-        self.span = re.compile(
-            r"(?:"
-            + _cue(r"between")
-            + r"\s+"
-            + _exp_num("a")
-            + r"\s*(?:-|to|and)\s*"
-            + _exp_num("b")
-            + r"|"
-            + _exp_num("c")
-            + r"\s*(?:-|to|se)\s*"
-            + _exp_num("d")
-            + r")"
-            + end,
-            flags,
-        )
-        self.prefix = re.compile(
-            r"(?<![A-Za-z0-9])(?:(?P<hi>"
-            + _EXP_UPPER_PREFIX
-            + r")|(?P<lo>"
-            + _EXP_LOWER_PREFIX
-            + r"))(?![A-Za-z0-9])\.?\s*(?:of\s+)?"
-            + _exp_num("n")
-            + end,
-            flags,
-        )
-        self.suffix = re.compile(
-            _exp_num("n")
-            + r"(?P<u1>\s*"
-            + _EXP_UNIT
-            + r")?\s*(?:(?P<lo>\+|(?:"
-            + _EXP_LOWER_SUFFIX
-            + r")(?![A-Za-z0-9]))|(?P<hi>(?:"
-            + _EXP_UPPER_SUFFIX
-            + r")(?![A-Za-z0-9])))(?P<u2>\s*"
-            + _EXP_UNIT
-            + r")?",
-            flags,
-        )
-        self.bare = re.compile(_exp_num("n") + end, flags)
-
-
-_EXP_STRICT = _ExperienceShapes(unit_required=True)
-_EXP_ATTRIBUTED = _ExperienceShapes(unit_required=False)
-
-_Window = dict[str, int | None]
-
-
-def _blank(text: str, matches: list[re.Match[str]]) -> str:
-    """``text`` with every match replaced by the consumed marker."""
-    for match in reversed(matches):
-        text = text[: match.start()] + _CONSUMED + text[match.end() :]
-    return text
-
-
-def _clause_window(
-    clause: str, shapes: _ExperienceShapes, fresher: bool
-) -> tuple[_Window | None, bool]:
-    """Read ONE clause. Returns ``(window, refused)``.
-
-    ``refused`` means the clause said something experience-shaped that cannot be read
-    safely — a bound word no shape consumed, two different minimums or maximums, an
-    inverted or out-of-range window. The caller records NOTHING for the whole answer
-    then, rather than keeping a sibling clause's figure: "3 years. Not more than that"
-    must never become min 3.
-    """
-    lows: set[int] = set()
-    highs: set[int] = set()
-    spans = list(shapes.span.finditer(clause))
-    for match in spans:
-        a = int(match.group("a") or match.group("c"))
-        b = int(match.group("b") or match.group("d"))
-        lows.add(min(a, b))
-        highs.add(max(a, b))
-    residue = _blank(clause, spans)
-    prefixes = list(shapes.prefix.finditer(residue))
-    for match in prefixes:
-        (highs if match.group("hi") else lows).add(int(match.group("n")))
-    residue = _blank(residue, prefixes)
-    suffixes = [
-        match
-        for match in shapes.suffix.finditer(residue)
-        if not shapes.unit_required or match.group("u1") or match.group("u2")
-    ]
-    for match in suffixes:
-        (highs if match.group("hi") else lows).add(int(match.group("n")))
-    residue = _blank(residue, suffixes)
-    # FAIL CLOSED: a bound word left over is a bound we did not read.
-    if _EXP_BOUND_RE.search(residue):
-        return None, True
-    if fresher:
-        lows.add(0)  # "fresher or less than 1 year" is 0..1
-    # A bare "N years" is a MINIMUM only when the clause has no bound marker at all.
-    if not spans and not _EXP_BOUND_RE.search(clause):
-        lows |= {int(match.group("n")) for match in shapes.bare.finditer(clause)}
-    if not lows and not highs:
-        return None, False
-    if len(lows) > 1 or len(highs) > 1:
-        return None, True
-    return _checked_window(next(iter(lows), None), next(iter(highs), None))
-
-
-def _checked_window(low: int | None, high: int | None) -> tuple[_Window | None, bool]:
-    if any(v > EXPERIENCE_MAX_YEARS for v in (low, high) if v is not None):
-        return None, True
-    if low is not None and high is not None and low > high:
-        return None, True
-    return {"min": low, "max": high}, False
-
-
-def _merge_windows(windows: list[_Window]) -> _Window | None:
-    """One window from several clauses: each side from whichever clause states it.
-    Two DIFFERENT minimums (or maximums) are a contradiction, not a merge."""
-    lows = {w["min"] for w in windows if w["min"] is not None}
-    highs = {w["max"] for w in windows if w["max"] is not None}
-    if not windows or len(lows) > 1 or len(highs) > 1:
-        return None
-    window, refused = _checked_window(next(iter(lows), None), next(iter(highs), None))
-    return None if refused else window
+def _experience_shape(text: str) -> tuple[_Window, bool] | None:
+    """The window ``text`` states when it is WHOLLY one known shape, and whether it names
+    experience itself (an experience word, or a fresher form). None otherwise."""
+    only = _EXP_ONLY_NUMBER_RE.fullmatch(text)
+    if only is not None:
+        low = int(only.group("a"))
+        return ({"min": low, "max": None}, False) if low <= EXPERIENCE_MAX_YEARS else None
+    for kind, shape in _EXP_SHAPES:
+        match = shape.fullmatch(text)
+        if match is None:
+            continue
+        found = match.groupdict()
+        low = int(found["a"]) if found.get("a") else (0 if kind == "fresher" else None)
+        high = int(found["b"]) if found.get("b") else None
+        if any(v > EXPERIENCE_MAX_YEARS for v in (low, high) if v is not None):
+            return None
+        if low is not None and high is not None and low > high:
+            return None
+        if kind == "ceiling" and "minimum" in (match.group("lead") or ""):
+            return None  # "minimum experience up to 3 years" contradicts itself
+        named = kind == "fresher" or bool(_EXP_WORD_RE.search(text))
+        return {"min": low, "max": high}, named
+    return None
 
 
 def _parse_experience(text: str, *, require_cue: bool) -> _Window | None:
-    """Parse a years-of-experience window, clause by clause.
+    """Parse a years-of-experience window.
 
-    Every clause is SCREENED first (an age cue, or the company's own tenure, skips it)
-    and then read by explicit span / lower-bound / upper-bound shapes.
-
-    Cross-topic (``require_cue``) reads a clause only when it carries an experience
-    word AND a figure with a year unit, or an un-negated "fresher(s)" — so "3 years
-    experience, ITI" answered to the requirements question fills this, while "we need
-    3" and "6 days a week" never do — and returns the first qualifying clause's window.
-    "experienced candidates only, 1 year contract" is a contract length.
-
-    Attributed (the experience question on screen) prefers the clauses that carry an
-    experience word or a fresher phrase ("ITI 2 year course + 1 year experience" is 1),
-    else takes every clause, and merges them ("minimum 2 years, maximum 5 years").
+    Attributed (the experience question on screen): the WHOLE normalised answer must be
+    one shape. Cross-topic (``require_cue``): exactly one DISTINCT window from the clauses
+    that are wholly a shape AND name experience ("3 years experience", "experience: 2-5
+    years", "freshers welcome"); nothing when another clause could modify it, when the
+    message speaks of the employer's own history, or when the window is implausibly high.
     """
-    message = _WS_RE.sub(" ", (text or "").replace("–", "-").replace("—", "-")).strip()
-    message = _EXP_ABBREV_DOT_RE.sub(r"\1", message)
+    message = _normalise(text)
     if not message:
         return None
-    shapes = _EXP_STRICT if require_cue else _EXP_ATTRIBUTED
-    cued: list[_Window] = []
-    every: list[_Window] = []
-    freshers_welcome = False
+    if not require_cue:
+        read = _experience_shape(message)
+        return read[0] if read is not None else None
+    if _EXP_TENURE_RE.search(message):
+        return None
+    windows: set[tuple[int | None, int | None]] = set()
     for raw_clause in _EXP_CLAUSE_SPLIT_RE.split(message):
-        clause = raw_clause.strip()
-        if not clause or _EXP_AGE_RE.search(clause) or _EXP_TENURE_RE.search(clause):
+        clause = _normalise(raw_clause)
+        if not clause:
             continue
-        fresher = bool(_FRESHER_RE.search(clause)) and not _NEGATOR_RE.search(clause)
-        if not require_cue and _FRESHER_PHRASE_RE.search(clause):
-            fresher = True
-        carries_cue = fresher or bool(_EXP_CUE_RE.search(clause))
-        if require_cue and not carries_cue:
-            continue
-        # Cross-topic keeps the first-qualifying-clause rule, the fresher floor included.
-        window, refused = _clause_window(clause, shapes, fresher and require_cue)
-        if refused:
+        read = _experience_shape(clause)
+        if read is not None and read[1]:
+            windows.add((read[0]["min"], read[0]["max"]))
+        elif _EXP_SIBLING_RE.search(clause):
             return None
-        if require_cue:
-            if window is not None:
-                return window
+    if len(windows) != 1:
+        return None
+    low, high = windows.pop()
+    if any(v > _CROSS_TOPIC_MAX_YEARS for v in (low, high) if v is not None):
+        return None
+    return {"min": low, "max": high}
+
+
+# --- Needed by (#1726; an allowlist since #1727 round 3) ---------------------------
+# The WHOLE normalised answer must be one of these, optionally led by "joining" / "need"
+# / "start"... and trailed by "joining" / "only" / "please" / "se". Negation, contrast,
+# uncertainty and per-period frequency ("6 days a week") are simply not shapes, so none of
+# them needs handling — each negation screen the earlier rounds added was one more place
+# for "no urgent requirement" to become "immediate". Attributed only.
+_NEEDED_LEAD = (
+    r"(?:(?:joining\s+date|joining|join|we\s+need\s+them|needed|need|required|can\s+join|"
+    r"should\s+join|starting|start)(?![a-z])\s*[:\-]?\s*)?"
+)
+_NEEDED_TRAIL = r"(?:\s*(?:joining|only|please|se)(?![a-z]))?"
+_NEEDED_SHAPE_BODIES: tuple[tuple[str, str], ...] = (
+    (
+        "immediate",
+        r"immediate(?:ly)?(?:\s+joining)?|asap|as\s+soon\s+as\s+possible|urgent(?:ly)?|"
+        r"urgent\s+requirement|right\s+(?:away|now)|today|tomorrow|this\s+week|turant|abhi|"
+        r"jaldi\s+se\s+jaldi",
+    ),
+    (
+        "soon",
+        r"soon|within\s+(?:a|one|1)\s+(?:week|month)|next\s+(?:week|month)|this\s+month|"
+        r"(?:a|one|1|ek)\s+(?:month|mahina|mahine|hafta|hafte)|(?:a\s+)?few\s+(?:days|weeks)|"
+        r"jaldi",
+    ),
+    (
+        "flexible",
+        r"flexible|no\s+hurry|no\s+rush|no\s+urgency|any\s*time|whenever|not\s+urgent|"
+        r"not\s+in\s+a\s+hurry|koi\s+jaldi\s+nahi|jaldi\s+nahi|urgent\s+nahi",
+    ),
+)
+_NEEDED_SHAPES: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (kind, re.compile(_NEEDED_LEAD + r"(?:" + body + r")" + _NEEDED_TRAIL))
+    for kind, body in _NEEDED_SHAPE_BODIES
+)
+# A COUNTED timeline is "soon" only inside the bounds: 1..59 days, 1..7 weeks. Two months
+# or more ("2 months", "60 days", "8 weeks") fits no enum value, so it is not a shape.
+_NEEDED_COUNTED_RES: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        _NEEDED_LEAD
+        + r"(?:(?:in|within|next)\s*)?(?P<n>\d{1,2})\s*(?P<unit>days?|weeks?|din|hafte|haftey)"
+        + _NEEDED_TRAIL
+    ),
+    re.compile(
+        _NEEDED_LEAD + r"(?P<n>\d{1,2})\s*-\s*(?P<m>\d{1,2})\s*(?P<unit>days|weeks)" + _NEEDED_TRAIL
+    ),
+)
+_NEEDED_MAX_DAYS = 59
+_NEEDED_MAX_WEEKS = 7
+
+
+def _counted_soon(answer: str) -> bool:
+    """Is ``answer`` wholly a counted timeline inside the "soon" bounds?"""
+    for shape in _NEEDED_COUNTED_RES:
+        match = shape.fullmatch(answer)
+        if match is None:
             continue
-        freshers_welcome = freshers_welcome or fresher
-        if window is None:
-            continue
-        every.append(window)
-        if carries_cue:
-            cued.append(window)
-    if freshers_welcome:
-        # A welcome to freshers LOWERS the floor to 0; it does not displace a stated
-        # ceiling. "1 to 3 years in CNC, freshers can also apply" is 0..3, not 0+.
-        merged = _merge_windows(cued or every) if every else {"min": None, "max": None}
-        return None if merged is None else {"min": 0, "max": merged["max"]}
-    return _merge_windows(cued or every)
-
-
-# --- Needed by (#1726, hardened #1727) ----------------------------------------
-# Order matters, and each step fails toward asking again:
-#   1. UNCERTAINTY is no answer ("abhi pata nahi" is not "abhi").
-#   2. A "flexible" that belongs to ANOTHER noun ("timings flexible") is removed.
-#   3. A negated HURRY is flexible ("not very urgent", "jaldi nahi").
-#   4. A negated IMMEDIACY is removed ("not needed today"); alone it is no answer.
-#   5. Flexible AND an immediate/soon cue in one answer is a contradiction -> nothing.
-#   6. Two months or more fits no enum value -> nothing.
-_NEEDED_UNSURE_RE = re.compile(
-    _cue(
-        r"pata\s+nahin?|decide\s+nahin?|not\s+sure|not\s+decided|not\s+fixed|"
-        r"don[’']?t\s+know|no\s+idea|tbd|will\s+(?:tell|decide|confirm)|baad\s+me(?:in)?"
-    ),
-    re.IGNORECASE,
-)
-# "joining time is flexible" IS the timeline, so "time" never scopes after "joining".
-_NEEDED_SCOPED_FLEXIBLE_RE = re.compile(
-    _cue(
-        r"(?<!joining\s)(?:timings?|salary|pay|shifts?|hours|time|duty)\s+"
-        r"(?:(?:is|are)\s+)?flexible|flexible\s+(?:timings?|salary|pay|shifts?|hours|duty)"
-    ),
-    re.IGNORECASE,
-)
-_NEEDED_FLEXIBLE_RE = re.compile(
-    _cue(
-        r"flexible|no\s+hurry|no\s+rush|no\s+urgency|any\s*time|whenever|not\s+in\s+a\s+hurry|"
-        r"not\s+(?:(?:very|so|that|really|too|required|needed)\s+)?urgent(?:ly)?|"
-        r"(?:koi\s+)?jaldi\s+nahin?|(?:bilkul\s+)?urgent\s+nahin?"
-    ),
-    re.IGNORECASE,
-)
-_NEEDED_NEGATED_RE = re.compile(
-    _cue(
-        r"(?:not|no)\s+(?:[\w']+\s+){0,2}?(?:immediate(?:ly)?|asap|right\s+(?:away|now)|"
-        r"today|tomorrow)|(?:abhi|turant)\s+(?:nahi|nahin|not)"
-    ),
-    re.IGNORECASE,
-)
-_NEEDED_IMMEDIATE_RE = re.compile(
-    _cue(
-        r"immediate(?:ly)?|asap|as\s+soon\s+as\s+possible|urgent(?:ly)?|right\s+(?:away|now)|"
-        r"today|tomorrow|this\s+week|turant|abhi"
-    ),
-    re.IGNORECASE,
-)
-_NEEDED_SOON_RE = re.compile(
-    _cue(r"soon|(?:this|next)\s+month|next\s+week|(?:a\s+)?few\s+weeks|jaldi"),
-    re.IGNORECASE,
-)
-# A COUNTED timeline: "7 days", "within a week", "1-2 weeks", "ek mahine", "10 din me".
-# The lookarounds keep digit boundaries, so "in 115 days" still reads as nothing.
-_NEEDED_COUNT_RE = re.compile(
-    _cue(
-        r"(?:(?:with)?in\s+|next\s+)?(?P<n>\d{1,2}|an?|one|two|three|few|ek|couple\s+of)"
-        r"(?:\s*-\s*(?P<m>\d{1,2}))?\s+"
-        r"(?P<unit>days?|din|weeks?|hafte|haftey|months?|mahina|mahine)"
-    ),
-    re.IGNORECASE,
-)
-_NEEDED_WORD_COUNTS: dict[str, int] = {
-    "a": 1,
-    "an": 1,
-    "one": 1,
-    "ek": 1,
-    "two": 2,
-    "couple of": 2,
-    "three": 3,
-    "few": 3,
-}
-# The count, per unit, at which a timeline is two months or more — no enum value fits.
-_NEEDED_TOO_FAR: dict[str, int] = {"day": 60, "week": 8, "month": 2}
-
-
-def _counted_timeline(message: str) -> tuple[bool, bool]:
-    """``(soon, too_far)`` over every counted timeline in ``message``."""
-    soon = too_far = False
-    for match in _NEEDED_COUNT_RE.finditer(message):
-        raw = (match.group("m") or match.group("n")).lower()
-        count = int(raw) if raw.isdigit() else _NEEDED_WORD_COUNTS[_WS_RE.sub(" ", raw)]
-        unit = match.group("unit").lower()
-        kind = "day" if unit.startswith(("day", "din")) else "week"
-        if unit.startswith(("month", "mahin")):
-            kind = "month"
-        if count >= _NEEDED_TOO_FAR[kind]:
-            too_far = True
-        else:
-            soon = True
-    return soon, too_far
+        counts = [int(match.group("n"))]
+        if "m" in match.groupdict():
+            counts.append(int(match.group("m")))
+        limit = _NEEDED_MAX_DAYS if match.group("unit").startswith("d") else _NEEDED_MAX_WEEKS
+        return all(1 <= count <= limit for count in counts) and counts == sorted(counts)
+    return False
 
 
 def _parse_needed_by(text: str) -> str | None:
     """Map a joining-timeline answer onto the closed ``jobs.needed_by`` set."""
-    message = _WS_RE.sub(" ", text or "")
-    if _NEEDED_UNSURE_RE.search(message):
-        return None
-    message = _NEEDED_SCOPED_FLEXIBLE_RE.sub(" ", message)
-    flexible = bool(_NEEDED_FLEXIBLE_RE.search(message))
-    rest = _NEEDED_NEGATED_RE.sub(" ", _NEEDED_FLEXIBLE_RE.sub(" ", message))
-    counted_soon, too_far = _counted_timeline(rest)
-    if too_far:
-        return None
-    immediate = bool(_NEEDED_IMMEDIATE_RE.search(rest))
-    soon = counted_soon or bool(_NEEDED_SOON_RE.search(rest))
-    if flexible:
-        return None if immediate or soon else "flexible"
-    if immediate:
-        return "immediate"
-    if soon:
-        return "soon"
-    return None
+    answer = _normalise(text)
+    kinds = [kind for kind, shape in _NEEDED_SHAPES if shape.fullmatch(answer)]
+    if _counted_soon(answer):
+        kinds.append("soon")
+    return kinds[0] if len(set(kinds)) == 1 else None
 
 
 # --- Role title / location -------------------------------------------------
@@ -946,9 +944,13 @@ _LOCATION_CUE_RE = re.compile(
 _MAX_LABEL_WORDS = 8
 # What a CUE-EXTRACTED label may not be. "I want to post a job" satisfies the role
 # cue ("want ...") and yields "to post a job" — a grammatical capture that is not a
-# job title. Rejecting it sends the topic back to the normal ask instead.
+# job title. Rejecting it sends the topic back to the normal ask instead. So does a
+# capture that starts with a UNIT or a connector: the cue skips a number, so "Welder,
+# need 5 years experience" captured the role title "years experience" (#1727 R17).
 _LABEL_REJECT_RE = re.compile(
-    r"^(?:to|that|this|it|some|any|your|our|my)\b|^(?:job|jobs|posting|post|role|work)$",
+    r"^(?:to|that|this|it|some|any|your|our|my)\b|^(?:job|jobs|posting|post|role|work)$|"
+    r"^(?:years?|yrs?|saal|months?|mahine|weeks?|days?|hours?|hrs?|or|plus|and|se|"
+    r"experience|exp)\b",
     re.IGNORECASE,
 )
 
@@ -977,61 +979,44 @@ def _parse_label(text: str, cue: re.Pattern[str] | None, *, allow_bare: bool) ->
     return _clean_label(message)
 
 
-# --- City (#1726) ------------------------------------------------------------
-# Canonical names + aliases, LONGEST FIRST — the ordering signals.py and gazetteer.ts
-# use. The leftmost match already keeps "Navi Mumbai" whole; the ordering is what keeps
-# a token that PREFIXES another at the same position from winning, if the data grows one.
-_CITY_TOKENS: tuple[str, ...] = tuple(
-    sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=lambda t: (-len(t), t))
+# --- City (#1726; the closed gazetteer ONLY since #1727 round 3) -------------------
+# A card city is recorded only when it IS a gazetteer city — the same closed vocabulary
+# the worker side filters on. There is no free-text fallback: a bare label ("Chakan",
+# "Thane-West", "mentioned above", "Gujarat") matches no worker's city filter while NULL
+# matches all, and two review rounds of denylists never closed the non-answers. An
+# unmatched city stays unanswered — the bounded re-ask, then NULL; the API reports it in
+# `unset_card_fields` and the payer fills it on the edit form at publish.
+_CITY_TOKENS: frozenset[str] = frozenset(
+    _WS_RE.sub(" ", token.lower()) for token in (*KNOWN_CITIES, *CITY_ALIASES)
 )
-_CITY_RE = re.compile(
-    r"(?<![A-Za-z0-9])("
-    + "|".join(r"\s+".join(re.escape(w) for w in t.split()) for t in _CITY_TOKENS)
-    + r")(?![A-Za-z0-9])",
-    re.IGNORECASE,
+# Words that frame a place without being part of its name: "near Pune", "Pune city",
+# "Nashik district", "Pune only". Stripped from the ENDS of a part, never its middle.
+_CITY_FILLERS: frozenset[str] = frozenset(
+    {"near", "in", "city", "district", "dist", "dt", "the", "only"}
 )
-# A bare city answer longer than this is a sentence or an address, not a city.
-_MAX_CITY_WORDS = 3
-_HAS_LETTER_RE = re.compile(r"[A-Za-zऀ-ॿ]")
-# What a BARE city label may be made of: letters (Latin, or Devanagari without its
-# digits and dandas), spaces, ".", "-" and "'". Parentheses, "&", digits and emoji are
-# not part of a place name — and an emoji-padded label is exactly what broke the TS
-# contract's UTF-16 cap (#1727 F15).
-_CITY_LABEL_CHARSET_RE = re.compile(r"[A-Za-zऀ-ॣ॰-ॿ .'\-]+")
-# Non-answers to "which city?". Read on the RAW message, before cue extraction: the cue
-# strips everything up to "in", so "Anywhere in Maharashtra" became the label
-# "Maharashtra" and the qualifier that made it a non-answer was gone (#1727 F5).
-_NOT_A_CITY_RE = re.compile(
+# The city question's own lead-in ("It is in Pune").
+_CITY_ANSWER_LEAD_RE = re.compile(r"^(?:it\s+is|it's|its)\s+in\s+")
+# Anything that makes a named city something OTHER than "the workplace is here": a
+# negation or exclusion ("Not Mumbai, Thane"), an alternative ("Pune, or Mumbai"),
+# uncertainty ("Pune, not sure", "Pune, maybe") or a spread ("Pune, all areas").
+_CITY_QUALIFIER_RE = re.compile(
     _cue(
-        r"same|as\s+above|don[’']?t\s+know|not\s+sure|pata\s+nahin?|any\s*where|some\s*where|"
-        r"all\s+india|pan\s+india|india|no\s+idea|not\s+(?:decided|fixed|final)|tb[ad]|later|"
-        r"will\s+tell|let\s+you\s+know|will\s+confirm|batayenge|depends|maybe|"
-        r"(?:multiple|many|various|different)\s+(?:locations?|cities|sites?|places?)|"
-        r"decide\s+nahin?|baad\s+me(?:in)?|already\s+(?:told|said|gave|mentioned)|told\s+you"
-    ),
-    re.IGNORECASE,
+        r"not|nahi|nahin|nhi|nai|except|excluding|instead|other\s+than|alawa|chhod\w*|or|ya|"
+        r"either|and|aur|maybe|shayad|probably|perhaps|possibly|tentative\w*|sure|decided|"
+        r"final|fixed|confirm\w*|tb[ad]|later|depends|pata|idea|multiple|many|various|"
+        r"several|any\w*|all"
+    )
 )
-# A gazetteer hit that is part of a ROUTE names the road, not the workplace: "Hosur
-# Road, Bangalore" is in Bangalore, "Delhi-Jaipur highway, Neemrana" is in Neemrana.
-# The route word may follow directly or after ONE more place name ("Delhi Jaipur
-# Highway", "Pune Nagar Road"); a comma ends the route.
-_CITY_ROUTE_AFTER_RE = re.compile(
-    r"\s*(?:[A-Za-z]+\s+)?(?:road|rd|highway|hwy|expressway|bypass|marg)(?![A-Za-z0-9])",
-    re.IGNORECASE,
-)
-_CITY_HYPHEN_AFTER_RE = re.compile(r"\s*-\s*[A-Za-z]")
-_CITY_HYPHEN_BEFORE_RE = re.compile(r"[A-Za-z]\s*-\s*$")
-# Negation or exclusion anywhere makes the answer ambiguous: "Not Mumbai, Thane" names
-# the city it rules out. "no" is deliberately NOT here — "Plot No. 12" is an address.
-_CITY_EXCLUSION_RE = re.compile(
-    _cue(r"not|nahi|nahin|except|excluding|alawa|chhod|chhodkar|instead\s+of|other\s+than"),
-    re.IGNORECASE,
-)
-# Two SITES named ("Plant in Talegaon, office in Mumbai") is two places, even when only
-# one of them is in the gazetteer — the one that is may be the office, not the job.
-_CITY_SITE_NOUN_RE = re.compile(
-    _cue(r"office|plant|factory|site|unit|branch|warehouse|godown|workshop|facility"),
-    re.IGNORECASE,
+# The ROLE a place plays. Two roles ("Office in Delhi, factory in Manesar", "Interview in
+# Pune, job at Satara") are two places even when only one is in the gazetteer — the one
+# that is may be the office, not the job (#1727 F4/R22/R28). So is one role beside a
+# second comma part ("Satara, interview in Pune").
+_CITY_ROLE_RE = re.compile(
+    _cue(
+        r"head\s+office|office|ho|hq|headquarters?|registered|corporate|company|plant|factory|"
+        r"site|unit|branch|warehouse|godown|workshop|facility|work|job|kaam|duty|interview|"
+        r"joining|posting"
+    )
 )
 
 
@@ -1040,73 +1025,46 @@ def _title_case(value: str) -> str:
     return re.sub(r"[A-Za-z]+", lambda m: m[0][0].upper() + m[0][1:].lower(), value)
 
 
-def _is_route(text: str, match: re.Match[str]) -> bool:
-    """Is this gazetteer hit part of a road/highway name?"""
-    return bool(
-        _CITY_ROUTE_AFTER_RE.match(text, match.end())
-        or _CITY_HYPHEN_AFTER_RE.match(text, match.end())
-        or _CITY_HYPHEN_BEFORE_RE.search(text[: match.start()])
-    )
+def _city_of_part(part: str) -> str | None:
+    """The canonical city ``part`` IS — once its framing fillers are stripped — or None.
+    "near Pune" is Pune; "Old Delhi Road" and "Delhi-Jaipur highway" are not Delhi."""
+    words = _normalise(part).split()
+    while words and words[0] in _CITY_FILLERS:
+        words.pop(0)
+    while words and words[-1] in _CITY_FILLERS:
+        words.pop()
+    token = " ".join(words)
+    if token not in _CITY_TOKENS:
+        return None
+    return _title_case(CITY_ALIASES.get(token, token))
 
 
-def _gazetteer_city(text: str) -> tuple[str | None, bool]:
-    """The ONE gazetteer city ``text`` names, canonical and title-cased — and whether
-    the answer is AMBIGUOUS, in which case the city is None and must be asked.
-
-    Ambiguous: a negation/exclusion token, two SITES, or two or more distinct canonical
-    cities once route names are dropped. Two names for one city ("Gurgaon (Gurugram)")
-    are one city. The leftmost-hit rule this replaces recorded "Delhi" for "Delhi-Jaipur
-    highway, Neemrana" and the NEGATED city for "Not Mumbai, Thane" (#1727 F4/F10/F14).
-    """
-    source = text or ""
-    if _CITY_EXCLUSION_RE.search(source) or len(_CITY_SITE_NOUN_RE.findall(source)) > 1:
-        return None, True
-    cities: set[str] = set()
-    for match in _CITY_RE.finditer(source):
-        if _is_route(source, match):
-            continue
-        token = _WS_RE.sub(" ", match.group(1)).lower()
-        cities.add(_title_case(CITY_ALIASES.get(token, token)))
-    if len(cities) > 1:
-        return None, True
-    return (cities.pop() if cities else None), False
+def _one_city(parts: list[str]) -> str | None:
+    """The ONE distinct gazetteer city among ``parts``; none, or several, is None."""
+    cities = {city for part in parts if (city := _city_of_part(part)) is not None}
+    return cities.pop() if len(cities) == 1 else None
 
 
-# "Chakan only" / "only Chakan" — the qualifier is emphasis, not part of the place name.
-_CITY_ONLY_RE = re.compile(r"^\s*only\s+|\s+only\s*$", re.IGNORECASE)
+def _city_ambiguous(message: str) -> bool:
+    """Does ``message`` name a place in a way that is not simply "the workplace"?"""
+    text = _normalise(message)
+    roles = len(_CITY_ROLE_RE.findall(text))
+    parts = [part for part in text.split(",") if part.strip()]
+    return bool(_CITY_QUALIFIER_RE.search(text)) or roles > 1 or (roles == 1 and len(parts) > 1)
 
 
 def _parse_city(text: str) -> str | None:
-    """The answer to the city question: a gazetteer city, else a SHORT bare label.
+    """The answer to the city question: a gazetteer city, or nothing.
 
-    The bare fallback exists because the hand-filled forms accept a free-text city, and
-    the chat must not be stricter than the form ("Chakan" is not in the gazetteer). It
-    accepts only a letters-only place name of at most three words — which also means a
-    placeholder token can never become a city. An AMBIGUOUS answer records nothing and
-    never falls back to the bare label, so the bounded re-ask runs.
+    The whole answer (its lead-in and fillers stripped) must BE a gazetteer city; a
+    comma list is read part by part and must name exactly one.
     """
-    canonical, ambiguous = _gazetteer_city(text)
-    if ambiguous:
+    if _city_ambiguous(text):
         return None
-    if canonical is not None:
-        return canonical
-    if _NOT_A_CITY_RE.search(text or ""):
-        return None
-    label = _parse_label(text, _LOCATION_CUE_RE, allow_bare=True)
-    if label is None:
-        return None
-    label = _CITY_ONLY_RE.sub("", label.rstrip("?")).strip()
-    if (
-        not label
-        or len(label.split()) > _MAX_CITY_WORDS
-        or not _HAS_LETTER_RE.search(label)
-        or not _CITY_LABEL_CHARSET_RE.fullmatch(label)
-        or _REFUSAL_RE.match(label)
-        or _LABEL_REJECT_RE.match(label)
-        or _NOT_A_CITY_RE.search(label)
-    ):
-        return None
-    return cap_utf16(label, CITY_MAX).strip() or None
+    answer = _CITY_ANSWER_LEAD_RE.sub("", _normalise(text))
+    if "," in answer:
+        return _one_city(answer.split(","))
+    return _city_of_part(answer)
 
 
 # --- Topic dispatch --------------------------------------------------------
@@ -1129,7 +1087,11 @@ _NOT_READ_CROSS_TOPIC_FROM: dict[str, frozenset[str]] = {
 
 
 def _parse_topic(topic_id: str, text: str, *, attributed: bool) -> object | None:
-    """Parse ``text`` as an answer to ``topic_id``. ``None`` = nothing recorded."""
+    """Parse ``text`` as an answer to ``topic_id``. ``None`` = nothing recorded.
+
+    ``pay_type`` read in passing is not dispatched here: it needs the band the same
+    message recorded (see :func:`detect_answers`).
+    """
     if topic_id == "role_title":
         return _parse_label(text, _ROLE_CUE_RE, allow_bare=attributed)
     if topic_id == "location_label":
@@ -1141,7 +1103,7 @@ def _parse_topic(topic_id: str, text: str, *, attributed: bool) -> object | None
     if topic_id == "pay_range":
         return _parse_pay(text, require_cue=not attributed)
     if topic_id == "pay_type":
-        return _parse_pay_type(text, require_cue=not attributed)
+        return _parse_pay_type(text) if attributed else None
     if topic_id == "experience":
         return _parse_experience(text, require_cue=not attributed)
     if topic_id == "shift":
@@ -1192,26 +1154,34 @@ def detect_answers(message: str, last_asked: str | None) -> dict[str, object | N
             if value is not None and _is_recordable(last_asked, value):
                 found[last_asked] = value
 
-    # 1b. The location answer names the city too ("Pune, Chakan"). A closed-vocabulary
-    #     read of THIS answer — gazetteer only, no bare fallback — and never a read of a
-    #     stored location_label, which the worker feed deliberately does not see. Read
-    #     from the location label the parser CHOSE, not the whole message ("Pune office,
-    #     but site is in Satara" is in Satara), and only when neither the label nor the
-    #     message is ambiguous ("Office in Delhi, factory in Manesar" parses the label
-    #     "Delhi, factory", but the job may well be in Manesar).
+    # 1b. The location answer names the city too ("Pune, Chakan"). Read from the location
+    #     label the parser CHOSE, part by part: a comma part counts only when it IS a
+    #     gazetteer city ("Old Delhi Road, Gurgaon" is Gurugram — "Old Delhi Road" is a
+    #     road), and exactly one distinct city must remain. Never when the message names
+    #     a place ambiguously ("Office in Delhi, factory in Manesar"), and never a read of
+    #     a stored location_label, which the worker feed deliberately does not see.
     location = found.get("location_label")
-    if last_asked == "location_label" and isinstance(location, str) and "city" not in found:
-        city, label_ambiguous = _gazetteer_city(location)
-        _, message_ambiguous = _gazetteer_city(text)
-        if city is not None and not label_ambiguous and not message_ambiguous:
+    if (
+        last_asked == "location_label"
+        and isinstance(location, str)
+        and "city" not in found
+        and not _city_ambiguous(text)
+    ):
+        city = _one_city(location.split(","))
+        if city is not None:
             found["city"] = city
 
-    # 2. The cue-gated cross-topic extractors.
+    # 2. The cue-gated cross-topic extractors. A pay TYPE read in passing must describe
+    #    the band this same message recorded — never a bonus, an allowance or a figure
+    #    that recorded nothing (#1727 R30).
     skipped = _NOT_READ_CROSS_TOPIC_FROM.get(last_asked or "", frozenset())
     for topic_id in _CROSS_TOPIC:
         if topic_id in found or topic_id == last_asked or topic_id in skipped:
             continue
-        value = _parse_topic(topic_id, text, attributed=False)
+        if topic_id == "pay_type":
+            value = _cross_topic_pay_type(text, found.get("pay_range"))
+        else:
+            value = _parse_topic(topic_id, text, attributed=False)
         if value is not None and _is_recordable(topic_id, value):
             found[topic_id] = value
     return found
