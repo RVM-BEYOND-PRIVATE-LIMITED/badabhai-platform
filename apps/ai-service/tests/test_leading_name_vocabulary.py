@@ -296,6 +296,14 @@ _WITHHELD_ANY_SCRIPT = [
     "Welding, 𝐑𝐚𝐦𝐞𝐬𝐡",  # mathematical bold
     "Welding, grinding\nरमेश",
     "Operator, रमेश सर के अंडर",
+    # Not word characters at all, so no tokeniser sees them (review round 3): the label must be
+    # printable ASCII end to end.
+    "Welding, Ⓡⓐⓜⓔⓢⓗ",  # circled
+    "Welding, 🅁🄰🄼🄴🅂🄷",  # squared
+    "Welding, 🇷🇦🇲🇪🇸🇭",  # regional indicators
+    "Welding, ⠗⠁⠍⠑⠎⠓",  # Braille
+    "Welding, grinding\U000e0052\U000e0061\U000e006d",  # invisible TAG characters
+    "Welding, grin\u200bding",  # zero-width space
 ]
 
 

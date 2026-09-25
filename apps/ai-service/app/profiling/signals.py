@@ -563,6 +563,12 @@ VOCABULARY_TOKENS: frozenset[str] = _build_vocabulary_tokens()
 # Devanagari, Tamil, fullwidth or math-alphanumeric word is a token of its own, is in no
 # (all-ASCII) vocabulary, and so fails the label closed.
 _LABEL_TOKEN_RE = re.compile(r"[^\W_]+")
+# AND the label must be printable ASCII end to end. Tokenising letters is not enough: circled /
+# squared / regional-indicator letters, Braille and invisible Unicode TAG characters are not
+# word characters, so a name written in them is SKIPPED by any tokeniser and the label still
+# reads as all-vocabulary (PR #1729 review round 3). The vocabulary is all-ASCII, so a real
+# vocabulary label never needs anything outside this range — the allowlist costs nothing.
+_PRINTABLE_ASCII_RE = re.compile(r"[\x20-\x7e]+")
 
 
 def is_curated_vocabulary_label(label: str) -> bool:
@@ -587,7 +593,7 @@ def is_curated_vocabulary_label(label: str) -> bool:
 
     This function grants nothing on its own.
     """
-    if not isinstance(label, str):
+    if not isinstance(label, str) or not _PRINTABLE_ASCII_RE.fullmatch(label):
         return False
     tokens = _LABEL_TOKEN_RE.findall(label.lower())
     if not tokens:
