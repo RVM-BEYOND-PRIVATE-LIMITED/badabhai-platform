@@ -289,6 +289,14 @@ export interface ResumeRenderInput {
   headlineLine?: string | null;
   /** `{{subhead_line}}` — city · availability · salary, composed by the mapper. */
   subheadLine?: string | null;
+  /**
+   * The settled facts the two lines above were composed from (#1714). NOT A TEMPLATE SLOT.
+   *
+   * Returned by `buildVerdictLine` beside the lines themselves, so both mapper branches carry it
+   * without either having to remember to. It feeds the résumé's history card, which must say what
+   * THIS sheet says — and parsing the composed line back into parts would be a second renderer.
+   */
+  verdictFacts?: ResumeVerdictFacts;
 
   /**
    * `{{cap_section_title}}` — the FIRST section's heading, which is per-trade.
@@ -396,6 +404,25 @@ export type ResumeFactRow = {
   value: string;
   key?: string;
   rank?: number;
+};
+/**
+ * The Verdict Line's facts, normalised exactly as the line prints them (#1714).
+ *
+ * A fact the line would not print is absent here too: `years` is null wherever the tenure
+ * segment prints a status or "duration not stated" instead of a figure, and `tools` stops at
+ * the three the segment shows. That is what lets a card built from these agree with the paper.
+ */
+export type ResumeVerdictFacts = {
+  /** The role title ("CNC Turner"), or null. */
+  readonly role: string | null;
+  /** The tenure figure in years, or null when the line prints none. */
+  readonly years: number | null;
+  /** Controllers or machines — or skills, for a trade that names no machine — at most three. */
+  readonly tools: readonly string[];
+  /** Machine axes as printed labels ("3-axis"). Empty for every trade without an axis ask. */
+  readonly axes: readonly string[];
+  /** Where the worker is, as the subhead prints it. */
+  readonly city: string | null;
 };
 /** One role stint inside an employment. `when` is its OWN date range, never the employer's. */
 export type ResumeRoleStint = {

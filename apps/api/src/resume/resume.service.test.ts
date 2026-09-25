@@ -23,6 +23,7 @@ import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
 import type { GenerateResumeInput } from "./resume.dto";
+import { resumeRefCode } from "./resume-sheet-footer";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 const DTO: GenerateResumeInput = { worker_id: "w-1", profile_id: "p-1" };
@@ -1094,6 +1095,146 @@ describe("ResumeService.history — keep all, show three (ADR-0043)", () => {
   it("returns an EMPTY window, not a 404, for a worker with no résumé yet", async () => {
     const { svc } = setup(null);
     expect(await svc.history("w-1")).toEqual({ items: [], pending_update: null });
+  });
+
+  // ── #1714 — the card's facts, page count and display reference ─────────────────────────────
+
+  /** A stored `resume_document` carrying the glance a #1714 render records. */
+  const docWith = (glance: Record<string, unknown>) => ({
+    format: "trade_sheet",
+    glance: {
+      role: "VMC Operator",
+      experienceYears: 2,
+      machines: ["VMC"],
+      axes: ["3-axis", "4-axis"],
+      city: "Manesar",
+      pageCount: 1,
+      ...glance,
+    },
+  });
+  const NO_FACTS = {
+    trade_label: null,
+    experience_years: null,
+    machines: null,
+    axes: null,
+    city: null,
+    page_count: null,
+  };
+
+  it("carries a rendered résumé's recorded facts — THAT résumé's, off its own row", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([
+      row("a", { resumeDocument: docWith({}) }),
+      // An OLDER entry generated from a different profile says what IT printed, not what the
+      // newer one says — the whole reason the facts are recorded per row.
+      row("b", {
+        resumeDocument: docWith({
+          role: "CNC Turner",
+          experienceYears: 5.5,
+          machines: ["CNC lathe"],
+          axes: [],
+          city: "Faridabad",
+          pageCount: 2,
+        }),
+      }),
+    ]);
+    const out = await svc.history("w-1");
+    expect(out.items[0]).toMatchObject({
+      trade_label: "VMC Operator",
+      experience_years: 2,
+      machines: ["VMC"],
+      axes: ["3-axis", "4-axis"],
+      city: "Manesar",
+      page_count: 1,
+    });
+    expect(out.items[1]).toMatchObject({
+      trade_label: "CNC Turner",
+      experience_years: 5.5,
+      machines: ["CNC lathe"],
+      axes: [],
+      city: "Faridabad",
+      page_count: 2,
+    });
+  });
+
+  it("returns every fact NULL on a résumé rendered before #1714 — a 200, never a guess", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([
+      row("a", { resumeDocument: { format: "trade_sheet" } }),
+      row("b", { resumeDocument: null }),
+    ]);
+    const out = await svc.history("w-1");
+    for (const item of out.items) expect(item).toMatchObject(NO_FACTS);
+  });
+
+  it("shows NO facts on a row that is not 'rendered', even when its document carries some", async () => {
+    // The manual-generate overwrite and the converge write reset a row to 'pending' and leave the
+    // PREVIOUS generation's document in place; a failed re-render keeps it too. Those facts
+    // belong to the résumé this row replaced.
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([
+      row("a", { renderStatus: "pending", renderedAt: null, resumeDocument: docWith({}) }),
+      row("b", { renderStatus: "failed", resumeDocument: docWith({}) }),
+      row("c", { renderStatus: "rendered", resumeDocument: docWith({}) }),
+    ]);
+    const out = await svc.history("w-1");
+    expect(out.items[0]).toMatchObject(NO_FACTS);
+    expect(out.items[1]).toMatchObject(NO_FACTS);
+    // Not vacuous: the same document on a rendered row IS read.
+    expect(out.items[2]).toMatchObject({ trade_label: "VMC Operator", page_count: 1 });
+  });
+
+  it("drops a malformed glance whole rather than showing part of it", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([
+      row("a", { resumeDocument: docWith({ pageCount: "1" }) }),
+    ]);
+    const out = await svc.history("w-1");
+    expect(out.items[0]).toMatchObject(NO_FACTS);
+  });
+
+  it("gives every row the SAME short reference its PDF footer prints, stable across reads", async () => {
+    const { svc, resumes } = setup(null);
+    const ID = "3f0c8b0e-6a2d-4b6f-9a51-0c9e7d1b2a44";
+    resumes.listHistory.mockResolvedValue([
+      row(ID, { renderStatus: "pending", renderedAt: null }),
+      row("b"),
+    ]);
+    const first = await svc.history("w-1");
+    const again = await svc.history("w-1");
+    // The footer's own function, so the card and the paper cannot name one résumé two ways.
+    expect(first.items[0]!.display_ref).toBe(resumeRefCode(ID));
+    expect(first.items[0]!.display_ref).toMatch(/^[ACDEFGHJKLMNPQRTUVWXY34679]{6}$/);
+    expect(again.items[0]!.display_ref).toBe(first.items[0]!.display_ref);
+    // Present before the render lands — it depends on the id alone.
+    expect(first.items[0]!.render_status).toBe("pending");
+    // And it tells two résumés apart.
+    expect(first.items[1]!.display_ref).not.toBe(first.items[0]!.display_ref);
+  });
+
+  it("an item's keys are exactly the contract — additions are deliberate, and `version` is never one", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.listHistory.mockResolvedValue([row("a", { resumeDocument: docWith({}) })]);
+    const out = await svc.history("w-1");
+    expect(Object.keys(out.items[0]!).sort()).toEqual(
+      [
+        "resume_id",
+        "profile_id",
+        "source",
+        "trigger",
+        "generated_at",
+        "render_status",
+        "rendered_at",
+        "is_current",
+        "display_ref",
+        "trade_label",
+        "experience_years",
+        "machines",
+        "axes",
+        "city",
+        "page_count",
+      ].sort(),
+    );
   });
 
   it("reports an accepted update that has not landed as in_progress, then failed past the timeout", async () => {

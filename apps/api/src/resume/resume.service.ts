@@ -1,7 +1,8 @@
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { TradeFormRepository } from "../profiling/form/trade-form.repository";
 import { overlayFreshCapabilityLines } from "./resume-draft-overlay";
-import { templateIdForPack } from "./resume-document";
+import { readResumeGlance, templateIdForPack } from "./resume-document";
+import { resumeRefCode } from "./resume-sheet-footer";
 import {
   BadRequestException,
   ConflictException,
@@ -99,21 +100,39 @@ export class ResumeService {
    *
    * NO OWNERSHIP CHECK BEYOND THE TOKEN, for `myDocument`'s reason: there is no id in the
    * request, the worker is the token's, and every read below is scoped to them.
+   *
+   * THE CARD'S FACTS (#1714) ARE READ ONLY OFF A 'rendered' ROW. They ride the stored document,
+   * and on any other row that document may belong to an EARLIER generation: the manual-generate
+   * overwrite and the converge write both reset the row to 'pending' and deliberately leave the
+   * previous document in place, and a failed re-render keeps it too. Showing it would label a
+   * new résumé with the facts of the one it replaced. A 'rendered' row's document was written in
+   * the same UPDATE as its PDF, so its facts are the facts of the file on offer.
    */
   async history(workerId: string, now: Date = new Date()): Promise<ResumeHistoryResponse> {
     const rows = await this.resumes.listHistory(workerId, this.config.RESUME_HISTORY_VISIBLE_LIMIT);
     const facts = await this.resumes.pendingChatUpdate(workerId);
     return {
-      items: rows.map((row, index) => ({
-        resume_id: row.id,
-        profile_id: row.profileId,
-        source: row.generationSource ?? null,
-        trigger: row.generationTrigger ?? null,
-        generated_at: row.generatedAt.toISOString(),
-        render_status: row.renderStatus,
-        rendered_at: row.renderedAt ? row.renderedAt.toISOString() : null,
-        is_current: index === 0,
-      })),
+      items: rows.map((row, index) => {
+        const glance =
+          row.renderStatus === "rendered" ? readResumeGlance(row.resumeDocument) : null;
+        return {
+          resume_id: row.id,
+          profile_id: row.profileId,
+          source: row.generationSource ?? null,
+          trigger: row.generationTrigger ?? null,
+          generated_at: row.generatedAt.toISOString(),
+          render_status: row.renderStatus,
+          rendered_at: row.renderedAt ? row.renderedAt.toISOString() : null,
+          is_current: index === 0,
+          display_ref: resumeRefCode(row.id),
+          trade_label: glance?.role ?? null,
+          experience_years: glance?.experienceYears ?? null,
+          machines: glance ? [...glance.machines] : null,
+          axes: glance ? [...glance.axes] : null,
+          city: glance?.city ?? null,
+          page_count: glance?.pageCount ?? null,
+        };
+      }),
       pending_update: pendingUpdateFrom(
         facts,
         now,
