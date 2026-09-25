@@ -658,19 +658,25 @@ def _is_leading_trade_word(candidate: str) -> bool:
     return len(candidate) >= _LEADING_VOCABULARY_MIN_LEN and _is_known_trade_vocabulary(candidate)
 
 
-def _leading_word_is_released_trade_vocabulary(label: str) -> bool:
-    """True when ``label`` opens "<Word>," and that word is one the trade-vocabulary carve-out
-    releases — read off the SAME regex and predicate `replace_leading_name` uses.
+def _leading_word_survived_by_carve_out(label: str) -> bool:
+    """True when ``label`` opens "<Word>," and that word would owe its survival to the
+    trade-vocabulary carve-out — decided WITHOUT consulting the vocabulary.
 
-    Deliberately NOT narrowed to "released ONLY by this carve-out". The other two reasons a
-    leading word survives are a known city and the name stoplist ("Hello, ..."), and neither
-    overlaps a 4+ letter vocabulary token (measured 2026-09-25: both intersections empty), so
-    excluding them would be a branch no input can reach. If one ever overlaps, the cost of not
-    excluding it is that the gate demands a whole-vocabulary label for that word too — an
-    over-drop, the safe direction.
+    Called only on a label the gateway left UNTOUCHED, so a "<Word>," it matched survived for one
+    of exactly three reasons: a known city, the name stoplist ("Hello, ..."), or the trade
+    carve-out. Ruling out the first two by their own (pure, in-module) sets leaves the third.
+
+    WHY NOT ASK THE VOCABULARY "WAS IT RELEASED?" (PR #1729 review round 2). That second lookup
+    could fail after the gateway's first one succeeded, and a failure read as "not released"
+    skipped the whole-label demand and passed "Welding, Anil Kumar" raw — the gate failing OPEN.
+    Deciding it structurally means the only vocabulary call left on this path is the whole-label
+    test itself, and its failure withholds.
     """
     match = _LEADING_NAME_RE.match(label)
-    return match is not None and _is_leading_trade_word(_leading_candidate(match))
+    if match is None:
+        return False
+    candidate = _leading_candidate(match)
+    return not _is_leading_city(candidate) and candidate not in _NAME_STOPLIST
 
 
 def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
@@ -681,7 +687,7 @@ def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
     """
     if result.blocked or result.replaced_entities != 0 or result.text != label:
         return False
-    if _leading_word_is_released_trade_vocabulary(label):
+    if _leading_word_survived_by_carve_out(label):
         return _is_known_trade_vocabulary(label)
     return True
 
@@ -689,12 +695,16 @@ def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
 def is_certified_clean(label: str) -> bool:
     """May a CLEAN-OR-WITHHOLD consumer pass ``label`` to the model / the page RAW?
 
-    The one predicate every such consumer uses (`certified_clean_skill_labels`, the
-    work-history polish role gate). True only when ``pseudonymize(label)``:
+    The predicate the clean-or-withhold WALLS use: `certified_clean_skill_labels` (profile
+    extraction + the résumé boundary), the work-history polish role gate, and gate 6 of
+    /profile/parse (through `certify_value`). NOT `parse_masking._publishable_normalized`, which
+    only decides whether a deterministic value is shown to the model as a hint: the transcript it
+    sits beside is masked by the same gateway and already carries the same text, so withholding
+    the hint would protect nothing. True only when ``pseudonymize(label)``:
 
     (a) did not block, (b) masked nothing, (c) returned the label byte-identical, AND
     (d) if the leading "<Word>," is one the trade-vocabulary carve-out releases
-        (`_leading_word_is_released_trade_vocabulary`), the WHOLE label is curated vocabulary
+        (`_leading_word_survived_by_carve_out`), the WHOLE label is curated vocabulary
         (`_is_known_trade_vocabulary` — the FIX-5 whole-label rule, never a token-by-token
         exemption).
 
@@ -709,6 +719,29 @@ def is_certified_clean(label: str) -> bool:
     Never raises (every step is fail-closed by construction), never logs, never returns text.
     """
     return _certifies_clean(label, pseudonymize(label))
+
+
+# What `certify_value` hands back for a value it WITHHOLDS although the gateway masked nothing:
+# never equal to any input (a NUL cannot survive into a certified value), so a wall that
+# compares "certified == value" reads it as altered.
+_WITHHELD = "\x00withheld\x00"
+
+
+def certify_value(text: str) -> tuple[bool, str]:
+    """``(blocked, certified)`` for a wall that accepts a value only when ``certified == text``.
+
+    The `is_certified_clean` semantics in the masker-shaped contract gate 6 of /profile/parse
+    uses (`parse_gates.certify`): blocked when the gateway blocks; otherwise the gateway's text,
+    EXCEPT that a value the gateway left untouched but `is_certified_clean` withholds ("Welding,
+    Ramesh Kumar" — condition (d)) comes back as a withheld marker that equals no input, so the
+    wall reports it altered and rejects it, exactly as it did before the #1728 carve-out.
+    """
+    result = pseudonymize(text)
+    if result.blocked:
+        return True, result.text
+    if result.text == text and not _certifies_clean(text, result):
+        return False, _WITHHELD
+    return False, result.text
 
 
 def certified_clean_skill_labels(labels: list[str]) -> list[str]:

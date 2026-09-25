@@ -280,3 +280,112 @@ def test_the_polish_route_passes_a_role_label_that_is_vocabulary_whole(
 ):
     _released_only_by_the_carve_out("Welding, grinding")
     assert _polish_role_sent(monkeypatch, "Welding, grinding") == "Welding, grinding"
+
+
+# --- review round 2: every script, and a gate that cannot fail open -------------------------
+# The whole-label test used to tokenise with [a-z0-9]+, so a NON-LATIN name was invisible to it:
+# "Welding, रमेश कुमार" read as ["welding"] and passed as all-vocabulary. Every script a
+# Hindi-first product's keyboards and ASR emit must fail the label closed.
+_WITHHELD_ANY_SCRIPT = [
+    "Welding, रमेश कुमार",  # Devanagari
+    "Diploma, अनिल शर्मा",
+    "Welding, ரமேஷ்",  # Tamil
+    "Welding, রমেশ",  # Bengali
+    "Welding, رمیش",  # Urdu
+    "Welding, Ｒａｍｅｓｈ",  # fullwidth Latin
+    "Welding, 𝐑𝐚𝐦𝐞𝐬𝐡",  # mathematical bold
+    "Welding, grinding\nरमेश",
+    "Operator, रमेश सर के अंडर",
+]
+
+
+@pytest.mark.parametrize("label", _WITHHELD_ANY_SCRIPT)
+def test_the_gates_withhold_a_name_in_ANY_script_behind_a_leading_trade_word(label: str):
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean
+
+    _released_only_by_the_carve_out(label)
+    assert is_certified_clean(label) is False
+    assert certified_clean_skill_labels([label]) == []
+
+
+def test_the_employer_rescue_also_sees_every_script():
+    # The same tokeniser backs the FIX-5 EMPLOYER rescue, which had the same blind spot on main:
+    # an ASCII vocabulary label followed by a non-Latin name was rescued whole.
+    from app.pseudonymize import certified_clean_skill_labels
+
+    assert certified_clean_skill_labels(["Stainless Steel, रमेश कुमार"]) == []
+    assert certified_clean_skill_labels(["Stainless Steel"]) == ["Stainless Steel"]
+
+
+def test_the_polish_route_withholds_a_non_latin_name_behind_a_trade_word(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    label = "Operator, रमेश सर के अंडर"
+    _released_only_by_the_carve_out(label)
+    assert _polish_role_sent(monkeypatch, label) == "worker"
+
+
+def test_the_gate_withholds_when_the_vocabulary_fails_AFTER_the_gateway_released_the_word(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """FAIL CLOSED, not open. The gateway's lookup succeeds (the leading word is released) and the
+    gate's own lookup then raises: the gate must withhold. It used to ask the vocabulary a second
+    time whether the word had been released, read the failure as "no", and pass the label raw."""
+    from app.profiling import signals
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
+
+    real = signals.is_curated_vocabulary_label
+    calls = {"n": 0}
+
+    def truthful_once_then_broken(label: str) -> bool:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return real(label)
+        raise RuntimeError("vocabulary unavailable")
+
+    for label in ("Welding, Anil Kumar", "Operator, Ramesh sir ke under"):
+        calls["n"] = 0
+        monkeypatch.setattr(signals, "is_curated_vocabulary_label", truthful_once_then_broken)
+        assert pseudonymize(label).text == label  # the first (gateway) lookup released the word
+        assert is_certified_clean(label) is False
+        calls["n"] = 0
+        assert certified_clean_skill_labels([label]) == []
+
+
+def test_gate_6_of_profile_parse_rejects_a_name_behind_a_leading_trade_word():
+    """/profile/parse's persistence wall compares the certified text with the value. Through
+    `certify_value` a value the gateway leaves untouched only because of the carve-out is
+    reported ALTERED (rejected) unless the whole value is vocabulary."""
+    from app.profiling.parse_gates import check_pii
+    from app.routers.profile import _certify
+
+    for value in (
+        ["Welding, Ramesh Kumar"],
+        ["Welding, रमेश कुमार"],
+        ["Operator, Ramesh sir ke under"],
+    ):
+        assert check_pii(value, _certify) == "pii_altered"
+    assert check_pii(["Welding, grinding"], _certify) is None
+    assert check_pii(["CNC Turner", "VMC Operation"], _certify) is None
+    # The gateway's own verdicts are unchanged.
+    assert check_pii(["Ramesh, welding"], _certify) == "pii_altered"
+    assert check_pii(["welder 12345678901234567"], _certify) == "pii_blocked"
+
+
+def test_certify_value_hands_back_the_gateway_text_everywhere_else():
+    from app.pseudonymize import certify_value, pseudonymize
+
+    for text in ("Welding, grinding", "CNC Turner", "Ramesh, welding", "call 98765 43210"):
+        result = pseudonymize(text)
+        assert certify_value(text) == (result.blocked, result.text)
+    blocked, certified = certify_value("Welding, Ramesh Kumar")
+    assert blocked is False and certified != "Welding, Ramesh Kumar"
+
+
+def test_a_city_or_greeting_led_label_is_certified_exactly_as_on_main():
+    # The gate tightens ONLY behind the trade carve-out. A leading city (issue #1730 tracks that
+    # separately) and a stoplisted greeting survive for their own reasons and are untouched here.
+    from app.pseudonymize import certified_clean_skill_labels
+
+    labels = ["Pune, welding", "Hello, welding"]
+    assert certified_clean_skill_labels(labels) == labels

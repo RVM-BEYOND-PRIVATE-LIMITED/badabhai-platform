@@ -51,7 +51,7 @@ from ..profiling.parse_masking import mask_parse_input
 from ..profiling.parse_prompt import build_parse_messages, empty_parse
 from ..profiling.prompts import extraction_system_prompt
 from ..profiling.signals import has_first_person_claim, label_for_id
-from ..pseudonymize import pseudonymize
+from ..pseudonymize import certify_value, pseudonymize
 from ._shared import logger, resolve_prompt, router, settings, workflow_scope
 
 api_router = APIRouter()
@@ -492,9 +492,12 @@ PARSE_NOTES = frozenset(
 def _certify(text: str) -> tuple[bool, str]:
     """Gate 6's wall. Full default length here on purpose — this certifies one parsed VALUE, not a
     message, and a "value" long enough to trip the 20,000-char guard is one that should be blocked
-    rather than measured against a per-message bound."""
-    result = pseudonymize(text)
-    return result.blocked, result.text
+    rather than measured against a per-message bound.
+
+    Through `certify_value`, so a value the gateway leaves untouched only because its leading word
+    is trade vocabulary ("Welding, Ramesh Kumar") is still rejected unless the WHOLE value is
+    vocabulary — the same clean-or-withhold rule as the résumé certifier (#1728)."""
+    return certify_value(text)
 
 
 @api_router.post("/profile/parse", response_model=ProfileParseOutput)

@@ -556,6 +556,15 @@ def _build_vocabulary_tokens() -> frozenset[str]:
 VOCABULARY_TOKENS: frozenset[str] = _build_vocabulary_tokens()
 
 
+# How a LABEL is tokenised for the whole-label test — deliberately NOT `_VOCAB_TOKEN_RE`.
+# That regex HARVESTS the vocabulary and must stay `[a-z0-9]+`; reading a label with it made
+# every non-ASCII letter invisible, so "Welding, रमेश कुमार" tokenised to ["welding"] and
+# passed as all-vocabulary (PR #1729 review round 2, measured). `[^\W_]+` is Unicode-aware: a
+# Devanagari, Tamil, fullwidth or math-alphanumeric word is a token of its own, is in no
+# (all-ASCII) vocabulary, and so fails the label closed.
+_LABEL_TOKEN_RE = re.compile(r"[^\W_]+")
+
+
 def is_curated_vocabulary_label(label: str) -> bool:
     """True when EVERY token of ``label`` is curated trade/education vocabulary.
 
@@ -580,7 +589,7 @@ def is_curated_vocabulary_label(label: str) -> bool:
     """
     if not isinstance(label, str):
         return False
-    tokens = _VOCAB_TOKEN_RE.findall(label.lower())
+    tokens = _LABEL_TOKEN_RE.findall(label.lower())
     if not tokens:
         return False
     return all(tok in VOCABULARY_TOKENS for tok in tokens)

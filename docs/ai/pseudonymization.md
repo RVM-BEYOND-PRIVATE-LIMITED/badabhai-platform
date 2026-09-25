@@ -71,14 +71,23 @@ prompt fired), and on the worker side the model never saw the trade named.
   §2/§3): the rule is the same for a worker's turn and a payer's.
 - **The clean-or-withhold gates still require the WHOLE label.** A consumer that
   passes a string raw "because the gateway masked nothing" would otherwise release
-  what follows the kept word. `pseudonymize.is_certified_clean` is the one
-  predicate those consumers use — `certified_clean_skill_labels` (skill labels,
-  education, certifications, at extraction and again at the résumé boundary) and
-  the work-history polish `<role>` gate. When the leading word survived only by
-  this carve-out it demands the whole label be vocabulary (the FIX-5 whole-label
-  rule): `"Welding, grinding"` / `"Fanuc, tool offset"` pass;
-  `"Welding, Anil Kumar"`, `"Diploma, Anil Sharma"`, `"Turner, Suresh"` and
-  `"Operator, Ramesh sir ke under"` are still withheld.
+  what follows the kept word. `pseudonymize.is_certified_clean` is the predicate
+  the clean-or-withhold WALLS use — `certified_clean_skill_labels` (skill labels,
+  education, certifications, at extraction and again at the résumé boundary), the
+  work-history polish `<role>` gate, and gate 6 of `/profile/parse` (through
+  `pseudonymize.certify_value`). When the leading word survived only by this
+  carve-out it demands the whole label be vocabulary (the FIX-5 whole-label rule):
+  `"Welding, grinding"` / `"Fanuc, tool offset"` pass; `"Welding, Anil Kumar"`,
+  `"Diploma, Anil Sharma"`, `"Turner, Suresh"`, `"Operator, Ramesh sir ke under"`
+  and a name in ANY script (`"Welding, रमेश कुमार"`, Tamil, fullwidth) are still
+  withheld — the whole-label test tokenises every Unicode letter, and the
+  vocabulary is all-ASCII, so a non-Latin word fails the label closed. "Survived
+  only by this carve-out" is decided structurally (not a city, not a stoplisted
+  greeting), never by a second vocabulary lookup, so a lookup failure withholds.
+  Deliberately NOT routed through it: `parse_masking._publishable_normalized`,
+  which only decides whether a deterministic value is shown to the model as a hint
+  beside a transcript the same gateway already masked — withholding the hint would
+  protect nothing. A leading CITY is out of scope here (issue #1730).
 - **Known residual — an owner decision, not a bug.** The 4-letter floor keeps
   name-shaped 3-letter vocabulary masked (`"Max, welder"`), and with it the
   title-cased trade acronyms a phone keyboard produces: `"Cnc, vmc"`,
