@@ -4,7 +4,7 @@ import '../../../../core/theme/onboarding_theme.dart';
 import '../../../../core/widgets/onboarding/selection_cards.dart';
 import '../../domain/profiling_tier.dart';
 
-/// The "BadaBhai Standard" badge's gold, as a GRADIENT rather than a flat fill.
+/// The "BadaBhai Recommended" badge's gold, as a GRADIENT rather than a flat fill.
 ///
 /// WHERE THE GOLD LIVES, AND WHY IT IS NOT THE BORDER (#1698 design ruling).
 /// The issue asks for "a soft metallic gold gradient on the border **and/or** a
@@ -24,7 +24,7 @@ import '../../domain/profiling_tier.dart';
 ///
 /// The wash and the badge together still make the card unmistakable, which is
 /// what the issue actually asks for ("stand out without looking like an error").
-const LinearGradient kBadaBhaiStandardBadge = LinearGradient(
+const LinearGradient kBadaBhaiRecommendedBadge = LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
   colors: <Color>[
@@ -39,7 +39,7 @@ const LinearGradient kBadaBhaiStandardBadge = LinearGradient(
 /// The Hard card's background wash — a very light warm tint, not flat gold, so
 /// the text on it stays well clear of WCAG AA. Dark ink on a near-white wash,
 /// never gold ink on white.
-const LinearGradient kBadaBhaiStandardWash = LinearGradient(
+const LinearGradient kBadaBhaiRecommendedWash = LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
   colors: <Color>[Color(0xFFFFFBEA), Color(0xFFFFF3C4)],
@@ -47,7 +47,12 @@ const LinearGradient kBadaBhaiStandardWash = LinearGradient(
 
 /// The badge's own label. Not translated and not shortened: it is a product
 /// name, the way "BadaBhai" itself is.
-const String kBadaBhaiStandardLabel = 'BadaBhai Standard';
+///
+/// OWNER-SET COPY (#1715), renamed from the tier's previous badge wording. The
+/// words are a product decision, not a description of what the tier does, so
+/// they change only on that authority. The résumé footer's matching label lives
+/// server-side and is renamed with it — the API never sends this string.
+const String kBadaBhaiRecommendedLabel = 'BadaBhai Recommended';
 
 /// One tier the worker can choose (#1698).
 ///
@@ -77,7 +82,7 @@ class TierOptionCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   /// Hard is the only tier that carries the product badge.
-  bool get _isStandard => estimate.tier == ProfilingTier.hard;
+  bool get _isRecommended => estimate.tier == ProfilingTier.hard;
 
   /// "About 5–7 min" — an EN DASH between the numbers, and the minutes come
   /// from the server every time (see [TierEstimate]).
@@ -106,7 +111,7 @@ class TierOptionCard extends StatelessWidget {
         // announces four disconnected fragments and the badge lands last.
         label: <String>[
           title,
-          if (_isStandard) kBadaBhaiStandardLabel,
+          if (_isRecommended) kBadaBhaiRecommendedLabel,
           description,
           timeLabel,
         ].join('. '),
@@ -128,8 +133,8 @@ class TierOptionCard extends StatelessWidget {
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: radius,
-                gradient: _isStandard && !isSelected
-                    ? kBadaBhaiStandardWash
+                gradient: _isRecommended && !isSelected
+                    ? kBadaBhaiRecommendedWash
                     : null,
               ),
               child: Container(
@@ -146,9 +151,9 @@ class TierOptionCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
                           Text(title, style: OnboardingTypography.formCardTitle()),
-                          if (_isStandard) ...<Widget>[
+                          if (_isRecommended) ...<Widget>[
                             const SizedBox(height: 6),
-                            const _StandardBadge(),
+                            const _RecommendedBadge(),
                           ],
                           const SizedBox(height: 4),
                           Text(
@@ -186,24 +191,24 @@ class TierOptionCard extends StatelessWidget {
   }
 }
 
-/// The gold-gradient "BadaBhai Standard" pill.
+/// The gold-gradient "BadaBhai Recommended" pill.
 ///
 /// Dark navy ink on the gradient, never gold ink on white: at the light end of
 /// the gradient (#F6E27A) navy clears AA comfortably, which gold on white does
 /// not come close to.
-class _StandardBadge extends StatelessWidget {
-  const _StandardBadge();
+class _RecommendedBadge extends StatelessWidget {
+  const _RecommendedBadge();
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        gradient: kBadaBhaiStandardBadge,
+        gradient: kBadaBhaiRecommendedBadge,
         borderRadius: BorderRadius.circular(OnboardingRadii.badge),
       ),
       child: Text(
-        kBadaBhaiStandardLabel,
+        kBadaBhaiRecommendedLabel,
         style: OnboardingTypography.inter(
           size: 11,
           weight: FontWeight.w800,

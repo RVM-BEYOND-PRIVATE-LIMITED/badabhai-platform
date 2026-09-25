@@ -51,7 +51,7 @@ String tierDescriptionOf(ProfilingTier tier) => switch (tier) {
     };
 
 /// #1698 — the worker chooses how long profiling takes before the first form
-/// question: Easy, Medium or Hard ("BadaBhai Standard").
+/// question: Easy, Medium or Hard ("BadaBhai Recommended").
 ///
 /// THIS SCREEN IS NEVER A GATE THE WORKER CANNOT PASS. It is only ever shown
 /// when the server said `needs_choice: true` with cards to draw; every other

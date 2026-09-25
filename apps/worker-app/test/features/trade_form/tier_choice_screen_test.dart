@@ -254,10 +254,10 @@ void main() {
       expect(find.text('About 2–3 min'), findsNothing);
     });
 
-    testWidgets('only the HARD card carries the BadaBhai Standard badge',
+    testWidgets('only the HARD card carries the BadaBhai Recommended badge',
         (WidgetTester tester) async {
       await show(tester);
-      expect(find.text(kBadaBhaiStandardLabel), findsOneWidget);
+      expect(find.text(kBadaBhaiRecommendedLabel), findsOneWidget);
     });
 
     testWidgets('every card announces its title, badge and time to a screen '
@@ -267,7 +267,7 @@ void main() {
 
       expect(
         find.bySemanticsLabel(
-          RegExp('$kTierHardTitle.*$kBadaBhaiStandardLabel.*About 10–12 min'),
+          RegExp('$kTierHardTitle.*$kBadaBhaiRecommendedLabel.*About 10–12 min'),
         ),
         findsOneWidget,
       );
