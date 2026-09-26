@@ -1,0 +1,26 @@
+-- ==============================================================================
+-- 0127 - job_postings.reach_skill_ids: a jsonb_ops GIN that can serve `?|` (TD141)
+-- ==============================================================================
+--
+-- `job_postings_reach_gin` (migration 0054) is built with the `jsonb_path_ops`
+-- opclass. That opclass indexes only `@>`, `@?` and `@@`; the key-existence
+-- operators `?`, `?|`, `?&` need the DEFAULT `jsonb_ops`. So every
+-- `reach_skill_ids ?| $skills` overlap has been evaluated row by row:
+--   * reach reconciliation (WorkerSkillsRepository.reconcileReachForWorker,
+--     listPostingIdsReaching),
+--   * the #1240 search fallback (JobsRepository.searchOpenPostings), and
+--   * the ADR-0044 companion's "new jobs" read (same method, windowed).
+--
+-- ADDITIVE ONLY. One new index. The path_ops index stays: it still serves the
+-- `reach_skill_ids @> to_jsonb(skill)` containment join, and for `@>` it is the
+-- smaller, faster of the two. No column, constraint, row or query changes.
+--
+-- NOT CONCURRENTLY: drizzle's migrator runs each file in a transaction, where
+-- CREATE INDEX CONCURRENTLY is not allowed. `job_postings` is small (alpha
+-- volume), so the SHARE lock blocks posting writes only for the build.
+--
+-- IF NOT EXISTS so a hand-applied copy (see MIGRATIONS.md) cannot make a later
+-- `db:migrate` die on "already exists".
+--
+-- Rollback: DROP INDEX IF EXISTS "job_postings_reach_ops_gin";
+CREATE INDEX IF NOT EXISTS "job_postings_reach_ops_gin" ON "job_postings" USING gin ("reach_skill_ids");

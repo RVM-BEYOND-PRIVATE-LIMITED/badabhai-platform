@@ -139,7 +139,8 @@ as #1744.
   off means today's tab, so the order is not a safety question. Production needs the signature below.
 - **Performance.** About seven indexed reads per open. The jobs read is bounded by the window predicate on
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
-  `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).
+  `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141; migration 0127 adds
+  the `jsonb_ops` GIN `job_postings_reach_ops_gin` that can).
 - **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142); a completed
   worker on a dead network can still get today's fallback path, which may mint an empty interview (pre-existing); a
   cold start in the first four answers of a reattached redo shows the recap (TD143, §2.1).

@@ -266,11 +266,10 @@ export class WorkerSkillsRepository {
    *     `packages/db/src/materialize-job-reach.ts`, so tier + matched skill can never
    *     disagree between the publish path and the profile path.
    *
-   * `reach_skill_ids ?| $skills` is the jsonb key-existence operator. It is a FILTER, not an
-   * index probe (corrected with ADR-0044): `job_postings_reach_gin` is built with the
-   * `jsonb_path_ops` opclass, which serves only `@>`, `@?` and `@@`; `?`, `?|` and `?&` need the
-   * default `jsonb_ops`. So it is evaluated row by row over the open/paused postings — see the
-   * tech-debt row added with ADR-0044.
+   * `reach_skill_ids ?| $skills` is the jsonb key-existence operator, served by
+   * `job_postings_reach_ops_gin` (default `jsonb_ops`, migration 0127, TD141). The older
+   * `job_postings_reach_gin` is `jsonb_path_ops`, which serves only `@>`, `@?` and `@@` — it
+   * backs the `@> to_jsonb(skill)` containment join below, never `?|`.
    *
    * ⚠️ ARRAYS GO THROUGH `dsql.param()`. Drizzle's `sql` template expands a bare JS array
    * into a comma-separated placeholder list (a RECORD), so `${skills}::text[]` fails at
