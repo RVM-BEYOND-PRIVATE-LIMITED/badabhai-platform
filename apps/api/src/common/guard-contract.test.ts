@@ -8,6 +8,7 @@ import { WorkerActionsController } from "../actions/worker-actions.controller";
 import { ApplicationsController } from "../applications/applications.controller";
 import { AuthController } from "../auth/auth.controller";
 import { ChatController } from "../chat/chat.controller";
+import { ChatCompanionController } from "../chat-companion/chat-companion.controller";
 import { ConsentController } from "../consent/consent.controller";
 import { EventsController } from "../events/events.controller";
 import { WorkerFeedbackController } from "../feedback/worker-feedback.controller";
@@ -204,6 +205,8 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },
+  // ADR-0044 — the post-completion companion: the same worker-self, consent-gated pair as chat.
+  { name: "ChatCompanion", ctor: ChatCompanionController, routes: { open: [C, W], message: [C, W] } },
   { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W], withdrawEmployerContact: [W], mine: [W] } },
   // E0 — the relay: the payer sends against the handle they hold (payer-self), and the
   // worker reads/replies/reads-marks their own threads (worker-self + consent).
@@ -842,6 +845,8 @@ describe("API authz contract — guards on every controller route", () => {
   describe("consent-gated worker-AI guard ORDER (auth before consent)", () => {
     for (const { name, ctor } of [
       { name: "Chat", ctor: ChatController },
+      // ADR-0044 — the companion reads the worker's facts; ConsentGuard needs req.worker first.
+      { name: "ChatCompanion", ctor: ChatCompanionController },
       { name: "Profiles", ctor: ProfilesController },
       { name: "Voice", ctor: VoiceController },
       // #997 — not an AI surface, but it carries the SAME class-level pair and so the same

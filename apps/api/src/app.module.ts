@@ -23,6 +23,7 @@ import { ActionsModule } from "./actions/actions.module";
 import { FeedbackModule } from "./feedback/feedback.module";
 import { ApplicationsModule } from "./applications/applications.module";
 import { JobsModule } from "./jobs/jobs.module";
+import { ChatCompanionModule } from "./chat-companion/chat-companion.module";
 import { JobPostingsModule } from "./job-postings/job-postings.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { PostingPlansModule } from "./posting-plans/posting-plans.module";
@@ -93,6 +94,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // Worker-scoped job detail read (ADR-0024 final addendum): GET /jobs/:jobId,
     // WorkerAuthGuard + ConsentGuard, explicit PII-free projection, no event.
     JobsModule,
+    // ADR-0044 — the post-completion Bada Bhai companion: GET /chat/companion + POST
+    // /chat/companion/message. A leaf module (nothing imports it back), after ResumeModule and
+    // JobsModule whose exports it reads. INERT until CHAT_COMPANION_ENABLED is on.
+    ChatCompanionModule,
     JobPostingsModule,
     PricingModule,
     PostingPlansModule,

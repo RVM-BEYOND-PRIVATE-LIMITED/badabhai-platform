@@ -972,4 +972,37 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
     expect(mine(rows)).toContain(P_REACH_MINE);
     expect(mine(rows)).not.toContain(P_REACH_OTHER);
   });
+
+  // ── ADR-0044 — `publishedAfter`, the chat companion's "new in the last N days", EXECUTED ──
+  //
+  // The companion counts "new jobs for your profile" with this exact statement plus one
+  // `published_at > $after` bound as an ISO timestamptz string. Only Postgres can say that
+  // the string compares as a timestamp (not as text), that `>` is strict at the boundary
+  // instant, and that a never-published row (NULL) drops out.
+
+  it("publishedAfter keeps a posting published after the instant, alongside the profile fallback", async () => {
+    const after = new Date(PUB_SKILL_ONLY.getTime() - 24 * 3_600_000);
+    const { rows } = await search({ profileSkillIds: [MSKILL_MINE], city: CITY_REACH, publishedAfter: after });
+    expect(mine(rows)).toEqual([P_REACH_MINE]);
+  });
+
+  it("publishedAfter is STRICT — a posting published at the boundary instant is not new", async () => {
+    const { rows } = await search({
+      profileSkillIds: [MSKILL_MINE],
+      city: CITY_REACH,
+      publishedAfter: PUB_SKILL_ONLY,
+    });
+    expect(mine(rows)).toEqual([]);
+  });
+
+  it("publishedAfter drops the older postings and the never-published one, and keeps the order", async () => {
+    // CITY holds six open postings (CITY_ORDER). Strictly after PUB_SUBSTRING leaves only the
+    // newest; a window just below PUB_TIE keeps all five published rows in the search's own
+    // order — and never the NULL `published_at` row, which the plain city search returns last.
+    const { rows } = await search({ city: CITY, publishedAfter: PUB_SUBSTRING });
+    expect(mine(rows)).toEqual([P_SKILL_ONLY]);
+    const wider = await search({ city: CITY, publishedAfter: new Date(PUB_TIE.getTime() - 1) });
+    expect(mine(wider.rows)).toEqual([P_SKILL_ONLY, P_SUBSTRING, P_PREFIX, P_TIE_A, P_TIE_B]);
+    expect(mine(wider.rows)).not.toContain(P_UNPUBLISHED);
+  });
 });
