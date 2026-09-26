@@ -390,10 +390,146 @@ def test_certify_value_hands_back_the_gateway_text_everywhere_else():
     assert blocked is False and certified != "Welding, Ramesh Kumar"
 
 
-def test_a_city_or_greeting_led_label_is_certified_exactly_as_on_main():
-    # The gate tightens ONLY behind the trade carve-out. A leading city (issue #1730 tracks that
-    # separately) and a stoplisted greeting survive for their own reasons and are untouched here.
+def test_a_city_or_greeting_led_label_of_closed_vocabulary_is_still_certified():
+    # A city-led label whose rest is closed vocabulary passes (#1730 tightens only what follows a
+    # released word), and a stoplisted greeting is not a carve-out: certified exactly as on main.
     from app.pseudonymize import certified_clean_skill_labels
 
     labels = ["Pune, welding", "Hello, welding"]
     assert certified_clean_skill_labels(labels) == labels
+
+
+def test_a_stoplisted_greeting_opener_is_certified_exactly_as_on_main():
+    # STATED RESIDUAL, pinned so it is never changed silently: the stoplist predates both
+    # carve-outs, and demanding a vocabulary rest after "Yes," would reject real parse values.
+    from app.pseudonymize import is_certified_clean
+
+    assert is_certified_clean("Yes, will relocate") is True  # a rest that is not vocabulary
+
+
+# --- #1730: a leading CITY does not vouch for the rest of a label either ----------------------
+# The 2026-07-31 ruling stops the gateway masking a leading city, exactly as #1728 did for a trade
+# word — and on main a "clean or withhold" gate then passed "Pune, Ramesh Kumar" whole, where
+# before the ruling the incidental [PERSON_1] withheld it.
+_CITY_LED_WITHHELD = [
+    "Pune, Ramesh Kumar",
+    "Faridabad, Anil Sharma",
+    "Bombay, Ramesh",  # an alias releases the word too
+    "Pune, Ramesh sir ke under",
+    "Mumbai, रमेश कुमार",
+    "Mumbai, Pune रमेश",  # a city name does not launder a non-Latin name beside it
+    "Pune, Mumbai Ⓡⓐⓜⓔⓢⓗ",  # nor a name in enclosed letters
+    "Pune, Welding Ramesh",  # vocabulary does not launder a name beside it
+    "Pune, Chakan",  # a locality in no closed list — the stated cost
+    "Pune, Maharashtra Ramesh",  # a state does not launder a name beside it
+    "Pune, ya Ramesh",  # nor a connecting word
+    "Pune, south india Ramesh",  # nor a region
+    "Pune, mh Ramesh",  # a lowercase "mh" is not an abbreviation (they are case-sensitive)
+]
+_CITY_LED_KEPT = [
+    "Pune, welding",
+    "Pune, Mumbai",
+    "Pune, Navi Mumbai",
+    "Pune, CNC operator",
+    "Welding, Pune",
+    "Pune, welding, Mumbai",
+    # PR #1734 security review: a state or the country after a city is coarser geography, and a
+    # location list is written with a few connecting words — none of them is a name.
+    "Pune, Maharashtra",
+    "Faridabad, Haryana",
+    "Lucknow, UP",  # an UPPERCASE listed abbreviation
+    "Pune, India",
+    "Pune, South India",  # a region containing a connecting word
+    "Pune, anywhere",
+    "Pune, ya Mumbai",
+    "Pune, or Mumbai",
+    "Pune, and Mumbai",
+    "Pune, Mumbai etc",
+    "Pune, nearby",
+    # An empty or punctuation-only rest holds nothing to withhold.
+    "Pune,",
+    "Welding,",
+]
+
+
+def _city_released(label: str) -> None:
+    """Precondition: the gateway leaves ``label`` untouched and its leading word is a gazetteer
+    city — so only the gate can withhold what follows."""
+    from app.pseudonymize import CITY_ALIASES, KNOWN_CITIES, pseudonymize
+
+    leading = label.split(",", 1)[0].lower()
+    assert leading in KNOWN_CITIES or leading in CITY_ALIASES or leading == "welding"
+    result = pseudonymize(label)
+    assert (result.blocked, result.replaced_entities, result.text) == (False, 0, label)
+
+
+@pytest.mark.parametrize("label", _CITY_LED_WITHHELD)
+def test_the_gates_withhold_a_name_behind_a_leading_city(label: str):
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean
+
+    _city_released(label)
+    assert is_certified_clean(label) is False
+    assert certified_clean_skill_labels([label]) == []
+
+
+@pytest.mark.parametrize("label", _CITY_LED_KEPT)
+def test_a_city_led_label_of_closed_vocabulary_passes(label: str):
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean
+
+    _city_released(label)
+    assert is_certified_clean(label) is True
+    assert certified_clean_skill_labels([label]) == [label]
+
+
+def test_the_polish_route_withholds_a_name_behind_a_leading_city(monkeypatch: pytest.MonkeyPatch):
+    _city_released("Pune, Ramesh sir ke under")
+    assert _polish_role_sent(monkeypatch, "Pune, Ramesh sir ke under") == "worker"
+    assert _polish_role_sent(monkeypatch, "Pune, CNC operator") == "Pune, CNC operator"
+
+
+def test_the_resume_does_not_print_a_name_behind_a_leading_city(monkeypatch: pytest.MonkeyPatch):
+    lines, sent = _resume_lines(
+        monkeypatch, {"skill_labels": ["Pune, Ramesh Kumar", "Pune, welding"]}
+    )
+    assert "Skills: Pune, welding" in lines
+    assert "Ramesh" not in "\n".join(lines)
+    assert "Ramesh" not in sent
+
+
+def test_gate_6_of_profile_parse_rejects_a_name_behind_a_leading_city():
+    from app.profiling.parse_gates import check_pii
+    from app.routers.profile import _certify
+
+    assert check_pii(["Pune, Ramesh Kumar"], _certify) == "pii_altered"
+    assert check_pii(["Pune, Mumbai"], _certify) is None
+    assert check_pii("Pune", _certify) is None
+    # A real preferred_locations / current_city value is not rejected (review finding 1 and 2).
+    assert check_pii(["Pune, anywhere", "Faridabad, Haryana"], _certify) is None
+    assert check_pii("Pune, Maharashtra", _certify) is None
+
+
+def test_the_city_rest_check_fails_closed_when_the_vocabulary_cannot_be_consulted(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from app.profiling import signals
+    from app.pseudonymize import is_certified_clean
+
+    def broken(_label: str) -> bool:
+        raise RuntimeError("vocabulary unavailable")
+
+    monkeypatch.setattr(signals, "is_curated_vocabulary_label", broken)
+    assert is_certified_clean("Pune, welding") is False  # needs the vocabulary: withheld
+    assert is_certified_clean("Pune, Mumbai") is True  # cities only: no vocabulary call
+    assert is_certified_clean("Pune, Maharashtra") is True  # a state: no vocabulary call
+
+
+def test_the_state_strip_fails_closed_when_it_cannot_be_consulted(monkeypatch: pytest.MonkeyPatch):
+    from app.profiling import signals
+    from app.pseudonymize import is_certified_clean
+
+    def broken(_text: str) -> str:
+        raise RuntimeError("state tables unavailable")
+
+    monkeypatch.setattr(signals, "without_region_or_state_names", broken)
+    assert is_certified_clean("Pune, Maharashtra") is False  # nothing stripped: withheld
+    assert is_certified_clean("Pune, Mumbai") is True

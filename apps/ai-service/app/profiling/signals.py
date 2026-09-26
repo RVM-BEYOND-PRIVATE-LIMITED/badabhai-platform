@@ -697,6 +697,21 @@ _REGION_RE = re.compile(
 )
 
 
+def without_region_or_state_names(text: str) -> str:
+    """``text`` with every state name, UPPERCASE state abbreviation and multi-state region name
+    blanked out.
+
+    For `pseudonymize`'s clean-or-withhold gate (#1730): what may follow a released leading city
+    is closed vocabulary, and a state ("Pune, Maharashtra") is coarser geography than the city
+    before it — non-PII under the same 2026-07-31 ruling. The patterns are the ones the detector
+    itself uses, so a state it recognises is a state the gate recognises; abbreviations stay
+    case-sensitive for the reason `_STATE_ABBREVS` records.
+    """
+    text = _REGION_RE.sub(" ", text)
+    text = _STATE_NAME_RE.sub(" ", text)
+    return _STATE_ABBREV_RE.sub(" ", text)
+
+
 def _detect_region(text: str) -> str | None:
     """A named multi-state region, or None. Longest phrase wins."""
     match = _REGION_RE.search(text)
