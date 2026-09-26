@@ -178,6 +178,8 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 
 | TD143 | **The companion's mode rule cannot see the first four answers of a redo reattached to an early-finish session** (ADR-0044 §2.1) — the policy decides on the reattach target's `max(started_at, last_message_at)`, and `last_message_at` moves only at interview checkpoints (`CHECKPOINT_EVERY_ASKS` = 5) and at the end. The per-turn clock is the chat module's Redis transcript buffer, which the companion's leaf module must not read. | A cold app start inside that window shows the recap; the live bloc is unaffected and one more tap on the redo reattaches the same session with nothing lost. The deeper cause (the redo reattaches the leftover at all) is #1744. | Close with #1744 (a chat redo always mints a fresh session), after which rule 3's `started_at` half is sufficient; or expose a text-free "last turn at" read from the chat module. | **Open** — logged 2026-09-26 (PR #1743 review). Owner Backend |
 
+| TD144 | **The worker-app parity tests do not run when only the server file they read changes** — `chat_opening_parity_test`, `chat_resume_menu_test` and `chat_companion_keys_test` read `apps/api/src/chat/chat-replies.ts`, `resume-menu.ts`, `profiling/question-tts-text.ts` and `chat-companion/companion-keys.ts` byte-for-byte, but the `worker-app` gate in `ci.yml` is path-filtered to `apps/worker-app/**`. A PR that edits only one of those server files skips the tests that exist to catch exactly that drift, and ships green. | Adding the four paths to the existing `worker-app` filter would also make `worker-app-apk` publish a new (unchanged) APK Release on every such push to main, so it is not a one-line fix. | A separate `worker-app-parity` filter output that gates the `worker-app` job (OR-ed with `worker-app`) but not `worker-app-apk`. DevOps-owned change to `ci.yml`. | **Open** — logged 2026-09-26 (PR #1746 review). Owner DevOps |
+
 > When you pay debt down, mark it **Paid** with the PR link and date — don't
 > delete the row. When you take *new* debt, add a row in the same PR that creates it.
 
@@ -292,8 +294,9 @@ another row is how a register starts lying. Owner: whoever runs TD125.
 | TD141 | T2 | **P2** | Before open postings reach the low thousands, or the search fallback is measured slow |
 | TD142 | T2 | **P3** | If workers report the recap repeating itself, or visit frequency makes it noise |
 | TD143 | T2 | **P2** | With #1744, before `CHAT_COMPANION_ENABLED` goes on in production |
+| TD144 | T3 | **P2** | Next time a parity-tested server file changes, or with any `ci.yml` path-filter work |
 
-**By thread:** T2 Backend Platform 48 · T3 Infrastructure 20 · T4 Future Product 26 ·
+**By thread:** T2 Backend Platform 48 · T3 Infrastructure 21 · T4 Future Product 26 ·
 T5 Product Streams 18. **Asserted:** every open row has exactly one thread and one priority;
 no P0/P1 overlap; nothing prioritised that is already closed.
 

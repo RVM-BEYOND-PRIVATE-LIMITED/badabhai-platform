@@ -33,6 +33,8 @@ class ChatTurn extends Equatable {
     this.lookahead = const <String, PredictedQuestion?>{},
     this.formOffer,
     this.resumeUpdate,
+    this.companion = false,
+    this.digestKey,
   });
 
   final String reply;
@@ -123,6 +125,20 @@ class ChatTurn extends Equatable {
   /// The only value that changes what the app does. Fails closed.
   bool get resumeUpdateQueued => resumeUpdate == 'queued';
 
+  /// ADR-0044 — this turn came from the post-completion COMPANION
+  /// (`/chat/companion`), not the interview. Set ONLY by the repository's
+  /// companion mapping; every interview turn keeps the default `false`.
+  ///
+  /// What it changes: the chat stays in companion mode for the next send, and
+  /// the turn is NOT an answered interview ask — so it never feeds the per-ask
+  /// funnel (#1316), the answered-facts store, or `asked_question_id`.
+  final bool companion;
+
+  /// ADR-0044 — the companion recap's `digest_key`: a short hash of the facts
+  /// it states, compared on a tab refocus to tell "nothing changed" from "your
+  /// counts moved". Null on every other turn. Never shown.
+  final String? digestKey;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -141,5 +157,7 @@ class ChatTurn extends Equatable {
         lookahead,
         formOffer,
         resumeUpdate,
+        companion,
+        digestKey,
       ];
 }

@@ -46,4 +46,23 @@ abstract interface class ChatRepository {
   /// return `[]` rather than throw, so a hydration miss can never block the chat
   /// from opening.
   Future<List<ChatMessage>> loadHistory();
+
+  /// ADR-0044 — the post-completion COMPANION's opening recap, or null.
+  ///
+  /// Null means "run today's chat": the worker is not a companion worker, the
+  /// server flag is off, the server predates the route (404), the network failed,
+  /// or the body was malformed. BEST-EFFORT like [loadHistory]: implementations
+  /// never throw, so the tab can never be blocked by the companion.
+  ///
+  /// NEVER opens, resumes or mints a chat session: a companion worker has no
+  /// interview in flight, and minting one here is exactly the bug this fixes for
+  /// workers whose profile came from a form.
+  Future<ChatTurn?> openCompanion();
+
+  /// ADR-0044 — one companion answer (`POST /chat/companion/message`), with
+  /// [ChatTurn.companion] set. Null when the server answers 409 (this worker is
+  /// no longer in companion mode — a new interview went live, or the flag was
+  /// turned off); the caller then sends the same text down [sendMessage].
+  /// Throws a [Failure] on any other error, like [sendMessage].
+  Future<ChatTurn?> sendCompanionMessage(String text, {String? submissionId});
 }

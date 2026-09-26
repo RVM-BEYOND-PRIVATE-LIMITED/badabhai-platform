@@ -270,6 +270,72 @@ class ChatRepositoryImpl implements ChatRepository {
     }
   }
 
+  /// ADR-0044 — see [ChatRepository.openCompanion]. Touches NO session state: no
+  /// `GET /chat/session/latest`, no `POST /chat/session`, no cached id.
+  @override
+  Future<ChatTurn?> openCompanion() async {
+    final String? token = _session.sessionToken;
+    if (token == null) return null;
+    try {
+      final CompanionOpen open = await _api.getChatCompanion(authToken: token);
+      final ChatReply? reply = open.turn;
+      if (!open.companion || reply == null) return null;
+      return _companionTurn(reply, digestKey: open.digestKey);
+    } catch (error, stack) {
+      // Best-effort, but never silent: a companion that cannot be reached falls
+      // back to today's chat, and the miss is reported like every other caught
+      // error (static, PII-free reason). A 404 from a server that predates the
+      // route lands here too, which is the intended fallback.
+      _report(mapError(error), stack, reason: 'chat_companion_open_failed');
+      return null;
+    }
+  }
+
+  /// ADR-0044 — see [ChatRepository.sendCompanionMessage].
+  @override
+  Future<ChatTurn?> sendCompanionMessage(String text, {String? submissionId}) async {
+    final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+    try {
+      final ChatReply reply = await _api.sendCompanionMessage(
+        authToken: token,
+        text: text,
+        submissionId: submissionId,
+      );
+      return _companionTurn(reply);
+    } on ApiException catch (error) {
+      if (error.statusCode == 409) return null; // no longer a companion worker
+      throw mapError(error);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  /// A companion reply as a [ChatTurn]. The SAME field mapping [sendMessage] uses
+  /// (the companion speaks the chat reply's own shape), plus the companion flag.
+  /// `sessionEnded` is deliberately NOT honoured: a companion turn belongs to no
+  /// session, so it must never clear the cached interview id.
+  ChatTurn _companionTurn(ChatReply reply, {String? digestKey}) => ChatTurn(
+        reply: reply.reply,
+        followups: reply.suggestedFollowups,
+        suggestedOptions: reply.suggestedOptions,
+        extractionReady: reply.extractionReady,
+        unansweredEssentials: reply.unansweredEssentials,
+        blocked: reply.blocked,
+        isMock: reply.isMock,
+        progress: reply.progress,
+        questionKind: reply.questionKind,
+        inputMode: reply.inputMode,
+        occupationLabel: reply.occupationLabel,
+        ttsText: reply.ttsText,
+        askedQuestionId: reply.askedQuestionId,
+        lookahead: reply.lookahead,
+        formOffer: reply.formOffer,
+        resumeUpdate: reply.resumeUpdate,
+        companion: true,
+        digestKey: digestKey,
+      );
+
   @override
   Future<List<ChatMessage>> loadHistory() async {
     final String? token = _session.sessionToken;

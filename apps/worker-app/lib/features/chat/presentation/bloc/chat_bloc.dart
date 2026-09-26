@@ -102,6 +102,25 @@ class ChatSessionRestarted extends ChatEvent {
   const ChatSessionRestarted();
 }
 
+/// ADR-0044 — the Bada Bhai TAB opened: ask the server whether this worker is
+/// in the post-completion COMPANION before touching any chat session.
+///
+/// Dispatched INSTEAD OF [ChatStarted], and only by the tab. When the answer is
+/// "not a companion" — or anything fails — the handler runs the exact
+/// [ChatStarted] logic, so the tab behaves as it always has. When it is a
+/// companion, no session is opened, resumed or minted at all.
+class ChatCompanionStarted extends ChatEvent {
+  const ChatCompanionStarted();
+}
+
+/// ADR-0044 — the Bada Bhai tab came back into focus. In companion mode the
+/// recap is re-read, and a NEW bubble is appended only when its facts changed
+/// (the server's `digest_key`) — the worker who just applied on the Jobs tab sees
+/// the new count; a worker who changed nothing sees nothing new.
+class ChatCompanionRefreshRequested extends ChatEvent {
+  const ChatCompanionRefreshRequested();
+}
+
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
@@ -125,6 +144,7 @@ class ChatState extends Equatable {
     this.formOffer,
     this.resumePending = false,
     this.resumeUpdateQueued = false,
+    this.companion = false,
   });
 
   /// Ordered, append-only transcript.
@@ -249,6 +269,16 @@ class ChatState extends Equatable {
   /// "aap kaunsa kaam karte hain?" opener.
   final bool resumePending;
 
+  /// ADR-0044 — the tab is in the post-completion COMPANION: sends go to
+  /// `/chat/companion/message`, the "build my profile" CTA is hidden (the profile
+  /// is done), and a turn is never counted as an answered interview ask.
+  ///
+  /// TURN-SCOPED like [resumeUpdateQueued], not latched: the companion open sets
+  /// it, every companion turn keeps it, and the first INTERVIEW turn (a 409
+  /// fallback, "Chat se resume banayein") clears it — so the UI always reflects
+  /// what the last reply actually was.
+  final bool companion;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -278,6 +308,7 @@ class ChatState extends Equatable {
     bool clearFormOffer = false,
     bool? resumePending,
     bool? resumeUpdateQueued,
+    bool? companion,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -307,6 +338,7 @@ class ChatState extends Equatable {
       // TURN-SCOPED (field doc): the caller always passes this turn's value, so
       // `?? this` only ever holds it across an emit that is not a new turn.
       resumeUpdateQueued: resumeUpdateQueued ?? this.resumeUpdateQueued,
+      companion: companion ?? this.companion,
     );
   }
 
@@ -331,6 +363,7 @@ class ChatState extends Equatable {
         formOffer,
         resumePending,
         resumeUpdateQueued,
+        companion,
       ];
 }
 
@@ -398,17 +431,34 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     this._repo, {
     ChatAnalyticsSink? analyticsSink,
     KnownWorkerFactsStore? knownFacts,
+    DateTime Function()? clock,
   })  : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
         _knownFacts = knownFacts,
+        _clock = clock ?? DateTime.now,
         super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
     on<ChatRetryRequested>(_onRetryRequested);
     on<ChatVoiceMerged>(_onVoiceMerged);
     on<ChatSessionRestarted>(_onSessionRestarted);
+    on<ChatCompanionStarted>(_onCompanionStarted);
+    on<ChatCompanionRefreshRequested>(_onCompanionRefreshRequested);
   }
 
   final ChatRepository _repo;
+
+  /// The time source for the companion refresh throttle. Injectable ONLY so a
+  /// test can step it; production is [DateTime.now].
+  final DateTime Function() _clock;
+
+  /// ADR-0044 — the `digest_key` of the companion recap last shown, so a tab
+  /// refocus that changed nothing adds nothing.
+  String? _companionDigestKey;
+
+  /// ADR-0044 — when the companion recap was last read; refocus refreshes at
+  /// most once per [_companionRefreshMinGap] so tab-flipping costs no requests.
+  DateTime? _companionReadAt;
+  static const Duration _companionRefreshMinGap = Duration(seconds: 60);
 
   /// PII-free funnel-milestone sink (#B7, #1316). Defaults to
   /// [BbAnalytics.instance]; a test injects its own to observe the per-ask
@@ -720,8 +770,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }) async {
     _inFlightSends++;
     try {
-      final ChatTurn turn =
-          await _repo.sendMessage(text, submissionId: submissionId);
+      final ChatTurn turn = await _sendByMode(text, submissionId);
       _inFlightSends--;
       // #761 — RECONCILE the optimistic lookahead render. The real reply is
       // ALWAYS authoritative: when an optimistic predicted bubble is on screen
@@ -807,7 +856,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // #1689 — 'queued' only on the terminal turn that settled a "Haan".
         // Passed on EVERY turn so an ordinary one clears it.
         resumeUpdateQueued: turn.resumeUpdateQueued,
+        // ADR-0044 — TURN-SCOPED: a companion answer keeps the tab in companion
+        // mode; an interview reply (a 409 fallback) takes it out.
+        companion: turn.companion,
       ));
+      // ADR-0044 — a companion answer is not an interview ask: it must not feed
+      // the per-ask funnel, the wrap-up milestone, the answered-facts store or
+      // `asked_question_id`. Everything below is interview bookkeeping.
+      if (turn.companion) return;
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
       // ask records (the failed attempt threw below and emitted nothing), so no
@@ -845,6 +901,107 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         clearPredictedQuestionKey: true,
       ));
     }
+  }
+
+  /// ADR-0044 — send [text] down the path the tab is on. In companion mode it
+  /// goes to the companion; when the server answers that the worker is no longer
+  /// a companion worker (409 → null), the SAME text is sent down today's chat, so
+  /// the worker's message is never lost to a mode change they did not see.
+  Future<ChatTurn> _sendByMode(String text, String? submissionId) async {
+    if (state.companion) {
+      final ChatTurn? answer =
+          await _repo.sendCompanionMessage(text, submissionId: submissionId);
+      if (answer != null) return answer;
+    }
+    return _repo.sendMessage(text, submissionId: submissionId);
+  }
+
+  /// ADR-0044 — see [ChatCompanionStarted].
+  Future<void> _onCompanionStarted(
+    ChatCompanionStarted event,
+    Emitter<ChatState> emit,
+  ) async {
+    ChatTurn? opening;
+    try {
+      opening = await _repo.openCompanion();
+    } catch (_) {
+      // A bare catch, on purpose: the contract is "never throws", and anything
+      // that does anyway (an Error, an unstubbed test double) must still fall
+      // back to today's chat rather than strand the tab on its spinner.
+      opening = null;
+    }
+    if (opening == null) {
+      await _onStarted(const ChatStarted(), emit);
+      return;
+    }
+    _companionDigestKey = opening.digestKey;
+    _companionReadAt = _clock();
+    // The recap REPLACES the canned interview question in bubble 0: a finished
+    // worker is not asked "aap kaun sa kaam karte hain?". Rebuilt from `state`
+    // at emit time (#344), though the composer is not shown while initializing.
+    emit(state.copyWith(
+      initializing: false,
+      sessionFailed: false,
+      companion: true,
+      messages: <ChatMessage>[
+        ChatMessage(
+          text: opening.reply,
+          fromWorker: false,
+          ttsText: opening.ttsText,
+        ),
+        ...state.messages.skip(1),
+      ],
+      followups: opening.followups,
+      suggestedOptions: opening.suggestedOptions,
+      questionKind: opening.questionKind,
+      inputMode: ChatInputMode.text,
+    ));
+  }
+
+  /// ADR-0044 — see [ChatCompanionRefreshRequested]. Only ever acts while the
+  /// tab is ALREADY in companion mode: it never switches an interview into the
+  /// companion, because a worker mid-redo needs that interview's own CTA.
+  Future<void> _onCompanionRefreshRequested(
+    ChatCompanionRefreshRequested event,
+    Emitter<ChatState> emit,
+  ) async {
+    if (!state.companion || state.initializing || state.sending) return;
+    final DateTime now = _clock();
+    final DateTime? last = _companionReadAt;
+    if (last != null && now.difference(last) < _companionRefreshMinGap) return;
+    _companionReadAt = now;
+    // The transcript as this read began. Handlers run CONCURRENTLY (see
+    // [_inFlightSends]), so a send can start AND finish inside the await below;
+    // its answer then owns the thread and the chips, and a recap landing after
+    // it would bury that answer and swap its chips (a jobs list, the résumé
+    // menu) for the recap's.
+    final List<ChatMessage> before = state.messages;
+
+    ChatTurn? fresh;
+    try {
+      fresh = await _repo.openCompanion();
+    } catch (_) {
+      fresh = null;
+    }
+    // Still a companion worker, still in companion mode, nothing said since the
+    // read began, and something changed. A recap with no key cannot be compared,
+    // so it is never re-announced. The key is NOT recorded when the transcript
+    // moved, so the next refocus evaluates the change again.
+    if (fresh == null || !state.companion || state.sending) return;
+    if (!identical(state.messages, before)) return;
+    final String? key = fresh.digestKey;
+    if (key == null || key == _companionDigestKey) return;
+    _companionDigestKey = key;
+    emit(state.copyWith(
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(text: fresh.reply, fromWorker: false, ttsText: fresh.ttsText),
+      ],
+      followups: fresh.followups,
+      suggestedOptions: fresh.suggestedOptions,
+      questionKind: fresh.questionKind,
+      inputMode: ChatInputMode.text,
+    ));
   }
 
   /// Returns [messages] with the LAST message replaced by a bot bubble carrying

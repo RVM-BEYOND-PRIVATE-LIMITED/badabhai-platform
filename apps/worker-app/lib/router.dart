@@ -718,7 +718,10 @@ GoRouter _buildRouter() {
             routes: <RouteBase>[
               GoRoute(
                 path: Routes.badaBhai,
-                builder: (_, __) => const ChatProfilingScreen(),
+                // ADR-0044 — the TAB, and only the tab, may open the
+                // post-completion companion (behind its Remote Config lever).
+                // The onboarding `/chat` route keeps the default.
+                builder: (_, __) => const ChatProfilingScreen(assistantTab: true),
               ),
             ],
           ),

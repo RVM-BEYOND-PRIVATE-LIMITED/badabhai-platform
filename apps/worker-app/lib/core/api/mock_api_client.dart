@@ -1143,6 +1143,27 @@ class MockApiClient extends ApiClient {
     return null;
   }
 
+  /// ADR-0044 — demo mode is never a companion worker: the tab keeps its demo
+  /// interview, exactly as before the companion existed.
+  @override
+  Future<CompanionOpen> getChatCompanion({required String authToken}) async {
+    await _delay();
+    return CompanionOpen.interview;
+  }
+
+  /// Unreachable in demo mode ([getChatCompanion] never opens the companion), and
+  /// answered the way the real server answers a non-companion worker: 409, which
+  /// the repository turns into "send it down today's chat".
+  @override
+  Future<ChatReply> sendCompanionMessage({
+    required String authToken,
+    required String text,
+    String? submissionId,
+  }) async {
+    await _delay();
+    throw ApiException(409, 'not in companion mode');
+  }
+
   @override
   Future<bool> getNotificationPrefs({required String authToken}) async {
     await _delay();

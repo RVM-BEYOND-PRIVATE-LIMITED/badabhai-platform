@@ -132,6 +132,7 @@ void main() {
         BbRemoteConfig.kKeyChatMaintenanceNotice,
         BbRemoteConfig.kKeyBoostVisible,
         BbRemoteConfig.kKeyFreeQuotaCopy,
+        BbRemoteConfig.kKeyChatCompanionEnabled,
       ];
       for (final String key in declared) {
         expect(BbRemoteConfig.kDefaults.containsKey(key), isTrue,
@@ -154,6 +155,18 @@ void main() {
           BbRemoteConfig.kDefaultBoostVisible);
       expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyFreeQuotaCopy],
           BbRemoteConfig.kDefaultFreeQuotaCopy);
+      expect(BbRemoteConfig.kDefaults[BbRemoteConfig.kKeyChatCompanionEnabled],
+          BbRemoteConfig.kDefaultChatCompanionEnabled);
+    });
+
+    test('the chat companion ships DARK — the tab asks only once flipped', () {
+      BbRemoteConfig.instance.debugReset();
+      expect(BbRemoteConfig.instance.chatCompanionEnabled, isFalse);
+      BbRemoteConfig.instance.debugSetSnapshot(<String, Object>{
+        BbRemoteConfig.kKeyChatCompanionEnabled: true,
+      });
+      expect(BbRemoteConfig.instance.chatCompanionEnabled, isTrue);
+      BbRemoteConfig.instance.debugReset();
     });
 
     test('the voice form ships HIDDEN by default — the flip is console-only',
