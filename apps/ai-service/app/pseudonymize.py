@@ -691,19 +691,39 @@ _CITY_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 _PRINTABLE_ASCII_TEXT_RE = re.compile(r"[\x20-\x7e]*")
+# The closed set of connecting words a location list is written with ("Pune, ya Mumbai", "Pune,
+# anywhere", "Pune, Mumbai etc") plus the country itself. None is a name; withholding them cost
+# a whole `preferred_locations` field at /profile/parse gate 6 (PR #1734 security review).
+_REST_CLOSED_WORDS_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:and|or|ya|aur|etc|anywhere|near|nearby|india)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _without_state_names(text: str) -> str:
+    """State and region names blanked out, through the detector's own tables (deferred import:
+    `signals` imports this module). FAILS CLOSED: any error strips nothing, so a state name is
+    left for the vocabulary test, which it fails — the label is withheld."""
+    try:
+        from .profiling.signals import without_region_or_state_names
+
+        return without_region_or_state_names(text)
+    except Exception:  # defensive; degrade to withholding
+        return text
 
 
 def _is_closed_vocabulary(rest: str) -> bool:
-    """True when ``rest`` is nothing but curated trade/education vocabulary and whole gazetteer
-    city names — printable ASCII end to end. "grinding", "Mumbai", "CNC operator, Pune" pass;
-    "Ramesh Kumar", "Chakan" (a locality in no closed list) and an empty rest do not. Any error
-    consulting the vocabulary is False — the label is withheld."""
-    if not _PRINTABLE_ASCII_TEXT_RE.fullmatch(rest) or not re.search(r"[A-Za-z]", rest):
+    """True when ``rest`` is nothing but closed vocabulary — printable ASCII end to end:
+    curated trade/education words, whole gazetteer city names, state / region names and a few
+    connecting words. "grinding", "Mumbai", "Maharashtra", "ya Mumbai", "CNC operator, Pune" and
+    an empty rest pass; "Ramesh Kumar" and "Chakan" (a locality in no closed list) do not. Any
+    error consulting a closed list withholds the label."""
+    if not _PRINTABLE_ASCII_TEXT_RE.fullmatch(rest):
         return False
-    without_cities = _CITY_NAME_RE.sub(" ", rest)
-    if not re.search(r"[A-Za-z0-9]", without_cities):
-        return True  # nothing but city names and punctuation
-    return _is_known_trade_vocabulary(without_cities)
+    remaining = _without_state_names(_REST_CLOSED_WORDS_RE.sub(" ", _CITY_NAME_RE.sub(" ", rest)))
+    if not re.search(r"[A-Za-z0-9]", remaining):
+        return True  # nothing but places, connecting words and punctuation
+    return _is_known_trade_vocabulary(remaining)
 
 
 def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:

@@ -404,7 +404,7 @@ def test_a_stoplisted_greeting_opener_is_certified_exactly_as_on_main():
     # carve-outs, and demanding a vocabulary rest after "Yes," would reject real parse values.
     from app.pseudonymize import is_certified_clean
 
-    assert is_certified_clean("Yes, anywhere") is True
+    assert is_certified_clean("Yes, will relocate") is True  # a rest that is not vocabulary
 
 
 # --- #1730: a leading CITY does not vouch for the rest of a label either ----------------------
@@ -421,7 +421,9 @@ _CITY_LED_WITHHELD = [
     "Pune, Mumbai Ⓡⓐⓜⓔⓢⓗ",  # nor a name in enclosed letters
     "Pune, Welding Ramesh",  # vocabulary does not launder a name beside it
     "Pune, Chakan",  # a locality in no closed list — the stated cost
-    "Pune,",
+    "Pune, Maharashtra Ramesh",  # a state does not launder a name beside it
+    "Pune, ya Ramesh",  # nor a connecting word
+    "Pune, mh Ramesh",  # a lowercase "mh" is not an abbreviation (they are case-sensitive)
 ]
 _CITY_LED_KEPT = [
     "Pune, welding",
@@ -430,6 +432,21 @@ _CITY_LED_KEPT = [
     "Pune, CNC operator",
     "Welding, Pune",
     "Pune, welding, Mumbai",
+    # PR #1734 security review: a state or the country after a city is coarser geography, and a
+    # location list is written with a few connecting words — none of them is a name.
+    "Pune, Maharashtra",
+    "Faridabad, Haryana",
+    "Lucknow, UP",  # an UPPERCASE listed abbreviation
+    "Pune, India",
+    "Pune, anywhere",
+    "Pune, ya Mumbai",
+    "Pune, or Mumbai",
+    "Pune, and Mumbai",
+    "Pune, Mumbai etc",
+    "Pune, nearby",
+    # An empty or punctuation-only rest holds nothing to withhold.
+    "Pune,",
+    "Welding,",
 ]
 
 
@@ -484,6 +501,9 @@ def test_gate_6_of_profile_parse_rejects_a_name_behind_a_leading_city():
     assert check_pii(["Pune, Ramesh Kumar"], _certify) == "pii_altered"
     assert check_pii(["Pune, Mumbai"], _certify) is None
     assert check_pii("Pune", _certify) is None
+    # A real preferred_locations / current_city value is not rejected (review finding 1 and 2).
+    assert check_pii(["Pune, anywhere", "Faridabad, Haryana"], _certify) is None
+    assert check_pii("Pune, Maharashtra", _certify) is None
 
 
 def test_the_city_rest_check_fails_closed_when_the_vocabulary_cannot_be_consulted(
@@ -498,3 +518,16 @@ def test_the_city_rest_check_fails_closed_when_the_vocabulary_cannot_be_consulte
     monkeypatch.setattr(signals, "is_curated_vocabulary_label", broken)
     assert is_certified_clean("Pune, welding") is False  # needs the vocabulary: withheld
     assert is_certified_clean("Pune, Mumbai") is True  # cities only: no vocabulary call
+    assert is_certified_clean("Pune, Maharashtra") is True  # a state: no vocabulary call
+
+
+def test_the_state_strip_fails_closed_when_it_cannot_be_consulted(monkeypatch: pytest.MonkeyPatch):
+    from app.profiling import signals
+    from app.pseudonymize import is_certified_clean
+
+    def broken(_text: str) -> str:
+        raise RuntimeError("state tables unavailable")
+
+    monkeypatch.setattr(signals, "without_region_or_state_names", broken)
+    assert is_certified_clean("Pune, Maharashtra") is False  # nothing stripped: withheld
+    assert is_certified_clean("Pune, Mumbai") is True

@@ -77,15 +77,22 @@ prompt fired), and on the worker side the model never saw the trade named.
   work-history polish `<role>` gate, and gate 6 of `/profile/parse` (through
   `pseudonymize.certify_value`). When the leading word survived only by a
   carve-out — this one, or the 2026-07-31 city ruling (issue #1730) — everything
-  after it must be closed vocabulary: curated trade/education words and whole
-  gazetteer city names. `"Welding, grinding"`, `"Fanuc, tool offset"`,
-  `"Pune, welding"` and `"Pune, Mumbai"` pass; `"Welding, Anil Kumar"`,
+  after it must be closed vocabulary: curated trade/education words, whole
+  gazetteer city names, state / region names and UPPERCASE listed state
+  abbreviations (the detector's own tables), and the connecting words a location
+  list is written with (and / or / ya / aur / etc / anywhere / near / nearby /
+  india); an empty rest passes. `"Welding, grinding"`, `"Fanuc, tool offset"`,
+  `"Pune, welding"`, `"Pune, Mumbai"`, `"Pune, Maharashtra"` and
+  `"Pune, ya Mumbai"` pass; `"Welding, Anil Kumar"`,
   `"Pune, Ramesh Kumar"`, `"Diploma, Anil Sharma"`, `"Turner, Suresh"`,
   `"Operator, Ramesh sir ke under"`, `"Pune, Ramesh sir ke under"` and a name in
   ANY script (`"Welding, रमेश कुमार"`, Tamil, fullwidth) are withheld — the rest
   must be printable ASCII, and the vocabulary and the gazetteer are all-ASCII, so
   a non-Latin word fails the label closed. The cost, stated: a locality in no
-  closed list after a city (`"Pune, Chakan"`) is withheld too. "Survived only by a
+  closed list after a city (`"Pune, Chakan"`) is withheld too. And the city
+  gazetteer is now also an ALLOWLIST for these gates: a city that is also a common
+  given name or surname ("Kota", "Surat") passes after a released word, so adding a
+  city to `cities.json` needs that check. "Survived only by a
   carve-out" is decided structurally, never by a second vocabulary lookup, so a
   lookup failure withholds. A leading stoplisted greeting (`"Hello, ..."`) is not a
   carve-out and is certified exactly as before (a stated residual: tightening it
