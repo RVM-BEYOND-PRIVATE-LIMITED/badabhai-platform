@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -134,9 +136,18 @@ void main() {
       bloc.add(const ChatMessageSent('hi'));
       await pumpEventQueue();
 
-      verify(() => repo.sendMessage('hi', submissionId: any(named: 'submissionId'))).called(1);
+      final String? companionId = verify(() => repo.sendCompanionMessage('hi',
+          submissionId: captureAny(named: 'submissionId'))).captured.single as String?;
+      final String? interviewId = verify(() => repo.sendMessage('hi',
+          submissionId: captureAny(named: 'submissionId'))).captured.single as String?;
       expect(bloc.state.companion, isFalse);
       expect(bloc.state.messages.last.text, 'Aap kya karna chahte hain.');
+      // ONE worker bubble for the one message, delivered — not a failed one plus a resent copy.
+      final List<ChatMessage> mine = bloc.state.messages.where((ChatMessage m) => m.fromWorker).toList();
+      expect(mine.map((ChatMessage m) => m.text), <String>['hi']);
+      expect(mine.single.status, ChatSendStatus.sent);
+      // The resend is the SAME submission, so a server that saw both dedupes them.
+      expect(interviewId, companionId);
       await bloc.close();
     });
 
@@ -214,19 +225,86 @@ void main() {
     });
 
     test('changed facts append ONE new recap bubble and replace the chips', () async {
+      const List<ChatOption> newChips = <ChatOption>[
+        ChatOption(optionKey: 'companion_applied', labelText: 'Apni applications dekhein'),
+      ];
       int n = 0;
       when(() => repo.openCompanion()).thenAnswer((_) async {
         n++;
-        return _companion(n == 1 ? _recap : 'Aapne ab tak 3 jobs par apply kiya hai.',
-            digestKey: 'k$n');
+        if (n == 1) return _companion(_recap, digestKey: 'k1');
+        return ChatTurn(
+          reply: 'Aapne ab tak 3 jobs par apply kiya hai.',
+          followups: const <String>['Apni applications dekhein'],
+          suggestedOptions: newChips,
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+          digestKey: 'k2',
+        );
       });
       final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
       await pumpEventQueue();
+      expect(bloc.state.suggestedOptions, _recapOptions);
       now = now.add(const Duration(minutes: 5));
       bloc.add(const ChatCompanionRefreshRequested());
       await pumpEventQueue();
       expect(bloc.state.messages.map((ChatMessage m) => m.text).toList(),
           <String>[_recap, 'Aapne ab tak 3 jobs par apply kiya hai.']);
+      expect(bloc.state.suggestedOptions, newChips);
+      expect(bloc.state.followups, <String>['Apni applications dekhein']);
+      await bloc.close();
+    });
+
+    test('a send that lands WHILE the refresh is reading keeps its answer and its chips', () async {
+      // Review of PR #1746: handlers run concurrently, so a companion send can start and
+      // finish inside the refresh's await. The recap must not bury that answer.
+      const List<ChatOption> jobChips = <ChatOption>[
+        ChatOption(optionKey: 'companion_job:11111111-1111-4111-8111-111111111111', labelText: 'CNC Operator — Pune'),
+        ChatOption(optionKey: 'companion_jobs_tab', labelText: 'Sabhi jobs dekhein'),
+      ];
+      final Completer<ChatTurn?> slowRead = Completer<ChatTurn?>();
+      int reads = 0;
+      when(() => repo.openCompanion()).thenAnswer((_) {
+        reads++;
+        return reads == 1 ? Future<ChatTurn?>.value(_companion(_recap, digestKey: 'k1')) : slowRead.future;
+      });
+      when(() => repo.sendCompanionMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
+        (_) async => ChatTurn(
+          reply: 'Kisi job par dabakar poori jaankari dekhein.',
+          followups: <String>[for (final ChatOption o in jobChips) o.labelText],
+          suggestedOptions: jobChips,
+          questionKind: ChatQuestionKind.disambiguate,
+          companion: true,
+        ),
+      );
+      final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+
+      now = now.add(const Duration(minutes: 5));
+      bloc.add(const ChatCompanionRefreshRequested()); // the GET is now in flight
+      await pumpEventQueue();
+      bloc.add(const ChatMessageSent('naye jobs dikhao')); // ...and the POST lands first
+      await pumpEventQueue();
+      expect(bloc.state.messages.last.text, 'Kisi job par dabakar poori jaankari dekhein.');
+
+      slowRead.complete(_companion('Aapne ab tak 3 jobs par apply kiya hai.', digestKey: 'k2'));
+      await pumpEventQueue();
+
+      expect(bloc.state.messages.last.text, 'Kisi job par dabakar poori jaankari dekhein.');
+      expect(bloc.state.messages.map((ChatMessage m) => m.text), isNot(contains('Aapne ab tak 3 jobs par apply kiya hai.')));
+      expect(bloc.state.suggestedOptions, jobChips);
+      await bloc.close();
+    });
+
+    test('a recap with no digest key is never re-announced on refocus', () async {
+      when(() => repo.openCompanion()).thenAnswer((_) async => _companion(_recap));
+      final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      for (int i = 0; i < 3; i++) {
+        now = now.add(const Duration(minutes: 5));
+        bloc.add(const ChatCompanionRefreshRequested());
+        await pumpEventQueue();
+      }
+      expect(bloc.state.messages, hasLength(1));
       await bloc.close();
     });
 
@@ -254,6 +332,8 @@ void main() {
       await pumpEventQueue();
       expect(bloc.state.companion, isFalse);
       expect(bloc.state.messages.map((ChatMessage m) => m.text), isNot(contains(_recap)));
+      // Not even asked: an interview tab makes no companion request on refocus.
+      verify(() => repo.openCompanion()).called(1);
       await bloc.close();
     });
   });

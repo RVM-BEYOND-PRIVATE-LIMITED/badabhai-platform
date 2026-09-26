@@ -155,14 +155,21 @@ void main() {
     });
 
     test('no token: null, and no request is made', () async {
+      // Counted, not fail()ed: openCompanion catches everything, so a fail() thrown inside the
+      // client would be swallowed and the test could never go red.
+      int requests = 0;
       final ChatRepositoryImpl repo = ChatRepositoryImpl(
         ApiClient(
           baseUrl: 'http://test',
-          client: MockClient((http.Request req) async => fail('network must not be hit')),
+          client: MockClient((http.Request req) async {
+            requests++;
+            return _json(_recapJson(), 200);
+          }),
         ),
         SessionRepository(),
       );
       expect(await repo.openCompanion(), isNull);
+      expect(requests, 0);
     });
   });
 

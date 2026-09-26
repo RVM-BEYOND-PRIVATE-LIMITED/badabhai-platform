@@ -970,6 +970,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final DateTime? last = _companionReadAt;
     if (last != null && now.difference(last) < _companionRefreshMinGap) return;
     _companionReadAt = now;
+    // The transcript as this read began. Handlers run CONCURRENTLY (see
+    // [_inFlightSends]), so a send can start AND finish inside the await below;
+    // its answer then owns the thread and the chips, and a recap landing after
+    // it would bury that answer and swap its chips (a jobs list, the résumé
+    // menu) for the recap's.
+    final List<ChatMessage> before = state.messages;
 
     ChatTurn? fresh;
     try {
@@ -977,10 +983,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     } catch (_) {
       fresh = null;
     }
-    // Still a companion worker, still in companion mode, and something changed.
+    // Still a companion worker, still in companion mode, nothing said since the
+    // read began, and something changed. A recap with no key cannot be compared,
+    // so it is never re-announced. The key is NOT recorded when the transcript
+    // moved, so the next refocus evaluates the change again.
     if (fresh == null || !state.companion || state.sending) return;
-    if (fresh.digestKey != null && fresh.digestKey == _companionDigestKey) return;
-    _companionDigestKey = fresh.digestKey;
+    if (!identical(state.messages, before)) return;
+    final String? key = fresh.digestKey;
+    if (key == null || key == _companionDigestKey) return;
+    _companionDigestKey = key;
     emit(state.copyWith(
       messages: <ChatMessage>[
         ...state.messages,
