@@ -26,6 +26,7 @@ import { ChatService } from "./chat.service";
 import { PostMessageResponseSchema } from "./chat.dto";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
 import {
+  emptyGeneralRoad,
   emptyTurnLatency,
   TURN_KINDS,
   type ProfilingEnvelope,
@@ -95,6 +96,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     prefilledKeys: [],
     resumeUpdateOffer: null,
     importAppliedId: null,
+    generalRoad: emptyGeneralRoad(),
     ...over,
   };
 }

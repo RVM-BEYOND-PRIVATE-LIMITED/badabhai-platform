@@ -28,6 +28,8 @@ import {
   readFormOfferReply,
   type FormOfferReply,
 } from "./trade-form-offer";
+import type { GeneralFormOffer } from "./skills-gate";
+import type { ChatGateKind } from "@badabhai/types";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
@@ -346,6 +348,17 @@ export interface TurnResult {
    * none of them serve a handover. See {@link ../profiling/trade-form-router}.
    */
   readonly formOffer?: TradeFormOffer | null;
+  /**
+   * The deterministic gate this turn puts on screen (ADR-0045) — `"skills"` on the general road's
+   * "Kya aur koi skill jodni hai?", absent everywhere else. OPTIONAL for {@link formOffer}'s reason.
+   * The chat wire carries it as `gate_kind`, ABSENT (never null) when unset.
+   */
+  readonly gateKind?: ChatGateKind | null;
+  /**
+   * The general-form handover card (ADR-0045). Set on exactly one turn per general-road interview.
+   * The chat wire carries it as `general_form_offer`, ABSENT (never null) when unset.
+   */
+  readonly generalFormOffer?: GeneralFormOffer | null;
 }
 
 export interface TurnInput {
@@ -3575,6 +3588,9 @@ export class ProfilingOrchestrator {
         answerType: result.answerType,
         // See `LastTurn.formOffer`: the button is the only way out of a handover turn.
         formOffer: result.formOffer ?? null,
+        // See `LastTurn.gateKind` / `LastTurn.generalFormOffer` (ADR-0045).
+        gateKind: result.gateKind ?? null,
+        generalFormOffer: result.generalFormOffer ?? null,
         // #766 item 2 — the prediction rides along, for the reason stated one line up: taken off
         // `result` so the replay is the SAME response rather than a second derivation. Without it
         // a retried submit replayed the words and silently dropped the instant next-question
@@ -3690,12 +3706,20 @@ function replayResultOf(last: LastTurn): TurnResult {
     // CLAMPED ON THE WAY OUT (#1506). A model ask stamped `options_only` before this deployed is
     // sitting in Redis behind a 24 h TTL, and replaying it verbatim would re-lock the composer the
     // live path no longer locks. The engine gate is the only turn allowed to keep it.
+    //
+    // THE SKILLS GATE (ADR-0045) KEEPS IT TOO, recognised by its cached KIND rather than its text:
+    // it opens with the worker's own skills, so no prompt comparison can find it.
     inputMode:
-      last.inputMode === "options_only" && last.reply === EXPERIENCE_GATE_PROMPT
+      last.inputMode === "options_only" &&
+      (last.reply === EXPERIENCE_GATE_PROMPT || last.gateKind === "skills")
         ? "options_only"
         : "text",
     // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.
     formOffer: last.formOffer,
+    // FROM THE CACHE, and ABSENT rather than null when unset — the chat wire must never carry a
+    // null `gate_kind` / `general_form_offer` (see `chat-general-road.wire.test.ts`).
+    ...(last.gateKind != null ? { gateKind: last.gateKind } : {}),
+    ...(last.generalFormOffer != null ? { generalFormOffer: last.generalFormOffer } : {}),
     unansweredEssentials: [],
     complete: false,
     completionReason: null,

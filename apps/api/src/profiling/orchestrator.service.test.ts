@@ -24,6 +24,7 @@ import {
 } from "./conversation-state";
 import { DISAMBIGUATION_PROMPT, IDENTIFY_TYPE_PROMPT, toPackOption } from "./identify.service";
 import { EXPERIENCE_GATE_PROMPT } from "./llm-turn.service";
+import { GENERAL_FORM_OFFER, skillsGatePrompt } from "./skills-gate";
 import {
   MAX_ABUSIVE_TURNS,
   MAX_CONSECUTIVE_CLARIFIES,
@@ -1085,6 +1086,8 @@ describe("LAYER A — the reply cache", () => {
         inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
         reply: "stale",
         formOffer: null,
+        gateKind: null,
+        generalFormOffer: null,
         kind: "ask" as const,
         questionKey: "q_city",
         at: new Date(T0.getTime() + 60_000).toISOString(),
@@ -1936,6 +1939,8 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
         inboundHash: inboundHash(SESSION, 1, text),
         reply: "Kitne saal ka kaam ka tajurba hai?",
         formOffer: null,
+        gateKind: null,
+        generalFormOffer: null,
         kind: "ask" as const,
         questionKey: "q_years",
         at: T0.toISOString(),
@@ -2457,6 +2462,8 @@ describe("chips on screen own the message — custom answers (#1506)", () => {
       whyText: null,
       answerType: "single_select" as const,
       formOffer: null,
+      gateKind: null,
+      generalFormOffer: null,
       lookahead: null,
       inputMode: "options_only" as const,
       replays: 0,
@@ -2474,6 +2481,54 @@ describe("chips on screen own the message — custom answers (#1506)", () => {
     const replayedGate = await gate.orchestrator.takeTurn(say("haan", soon));
     expect(replayedGate.replayed).toBe(true);
     expect(replayedGate.inputMode).toBe("options_only");
+
+    // ADR-0045: the SKILLS gate's text is dynamic (the worker's own skills as bullets), so it is
+    // recognised by its cached kind — and the kind itself rides the replay.
+    const skills = makeWorld();
+    seed(skills.store, {
+      lastTurn: { ...stamp(skillsGatePrompt(["Python", "Django"])), gateKind: "skills" },
+    });
+    const replayedSkills = await skills.orchestrator.takeTurn(say("haan", soon));
+    expect(replayedSkills.replayed).toBe(true);
+    expect(replayedSkills.inputMode).toBe("options_only");
+    expect(replayedSkills.gateKind).toBe("skills");
+  });
+
+  it("a replay carries the general-form card, and ABSENT keys when a stamp has neither (ADR-0045)", async () => {
+    const soon = new Date(T0.getTime() + 1_000);
+    const base = {
+      inboundHash: inboundHash(SESSION, 1, "nahi"),
+      reply: GENERAL_FORM_OFFER.reply,
+      kind: "close" as const,
+      questionKey: null,
+      at: T0.toISOString(),
+      options: [],
+      progress: { answered: 0, total: 2 },
+      whyText: null,
+      answerType: null,
+      formOffer: null,
+      gateKind: null,
+      lookahead: null,
+      inputMode: "text" as const,
+      replays: 0,
+    };
+
+    const card = makeWorld();
+    seed(card.store, { lastTurn: { ...base, generalFormOffer: GENERAL_FORM_OFFER } });
+    const replayedCard = await card.orchestrator.takeTurn(say("nahi", soon));
+    expect(replayedCard.replayed).toBe(true);
+    expect(replayedCard.generalFormOffer).toEqual(GENERAL_FORM_OFFER);
+
+    // The chat wire must never carry a null `gate_kind` / `general_form_offer`: the replay path
+    // leaves the keys OFF rather than setting them to null.
+    const plain = makeWorld();
+    seed(plain.store, {
+      lastTurn: { ...base, reply: "Aap kya kaam karte hain?", kind: "ask", generalFormOffer: null },
+    });
+    const replayedPlain = await plain.orchestrator.takeTurn(say("nahi", soon));
+    expect(replayedPlain.replayed).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(replayedPlain, "gateKind")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(replayedPlain, "generalFormOffer")).toBe(false);
   });
 });
 
