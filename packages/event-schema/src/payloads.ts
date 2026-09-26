@@ -15,6 +15,10 @@ import {
   RESUME_IMPORT_ROUTES,
   RESUME_SOURCES,
   RESUME_UPLOAD_MIME_TYPES,
+  COMPANION_TRIGGERS,
+  COMPANION_INTENTS,
+  COMPANION_NUDGES,
+  COMPANION_JOBS_SCOPES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -4457,3 +4461,50 @@ export const FeedbackSubmittedPayload = z
   })
   .strict();
 export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;
+
+// ---------------------------------------------------------------------------
+// chat.companion_turn_served (ADR-0044)
+// ---------------------------------------------------------------------------
+/**
+ * The post-completion Bada Bhai companion served one turn: the "ab tak kya hua" recap when the
+ * tab opened, or the answer to a message. The funnel record for the feature — how often a
+ * worker with a finished profile comes back to the chat, what they ask for, and what the recap
+ * told them (how many jobs they had applied to, how many new jobs matched, which nudge line).
+ *
+ * COUNTS AND CLOSED SETS ONLY — NEVER WHAT WAS SAID. No reply text, no job id, no job title, no
+ * trade label, no city, and nothing the worker typed: the companion's copy is reviewed constants
+ * filled with integers, and the worker's words are classified into `intent` and discarded.
+ *
+ * NO JOB IDS, DELIBERATELY. A job the recap names is not an impression — `feed.shown(_v2)` is the
+ * impression spine and ADR-0024 keeps chat renders off it — so the only job fact here is a count.
+ *
+ * NULLABLE COUNTS: a turn that did not need a fact (the résumé menu served verbatim, the
+ * guarantee line) does not read it, and a read that failed is left out rather than recorded as
+ * a false zero. `jobs_scope` says which: null = not read on this turn, `unavailable` = the read
+ * failed, `no_skills` = nothing could be claimed as "for your profile". `new_jobs_count` is set
+ * exactly when `jobs_scope` is `profile` (0 is a real, successful zero) — ONE encoding, enforced
+ * by the refine below, so a reader can never mistake "no claim" for "no jobs".
+ *
+ * `day` is the UTC day bucket the tab-open dedupe key is built from (`WorkerActivePayload`
+ * precedent) — never a timestamp finer than the envelope's own `occurred_at`.
+ */
+export const ChatCompanionTurnServedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    trigger: z.enum(COMPANION_TRIGGERS),
+    intent: z.enum(COMPANION_INTENTS),
+    applied_count: z.number().int().nonnegative().nullable(),
+    new_jobs_count: z.number().int().nonnegative().nullable(),
+    jobs_scope: z.enum(COMPANION_JOBS_SCOPES).nullable(),
+    job_chips_count: z.number().int().nonnegative(),
+    resume_source: resumeSource.nullable(),
+    nudge: z.enum(COMPANION_NUDGES).nullable(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+  })
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  });
+export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnServedPayload>;

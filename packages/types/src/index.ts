@@ -49,6 +49,43 @@ export const RESUME_GENERATION_TRIGGERS = [
 ] as const;
 export type ResumeGenerationTrigger = (typeof RESUME_GENERATION_TRIGGERS)[number];
 
+// ---- Post-completion chat companion (ADR-0044) ----
+// The closed vocabularies the Bada Bhai tab's companion speaks in once a worker's profile is
+// confirmed. They are shared by the API (which decides) and the event spine (which records), so
+// the event payload can never carry a value the service does not know. IDS, NEVER TEXT: none of
+// these names a job, a title, a trade label or anything the worker typed.
+//
+// WHAT STARTED a companion turn: the tab opening (`GET /chat/companion`) or a message.
+export const COMPANION_TRIGGERS = ["open", "message"] as const;
+export type CompanionTrigger = (typeof COMPANION_TRIGGERS)[number];
+// WHAT A TURN ANSWERED. `digest` is the "ab tak kya hua" recap (the opening, a greeting);
+// `resume_menu` is the existing post-completion résumé menu served verbatim; `guarantee` is the
+// persona's fixed honest line; `fallback` is "neeche se chunein".
+export const COMPANION_INTENTS = [
+  "digest",
+  "resume_menu",
+  "jobs",
+  "applied",
+  "guarantee",
+  "fallback",
+] as const;
+export type CompanionIntent = (typeof COMPANION_INTENTS)[number];
+// THE ONE NUDGE LINE a recap may carry — picked by an ordered deterministic rule, never a model.
+// No value means "no nudge line was served", which is why the event field is nullable instead
+// of carrying a `none` member (one encoding, not two).
+export const COMPANION_NUDGES = [
+  "resume_pending",
+  "apply_first",
+  "apply_new",
+  "complete_profile",
+] as const;
+export type CompanionNudge = (typeof COMPANION_NUDGES)[number];
+// WHETHER "new jobs for your profile" could be said at all: `profile` the worker's wanted skills
+// were matched; `no_skills` the worker has none, so no claim is made; `unavailable` the read
+// failed and the line was left out.
+export const COMPANION_JOBS_SCOPES = ["profile", "no_skills", "unavailable"] as const;
+export type CompanionJobsScope = (typeof COMPANION_JOBS_SCOPES)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

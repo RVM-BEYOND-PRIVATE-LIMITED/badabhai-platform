@@ -328,6 +328,61 @@ describe("searchOpenPostings — the filters #822 specifies", () => {
   });
 });
 
+describe("ADR-0044 — `publishedAfter`, the companion's \"new in the last N days\"", () => {
+  const AFTER = new Date("2026-09-19T00:00:00.000Z");
+
+  it("ABSENT is the search box exactly — the statement and its params do not change", async () => {
+    // The shipped caller (JobsService.searchJobs) never passes it. Absent, undefined and null
+    // must all compile to the statement search has always issued.
+    const absent = makeSearchDb();
+    await absent.repo.searchOpenPostings(SEARCH_ARGS);
+    const nulled = makeSearchDb();
+    await nulled.repo.searchOpenPostings({ ...SEARCH_ARGS, publishedAfter: null });
+    const a = compile(absent.queries[0]!.where);
+    const n = compile(nulled.queries[0]!.where);
+    expect(n.sql).toBe(a.sql);
+    expect(n.params).toEqual(a.params);
+    expect(a.sql).not.toMatch(/"published_at" >/);
+    expect(a.params).not.toContain(AFTER.toISOString());
+  });
+
+  it("PRESENT adds exactly one strict `published_at >` bound to ONE ISO-8601 timestamptz parameter", async () => {
+    // drizzle's PgTimestamp encodes the Date through toISOString(), so the bound value is a string.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, publishedAfter: AFTER });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text.match(/"published_at" > \$\d+/g)).toHaveLength(1);
+    // Strictly after, never `>=`: a posting published AT the boundary instant is not new.
+    expect(text).not.toMatch(/"published_at" >=/);
+    expect(params.filter((p) => p === AFTER.toISOString())).toHaveLength(1);
+  });
+
+  it("sits DIRECTLY after the status gate, so the (status, published_at) index shape reads as one pair", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, publishedAfter: AFTER });
+    const text = compile(queries[0]!.where).sql;
+    const status = text.search(/"status" = \$\d+/);
+    const published = text.search(/"published_at" > \$\d+/);
+    expect(status).toBeGreaterThanOrEqual(0);
+    expect(published).toBeGreaterThan(status);
+    // Nothing else between them: the next clause after status is the window.
+    expect(text.slice(status, published)).not.toMatch(/reach_skill_ids|not exists|ilike/i);
+  });
+
+  it("composes with the #1240 profile fallback and keeps the applied/skipped exclusion", async () => {
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({
+      ...SEARCH_ARGS,
+      profileSkillIds: ["mskill_cnc_turning"],
+      publishedAfter: AFTER,
+    });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"reach_skill_ids" \?\| \$\d+::text\[\]/);
+    expect(text).toMatch(/not exists/i);
+    expect(params).toContain(WORKER_ID);
+  });
+});
+
 describe("#1240 — an EMPTY role box falls back to the worker's profile", () => {
   const MSKILL_A = "mskill_cnc_vmc_operator";
   const MSKILL_B = "mskill_cnc_turner";

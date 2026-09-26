@@ -28,5 +28,12 @@ import { JobsRepository } from "./jobs.repository";
   imports: [AuthModule, EventsModule],
   controllers: [JobsController],
   providers: [JobsService, JobsRepository],
+  // ADR-0044 — the post-completion chat companion counts "new jobs for your profile" with the SAME
+  // membership rule this module's job search uses (#1240: `reach_skill_ids` overlap,
+  // applied/skipped excluded), so the chat and the search can never disagree about which jobs
+  // match. The
+  // REPOSITORY is exported, not JobsService: `searchJobs` emits `job.search_performed` for a
+  // worker's typed search, and a chat recap is not a search.
+  exports: [JobsRepository],
 })
 export class JobsModule {}

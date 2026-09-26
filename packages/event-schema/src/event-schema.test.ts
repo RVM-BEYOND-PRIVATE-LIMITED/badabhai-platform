@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 199 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events)", () => {
-    expect(EVENT_NAMES).toHaveLength(199);
+  it("exposes all 200 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn)", () => {
+    expect(EVENT_NAMES).toHaveLength(200);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -4984,5 +4984,95 @@ describe("tiered profiling events (migration 0126)", () => {
     const completed = valid["profile.tier_completed"]!;
     expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: null })).success).toBe(true);
     expect(validateEvent(envelope("profile.tier_completed", { ...completed, duration_ms: -1 })).success).toBe(false);
+  });
+});
+
+describe("chat.companion_turn_served (ADR-0044)", () => {
+  const envelope = (payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name: "chat.companion_turn_served",
+    event_version: 1,
+    occurred_at: "2026-09-26T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "worker", subject_id: UUID_B },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+  const valid = {
+    worker_id: UUID_B,
+    trigger: "open",
+    intent: "digest",
+    applied_count: 2,
+    new_jobs_count: 3,
+    jobs_scope: "profile",
+    job_chips_count: 2,
+    resume_source: "form",
+    nudge: "apply_new",
+    day: "2026-09-26",
+  };
+
+  it("is registered and accepts a counts-only recap", () => {
+    expect(isEventName("chat.companion_turn_served")).toBe(true);
+    expect(validateEvent(envelope(valid)).success).toBe(true);
+  });
+
+  it("accepts a turn that read nothing — the résumé menu served verbatim", () => {
+    const menuTurn = {
+      ...valid,
+      trigger: "message",
+      intent: "resume_menu",
+      applied_count: null,
+      new_jobs_count: null,
+      jobs_scope: null,
+      job_chips_count: 0,
+      resume_source: null,
+      nudge: null,
+    };
+    expect(validateEvent(envelope(menuTurn)).success).toBe(true);
+  });
+
+  it("is strict — no field can carry what was said, a job or a name", () => {
+    // Asserted valid first, so each refusal below is the smuggled key's own fault.
+    expect(validateEvent(envelope(valid)).success).toBe(true);
+    for (const smuggled of [
+      { text: "naye jobs dikhao" },
+      { reply: "Aapne ab tak 2 jobs par apply kiya hai." },
+      { job_posting_ids: [UUID_A] },
+      { full_name: "Ramesh" },
+      { trade_label: "Fitter" },
+    ]) {
+      expect(validateEvent(envelope({ ...valid, ...smuggled })).success).toBe(false);
+    }
+  });
+
+  it("closes every vocabulary", () => {
+    expect(validateEvent(envelope({ ...valid, trigger: "push" })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, intent: "llm_answer" })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, jobs_scope: "all" })).success).toBe(false);
+    // One encoding of "no nudge": null. A `none` member would be a second.
+    expect(validateEvent(envelope({ ...valid, nudge: "none" })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, resume_source: "voice" })).success).toBe(false);
+  });
+
+  it("ties new_jobs_count to jobs_scope — one encoding, never a false zero", () => {
+    // A real, successful zero is a profile-scope count.
+    expect(validateEvent(envelope({ ...valid, new_jobs_count: 0 })).success).toBe(true);
+    // A count without a profile-scope read is a lie about where it came from.
+    for (const scope of ["no_skills", "unavailable", null]) {
+      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: 0 })).success).toBe(false);
+      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: null })).success).toBe(true);
+    }
+    // And a profile-scope read always records its count.
+    expect(validateEvent(envelope({ ...valid, new_jobs_count: null })).success).toBe(false);
+  });
+
+  it("refuses a negative count and a timestamp-shaped day", () => {
+    expect(validateEvent(envelope({ ...valid, applied_count: -1 })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, new_jobs_count: 1.5 })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, job_chips_count: -1 })).success).toBe(false);
+    expect(validateEvent(envelope({ ...valid, day: "2026-09-26T10:00:00Z" })).success).toBe(false);
   });
 });

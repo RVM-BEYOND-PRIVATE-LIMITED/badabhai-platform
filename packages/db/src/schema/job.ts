@@ -136,8 +136,9 @@ export const jobPostings = pgTable(
     matchSkillIds: jsonb("match_skill_ids").$type<string[]>().notNull().default(jsonArray),
     // match_skill_ids ∪ their `skill_related` neighbours — the full set a worker can be
     // reached through. TIER 2 = matched via a related skill only. DENORMALIZED on write
-    // so the per-worker reconciliation is one GIN probe (`reach_skill_ids ?| $workerSkills`)
-    // instead of a recursive join. Recomputed whenever match_skill_ids changes.
+    // so the per-worker reconciliation is a single-table `reach_skill_ids ?| $workerSkills`
+    // filter instead of a recursive join. (NOT a GIN probe, as this comment once said:
+    // `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` — ADR-0044.) Recomputed whenever match_skill_ids changes.
     // DELIBERATELY NOT the same thing as the ADR-0030 `skill_ids` column above: that one
     // is the vector-canonicalizer's descriptive tagging and is explicitly NOT a rank
     // input; these two are the V1 MATCH inputs and are deterministic (invariant #4).
