@@ -1,6 +1,6 @@
 import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
 import { z } from "zod";
-import { MESSAGE_DIRECTIONS } from "@badabhai/types";
+import { CHAT_GATE_KINDS, MESSAGE_DIRECTIONS } from "@badabhai/types";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
 
@@ -288,6 +288,37 @@ export const PostMessageResponseSchema = z.object({
    * then calls, so the worst case is a redundant preview, never a lost update.
    */
   resume_update: z.enum(["queued"]).nullable().default(null),
+  /**
+   * THE GENERAL ROAD'S SKILLS GATE IS ON SCREEN (ADR-0045) -- "Aapki skills: • … Kya aur koi skill
+   * jodni hai?" with [Haan] [Nahi]. Present only on that turn (and its replays); ABSENT otherwise,
+   * so every response with the flag off is byte-identical to today's.
+   *
+   * WHY A FIELD AND NOT THE REPLY TEXT. The app locks the keyboard on an options-only Haan/Nahi
+   * gate by matching the experience gate's exact wording; this gate's text is built from the
+   * worker's skills and changes every time. A closed value is what a client can switch on.
+   */
+  gate_kind: z.enum(CHAT_GATE_KINDS).optional(),
+  /**
+   * THE INTERVIEW HANDED OVER TO THE GENERAL FORM (ADR-0045) -- the card whose button opens the
+   * offline general form for a worker whose role is outside the 21 predefined roles.
+   *
+   * A SEPARATE FIELD FROM `form_offer`, deliberately: that one's `kind` is the closed set of trade
+   * forms and shipped apps route ANY `form_offer` to the trade form, which has nothing to serve
+   * this worker. Set on exactly one terminal turn (and its replays); ABSENT otherwise. A client
+   * that predates it shows `reply` and a finished interview -- which is why the flag stays off
+   * until the app release that draws this card has shipped.
+   *
+   * OPTIONAL, NOT `.nullable().default(null)` like `form_offer`, so flag-off bodies stay
+   * byte-identical -- and that costs the compile-time check the defaulted fields get (every
+   * response literal must set them). This card is the ONLY way forward from its turn, so the
+   * chat-engine phase MUST pin it on the replay and reopen paths with a test, not the compiler.
+   */
+  general_form_offer: z
+    .object({
+      headline: z.string(),
+      cta_label: z.string(),
+    })
+    .optional(),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 

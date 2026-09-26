@@ -1193,6 +1193,42 @@ export const EVENT_REGISTRY = {
     domain: "chat",
     payload: p.ChatCompanionTurnServedPayload,
   },
+
+  // ── THE GENERAL ROAD (ADR-0045) — roles outside the 21 predefined roles ──
+  // Which lane a chat session settled into once its role was known. Once per armed session.
+  // Ids, two closed sets, two counts. v1.
+  "profile.profiling_lane_decided": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileProfilingLaneDecidedPayload,
+  },
+  // One answer at the skills gate ("Kya aur koi skill jodni hai?"). Once per round. v1.
+  "profile.skills_gate_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileSkillsGateAnsweredPayload,
+  },
+  // The chat handed the worker to the offline general form. Once per session. NOT
+  // form_mode_entered, whose form_kind is the closed set of trade forms. v1.
+  "profile.general_form_mode_entered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileGeneralFormModeEnteredPayload,
+  },
+  // One of the general form's own two questions (the brief, "worked before?"). Per write;
+  // the brief's LENGTH only, never its text. v1.
+  "profile.general_form_answered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileGeneralFormAnsweredPayload,
+  },
+  // The general form finished (its last question, the brief, settled). Once per worker and
+  // handover session. Counts of what the résumé will carry. v1.
+  "profile.general_form_completed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileGeneralFormCompletedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

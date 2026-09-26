@@ -292,6 +292,14 @@ services:
       # Production ON only after ADR-0044 is Accepted. `:-false` because this bool rejects "".
       CHAT_COMPANION_ENABLED: ${CHAT_COMPANION_ENABLED:-false}
 
+      # ---- THE GENERAL ROAD (ADR-0045) — roles outside the 21 predefined roles.
+      #
+      # On, such a worker's chat runs role → skills and closes with a card to the offline general
+      # form. OFF is the interview as it was, for every worker. Stamped per session, so a flip
+      # reaches new sessions only. Production ON only after the app release with the card and the
+      # form and the owner's signature on ADR-0045. `:-false` so an unset or empty secret is off.
+      CHAT_GENERAL_ROAD_ENABLED: ${CHAT_GENERAL_ROAD_ENABLED:-false}
+
       # TIERED PROFILING (Easy/Medium/Hard on the Chat path). Off is today's full form and
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".

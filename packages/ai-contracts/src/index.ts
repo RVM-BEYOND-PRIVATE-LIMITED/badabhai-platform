@@ -210,12 +210,14 @@ export {
   WorkHistoryPolishInputSchema,
   WorkHistoryPolishOutputSchema,
   LLM_INTERVIEW_STAGES,
+  LLM_INTERVIEW_MODES,
   INPUT_MODES,
 } from "./oie";
 export type {
   ProfilingPhase,
   ExperienceEntry,
   LlmInterviewStage,
+  LlmInterviewMode,
   InputMode,
   LlmInterviewDraft,
   LlmTurnInput,
