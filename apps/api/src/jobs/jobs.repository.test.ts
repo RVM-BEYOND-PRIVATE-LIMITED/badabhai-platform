@@ -343,18 +343,18 @@ describe("ADR-0044 — `publishedAfter`, the companion's \"new in the last N day
     expect(n.sql).toBe(a.sql);
     expect(n.params).toEqual(a.params);
     expect(a.sql).not.toMatch(/"published_at" >/);
-    expect(a.params.some((p) => p instanceof Date)).toBe(false);
+    expect(a.params).not.toContain(AFTER.toISOString());
   });
 
-  it("PRESENT adds exactly one strict `published_at >` bound to ONE Date parameter", async () => {
+  it("PRESENT adds exactly one strict `published_at >` bound to ONE ISO-8601 timestamptz parameter", async () => {
+    // drizzle's PgTimestamp encodes the Date through toISOString(), so the bound value is a string.
     const { repo, queries } = makeSearchDb();
     await repo.searchOpenPostings({ ...SEARCH_ARGS, publishedAfter: AFTER });
     const { sql: text, params } = compile(queries[0]!.where);
     expect(text.match(/"published_at" > \$\d+/g)).toHaveLength(1);
     // Strictly after, never `>=`: a posting published AT the boundary instant is not new.
     expect(text).not.toMatch(/"published_at" >=/);
-    const dates = params.filter((p) => p instanceof Date || typeof p === "string" && p === AFTER.toISOString());
-    expect(dates).toHaveLength(1);
+    expect(params.filter((p) => p === AFTER.toISOString())).toHaveLength(1);
   });
 
   it("sits DIRECTLY after the status gate, so the (status, published_at) index shape reads as one pair", async () => {

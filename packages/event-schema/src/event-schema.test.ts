@@ -5057,6 +5057,18 @@ describe("chat.companion_turn_served (ADR-0044)", () => {
     expect(validateEvent(envelope({ ...valid, resume_source: "voice" })).success).toBe(false);
   });
 
+  it("ties new_jobs_count to jobs_scope — one encoding, never a false zero", () => {
+    // A real, successful zero is a profile-scope count.
+    expect(validateEvent(envelope({ ...valid, new_jobs_count: 0 })).success).toBe(true);
+    // A count without a profile-scope read is a lie about where it came from.
+    for (const scope of ["no_skills", "unavailable", null]) {
+      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: 0 })).success).toBe(false);
+      expect(validateEvent(envelope({ ...valid, jobs_scope: scope, new_jobs_count: null })).success).toBe(true);
+    }
+    // And a profile-scope read always records its count.
+    expect(validateEvent(envelope({ ...valid, new_jobs_count: null })).success).toBe(false);
+  });
+
   it("refuses a negative count and a timestamp-shaped day", () => {
     expect(validateEvent(envelope({ ...valid, applied_count: -1 })).success).toBe(false);
     expect(validateEvent(envelope({ ...valid, new_jobs_count: 1.5 })).success).toBe(false);

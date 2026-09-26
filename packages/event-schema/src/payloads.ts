@@ -4481,7 +4481,9 @@ export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;
  * NULLABLE COUNTS: a turn that did not need a fact (the résumé menu served verbatim, the
  * guarantee line) does not read it, and a read that failed is left out rather than recorded as
  * a false zero. `jobs_scope` says which: null = not read on this turn, `unavailable` = the read
- * failed, `no_skills` = nothing could be claimed as "for your profile".
+ * failed, `no_skills` = nothing could be claimed as "for your profile". `new_jobs_count` is set
+ * exactly when `jobs_scope` is `profile` (0 is a real, successful zero) — ONE encoding, enforced
+ * by the refine below, so a reader can never mistake "no claim" for "no jobs".
  *
  * `day` is the UTC day bucket the tab-open dedupe key is built from (`WorkerActivePayload`
  * precedent) — never a timestamp finer than the envelope's own `occurred_at`.
@@ -4499,5 +4501,10 @@ export const ChatCompanionTurnServedPayload = z
     nudge: z.enum(COMPANION_NUDGES).nullable(),
     day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
   })
-  .strict();
+  .strict()
+  .refine((v) => (v.jobs_scope === "profile") === (v.new_jobs_count !== null), {
+    message:
+      "new_jobs_count is set iff jobs_scope is 'profile' — null scope (not read), 'unavailable' " +
+      "(read failed) and 'no_skills' (no claim) carry no count",
+  });
 export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnServedPayload>;

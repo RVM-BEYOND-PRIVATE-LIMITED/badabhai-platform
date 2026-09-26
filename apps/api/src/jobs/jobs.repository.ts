@@ -306,14 +306,15 @@ export class JobsRepository {
       // feed and search can agree on "matches my profile" without sharing the feed's budget.
       //
       // `?|` is jsonb key-existence-any — ANY overlap, not all: a worker holding five skills
-      // must not be required to match a posting on all five. The identical idiom is at
-      // match/worker-skills.repository.ts:439.
+      // must not be required to match a posting on all five. The identical idiom is in
+      // match/worker-skills.repository.ts, `reconcileReachForWorker` and `listPostingIdsReaching`.
       //
       // ⚠ THIS IS A FILTER, NOT AN INDEX PROBE (corrected by ADR-0044). This comment used to say
       // `job_postings_reach_gin` serves `?|`. It cannot: that index is built with the
       // `jsonb_path_ops` opclass, which indexes only `@>`, `@?` and `@@`; the key-existence
       // operators `?`, `?|` and `?&` need the default `jsonb_ops` opclass. So this predicate is
-      // evaluated row by row over whatever the other conditions leave (see tech-debt register).
+      // evaluated row by row over whatever the other conditions leave (tech-debt row added with
+      // ADR-0044).
       // The ids are bound as
       // ONE text[] parameter — never interpolated — so this is not an injection surface, and
       // they are opaque `mskill_*` vocabulary keys, so no PII crosses into the statement.
