@@ -49,7 +49,7 @@ from typing import NamedTuple
 
 # The ONE city gazetteer (packages/profiling-lexicon cities.json). Read from the privacy
 # module this route already depends on — never from ``app.profiling`` (see __init__).
-from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES
+from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, phone_shaped_runs
 
 # --- Vacancy bands (ADR-0012) ----------------------------------------------
 # The EXACT shipped band strings from packages/types `VACANCY_BANDS`. Mirrored,
@@ -1121,16 +1121,23 @@ def _parse_topic(topic_id: str, text: str, *, attributed: bool) -> object | None
     return None
 
 
-def detect_answers(message: str, last_asked: str | None) -> dict[str, object | None]:
+def detect_answers(
+    message: str, last_asked: str | None, *, pay_text: str | None = None
+) -> dict[str, object | None]:
     """What did the payer just answer?
 
     Returns ``{topic_id: value}``. A value of ``None`` means ANSWERED WITH NOTHING
     (an explicit refusal on a non-essential topic) — the topic is closed but nothing
     is recorded. A topic absent from the mapping was not answered at all.
 
+    ``pay_text`` (#1731) is the raw pay answer `pay_text_for` released, or None. It is
+    read by the PAY parsers only — the pay band and the pay type read in passing — and only
+    when the pay question is on screen; every other topic reads ``message``.
+
     Local only. Never calls the network, never mutates its inputs.
     """
     text = (message or "").strip()
+    pay_source = pay_text if pay_text is not None and last_asked == "pay_range" else text
     if not text or not _HAS_ALNUM_RE.search(text):
         return {}
     # A QUESTION back is never an answer. Without this the attribution rule records
@@ -1150,7 +1157,8 @@ def detect_answers(message: str, last_asked: str | None) -> dict[str, object | N
             if last_asked not in _VALUE_REQUIRED:
                 found[last_asked] = None
         else:
-            value = _parse_topic(last_asked, text, attributed=True)
+            source = pay_source if last_asked == "pay_range" else text
+            value = _parse_topic(last_asked, source, attributed=True)
             if value is not None and _is_recordable(last_asked, value):
                 found[last_asked] = value
 
@@ -1179,7 +1187,7 @@ def detect_answers(message: str, last_asked: str | None) -> dict[str, object | N
         if topic_id in found or topic_id == last_asked or topic_id in skipped:
             continue
         if topic_id == "pay_type":
-            value = _cross_topic_pay_type(text, found.get("pay_range"))
+            value = _cross_topic_pay_type(pay_source, found.get("pay_range"))
         else:
             value = _parse_topic(topic_id, text, attributed=False)
         if value is not None and _is_recordable(topic_id, value):
@@ -1304,6 +1312,80 @@ def carries_identity(placeholder_tokens: list[str] | None) -> bool:
     return any(_IDENTITY_TOKEN_RE.match(token or "") for token in (placeholder_tokens or []))
 
 
+# A dashed PAY RANGE the phone rule claims (#1731). "20000-25000" is ten digits joined by one
+# separator — to the gateway's shape-only phone rule (R30, owner-accepted) it IS a phone, and a
+# real one ("98765-43210") has exactly that shape, so the GATEWAY cannot tell them apart and is
+# not asked to: it still masks every such run, and the DRAFT still keeps the masked text
+# (`safe_draft_text` is unchanged). What changes is one thing only: on the PAY question, the
+# PAY PARSER — and nothing else — may read the raw answer, when that answer is nothing but one
+# money-shaped range (`pay_text_for`). The release is structural, not a text rule: the raw text
+# never reaches a free-text topic, so a phone typed into a description stays masked whatever
+# words sit around it (PR #1733 security review, round 1).
+#
+# A money range is two amounts joined by a dash, ascending, the upper at most
+# `_MONEY_RANGE_MAX_RATIO` times the lower, both round to `_MONEY_RANGE_ROUNDING` rupees and
+# inside the pay band, neither with a leading zero, and a plain amount at most five digits (so a
+# 0-prefixed or +91-prefixed mobile is never one). A real mobile is descending half the time and
+# round in both halves essentially never. And the rest of the answer may hold only pay words
+# (`_PAY_ANSWER_WORD_RE`): "call 98000-99000" is a phone however round it is. STATED RESIDUAL
+# (owner-accepted 2026-09-26, risks register R30 addendum): a round, ascending vanity number
+# typed ALONE as the pay answer is recorded as the pay band — two numbers a worker reads as a
+# wage, never text.
+_RANGE_DASHES = "-‐‑‒–—―−"
+_MONEY_RANGE_AMOUNT = r"([1-9]\d{0,2}(?:,\d{2,3})+|[1-9]\d{3,4})"
+_MONEY_RANGE_RE = re.compile(
+    r"\s*" + _MONEY_RANGE_AMOUNT + r"\s*[" + _RANGE_DASHES + r"]\s*" + _MONEY_RANGE_AMOUNT + r"\s*"
+)
+_MONEY_RANGE_MAX_RATIO = 5
+_MONEY_RANGE_ROUNDING = 100
+# What the rest of a released pay answer may say (PR #1733 security review N1). An ALLOWLIST, not
+# a list of contact words to refuse — that list has no end ("HR", "mobile", "whatsapp", "mera
+# number hai", a name). Every word here names money, a pay basis or a period, or is filler.
+_PAY_ANSWER_WORD_RE = re.compile(
+    r"₹|(?<![A-Za-z0-9])(?:rs|inr|rupees?|salary|pay|wages?|stipend|"
+    r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|gross|ctc|c\.t\.c|cost\s+to\s+company|"
+    r"per\s+month|per\s+mahina|pm|p\.m|monthly|month|mahina|mahine|"
+    r"is|hai|milega|milegi|tak|approx|around)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_PAY_ANSWER_PUNCTUATION_RE = re.compile(r"[" + re.escape(_RANGE_DASHES) + r"\s,.:;/()]*")
+
+
+def is_money_range(run: str) -> bool:
+    """Is this phone-shaped run a round, ascending rupee range ("20,000-25,000")?"""
+    match = _MONEY_RANGE_RE.fullmatch(run or "")
+    if match is None:
+        return False
+    low, high = (int(group.replace(",", "")) for group in match.groups())
+    return (
+        _PAY_MIN_INR <= low < high <= _PAY_MAX_INR
+        and high <= low * _MONEY_RANGE_MAX_RATIO
+        and low % _MONEY_RANGE_ROUNDING == 0
+        and high % _MONEY_RANGE_ROUNDING == 0
+    )
+
+
+def pay_text_for(raw: str, placeholder_tokens: list[str] | None) -> str | None:
+    """The raw answer to the PAY question, for the pay parser only — or None.
+
+    Released only when the gateway's ONLY identity finding was ONE phone-shaped run that is a
+    money range, and every other word of the answer is a pay word. So "20000-25000" and
+    "18000-22000 in hand" are released; "call 98000-99000", "HR 98000-99000, pay 20k", a second
+    figure, a real phone, an email, a name or an id beside it are not — the masked text stands,
+    exactly as before #1731. The caller passes this ONLY on the pay question.
+    """
+    identity = [t for t in (placeholder_tokens or []) if _IDENTITY_TOKEN_RE.match(t or "")]
+    if not identity or not all(t.startswith("[PHONE_") for t in identity):
+        return None
+    runs = phone_shaped_runs(raw)
+    if len(runs) != 1 or not is_money_range(runs[0]):
+        return None
+    rest = _PAY_ANSWER_WORD_RE.sub(" ", raw.replace(runs[0], " ", 1))
+    if not _PAY_ANSWER_PUNCTUATION_RE.fullmatch(rest):
+        return None  # a word that is not a pay word — "call", "HR", a name — or another figure
+    return raw
+
+
 def safe_draft_text(raw: str, pseudonymized: str, placeholder_tokens: list[str] | None) -> str:
     """The text the DRAFT is allowed to keep for this turn.
 
@@ -1312,5 +1394,8 @@ def safe_draft_text(raw: str, pseudonymized: str, placeholder_tokens: list[str] 
     content, so the phone number a payer typed into a description cannot reach the
     stored draft or the published posting. The payer sees the token and is asked
     (via ``clarification_questions``) to retype the field.
+
+    A dashed pay range the phone rule claims does NOT change this (#1731): the pay figure is
+    recovered by the pay parser alone, through `pay_text_for`.
     """
     return pseudonymized if carries_identity(placeholder_tokens) else raw

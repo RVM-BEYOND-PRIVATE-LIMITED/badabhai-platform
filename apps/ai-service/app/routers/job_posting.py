@@ -87,6 +87,15 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
     draft_text = job_posting_answers.safe_draft_text(
         body.message_text, result.text, result.placeholder_tokens
     )
+    #    The ONE thing the raw answer may still feed when identity was masked: the pay parser,
+    #    on the pay question, when the gateway's only finding was a dashed pay range it calls a
+    #    phone (#1731). Never the draft text, never another topic.
+    asked = body.conversation_state.asked_question_ids if body.conversation_state else []
+    pay_text = (
+        job_posting_answers.pay_text_for(body.message_text, result.placeholder_tokens)
+        if asked and asked[-1] == "pay_range"
+        else None
+    )
 
     # 3. Clarify BEFORE advancing: a clarifying message ("what do you mean?") is not
     #    an answer, and next_turn would mis-advance the state (the confusing topic
@@ -96,9 +105,7 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
     #    (answer-trumps-clarify), or when the consecutive clarify budget is spent.
     is_clarify = job_posting_engine.needs_rephrase(body.message_text)
     turn = (
-        job_posting_engine.clarify_turn(
-            body.conversation_state, body.message_text, body.trade_hint
-        )
+        job_posting_engine.clarify_turn(body.conversation_state, body.message_text, body.trade_hint)
         if is_clarify
         else None
     )
@@ -108,6 +115,7 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
             body.message_text,
             body.trade_hint,
             draft_text=draft_text,
+            pay_text=pay_text,
         )
     reply_text, asked_id, updated_state, draft_ready = turn
 
