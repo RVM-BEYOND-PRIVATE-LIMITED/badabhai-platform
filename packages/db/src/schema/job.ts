@@ -137,8 +137,9 @@ export const jobPostings = pgTable(
     // match_skill_ids ∪ their `skill_related` neighbours — the full set a worker can be
     // reached through. TIER 2 = matched via a related skill only. DENORMALIZED on write
     // so the per-worker reconciliation is a single-table `reach_skill_ids ?| $workerSkills`
-    // filter instead of a recursive join. (NOT a GIN probe, as this comment once said:
-    // `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` — ADR-0044.) Recomputed whenever match_skill_ids changes.
+    // filter instead of a recursive join, served by `job_postings_reach_ops_gin` (jsonb_ops;
+    // TD141 — the path_ops `job_postings_reach_gin` cannot serve `?|`). Recomputed whenever
+    // match_skill_ids changes.
     // DELIBERATELY NOT the same thing as the ADR-0030 `skill_ids` column above: that one
     // is the vector-canonicalizer's descriptive tagging and is explicitly NOT a rank
     // input; these two are the V1 MATCH inputs and are deterministic (invariant #4).
@@ -278,12 +279,18 @@ export const jobPostings = pgTable(
     // THE FEED: WHERE status='open' ORDER BY published_at DESC. DESC in the index so the
     // scan is forward (no backward walk, no sort node).
     index("job_postings_feed_idx").on(t.status, t.publishedAt.desc()),
-    // THE PER-WORKER RECONCILIATION: `reach_skill_ids ?| $workerSkillIds` — "which open
-    // postings can reach this worker?" — the query that repairs a worker whose skills
-    // changed after a posting was materialized. jsonb_path_ops (not the default
-    // jsonb_ops) because we only ever ask containment/existence questions: it is ~3x
-    // smaller and faster for exactly that, at the cost of key-only lookups we never do.
+    // CONTAINMENT: `reach_skill_ids @> to_jsonb($skill)` (reach reconciliation's per-skill
+    // join). jsonb_path_ops indexes ONLY `@>`, `@?` and `@@` — it is ~3x smaller than the
+    // default opclass for exactly those, but it CANNOT serve the key-existence operators
+    // `?`, `?|`, `?&`. The comment here once claimed it served the `?|` overlap below; it
+    // never did (TD141).
     index("job_postings_reach_gin").using("gin", t.reachSkillIds.op("jsonb_path_ops")),
+    // THE OVERLAP (TD141, migration 0127): `reach_skill_ids ?| $workerSkillIds` — "which
+    // open postings can reach this worker?" — in reach reconciliation
+    // (WorkerSkillsRepository), the #1240 search fallback and the ADR-0044 companion
+    // (JobsRepository.searchOpenPostings). `?|` needs the DEFAULT jsonb_ops opclass, so
+    // this second GIN exists alongside the path_ops one above rather than replacing it.
+    index("job_postings_reach_ops_gin").using("gin", t.reachSkillIds),
     // FK-referencing column (migration 0076); Postgres does not auto-index it. Also
     // serves the ops/analytics read "all postings in this trade".
     index("job_postings_job_domain_id_idx").on(t.jobDomainId),
