@@ -1931,14 +1931,33 @@ class TradeSheetResumeDocument extends ResumeDocument {
     super.footerMeta,
     super.source,
     required this.trade,
+    this.layout,
     this.headline = const ResumeSheetHeadlineDto(),
     this.sections = const <ResumeDocumentSectionDto>[],
     this.employments = const <ResumeEmploymentDto>[],
     this.employmentsMore,
     this.experiences = const <ResumeExperienceLineDto>[],
+    this.skills = const <String>[],
+    this.machines = const <String>[],
+    this.controllers = const <String>[],
   });
 
   final String trade;
+
+  /// #1736 — WHICH PRINTED SHEET this document was rendered as: `"bb_trade"`
+  /// (the 21 predefined roles) or `"bb_general"` (the BadaBhai general sheet,
+  /// #1735 — every worker on the universal fallback pack or a family pack with
+  /// no trade form). NULL on every server build before Divyanshu's additive
+  /// change lands, and on any value this build does not recognise.
+  ///
+  /// It is the LAYOUT, not the trade and not the road: two workers with the
+  /// same `trade` label render different sheets once their packs differ, and
+  /// the renderer re-renders a stored `bb_general` row as `bb_trade` the moment
+  /// the worker elects one of the 21 (`renderTemplateId` server-side). Keying
+  /// the tab on this — rather than on `trade` — is what stops the tab and the
+  /// PDF disagreeing. Until it arrives, `isGeneralSheetDocument` falls back to
+  /// the only signal the wire has (see that predicate).
+  final String? layout;
   final ResumeSheetHeadlineDto headline;
 
   /// THE SHEET'S OWN ZONES, in the order it prints them — see
@@ -1960,6 +1979,21 @@ class TradeSheetResumeDocument extends ResumeDocument {
   /// Empty for a worker who has [employments]; the two are alternatives.
   final List<ResumeExperienceLineDto> experiences;
 
+  /// #1736 — the worker's own SKILLS / MACHINES & TOOLS / CONTROLLERS lists,
+  /// which the general sheet prints as its first section ("Core Skills: a, b,
+  /// c").
+  ///
+  /// EMPTY ON EVERY SERVER BUILD TODAY, and that is not a bug to work around:
+  /// the printed sheet reads these three off the RENDER INPUT, and the stored
+  /// document has never carried them (only `format: "generic"` has its own
+  /// copies). Divyanshu's additive change adds them here; parsing them now
+  /// means the Skills section appears the day it ships, with no second client
+  /// release. Until then the section has no rows and therefore draws nothing —
+  /// never an empty grey bar, and never a list invented from the resume text.
+  final List<String> skills;
+  final List<String> machines;
+  final List<String> controllers;
+
   factory TradeSheetResumeDocument.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic>? rawHeadline =
         json['headline'] as Map<String, dynamic>?;
@@ -1972,6 +2006,7 @@ class TradeSheetResumeDocument extends ResumeDocument {
       footerMeta: json['footerMeta'] as String?,
       source: ResumeDocument.sourceFrom(json),
       trade: json['trade'] as String? ?? '',
+      layout: _sheetLayoutFrom(json['layout']),
       headline: rawHeadline == null
           ? const ResumeSheetHeadlineDto()
           : ResumeSheetHeadlineDto.fromJson(rawHeadline),
@@ -1988,19 +2023,74 @@ class TradeSheetResumeDocument extends ResumeDocument {
           .whereType<Map<String, dynamic>>()
           .map(ResumeExperienceLineDto.fromJson)
           .toList(growable: false),
+      skills: _sheetStrings(json, 'skills'),
+      machines: _sheetStrings(json, 'machines'),
+      controllers: _sheetStrings(json, 'controllers'),
     );
   }
+
+  /// Only the two sheets this build knows how to draw; anything else (or
+  /// absent) is null = unknown, and the caller keeps its fallback. Same
+  /// closed-set discipline as [ResumeDocument.sourceFrom]: a layout id this
+  /// build has never heard of must not select a layout by accident.
+  static String? _sheetLayoutFrom(Object? raw) => switch (raw) {
+        kTradeSheetLayout => kTradeSheetLayout,
+        kGeneralSheetLayout => kGeneralSheetLayout,
+        _ => null,
+      };
+
+  static List<String> _sheetStrings(Map<String, dynamic> json, String key) =>
+      (json[key] as List<dynamic>? ?? const <dynamic>[])
+          .whereType<String>()
+          .map((String v) => v.trim())
+          .where((String v) => v.isNotEmpty)
+          .toList(growable: false);
 
   @override
   List<Object?> get props => <Object?>[
         ...super.props,
         trade,
+        layout,
         headline,
         sections,
         employments,
         employmentsMore,
         experiences,
+        skills,
+        machines,
+        controllers,
       ];
+}
+
+/// The printed sheet the 21 predefined roles render as.
+const String kTradeSheetLayout = 'bb_trade';
+
+/// The printed sheet every worker OUTSIDE the 21 predefined roles renders as
+/// (#1735) — the BadaBhai general sheet.
+const String kGeneralSheetLayout = 'bb_general';
+
+/// The generic trade LABEL every pack outside the 21 falls back to
+/// (`tradeKindForPack`'s `?? "trade"` server-side).
+///
+/// A SIGNAL, NOT A CONTRACT — it is a labelling fallback that happens to be
+/// unique to exactly the workers the general sheet is for, which is why it is
+/// only ever read when [TradeSheetResumeDocument.layout] is absent. It is never
+/// rendered: it is a raw slug (the no-raw-ids rule).
+const String kGeneralSheetTradeFallback = 'trade';
+
+/// #1736 — true when this document is the BadaBhai general sheet, so the tab
+/// draws the same sections the worker's PDF prints.
+///
+/// Reads the explicit [TradeSheetResumeDocument.layout] whenever the server
+/// sends one and falls back to [kGeneralSheetTradeFallback] only when it does
+/// not. When Divyanshu's field lands, the fallback stops being consulted for
+/// every fresh document — no client change needed — and this predicate remains
+/// the single place the question is answered.
+bool isGeneralSheetDocument(ResumeDocument? document) {
+  if (document is! TradeSheetResumeDocument) return false;
+  final String? layout = document.layout;
+  if (layout != null) return layout == kGeneralSheetLayout;
+  return document.trade.trim() == kGeneralSheetTradeFallback;
 }
 
 /// Response of GET /resume/document (apps/api resume.controller.ts
