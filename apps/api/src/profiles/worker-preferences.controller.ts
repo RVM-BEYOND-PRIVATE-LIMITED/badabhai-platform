@@ -14,7 +14,14 @@ import {
   type WorkPreferencesResponse,
 } from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
-import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
+import {
+  AVAILABILITY_STATUSES,
+  DOCUMENTS_READY,
+  JOB_TYPES,
+  LANGUAGES,
+  SHIFTS,
+  WORK_TYPES,
+} from "./worker-preferences.vocabulary";
 import { CITY_CATALOGUE, STATE_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
 import { CITY_HUBS, type CityHub } from "./worker-cities.hubs";
 
@@ -51,6 +58,18 @@ export interface WorkPreferenceOptionsResponse {
    * the hubs sections and keeps today's state→city cascade.
    */
   readonly city_hubs: readonly CityHub[];
+  /**
+   * WHEN the worker can start — `availability.status`'s closed set (ADR-0045 R4). The PUT has
+   * validated `availability.status` against this dictionary since Layer A (c), but no page could
+   * render it: the general form's terms page asks availability and needs the chips from here.
+   */
+  readonly availability_status: Record<string, string>;
+  /**
+   * The multi-select `work_types` (ADR-0045 R4) — the SAME dictionary object as `job_type`
+   * (`WORK_TYPES === JOB_TYPES`), served under the field's own name so a page that asks the multi
+   * reads its chips by the key it submits. The duplication is on the wire only, never in source.
+   */
+  readonly work_types: Record<string, string>;
 }
 
 /**
@@ -95,7 +114,8 @@ export class WorkerPreferencesController {
    * preferred-cities cascade both filter without dead ends.
    *
    * ADDITIVE, so shipped builds are unaffected: the Flutter decoder reads named keys and ignores
-   * the rest.
+   * the rest. `availability_status` and `work_types` (ADR-0045) follow the same rule: the general
+   * form's terms page asks both, and no shipped build's decoder (`WorkPrefOptionsDto`) reads them.
    */
   @Get("me/work-preferences/options")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
@@ -108,6 +128,8 @@ export class WorkerPreferencesController {
       cities: CITY_CATALOGUE,
       states: STATE_CATALOGUE,
       city_hubs: CITY_HUBS,
+      availability_status: AVAILABILITY_STATUSES,
+      work_types: WORK_TYPES,
     };
   }
 

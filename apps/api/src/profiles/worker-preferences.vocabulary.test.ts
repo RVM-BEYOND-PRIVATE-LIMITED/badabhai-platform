@@ -5,10 +5,13 @@ import {
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
   EDUCATION_QUALIFICATIONS,
+  TRADE_FORM_EDUCATION_QUALIFICATIONS,
   labelFor,
   labelsFor,
 } from "./worker-preferences.vocabulary";
 import { SetMyPreferencesSchema } from "./worker-preferences.dto";
+import { SetMyQualificationsSchema } from "./worker-qualifications.dto";
+import { educationLine, qualificationFactsFrom } from "../resume/resume-qualification-rows";
 
 /**
  * THE DROP-THE-UNKNOWN RULE, held in place.
@@ -80,6 +83,10 @@ describe("EDUCATION_QUALIFICATIONS — the whole-credential set", () => {
     // an object — so slugs of "10" and "12" (which `KNOWN_EDUCATION_LEVELS` uses) would render as
     // "10th pass · 12th pass · Below 10th · ITI …" for every worker, with no fix available at the
     // call site. `class_10` / `class_12` is what keeps the ladder readable.
+    //
+    // EIGHT SINCE ADR-0045 §6: `postgraduate` and `doctorate` APPENDED after `graduate`, which is
+    // where they sit on the ladder — inserted anywhere else, every general-road chip row would read
+    // out of order.
     expect(Object.keys(EDUCATION_QUALIFICATIONS)).toEqual([
       "below_10",
       "class_10",
@@ -87,7 +94,66 @@ describe("EDUCATION_QUALIFICATIONS — the whole-credential set", () => {
       "iti",
       "diploma",
       "graduate",
+      "postgraduate",
+      "doctorate",
     ]);
+    expect(EDUCATION_QUALIFICATIONS.postgraduate).toBe("Postgraduate");
+    expect(EDUCATION_QUALIFICATIONS.doctorate).toBe("Doctorate");
+  });
+
+  it("the TRADE forms keep offering exactly today's six, in the same order (ADR-0045 R1/§6)", () => {
+    // THE PIN THAT KEEPS THE 21 ON TODAY'S PATH. The trade forms render their credential chips from
+    // this subset (served as `education_credential`), so a seventh slug here is a new chip on
+    // every trade form — the change R1 forbids. Pinned as an exact ordered list, not derived from
+    // the whole map, because deriving it is exactly the drift this pin exists to catch.
+    expect(Object.keys(TRADE_FORM_EDUCATION_QUALIFICATIONS)).toEqual([
+      "below_10",
+      "class_10",
+      "class_12",
+      "iti",
+      "diploma",
+      "graduate",
+    ]);
+    expect(TRADE_FORM_EDUCATION_QUALIFICATIONS).not.toHaveProperty("postgraduate");
+    expect(TRADE_FORM_EDUCATION_QUALIFICATIONS).not.toHaveProperty("doctorate");
+    // A SUBSET, LABEL FOR LABEL — never a second spelling of a rung the whole map already prints.
+    for (const [slug, label] of Object.entries(TRADE_FORM_EDUCATION_QUALIFICATIONS)) {
+      expect(EDUCATION_QUALIFICATIONS[slug], slug).toBe(label);
+    }
+  });
+
+  it("the shared validator accepts both new rungs, and the résumé labels them (ADR-0045 §6)", () => {
+    // ONE DICTIONARY, TWO READERS — this file's header, applied to the new slugs. A slug the
+    // validator accepted without a label would be stored and then DROPPED by `labelFor` at
+    // render: the worker picks "Postgraduate", and his sheet's Education row loses its credential.
+    for (const credential of ["postgraduate", "doctorate"]) {
+      const parsed = SetMyQualificationsSchema.safeParse({
+        educations: [{ credential, field: "Chemistry", year: 2019 }],
+      });
+      expect(parsed.success, `${credential} refused by the shared validator`).toBe(true);
+    }
+
+    const row = {
+      credential: "postgraduate",
+      field: "M.Sc Chemistry",
+      council: null,
+      year: 2019,
+      institute: null,
+    };
+    expect(educationLine(row)).toBe("Postgraduate — M.Sc Chemistry · 2019");
+    expect(educationLine({ ...row, credential: "doctorate", field: null })).toBe(
+      "Doctorate · 2019",
+    );
+    // Through the block Zone 5 is built from: the first row is the headline.
+    expect(qualificationFactsFrom({ certificates: [], educations: [row] })?.educationHeadline).toBe(
+      "Postgraduate — M.Sc Chemistry · 2019",
+    );
+  });
+
+  it("still refuses a slug neither set knows", () => {
+    expect(
+      SetMyQualificationsSchema.safeParse({ educations: [{ credential: "phd" }] }).success,
+    ).toBe(false);
   });
 
   it("splits the merged credential rather than collapsing it", () => {

@@ -32,7 +32,9 @@ import { ROLE_FORM_DESCRIPTORS } from "../roles/role-registry";
  * explicitly skips any field the crosswalk claims, so both the interview and the trade form route
  * these six onto `worker_profiles` (or, for `current_city`, `workers.current_city`) and NONE of
  * them has ever produced a `worker_attributes` row — there is no `attribute_key` alias to register
- * for them, and adding one would name a write path that does not exist. A consumer of this registry
+ * for them, and adding one would name a write path that does not exist. (`salary_expected`'s
+ * attribute aliases are the preferences page's OWN keys — `salary_expected_max`, and since ADR-0045
+ * `salary_expected_min` — never an attribute named `salary_expected`.) A consumer of this registry
  * (the #1504/#1505 settled-state resolver included) must therefore walk EVERY kind a fact declares
  * to ask "is this already settled" — filtering by `kind === 'attribute_key'` alone is wrong for any
  * fact whose settling alias lives under `target_field` or `worker_column` instead, which is exactly
@@ -172,11 +174,17 @@ export const WORKER_FACTS: Readonly<Record<WorkerFactId, WorkerFactDefinition>> 
     aliases: [
       settles("pack_question_key", "salary_expected"),
       settles("target_field", "salary_expected"),
-      // THE BAND'S UPPER END, AND THE PAGE'S ONLY KEY (owner ruling 2026-09-15). The worker reads
-      // both as "how much do you want a month"; that they store different ends of one band is
-      // why they are one fact rather than two.
+      // THE BAND'S UPPER END, AND UNTIL ADR-0045 THE PAGE'S ONLY KEY (owner ruling 2026-09-15).
+      // The worker reads both as "how much do you want a month"; that they store different ends
+      // of one band is why they are one fact rather than two.
       settles("attribute_key", "salary_expected_max"),
       settles("marker_dto_field", "salary_expected_max"),
+      // ADR-0045 R4 — THE BAND'S LOWER END ON THE PAGE, for the general road, whose chat never asks
+      // the interview's `salary_expected`. It is the interview's own question asked on a page, so
+      // it SETTLES the same fact; a separate key rather than an attribute named `salary_expected`
+      // because that name is an RFS field with no attribute row (see the header note).
+      settles("attribute_key", "salary_expected_min"),
+      settles("marker_dto_field", "salary_expected_min"),
     ],
   },
   education: {

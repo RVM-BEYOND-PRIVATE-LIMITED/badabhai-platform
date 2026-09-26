@@ -76,6 +76,7 @@ import { DevicesController } from "../auth/devices.controller";
 import { PinController } from "../auth/pin.controller";
 import { ProfilingController } from "../profiling/profiling.controller";
 import { ResumeImportController } from "../profiling/resume-import/resume-import.controller";
+import { GeneralFormController } from "../profiling/general-form/general-form.controller";
 import { ResumeDisclosureController } from "../disclosures/resume-disclosure.controller";
 import { OccupationController } from "../occupation/occupation.controller";
 import { InterviewKitsController } from "../interview-kit/interview-kits.controller";
@@ -721,6 +722,14 @@ const CONTRACT: ControllerContract[] = [
     ctor: ResumeImportController,
     routes: { createUploadUrl: [C, W], confirm: [C, W], get: [C, W] },
   },
+  // ADR-0045 — the general form. Worker-authed and consent-gated at the CLASS level, so both routes
+  // inherit the pair; the worker comes from the token and there is no session id on the surface.
+  // Its GET replays the worker's own brief, so the guards are load-bearing, not decorative.
+  {
+    name: "GeneralForm",
+    ctor: GeneralFormController,
+    routes: { schema: [C, W], answer: [C, W] },
+  },
   {
     name: "ResumeDisclosure",
     ctor: ResumeDisclosureController,
@@ -820,6 +829,8 @@ describe("API authz contract — guards on every controller route", () => {
       WorkerEmploymentController,
       WorkerPreferencesController,
       WorkerQualificationsController,
+      // ADR-0045 — serves the worker's own brief back to him; a third route must not join unpinned.
+      GeneralFormController,
     ] as Ctor[]) {
       it(`${ctor.name} lists every route it serves`, () => {
         const proto = ctor.prototype as Record<string, unknown>;
@@ -857,6 +868,10 @@ describe("API authz contract — guards on every controller route", () => {
       // document on the platform, so a `ConsentGuard` that ran before `WorkerAuthGuard` had
       // attached `req.worker` would fail open on the one surface least able to afford it.
       { name: "ResumeImport", ctor: ResumeImportController },
+      // ADR-0045 — the general form. Same class-level pair, same ordering hazard: a ConsentGuard
+      // that ran before WorkerAuthGuard had attached `req.worker` would fail open on a route
+      // that stores and replays the worker's own words.
+      { name: "GeneralForm", ctor: GeneralFormController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

@@ -6,7 +6,15 @@ import type { WorkerPreferencesService } from "./worker-preferences.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
 import { CITY_CATALOGUE, STATE_CATALOGUE } from "./worker-cities.catalogue";
-import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
+import { SetMyPreferencesSchema } from "./worker-preferences.dto";
+import {
+  AVAILABILITY_STATUSES,
+  DOCUMENTS_READY,
+  JOB_TYPES,
+  LANGUAGES,
+  SHIFTS,
+  WORK_TYPES,
+} from "./worker-preferences.vocabulary";
 
 /**
  * The options endpoint's WIRE CONTRACT.
@@ -27,12 +35,15 @@ function controller(): WorkerPreferencesController {
 }
 
 describe("GET /workers/me/work-preferences/options", () => {
-  it("serves exactly seven option sets", () => {
-    // Pinned as a whole, not key by key: an EIGHTH key added without a client change is a payload
+  it("serves exactly nine option sets", () => {
+    // Pinned as a whole, not key by key: a TENTH key added without a client change is a payload
     // every worker downloads and nothing renders, and this list is where that gets noticed.
     // `states` was the sixth, added consciously by #1429 for the state-then-city cascade;
-    // `city_hubs` is the seventh (#1634), the DESIGN2 picker's curated hub catalogue.
+    // `city_hubs` is the seventh (#1634), the DESIGN2 picker's curated hub catalogue;
+    // `availability_status` and `work_types` are the eighth and ninth (ADR-0045 R4), the chips
+    // the general form's terms page asks and no other page could render.
     expect(Object.keys(controller().options()).sort()).toEqual([
+      "availability_status",
       "cities",
       "city_hubs",
       "documents_ready",
@@ -40,6 +51,7 @@ describe("GET /workers/me/work-preferences/options", () => {
       "languages",
       "shift",
       "states",
+      "work_types",
     ]);
   });
 
@@ -63,7 +75,7 @@ describe("GET /workers/me/work-preferences/options", () => {
     expect(new Set(cities.map((c) => c.state)).size).toBe(states.length);
   });
 
-  it("serves the four closed vocabularies by reference, not a copy", () => {
+  it("serves the six closed vocabularies by reference, not a copy", () => {
     // The dictionaries are the single source of truth for both the zod enums and the printed
     // résumé labels. Copying them here would be a third place an option could exist.
     const res = controller().options();
@@ -71,6 +83,26 @@ describe("GET /workers/me/work-preferences/options", () => {
     expect(res.documents_ready).toBe(DOCUMENTS_READY);
     expect(res.job_type).toBe(JOB_TYPES);
     expect(res.shift).toBe(SHIFTS);
+    expect(res.availability_status).toBe(AVAILABILITY_STATUSES);
+    expect(res.work_types).toBe(WORK_TYPES);
+    // ONE DICTIONARY UNDER TWO KEYS (`WORK_TYPES === JOB_TYPES`), so the multi and the single can
+    // never offer different options or print different English for one slug.
+    expect(res.work_types).toBe(res.job_type);
+  });
+
+  it("serves the two ADR-0045 chip sets the PUT actually accepts, and nothing it refuses", () => {
+    // THE FAILURE A SERVED CHIP SET EXISTS TO PREVENT: a chip the worker can tap that the
+    // `.strict()` PUT then refuses, failing the WHOLE page save. Asserted through the real schema.
+    const res = controller().options();
+    for (const status of Object.keys(res.availability_status)) {
+      expect(
+        SetMyPreferencesSchema.safeParse({ availability: { status } }).success,
+        `availability status ${status}`,
+      ).toBe(true);
+    }
+    const allTypes = Object.keys(res.work_types);
+    expect(allTypes.length).toBeGreaterThan(0);
+    expect(SetMyPreferencesSchema.safeParse({ work_types: allTypes }).success).toBe(true);
   });
 
   it("serves the city catalogue, so city entry stops being free-text-and-hope (#1406)", () => {
@@ -98,11 +130,16 @@ describe("GET /workers/me/work-preferences/options", () => {
   it("discloses no worker data and stays small enough to ship on every page mount", () => {
     const body = JSON.stringify(controller().options());
     expect(body).not.toMatch(/worker_?id|phone|full_?name|email/i);
-    // A backstop, not a budget — honest about which. The whole response is ~2 KB today, so this
-    // ceiling has an order of magnitude of slack and will not notice the gazetteer doubling. It
-    // catches only the change that turns a static dictionary into something large enough that
-    // "serve it on every page mount instead of a `?q=` route" stops being obviously right.
+    // A backstop, not a budget — honest about which. MEASURED 2026-09-26 at ~8.8 KB: the city
+    // catalogue (~4.7 KB) and the hub catalogue (~2.5 KB) are most of it, and ADR-0045's two chip
+    // sets added ~230 bytes. The ceiling still has ~7 KB of slack; it catches only the change that
+    // turns a static dictionary into something large enough that "serve it on every page mount
+    // instead of a `?q=` route" stops being obviously right.
     expect(body.length).toBeLessThan(16_000);
+    // The two ADR-0045 sets are dictionaries of a handful of slugs, not catalogues.
+    const res = controller().options();
+    expect(JSON.stringify(res.availability_status).length).toBeLessThan(512);
+    expect(JSON.stringify(res.work_types).length).toBeLessThan(512);
   });
 });
 

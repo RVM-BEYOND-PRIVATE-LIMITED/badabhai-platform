@@ -1,10 +1,14 @@
 import "reflect-metadata";
+import { randomUUID } from "node:crypto";
+import { BadRequestException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NewWorkerAttribute } from "@badabhai/db";
+import { validateEvent, type BadaBhaiEvent } from "@badabhai/event-schema";
 
 import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
 import { CITY_CATALOGUE } from "./worker-cities.catalogue";
-import { SetMyPreferencesSchema } from "./worker-preferences.dto";
+import { PREFERENCE_WIRE_KEYS, SetMyPreferencesSchema } from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
 
@@ -635,5 +639,267 @@ describe("Layer A (c) — the extended attributes and the json kind", () => {
     expect(res.values.availability).toBeNull();
     expect(res.partial).toContain("availability");
     expect(res.dropped_count).toBe(1);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+ * ADR-0045 R4 — `salary_expected_min`, the band's lower end on the page
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe("salary_expected_min — the band's lower end (ADR-0045 R4)", () => {
+  /** The 400 the band check throws, or undefined when the write went through. */
+  async function refusal(
+    h: ReturnType<typeof setup>,
+    body: unknown,
+  ): Promise<BadRequestException | undefined> {
+    try {
+      await h.svc.setForWorker(WORKER, parse(body), CTX);
+      return undefined;
+    } catch (err) {
+      if (err instanceof BadRequestException) return err;
+      throw err;
+    }
+  }
+
+  /** The refusal's body, in the validation pipe's shape. */
+  const bodyOf = (err: BadRequestException) =>
+    err.getResponse() as { message: string; issues: { path: string; message: string }[] };
+
+  it("writes it as a `number` row under its own key, the wire name and the storage name identical", async () => {
+    const h = setup();
+    await h.svc.setForWorker(WORKER, parse({ salary_expected_min: 18000 }), CTX);
+    expect(rowFor(h.upsertMany.mock.calls[0]![0], "salary_expected_min")).toMatchObject({
+      valueKind: "number",
+      valueNumber: "18000",
+      valueText: null,
+      source: "answer_map",
+      packId: null,
+      packVersion: null,
+    });
+    // NOT `salary_expected` — that name is the interview's RFS field and has no attribute row.
+    expect(rowFor(h.upsertMany.mock.calls[0]![0], "salary_expected")).toBeUndefined();
+  });
+
+  it("round-trips: stored, read back by the GET, and re-sent unchanged by an unedited save", async () => {
+    const band = [
+      stored("salary_expected_min", { valueKind: "number", valueNumber: "18000" }),
+      stored("salary_expected_max", { valueKind: "number", valueNumber: "25000" }),
+    ];
+    const read = setup(null, band);
+    const { values, partial } = await read.svc.getForWorker(WORKER);
+    expect(values.salary_expected_min).toBe(18000);
+    expect(values.salary_expected_max).toBe(25000);
+    expect(partial).toEqual([]);
+
+    const body = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null));
+    const save = setup(null, band);
+    await save.svc.setForWorker(WORKER, parse({ ...body, touched_only: true }), CTX);
+    const written = save.upsertMany.mock.calls[0]![0];
+    expect(rowFor(written, "salary_expected_min")?.valueNumber).toBe("18000");
+    expect(rowFor(written, "salary_expected_max")?.valueNumber).toBe("25000");
+  });
+
+  it("clears it on an explicit null, and needs no comparison to do so", async () => {
+    const h = setup(null, [
+      stored("salary_expected_max", { valueKind: "number", valueNumber: "25000" }),
+    ]);
+    await h.svc.setForWorker(WORKER, parse({ salary_expected_min: null }), CTX);
+    expect(h.deleteKeys.mock.calls[0]![1]).toEqual(["salary_expected_min"]);
+    // A cleared end leaves at most one end stored — nothing to order, so nothing to read.
+    expect(h.loadKeys).not.toHaveBeenCalled();
+  });
+
+  it("REFUSES min > max in one body, before anything is written", async () => {
+    const h = setup();
+    const err = await refusal(h, { salary_expected_min: 30000, salary_expected_max: 25000 });
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(bodyOf(err!).issues).toEqual([
+      {
+        path: "salary_expected_min",
+        message: "salary_expected_min must not exceed salary_expected_max",
+      },
+    ]);
+    // FAIL CLOSED: no half-stored band, no event, no re-render.
+    expect(h.upsertMany).not.toHaveBeenCalled();
+    expect(h.deleteKeys).not.toHaveBeenCalled();
+    expect(h.emit).not.toHaveBeenCalled();
+    // The two figures were in the body the pipe already accepted; neither may reach the error.
+    const serialised = JSON.stringify(err!.getResponse());
+    expect(serialised).not.toContain("30000");
+    expect(serialised).not.toContain("25000");
+  });
+
+  it("a new min above the STORED max clears the stored max — the latest word wins", async () => {
+    const h = setup(null, [
+      stored("salary_expected_max", { valueKind: "number", valueNumber: "25000" }),
+    ]);
+    const result = await h.svc.setForWorker(WORKER, parse({ salary_expected_min: 26000 }), CTX);
+    expect(h.loadKeys).toHaveBeenCalledWith(WORKER, ["salary_expected_max"]);
+    expect(rowFor(h.upsertMany.mock.calls[0]![0], "salary_expected_min")?.valueNumber).toBe(
+      "26000",
+    );
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, ["salary_expected_max"]);
+    expect(result).toEqual({ worker_id: WORKER, keys_written: 1, keys_cleared: 1 });
+  });
+
+  it("a new max below the STORED min clears the stored min, and the rest of the page is saved", async () => {
+    // The body an installed build can send (it only knows the top end), over a bottom the general
+    // form stored. Refusing would lose the whole page with no field on screen to fix.
+    const h = setup(null, [
+      stored("salary_expected_min", { valueKind: "number", valueNumber: "20000" }),
+    ]);
+    const result = await h.svc.setForWorker(
+      WORKER,
+      parse({ salary_expected_max: 15000, languages: ["hindi"] }),
+      CTX,
+    );
+    const written = h.upsertMany.mock.calls[0]![0];
+    expect(rowFor(written, "salary_expected_max")?.valueNumber).toBe("15000");
+    expect(rowFor(written, "languages")).toBeDefined();
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, ["salary_expected_min"]);
+    expect(result).toEqual({ worker_id: WORKER, keys_written: 2, keys_cleared: 1 });
+  });
+
+  it("one end sent alone that does NOT cross the stored other end clears nothing", async () => {
+    const h = setup(null, [
+      stored("salary_expected_min", { valueKind: "number", valueNumber: "20000" }),
+    ]);
+    await h.svc.setForWorker(WORKER, parse({ salary_expected_max: 20000 }), CTX);
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, []);
+  });
+
+  it("accepts an equal band (a point figure) and an ordered one", async () => {
+    for (const body of [
+      { salary_expected_min: 25000, salary_expected_max: 25000 },
+      { salary_expected_min: 18000, salary_expected_max: 25000 },
+    ]) {
+      const h = setup();
+      await expect(refusal(h, body)).resolves.toBeUndefined();
+      expect(h.upsertMany.mock.calls[0]![0]).toHaveLength(2);
+    }
+  });
+
+  it("an end beside a max whose row cannot be read is not compared, and is written", async () => {
+    // A row of another kind under the key has nothing in `value_number`; there is no stored end.
+    const h = setup(null, [stored("salary_expected_max", { valueKind: "text", valueText: "x" })]);
+    await expect(refusal(h, { salary_expected_min: 26000 })).resolves.toBeUndefined();
+    expect(rowFor(h.upsertMany.mock.calls[0]![0], "salary_expected_min")?.valueNumber).toBe(
+      "26000",
+    );
+  });
+
+  it("a body WITHOUT it is unchanged — an installed build's max-only save writes what it did", async () => {
+    const h = setup();
+    const result = await h.svc.setForWorker(WORKER, parse({ salary_expected_max: 25000 }), CTX);
+    const written = h.upsertMany.mock.calls[0]![0];
+    expect(written.map((r) => r.attributeKey)).toEqual(["salary_expected_max"]);
+    expect(h.deleteKeys).toHaveBeenCalledWith(WORKER, []);
+    expect(result).toEqual({ worker_id: WORKER, keys_written: 1, keys_cleared: 0 });
+    expect(h.emit.mock.calls[0]![0].payload).toEqual({
+      worker_id: WORKER,
+      keys_written: 1,
+      keys_cleared: 0,
+    });
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════
+ * THE FULL PAGE THROUGH THE REAL EVENT VALIDATION
+ * ══════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * `worker.preferences_recorded`, built and validated by the REAL `EventsService` → `createEvent`.
+ *
+ * THE GAP THIS CLOSES, AND IT WAS A LIVE OUTAGE. Every other test in this file mocks `emit`, so
+ * none of them could see that the payload's `keys_written` was bounded at 16 while the page had 17
+ * keys: a page with every field answered SAVED, then threw on the emit, answered 500 and never
+ * queued the re-render. Only the repository is faked here — the envelope, the registry lookup and
+ * the payload schema are the ones production runs, so the next key that outgrows the bound fails
+ * HERE rather than on a worker's phone.
+ */
+describe("the whole page emits a VALID worker.preferences_recorded (real event validation)", () => {
+  /** Every answer key the page has, each answered — the eighteen as of ADR-0045 R4. */
+  const FULL_PAGE = {
+    languages: ["hindi", "english"],
+    documents_ready: ["aadhaar", "pan"],
+    preferred_cities: ["Faridabad"],
+    job_type: "permanent",
+    work_types: ["permanent", "contract"],
+    salary_period: "month",
+    commute_max_km: 20,
+    willing_to_travel: true,
+    availability: { status: "immediate", notice_period_days: 0 },
+    shift: "day",
+    willing_to_relocate: true,
+    accommodation_needed: false,
+    salary_expected_min: 18000,
+    salary_expected_max: 25000,
+    education_credential: "iti",
+    education_council: "ncvt",
+    education_year: 2018,
+    education_institute: "Govt ITI Faridabad",
+  } as const;
+
+  /** The same page with every answer withdrawn: every list `[]`, every scalar `null`. */
+  const CLEARED_PAGE = Object.fromEntries(
+    Object.entries(FULL_PAGE).map(([key, value]) => [key, Array.isArray(value) ? [] : null]),
+  );
+
+  function withRealEvents() {
+    const insert = vi.fn(
+      async (_event: BadaBhaiEvent, _key?: string, _tx?: unknown): Promise<boolean> => true,
+    );
+    const events = new EventsService({ insert } as never, { NODE_ENV: "test" } as never);
+    const svc = new WorkerPreferencesService(
+      {
+        upsertMany: async () => 0,
+        deleteKeys: async () => 0,
+        loadKeys: async () => [],
+      } as never,
+      {
+        findById: async () => ({ id: WORKER, resumeNightShiftReady: null }),
+        latestResume: async () => null,
+        updateResumePrefs: async () => ({ id: WORKER }),
+      } as never,
+      events,
+      { add: async () => undefined } as never,
+    );
+    // `correlation_id` is a uuid in the envelope; the suite's shared CTX is not one.
+    const ctx = { correlationId: randomUUID(), requestId: "req" } as RequestContext;
+    return { svc, insert, ctx };
+  }
+
+  it("the fixture IS the whole page — every wire key, nothing else", () => {
+    // Derived, so a nineteenth key fails here and forces this block to cover it.
+    expect(Object.keys(FULL_PAGE).sort()).toEqual(Object.values(PREFERENCE_WIRE_KEYS).sort());
+    expect(Object.keys(PREFERENCE_KEYS)).toHaveLength(18);
+  });
+
+  it("every key answered: saved, emitted and valid — keys_written is the page's size", async () => {
+    const { svc, insert, ctx } = withRealEvents();
+    const result = await svc.setForWorker(WORKER, parse({ ...FULL_PAGE, touched_only: true }), ctx);
+    expect(result.keys_written).toBe(Object.keys(PREFERENCE_KEYS).length);
+    // THE REGRESSION, NAMED: this is past the old bound of 16 that turned the save into a 500.
+    expect(result.keys_written).toBeGreaterThan(16);
+
+    expect(insert).toHaveBeenCalledTimes(1);
+    const event = insert.mock.calls[0]![0];
+    expect(event.event_name).toBe("worker.preferences_recorded");
+    expect(event.payload).toEqual({ worker_id: WORKER, keys_written: 18, keys_cleared: 0 });
+    // Re-validated independently of the path that built it.
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("every key withdrawn: keys_cleared carries the whole page and is still valid", async () => {
+    const { svc, insert, ctx } = withRealEvents();
+    const result = await svc.setForWorker(
+      WORKER,
+      parse({ ...CLEARED_PAGE, touched_only: true }),
+      ctx,
+    );
+    expect(result).toEqual({ worker_id: WORKER, keys_written: 0, keys_cleared: 18 });
+    const event = insert.mock.calls[0]![0];
+    expect(event.payload).toEqual({ worker_id: WORKER, keys_written: 0, keys_cleared: 18 });
+    expect(validateEvent(event).success).toBe(true);
   });
 });

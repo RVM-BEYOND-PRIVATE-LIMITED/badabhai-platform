@@ -82,13 +82,32 @@ function escapeRegExp(value: string): string {
  */
 export function redactKnownName(text: string, fullName: string | null | undefined): string {
   if (typeof text !== "string" || text.length === 0) return text;
-  if (typeof fullName !== "string") return text;
+  const pattern = knownNamePattern(fullName, "giu");
+  if (pattern === null) return text;
+  // Function replacement (never a string) so a placeholder containing `$&`-style
+  // patterns could never be reinterpreted — same discipline as `renderWorkerName`.
+  return text.replace(pattern, () => REDACTED_NAME_PLACEHOLDER);
+}
+
+/**
+ * The matcher {@link redactKnownName} redacts with — the whole name and each token of
+ * {@link MIN_TOKEN_LENGTH}+ characters, case-insensitive, word-anchored — or `null` when
+ * the name has no usable token. Shared so that every surface that must keep the
+ * worker's own name out of its text (the redaction here, the general form's brief
+ * screen) reads the name the same way. `flags` is the caller's: `g` to replace every
+ * occurrence, none to `test` without `lastIndex` state.
+ */
+export function knownNamePattern(
+  fullName: string | null | undefined,
+  flags: "giu" | "iu",
+): RegExp | null {
+  if (typeof fullName !== "string") return null;
 
   const tokens = fullName
     .trim()
     .split(/\s+/)
     .filter((token) => token.length >= MIN_TOKEN_LENGTH);
-  if (tokens.length === 0) return text;
+  if (tokens.length === 0) return null;
 
   // The FULL name first so a multi-token name collapses to ONE placeholder
   // ("Suresh Kumar" -> "[NAME]", not "[NAME] [NAME]"). Alternation is first-match-
@@ -111,11 +130,5 @@ export function redactKnownName(text: string, fullName: string | null | undefine
   // `\bRam\b` behave inconsistently across the scripts this product actually sees.
   // The lookarounds say exactly what is meant: not adjacent to another letter,
   // digit, or underscore.
-  const pattern = new RegExp(
-    `(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`,
-    "giu",
-  );
-  // Function replacement (never a string) so a placeholder containing `$&`-style
-  // patterns could never be reinterpreted — same discipline as `renderWorkerName`.
-  return text.replace(pattern, () => REDACTED_NAME_PLACEHOLDER);
+  return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, flags);
 }

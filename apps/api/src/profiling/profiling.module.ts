@@ -29,6 +29,8 @@ import { OtherAnswerPolishService } from "./other-answer-polish.service";
 import { TradeFormController } from "./form/trade-form.controller";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { GeneralFormController } from "./general-form/general-form.controller";
+import { GeneralFormService } from "./general-form/general-form.service";
 import { ProfilingTierRepository } from "./tiers/profiling-tier.repository";
 import { ProfilingTierService } from "./tiers/profiling-tier.service";
 import { ResumeAutofillService } from "./form/resume-autofill.service";
@@ -139,7 +141,16 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
   // neither the turn machinery nor the answer table. It writes only its own row, and cannot
   // touch a worker's answers by construction (ADR-0041 D2): a parsed value is a suggestion
   // until he confirms it, and confirming it goes through `TradeFormController` like any other.
-  controllers: [ProfilingController, TradeFormController, ResumeImportController],
+  // ADR-0045 — THE GENERAL FORM, the trade form's sibling for roles outside the 21. A form, like
+  // the trade form: every question known up front, resumable. Its screens are the existing pages
+  // plus two questions of its own, stored as pack-less `worker_attributes` rows — no pack, no
+  // answer table, no turn machinery, and no model call.
+  controllers: [
+    ProfilingController,
+    TradeFormController,
+    ResumeImportController,
+    GeneralFormController,
+  ],
   providers: [
     PackRepository,
     PackCacheService,
@@ -154,6 +165,11 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     ProfilingVoiceRepository,
     TradeFormRepository,
     TradeFormService,
+    // ADR-0045 — the general form. Every dependency is already reachable from this module:
+    // `ChatRepository` (ChatModule), the attribute/employment/qualifications repositories
+    // (ProfilesModule exports them), `EventsService`, the @Global `WorkersRepository`, and the
+    // render queue registered above — so it adds a provider and no module edge.
+    GeneralFormService,
     // Tiered profiling (migration 0126). The repository depends only on the @Global DATABASE,
     // so it is provided here and again in the résumé modules (the WorkerAttributesRepository
     // precedent). Nothing in either queries 0126 while PROFILING_TIERS_ENABLED is off.
