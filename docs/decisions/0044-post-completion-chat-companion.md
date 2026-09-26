@@ -145,7 +145,8 @@ a USED live session, so a cold start early in the redo resumes the redo, not the
   test devices only, and widened to everyone after the signature below and #1750.
 - **Performance.** About seven indexed reads per open. The jobs read is bounded by the window predicate on
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
-  `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).
+  `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141; migration 0127 adds
+  the `jsonb_ops` GIN `job_postings_reach_ops_gin` that can).
 - **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142). A completed
   worker whose first companion read times out falls back to today's path, which mints an empty interview that then
   holds the tab in interview mode until the sweep. The client fix is #1750, and it must land before the switch is

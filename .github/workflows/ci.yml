@@ -77,6 +77,7 @@ jobs:
       ai-service: ${{ steps.filter.outputs.ai-service }}
       e2e: ${{ steps.filter.outputs.e2e }}
       worker-app: ${{ steps.filter.outputs.worker-app }}
+      worker-app-parity: ${{ steps.filter.outputs.worker-app-parity }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
       payer-web: ${{ steps.filter.outputs.payer-web }}
       admin-web: ${{ steps.filter.outputs.admin-web }}
@@ -189,6 +190,26 @@ jobs:
               # to THIS file must be able to trigger it — same reasoning as the e2e entry
               # above, and the same failure if omitted.
               - '.github/workflows/ci.yml'
+            # TD144: the server files the worker-app's PARITY tests read byte-for-byte
+            # (`chat_opening_parity_test`, `chat_resume_menu_test`, `chat_companion_keys_test`
+            # open them via `File('../api/...')`). A PR that edits ONLY one of these touches
+            # nothing under apps/worker-app, so without this filter the tests that exist to
+            # catch exactly that drift are skipped and the PR ships green.
+            #
+            # A SEPARATE output, not four more lines under `worker-app`, because
+            # `worker-app-apk` publishes a Release whenever the `worker-app` gate succeeds on
+            # main: folding these in would publish a new, byte-identical APK on every
+            # server-only change. This output runs the GATE (`worker-app` job) only;
+            # `worker-app-apk` still requires the `worker-app` output itself.
+            #
+            # Keep this list equal to the set of `File('../api/...')` paths under
+            # apps/worker-app/test — a test that starts reading another server file must add
+            # it here in the same PR.
+            worker-app-parity:
+              - 'apps/api/src/chat/chat-replies.ts'
+              - 'apps/api/src/chat/resume-menu.ts'
+              - 'apps/api/src/profiling/question-tts-text.ts'
+              - 'apps/api/src/chat-companion/companion-keys.ts'
             payer-app:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
@@ -415,7 +436,11 @@ jobs:
   # branch protection requires `ci-required` alone.
   worker-app:
     needs: changes
-    if: needs.changes.outputs.worker-app == 'true'
+    # `worker-app-parity` (TD144): a server-only change to a file the parity tests read
+    # must still run this gate. It does NOT publish an APK — see `worker-app-apk`.
+    if: >-
+      needs.changes.outputs.worker-app == 'true' ||
+      needs.changes.outputs.worker-app-parity == 'true'
     uses: ./.github/workflows/worker-app.yml
 
   payer-app:
@@ -464,10 +489,15 @@ jobs:
   worker-app-apk:
     name: Worker app (build + release APK)
     needs: [changes, worker-app]
+    # `needs.changes.outputs.worker-app == 'true'` (TD144): since the `worker-app` gate also
+    # runs on a parity-only server change, its `success` no longer implies the app changed.
+    # Publishing still requires the app's own filter, so a server-only edit gates the
+    # Flutter tests without shipping a byte-identical APK Release.
     if: >-
       always() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       needs.changes.result == 'success' &&
+      needs.changes.outputs.worker-app == 'true' &&
       needs.worker-app.result == 'success'
     runs-on: ubuntu-latest
     # Only scope granted: the Releases API (create release + upload asset) needs

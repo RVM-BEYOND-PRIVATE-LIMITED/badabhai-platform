@@ -138,11 +138,14 @@ describe("the backfill", () => {
 });
 
 describe("the journal", () => {
-  it("records 0126 last, with a monotonic `when`", () => {
-    const last = JOURNAL.entries.at(-1)!;
-    const previous = JOURNAL.entries.at(-2)!;
-    expect(last.tag).toBe(TAG);
-    expect(last.idx).toBe(126);
-    expect(last.when).toBeGreaterThan(previous.when);
+  // Located by TAG, not `.at(-1)`: "0126 is last" stopped being true the day 0127 landed, and a
+  // positional pin fails every later migration PR for a reason that has nothing to do with 0126.
+  it("records 0126 at idx 126, with a `when` above its predecessor's", () => {
+    const at = JOURNAL.entries.findIndex((e) => e.tag === TAG);
+    expect(at).toBeGreaterThan(0);
+    const entry = JOURNAL.entries[at]!;
+    const previous = JOURNAL.entries[at - 1]!;
+    expect(entry.idx).toBe(126);
+    expect(entry.when).toBeGreaterThan(previous.when);
   });
 });
