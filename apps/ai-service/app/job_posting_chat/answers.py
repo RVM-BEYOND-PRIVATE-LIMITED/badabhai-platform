@@ -1326,9 +1326,10 @@ def carries_identity(placeholder_tokens: list[str] | None) -> bool:
 # `_MONEY_RANGE_MAX_RATIO` times the lower, both round to `_MONEY_RANGE_ROUNDING` rupees and
 # inside the pay band, neither with a leading zero, and a plain amount at most five digits (so a
 # 0-prefixed or +91-prefixed mobile is never one). A real mobile is descending half the time and
-# round in both halves essentially never. STATED RESIDUAL (accepted by the owner with this PR): a
-# round, ascending vanity number typed AS the pay answer is recorded as the pay band — two
-# numbers a worker reads as a wage, never text.
+# round in both halves essentially never. And the rest of the answer may hold only pay words
+# (`_PAY_ANSWER_WORD_RE`): "call 98000-99000" is a phone however round it is. STATED RESIDUAL
+# (risks register, R30): a round, ascending vanity number typed ALONE as the pay answer is
+# recorded as the pay band — two numbers a worker reads as a wage, never text.
 _RANGE_DASHES = "-‐‑‒–—―−"
 _MONEY_RANGE_AMOUNT = r"([1-9]\d{0,2}(?:,\d{2,3})+|[1-9]\d{3,4})"
 _MONEY_RANGE_RE = re.compile(
@@ -1336,6 +1337,17 @@ _MONEY_RANGE_RE = re.compile(
 )
 _MONEY_RANGE_MAX_RATIO = 5
 _MONEY_RANGE_ROUNDING = 100
+# What the rest of a released pay answer may say (PR #1733 security review N1). An ALLOWLIST, not
+# a list of contact words to refuse — that list has no end ("HR", "mobile", "whatsapp", "mera
+# number hai", a name). Every word here names money, a pay basis or a period, or is filler.
+_PAY_ANSWER_WORD_RE = re.compile(
+    r"₹|(?<![A-Za-z0-9])(?:rs|inr|rupees?|salary|pay|wages?|stipend|"
+    r"in\s*-?\s*hand|inhand|take\s*-?\s*home|net|gross|ctc|c\.t\.c|cost\s+to\s+company|"
+    r"per\s+month|per\s+mahina|pm|p\.m|monthly|month|mahina|mahine|"
+    r"is|hai|milega|milegi|tak|approx|around)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_PAY_ANSWER_PUNCTUATION_RE = re.compile(r"[" + re.escape(_RANGE_DASHES) + r"\s,.:;/()]*")
 
 
 def is_money_range(run: str) -> bool:
@@ -1356,10 +1368,10 @@ def pay_text_for(raw: str, placeholder_tokens: list[str] | None) -> str | None:
     """The raw answer to the PAY question, for the pay parser only — or None.
 
     Released only when the gateway's ONLY identity finding was ONE phone-shaped run that is a
-    money range, and the rest of the answer holds no other pay figure. So "20000-25000" and
-    "18000-22000 in hand" are released; "HR 98000-99000, pay 20k", "call 98000-99000, salary
-    20000-25000", a real phone, an email, a name or an id beside it are not — the masked text
-    stands, exactly as before #1731. The caller passes this ONLY on the pay question.
+    money range, and every other word of the answer is a pay word. So "20000-25000" and
+    "18000-22000 in hand" are released; "call 98000-99000", "HR 98000-99000, pay 20k", a second
+    figure, a real phone, an email, a name or an id beside it are not — the masked text stands,
+    exactly as before #1731. The caller passes this ONLY on the pay question.
     """
     identity = [t for t in (placeholder_tokens or []) if _IDENTITY_TOKEN_RE.match(t or "")]
     if not identity or not all(t.startswith("[PHONE_") for t in identity):
@@ -1367,8 +1379,9 @@ def pay_text_for(raw: str, placeholder_tokens: list[str] | None) -> str | None:
     runs = phone_shaped_runs(raw)
     if len(runs) != 1 or not is_money_range(runs[0]):
         return None
-    if _parse_pay(raw.replace(runs[0], " ", 1), require_cue=False) is not None:
-        return None  # another pay figure beside the range: which one is the pay is a guess
+    rest = _PAY_ANSWER_WORD_RE.sub(" ", raw.replace(runs[0], " ", 1))
+    if not _PAY_ANSWER_PUNCTUATION_RE.fullmatch(rest):
+        return None  # a word that is not a pay word — "call", "HR", a name — or another figure
     return raw
 
 

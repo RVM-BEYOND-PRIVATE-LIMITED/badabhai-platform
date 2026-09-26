@@ -121,6 +121,12 @@ def _pay_text(text: str) -> str | None:
         "60000-70000",
         "18000-22000 in hand",
         "25000-30000 CTC",
+        "Salary is 20000-25000",
+        "20000-25000 per month in hand",
+        "Rs 20000-25000/-",
+        "C.T.C. 25000-30000",
+        "take-home 18000-22000",
+        "20000-25000 milega",
     ],
 )
 def test_a_pay_range_answer_is_released_to_the_pay_parser(text: str):
@@ -147,6 +153,16 @@ def test_a_pay_range_answer_is_released_to_the_pay_parser(text: str):
         "98000-99000 aur 20000",
         "Ramesh, 20000-25000",  # another identity class in the same turn
         "20000-25000 hr.ramesh@tatasteel.co.in",  # an email in the same turn
+        # N1: the payer's own words call it a contact — only pay words may stand beside the range.
+        "call 98000-99000",
+        "Mobile: 98000-99000",
+        "whatsapp 90000-95000",
+        "HR 98000-99000",
+        "Contact no 98000-99000",
+        "98000-99000 hi mera number hai",
+        "98000-99000 since 2019",
+        "20000-25000 Ramesh",  # a name the gateway does not mask
+        "20000-25000, 2345678",  # a second figure
     ],
 )
 def test_the_pay_parser_is_never_handed_a_real_phone_or_other_identity(text: str):
@@ -241,6 +257,10 @@ def test_the_route_records_a_dashed_pay_range_on_the_pay_question():
         ("pay_range", "20k, HR 98000-99000", "98000"),
         ("pay_range", "call 98000-99000, salary 20000-25000", "98000"),
         ("pay_range", "98000-99000 aur 20000", "98000"),
+        # N1: a contact word beside a round, ascending number on the pay question.
+        ("pay_range", "call 98000-99000", "98000"),
+        ("pay_range", "Mobile: 98000-99000", "98000"),
+        ("pay_range", "whatsapp 90000-95000", "90000"),
     ],
 )
 def test_a_phone_shaped_run_never_reaches_the_draft_outside_the_pay_parser(
