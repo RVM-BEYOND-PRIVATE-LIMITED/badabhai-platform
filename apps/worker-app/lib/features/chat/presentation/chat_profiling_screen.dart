@@ -517,6 +517,42 @@ class _ChatViewState extends State<_ChatView> {
   /// Technical Skills pilot opens its filtered trade-form walk while the
   /// other sections open the Resume Edit. An ordinary (non-menu) option
   /// falls through to exactly today's submit.
+  /// ADR-0044 — a companion job chip, and the recap re-read on the way back.
+  ///
+  /// #1747 review: this push used to be fire-and-forget, so the `'applied'` the
+  /// detail screen pops was dropped on the floor. Nothing else re-read the
+  /// recap either — `TabFocus` fires on a shell BRANCH change and both of these
+  /// routes are pushed on the ROOT navigator, so popping back is not a refocus.
+  /// The worker therefore applied through the companion and came back to the
+  /// same "jobs applied to" count, which is exactly the acceptance line the
+  /// issue asks for.
+  Future<void> _openCompanionJob(
+    String jobId,
+    ({String title, String? city}) parts,
+  ) async {
+    // The detail route REQUIRES a JobDetail extra (it redirects to the feed
+    // without one); the title and city pre-fill its header until
+    // GET /jobs/:id lands.
+    final Object? result = await context.pushOnce<Object?>(
+      '${Routes.jobDetail}/$jobId',
+      extra: JobDetail(jobId: jobId, title: parts.title, city: parts.city),
+    );
+    if (!mounted || result != 'applied') return;
+    // FORCED: he applied seconds ago, and the throttle is for refocus taps.
+    context.read<ChatBloc>().add(
+      const ChatCompanionRefreshRequested(force: true),
+    );
+  }
+
+  /// The applied-list chip, and the recap re-read on the way back. Not forced:
+  /// reading the list changes nothing by itself, so the ordinary throttle is
+  /// the right gate.
+  Future<void> _openCompanionApplied() async {
+    await context.pushOnce<Object?>(Routes.appliedJobs);
+    if (!mounted) return;
+    context.read<ChatBloc>().add(const ChatCompanionRefreshRequested());
+  }
+
   void _sendChoice(ChatOption option) {
     // ADR-0044 — the companion's app-routed chips FIRST. None of them is ever
     // posted; every other key (interview chips, the résumé menu, the companion's
@@ -525,21 +561,13 @@ class _ChatViewState extends State<_ChatView> {
       case CompanionAction.openJob:
         final String? jobId = companionJobId(option.optionKey);
         if (jobId == null) return;
-        final ({String title, String? city}) parts =
-            companionJobLabelParts(option.labelText);
-        // The detail route REQUIRES a JobDetail extra (it redirects to the feed
-        // without one); the title and city pre-fill its header until
-        // GET /jobs/:id lands.
-        context.pushOnce(
-          '${Routes.jobDetail}/$jobId',
-          extra: JobDetail(jobId: jobId, title: parts.title, city: parts.city),
-        );
+        _openCompanionJob(jobId, companionJobLabelParts(option.labelText));
         return;
       case CompanionAction.openJobsTab:
         context.go(Routes.jobs);
         return;
       case CompanionAction.openApplied:
-        context.pushOnce(Routes.appliedJobs);
+        _openCompanionApplied();
         return;
       case CompanionAction.none:
         break;
