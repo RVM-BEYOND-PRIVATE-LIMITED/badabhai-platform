@@ -60,8 +60,9 @@ On entering the skills lane the chat forgets the opener's experience answer (R5)
 
 The model runs a skills-only prompt (`interview_mode: "skills_only"` on the existing turn route and task type — so no
 real-call allow-list change). Every skill it returns is **certified** twice before it is echoed or stored: by the
-ai-service certifier (names, employers, placeholders) and by the API (hard identifiers, PII shapes, URLs, organisation
-names, generic words, grounding in the worker's own message), then de-duplicated. The stage stops when the worker says
+ai-service certifier (the names and employers the privacy gateway detects, and placeholders in any shape) and
+by the API (hard identifiers, PII shapes, URLs, organisation names, generic words, grounding in the worker's own
+message), then de-duplicated. The stage stops when the worker says
 there is nothing more, when two answers in a row add nothing, when the model reports done, or on a cap (16 questions,
 30 skills, 4 gate rounds). The gate is built only from certified skills; its answers are read deterministically, and an
 unreadable one is treated as Nahi (counted apart), like the experience gate and the form offer.

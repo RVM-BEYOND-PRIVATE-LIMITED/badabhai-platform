@@ -35,6 +35,7 @@ from ..contracts import (
     ExperienceEntry,
     InterviewExtractInput,
     InterviewExtractOutput,
+    LlmInterviewDraft,
     LlmTurnInput,
     LlmTurnOutput,
     WorkHistoryPolishInput,
@@ -44,10 +45,11 @@ from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import (
     extract_system_prompt,
     interview_system_prompt,
+    skills_interview_system_prompt,
     work_history_polish_prompt,
 )
 from ..profiling.parse_masking import Masker, default_masker, mask_transcript_lines
-from ..pseudonymize import is_certified_clean, pseudonymize
+from ..pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
 from ._shared import logger, resolve_prompt, router, workflow_scope
 
 api_router = APIRouter()
@@ -57,6 +59,21 @@ EXTRACT_TASK_TYPE = "profile_extraction"
 
 #: Returned when anything at all goes wrong. An empty reply IS the fallback signal.
 _SILENT = LlmTurnOutput(reply_text="", is_mock=True)
+
+#: ADR-0045 — the general road's skills stage. Absent (or "classic") is today's Phase A.
+SKILLS_ONLY_MODE = "skills_only"
+
+_FORCE_CLOSE_NOTE = (
+    "\n\nTHIS IS YOUR LAST TURN. Do not ask anything. Set phase_a_done true and reply with a "
+    "short closing acknowledgement."
+)
+
+
+def _render_history(body: LlmTurnInput) -> str:
+    return "\n".join(
+        f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}"
+        for line in body.history
+    )
 
 
 def _turn_messages(
@@ -72,10 +89,7 @@ def _turn_messages(
     The draft is sent back each turn rather than kept here: this service holds no session
     state, which is what makes an API-owned turn cap enforceable rather than advisory.
     """
-    history = "\n".join(
-        f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}"
-        for line in body.history
-    )
+    history = _render_history(body)
     draft = body.draft
     state = json.dumps(
         {
@@ -87,12 +101,7 @@ def _turn_messages(
         },
         ensure_ascii=False,
     )
-    closing = (
-        "\n\nTHIS IS YOUR LAST TURN. Do not ask anything. Set phase_a_done true and reply with a "
-        "short closing acknowledgement."
-        if body.force_close
-        else ""
-    )
+    closing = _FORCE_CLOSE_NOTE if body.force_close else ""
     return [
         {"role": "system", "content": system_prompt},
         {
@@ -139,15 +148,149 @@ def _parse_turn(content: str, body: LlmTurnInput) -> LlmTurnOutput | None:
     return out
 
 
+def _skills_turn_messages(
+    body: LlmTurnInput, masked_message: str, system_prompt: str
+) -> list[dict[str, str]]:
+    """The skills stage's rendering (ADR-0045): the settled role and the skills already recorded.
+
+    ITS OWN RENDERING rather than a flag inside `_turn_messages`, so the classic request stays
+    byte-identical. No experience count: this stage never asks about experience, and telling the
+    model how many jobs were recorded would invite the question. ``body.draft`` must already be
+    certified (`_certified_skills_draft`) — the role and the skills go to the provider verbatim.
+    """
+    draft = body.draft
+    role = json.dumps(
+        {"domain_label": draft.domain_label, "role_label": draft.role_label},
+        ensure_ascii=False,
+    )
+    recorded = json.dumps(draft.skills, ensure_ascii=False)
+    history = _render_history(body)
+    closing = _FORCE_CLOSE_NOTE if body.force_close else ""
+    return [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": (
+                f"Conversation so far:\n{history or '(nothing yet)'}\n\n"
+                f"The worker's role: {role}\n"
+                f"Skills already recorded: {recorded}\n\n"
+                "The worker just said: "
+                f"{masked_message or '(nothing new - ask your first skills question)'}"
+                f"{closing}"
+            ),
+        },
+    ]
+
+
+def _certified_skills(values: list[str]) -> list[str]:
+    """Skill phrases this service will vouch for, whitespace-collapsed, de-duplicated.
+
+    CLEAN-OR-WITHHOLD per item (`certified_clean_skill_labels`), plus one wall that certifier
+    does not have: a gateway placeholder, in any shape a model might reshape it into. The model
+    reads MASKED text, so "[PERSON_1]" (or "PERSON_1", "[person_1]") is something it can copy
+    back as a "skill" — and the certifier passes it, because pseudonymizing a placeholder masks
+    nothing. It is identity the gateway already removed, never a skill.
+
+    CERTIFIED FIRST, DE-DUPLICATED AFTER, so a withheld spelling ("Civil Works", which the
+    gateway reads as a company) can never shadow a later one that passes ("civil works").
+    Case-insensitive, first surviving spelling kept.
+    """
+    candidates = [" ".join(value.split()) for value in values]
+    candidates = [c for c in candidates if c and not _SKILLS_PLACEHOLDER.search(c)]
+    seen: set[str] = set()
+    kept: list[str] = []
+    for label in certified_clean_skill_labels(candidates):
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(label)
+    return kept
+
+
+def _certified_label(value: str | None) -> str | None:
+    """One label through `_certified_skills`: the label, or None when it is withheld."""
+    if value is None:
+        return None
+    kept = _certified_skills([value])
+    return kept[0] if kept else None
+
+
+def _certified_skills_draft(draft: LlmInterviewDraft) -> LlmInterviewDraft:
+    """The echoed draft as the skills stage may send it to a provider.
+
+    The API sends back what it holds, and on this stage that is the settled role plus every
+    skill so far — all of it goes into the prompt verbatim, so all of it is certified here
+    first, whatever the API already did. Experiences are dropped: the stage never uses them.
+    """
+    return LlmInterviewDraft(
+        domain_label=_certified_label(draft.domain_label),
+        role_label=_certified_label(draft.role_label),
+        skills=_certified_skills(draft.skills),
+    )
+
+
+def _skills_only_output(out: LlmTurnOutput) -> LlmTurnOutput | None:
+    """Pin the skills stage's output to what the stage may return. `None` = serve `_SILENT`.
+
+    - `stage` is "skills" and `input_mode` "text" whatever the model said: the API owns
+      progression, and only the system's own gate may lock the keyboard.
+    - No `experience_entry` and no role/domain labels: the role is settled before this stage,
+      and a job is recorded by the general form, never here.
+    - `skills` and chips are certified per item. A chip is a skill a tap sends back as the
+      worker's answer, so it passes the same wall.
+    - A reply that echoes a gateway placeholder is refused whole. The worker would read
+      "[PERSON_1]" in their own chat, and the API's fallback costs less than that.
+    - `blocked` / `blocked_reason` belong to the privacy gate, never to the model: a model that
+      writes them could fake a gateway verdict or smuggle text through the reason field.
+    """
+    if _SKILLS_PLACEHOLDER.search(out.reply_text):
+        logger.warning("skills turn reply echoed a gateway placeholder; served the fallback")
+        return None
+    skills = _certified_skills(out.skills)
+    chips = _certified_skills(out.suggested_answers)
+    if len(skills) < len(out.skills) or len(chips) < len(out.suggested_answers):
+        # COUNTS ONLY — never the phrases. What was withheld is exactly what must not be logged.
+        logger.info(
+            "skills turn withheld items",
+            extra={
+                "extra": {
+                    "skills_in": len(out.skills),
+                    "skills_kept": len(skills),
+                    "chips_in": len(out.suggested_answers),
+                    "chips_kept": len(chips),
+                }
+            },
+        )
+    return out.model_copy(
+        update={
+            "stage": "skills",
+            "input_mode": "text",
+            "experience_entry": None,
+            "domain_label": None,
+            "role_label": None,
+            "skills": skills,
+            "suggested_answers": chips,
+            "blocked": False,
+            "blocked_reason": None,
+        }
+    )
+
+
 @api_router.post("/profiling/turn", response_model=LlmTurnOutput)
 async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     """One Phase A turn: the model asks the next question about domain/role/skills/experience.
+
+    With ``interview_mode: "skills_only"`` (ADR-0045) it is one turn of the general road's skills
+    stage instead: its own prompt, a certified echo of the draft, and an output pinned by
+    `_skills_only_output`. Same route, same task type, same privacy order.
 
     Privacy order is the same as every other worker-text route and it fails CLOSED:
     pseudonymize BEFORE the model, and a blocked message never reaches a provider and never
     advances anything.
     """
     settings = get_settings()
+    skills_only = body.interview_mode == SKILLS_ONLY_MODE
 
     # ONE ROOT TRACE per turn, so the generation the router opens nests under a BUSINESS
     # operation instead of standing alone. Without it, a twelve-turn interview is twelve
@@ -161,8 +304,12 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     with workflow_scope(
         name=WORKFLOW_PROFILE_INTERVIEW,
         worker_ref=body.worker_ref,
-        # Closed-set stage id + a bool. Never worker text.
-        metadata={"stage": body.stage, "force_close": body.force_close},
+        # Closed-set stage id, a closed-set mode + a bool. Never worker text.
+        metadata={
+            "stage": body.stage,
+            "force_close": body.force_close,
+            "interview_mode": body.interview_mode or "classic",
+        },
     ):
         masked_message = ""
         if body.message_text:
@@ -181,20 +328,29 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
         # once blocked long interviews outright and handed the worker an empty profile —
         # punished, precisely, for answering at length.
         body = body.model_copy(update={"history": mask_transcript_lines(body.history)})
+        if skills_only:
+            body = body.model_copy(update={"draft": _certified_skills_draft(body.draft)})
 
         # RESOLVED, not called, so the generation records which prompt version produced this
         # reply. `resolve_prompt` returns the LOCAL builder's text unless Langfuse prompt
         # management is explicitly enabled (off by default), and `None` only if the name was
         # never registered — hence the direct call as the fallback. Either way the bytes the
         # provider sees are `interview_system_prompt()`'s today.
-        resolved = resolve_prompt(prompt_registry.INTERVIEW_TURN)
-        system_prompt = resolved.text if resolved is not None else interview_system_prompt()
+        if skills_only:
+            resolved = resolve_prompt(prompt_registry.INTERVIEW_SKILLS_TURN)
+            local_prompt = skills_interview_system_prompt
+            render = _skills_turn_messages
+        else:
+            resolved = resolve_prompt(prompt_registry.INTERVIEW_TURN)
+            local_prompt = interview_system_prompt
+            render = _turn_messages
+        system_prompt = resolved.text if resolved is not None else local_prompt()
 
         try:
             content, meta = await asyncio.wait_for(
                 router.run(
                     TURN_TASK_TYPE,
-                    messages=_turn_messages(body, masked_message, system_prompt),
+                    messages=render(body, masked_message, system_prompt),
                     mock_response="{}",
                     real_call_allowed=True,
                     user_ref=body.worker_ref,
@@ -220,6 +376,10 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
         out = _parse_turn(content, body)
         if out is None or not out.reply_text.strip():
             return _SILENT
+        if skills_only:
+            out = _skills_only_output(out)
+            if out is None:
+                return _SILENT
 
         out.is_mock = False
         out.ai_metadata = meta
@@ -508,6 +668,14 @@ _DIGIT_RUN = re.compile(r"\d+")
 # stable — CITY and STATE were retired by the 2026-07-31 owner ruling and could return — and a
 # hand-copied list here would silently stop matching the day one is added.
 _PLACEHOLDER = re.compile(r"\[[A-Z]+_\d+\]")
+
+# The skills stage's wall (ADR-0045): the same token in any shape a model may RESHAPE it into —
+# unbracketed ("PERSON_1"), lower-cased ("[person_1]"), spaced ("[PERSON 1]"). Wider than
+# `_PLACEHOLDER` on purpose: on this stage a placeholder is refused, not rewritten around, and a
+# real skill essentially never has the WORD_<digits> shape.
+_SKILLS_PLACEHOLDER = re.compile(
+    r"(?<![A-Za-z0-9])\[?\s*[A-Za-z]+_\d+\s*\]?(?![A-Za-z0-9])|\[[A-Za-z]+\s+\d+\]"
+)
 
 
 def _digits_are_grounded(polished: str, source: str) -> bool:
