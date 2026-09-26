@@ -339,21 +339,22 @@ export class ResumeService {
     const resumeJson = fullName ? { ...result.resume_json, name: fullName } : result.resume_json;
 
     // THE LAYOUT, CHOSEN FROM THE WORKER'S PACK — `bb_trade` for the 21 predefined roles,
-    // `bb_general` for any other pack, `classic` for none. `templateIdForPack` owns the rule.
+    // `bb_general` for everyone else, a pack-less profile included. `templateIdForPack` owns it.
     //
     // CHOSEN HERE, AT GENERATION, AND NOWHERE ELSE. The id is stored on the row and every
-    // re-render and employer disclosure reuses it, so a worker's existing résumés keep the
-    // layout they were issued with — no cutover, no backfill.
+    // re-render and employer disclosure reuses it (bar `renderTemplateId`'s one upgrade), so a
+    // worker's existing résumés keep the layout they were issued with — no cutover, no backfill.
     //
-    // DEGRADES TO `classic`, NEVER TO A FAILED GENERATE. A trade lookup that throws must not
-    // cost a worker their resume; the wrong-but-working layout is the correct failure here.
-    let templateId = "classic";
+    // DEGRADES TO THE GENERAL SHEET, NEVER TO A FAILED GENERATE. A trade lookup that throws must
+    // not cost a worker their resume. `bb_general` is what "pack unknown" means, and it heals: if
+    // the render worker's own lookup then finds a role pack, `renderTemplateId` prints `bb_trade`.
+    let templateId = templateIdForPack(null);
     try {
       const { packId } = await this.attributes.loadTradeSheet(dto.worker_id);
       templateId = templateIdForPack(packId);
     } catch (err) {
       this.logger.warn(
-        `could not resolve the trade layout for worker ${dto.worker_id}; using classic ` +
+        `could not resolve the trade layout for worker ${dto.worker_id}; using ${templateId} ` +
           `(${err instanceof Error ? err.message : "unknown"})`,
       );
     }
