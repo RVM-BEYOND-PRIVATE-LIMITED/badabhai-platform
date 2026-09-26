@@ -6,6 +6,10 @@
  * apart. The `worker-app` gate in `ci.yml` is path-filtered, so a PR that edits ONLY one of
  * those server files used to skip the very tests that exist to catch it — and ship green.
  *
+ * TURBO: this reads `apps/worker-app/test/**`, which is outside this package, so that path is
+ * listed in `apps/api/turbo.json`'s test inputs — without it turbo replays a cached pass on
+ * exactly the PR (a new parity test) this guard exists to catch.
+ *
  * WHAT IS PINNED:
  *   1. the `worker-app-parity` filter lists EXACTLY the server paths the Flutter tests read —
  *      a new parity test that forgets the filter fails here, in the `node` job, which has no
@@ -108,6 +112,13 @@ describe("TD144 — the worker-app parity filter", () => {
     expect([...filter].sort()).toEqual(read);
   });
 
+  it("re-runs when the app tests change: they are a turbo input of this package", () => {
+    const turbo = JSON.parse(readFileSync(join(ROOT, "apps", "api", "turbo.json"), "utf8")) as {
+      tasks: { test: { inputs: string[] } };
+    };
+    expect(turbo.tasks.test.inputs).toContain("$TURBO_ROOT$/apps/worker-app/test/**");
+  });
+
   it("names only files that exist", () => {
     for (const path of filter) expect(existsSync(join(ROOT, path)), path).toBe(true);
   });
@@ -118,10 +129,12 @@ describe("TD144 — the worker-app parity filter", () => {
     );
   });
 
-  it("triggers the worker-app gate", () => {
-    const gate = jobIf(CI, "worker-app");
-    expect(gate).toContain("needs.changes.outputs.worker-app == 'true'");
-    expect(gate).toContain("needs.changes.outputs.worker-app-parity == 'true'");
+  it("triggers the worker-app gate on EITHER filter", () => {
+    // Exact, not `toContain`: an `&&` in place of the `||` would keep both substrings and turn
+    // the parity trigger off for every server-only change.
+    expect(jobIf(CI, "worker-app")).toBe(
+      "needs.changes.outputs.worker-app == 'true' || needs.changes.outputs.worker-app-parity == 'true'",
+    );
   });
 
   it("does not publish an APK on its own: worker-app-apk still requires the app's filter", () => {
