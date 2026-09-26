@@ -4,8 +4,17 @@ import { describe, expect, it } from "vitest";
 
 import { checkFontContract, embeddedFontFaces } from "../common/pdf/font-resolution";
 import { RESUME_FONT_CONTRACT, RESUME_FONT_PROBE_HTML, RESUME_FONT_STACK } from "./resume-fonts";
+import { getResumeTemplate } from "./templates/registry";
 
 const TEMPLATE = readFileSync(join(__dirname, "templates", "bb_trade.v1.html"), "utf8");
+// The general sheet renders through the same contract check (`renderPdf` asserts it on every
+// render, whatever the template), so it must declare the same stack or the probe stops being
+// evidence about it.
+// Read through the registry, so a later bb_general version is the one checked.
+const GENERAL = readFileSync(
+  join(__dirname, "templates", getResumeTemplate("bb_general").file),
+  "utf8",
+);
 const FIXTURES = join(__dirname, "__fixtures__", "font-probe");
 
 /**
@@ -18,6 +27,10 @@ const FIXTURES = join(__dirname, "__fixtures__", "font-probe");
 describe("the probe measures the stack the sheet actually declares", () => {
   it("matches bb_trade.v1's body font-family character for character", () => {
     expect(TEMPLATE).toContain(`font-family: ${RESUME_FONT_STACK};`);
+  });
+
+  it("matches the live bb_general's body font-family character for character", () => {
+    expect(GENERAL).toContain(`font-family: ${RESUME_FONT_STACK};`);
   });
 
   it("renders both scripts the sheet prints", () => {

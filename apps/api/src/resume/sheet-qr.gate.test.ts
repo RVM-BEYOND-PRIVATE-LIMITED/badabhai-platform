@@ -9,6 +9,7 @@ import { buildResumeRenderInput } from "./resume-render-input";
 import { RESUME_QR } from "./resume-qr";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { RESUME_PROFILE_ORIGIN } from "./resume-sheet-footer";
+import { getResumeTemplate } from "./templates/registry";
 
 /**
  * THE QR, ON ALL 28 SHEETS, MEASURED RATHER THAN LOOKED AT.
@@ -52,7 +53,15 @@ const MIN_MODULE_MM = 0.5;
 const MAX_MODULES = Math.floor(RESUME_QR.RENDERED_MM / MIN_MODULE_MM);
 
 const renderer = new ResumeRenderer({} as never);
-const template = readFileSync(join(__dirname, "templates", "bb_trade.v1.html"), "utf8");
+
+/**
+ * THE TWO SHEETS THAT PRINT A QR — the trade sheet (the 21 predefined roles) and the general
+ * sheet (every other pack). Each is read through the registry, so the box checked below is the
+ * box the LIVE version prints, not a frozen file an old row may still resolve to.
+ */
+const QR_SHEETS = ["bb_trade", "bb_general"] as const;
+const templateOf = (id: (typeof QR_SHEETS)[number]): string =>
+  readFileSync(join(__dirname, "templates", getResumeTemplate(id).file), "utf8");
 
 beforeAll(primeSheetQr);
 
@@ -100,32 +109,34 @@ function moduleCount(svg: string): number {
  */
 const WITH_CONTEXT = SHEET_SHAPES.filter((s) => s.tradeSheet !== null);
 
-describe.each(WITH_CONTEXT)("shape $n — $name", (shape) => {
-  it.each(["worker", "employer"] as const)("prints one scannable QR (%s copy)", (audience) => {
-    const html = renderer.buildResumeHtml(
-      buildResumeRenderInput(
-        shape.snapshot,
-        shape.displayName,
-        "bb_trade",
-        null,
-        false,
-        audience,
-        withSheetQr(shape.tradeSheet),
-      ),
-    );
+describe.each(QR_SHEETS)("%s", (templateId) => {
+  describe.each(WITH_CONTEXT)("shape $n — $name", (shape) => {
+    it.each(["worker", "employer"] as const)("prints one scannable QR (%s copy)", (audience) => {
+      const html = renderer.buildResumeHtml(
+        buildResumeRenderInput(
+          shape.snapshot,
+          shape.displayName,
+          templateId,
+          null,
+          false,
+          audience,
+          withSheetQr(shape.tradeSheet),
+        ),
+      );
 
-    const svgs = qrImages(html);
-    // EXACTLY ONE. Zero means the acquisition loop is silently absent from a whole content
-    // shape; two would mean a region repeated and the footer is twice as tall as measured.
-    expect(svgs, `shape ${shape.n}/${audience} does not carry exactly one QR`).toHaveLength(1);
+      const svgs = qrImages(html);
+      // EXACTLY ONE. Zero means the acquisition loop is silently absent from a whole content
+      // shape; two would mean a region repeated and the footer is twice as tall as measured.
+      expect(svgs, `shape ${shape.n}/${audience} does not carry exactly one QR`).toHaveLength(1);
 
-    const modules = moduleCount(svgs[0]!);
-    const moduleMm = RESUME_QR.RENDERED_MM / modules;
-    expect(
-      moduleMm,
-      `shape ${shape.n}/${audience}: ${modules} modules in ${RESUME_QR.RENDERED_MM} mm is ` +
-        `${moduleMm.toFixed(3)} mm per module, below the ${MIN_MODULE_MM} mm photocopy floor`,
-    ).toBeGreaterThanOrEqual(MIN_MODULE_MM);
+      const modules = moduleCount(svgs[0]!);
+      const moduleMm = RESUME_QR.RENDERED_MM / modules;
+      expect(
+        moduleMm,
+        `shape ${shape.n}/${audience}: ${modules} modules in ${RESUME_QR.RENDERED_MM} mm is ` +
+          `${moduleMm.toFixed(3)} mm per module, below the ${MIN_MODULE_MM} mm photocopy floor`,
+      ).toBeGreaterThanOrEqual(MIN_MODULE_MM);
+    });
   });
 });
 
@@ -140,15 +151,55 @@ describe("the QR contract the layout and the generator have to keep together", (
     expect(RESUME_QR.RENDERED_MM).toBe(18);
   });
 
-  it("reserves in CSS exactly the size the generator is documented to print at", () => {
-    // THE DRIFT THIS STOPS. `RENDERED_MM` is the number every margin above is computed from, and
-    // it lives in resume-qr.ts while the box that actually prints lives in the template. Shrink
-    // the CSS to buy a millimetre of page and every assertion in this file keeps passing against
-    // a constant that no longer describes the sheet.
-    const box = /\.qr\s*\{[^}]*width:\s*([\d.]+)mm;\s*height:\s*([\d.]+)mm/.exec(template);
-    expect(box, ".qr no longer declares an explicit mm box").toBeTruthy();
-    expect(Number(box![1])).toBe(RESUME_QR.RENDERED_MM);
-    expect(Number(box![2])).toBe(RESUME_QR.RENDERED_MM);
+  it.each(QR_SHEETS)(
+    "reserves in CSS exactly the size the generator is documented to print at (%s)",
+    (templateId) => {
+      // THE DRIFT THIS STOPS. `RENDERED_MM` is the number every margin above is computed from,
+      // and it lives in resume-qr.ts while the box that actually prints lives in the template.
+      // Shrink the CSS to buy a millimetre of page and every assertion in this file keeps passing
+      // against a constant that no longer describes the sheet.
+      const box = /\.qr\s*\{[^}]*width:\s*([\d.]+)mm;\s*height:\s*([\d.]+)mm/.exec(
+        templateOf(templateId),
+      );
+      expect(box, ".qr no longer declares an explicit mm box").toBeTruthy();
+      expect(Number(box![1])).toBe(RESUME_QR.RENDERED_MM);
+      expect(Number(box![2])).toBe(RESUME_QR.RENDERED_MM);
+    },
+  );
+
+  it("keeps a four-module quiet zone inside the general sheet's QR frame", async () => {
+    // THE FRAME IS THE RISK THIS PINS. The symbol is generated with no margin (see `moduleCount`),
+    // so on `bb_trade` the quiet zone is simply the footer's white space. `bb_general` draws a
+    // ruled frame around the QR, as the owner's format does — and a rule closer than four modules
+    // sits ON the quiet zone, where a phone camera reads it as part of the symbol. The padding
+    // inside the frame is therefore the quiet zone, and it must hold four modules at the size
+    // the shipped symbol actually prints.
+    const style = templateOf("bb_general");
+    const box = /\.qr-box\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+    // EVERY value of the shorthand, not the first: `padding: 2.9mm 0.5mm` keeps the top and
+    // bottom quiet zone and destroys the sides. The narrowest edge is the one that fails a scan.
+    const values = /padding:\s*((?:[\d.]+mm\s*){1,4});/.exec(box)?.[1];
+    expect(values, ".qr-box no longer declares its padding in mm").toBeDefined();
+    const padding = Math.min(...values!.trim().split(/\s+/).map(parseFloat));
+    expect(box, "a per-edge padding could undercut the shorthand").not.toMatch(
+      /padding-(?:top|right|bottom|left)\s*:/,
+    );
+    // The image inside the frame must not be pulled toward the rule either.
+    expect(/\.qr\s*\{([^}]*)\}/.exec(style)?.[1] ?? "").not.toMatch(/margin|transform/);
+    const shipped = await QRCode.toString(RESUME_PROFILE_ORIGIN, {
+      type: "svg",
+      errorCorrectionLevel: RESUME_QR.ERROR_CORRECTION,
+      margin: 0,
+    });
+    const moduleMm = RESUME_QR.RENDERED_MM / moduleCount(shipped);
+    expect(
+      padding,
+      `${padding} mm of frame padding is under four ${moduleMm.toFixed(2)} mm modules`,
+    ).toBeGreaterThanOrEqual(Number((4 * moduleMm).toFixed(2)));
+    // And the frame is WHITE inside: a grey fill behind the symbol is a contrast loss a
+    // photocopier turns into a failed scan.
+    expect(box).toMatch(/background:\s*var\(--paper\)/);
+    expect(style, "--paper is no longer white").toMatch(/--paper:\s*#fff(?:fff)?\s*;/i);
   });
 
   it("is the level-Q encoding, proven against the alternatives rather than read off a constant", async () => {
@@ -210,26 +261,23 @@ describe("the QR contract the layout and the generator have to keep together", (
 });
 
 describe("the sheet with no context at all", () => {
-  it("collapses the whole footer rather than printing a broken image", () => {
-    // The `{{#qr}}` region is 0-or-1, so a null URI must leave NO `<img>` behind — an `<img>`
-    // with an empty `src` re-requests the page in most engines and prints a broken-image glyph
-    // in the middle of the footer of a sheet a worker hands to a supervisor.
-    const bare = SHEET_SHAPES.find((s) => s.n === 14)!;
-    const html = renderer.buildResumeHtml(
-      buildResumeRenderInput(
-        bare.snapshot,
-        bare.displayName,
-        "bb_trade",
-        null,
-        false,
-        "worker",
-        null,
-      ),
-    );
-    expect(html).not.toContain('<img class="qr"');
-    expect(html).not.toMatch(/src="\s*"/);
-    expect(html).not.toMatch(/\{\{/);
-  });
+  it.each(QR_SHEETS)(
+    "collapses the whole footer rather than printing a broken image (%s)",
+    (id) => {
+      // The `{{#qr}}` region is 0-or-1, so a null URI must leave NO `<img>` behind — an `<img>`
+      // with an empty `src` re-requests the page in most engines and prints a broken-image glyph
+      // in the middle of the footer of a sheet a worker hands to a supervisor. On `bb_general` the
+      // frame lives INSIDE the region, so it must leave with the QR rather than print empty.
+      const bare = SHEET_SHAPES.find((s) => s.n === 14)!;
+      const html = renderer.buildResumeHtml(
+        buildResumeRenderInput(bare.snapshot, bare.displayName, id, null, false, "worker", null),
+      );
+      expect(html).not.toContain('<img class="qr"');
+      expect(html).not.toContain('class="qr-box"');
+      expect(html).not.toMatch(/src="\s*"/);
+      expect(html).not.toMatch(/\{\{/);
+    },
+  );
 
   it("is the ONLY shape without one, so a missing QR can never be normal", () => {
     // The count is pinned. If a future shape loses its context the arithmetic here changes and

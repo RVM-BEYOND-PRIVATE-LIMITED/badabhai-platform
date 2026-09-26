@@ -11,6 +11,7 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRenderer } from "../resume/resume-renderer.service";
+import { renderTemplateId } from "../resume/resume-document";
 import { buildResumeRenderInput, type TradeSheetContext } from "../resume/resume-render-input";
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
@@ -425,7 +426,9 @@ export class ResumeDisclosureService {
     const renderInput = buildResumeRenderInput(
       source.sourceProfileSnapshot,
       maskedName,
-      source.templateId,
+      // Same upgrade as the render worker: a general-sheet row renders as the trade sheet once
+      // the worker's elected pack is a predefined role, so the payer never gets a mismatch.
+      renderTemplateId(source.templateId, tradeSheet.packId),
       null,
       // #947 — the worker's night-shift toggle, off the row already loaded above for the mask.
       //

@@ -1,5 +1,5 @@
 import { WorkHistoryPolishService } from "./work-history-polish.service";
-import { toResumeDocument } from "./resume-document";
+import { renderTemplateId, toResumeDocument } from "./resume-document";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger, Optional } from "@nestjs/common";
 import type { Job } from "bullmq";
@@ -481,7 +481,8 @@ export class ResumeRenderProcessor extends WorkerHost {
     const input = buildResumeRenderInput(
       resume.sourceProfileSnapshot,
       displayName,
-      resume.templateId,
+      // The stored id, upgraded to the trade sheet if he has since taken a role form.
+      renderTemplateId(resume.templateId, loaded?.packId ?? null),
       photoDataUri,
       // #947 — the worker's OWN "Night shift ke liye taiyaar" answer. Off the worker row
       // already loaded above for the name and the photo, so this costs no extra query.

@@ -46,6 +46,13 @@ export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
   // v1 IS UNTOUCHED ON DISK — a shipped version is immutable, and every PDF already issued
   // recorded the version it rendered with. Only NEW renders pick up v2.
   { id: "bb_trade", version: 2, label: "BadaBhai trade sheet (A4, one page)", file: "bb_trade.v2.html" },
+  // THE BADABHAI GENERAL SHEET — the owner's format (2026-09-25) for every worker whose pack is
+  // NOT one of the 21 predefined roles. Those workers rendered through `bb_trade` until now.
+  // A NEW ID rather than an edit, because `bb_trade` also serves the 21 form roles, which keep
+  // it unchanged; and a résumé row records its id, so only new generations pick this up.
+  // Same slots as `bb_trade`, no new data — see the file's header for what the format shows
+  // that the data does not carry.
+  { id: "bb_general", version: 1, label: "BadaBhai general sheet (A4)", file: "bb_general.v1.html" },
   { id: "classic", version: 3, label: "Classic (single column)", file: "classic.v3.html" },
   { id: "modern", version: 3, label: "Modern (two column)", file: "modern.v3.html" },
   { id: "minimal", version: 3, label: "Minimal (compact)", file: "minimal.v3.html" },

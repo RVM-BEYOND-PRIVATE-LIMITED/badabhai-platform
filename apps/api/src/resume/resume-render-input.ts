@@ -671,7 +671,8 @@ function buildUndegraded(
         // has no way to express.
         education: draft.education.map(labelForTaxonomyId),
         certifications: draft.certifications.map(labelForTaxonomyId),
-        machines: draft.machines.map(labelForTaxonomyId),
+        // Screened like every list this path prints (`cleanList`) — `bb_general` prints it in full.
+        machines: cleanList(draft.machines.map(labelForTaxonomyId)),
         educationLevel: humanizeEducationLevel(draft.education_level),
         educationField: draft.education_field,
         // R15 §1 — THE LEGACY BRANCH'S OWN `shift` FALLBACK, HOISTED SO BOTH CAN USE IT.
@@ -700,12 +701,18 @@ function buildUndegraded(
     trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null;
   const legacyCity =
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
-  const legacyMachines = draft.machines.map(labelForTaxonomyId);
-  // R16 §2 — the third fallback for the headline's tools segment, and the SAME expression the
-  // `skills` slot below uses, so the strip and the chips can never name different things.
-  const legacySkills = mergeSkillsWithLabels(
-    draft.skills.map(labelForTaxonomyId),
-    draft.skill_labels.map(labelForTaxonomyId),
+  // SCREENED WITH `cleanList`, AS THE CONTAINER PATH'S LISTS ARE. `skill_labels` are the worker's
+  // own words, and `bb_general` prints these lists in full on BOTH audiences (Skills section) —
+  // `bb_trade` only ever printed three of them in the headline — so an email or a phone number
+  // typed as a skill must drop here rather than reach a payer's PDF.
+  const legacyMachines = cleanList(draft.machines.map(labelForTaxonomyId));
+  // R16 §2 — the third fallback for the headline's tools segment, and the SAME VALUE the
+  // `skills` slot below prints, so the strip and the chips can never name different things.
+  const legacySkills = cleanList(
+    mergeSkillsWithLabels(
+      draft.skills.map(labelForTaxonomyId),
+      draft.skill_labels.map(labelForTaxonomyId),
+    ),
   );
   // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
   // so the strip and the generic slots cannot name different tools.
@@ -969,12 +976,10 @@ function buildUndegraded(
     // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
     // The snapshot labels were extraction-clamped and are pseudonymize-gated by the
     // AI service at résumé generation; this is a pure render mapping (no LLM here).
-    skills: mergeSkillsWithLabels(
-      draft.skills.map(labelForTaxonomyId),
-      draft.skill_labels.map(labelForTaxonomyId),
-    ),
+    // The PII-screened value computed above for the headline — one value, not two expressions.
+    skills: legacySkills,
     // Machines are `mach_*` ids on the snapshot — resolve each to its name (VMC, HMC).
-    machines: draft.machines.map(labelForTaxonomyId),
+    machines: legacyMachines,
     // #499 — education + certifications now ride on the DraftProfile snapshot
     // (closed-set canonical tokens: ITI/Diploma/Degree, NCVT/NSQF/…), so the
     // templates' "Education & Certifications" section renders instead of collapsing.
