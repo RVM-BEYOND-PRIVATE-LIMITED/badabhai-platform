@@ -112,10 +112,17 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
     }
   });
 
-  it("keeps classic only when there is no pack at all", () => {
-    // A profile with no pack answers has nothing the universal sheet adds; this is the only
-    // remaining `classic` case.
-    expect(templateIdForPack(null)).toBe("classic");
+  it("gives a profile with NO pack the general sheet — never classic", () => {
+    // THE DEFECT THIS PINS. A chat interview for a role outside the taxonomy writes its answers
+    // with no `pack_id`, so the elected pack is null. That used to map to `classic`, and the first
+    // production résumé after `bb_general` shipped — a "Captain", 2026-09-26 — rendered the old
+    // serif layout for exactly the worker the general sheet was built for.
+    expect(templateIdForPack(null)).toBe("bb_general");
+    // `classic` is selected for nobody now; it only renders rows already stored with it.
+    for (const pack of [null, "qp_universal", "qp_welding", "qp_cnc_turning"]) {
+      expect(templateIdForPack(pack), String(pack)).not.toBe("classic");
+    }
+    // The DOCUMENT format is a separate, pack-keyed decision and is unchanged: no pack → generic.
     expect(packUsesUniversalSheet(null)).toBe(false);
   });
 

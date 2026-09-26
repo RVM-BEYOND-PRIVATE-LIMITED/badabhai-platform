@@ -11,12 +11,12 @@ The LIVE version of each id (older `v<n>` files stay on disk, untouched):
 
 | template_id | version | file | notes |
 | ----------- | ------- | ---- | ----- |
-| `classic`   | 3 | `classic.v3.html` | single column, serif, print-first — a profile with **no pack** |
+| `classic`   | 3 | `classic.v3.html` | single column, serif, print-first — **selected for nobody since 2026-09-26**; renders rows already stored with it |
 | `modern`    | 3 | `modern.v3.html`  | two column (sidebar + main) |
 | `minimal`   | 3 | `minimal.v3.html` | compact, label/value rows |
 | `fallback`  | 3 | `fallback.v3.html` | **generic fallback** — plain, robust, sparse-data safe |
 | `bb_trade`  | 2 | `bb_trade.v2.html` | **the locked BadaBhai trade sheet** — the **21 predefined roles**; see below |
-| `bb_general` | 1 | `bb_general.v1.html` | **the BadaBhai general sheet** — **every other pack**; see below |
+| `bb_general` | 1 | `bb_general.v1.html` | **the BadaBhai general sheet** — **every other pack, and no pack**; see below |
 
 Which id a worker gets is `templateIdForPack` in `../resume-document.ts`, decided once at
 generation and stored on the row; every re-render and employer disclosure reuses the stored id —
@@ -236,6 +236,12 @@ The owner's format of 2026-09-25 ("Standard Professional Resume Template v3") fo
 whose pack is **not** one of the 21 predefined roles (`ROLE_FORM_DESCRIPTORS`) — the universal
 fallback pack and every family pack without a trade form. Until it existed these workers rendered
 through `bb_trade` with its capability section collapsed; the 21 roles keep `bb_trade` unchanged.
+
+**A profile with no pack at all gets it too (2026-09-26).** The first release sent a null pack to
+`classic`, on the assumption that pack-less profiles were legacy rows. They are not: a chat
+interview for a role outside the taxonomy writes its answers with no `pack_id`, and the first
+production résumé after release — a "Captain", seven attribute rows, every one pack-less — came
+out in the old serif `classic` layout. `classic` is now selected for nobody.
 
 **A layout change, not a data change.** It reads only slots the renderer already fills for every
 template. Nothing in the mapper, the row composers or their separators changed for it, so the

@@ -3,9 +3,10 @@
   Resume template — id: "bb_general", version: 1.   THE BADABHAI GENERAL SHEET.
 
   WHO GETS IT. Every worker whose role pack is NOT one of the 21 predefined roles
-  (ROLE_FORM_DESCRIPTORS): the universal fallback pack and every family pack without a
-  trade form. The 21 form roles keep bb_trade, untouched. The switch is templateIdForPack
-  in resume-document.ts; a profile with no pack at all still gets classic. A stored
+  (ROLE_FORM_DESCRIPTORS): the universal fallback pack, every family pack without a trade
+  form, and a profile with NO pack at all (a chat interview outside the taxonomy writes its
+  answers pack-less). The 21 form roles keep bb_trade, untouched. The switch is
+  templateIdForPack in resume-document.ts; classic is selected for nobody now. A stored
   bb_general row renders as bb_trade once the worker's elected pack is one of the 21
   (renderTemplateId), so a worker who later takes a role form never gets a mixed sheet.
 

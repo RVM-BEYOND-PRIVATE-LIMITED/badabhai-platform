@@ -175,11 +175,36 @@ const PERSONAS: readonly Persona[] = [
     snapshot: LEGACY_FORKLIFT_SNAPSHOT,
     displayName: "Suresh Pal",
   },
+  {
+    // NO PACK AT ALL — the common case for a chat interview outside the taxonomy, and the one the
+    // first production résumé after `bb_general` shipped fell through to `classic` on (a
+    // "Captain", 2026-09-26: seven attribute rows, every one with a null `pack_id`).
+    name: "chat-no-pack",
+    snapshot: {
+      resume_profile: {
+        domain_label: "Commercial aviation",
+        role_label: "Captain",
+        skills: ["Boeing 737 operation", "Takeoff", "Landing", "Navigation"],
+        experiences: [
+          {
+            role_label: "Captain",
+            duration_text: "1 saal",
+            duration_months: 12,
+            work_done: "Flew scheduled domestic routes",
+          },
+        ],
+        current_city: "Faridabad",
+        availability: "immediate",
+      },
+    },
+    displayName: "Vikram Rao",
+  },
 ];
 
 /** Contexts need the primed QR, so they are built lazily inside each test. */
 function ctxFor(name: string): TradeSheetContext {
   if (name === "records-store-keeper") return context({ employments: EMPLOYMENTS });
+  if (name === "chat-no-pack") return context({ packId: null, qualification: {} });
   if (name === "sparse") return context({ qualification: {}, whatsapp: null });
   return context();
 }
@@ -197,7 +222,8 @@ function render(p: Persona, audience: "worker" | "employer"): string {
     buildResumeRenderInput(
       p.snapshot,
       nameFor(p, audience),
-      templateIdForPack(PACK),
+      // As production does: the template follows the persona's own elected pack.
+      templateIdForPack(ctxFor(p.name).packId),
       null,
       false,
       audience,
@@ -219,6 +245,8 @@ function section(html: string, cls: string): string {
 describe("a worker outside the 21 roles renders the general sheet", () => {
   it("is routed to bb_general and leaks no template syntax", () => {
     expect(templateIdForPack(PACK)).toBe("bb_general");
+    // A pack-less profile too — never the old `classic` layout.
+    expect(templateIdForPack(ctxFor("chat-no-pack").packId)).toBe("bb_general");
     for (const p of PERSONAS) {
       for (const audience of ["worker", "employer"] as const) {
         const html = render(p, audience);
