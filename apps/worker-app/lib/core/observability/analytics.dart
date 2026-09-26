@@ -104,6 +104,24 @@ class BbAnalytics {
 
   /// The worker answered a voice-form question BY SPEAKING (#639). [questionIndex]
   /// is a 1-based COUNT — never the transcript, the question, or any id.
+  /// ADR-0044 / #1753 — the companion recap opened. COUNTS ONLY: no parameters,
+  /// so there is nothing here that could carry a posting id or a label.
+  static BbAnalyticsEvent companionOpened() =>
+      const BbAnalyticsEvent('companion_opened');
+
+  /// #1753 — a companion chip was tapped, by CLASS of key and nothing else. The
+  /// closed set is the classes the recap can offer; a key this build does not
+  /// know is `other`, never the key itself.
+  static BbAnalyticsEvent companionChipTapped({required String keyClass}) =>
+      BbAnalyticsEvent('companion_chip_tapped', <String, Object>{
+        'key_class': keyClass,
+      });
+
+  /// #1753 — a companion job chip opened job detail. COUNTS ONLY: the posting id
+  /// is deliberately absent.
+  static BbAnalyticsEvent companionJobOpened() =>
+      const BbAnalyticsEvent('companion_job_opened');
+
   static BbAnalyticsEvent profilingAnswerSpoken({required int questionIndex}) =>
       BbAnalyticsEvent('profiling_answer_spoken', <String, Object>{
         'question_index': questionIndex,
@@ -147,6 +165,9 @@ class BbAnalytics {
         inviteShared,
         questionAudioPlayed(questionIndex: 4),
         profilingAnswerSpoken(questionIndex: 4),
+        companionOpened(),
+        companionChipTapped(keyClass: 'job'),
+        companionJobOpened(),
         finishingFormEntered,
         finishingPageReached(pageIndex: 4),
         finishingFormSubmitted,

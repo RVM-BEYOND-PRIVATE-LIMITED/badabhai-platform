@@ -336,11 +336,17 @@ class ApiClient {
     return id is String && id.isNotEmpty ? id : null;
   }
 
-  /// ADR-0044 — how long the Bada Bhai tab waits for `GET /chat/companion`
-  /// before giving up and running today's chat. SHORT on purpose: the answer
-  /// only decides WHICH chat to open, so a slow link must fall back quickly
-  /// rather than hold the loading spinner for a full [kRequestTimeout].
-  static const Duration kCompanionOpenTimeout = Duration(seconds: 5);
+  /// ADR-0044 / #1750 — how long the Bada Bhai tab waits for
+  /// `GET /chat/companion`.
+  ///
+  /// THE SAME BUDGET AS THE THING IT GATES. It was 5 s, on the reasoning that
+  /// the answer "only decides which chat to open" — but giving up early did not
+  /// cost a fast decision, it cost the feature: the fallback minted an empty
+  /// interview session, and the server's policy then answered `interview` for
+  /// six or seven hours. A read that is allowed less time than the session mint
+  /// it triggers is the wrong way round, so it now gets [kRequestTimeout] and
+  /// the repository retries once, exactly as the latest-session read does.
+  static const Duration kCompanionOpenTimeout = kRequestTimeout;
 
   /// `GET /chat/companion` (ADR-0044) — the post-completion companion's mode and,
   /// for a companion worker, its opening recap. Worker-scoped: the worker is the
