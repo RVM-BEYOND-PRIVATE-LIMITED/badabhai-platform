@@ -61,6 +61,11 @@ class JobPostingDraft extends Equatable {
     this.benefits = const <String>[],
     this.requirements = const <String>[],
     this.description,
+    this.city,
+    this.payType,
+    this.minExperienceYears,
+    this.maxExperienceYears,
+    this.neededBy,
     this.confidence,
     this.missingFields = const <String>[],
     this.clarificationQuestions = const <String>[],
@@ -80,6 +85,32 @@ class JobPostingDraft extends Equatable {
   final List<String> benefits;
   final List<String> requirements;
   final String? description;
+
+  // --- #1727 — the worker-card fields the interview now collects ------------
+  // Every one of these is a row on the worker's job card, and the interview
+  // asked for none of them until #1726/#1727. They are nullable and never
+  // defaulted: the draft is a report of what the engine extracted, so an
+  // unanswered topic stays absent rather than becoming a guess.
+
+  /// The coarse card city, recorded ONLY from the closed gazetteer list the
+  /// worker filters use — never derived from [locationLabel], which is poster
+  /// free text the worker feed does not read. A town outside that list
+  /// legitimately stays null.
+  final String? city;
+
+  /// What the ₹ band MEANS: `in_hand` | `gross` | `ctc`. A RAW ENUM — humanised
+  /// at the display edge (`jobPayTypeLabel`), never printed as-is.
+  final String? payType;
+
+  /// The experience window in whole years. EITHER END MAY BE NULL ON ITS OWN:
+  /// "5+ years" has no max and "up to 2 years" has no min, and 0 is a real
+  /// value (a fresher), not an absent one.
+  final int? minExperienceYears;
+  final int? maxExperienceYears;
+
+  /// When the payer needs someone: `immediate` | `soon` | `flexible`. Raw enum,
+  /// humanised at the display edge.
+  final String? neededBy;
 
   /// The engine's DETERMINISTIC coverage ratio (0..1) — topics answered over
   /// topics in the bank. Not a model score, and never rendered as a bare number
@@ -113,7 +144,12 @@ class JobPostingDraft extends Equatable {
       shift == null &&
       benefits.isEmpty &&
       requirements.isEmpty &&
-      description == null;
+      description == null &&
+      city == null &&
+      payType == null &&
+      minExperienceYears == null &&
+      maxExperienceYears == null &&
+      neededBy == null;
 
   static JobPostingDraft fromJson(Map<String, dynamic> json) {
     return JobPostingDraft(
@@ -129,6 +165,13 @@ class JobPostingDraft extends Equatable {
       requirements:
           _strList(json, 'requirements', 'requirements', 'requirements'),
       description: _str(json, 'description', 'description'),
+      city: _str(json, 'city', 'city'),
+      payType: _str(json, 'pay_type', 'payType'),
+      minExperienceYears:
+          _int(json, 'min_experience_years', 'minExperienceYears'),
+      maxExperienceYears:
+          _int(json, 'max_experience_years', 'maxExperienceYears'),
+      neededBy: _str(json, 'needed_by', 'neededBy'),
       confidence: _double(json, 'confidence', 'confidence'),
       missingFields: _strList(json, 'missing_fields', 'missingFields', 'missing'),
       clarificationQuestions: _strList(
@@ -153,6 +196,11 @@ class JobPostingDraft extends Equatable {
         benefits,
         requirements,
         description,
+        city,
+        payType,
+        minExperienceYears,
+        maxExperienceYears,
+        neededBy,
         confidence,
         missingFields,
         clarificationQuestions,
@@ -249,6 +297,7 @@ class JobPostingChatSessionSummary extends Equatable {
     this.lastMessageAt,
     this.draftReady = false,
     this.roleTitle,
+    this.city,
     this.publishedJobPostingId,
   });
 
@@ -265,6 +314,12 @@ class JobPostingChatSessionSummary extends Equatable {
   /// The draft's role title when the chat got that far — a resume-card label
   /// only.
   final String? roleTitle;
+
+  /// #1727 — the draft's coarse card city, so a resume card can say WHERE the
+  /// job is. The draft's own `city`, never a city read out of a free-text
+  /// location label: the server keeps that wall deliberately, and a draft
+  /// without one says null rather than a guess.
+  final String? city;
 
   final String? publishedJobPostingId;
 
@@ -286,6 +341,8 @@ class JobPostingChatSessionSummary extends Equatable {
           _bool(json, 'draft_ready', 'draftReady') || status == 'draft_ready',
       roleTitle: _str(json, 'role_title', 'roleTitle') ??
           (draft == null ? null : _str(draft, 'role_title', 'roleTitle')),
+      city: _str(json, 'city', 'city') ??
+          (draft == null ? null : _str(draft, 'city', 'city')),
       publishedJobPostingId:
           _str(json, 'published_job_posting_id', 'publishedJobPostingId'),
     );
@@ -299,6 +356,7 @@ class JobPostingChatSessionSummary extends Equatable {
         lastMessageAt,
         draftReady,
         roleTitle,
+        city,
         publishedJobPostingId,
       ];
 }

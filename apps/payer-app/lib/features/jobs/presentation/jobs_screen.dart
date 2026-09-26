@@ -231,11 +231,16 @@ class _ResumeChatCard extends StatelessWidget {
       builder: (BuildContext context, ChatSessionsState state) {
         final JobPostingChatSessionSummary? session = state.mostRecent;
         if (session == null) return const SizedBox.shrink();
+        // #1727 — the session now carries the draft's coarse card city, so the
+        // row can say WHERE the job is. Appended only when the draft has one: a
+        // town outside the closed city list legitimately has none, and a city is
+        // never read out of the poster's free-text location label.
+        final String where = session.city == null ? '' : ' · ${session.city}';
         final String subtitle = session.roleTitle == null
             ? (session.draftReady
-                ? 'Draft ready to publish'
-                : 'Started on one of your devices')
-            : '${session.roleTitle} · '
+                ? 'Draft ready to publish$where'
+                : 'Started on one of your devices$where')
+            : '${session.roleTitle}$where · '
                 '${session.draftReady ? 'draft ready' : 'in progress'}';
         return Padding(
           padding: const EdgeInsets.only(top: AppSpacing.s3),

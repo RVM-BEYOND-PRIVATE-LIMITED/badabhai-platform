@@ -90,6 +90,7 @@ class JobPostingChatState extends Equatable {
     this.publishOutcome = PublishOutcome.none,
     this.publishedJobId,
     this.unmappedFields = const <String>[],
+    this.unsetCardFields = const <String>[],
   });
 
   /// Ordered, append-only transcript.
@@ -144,6 +145,12 @@ class JobPostingChatState extends Equatable {
   /// Empty when everything mapped cleanly. Drives the additive honesty notice.
   final List<String> unmappedFields;
 
+  /// #1727 — the worker-card columns the published posting holds NULL
+  /// (`PublishJobResult.unsetCardFields`, raw keys). A DIFFERENT report from
+  /// [unmappedFields]: nothing was dropped, these were simply never collected,
+  /// and publish never refuses over them.
+  final List<String> unsetCardFields;
+
   JobPostingChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -158,6 +165,7 @@ class JobPostingChatState extends Equatable {
     PublishOutcome? publishOutcome,
     String? publishedJobId,
     List<String>? unmappedFields,
+    List<String>? unsetCardFields,
   }) {
     return JobPostingChatState(
       messages: messages ?? this.messages,
@@ -174,6 +182,7 @@ class JobPostingChatState extends Equatable {
       publishOutcome: publishOutcome ?? this.publishOutcome,
       publishedJobId: publishedJobId ?? this.publishedJobId,
       unmappedFields: unmappedFields ?? this.unmappedFields,
+      unsetCardFields: unsetCardFields ?? this.unsetCardFields,
     );
   }
 
@@ -192,6 +201,7 @@ class JobPostingChatState extends Equatable {
         publishOutcome,
         publishedJobId,
         unmappedFields,
+        unsetCardFields,
       ];
 }
 
@@ -474,6 +484,7 @@ class JobPostingChatBloc
         // Carry the server's honesty list onto state so the screen can nudge the
         // payer about fields that did not persist. Empty = clean publish.
         unmappedFields: result.unmappedFields,
+        unsetCardFields: result.unsetCardFields,
       ));
     } on PayerApiException catch (e) {
       emit(state.copyWith(

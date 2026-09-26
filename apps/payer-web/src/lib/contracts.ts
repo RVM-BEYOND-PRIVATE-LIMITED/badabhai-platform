@@ -1205,6 +1205,16 @@ export const jobPostingChatDraftWireSchema = z.object({
   benefits: z.array(z.string()).optional(),
   requirements: z.array(z.string()).optional(),
   description: z.string().nullable().optional(),
+  // #1727 — the worker-card fields the interview now collects. TOLERANT on
+  // purpose (nullable + optional, defaults in the mapper): a key this build
+  // models too strictly would throw inside `payerFetch`, and the enums are
+  // plain strings here so a value added server-side reaches the humaniser
+  // rather than the error path.
+  city: z.string().nullable().optional(),
+  pay_type: z.string().nullable().optional(),
+  min_experience_years: z.number().int().nullable().optional(),
+  max_experience_years: z.number().int().nullable().optional(),
+  needed_by: z.string().nullable().optional(),
   confidence: z.number().nullable().optional(),
   missing_fields: z.array(z.string()).optional(),
   clarification_questions: z.array(z.string()).optional(),
@@ -1222,6 +1232,15 @@ export interface JobPostingDraft {
   benefits: string[];
   requirements: string[];
   description: string | null;
+  /** The coarse card city — never derived from `locationLabel` (poster free text). */
+  city: string | null;
+  /** `in_hand` | `gross` | `ctc`, raw — humanised at the display edge. */
+  payType: string | null;
+  /** Either end may be null on its own; 0 is a real value (a fresher). */
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
+  /** `immediate` | `soon` | `flexible`, raw — humanised at the display edge. */
+  neededBy: string | null;
   confidence: number | null;
   missingFields: string[];
   clarificationQuestions: string[];
@@ -1243,6 +1262,11 @@ export function toJobPostingDraft(
     benefits: wire.benefits ?? [],
     requirements: wire.requirements ?? [],
     description: wire.description ?? null,
+    city: wire.city ?? null,
+    payType: wire.pay_type ?? null,
+    minExperienceYears: wire.min_experience_years ?? null,
+    maxExperienceYears: wire.max_experience_years ?? null,
+    neededBy: wire.needed_by ?? null,
     confidence: wire.confidence ?? null,
     missingFields: wire.missing_fields ?? [],
     clarificationQuestions: wire.clarification_questions ?? [],
@@ -1304,6 +1328,8 @@ export const jobPostingChatSessionWireSchema = z.object({
   draft_ready: z.boolean().optional(),
   /** The draft's role title, when the chat has got that far — a resume-card label only. */
   role_title: z.string().nullable().optional(),
+  /** #1727 — the draft's coarse card city, so a resume row can say where. */
+  city: z.string().nullable().optional(),
   started_at: z.string(),
   last_message_at: z.string().nullable().optional(),
   published_job_posting_id: z.string().uuid().nullable().optional(),
@@ -1314,6 +1340,7 @@ export interface JobPostingChatSessionSummary {
   status: JobPostingChatStatus;
   draftReady: boolean;
   roleTitle: string | null;
+  city: string | null;
   startedAt: string;
   lastMessageAt: string | null;
   publishedJobPostingId: string | null;
@@ -1327,6 +1354,7 @@ export function toJobPostingChatSessionSummary(
     status: wire.status,
     draftReady: wire.draft_ready ?? false,
     roleTitle: wire.role_title ?? null,
+    city: wire.city ?? null,
     startedAt: wire.started_at,
     lastMessageAt: wire.last_message_at ?? null,
     publishedJobPostingId: wire.published_job_posting_id ?? null,
@@ -1389,10 +1417,24 @@ export const jobPostingChatPublishWireSchema = z.object({
   job_posting_id: z.string().uuid(),
   session_id: z.string().uuid().optional(),
   status: jobPostingChatStatusSchema.optional(),
+  // #1727 — the worker-card columns the created posting holds NULL, and the
+  // legacy carry-over report beside it. `z.array(z.string())` rather than an
+  // enum: this response arrives AFTER the posting has been created, so a key
+  // this build has not seen must never make the parse throw.
+  unset_card_fields: z.array(z.string()).optional(),
+  unmapped_fields: z.array(z.string()).optional(),
 });
 
 export interface JobPostingChatPublishResult {
   jobPostingId: string;
+  /**
+   * Worker-card columns the posting holds NULL. FACTS, not a validation failure:
+   * publish deliberately never refuses a thin draft, and not every entry is a
+   * problem (a "5+ years" window legitimately has no max).
+   */
+  unsetCardFields: string[];
+  /** Collected fields the create path had nowhere to put. A DIFFERENT report. */
+  unmappedFields: string[];
 }
 
 /**

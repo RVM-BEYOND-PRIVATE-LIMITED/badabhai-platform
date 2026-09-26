@@ -1517,7 +1517,14 @@ export async function publishJobPostingChatSession(
       body: {},
       schema: jobPostingChatPublishWireSchema,
     });
-    return { jobPostingId: wire.job_posting_id };
+    return {
+      jobPostingId: wire.job_posting_id,
+      // #1727 — pass both gap reports through. They died here before: the
+      // mapper returned the id alone, so the server's honesty about what the
+      // posting is missing never reached a screen.
+      unsetCardFields: wire.unset_card_fields ?? [],
+      unmappedFields: wire.unmapped_fields ?? [],
+    };
   } catch (e) {
     return nullOnNeutral404<JobPostingChatPublishResult>(e);
   }
