@@ -15,9 +15,14 @@
 -- `reach_skill_ids @> to_jsonb(skill)` containment join, and for `@>` it is the
 -- smaller, faster of the two. No column, constraint, row or query changes.
 --
--- NOT CONCURRENTLY: drizzle's migrator runs each file in a transaction, where
--- CREATE INDEX CONCURRENTLY is not allowed. `job_postings` is small (alpha
--- volume), so the SHARE lock blocks posting writes only for the build.
+-- NOT CONCURRENTLY: drizzle's migrator applies EVERY pending file inside ONE
+-- transaction (drizzle-orm pg-core `migrate()`), where CREATE INDEX CONCURRENTLY
+-- is not allowed. So this file's SHARE lock on `job_postings` - and any failure of
+-- it - rides with whatever else is pending in the same `db:migrate` (today: 0126).
+-- To keep it separate, hand-apply it FIRST, outside drizzle:
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "job_postings_reach_ops_gin"
+--     ON "job_postings" USING gin ("reach_skill_ids");
+-- after which the replay below is a no-op (see MIGRATIONS.md, row 0127).
 --
 -- IF NOT EXISTS so a hand-applied copy (see MIGRATIONS.md) cannot make a later
 -- `db:migrate` die on "already exists".
