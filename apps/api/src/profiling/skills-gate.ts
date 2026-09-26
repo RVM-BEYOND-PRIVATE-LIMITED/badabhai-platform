@@ -700,5 +700,75 @@ export const GENERAL_FORM_OFFER: GeneralFormOffer = Object.freeze({
  * only fact that survives the round trip is that one was offered — any non-null object.
  */
 export function narrowGeneralFormOffer(value: unknown): GeneralFormOffer | null {
-  return typeof value === "object" && value !== null ? GENERAL_FORM_OFFER : null;
+  if (typeof value !== "object" || value === null) return null;
+  // TWO CARDS NOW (the no-skills one below), so the stored HEADLINE picks which constant is
+  // rebuilt — never the stored copy itself. Anything else is the default card.
+  const headline = (value as { headline?: unknown }).headline;
+  return headline === GENERAL_FORM_HEADLINE_NO_SKILLS
+    ? GENERAL_FORM_OFFER_NO_SKILLS
+    : GENERAL_FORM_OFFER;
+}
+
+/**
+ * The card for a handover with NO certified skills (ADR-0045 review, Phase 2b).
+ *
+ * "Skills note ho gayi" is a CLAIM, and on the `no_skills` / zero-skill `unavailable` /
+ * `turn_cap` paths it is false — the worker would read that their skills were saved when none
+ * were, and the general form never asks for skills again. Same CTA, a headline that claims
+ * nothing.
+ */
+const GENERAL_FORM_HEADLINE_NO_SKILLS = "Baaki jaankari form mein";
+
+export const GENERAL_FORM_OFFER_NO_SKILLS: GeneralFormOffer = Object.freeze({
+  headline: GENERAL_FORM_HEADLINE_NO_SKILLS,
+  ctaLabel: GENERAL_FORM_CTA_LABEL,
+  reply: `${GENERAL_FORM_HEADLINE_NO_SKILLS}. Ab ${GENERAL_FORM_CTA_LABEL.toLowerCase()}.`,
+} satisfies GeneralFormOffer);
+
+/** The card whose headline is TRUE for this many certified skills. */
+export function generalFormOfferFor(skillsCount: number): GeneralFormOffer {
+  return skillsCount > 0 ? GENERAL_FORM_OFFER : GENERAL_FORM_OFFER_NO_SKILLS;
+}
+
+/**
+ * The ENGINE's own follow-up to a "Haan" at the gate, served when the model's reply cannot be:
+ * a repeat of the line the skills prompt itself tells it to ask, a gate-shaped question, or one
+ * off the skills topic. Deterministic, like the gate — a worker who said "yes, I want to add
+ * more" is asked WHICH skill, never shown the same locked gate again.
+ */
+export const SKILLS_ADD_PROMPT = "Kaunsi skill jodni hai?";
+
+/**
+ * Bare negations — a stop at the GATE ("Kya aur koi skill jodni hai?" → "nahi" is a no), but NOT
+ * mid-stage, where the question on screen is an open per-area one ("Kaunse database use karte
+ * hain?"): there "nahi" means "none in THIS area", and the skills prompt tells the model to move
+ * on to the next area. Ending the whole stage on it would cut a worker off after one empty area.
+ */
+const BARE_NEGATIONS: ReadonlySet<string> = new Set(
+  [
+    "nahi",
+    "nahin",
+    "nhi",
+    "nai",
+    "na",
+    "no",
+    "nope",
+    "ji nahi",
+    "koi nahi",
+    "kuch nahi",
+    "kuch nhi",
+    "नहीं",
+    "नही",
+    "कोई नहीं",
+    "कुछ नहीं",
+  ].map(normaliseStop),
+);
+
+/**
+ * A MID-STAGE stop: {@link isSkillsStop} minus the bare negations. Only an unambiguous
+ * list-ender ("bas", "itna hi", "aur kuch nahi", "that's all") ends the stage without a model
+ * call; a bare "nahi" goes to the model, which reads it as an empty area.
+ */
+export function isSkillsStageStop(text: string): boolean {
+  return isSkillsStop(text) && !BARE_NEGATIONS.has(normaliseStop(text));
 }

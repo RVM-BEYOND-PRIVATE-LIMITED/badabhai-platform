@@ -28,8 +28,14 @@ import {
   readFormOfferReply,
   type FormOfferReply,
 } from "./trade-form-offer";
-import type { GeneralFormOffer } from "./skills-gate";
-import type { ChatGateKind } from "@badabhai/types";
+import { generalFormOfferFor, SKILLS_GATE_OPTIONS, type GeneralFormOffer } from "./skills-gate";
+import type {
+  ChatGateKind,
+  ProfilingLane,
+  ProfilingLaneReason,
+  SkillsGateReply,
+  SkillsStageOutcome,
+} from "@badabhai/types";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
@@ -70,6 +76,9 @@ import {
   toPackOption,
 } from "./identify.service";
 import { EXPERIENCE_GATE_PROMPT, LlmTurnService } from "./llm-turn.service";
+import { classifyRoleScope } from "./role-scope";
+import { certifySkillLabel, certifySkills } from "./skill-certifier";
+import { SkillsTurnService, type SkillsTurnResult } from "./skills-turn.service";
 import {
   confirmableFacts,
   confirmedValues,
@@ -100,6 +109,7 @@ import { seedFromWorkerRecord } from "./worker-record-seed";
 import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
+  forgetAnswer,
   isSettled,
   recordAnswer,
   recordDeclined,
@@ -112,6 +122,7 @@ import {
 import { packAnswerRowFor } from "./pack-answer-row";
 import {
   answersOf,
+  emptyGeneralRoad,
   emptyProfilingEnvelope,
   inboundHash,
   MAX_REPLAYS_PER_TURN,
@@ -395,6 +406,16 @@ export interface TurnInput {
    */
   readonly voiceNoteId: string | null;
   /**
+   * ADR-0045 — may THIS turn arm a NEW session for the general road? True only from the chat
+   * surface (`ChatService.postMessage`); read only when the envelope is created.
+   *
+   * OPTIONAL, AND ABSENT MEANS UNARMED — the one deliberate exception to this interface's
+   * required-and-nullable rule, because here the omission's failure mode is today's interview,
+   * not a silent defect. That is exactly what keeps voice-form sessions unarmed (ADR-0045 §6):
+   * `ProfilingSessionService` never passes it, and every test construction compiles unchanged.
+   */
+  readonly armGeneralRoad?: boolean;
+  /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
@@ -529,6 +550,10 @@ export class ProfilingOrchestrator {
     // same reason as `resumeAutofill`: every existing construction keeps compiling, and a test
     // that does not pass one gets exactly the pre-0125 interview.
     private readonly resumeUpdateOffer?: ResumeUpdateOfferPolicy,
+    // ADR-0045 — the general road's skills stage. Trailing and optional for the same reason as
+    // the two above: a construction without one gets exactly today's interview, because no
+    // session can be armed without it.
+    private readonly skills?: SkillsTurnService,
   ) {}
 
   /**
@@ -1065,8 +1090,15 @@ export class ProfilingOrchestrator {
           answerType: asked.answerType,
           // DERIVED, because `lastTurn` does not cache it: the gate is the only turn the engine
           // itself sends `options_only`, and a model turn that asked for one re-opens with the
-          // keyboard available — which is what every shipped client does anyway.
-          inputMode: envelope.llmGateOpen ? "options_only" : "text",
+          // keyboard available — which is what every shipped client does anyway. The general
+          // road's skills gate (ADR-0045) is the other engine gate, and carries its kind.
+          //
+          // THE SKILLS GATE LOCKS ONLY WHILE IT IS WHAT `lastTurn` CACHED, not merely while it is
+          // open: a hardship or de-escalation line served over it replaces it on screen with no
+          // chips, and locking that reopen left a composer with nothing to tap. Same test the
+          // reply cache already applies (`replayResultOf` reads the cached kind).
+          inputMode: envelope.llmGateOpen || skillsGateOnScreen(envelope) ? "options_only" : "text",
+          ...(skillsGateOnScreen(envelope) ? { gateKind: "skills" as const } : {}),
           progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
@@ -1322,6 +1354,11 @@ export class ProfilingOrchestrator {
     // once a session already exists. See `seedFromWorkerRecord`'s docblock for why this is safe
     // to apply unconditionally on a fresh envelope and a no-op on every other one.
     if (fresh) envelope = await this.seedCity(envelope, citySeed, items, input);
+    // ADR-0045 — THE GENERAL ROAD IS STAMPED ONCE, HERE, on the envelope's first turn, and never
+    // re-read: a flag flip mid-interview must not switch engines under a worker. Chat only (see
+    // `TurnInput.armGeneralRoad`). `openTurn` never arms — the voice form and a chat that opens
+    // on a résumé confirm keep today's interview.
+    if (fresh) envelope = this.stampGeneralRoad(envelope, input);
     // ONE DENOMINATOR FOR THE WHOLE SESSION. `items` stays the FULL pinned universe, because
     // settlement, `shapeOf` and `essentialsOf` all have to keep seeing the trade pack's rows —
     // every `skills` question in the corpus lives in an occupation pack, and narrowing that list
@@ -1850,13 +1887,61 @@ export class ProfilingOrchestrator {
       this.llm.leads(envelope) &&
       !isOpenerReplyTurn(envelope);
     answers = this.fillCrossQuestion(
-      crossFillItems(items, phaseALeads),
+      // ADR-0045 R5: on the skills lane experience is NEVER cross-filled — total experience comes
+      // only from the general form's work history, and `isOpenerReplyTurn` can read true again
+      // once the lane has cleared the draft's experiences.
+      crossFillItems(items, phaseALeads || onSkillsLane(envelope)),
       input.text,
       envelope,
       answers,
       capture.correcting,
       turn,
     );
+
+    // --- THE GENERAL ROAD'S SKILLS STAGE (ADR-0045) --------------------------
+    //
+    // BEFORE IDENTIFY, and on this lane it owns the turn: every branch below returns. Identify
+    // would otherwise read skills answers as trade statements — "main AutoCAD pe drawing banata
+    // hoon" can re-pin the session, and a gate "nahi" on an unpinned one can raise a
+    // disambiguation offer or be queued as an unresolved trade phrase.
+    if (onSkillsLane(next) && this.skills !== undefined) {
+      next = withAnswers(next, answers);
+      // THE TURN CAP AND THE ABUSE CAP both close the lane WITHOUT a model call. The abusive branch
+      // above falls through once its cap is spent, expecting the engine to close with `abuse_cap`;
+      // on this lane the engine is never reached, so the close happens here — and the abusive
+      // text is never sent to a provider.
+      if (capped || next.abusiveTurns >= MAX_ABUSIVE_TURNS) {
+        return this.completeGeneralFormHandover(
+          buffer,
+          next,
+          input,
+          answers,
+          items,
+          progressItems,
+          turn,
+          capped ? "turn_cap" : "capped",
+          capture.excludeFromParse,
+        );
+      }
+      const took = await this.skills.take(
+        next,
+        input.text,
+        transcriptOf(buffer),
+        skillsCtxOf(input),
+        { entering: false },
+      );
+      return this.applySkillsTurn(
+        buffer,
+        next,
+        input,
+        answers,
+        items,
+        progressItems,
+        turn,
+        took,
+        capture.excludeFromParse,
+      );
+    }
 
     // --- IDENTIFY: the worker's words become an occupation -------------------
     //
@@ -2020,6 +2105,11 @@ export class ProfilingOrchestrator {
         // engine is about to replace.
         next = { ...next, llmFallback: true, llmGateOpen: false };
         await this.recordFallback(next, input);
+        // ADR-0045: no model, no skills stage — an armed session still undecided stays on today's
+        // path for good.
+        if (laneUndecided(next)) {
+          next = await this.decideLane(next, input, "classic", "model_unavailable");
+        }
         // AND SETTLE WHAT PHASE A ALREADY LEARNED, on the way out.
         //
         // THE DEFECT THIS CLOSES. `settleFromLlmDraft` used to run on the `done` branch only, so
@@ -2090,6 +2180,49 @@ export class ProfilingOrchestrator {
           // turner; their own "vmc" appears nowhere but the sentence they typed.
           workerText: input.text,
         });
+
+        // --- THE LANE (ADR-0045) — decided ONCE, on the same draft the routing just read ------
+        //
+        // BEFORE THE OFFER, so an armed session learns its road on the turn its role is known.
+        // One of the 21 (a trade form routes, an occupation term, a pin to one of their families
+        // or an adjacent one) stays on today's path; a role that is KNOWN and outside them enters
+        // the skills stage on this same turn — the worker's role answer is harvested for skills
+        // rather than spent. "unknown" waits, and Phase A ending without a role is today's path.
+        if (laneUndecided(next)) {
+          if (formKind !== null) {
+            next = await this.decideLane(
+              next,
+              input,
+              "classic",
+              next.formOfferPrompt === null && !capped ? "form_offered" : "declared_role",
+            );
+          } else {
+            const scope = classifyRoleScope({
+              domainLabel: next.llmDraft.domain_label,
+              roleLabel: next.llmDraft.role_label,
+              pinFamilyId: next.occupationFamilyId,
+              pinLabel: next.occupation?.label ?? null,
+            });
+            if (scope === "declared") {
+              next = await this.decideLane(next, input, "classic", "declared_role");
+            } else if (scope === "outside") {
+              return this.enterSkillsLane(
+                buffer,
+                next,
+                input,
+                answers,
+                items,
+                progressItems,
+                turn,
+                capped,
+                capture.excludeFromParse,
+              );
+            } else if (led.kind === "done") {
+              next = await this.decideLane(next, input, "classic", "role_unresolved");
+            }
+          }
+        }
+
         if (formKind !== null && next.formOfferPrompt === null && !capped) {
           // ── THE OFFER TURN (owner ruling 2026-09-16) ───────────────────────────────
           //
@@ -2377,6 +2510,9 @@ export class ProfilingOrchestrator {
       decision.completionReason !== "abuse_cap" &&
       decision.completionReason !== "no_pack" &&
       next.formKind === null &&
+      // ADR-0045: a skills-lane session closes with the general-form card, never this offer —
+      // belt to the braces of the handover returning early.
+      next.generalRoad?.lane !== "skills" &&
       next.resumeUpdateOffer == null &&
       this.resumeUpdateOffer !== undefined &&
       (await this.resumeUpdateOffer.eligible(input.workerId))
@@ -3262,6 +3398,366 @@ export class ProfilingOrchestrator {
     });
   }
 
+  // ===========================================================================
+  // THE GENERAL ROAD (ADR-0045)
+  // ===========================================================================
+
+  /** Arm a NEW chat session when the flags say so — see `TurnInput.armGeneralRoad`. */
+  private stampGeneralRoad(envelope: ProfilingEnvelope, input: TurnInput): ProfilingEnvelope {
+    if (input.armGeneralRoad !== true || this.skills === undefined || !this.skills.armed()) {
+      return envelope;
+    }
+    return { ...envelope, generalRoad: { ...emptyGeneralRoad(), armed: true } };
+  }
+
+  /** Settle the lane — once — and record it. Classic here; the skills lane enters below. */
+  private async decideLane(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    lane: ProfilingLane,
+    reason: ProfilingLaneReason,
+  ): Promise<ProfilingEnvelope> {
+    const decided = {
+      ...envelope,
+      generalRoad: { ...envelope.generalRoad, lane, laneReason: reason },
+    };
+    await this.recordLaneDecided(decided, input, lane, reason);
+    return decided;
+  }
+
+  /**
+   * The role is known and outside the 21: enter the skills lane and take its first turn NOW.
+   *
+   * ON THE SAME TURN, so the worker's role answer ("main software developer hoon, React aur Node
+   * pe kaam karta hoon") is harvested for skills rather than spent — at the cost of a second
+   * model call on this one turn.
+   *
+   * WHAT ENTERING FORGETS (R5): the opener's experience answer and every job the draft holds.
+   * Total experience on this road comes only from the general form's work history, and nothing
+   * the chat heard about years may reach the answer map, the parse or `worker_pack_answer`. The
+   * experience gate Phase A may have opened on this very turn is closed with it.
+   *
+   * WHAT IT CERTIFIES: the role and domain labels, and Phase A's skills — which were never
+   * certified on the classic path — grounded in everything the worker has said so far. Only
+   * certified skills ever reach the gate or `conversation_state.general_road`.
+   */
+  private async enterSkillsLane(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    capped: boolean,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const draft = envelope.llmDraft;
+    const roleLabel = certifySkillLabel(draft.role_label ?? "");
+    const domainLabel = certifySkillLabel(draft.domain_label ?? "");
+    const workerText = [
+      ...transcriptOf(buffer)
+        .filter((line) => line.role === "worker")
+        .map((line) => line.text),
+      input.text,
+    ].join("\n");
+    const seeded = certifySkills(draft.skills, { workerText, held: [], roleLabel, domainLabel });
+    const cleared = forgetExperienceYears(answers);
+    const next = withAnswers(
+      {
+        ...envelope,
+        llmDraft: { ...draft, experiences: [] },
+        llmGateOpen: false,
+        // NOT "done": `leads()` stays true on this lane, so the reopen reader and the old-client
+        // escape keep treating the screen as model-led. The skills branch owns every later turn.
+        llmStage: "skills",
+        phase: "llm_interview",
+        servedQuestionKey: null,
+        generalRoad: {
+          ...envelope.generalRoad,
+          lane: "skills",
+          laneReason: "outside_declared_roles",
+          roleLabel,
+          domainLabel,
+          skills: seeded.kept,
+          rejectedCount: envelope.generalRoad.rejectedCount + seeded.rejected,
+        },
+      },
+      cleared,
+    );
+    await this.recordLaneDecided(next, input, "skills", "outside_declared_roles");
+    if (capped || this.skills === undefined) {
+      return this.completeGeneralFormHandover(
+        buffer,
+        next,
+        input,
+        cleared,
+        items,
+        progressItems,
+        turn,
+        "turn_cap",
+        excludeFromParse,
+      );
+    }
+    const took = await this.skills.take(
+      next,
+      input.text,
+      transcriptOf(buffer),
+      skillsCtxOf(input),
+      { entering: true },
+    );
+    return this.applySkillsTurn(
+      buffer,
+      next,
+      input,
+      cleared,
+      items,
+      progressItems,
+      turn,
+      took,
+      excludeFromParse,
+    );
+  }
+
+  /** Fold one skills turn in and serve it: an ask, the gate, or the handover. */
+  private async applySkillsTurn(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    took: SkillsTurnResult,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    let next: ProfilingEnvelope = { ...envelope, generalRoad: took.road };
+    if (took.gateReply !== null) {
+      await this.recordSkillsGateAnswered(next, input, took.gateRound, took.gateReply);
+    }
+    if (took.kind === "handover") {
+      return this.completeGeneralFormHandover(
+        buffer,
+        next,
+        input,
+        answers,
+        items,
+        progressItems,
+        turn,
+        took.outcome,
+        excludeFromParse,
+      );
+    }
+    // NO `servedQuestionKey` — neither a skills question nor the gate belongs to a pack.
+    next = { ...next, phase: "llm_interview", servedQuestionKey: null };
+    const shared = {
+      kind: "ask" as const,
+      questionKey: null,
+      whyText: null,
+      progress: progressOf(progressItems, answers),
+      unansweredEssentials: essentialsOf(items, answers),
+      complete: false,
+      completionReason: null,
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+    };
+    if (took.kind === "gate") {
+      return this.turn(buffer, next, input, {
+        ...shared,
+        reply: took.reply,
+        options: [...SKILLS_GATE_OPTIONS],
+        answerType: "single_select",
+        // THE KEYBOARD IS LOCKED on the gate, like the experience gate: exactly two answers.
+        inputMode: "options_only",
+        gateKind: "skills",
+        // A CHECKPOINT: this is where the worker's confirmed skills wait on one tap, and the
+        // lane and every skill live only in Redis until then.
+        checkpointDue: true,
+      });
+    }
+    const options = llmChipOptions(took.chips, false);
+    return this.turn(buffer, next, input, {
+      ...shared,
+      reply: took.reply,
+      options,
+      answerType: options.length > 0 ? "single_select" : "text",
+      inputMode: "text",
+      checkpointDue: false,
+    });
+  }
+
+  /**
+   * The skills stage is over: close the chat with the general-form card (ADR-0045).
+   *
+   * MODELLED ON {@link completeFormHandover}, with three differences that are the whole point:
+   *
+   * 1. SETTLES THE TRADE ONLY. The draft is settled with its skills and experiences emptied —
+   *    R7 keeps the skills off every matching input (they live, certified, in the durable
+   *    `general_road` stamp and reach the résumé from there), and R5 keeps the chat's years out.
+   * 2. `formKind` STAYS NULL. That field routes a returning worker to a TRADE form and makes the
+   *    profile's source "form"; this road's source stays "chat". The handed-over marker on the
+   *    general road is what withholds extraction instead.
+   * 3. Completion reason `general_form_handoff`, and the card is `generalFormOffer` — never the
+   *    trade card, whose closed `kind` shipped apps route to a trade form.
+   */
+  private async completeGeneralFormHandover(
+    buffer: TranscriptBuffer,
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    answers: AnswerMap,
+    items: readonly QuestionPackItem[],
+    progressItems: readonly QuestionPackItem[],
+    turn: number,
+    outcome: SkillsStageOutcome,
+    excludeFromParse: boolean,
+  ): Promise<{ buffer: TranscriptBuffer; result: TurnResult }> {
+    const settled = forgetExperienceYears(
+      settleFromLlmDraft(
+        answers,
+        { ...envelope.llmDraft, skills: [], experiences: [] },
+        envelope.occupation?.label ?? null,
+        items,
+        turn,
+      ),
+    );
+    let next = withAnswers(envelope, settled);
+    next = {
+      ...next,
+      generalRoad: { ...next.generalRoad, gateOpen: false, outcome, handedOver: true },
+      // PHASE A IS OFF FOR GOOD, and the experience gate with it — the same two lines the trade
+      // handover writes, for the same reasons.
+      llmStage: "done",
+      llmGateOpen: false,
+      phase: "close",
+      servedQuestionKey: null,
+    };
+    await this.recordGeneralFormHandoff(next, input, outcome);
+    // THE COPY MUST BE TRUE: "Skills note ho gayi" only when a skill was actually noted.
+    const card = generalFormOfferFor(next.generalRoad.skills.length);
+    return this.turn(buffer, next, input, {
+      reply: card.reply,
+      kind: "close",
+      questionKey: null,
+      options: [],
+      answerType: null,
+      whyText: null,
+      inputMode: "text",
+      progress: progressOf(progressItems, settled),
+      unansweredEssentials: essentialsOf(items, settled),
+      // COMPLETE, so the flush runs and the general-road stamp is DURABLE before the worker
+      // leaves for the form — the Redis envelope is dropped the moment the flush commits.
+      complete: true,
+      completionReason: "general_form_handoff",
+      replayed: false,
+      excludeFromParse,
+      unavailable: false,
+      checkpointDue: false,
+      generalFormOffer: card,
+    });
+  }
+
+  /** `profile.profiling_lane_decided` — once per session; never throws. */
+  private async recordLaneDecided(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    lane: ProfilingLane,
+    reason: ProfilingLaneReason,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.profiling_lane_decided",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          lane,
+          reason,
+          llm_led_turns: envelope.llmLedTurns,
+          asks: envelope.llmAsks,
+        },
+        idempotencyKey: `profile.profiling_lane_decided:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the general-road lane for session ${input.sessionId} was not recorded; the lane still ` +
+          `stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * `profile.skills_gate_answered` — once per ROUND (the key carries it); never throws.
+   * `unclear` is counted apart from `done`: it is the gate reader's miss rate.
+   */
+  private async recordSkillsGateAnswered(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    round: number,
+    reply: SkillsGateReply,
+  ): Promise<void> {
+    if (round < 1) return;
+    try {
+      await this.events.emit({
+        event_name: "profile.skills_gate_answered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          round,
+          reply,
+          skills_count: envelope.generalRoad.skills.length,
+        },
+        idempotencyKey: `profile.skills_gate_answered:${input.sessionId}:${round}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the skills-gate answer for session ${input.sessionId} was not recorded: ` +
+          `${(error as Error).message}`,
+      );
+    }
+  }
+
+  /** `profile.general_form_mode_entered` — once per session; counts only; never throws. */
+  private async recordGeneralFormHandoff(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    outcome: SkillsStageOutcome,
+  ): Promise<void> {
+    const road = envelope.generalRoad;
+    try {
+      await this.events.emit({
+        event_name: "profile.general_form_mode_entered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          outcome,
+          skills_count: road.skills.length,
+          skills_asks: road.skillsAsks,
+          gate_rounds: road.gateRounds,
+          llm_led_turns: envelope.llmLedTurns,
+          rejected_count: road.rejectedCount,
+        },
+        idempotencyKey: `profile.general_form_mode_entered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the general-form handover for session ${input.sessionId} was not recorded; the ` +
+          `handover still stands but the funnel cannot see it: ${(error as Error).message}`,
+      );
+    }
+  }
+
   /**
    * The offer was SERVED (once per session).
    *
@@ -4035,7 +4531,7 @@ function outstandingLlmAsk(
   answerType: AnswerType | null;
 } | null {
   if (!leads) return null;
-  if (envelope.llmAsks === 0 && !envelope.llmGateOpen) return null;
+  if (envelope.llmAsks === 0 && !envelope.llmGateOpen && !onSkillsLane(envelope)) return null;
   const last = envelope.lastTurn;
   if (!last || last.reply.trim().length === 0) return null;
   return { prompt: last.reply, options: last.options, answerType: last.answerType };
@@ -4392,6 +4888,58 @@ function settleFromLlmDraft(
  */
 function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
   return buffer.messages.map((message, i) => ({ i, role: message.role, text: message.text }));
+}
+
+/**
+ * Is this session on the general road's skills lane, still before the handover (ADR-0045)?
+ * `?.` because an envelope built by a caller that predates the field carries it as undefined.
+ */
+function onSkillsLane(envelope: ProfilingEnvelope): boolean {
+  const road = envelope.generalRoad;
+  return road?.armed === true && road.lane === "skills" && !road.handedOver;
+}
+
+/**
+ * Is the skills gate what the worker is looking at — open AND the last turn served (ADR-0045)?
+ * See the `openTurn` re-serve: an off-script turn over an open gate is on screen instead of it.
+ */
+function skillsGateOnScreen(envelope: ProfilingEnvelope): boolean {
+  return envelope.generalRoad?.gateOpen === true && envelope.lastTurn?.gateKind === "skills";
+}
+
+/** Armed, and the lane not yet decided — the one state in which the lane may be decided. */
+function laneUndecided(envelope: ProfilingEnvelope): boolean {
+  return envelope.generalRoad?.armed === true && envelope.generalRoad.lane === null;
+}
+
+/** The attribution every skills-stage model call carries — the Phase A turn's, exactly. */
+function skillsCtxOf(input: TurnInput): {
+  workerId: string;
+  sessionId: string;
+  correlationId: string;
+  requestId: string;
+} {
+  return {
+    workerId: input.workerId,
+    sessionId: input.sessionId,
+    correlationId: input.ctx.correlationId,
+    requestId: input.ctx.requestId,
+  };
+}
+
+/**
+ * Forget every `experience_years` answer (ADR-0045 R5) — by TARGET FIELD as well as by key,
+ * because a pack may own that fact under another key. On the general road total experience comes
+ * only from the form's work history; see `forgetAnswer` for why this is removal, not "declined".
+ */
+function forgetExperienceYears(answers: AnswerMap): AnswerMap {
+  let out = answers;
+  for (const [key, record] of Object.entries(answers)) {
+    if (key === "experience_years" || record.target_field === "experience_years") {
+      out = forgetAnswer(out, key);
+    }
+  }
+  return out;
 }
 
 /**

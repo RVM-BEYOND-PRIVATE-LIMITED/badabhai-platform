@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
+import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
@@ -98,6 +99,9 @@ describe("ProfilingModule wiring", () => {
       // The LLM-led opening. A CONSTRUCTOR dependency of the orchestrator, so omitting it here
       // does not fail a metadata test — it fails BOOT, exactly as `PackCacheService` above.
       LlmTurnService,
+      // ADR-0045. Trailing and optional on the orchestrator, so omitting it would not fail boot —
+      // it would silently leave every session unarmed. Pinned here for that reason.
+      SkillsTurnService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,

@@ -17,6 +17,7 @@ import { StorageModule } from "../storage/storage.module";
 import { VoiceModule } from "../voice/voice.module";
 import { IdentifyService } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
+import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
@@ -145,6 +146,9 @@ import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader
     PackRegistryService,
     IdentifyService,
     LlmTurnService,
+    // ADR-0045 — the general road's skills stage. A trailing optional CONSTRUCTOR dependency of the
+    // orchestrator: omitting it would not fail boot, it would leave every session unarmed.
+    SkillsTurnService,
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,

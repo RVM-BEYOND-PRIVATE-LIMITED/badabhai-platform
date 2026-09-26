@@ -414,6 +414,8 @@ export class ChatService {
       // reaches chat only after the worker has confirmed its transcript, and it arrives here as
       // ordinary text. If that route ever grows a clip id, this is the line that must change.
       null,
+      // ADR-0045: the chat is the ONE surface that may arm a new session for the general road.
+      { armGeneralRoad: true },
     );
     switch (outcome.kind) {
       case "session_over":
@@ -554,6 +556,12 @@ export class ChatService {
      * is written once at flush, and this is how the fact survives to it.
      */
     voiceNoteId: string | null,
+    /**
+     * ADR-0045 — `armGeneralRoad` is set by `postMessage` alone, so only a CHAT session can be
+     * armed for the general road. Optional because absence is today's interview: the voice form
+     * never passes it, and that is how its sessions stay unarmed.
+     */
+    opts?: { readonly armGeneralRoad?: boolean },
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -644,6 +652,7 @@ export class ChatService {
       now,
       submissionId,
       voiceNoteId,
+      ...(opts?.armGeneralRoad === true ? { armGeneralRoad: true } : {}),
       ctx,
     });
 
