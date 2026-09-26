@@ -137,6 +137,13 @@ function make(
     /** #1197 - what `findActiveSessionByWorker` returns. undefined = no live session. */
     liveSession?: { id: string; status: string; startedAt: Date } | undefined;
     /**
+     * #1744 — whether the live session already became a CONFIRMED profile. Default false: every
+     * pre-existing reattach test is about an unfinished interview. "throws" = the read fails.
+     */
+    liveConfirmed?: boolean | "throws";
+    /** #1744 — what `findLatestSessionByWorker` returns (the GET /chat/session/latest fallback). */
+    latestSession?: { id: string } | undefined;
+    /**
      * Task 1 B3 — what `orchestrator.openResumeConfirm` returns. `undefined` = null (no
      * pending résumé), which is what every pre-existing test in this file assumes.
      */
@@ -157,6 +164,11 @@ function make(
     // #1197 — the reattach read. DEFAULT undefined = no live session = mint, which is what
     // every pre-existing test in this file assumes.
     findActiveSessionByWorker: vi.fn().mockResolvedValue(opts.liveSession ?? undefined),
+    sessionProducedConfirmedProfile: vi.fn(async (_sessionId: string, _workerId: string) => {
+      if (opts.liveConfirmed === "throws") throw new Error("statement timeout");
+      return opts.liveConfirmed === true;
+    }),
+    findLatestSessionByWorker: vi.fn().mockResolvedValue(opts.latestSession ?? undefined),
     createSession: vi.fn().mockResolvedValue({ id: SESSION, status: "active", startedAt: T0 }),
     insertMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
     listMessages: vi.fn().mockResolvedValue([]),
@@ -1571,6 +1583,185 @@ describe("ChatService.startSession — reattaches to the live session instead of
     expect(res.session_id).toBe(SESSION);
     expect(chat.findActiveSessionByWorker).toHaveBeenCalledWith(WORKER);
     expect(chat.createSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1744 — a leftover that already became a confirmed profile is superseded, never reattached
+// ---------------------------------------------------------------------------
+
+describe("ChatService.startSession — #1744 supersedes a confirmed early-finish leftover", () => {
+  const LEFTOVER = "33333333-3333-4333-8333-333333333333";
+  const MIN = 60_000;
+  const leftover = () => ({
+    id: LEFTOVER,
+    workerId: WORKER,
+    status: "active",
+    conversationState: { captured: { current_city: "Pune" } },
+    startedAt: new Date(Date.now() - 50 * MIN),
+    lastMessageAt: new Date(Date.now() - 20 * MIN),
+  });
+  const closedOutcome = { closed: true, transcriptRecovered: true, messages: 4, answers: 0 };
+
+  it("closes it with the sweep's own close, then MINTS a new session for the redo", async () => {
+    const { svc, chat, events } = make({ liveSession: leftover(), liveConfirmed: true });
+    const abandon = vi.spyOn(svc, "abandonInterview").mockResolvedValue(closedOutcome);
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+
+    expect(chat.sessionProducedConfirmedProfile).toHaveBeenCalledWith(LEFTOVER, WORKER);
+    expect(abandon).toHaveBeenCalledTimes(1);
+    const [session, idleMinutes] = abandon.mock.calls[0]!;
+    expect(session).toEqual({
+      id: LEFTOVER,
+      workerId: WORKER,
+      conversationState: { captured: { current_city: "Pune" } },
+    });
+    // Same derivation as the sweep: minutes since the last recorded activity.
+    expect(idleMinutes).toBe(20);
+    // The redo runs in a NEW session, announced like any start.
+    expect(res.session_id).toBe(SESSION);
+    expect(res.session_id).not.toBe(LEFTOVER);
+    expect(chat.createSession).toHaveBeenCalledTimes(1);
+    expect(events.emit.mock.calls.map((c) => c[0].event_name)).toContain("chat.session_started");
+  });
+
+  it("a leftover that FINISHED but whose flush rolled back is re-flushed, not abandoned", async () => {
+    const { svc, chat } = make({
+      liveSession: leftover(),
+      liveConfirmed: true,
+      buffer: { completedAt: T0, completionReason: "complete" } as never,
+    });
+    const abandon = vi.spyOn(svc, "abandonInterview");
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(abandon).not.toHaveBeenCalled();
+    // The flush ran: the session is ENDED as the finished interview it was.
+    expect(chat.endSession).toHaveBeenCalledTimes(1);
+    expect(chat.endSession.mock.calls[0]![1]).toBe(LEFTOVER);
+    expect(res.session_id).toBe(SESSION);
+    expect(chat.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("…and if that re-flush fails again, it reattaches as before", async () => {
+    const { svc, chat } = make({
+      liveSession: leftover(),
+      liveConfirmed: true,
+      buffer: { completedAt: T0, completionReason: "complete" } as never,
+      flushThrows: true,
+    });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(LEFTOVER);
+    expect(chat.createSession).not.toHaveBeenCalled();
+  });
+
+  it("mints even when the conditional close lost (a flush or the sweep closed it first)", async () => {
+    const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: true });
+    vi.spyOn(svc, "abandonInterview").mockResolvedValue({ ...closedOutcome, closed: false });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(SESSION);
+    expect(chat.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("an UNFINISHED interview (no confirmed profile) still reattaches exactly as before", async () => {
+    const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: false });
+    const abandon = vi.spyOn(svc, "abandonInterview");
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(LEFTOVER);
+    expect(abandon).not.toHaveBeenCalled();
+    expect(chat.createSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "the confirmed-profile read fails",
+      { liveConfirmed: "throws" as const, abandonThrows: false },
+    ],
+    ["the close itself fails", { liveConfirmed: true, abandonThrows: true }],
+  ])("%s → reattach as before, and the log carries no content", async (_label, o) => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: o.liveConfirmed });
+    const said = "Mera naam Ramesh hai, number 98765 43210";
+    vi.spyOn(svc, "abandonInterview").mockImplementation(async () => {
+      if (o.abandonThrows) {
+        throw Object.assign(new Error(`Failed query: insert ... params: ${said}`), {
+          query: 'insert into "chat_messages" ...',
+          params: [said],
+        });
+      }
+      return closedOutcome;
+    });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(LEFTOVER);
+    expect(chat.createSession).not.toHaveBeenCalled();
+    const logged = warn.mock.calls.map((c) => String(c[0])).join(" | ");
+    expect(logged).toContain(LEFTOVER);
+    expect(logged).not.toContain("Ramesh");
+    warn.mockRestore();
+  });
+});
+
+describe("ChatService.latestSession — #1744 a USED live session wins, an empty one does not", () => {
+  const LIVE = "44444444-4444-4444-8444-444444444444";
+  const DONE = "55555555-5555-4555-8555-555555555555";
+
+  it("a live redo with buffered turns wins over the finished session it would lose to on clocks", async () => {
+    // Its last_message_at is NULL until its first checkpoint, so NULLS LAST ranked the finished
+    // session first and a cold start redrew the wrong transcript.
+    const { svc, chat } = make({
+      liveSession: { id: LIVE, status: "active", startedAt: new Date() },
+      latestSession: { id: DONE },
+      buffer: { messages: [{ role: "worker", text: "Turner", at: T0 }] as never },
+    });
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: LIVE });
+    expect(chat.findLatestSessionByWorker).not.toHaveBeenCalled();
+  });
+
+  it("a live session past its first checkpoint wins without reading the buffer", async () => {
+    const { svc, buffer } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: new Date(),
+      } as never,
+      latestSession: { id: DONE },
+    });
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: LIVE });
+    expect(buffer.load).not.toHaveBeenCalled();
+  });
+
+  it("a stray EMPTY live session still loses to the session holding the Q&A (today's ranking)", async () => {
+    const { svc } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: null,
+      } as never,
+      latestSession: { id: DONE },
+      buffer: { messages: [] },
+    });
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: DONE });
+  });
+
+  it("an unreadable buffer counts as unused — today's ranking, never an error", async () => {
+    const { svc, buffer } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: null,
+      } as never,
+      latestSession: { id: DONE },
+    });
+    buffer.load.mockRejectedValueOnce(new Error("redis down"));
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: DONE });
+  });
+
+  it("no live session: the most recent of any status, or null for a worker who never chatted", async () => {
+    expect(await make({ latestSession: { id: DONE } }).svc.latestSession(WORKER)).toEqual({
+      session_id: DONE,
+    });
+    expect(await make().svc.latestSession(WORKER)).toEqual({ session_id: null });
   });
 });
 

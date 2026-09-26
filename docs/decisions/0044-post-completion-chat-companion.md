@@ -12,7 +12,8 @@
   [ADR-0034](0034-worker-push-notifications.md) / [ADR-0020](0020-whatsapp-invite-funnel-and-reengagement.md)
   (untouched: no push, no WhatsApp) · persona v3.2 (`docs/specs/persona-system-v3.2.md`)
 - **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and PR #1743 (the companion module) on
-  the backend; the worker-app client PR on the app.
+  the backend; PR #1746 (the worker-app client, tracked by #1747; follow-ups #1750–#1756). PR #1760 (#1744) makes a
+  redo supersede the early-finish leftover (TD143).
 
 ---
 
@@ -60,19 +61,22 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
    outranks an older `confirmed` one, so a worker mid-redo keeps today's path and its confirm button);
 3. the live chat session that `POST /chat/session` would reattach to shows ACTIVITY after the confirmation →
    interview. Activity is the later of its `started_at` and its `last_message_at`. A session minted after the
-   confirmation is a deliberate "Chat se resume banayein". A pre-confirmation session that moved after it is that
-   same redo REATTACHED to the early-finish leftover: the server reattaches before it mints (#1197);
+   confirmation is a deliberate "Chat se resume banayein";
 4. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
    ("Phir bhi profile banaiye" never ends the session); it does not block, and the abandonment sweep closes it.
 
 Any read error → interview.
 
-**Known gap (TD143).** `last_message_at` moves only at the interview's checkpoints (every 5 asks) and at its end;
-the per-turn clock is the chat module's Redis transcript buffer, which this module must not read. So for the first
-four answers of a redo reattached to a leftover, a COLD app start shows the recap. The live app is unaffected (the
-bloc left companion mode when the worker chose the redo), and one more tap on the redo reattaches the same session
-with nothing lost. Whether a reattached redo can produce a new profile at all is a pre-existing chat question, filed
-as #1744.
+**TD143, closed by #1744.** An early finish ("Phir bhi profile banaiye" → preview → confirm) leaves its session
+`active` until the idle sweep. A redo used to REATTACH to it (#1197): it ran inside the pre-confirmation session, its
+first four answers moved no clock this module can read (so a cold start showed the recap), and its extraction deduped
+onto the early-finish job (so the redo never became a profile). Since #1744, `POST /chat/session` checks whether the
+live session already became the worker's confirmed profile. If it did, the POST closes it with the sweep's own close
+and mints a fresh session, so a redo's `started_at` decides rule 3 from its first turn. A leftover that had really
+finished but whose last flush rolled back is re-flushed instead. The confirm itself closes nothing: the Résumé tab's
+self-heal can confirm from an interview the worker is still answering. If the supersede fails, it falls back to
+today's reattach, and the `last_message_at` half of rule 3 covers that case. `GET /chat/session/latest` now prefers
+a USED live session, so a cold start early in the redo resumes the redo, not the finished transcript.
 
 ### 2.2 What the recap must never claim
 
@@ -135,14 +139,17 @@ as #1744.
   `{mode:"interview"}`. Old app builds never call the routes. New builds on an old server get a 404 and fall back.
   The app additionally holds a Remote Config switch, `worker_chat_companion_enabled` (default `false`), so when it
   is off the app does not even make the extra call. Only the `/bada-bhai` tab asks; the `/chat` route never does.
-- **Turning it on.** Staging first: `CHAT_COMPANION_ENABLED=true` on the server, then the Remote Config switch. Either one
-  off means today's tab, so the order is not a safety question. Production needs the signature below.
+- **Turning it on.** There is no separate staging box: `deploy-lightsail` deploys the one production box. Server flag
+  first (`CHAT_COMPANION_ENABLED`, a `production` environment secret, then a deploy): on its own it changes nothing a
+  worker sees, because no app asks until the Remote Config switch is on. Then the Remote Config switch, conditioned to
+  test devices only, and widened to everyone after the signature below and #1750.
 - **Performance.** About seven indexed reads per open. The jobs read is bounded by the window predicate on
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
   `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).
-- **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142); a completed
-  worker on a dead network can still get today's fallback path, which may mint an empty interview (pre-existing); a
-  cold start in the first four answers of a reattached redo shows the recap (TD143, §2.1).
+- **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142). A completed
+  worker whose first companion read times out falls back to today's path, which mints an empty interview that then
+  holds the tab in interview mode until the sweep. The client fix is #1750, and it must land before the switch is
+  widened.
 
 ```
 Owner rulings R1–R10 taken 2026-09-26 in the planning session; production flag-ON requires this signature.

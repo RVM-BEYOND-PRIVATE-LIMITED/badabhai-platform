@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
-import { ChatAbandonmentSweepProcessor, SWEEP_BATCH_LIMIT } from "./chat-abandonment-sweep.processor";
+import {
+  ChatAbandonmentSweepProcessor,
+  SWEEP_BATCH_LIMIT,
+} from "./chat-abandonment-sweep.processor";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
 import { emptyProfilingEnvelope } from "../profiling/conversation-state";
 
@@ -319,6 +323,25 @@ describe("ChatAbandonmentSweepProcessor", () => {
       transcriptsRecovered: 1,
       transcriptsLost: 1,
     });
+  });
+
+  it("logs a failed close without the row it failed on (#1744 review)", async () => {
+    // A driver error's message embeds its bound parameters: here, the worker's own words.
+    const said = "Mera naam Ramesh hai, number 98765 43210";
+    const failure = Object.assign(new Error(`Failed query: insert ... params: ${said}`), {
+      query: 'insert into "chat_messages" ...',
+      params: [said],
+      cause: { code: "57014" },
+    });
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { proc, chatService } = sweep([row({ id: "s1" })]);
+    chatService.abandonInterview.mockRejectedValueOnce(failure);
+    await proc.process();
+    const logged = warn.mock.calls.map((c) => String(c[0])).join(" | ");
+    expect(logged).toContain("57014");
+    expect(logged).not.toContain("Ramesh");
+    expect(logged).not.toContain("98765");
+    warn.mockRestore();
   });
 
   it("continues past a per-session failure instead of stranding the backlog", async () => {

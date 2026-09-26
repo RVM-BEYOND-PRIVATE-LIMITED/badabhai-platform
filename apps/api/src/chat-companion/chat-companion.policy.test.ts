@@ -59,10 +59,11 @@ describe("ChatCompanionPolicy — who gets the companion (ADR-0044)", () => {
     expect(await policy.resolve(WORKER)).toEqual({ mode: "interview" });
   });
 
-  it("a redo REATTACHED to the early-finish leftover (it moved after the confirmation) keeps running", async () => {
-    // POST /chat/session reattaches before it mints (#1197), so "Chat se resume banayein" after
-    // an early finish runs inside the OLD session: started before the confirmation, checkpointed
-    // after it. Its start time alone would call this worker a companion worker.
+  it("a pre-confirmation session that moved after the confirmation keeps running", async () => {
+    // Before #1744 a redo after an early finish REATTACHED to the old session: started before the
+    // confirmation, checkpointed after it. #1744 supersedes that leftover at the redo's POST, but
+    // a failed supersede falls back to the reattach, and then its start time alone would call
+    // this worker a companion worker.
     const { policy } = make({
       profile: confirmed,
       live: { startedAt: minutes(-30), lastMessageAt: minutes(20) },
