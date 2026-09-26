@@ -229,7 +229,7 @@ def test_the_worst_case_run_still_fits_the_ask_budget(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         answers,
         "detect_answers",
-        lambda _m, last_asked: (
+        lambda _m, last_asked, **_k: (
             {"pay_range": {"pay_min": 20000, "pay_max": 25000}} if last_asked == "pay_range" else {}
         ),
     )

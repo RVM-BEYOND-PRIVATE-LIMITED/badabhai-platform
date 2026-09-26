@@ -286,6 +286,7 @@ def next_turn(
     payer_message_raw: str,
     trade_hint: str | None = None,
     draft_text: str | None = None,
+    pay_text: str | None = None,
 ) -> tuple[str, str | None, JobPostingChatState, bool]:
     """Advance the interview by one turn.
 
@@ -320,7 +321,7 @@ def next_turn(
     if last_asked is None and st.turn_count == 1:
         last_asked = _opener_topic_id(trade_hint)
     correcting = answers.is_correction(payer_message_raw)
-    detected = answers.detect_answers(recorded_text, last_asked)
+    detected = answers.detect_answers(recorded_text, last_asked, pay_text=pay_text)
     if _pay_type_describes_another_band(st, detected, last_asked, correcting):
         del detected["pay_type"]
     for topic_id, value in detected.items():

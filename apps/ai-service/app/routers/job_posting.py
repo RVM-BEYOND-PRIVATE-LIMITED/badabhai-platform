@@ -84,15 +84,17 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
     #    survive onto the draft. Masked when this turn carried IDENTITY-class content
     #    (phone/person/employer/id), so a phone number typed into a description can
     #    never reach the stored draft or a published posting.
-    #    The one exception is a dashed pay RANGE the phone rule claims, kept raw only when the
-    #    turn is about pay (#1731) — hence the question on screen.
-    asked = body.conversation_state.asked_question_ids if body.conversation_state else []
-    pay_question = bool(asked) and asked[-1] == "pay_range"
     draft_text = job_posting_answers.safe_draft_text(
-        body.message_text,
-        result.text,
-        result.placeholder_tokens,
-        pay_question=pay_question,
+        body.message_text, result.text, result.placeholder_tokens
+    )
+    #    The ONE thing the raw answer may still feed when identity was masked: the pay parser,
+    #    on the pay question, when the gateway's only finding was a dashed pay range it calls a
+    #    phone (#1731). Never the draft text, never another topic.
+    asked = body.conversation_state.asked_question_ids if body.conversation_state else []
+    pay_text = (
+        job_posting_answers.pay_text_for(body.message_text, result.placeholder_tokens)
+        if asked and asked[-1] == "pay_range"
+        else None
     )
 
     # 3. Clarify BEFORE advancing: a clarifying message ("what do you mean?") is not
@@ -113,6 +115,7 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
             body.message_text,
             body.trade_hint,
             draft_text=draft_text,
+            pay_text=pay_text,
         )
     reply_text, asked_id, updated_state, draft_ready = turn
 
