@@ -75,19 +75,24 @@ prompt fired), and on the worker side the model never saw the trade named.
   the clean-or-withhold WALLS use — `certified_clean_skill_labels` (skill labels,
   education, certifications, at extraction and again at the résumé boundary), the
   work-history polish `<role>` gate, and gate 6 of `/profile/parse` (through
-  `pseudonymize.certify_value`). When the leading word survived only by this
-  carve-out it demands the whole label be vocabulary (the FIX-5 whole-label rule):
-  `"Welding, grinding"` / `"Fanuc, tool offset"` pass; `"Welding, Anil Kumar"`,
-  `"Diploma, Anil Sharma"`, `"Turner, Suresh"`, `"Operator, Ramesh sir ke under"`
-  and a name in ANY script (`"Welding, रमेश कुमार"`, Tamil, fullwidth) are still
-  withheld — the whole-label test tokenises every Unicode letter, and the
-  vocabulary is all-ASCII, so a non-Latin word fails the label closed. "Survived
-  only by this carve-out" is decided structurally (not a city, not a stoplisted
-  greeting), never by a second vocabulary lookup, so a lookup failure withholds.
-  Deliberately NOT routed through it: `parse_masking._publishable_normalized`,
-  which only decides whether a deterministic value is shown to the model as a hint
-  beside a transcript the same gateway already masked — withholding the hint would
-  protect nothing. A leading CITY is out of scope here (issue #1730).
+  `pseudonymize.certify_value`). When the leading word survived only by a
+  carve-out — this one, or the 2026-07-31 city ruling (issue #1730) — everything
+  after it must be closed vocabulary: curated trade/education words and whole
+  gazetteer city names. `"Welding, grinding"`, `"Fanuc, tool offset"`,
+  `"Pune, welding"` and `"Pune, Mumbai"` pass; `"Welding, Anil Kumar"`,
+  `"Pune, Ramesh Kumar"`, `"Diploma, Anil Sharma"`, `"Turner, Suresh"`,
+  `"Operator, Ramesh sir ke under"`, `"Pune, Ramesh sir ke under"` and a name in
+  ANY script (`"Welding, रमेश कुमार"`, Tamil, fullwidth) are withheld — the rest
+  must be printable ASCII, and the vocabulary and the gazetteer are all-ASCII, so
+  a non-Latin word fails the label closed. The cost, stated: a locality in no
+  closed list after a city (`"Pune, Chakan"`) is withheld too. "Survived only by a
+  carve-out" is decided structurally, never by a second vocabulary lookup, so a
+  lookup failure withholds. A leading stoplisted greeting (`"Hello, ..."`) is not a
+  carve-out and is certified exactly as before (a stated residual: tightening it
+  would reject real parse values like `"Yes, anywhere"`). Deliberately NOT routed
+  through it: `parse_masking._publishable_normalized`, which only decides whether a
+  deterministic value is shown to the model as a hint beside a transcript the same
+  gateway already masked — withholding the hint would protect nothing.
 - **Known residual — an owner decision, not a bug.** The 4-letter floor keeps
   name-shaped 3-letter vocabulary masked (`"Max, welder"`), and with it the
   title-cased trade acronyms a phone keyboard produces: `"Cnc, vmc"`,

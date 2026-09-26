@@ -658,25 +658,52 @@ def _is_leading_trade_word(candidate: str) -> bool:
     return len(candidate) >= _LEADING_VOCABULARY_MIN_LEN and _is_known_trade_vocabulary(candidate)
 
 
-def _leading_word_survived_by_carve_out(label: str) -> bool:
-    """True when ``label`` opens "<Word>," and that word would owe its survival to the
-    trade-vocabulary carve-out — decided WITHOUT consulting the vocabulary.
+def _rest_after_a_released_leading_word(label: str) -> str | None:
+    """What follows a leading "<Word>," that a CARVE-OUT released — else None.
 
     Called only on a label the gateway left UNTOUCHED, so a "<Word>," it matched survived for one
-    of exactly three reasons: a known city, the name stoplist ("Hello, ..."), or the trade
-    carve-out. Ruling out the first two by their own (pure, in-module) sets leaves the third.
+    of exactly three reasons: a known city (ruling 2026-07-31), the trade-vocabulary carve-out
+    (#1728), or the name stoplist ("Hello, ..."). The first two are carve-outs, and a released
+    word must never vouch for what follows it (#1729 for trade words, #1730 for cities): before
+    either ruling that leading word minted an incidental [PERSON_n] and the gate withheld the
+    whole label, name and all.
 
-    WHY NOT ASK THE VOCABULARY "WAS IT RELEASED?" (PR #1729 review round 2). That second lookup
-    could fail after the gateway's first one succeeded, and a failure read as "not released"
-    skipped the whole-label demand and passed "Welding, Anil Kumar" raw — the gate failing OPEN.
-    Deciding it structurally means the only vocabulary call left on this path is the whole-label
-    test itself, and its failure withholds.
+    Decided STRUCTURALLY — never by asking the vocabulary "was it released?", because a lookup
+    that failed after the gateway's own succeeded read as "no" and passed the label raw (#1729
+    review round 2). The stoplist is left exactly as on main: it predates both carve-outs, and
+    tightening it would reject real parse values such as "Yes, anywhere" (a stated residual).
     """
     match = _LEADING_NAME_RE.match(label)
-    if match is None:
+    if match is None or _leading_candidate(match) in _NAME_STOPLIST:
+        return None
+    return label[match.end() :]
+
+
+# Every gazetteer name, whole and word-bounded, longest first ("navi mumbai" before "mumbai"):
+# what may follow a released leading word besides trade vocabulary ("Pune, Mumbai").
+_CITY_NAME_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    + "|".join(
+        r"\s+".join(re.escape(word) for word in name.split())
+        for name in sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=lambda n: (-len(n), n))
+    )
+    + r")(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_PRINTABLE_ASCII_TEXT_RE = re.compile(r"[\x20-\x7e]*")
+
+
+def _is_closed_vocabulary(rest: str) -> bool:
+    """True when ``rest`` is nothing but curated trade/education vocabulary and whole gazetteer
+    city names — printable ASCII end to end. "grinding", "Mumbai", "CNC operator, Pune" pass;
+    "Ramesh Kumar", "Chakan" (a locality in no closed list) and an empty rest do not. Any error
+    consulting the vocabulary is False — the label is withheld."""
+    if not _PRINTABLE_ASCII_TEXT_RE.fullmatch(rest) or not re.search(r"[A-Za-z]", rest):
         return False
-    candidate = _leading_candidate(match)
-    return not _is_leading_city(candidate) and candidate not in _NAME_STOPLIST
+    without_cities = _CITY_NAME_RE.sub(" ", rest)
+    if not re.search(r"[A-Za-z0-9]", without_cities):
+        return True  # nothing but city names and punctuation
+    return _is_known_trade_vocabulary(without_cities)
 
 
 def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
@@ -687,9 +714,8 @@ def _certifies_clean(label: str, result: PseudonymizationResult) -> bool:
     """
     if result.blocked or result.replaced_entities != 0 or result.text != label:
         return False
-    if _leading_word_survived_by_carve_out(label):
-        return _is_known_trade_vocabulary(label)
-    return True
+    rest = _rest_after_a_released_leading_word(label)
+    return rest is None or _is_closed_vocabulary(rest)
 
 
 def is_certified_clean(label: str) -> bool:
@@ -703,18 +729,19 @@ def is_certified_clean(label: str) -> bool:
     the hint would protect nothing. True only when ``pseudonymize(label)``:
 
     (a) did not block, (b) masked nothing, (c) returned the label byte-identical, AND
-    (d) if the leading "<Word>," is one the trade-vocabulary carve-out releases
-        (`_leading_word_survived_by_carve_out`), the WHOLE label is curated vocabulary
-        (`_is_known_trade_vocabulary` — the FIX-5 whole-label rule, never a token-by-token
-        exemption).
+    (d) if the label opens "<Word>," and a CARVE-OUT released that word — a known city (ruling
+        2026-07-31) or a trade-vocabulary word (#1728) — everything after it is closed
+        vocabulary: curated trade/education words and whole gazetteer city names
+        (`_rest_after_a_released_leading_word`, `_is_closed_vocabulary`).
 
-    WHY (d) EXISTS (PR #1729 review round 1, measured). The #1728 ruling stops the gateway
-    masking a leading trade word; it does not license a consumer that passes a string raw
-    "because nothing was masked" to release what FOLLOWS the word. Before the carve-out,
-    "Welding, Anil Kumar", "Diploma, Anil Sharma" and the polish role "Operator, Ramesh sir ke
-    under" all minted an incidental [PERSON_1] and were withheld whole; without (d) they
-    passed verbatim — to the persisted profile, the résumé, and the model. With (d):
-    "Welding, grinding" / "Fanuc, tool offset" (vocabulary whole) pass; those do not.
+    WHY (d) EXISTS (PR #1729 review round 1 for trade words, issue #1730 for cities, both
+    measured). Each ruling stops the gateway masking a leading word; neither licenses a consumer
+    that passes a string raw "because nothing was masked" to release what FOLLOWS the word.
+    Before the rulings, "Welding, Anil Kumar", "Pune, Ramesh Kumar" and the polish role "Operator,
+    Ramesh sir ke under" all minted an incidental [PERSON_1] and were withheld whole; without (d)
+    they passed verbatim — to the persisted profile, the résumé, and the model. With (d):
+    "Welding, grinding", "Pune, welding" and "Pune, Mumbai" pass; those do not. A leading
+    stoplisted greeting ("Hello, ...") is not a carve-out and is certified exactly as on main.
 
     Never raises (every step is fail-closed by construction), never logs, never returns text.
     """

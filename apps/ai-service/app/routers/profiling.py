@@ -571,10 +571,11 @@ async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolish
         # not block a phone — it MASKS it and reports `blocked=False`, so a certified-scalar check
         # would have handed the number straight to the model. Here the label is accepted only if
         # `is_certified_clean` holds — the gateway found nothing to mask at all AND, when a
-        # leading trade word survived only by the #1728 vocabulary carve-out, the WHOLE label is
-        # vocabulary. That second half is not decoration: without it "Operator, Ramesh sir ke
-        # under" (the exact threat above) reached the model verbatim once the gateway stopped
-        # minting an incidental [PERSON_1] for "Operator". It is the SAME predicate
+        # leading word survived only by a carve-out (a trade word, #1728; a city, #1730), the rest
+        # of the label is closed vocabulary. That second half is not decoration: without it
+        # "Operator, Ramesh sir ke under" and "Pune, Ramesh sir ke under" (the exact threat above)
+        # reached the model verbatim once the gateway stopped minting an incidental [PERSON_1] for
+        # the leading word. It is the SAME predicate
         # `certified_clean_skill_labels` applies at the resume boundary, so the two gates cannot
         # drift apart.
         #
