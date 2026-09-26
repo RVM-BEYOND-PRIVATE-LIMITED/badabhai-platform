@@ -30,7 +30,7 @@ import {
   type ComposedTurn,
   JOBS_REPLY_CHIPS_MAX,
 } from "./companion-compose";
-import type { CompanionFacts, CompanionJob, CompanionJobsFacts } from "./companion-facts";
+import { resumeStateOf, type CompanionFacts, type CompanionJob, type CompanionJobsFacts } from "./companion-facts";
 import { FALLBACK, MISSING_FIELD_LABELS } from "./companion-replies";
 import { COMPANION_RESUME_KEY, COMPANION_RESUME_LABEL } from "./companion-keys";
 
@@ -40,6 +40,24 @@ export type CompanionMessageResult =
   | { readonly mode: "companion"; readonly turn: CompanionTurn };
 
 const DAY_MS = 86_400_000;
+
+/** An ISO instant from the wire DTO, or null when it does not parse. */
+function parseInstant(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const at = new Date(iso);
+  return Number.isNaN(at.getTime()) ? null : at;
+}
+
+/**
+ * A short, stable hash of EVERYTHING a turn states — its lines and its chip keys — which the app
+ * compares on a tab refocus to decide whether anything worth saying changed. Hashing the composed
+ * output rather than a hand-picked list of facts means a new line can never be left out of it.
+ * Never displayed.
+ */
+export function digestKey(composed: ComposedTurn): string {
+  const basis = JSON.stringify([replyText(composed), composed.options.map((o) => o.option_key)]);
+  return createHash("sha256").update(basis).digest("hex").slice(0, 16);
+}
 
 /**
  * THE POST-COMPLETION BADA BHAI COMPANION (ADR-0044).
@@ -82,7 +100,7 @@ export class ChatCompanionService {
 
     const facts = await this.readFacts(workerId, mode.profile, now);
     const composed = composeFor("digest", facts);
-    const turn = this.toTurn(composed, facts);
+    const turn = this.toTurn(composed);
     await this.record(workerId, ctx, now, "open", "digest", composed, facts, null);
 
     const checked = CompanionOpenResponseSchema.safeParse(turn);
@@ -107,7 +125,7 @@ export class ChatCompanionService {
     } else {
       const facts = await this.readFacts(workerId, mode.profile, now);
       const composed = composeFor(resolution.intent, facts);
-      turn = this.toTurn(composed, facts);
+      turn = this.toTurn(composed);
       await this.record(workerId, ctx, now, "message", resolution.intent, composed, facts, dto.submission_id ?? null);
     }
 
@@ -128,19 +146,29 @@ export class ChatCompanionService {
     ]);
 
     const current = history?.items[0];
+    const resume = current
+      ? {
+          resumeId: current.resume_id,
+          source: (current.source ?? null) as ResumeSource | null,
+          renderStatus: current.render_status,
+          generatedAt: parseInstant(current.generated_at),
+          tradeLabel: current.trade_label,
+          experienceYears: current.experience_years,
+          machines: current.machines ?? [],
+          city: current.city,
+        }
+      : null;
     return {
-      resume: current
-        ? {
-            resumeId: current.resume_id,
-            source: (current.source ?? null) as ResumeSource | null,
-            renderStatus: current.render_status,
-            tradeLabel: current.trade_label,
-            experienceYears: current.experience_years,
-            machines: current.machines ?? [],
-            city: current.city,
-          }
-        : null,
-      resumeUnavailable: history === undefined,
+      resume,
+      resumeState: resumeStateOf({
+        resume,
+        unavailable: history === undefined,
+        confirmedAt: profile.confirmedAt,
+        now,
+        // The same bound ADR-0043 puts on "your résumé is being updated": past it, a claim that
+        // the résumé is on its way is no longer one the platform can stand behind.
+        graceMs: this.config.RESUME_UPDATE_PENDING_TIMEOUT_SECONDS * 1_000,
+      }),
       pendingUpdate: history?.pending_update?.status ?? null,
       appliedCount: applied ?? null,
       jobs: await this.readJobs(workerId, wanted, now),
@@ -189,10 +217,14 @@ export class ChatCompanionService {
     const jobs: CompanionJob[] = [];
     for (const row of found.rows) {
       if (jobs.length >= chipAllowance) break;
-      // Payer-typed title: never on a chip if it looks like a phone number or an email. The
-      // posting still counts — it is a real posting — it just is not named here.
-      if (!row.title || looksLikePii(row.title)) continue;
-      jobs.push({ jobPostingId: row.id, title: row.title, city: row.city });
+      // Payer-typed text: never on a chip if the title is blank once whitespace is collapsed, or
+      // if the title or the city looks like a phone number or an email. Screened AS SHOWN (the
+      // collapsed title, the trimmed city), not as stored. The posting still counts — it is a
+      // real posting — it just is not named here.
+      const title = row.title?.replace(/\s+/g, " ").trim() ?? "";
+      const city = row.city?.trim() || null;
+      if (title.length === 0 || looksLikePii(title) || (city !== null && looksLikePii(city))) continue;
+      jobs.push({ jobPostingId: row.id, title, city });
     }
     return { scope: "profile", count: found.rows.length, capped: found.hasMore, jobs, windowDays };
   }
@@ -227,12 +259,12 @@ export class ChatCompanionService {
 
   // ── wire ─────────────────────────────────────────────────────────────────────────────────
 
-  private toTurn(composed: ComposedTurn, facts: CompanionFacts): CompanionTurn {
+  private toTurn(composed: ComposedTurn): CompanionTurn {
     const options = composed.options.map((o) => ({ ...o }));
     const tts = replyTts(composed);
     return {
       mode: "companion",
-      digest_key: this.digestKey(facts),
+      digest_key: digestKey(composed),
       ...this.baseTurn(),
       reply: replyText(composed),
       ...(tts === undefined ? {} : { tts_text: tts }),
@@ -295,25 +327,6 @@ export class ChatCompanionService {
       suggested_options: [option],
       question_kind: "disambiguate",
     };
-  }
-
-  /**
-   * A short, stable hash of the facts a turn states — what the app compares on a tab refocus to
-   * decide whether anything worth saying changed. Ids and counts only; never displayed.
-   */
-  private digestKey(facts: CompanionFacts): string {
-    const basis = JSON.stringify([
-      facts.resume?.resumeId ?? null,
-      facts.resume?.renderStatus ?? null,
-      facts.pendingUpdate,
-      facts.appliedCount,
-      facts.jobs.scope,
-      facts.jobs.count,
-      facts.jobs.capped,
-      facts.jobs.jobs.map((j) => j.jobPostingId),
-      facts.missingField,
-    ]);
-    return createHash("sha256").update(basis).digest("hex").slice(0, 16);
   }
 
   // ── event ────────────────────────────────────────────────────────────────────────────────

@@ -50,6 +50,11 @@ export class ChatCompanionController {
    * One answer. **409** when this worker is not (or no longer) in companion mode — the flag was
    * turned off, or a new interview went live — so the app sends that message down today's
    * interview path instead of showing a failed bubble.
+   *
+   * THE SIGNAL IS THE STATUS CODE. Like every error here, the body goes through the global
+   * `AllExceptionsFilter` envelope — `{statusCode: 409, error: {mode: "interview"}, requestId, …}`
+   * — so `mode` is under `error`, not at the top level. This is the route's only 409 (the guards
+   * answer 401/403/410 and validation 400), so a client routes on `409` alone.
    */
   @Post("message")
   @HttpCode(201)

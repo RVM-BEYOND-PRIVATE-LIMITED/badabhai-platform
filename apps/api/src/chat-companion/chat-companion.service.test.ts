@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateEvent } from "@badabhai/event-schema";
 import { resolveResumeMenu, RESUME_MENU_EDIT_LABEL } from "../chat/resume-menu";
-import { ChatCompanionService } from "./chat-companion.service";
+import { ChatCompanionService, digestKey } from "./chat-companion.service";
 import { COMPANION_JOB_KEY_PREFIX, COMPANION_RESUME_KEY } from "./companion-keys";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -11,7 +11,11 @@ const NOW = new Date("2026-09-26T10:00:00.000Z");
 const JOB_A = "44444444-4444-4444-8444-444444444444";
 const JOB_B = "55555555-5555-4555-8555-555555555555";
 
-/** A profile row as the policy hands it over — confirmed, with one fillable gap (machines). */
+/**
+ * A profile row as the policy hands it over — confirmed, with one fillable gap the companion can
+ * name (salary: `computeMissingFields` reads `amount_min` / `amount_max`, and this row has
+ * neither). Machines are empty too, and are never nudged (MISSING_FIELD_LABELS).
+ */
 const PROFILE = {
   id: "p1",
   profileStatus: "confirmed",
@@ -22,7 +26,7 @@ const PROFILE = {
   skills: ["turning"],
   machines: [],
   experience: { total_years: 5 },
-  salaryExpectation: { min: 15000 },
+  salaryExpectation: { currency: "INR" },
   locationPreference: { preferred_cities: ["Pune"] },
   availability: { status: "immediate" },
   rawProfile: null,
@@ -58,7 +62,9 @@ function make(over: {
   applied?: number;
   appliedThrows?: boolean;
   wanted?: string[];
-  rows?: { id: string; title: string; city: string | null }[];
+  wantedThrows?: boolean;
+  rows?: { id: string; title: string | null; city: string | null }[];
+  jobChips?: number;
   hasMore?: boolean;
   jobsThrows?: boolean;
   emitThrows?: boolean;
@@ -73,7 +79,6 @@ function make(over: {
       if (over.appliedThrows) throw new Error("x");
       return over.applied ?? 2;
     }),
-    latestActiveSessionStartedAt: vi.fn(),
   };
   const resumes = {
     history: vi.fn(async () => {
@@ -81,7 +86,12 @@ function make(over: {
       return over.history ?? HISTORY;
     }),
   };
-  const skills = { listWantedSkillIds: vi.fn(async () => over.wanted ?? ["mskill_cnc_turning"]) };
+  const skills = {
+    listWantedSkillIds: vi.fn(async () => {
+      if (over.wantedThrows) throw new Error("x");
+      return over.wanted ?? ["mskill_cnc_turning"];
+    }),
+  };
   const jobs = {
     searchOpenPostings: vi.fn(async () => {
       if (over.jobsThrows) throw new Error("x");
@@ -103,7 +113,8 @@ function make(over: {
   const config = {
     CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: 7,
     CHAT_COMPANION_NEW_JOBS_COUNT_CAP: 20,
-    CHAT_COMPANION_JOB_CHIPS: 3,
+    CHAT_COMPANION_JOB_CHIPS: over.jobChips ?? 3,
+    RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: 1_200,
   };
   const svc = new ChatCompanionService(
     config as never,
@@ -174,6 +185,22 @@ describe("ChatCompanionService.open", () => {
     expect(emitted(h.events).payload.new_jobs_count).toBeNull();
   });
 
+  it("screens payer text AS SHOWN: a blank title, or a phone number in the city, never makes a chip", async () => {
+    const h = make({
+      rows: [
+        { id: JOB_A, title: "   ", city: "Pune" },
+        { id: JOB_B, title: "Welder", city: "Pune 9876543210" },
+        { id: "66666666-6666-4666-8666-666666666666", title: "  Fitter \n  Grade A ", city: " Nashik " },
+      ],
+    });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(JSON.stringify(res)).not.toContain("9876543210");
+    const jobChips = res.suggested_options.filter((o) => o.option_key.startsWith(COMPANION_JOB_KEY_PREFIX));
+    expect(jobChips.map((o) => o.label_text)).toEqual(["Fitter Grade A — Nashik"]);
+    expect(res.reply).toContain("aapke kaam ke 3 naye jobs");
+  });
+
   it("a payer title that looks like a phone number or an email is never put on a chip; it still counts", async () => {
     const h = make({
       rows: [
@@ -196,6 +223,71 @@ describe("ChatCompanionService.open", () => {
     const res = await make(over).svc.open(WORKER, CTX, NOW);
     expect(res.mode).toBe("companion");
     if (res.mode === "companion") expect(res.reply).toContain(expected);
+  });
+
+  it("a failed applied-count read drops the applied line and records null — never a false zero", async () => {
+    const h = make({ appliedThrows: true });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).not.toMatch(/Aapne (ab|abhi) tak/);
+    expect(emitted(h.events).payload.applied_count).toBeNull();
+  });
+
+  it("a failed wanted-skills read degrades the jobs section only — never a 500", async () => {
+    const h = make({ wantedThrows: true });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toContain("Abhi naye jobs nahi dikha pa rahe.");
+    expect(h.jobs.searchOpenPostings).not.toHaveBeenCalled();
+    expect(emitted(h.events).payload.jobs_scope).toBe("unavailable");
+  });
+
+  it("more matches than the count cap: '{cap} se zyada', and the event says the cap", async () => {
+    const h = make({ hasMore: true });
+    const res = await h.svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toContain("aapke kaam ke 2 se zyada naye jobs");
+  });
+
+  it("the chip allowance knob bounds the job chips on the jobs reply", async () => {
+    const rows = [1, 2, 3].map((n) => ({ id: `4444444${n}-4444-4444-8444-444444444444`, title: `Fitter ${n}`, city: null }));
+    const res = await make({ rows, jobChips: 1 }).svc.message(WORKER, { text: "naye jobs dikhao" }, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.turn.suggested_options.filter((o) => o.option_key.startsWith(COMPANION_JOB_KEY_PREFIX))).toHaveLength(1);
+  });
+
+  it("no new jobs: the complete-profile nudge names the row's first gap the companion can name", async () => {
+    const res = await make({ rows: [] }).svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toContain("Profile mein salary ki ummeed jodne se resume behtar banega.");
+    expect(res.reply).not.toContain("machine ki jaankari");
+  });
+
+  it("a failed render is reported as not downloadable, never as made", async () => {
+    const failed = { ...HISTORY, items: [{ ...HISTORY.items[0]!, render_status: "failed" }] };
+    const res = await make({ history: failed }).svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).toContain("Aapka resume abhi download nahi ho sakta.");
+    expect(res.reply).not.toContain("form se bana hai");
+  });
+
+  it("a résumé parked at 'pending' long past the grace is not 'being made' for ever", async () => {
+    const parked = {
+      ...HISTORY,
+      items: [{ ...HISTORY.items[0]!, render_status: "pending", rendered_at: null }],
+    };
+    const res = await make({ history: parked }).svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    expect(res.reply).not.toContain("ban raha hai");
+    expect(res.reply).toContain("Aapka resume form se bana hai.");
+    // A FRESH pending row still is.
+    const fresh = {
+      ...HISTORY,
+      items: [{ ...HISTORY.items[0]!, render_status: "pending", generated_at: "2026-09-26T09:59:00.000Z" }],
+    };
+    const res2 = await make({ history: fresh }).svc.open(WORKER, CTX, NOW);
+    if (res2.mode !== "companion") throw new Error("expected companion");
+    expect(res2.reply).toContain("Aapka resume ban raha hai.");
   });
 
   it("a failed résumé read says NOTHING about the résumé — never that it is still being built", async () => {
@@ -293,6 +385,34 @@ describe("ChatCompanionService.message", () => {
     const h2 = make();
     await h2.svc.message(WORKER, { text: "hi" }, CTX, NOW);
     expect(emitted(h2.events).idempotencyKey).toBeUndefined();
+  });
+});
+
+describe("digest_key — what the app compares on a tab refocus", () => {
+  const keyOf = async (over: Parameters<typeof make>[0] = {}) => {
+    const res = await make(over).svc.open(WORKER, CTX, NOW);
+    if (res.mode !== "companion") throw new Error("expected companion");
+    return res.digest_key;
+  };
+
+  it("is stable for identical facts", async () => {
+    expect(await keyOf()).toBe(await keyOf());
+  });
+
+  it("moves when any stated fact moves", async () => {
+    const base = await keyOf();
+    expect(await keyOf({ applied: 3 })).not.toBe(base);
+    expect(await keyOf({ rows: [{ id: JOB_B, title: "VMC Setter", city: null }] })).not.toBe(base);
+    expect(await keyOf({ history: { ...HISTORY, pending_update: { status: "in_progress" } } })).not.toBe(base);
+    expect(
+      await keyOf({ history: { ...HISTORY, items: [{ ...HISTORY.items[0]!, city: "Nashik" }] } }),
+    ).not.toBe(base);
+  });
+
+  it("is a hash of the turn's lines and chip keys, 16 hex characters", () => {
+    const turn = { lines: [{ text: "a", tts: null }], options: [], nudge: null, jobChipsCount: 0 };
+    expect(digestKey(turn)).toMatch(/^[0-9a-f]{16}$/);
+    expect(digestKey({ ...turn, lines: [{ text: "b", tts: null }] })).not.toBe(digestKey(turn));
   });
 });
 

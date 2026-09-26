@@ -19,7 +19,14 @@ import {
   replyText,
   replyTts,
 } from "./companion-compose";
-import { chooseNudge, type CompanionFacts, type CompanionJob } from "./companion-facts";
+import {
+  allClear,
+  chooseNudge,
+  resumeStateOf,
+  type CompanionFacts,
+  type CompanionJob,
+  type CompanionResumeFacts,
+} from "./companion-facts";
 
 const job = (n: number, city: string | null = "Pune"): CompanionJob => ({
   jobPostingId: `00000000-0000-4000-8000-00000000000${n}`,
@@ -32,12 +39,13 @@ const base: CompanionFacts = {
     resumeId: "r1",
     source: "form",
     renderStatus: "rendered",
+    generatedAt: new Date("2026-09-20T10:00:00.000Z"),
     tradeLabel: "VMC Operator",
     experienceYears: 5,
     machines: ["Fanuc", "Siemens", "Haas"],
     city: "Pune",
   },
-  resumeUnavailable: false,
+  resumeState: "ready",
   pendingUpdate: null,
   appliedCount: 2,
   jobs: { scope: "profile", count: 3, capped: false, jobs: [job(1), job(2), job(3)], windowDays: 7 },
@@ -82,17 +90,43 @@ describe("composeDigest — 'ab tak kya hua'", () => {
   });
 
   it("a résumé still being built: says so, states no road, and the nudge is to wait", () => {
-    const building = { ...base, resume: { ...base.resume!, renderStatus: "pending" } };
+    const building: CompanionFacts = {
+      ...base,
+      resume: { ...base.resume!, renderStatus: "pending" },
+      resumeState: "building",
+    };
     const lines = replyText(composeDigest(building)).split("\n");
     expect(lines).toContain("Aapka resume ban raha hai. Thodi der mein Resume tab mein dikhega.");
     expect(lines.some((l) => l.startsWith("Aapka resume form se"))).toBe(false);
     expect(composeDigest(building).nudge).toBe("resume_pending");
-    expect(composeDigest({ ...base, resume: null }).nudge).toBe("resume_pending");
+    expect(composeDigest({ ...base, resume: null, resumeState: "building" }).nudge).toBe("resume_pending");
   });
 
   it("an unreadable résumé is left out, not reported as 'still being built'", () => {
-    const turn = composeDigest({ ...base, resume: null, resumeUnavailable: true });
+    const turn = composeDigest({ ...base, resume: null, resumeState: "unknown" });
     expect(replyText(turn)).not.toMatch(/Aapka resume/);
+    expect(turn.nudge).toBe("apply_new");
+  });
+
+  it("a FAILED render is never announced as made: the download line, no road, no glance, no all-clear", () => {
+    const failed: CompanionFacts = {
+      ...base,
+      resume: { ...base.resume!, renderStatus: "failed" },
+      resumeState: "failed",
+      jobs: { scope: "profile", count: 0, capped: false, jobs: [], windowDays: 7 },
+    };
+    const lines = replyText(composeDigest(failed)).split("\n");
+    expect(lines).toContain("Aapka resume abhi download nahi ho sakta. Resume tab mein dekhein.");
+    expect(lines.some((l) => /bana hai|ban chuka|Resume mein:/.test(l))).toBe(false);
+    expect(lines.some((l) => l.startsWith("Abhi sab theek hai"))).toBe(false);
+    expect(composeDigest(failed).nudge).toBeNull();
+    // It does not block the apply nudges: the profile, not the PDF, is what an application sends.
+    expect(composeDigest({ ...failed, jobs: base.jobs }).nudge).toBe("apply_new");
+  });
+
+  it("a résumé with no row long after the confirmation: nothing is claimed about it", () => {
+    const turn = composeDigest({ ...base, resume: null, resumeState: "none" });
+    expect(replyText(turn)).not.toMatch(/Aapka resume|Resume mein:/);
     expect(turn.nudge).toBe("apply_new");
   });
 
@@ -140,10 +174,10 @@ describe("composeDigest — 'ab tak kya hua'", () => {
     const turn = composeDigest({
       ...base,
       jobs: { scope: "profile", count: 0, capped: false, jobs: [], windowDays: 7 },
-      missingField: "machines",
+      missingField: "salary",
     });
-    expect(replyText(turn)).toContain("Profile mein machine ki jaankari jodne se resume behtar banega.");
-    expect(replyTts(turn)).toContain("प्रोफ़ाइल में मशीन की जानकारी जोड़ने से रिज़्यूमे बेहतर बनेगा।");
+    expect(replyText(turn)).toContain("Profile mein salary ki ummeed jodne se resume behtar banega.");
+    expect(replyTts(turn)).toContain("प्रोफ़ाइल में सैलरी की उम्मीद जोड़ने से रिज़्यूमे बेहतर बनेगा।");
     expect(turn.nudge).toBe("complete_profile");
   });
 
@@ -154,6 +188,34 @@ describe("composeDigest — 'ab tak kya hua'", () => {
     });
     expect(replyText(turn)).toContain("Abhi sab theek hai.");
     expect(turn.nudge).toBeNull();
+  });
+
+  const noNewJobs = { scope: "profile", count: 0, capped: false, jobs: [], windowDays: 7 } as const;
+  it.each<[string, CompanionFacts]>([
+    ["a failed résumé update", { ...base, jobs: noNewJobs, pendingUpdate: "failed" }],
+    ["a failed jobs read", { ...base, jobs: { ...noNewJobs, scope: "unavailable", count: null } }],
+    ["no wanted skills", { ...base, jobs: { ...noNewJobs, scope: "no_skills", count: null } }],
+    ["an unreadable applied count", { ...base, jobs: noNewJobs, appliedCount: null }],
+    ["an unreadable résumé", { ...base, jobs: noNewJobs, resume: null, resumeState: "unknown" }],
+  ])("'Abhi sab theek hai' is never served after %s", (_name, facts) => {
+    const turn = composeDigest(facts);
+    expect(replyText(turn)).not.toContain("Abhi sab theek hai");
+    expect(turn.nudge).toBeNull();
+    expect(allClear(facts)).toBe(false);
+  });
+
+  it("an unreadable applied count drops its line — never a false 'abhi tak kisi job par nahi'", () => {
+    const turn = composeDigest({ ...base, appliedCount: null });
+    expect(replyText(turn)).not.toMatch(/Aapne (ab|abhi) tak/);
+    expect(replyText(composeApplied({ ...base, appliedCount: null }))).not.toContain("kisi job par apply nahi");
+  });
+
+  it("'neeche diye jobs' is only said when job chips ARE below: every title screened out → apply_new", () => {
+    const screened: CompanionFacts = { ...base, appliedCount: 0, jobs: { ...base.jobs, jobs: [] } };
+    const turn = composeDigest(screened);
+    expect(turn.jobChipsCount).toBe(0);
+    expect(replyText(turn)).not.toContain("Neeche diye jobs");
+    expect(turn.nudge).toBe("apply_new");
   });
 
   it("the read-aloud script is Devanagari throughout — the glance twin names no Latin label", () => {
@@ -178,12 +240,37 @@ describe("the other replies", () => {
     expect(keys(turn)).toEqual([COMPANION_JOBS_TAB_KEY, COMPANION_RESUME_KEY]);
   });
 
-  it("applied: the count and the list chip; zero applied turns into a nudge", () => {
+  it("applied: the count and the list chip; zero applied points at the new-jobs chip", () => {
     expect(keys(composeApplied(base))[0]).toBe(COMPANION_APPLIED_KEY);
     const none = composeApplied({ ...base, appliedCount: 0 });
     expect(keys(none)).not.toContain(COMPANION_APPLIED_KEY);
     expect(keys(none)[0]).toBe(COMPANION_NEW_JOBS_KEY);
-    expect(none.nudge).toBe("apply_first");
+    // This reply carries no job chips, so it never says "neeche diye jobs".
+    expect(none.jobChipsCount).toBe(0);
+    expect(replyText(none)).not.toContain("Neeche diye jobs");
+    expect(replyText(none)).toContain("Naye jobs dekhkar apply kar sakte hain.");
+    expect(none.nudge).toBe("apply_new");
+  });
+
+  it("zero applied and no new jobs: the Jobs-tab pointer, and no nudge recorded", () => {
+    const turn = composeApplied({ ...base, appliedCount: 0, jobs: { ...base.jobs, count: 0, jobs: [] } });
+    expect(replyText(turn)).toContain("Sabhi jobs Jobs tab mein hain.");
+    expect(keys(turn)[0]).toBe(COMPANION_JOBS_TAB_KEY);
+    expect(turn.nudge).toBeNull();
+  });
+
+  it("apply_first is only ever recorded on a turn that carries job chips", () => {
+    const variants: CompanionFacts[] = [
+      base,
+      { ...base, appliedCount: 0 },
+      { ...base, appliedCount: 0, jobs: { ...base.jobs, jobs: [] } },
+    ];
+    for (const intent of ["digest", "jobs", "applied", "guarantee", "fallback"] as const) {
+      for (const facts of variants) {
+        const turn = composeFor(intent, facts);
+        if (turn.nudge === "apply_first") expect(turn.jobChipsCount).toBeGreaterThan(0);
+      }
+    }
   });
 
   it("guarantee: the persona line verbatim, and NO read-aloud twin is invented for it", () => {
@@ -226,7 +313,10 @@ describe("jobChip", () => {
 describe("chooseNudge — ordered, first match wins", () => {
   const noJobs = { ...base.jobs, count: 0, jobs: [] };
   it.each([
-    ["building résumé beats everything", { ...base, resume: null, appliedCount: 0 }, "resume_pending"],
+    ["building résumé beats everything", { ...base, resume: null, resumeState: "building", appliedCount: 0 }, "resume_pending"],
+    ["a failed render does not block the jobs nudge", { ...base, resumeState: "failed", appliedCount: 0 }, "apply_first"],
+    ["no résumé row long after confirming does not block it either", { ...base, resume: null, resumeState: "none" }, "apply_new"],
+    ["never applied + new jobs, none nameable on a chip", { ...base, appliedCount: 0, jobs: { ...base.jobs, jobs: [] } }, "apply_new"],
     ["update in flight", { ...base, pendingUpdate: "in_progress" as const }, "resume_pending"],
     ["never applied + new jobs", { ...base, appliedCount: 0 }, "apply_first"],
     ["new jobs", base, "apply_new"],
@@ -236,5 +326,31 @@ describe("chooseNudge — ordered, first match wins", () => {
     ["nothing", { ...base, jobs: noJobs }, null],
   ] as const)("%s", (_name, facts, expected) => {
     expect(chooseNudge(facts as CompanionFacts)).toBe(expected);
+  });
+});
+
+describe("resumeStateOf — what may be said about the résumé", () => {
+  const NOW = new Date("2026-09-26T12:00:00.000Z");
+  const GRACE = 20 * 60_000;
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const row = (renderStatus: string, generatedAt: Date | null): CompanionResumeFacts => ({
+    ...base.resume!,
+    renderStatus,
+    generatedAt,
+  });
+
+  it.each<[string, CompanionResumeFacts | null, Date | null, boolean, string]>([
+    ["a failed read is unknown, whatever else", row("rendered", ago(0)), ago(0), true, "unknown"],
+    ["rendered is ready", row("rendered", ago(3 * 86_400_000)), ago(0), false, "ready"],
+    ["pending inside the grace is building", row("pending", ago(GRACE - 1)), ago(0), false, "building"],
+    // Parked: the render kill-switch or a pre-#1399 row. Its text exists; "ban raha hai" would be for ever.
+    ["pending PAST the grace is ready, never 'being made' for ever", row("pending", ago(GRACE)), ago(0), false, "ready"],
+    ["pending with an unparseable generation time is ready", row("pending", null), ago(0), false, "ready"],
+    ["failed is failed", row("failed", ago(0)), ago(0), false, "failed"],
+    ["no row just after confirming is building", null, ago(GRACE - 1), false, "building"],
+    ["no row long after confirming is none", null, ago(GRACE), false, "none"],
+    ["no row and no confirmation time is none", null, null, false, "none"],
+  ])("%s", (_name, resume, confirmedAt, unavailable, expected) => {
+    expect(resumeStateOf({ resume, unavailable, confirmedAt, now: NOW, graceMs: GRACE })).toBe(expected);
   });
 });

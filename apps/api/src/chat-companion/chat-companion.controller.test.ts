@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { ConflictException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
+import { AllExceptionsFilter } from "../common/filters/all-exceptions.filter";
 import { ChatCompanionController } from "./chat-companion.controller";
 
 const WORKER = { id: "11111111-1111-4111-8111-111111111111" };
@@ -27,6 +28,32 @@ describe("ChatCompanionController — HTTP only", () => {
     const err = await ctrl.message(WORKER as never, { text: "hi" }, CTX as never).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConflictException);
     expect((err as ConflictException).getResponse()).toEqual({ mode: "interview" });
+  });
+
+  it("on the WIRE the 409 is the global error envelope, with the mode under `error`", async () => {
+    const service = { open: vi.fn(), message: vi.fn(async () => ({ mode: "interview" })) };
+    const ctrl = new ChatCompanionController(service as never);
+    const err = await ctrl.message(WORKER as never, { text: "hi" }, CTX as never).catch((e: unknown) => e);
+    const sent: { status?: number; body?: Record<string, unknown> } = {};
+    const res = {
+      status: (code: number) => {
+        sent.status = code;
+        return res;
+      },
+      json: (body: Record<string, unknown>) => {
+        sent.body = body;
+      },
+    };
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => res,
+        getRequest: () => ({ requestId: "r", url: "/chat/companion/message", method: "POST" }),
+      }),
+    };
+    new AllExceptionsFilter().catch(err, host as never);
+    expect(sent.status).toBe(409);
+    expect(sent.body).toMatchObject({ statusCode: 409, error: { mode: "interview" } });
+    expect(sent.body).not.toHaveProperty("mode");
   });
 
   it("marks both responses no-store — the recap is per worker and changes as they apply", () => {

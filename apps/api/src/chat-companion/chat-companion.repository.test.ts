@@ -51,21 +51,28 @@ function makeDb(rows: unknown[]) {
   return { repo: new ChatCompanionRepository(db as never), q };
 }
 
-describe("latestActiveSessionStartedAt", () => {
-  it("reads only the worker's LIVE sessions, newest start first, one row", async () => {
-    const started = new Date("2026-09-20T10:00:00.000Z");
-    const { repo, q } = makeDb([{ startedAt: started }]);
-    expect(await repo.latestActiveSessionStartedAt(WORKER)).toBe(started);
+describe("latestActiveSession", () => {
+  it("reads only the worker's LIVE sessions, in the order POST /chat/session reattaches, one row", async () => {
+    const row = {
+      startedAt: new Date("2026-09-20T10:00:00.000Z"),
+      lastMessageAt: new Date("2026-09-20T10:20:00.000Z"),
+    };
+    const { repo, q } = makeDb([row]);
+    expect(await repo.latestActiveSession(WORKER)).toBe(row);
+    expect(Object.keys(q.selection ?? {}).sort()).toEqual(["lastMessageAt", "startedAt"]);
     const { sql: text, params } = compile(q.where);
-    expect(text).toMatch(/"worker_id" = \$\d+/);
-    expect(text).toMatch(/"status" = \$\d+/);
-    expect(params).toEqual(expect.arrayContaining([WORKER, "active"]));
-    expect(compile(q.orderBy![0]).sql).toMatch(/"started_at" desc/i);
+    // A CONJUNCTION — `or` would read another worker's live session into the mode decision.
+    expect(text).toMatch(/"worker_id" = \$\d+ and "chat_sessions"\."status" = \$\d+/);
+    expect(params).toEqual([WORKER, "active"]);
+    // The same row ChatRepository.findActiveSessionByWorker hands a redo.
+    expect(compile(q.orderBy![0]).sql).toMatch(
+      /coalesce\("chat_sessions"\."last_message_at", "chat_sessions"\."started_at"\) DESC/,
+    );
     expect(q.limit).toBe(1);
   });
 
   it("no live session → null", async () => {
-    expect(await makeDb([]).repo.latestActiveSessionStartedAt(WORKER)).toBeNull();
+    expect(await makeDb([]).repo.latestActiveSession(WORKER)).toBeNull();
   });
 });
 
@@ -74,10 +81,9 @@ describe("countApplied", () => {
     const { repo, q } = makeDb([{ n: 3 }]);
     expect(await repo.countApplied(WORKER)).toBe(3);
     const { sql: text, params } = compile(q.where);
-    expect(text).toMatch(/"worker_id" = \$\d+/);
-    expect(text).toMatch(/"action" = \$\d+/);
-    expect(params).toEqual(expect.arrayContaining([WORKER, "applied"]));
-    expect(params).not.toContain("skipped");
+    // A CONJUNCTION — `or` would count every worker's applications.
+    expect(text).toMatch(/"worker_id" = \$\d+ and "applications"\."action" = \$\d+/);
+    expect(params).toEqual([WORKER, "applied"]);
   });
 
   it("a driver that returns the count as text still yields a number", async () => {

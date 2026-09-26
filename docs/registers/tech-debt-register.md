@@ -176,6 +176,8 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 
 | TD142 | **The companion's "new jobs" is a fixed window, not "since your last visit"** (ADR-0044 R2) — `CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS` (7) means a worker who opens the tab daily reads the same jobs announced as new for a week. | Owner-accepted for V1: no new storage, the copy states the window honestly ("Pichhle 7 din mein"). | A per-worker watermark — derived from the worker's own `chat.companion_turn_served` rows via `events_subject_idx` (occurred_at only, never the payload) or a column — with a grace period so a re-open within one sitting sees the same set. | **Open** — logged 2026-09-26 (ADR-0044). Owner Backend |
 
+| TD143 | **The companion's mode rule cannot see the first four answers of a redo reattached to an early-finish session** (ADR-0044 §2.1) — the policy decides on the reattach target's `max(started_at, last_message_at)`, and `last_message_at` moves only at interview checkpoints (`CHECKPOINT_EVERY_ASKS` = 5) and at the end. The per-turn clock is the chat module's Redis transcript buffer, which the companion's leaf module must not read. | A cold app start inside that window shows the recap; the live bloc is unaffected and one more tap on the redo reattaches the same session with nothing lost. The deeper cause (the redo reattaches the leftover at all) is #1744. | Close with #1744 (a chat redo always mints a fresh session), after which rule 3's `started_at` half is sufficient; or expose a text-free "last turn at" read from the chat module. | **Open** — logged 2026-09-26 (PR #1743 review). Owner Backend |
+
 > When you pay debt down, mark it **Paid** with the PR link and date — don't
 > delete the row. When you take *new* debt, add a row in the same PR that creates it.
 
@@ -289,8 +291,9 @@ another row is how a register starts lying. Owner: whoever runs TD125.
 | TD140 | T2 | **P2** | Opportunistic — one turn of loss today, but silent |
 | TD141 | T2 | **P2** | Before open postings reach the low thousands, or the search fallback is measured slow |
 | TD142 | T2 | **P3** | If workers report the recap repeating itself, or visit frequency makes it noise |
+| TD143 | T2 | **P2** | With #1744, before `CHAT_COMPANION_ENABLED` goes on in production |
 
-**By thread:** T2 Backend Platform 47 · T3 Infrastructure 20 · T4 Future Product 26 ·
+**By thread:** T2 Backend Platform 48 · T3 Infrastructure 20 · T4 Future Product 26 ·
 T5 Product Streams 18. **Asserted:** every open row has exactly one thread and one priority;
 no P0/P1 overlap; nothing prioritised that is already closed.
 

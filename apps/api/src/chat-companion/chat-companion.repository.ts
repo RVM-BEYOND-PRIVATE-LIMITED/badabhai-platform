@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { applications, chatSessions, type Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -19,21 +19,27 @@ export class ChatCompanionRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   /**
-   * When the worker's NEWEST live (`status = 'active'`) chat session started, or null when none
-   * is live. The policy compares it with the profile's confirmation time: a session started
-   * AFTER confirmation is a deliberate new interview ("Chat se resume banayein"); one started
-   * before it is the early-finish leftover the abandonment sweep will close.
+   * The worker's live (`status = 'active'`) chat session that `POST /chat/session` would REATTACH
+   * to — the same row and the same order as `ChatRepository.findActiveSessionByWorker`
+   * (`coalesce(last_message_at, started_at) DESC`) — as its two clocks, or null when none is live.
    *
-   * Served by `chat_sessions_worker_started_idx (worker_id, started_at DESC, id DESC)`.
+   * WHY THE REATTACH ORDER. "Chat se resume banayein" does not always mint a session: the server
+   * reattaches any live one first (#1197), so a redo after an early finish runs INSIDE the old,
+   * pre-confirmation session. The policy must look at the row the redo actually runs in.
+   *
+   * The two columns are read as mapped timestamps (not a raw `coalesce(...)` projection) so the
+   * driver hands back `Date`s; the policy takes the later of the two.
    */
-  async latestActiveSessionStartedAt(workerId: string): Promise<Date | null> {
+  async latestActiveSession(
+    workerId: string,
+  ): Promise<{ readonly startedAt: Date; readonly lastMessageAt: Date | null } | null> {
     const rows = await this.db
-      .select({ startedAt: chatSessions.startedAt })
+      .select({ startedAt: chatSessions.startedAt, lastMessageAt: chatSessions.lastMessageAt })
       .from(chatSessions)
       .where(and(eq(chatSessions.workerId, workerId), eq(chatSessions.status, "active")))
-      .orderBy(desc(chatSessions.startedAt))
+      .orderBy(sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) DESC`)
       .limit(1);
-    return rows[0]?.startedAt ?? null;
+    return rows[0] ?? null;
   }
 
   /**

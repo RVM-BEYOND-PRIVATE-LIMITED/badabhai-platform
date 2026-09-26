@@ -7,7 +7,7 @@ const CONFIRMED_AT = new Date("2026-09-20T10:00:00.000Z");
 function make(opts: {
   enabled?: boolean;
   profile?: { profileStatus: string; confirmedAt: Date | null } | undefined | "throw";
-  liveStartedAt?: Date | null | "throw";
+  live?: { startedAt: Date; lastMessageAt: Date | null } | null | "throw";
 }) {
   const workers = {
     latestProfile: vi.fn(async () => {
@@ -16,9 +16,9 @@ function make(opts: {
     }),
   };
   const repo = {
-    latestActiveSessionStartedAt: vi.fn(async () => {
-      if (opts.liveStartedAt === "throw") throw new Error("db down");
-      return opts.liveStartedAt ?? null;
+    latestActiveSession: vi.fn(async () => {
+      if (opts.live === "throw") throw new Error("db down");
+      return opts.live ?? null;
     }),
   };
   const policy = new ChatCompanionPolicy(
@@ -36,29 +36,43 @@ describe("ChatCompanionPolicy — who gets the companion (ADR-0044)", () => {
     const { policy, workers, repo } = make({ enabled: false, profile: confirmed });
     expect(await policy.resolve(WORKER)).toEqual({ mode: "interview" });
     expect(workers.latestProfile).not.toHaveBeenCalled();
-    expect(repo.latestActiveSessionStartedAt).not.toHaveBeenCalled();
+    expect(repo.latestActiveSession).not.toHaveBeenCalled();
   });
 
   it("a confirmed profile and NO chat session at all (the form road): companion", async () => {
-    const { policy } = make({ profile: confirmed, liveStartedAt: null });
+    const { policy } = make({ profile: confirmed, live: null });
     const mode = await policy.resolve(WORKER);
     expect(mode.mode).toBe("companion");
   });
 
-  it("the early finish: a live session that STARTED BEFORE the confirmation does not block", async () => {
-    const { policy } = make({
-      profile: confirmed,
-      liveStartedAt: new Date(CONFIRMED_AT.getTime() - 30 * 60_000),
-    });
-    expect((await policy.resolve(WORKER)).mode).toBe("companion");
+  const minutes = (n: number): Date => new Date(CONFIRMED_AT.getTime() + n * 60_000);
+
+  it("the early finish: a live session whose every clock predates the confirmation does not block", async () => {
+    for (const lastMessageAt of [null, minutes(-5)]) {
+      const { policy } = make({ profile: confirmed, live: { startedAt: minutes(-30), lastMessageAt } });
+      expect((await policy.resolve(WORKER)).mode).toBe("companion");
+    }
   });
 
-  it("a deliberate new interview — a live session started AFTER the confirmation — keeps running", async () => {
+  it("a deliberate new interview — a live session minted AFTER the confirmation — keeps running", async () => {
+    const { policy } = make({ profile: confirmed, live: { startedAt: minutes(1), lastMessageAt: null } });
+    expect(await policy.resolve(WORKER)).toEqual({ mode: "interview" });
+  });
+
+  it("a redo REATTACHED to the early-finish leftover (it moved after the confirmation) keeps running", async () => {
+    // POST /chat/session reattaches before it mints (#1197), so "Chat se resume banayein" after
+    // an early finish runs inside the OLD session: started before the confirmation, checkpointed
+    // after it. Its start time alone would call this worker a companion worker.
     const { policy } = make({
       profile: confirmed,
-      liveStartedAt: new Date(CONFIRMED_AT.getTime() + 60_000),
+      live: { startedAt: minutes(-30), lastMessageAt: minutes(20) },
     });
     expect(await policy.resolve(WORKER)).toEqual({ mode: "interview" });
+  });
+
+  it("the boundary is strict: activity AT the confirmation instant is not after it", async () => {
+    const { policy } = make({ profile: confirmed, live: { startedAt: minutes(-30), lastMessageAt: minutes(0) } });
+    expect((await policy.resolve(WORKER)).mode).toBe("companion");
   });
 
   it.each([
@@ -70,13 +84,13 @@ describe("ChatCompanionPolicy — who gets the companion (ADR-0044)", () => {
     ["a newer extracted row (redo in progress)", { profileStatus: "extracted", confirmedAt: null }],
     ["confirmed without a confirmation time", { profileStatus: "confirmed", confirmedAt: null }],
   ] as const)("%s: interview", async (_name, profile) => {
-    const { policy } = make({ profile: profile as never, liveStartedAt: null });
+    const { policy } = make({ profile: profile as never, live: null });
     expect(await policy.resolve(WORKER)).toEqual({ mode: "interview" });
   });
 
   it("any read error fails to interview — today's chat, never a broken tab", async () => {
     expect(await make({ profile: "throw" }).policy.resolve(WORKER)).toEqual({ mode: "interview" });
-    expect(await make({ profile: confirmed, liveStartedAt: "throw" }).policy.resolve(WORKER)).toEqual({
+    expect(await make({ profile: confirmed, live: "throw" }).policy.resolve(WORKER)).toEqual({
       mode: "interview",
     });
   });

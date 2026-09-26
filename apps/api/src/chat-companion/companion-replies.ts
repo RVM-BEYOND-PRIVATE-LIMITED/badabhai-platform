@@ -75,11 +75,13 @@ export const ROAD: Readonly<Record<ResumeSource | "unknown", CopyPair>> = {
 
 /**
  * What the current résumé says, AS THAT RÉSUMÉ RECORDED IT (ADR-0043 §3.6 — its glance, never
- * today's profile). `{facts}` is a comma list of labels, so the twin names none of them.
+ * today's profile). `{facts}` is a comma list of labels, so the twin names none of them — and it
+ * claims nothing about WHICH facts are there, because the shown line lists only those present (a
+ * glance may have no role, no tenure, only a city; tts_text is the same content, #896).
  */
 export const GLANCE: CopyPair = {
   latin: "Resume mein: {facts}.",
-  dev: "आपके रिज़्यूमे में आपका काम और तजुर्बा लिखा है।",
+  dev: "आपके रिज़्यूमे में आपकी जानकारी लिखी है।",
 };
 
 export const RESUME_BUILDING: CopyPair = {
@@ -95,6 +97,16 @@ export const RESUME_UPDATING: CopyPair = {
 export const RESUME_UPDATE_FAILED: CopyPair = {
   latin: "Resume update poora nahi hua. Resume tab se dobara koshish karein.",
   dev: "रिज़्यूमे अपडेट पूरा नहीं हुआ। रिज़्यूमे टैब से दोबारा कोशिश करें।",
+};
+
+/**
+ * The current row's render ended at `failed`: there is no PDF (`GET /resume/:id/download` answers
+ * 409) and the Resume tab's history pill says NAHI BANI. "Bana hai" would contradict both, and no
+ * retry is promised because not every failure has one a worker can press.
+ */
+export const RESUME_RENDER_FAILED: CopyPair = {
+  latin: "Aapka resume abhi download nahi ho sakta. Resume tab mein dekhein.",
+  dev: "आपका रिज़्यूमे अभी डाउनलोड नहीं हो सकता। रिज़्यूमे टैब में देखें।",
 };
 
 export const APPLIED_NONE: CopyPair = {
@@ -162,13 +174,16 @@ export const NUDGE_LINES: Readonly<Record<Exclude<CompanionNudge, "resume_pendin
 
 /**
  * The profile gaps a worker can actually fill, in the order the profile summary reports them
- * (`computeMissingFields`). `role` / `trade` (no canonical id — not something a worker can type
- * in) and `photo` (the companion never reads the workers row) are deliberately absent, so they
- * are never nudged. The label is slotted into BOTH scripts, hence a pair per field.
+ * (`computeMissingFields`). Deliberately absent, so they are never nudged:
+ *   - `role` / `trade` — no canonical id, not something a worker can type in;
+ *   - `photo` — the companion never reads the workers row;
+ *   - `machines` — the summary reports it for EVERY empty list, whatever the trade, so a cook, a
+ *     mason or a helper would be told their résumé is weaker for lacking machines their work
+ *     never involves (and it would shadow their real gaps behind it).
+ * The label is slotted into BOTH scripts, hence a pair per field.
  */
 export const MISSING_FIELD_LABELS: Readonly<Record<string, CopyPair>> = {
   skills: { latin: "apni skills", dev: "अपनी स्किल्स" },
-  machines: { latin: "machine ki jaankari", dev: "मशीन की जानकारी" },
   experience: { latin: "apna tajurba", dev: "अपना तजुर्बा" },
   salary: { latin: "salary ki ummeed", dev: "सैलरी की उम्मीद" },
   location: { latin: "kaam ki jagah", dev: "काम की जगह" },
@@ -215,6 +230,7 @@ export const ALL_COPY_PAIRS: ReadonlyArray<readonly [name: string, pair: CopyPai
   ["RESUME_BUILDING", RESUME_BUILDING],
   ["RESUME_UPDATING", RESUME_UPDATING],
   ["RESUME_UPDATE_FAILED", RESUME_UPDATE_FAILED],
+  ["RESUME_RENDER_FAILED", RESUME_RENDER_FAILED],
   ["APPLIED_NONE", APPLIED_NONE],
   ["APPLIED_ONE", APPLIED_ONE],
   ["APPLIED_MANY", APPLIED_MANY],

@@ -36,17 +36,20 @@ layer: a leaf Nest module (`apps/api/src/chat-companion/`) with two worker route
 | Route | Answer |
 |---|---|
 | `GET /chat/companion` | `{mode:"interview"}` → the app runs the chat tab exactly as before; or `{mode:"companion", …}` — the recap, in the chat reply's own shape (`PostMessageResponse` minus `session_id`, plus `mode` and `digest_key`). |
-| `POST /chat/companion/message` | One answer in the same shape, or **409** `{mode:"interview"}` when the worker is not (or no longer) in companion mode, so the app resends down today's path. |
+| `POST /chat/companion/message` | One answer in the same shape, or **HTTP 409** when the worker is not (or no longer) in companion mode, so the app resends down today's path. The status code is the signal: the body is the global error envelope, `{statusCode: 409, error: {mode: "interview"}, …}`, and this is the route's only 409. |
 
 **What the recap says** (reviewed Latin-script Hinglish, one bubble, Devanagari read-aloud twin):
 how the current résumé was made (form / chat / upload, from `generated_resumes.generation_source`) and what it
 records (its own glance facts — role, tenure, two tools, city); a résumé still being built or updated; how many jobs
 the worker applied to; how many jobs matching their skills were posted in the last N days, with up to two as
-tappable chips; and at most one nudge line.
+tappable chips; and at most one nudge line. §2.2 lists what it must never claim.
 
-**What a message can ask:** anything the existing résumé menu understands (served by that menu, verbatim); new jobs;
-applications; "job milegi?" (the persona's guarantee line, verbatim); a greeting or a résumé question (the recap);
-anything else (a fallback line with chips).
+**What a message can ask:** the existing résumé menu's chips (served by that menu, verbatim); new jobs; applications;
+"job milegi?" (the persona's guarantee line, verbatim); a status question, a greeting or a résumé question (the
+recap); anything else the menu's aliases understand (served verbatim); anything else (a fallback line with chips).
+The menu's substring aliases ("update", "phir se", "dobara", a section name) run AFTER the companion's own jobs,
+applications, guarantee and status signals, because on a status surface "koi update hai?" and "phir se jobs dikhao"
+are questions about status and jobs, not requests to edit or rebuild the résumé.
 
 ### 2.1 Who gets the companion (the mode rule)
 
@@ -55,11 +58,38 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
 1. flag off → interview;
 2. the CURRENT profile (`CURRENT_PROFILE_ORDER`) is not `confirmed` → interview (a redo's newer `extracted` row
    outranks an older `confirmed` one, so a worker mid-redo keeps today's path and its confirm button);
-3. a live chat session that STARTED AFTER the confirmation → interview (a deliberate "Chat se resume banayein");
-4. otherwise → companion. A live session that started BEFORE the confirmation is the early-finish leftover
+3. the live chat session that `POST /chat/session` would reattach to shows ACTIVITY after the confirmation →
+   interview. Activity is the later of its `started_at` and its `last_message_at`. A session minted after the
+   confirmation is a deliberate "Chat se resume banayein". A pre-confirmation session that moved after it is that
+   same redo REATTACHED to the early-finish leftover: the server reattaches before it mints (#1197);
+4. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
    ("Phir bhi profile banaiye" never ends the session); it does not block, and the abandonment sweep closes it.
 
 Any read error → interview.
+
+**Known gap (TD143).** `last_message_at` moves only at the interview's checkpoints (every 5 asks) and at its end;
+the per-turn clock is the chat module's Redis transcript buffer, which this module must not read. So for the first
+four answers of a redo reattached to a leftover, a COLD app start shows the recap. The live app is unaffected (the
+bloc left companion mode when the worker chose the redo), and one more tap on the redo reattaches the same session
+with nothing lost. Whether a reattached redo can produce a new profile at all is a pre-existing chat question, filed
+as #1744.
+
+### 2.2 What the recap must never claim
+
+- **A failed render is not "made".** When the current row's render ended at `failed` there is no PDF and the Resume
+  tab says NAHI BANI, so the recap says the résumé cannot be downloaded yet and points at the Resume tab. It states
+  no road and no glance.
+- **"Being made" is time-bounded.** A `pending` row, or no row just after confirming, is "being made" only within
+  `RESUME_UPDATE_PENDING_TIMEOUT_SECONDS` (the ADR-0043 bound). Past it, a parked `pending` row is described as made
+  (its text exists), and a missing row is not mentioned.
+- **"Abhi sab theek hai" is a conclusion.** It is served only when every section was read and reported nothing to
+  act on: a finished résumé, no update failing, a known applied count, and a jobs read that matched on skills.
+- **"Neeche diye jobs" needs jobs below.** The first-application nudge is served only on a turn that carries job
+  chips; otherwise the reply points at the new-jobs chip.
+- **No irrelevant gap.** `machines` is never nudged: the profile summary reports it for every empty list whatever
+  the trade, so a cook or a mason would be told to add machines their work never involves.
+- **Payer text as shown.** A job chip's title is screened after whitespace is collapsed, and its city is screened
+  too; a blank title or one that looks like a phone number or an email never becomes a chip.
 
 ## 3. Owner rulings (2026-09-26)
 
@@ -82,8 +112,9 @@ Any read error → interview.
   verbatim-quote source. The module does not import the chat module; its repository has no insert/update/delete
   (`chat-companion.repository.test.ts`); an egress guard bans the chat writers (`chat-companion.module.boot.test.ts`).
 - **The existing flows are untouched.** `ChatService`, `resume-menu.ts`, the interview engine, the ADR-0043 offer,
-  résumé upload/edit/redo: no file edited. Every résumé-menu label, alias and key is resolved by `resolveResumeMenu`
-  first and served verbatim (`companion-intents.test.ts`).
+  résumé upload/edit/redo: no file edited. Every résumé-menu chip is resolved by `resolveResumeMenu` first, and every
+  alias it understands is served by it verbatim unless the text carries a companion jobs, applications, guarantee
+  or status signal (`companion-intents.test.ts`).
 - **No impression pollution, no ranking.** Reads go through repositories (`JobsRepository.searchOpenPostings` with
   `publishedAfter`, `ResumeService.history`, `WorkerSkillsRepository`, a two-SELECT companion repository) — never
   `MatchFeedService.getFeed`, `ApplicationsService.getFeed` or `JobsService.searchJobs`, which record `feed.shown(_v2)`
@@ -107,7 +138,8 @@ Any read error → interview.
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
   `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).
 - **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142); a completed
-  worker on a dead network can still get today's fallback path, which may mint an empty interview (pre-existing).
+  worker on a dead network can still get today's fallback path, which may mint an empty interview (pre-existing); a
+  cold start in the first four answers of a reattached redo shows the recap (TD143, §2.1).
 
 ```
 Owner rulings R1–R10 taken 2026-09-26 in the planning session; production flag-ON requires this signature.

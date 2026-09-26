@@ -40,6 +40,7 @@ import {
   NO_SKILLS,
   NUDGE_LINES,
   RESUME_BUILDING,
+  RESUME_RENDER_FAILED,
   RESUME_UPDATE_FAILED,
   RESUME_UPDATING,
   ROAD,
@@ -48,7 +49,7 @@ import {
   render,
   type RenderedLine,
 } from "./companion-replies";
-import { chooseNudge, type CompanionFacts, type CompanionJob } from "./companion-facts";
+import { allClear, chooseNudge, type CompanionFacts, type CompanionJob } from "./companion-facts";
 
 export interface WireOption {
   readonly option_key: string;
@@ -110,25 +111,34 @@ function tenure(years: number): string {
 }
 
 function resumeLines(facts: CompanionFacts): ComposedLine[] {
-  // Unknown is not "none yet": say nothing rather than claim the résumé is still being built.
-  if (facts.resumeUnavailable) return [];
   const out: ComposedLine[] = [];
   const resume = facts.resume;
-  const built = resume !== null && resume.renderStatus !== "pending";
-  if (built) {
-    out.push(line(render(ROAD[resume.source ?? "unknown"])));
-    if (resume.renderStatus === "rendered") {
-      const parts = [
-        resume.tradeLabel,
-        resume.experienceYears !== null ? tenure(resume.experienceYears) : null,
-        resume.machines.slice(0, 2).join(", ") || null,
-        resume.city,
-      ].filter((p): p is string => typeof p === "string" && p.trim().length > 0);
-      if (parts.length > 0) out.push(line(render(GLANCE, { facts: parts.join(", ") })));
-    }
+  switch (facts.resumeState) {
+    case "unknown":
+      // The read failed. Unknown is not "none yet": say nothing rather than guess.
+      return out;
+    case "ready":
+      if (resume === null) break;
+      out.push(line(render(ROAD[resume.source ?? "unknown"])));
+      if (resume.renderStatus === "rendered") {
+        const parts = [
+          resume.tradeLabel,
+          resume.experienceYears !== null ? tenure(resume.experienceYears) : null,
+          resume.machines.slice(0, 2).join(", ") || null,
+          resume.city,
+        ].filter((p): p is string => typeof p === "string" && p.trim().length > 0);
+        if (parts.length > 0) out.push(line(render(GLANCE, { facts: parts.join(", ") })));
+      }
+      break;
+    case "failed":
+      out.push(line(render(RESUME_RENDER_FAILED)));
+      break;
+    case "building":
+    case "none":
+      break;
   }
   if (facts.pendingUpdate === "in_progress") out.push(line(render(RESUME_UPDATING)));
-  else if (!built) out.push(line(render(RESUME_BUILDING)));
+  else if (facts.resumeState === "building") out.push(line(render(RESUME_BUILDING)));
   if (facts.pendingUpdate === "failed") out.push(line(render(RESUME_UPDATE_FAILED)));
   return out;
 }
@@ -153,7 +163,7 @@ function jobsLine(facts: CompanionFacts): ComposedLine {
 }
 
 function nudgeLine(nudge: CompanionNudge | null, facts: CompanionFacts): ComposedLine | null {
-  if (nudge === null) return line(render(ALL_SET));
+  if (nudge === null) return allClear(facts) ? line(render(ALL_SET)) : null;
   if (nudge === "resume_pending") return null; // the building/updating line already says it
   if (nudge === "complete_profile") {
     const label = facts.missingField === null ? undefined : MISSING_FIELD_LABELS[facts.missingField];
@@ -223,8 +233,14 @@ export function composeApplied(facts: CompanionFacts): ComposedTurn {
   const applied = appliedLine(facts.appliedCount);
   if (applied) lines.push(applied);
   if (facts.appliedCount === 0) {
-    nudge = newJobsCount(facts) > 0 ? "apply_first" : "apply_new";
-    lines.push(line(render(NUDGE_LINES[nudge])));
+    // This reply carries NO job chips, so never "neeche diye jobs": point at the new-jobs chip
+    // when something matched, else at the Jobs tab.
+    if (newJobsCount(facts) > 0) {
+      nudge = "apply_new";
+      lines.push(line(render(NUDGE_LINES.apply_new)));
+    } else {
+      lines.push(line(render(JOBS_NONE_TAIL)));
+    }
   } else {
     lines.push(line(render(APPLIED_LIST_TAIL)));
   }

@@ -18,11 +18,10 @@ import {
 import { resolveCompanionText } from "./companion-intents";
 
 /**
- * The compatibility contract of ADR-0044: everything the shipped résumé menu understands is
- * answered BY that menu, byte for byte — the companion only adds meaning where the menu would
- * have fallen back to its generic root.
+ * The compatibility contract of ADR-0044: the shipped résumé menu's chips, and its aliases when
+ * no companion signal is present, are answered BY that menu, byte for byte.
  */
-describe("resolveCompanionText — the résumé menu keeps first refusal", () => {
+describe("resolveCompanionText — the résumé menu keeps its chips and its aliases", () => {
   const menuInputs = [
     RESUME_MENU_EDIT_LABEL,
     RESUME_MENU_REDO_LABEL,
@@ -47,6 +46,13 @@ describe("resolveCompanionText — the résumé menu keeps first refusal", () =>
   ];
 
   it.each(menuInputs)("%j is served by resolveResumeMenu, verbatim", (text) => {
+    const resolved = resolveCompanionText(text);
+    expect(resolved.kind).toBe("resume_menu");
+    if (resolved.kind === "resume_menu") expect(resolved.menu).toEqual(resolveResumeMenu(text));
+  });
+
+  it("a weak jobs word ('kaam') waits for the menu's aliases: 'kaam ka anubhav theek karna hai' edits", () => {
+    const text = "kaam ka anubhav theek karna hai";
     const resolved = resolveCompanionText(text);
     expect(resolved.kind).toBe("resume_menu");
     if (resolved.kind === "resume_menu") expect(resolved.menu).toEqual(resolveResumeMenu(text));
@@ -95,7 +101,31 @@ describe("resolveCompanionText — the companion's own intents", () => {
   });
 
   it("an applications question that also says 'jobs' is about applications", () => {
-    expect(resolveCompanionText("kitne jobs")).toEqual({ kind: "intent", intent: "applied" });
+    expect(resolveCompanionText("kitne jobs par apply kiya")).toEqual({ kind: "intent", intent: "applied" });
+  });
+
+  // The review of PR #1743: the menu's substring aliases and loose word lists answered the
+  // companion's two core questions — status and jobs — with the wrong reply.
+  it.each([
+    // 'kitne' alone is not an applications word.
+    ["kitne naye jobs aaye?", "jobs"],
+    ["kitne jobs", "jobs"],
+    // A promise word without a job word is not "job milegi".
+    ["resume kab milega?", "digest"],
+    // 'confirm' is not a guarantee question.
+    ["mera profile confirm hua?", "digest"],
+    // The menu's aliases ('update', 'phir se', 'dobara', a section name) must not take these.
+    ["koi update hai?", "digest"],
+    ["resume update ho gaya?", "digest"],
+    ["phir se jobs dikhao", "jobs"],
+    ["jobs dobara dikhao", "jobs"],
+    ["mere location mein job hai", "jobs"],
+    ["salary credit kab hogi", "digest"],
+    // The guarantee question still wins over a jobs word.
+    ["job pakki hai?", "guarantee"],
+    ["guarantee", "guarantee"],
+  ] as const)("%j → %s, not a menu", (text, expected) => {
+    expect(resolveCompanionText(text)).toEqual({ kind: "intent", intent: expected });
   });
 
   it("never throws on hostile input", () => {
