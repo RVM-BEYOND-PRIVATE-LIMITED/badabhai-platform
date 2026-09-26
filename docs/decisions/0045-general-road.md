@@ -138,6 +138,17 @@ characters, typed only; salary is monthly only; education gains "Postgraduate" a
 accepts both slugs, but only the general form's schema offers them — the trade forms' choices are unchanged);
 work-history polish is unchanged; voice-form sessions are never armed.
 
+Added while building (Phase 2a, 2026-09-26), both in the safe direction:
+
+- **Adjacent families count as "one of the 21".** A worker pinned to a generic sibling family whose members are
+  overwhelmingly the 21's trades — machining/CNC, fitting, tool and die, sheet metal, assembly, rubber/plastic,
+  welding — stays on today's path, as do generic manufacturing words ("CNC operator", "machine operator"), which read
+  as "not yet known". This keeps the 5 polymer roles (whose own families are never pinned) and likely members of the
+  21 off the general road. Domestic electricians and house painters are still outside the 21.
+- **A skill must be grounded in the worker's own words**, with typo tolerance, except when the message has no Latin
+  letters at all (Devanagari from voice): the model returns Latin labels there, so grounding is skipped and only the
+  privacy walls apply.
+
 ## 7. Rollout
 
 1. Backend in phases, each merged dark: contracts → ai-service skills mode → chat engine → general form API → profile

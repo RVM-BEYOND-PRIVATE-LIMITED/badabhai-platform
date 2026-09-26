@@ -59,11 +59,25 @@ import {
   QuestionPackOptionSchema,
 } from "@badabhai/ai-contracts";
 
+import {
+  CHAT_GATE_KINDS,
+  PROFILING_LANE_REASONS,
+  PROFILING_LANES,
+  SKILLS_STAGE_OUTCOMES,
+  type ChatGateKind,
+  type ProfilingLane,
+  type ProfilingLaneReason,
+  type SkillsStageOutcome,
+} from "@badabhai/types";
+
 import { toAnswerArray, toAnswerMap, toCapturedProjection, type AnswerMap } from "./answer-map";
 // Type-only, and one-directional: `lookahead.ts` does not import this file, so persisting its
 // shape here cannot create the cycle the module header warns about.
 import type { Lookahead } from "./lookahead";
 import { COMPLETION_REASONS, type CompletionReason, type EngineState } from "./next-question";
+// One-directional, like `trade-form-router` above: neither module imports this file.
+import { MAX_SKILLS } from "./skill-certifier";
+import { narrowGeneralFormOffer, type GeneralFormOffer } from "./skills-gate";
 
 /**
  * The reply-cache entry — Layer A of the double-submit defence.
@@ -180,6 +194,23 @@ export interface LastTurn {
    * other turn and on every stamp written before this field existed.
    */
   readonly formOffer: TradeFormOffer | null;
+  /**
+   * Which deterministic GATE that reply put on screen (ADR-0045), or null — today only the
+   * general road's "Kya aur koi skill jodni hai?".
+   *
+   * CACHED BECAUSE THE GATE'S TEXT IS NOT A CONSTANT. The experience gate is recognised on the
+   * replay path by its exact prompt; the skills gate opens with a bullet list of the worker's own
+   * skills, so no string comparison can find it. Without this a replayed gate would come back
+   * with its keyboard unlocked. Null on every other turn and on every stamp written before this
+   * field existed.
+   */
+  readonly gateKind: ChatGateKind | null;
+  /**
+   * The general-form handover card (ADR-0045), on the one turn that serves it — cached for
+   * exactly the reason {@link formOffer} is: the button is the only way forward. Rebuilt from the
+   * constant on the way in, never read off the stored object.
+   */
+  readonly generalFormOffer: GeneralFormOffer | null;
   /**
    * The predicted next turns served with that reply (#766 item 2) — cached for exactly the reason
    * `options` and `progress` above are.
@@ -786,6 +817,74 @@ export interface ProfilingEnvelope {
    * AN ID, NEVER THE CONTENT — the same rule `resumeConfirm` follows.
    */
   readonly importAppliedId: string | null;
+
+  /**
+   * The general road (ADR-0045): a worker whose role is outside the 21 predefined roles runs
+   * role → skills → a deterministic gate → the offline general form. See {@link GeneralRoadState}.
+   *
+   * ONE NESTED FIELD RATHER THAN ELEVEN FLAT ONES, so the three-place rule above is one key, one
+   * default and one narrower — and so "is this session on the general road at all" is one read.
+   */
+  readonly generalRoad: GeneralRoadState;
+}
+
+/**
+ * The general road's state (ADR-0045), inside the envelope.
+ *
+ * `armed` IS STAMPED ONCE, when the envelope is created, from `CHAT_GENERAL_ROAD_ENABLED` and
+ * `CHAT_LLM_INTERVIEW_ENABLED` — so flipping the flag mid-interview can never switch engines under
+ * a worker. An unarmed envelope is today's interview byte for byte, and every other field is then
+ * at its default and meaningless.
+ *
+ * `lane` is decided ONCE, after Phase A settles the role: `classic` is today's path (one of the
+ * 21, the trade-form offer served, the model unavailable, or no role), `skills` is the general
+ * road. Null while undecided. It never changes afterwards — a re-pin later in the interview does
+ * not move a worker between roads.
+ *
+ * `skills` holds only API-CERTIFIED skills (`skill-certifier.ts`) — the gate is built from them and
+ * `conversation_state.general_road` persists them, so nothing uncertified can reach either.
+ * `roleLabel` / `domainLabel` are the certified labels captured at the lane decision.
+ */
+export interface GeneralRoadState {
+  readonly armed: boolean;
+  readonly lane: ProfilingLane | null;
+  readonly laneReason: ProfilingLaneReason | null;
+  readonly roleLabel: string | null;
+  readonly domainLabel: string | null;
+  readonly skills: readonly string[];
+  /** Model skills questions asked on this stage — capped by the skills-turn service. */
+  readonly skillsAsks: number;
+  /** Consecutive answers that added no new certified skill. */
+  readonly staleTurns: number;
+  /** "Kya aur koi skill jodni hai?" is on screen. */
+  readonly gateOpen: boolean;
+  /** How many times the gate has been served. */
+  readonly gateRounds: number;
+  /** Model-returned skills the API certifier refused — a count, never the text. */
+  readonly rejectedCount: number;
+  /** How the skills stage ended; null while it runs. */
+  readonly outcome: SkillsStageOutcome | null;
+  /** The chat closed with the general-form card: extraction is withheld, like a trade handover. */
+  readonly handedOver: boolean;
+}
+
+/** An unarmed general road — the state of every session the flag did not arm. */
+export function emptyGeneralRoad(): GeneralRoadState {
+  return {
+    armed: false,
+    lane: null,
+    laneReason: null,
+    roleLabel: null,
+    domainLabel: null,
+    skills: [],
+    skillsAsks: 0,
+    staleTurns: 0,
+    gateOpen: false,
+    gateRounds: 0,
+    rejectedCount: 0,
+    outcome: null,
+    handedOver: false,
+  };
 }
 
 /** See {@link ProfilingEnvelope.resumeUpdateOffer}. */
@@ -914,6 +1013,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   prefilledKeys: true,
   resumeUpdateOffer: true,
   importAppliedId: true,
+  generalRoad: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -961,6 +1061,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     prefilledKeys: [],
     resumeUpdateOffer: null,
     importAppliedId: null,
+    generalRoad: emptyGeneralRoad(),
   };
 }
 
@@ -1132,6 +1233,12 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     answerType: isAnswerType(v.answerType) ? v.answerType : null,
     // REBUILT FROM THE ROUTER'S TABLE, never trusted off the wire — see `narrowTradeFormOffer`.
     formOffer: narrowTradeFormOffer(v.formOffer),
+    // ABSENT OR UNKNOWN NARROWS TO `null` — "no gate on screen", which is what every stamp written
+    // before this field existed served. The failure is a replayed gate with its keyboard unlocked,
+    // which degrades safely: typed text is still read on that turn.
+    gateKind: CHAT_GATE_KINDS.find((kind) => kind === v.gateKind) ?? null,
+    // REBUILT FROM THE CONSTANT, like `formOffer` one line up — see `narrowGeneralFormOffer`.
+    generalFormOffer: narrowGeneralFormOffer(v.generalFormOffer),
     // FAIL-SAFE TO `null`, which is a state the client already handles: "no prediction" means the
     // round trip it has today, not an error. So a record written before this field existed — or
     // one whose shape drifted — degrades to today's behaviour rather than being discarded or
@@ -1322,6 +1429,63 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
       typeof v.importAppliedId === "string" && v.importAppliedId.length > 0
         ? v.importAppliedId
         : null,
+    // ABSENT READS AS UNARMED — the state of every envelope in flight across the deploy that adds
+    // this field, all of which began before the general road existed and must finish on the road
+    // they started on. See `narrowGeneralRoad`.
+    generalRoad: narrowGeneralRoad(v.generalRoad),
+  };
+}
+
+/**
+ * The general road's state, or an UNARMED one (ADR-0045).
+ *
+ * FAILS TOWARD TODAY'S INTERVIEW. `armed` is true only for a literal `true`; an unarmed value
+ * discards everything else, because an unarmed session has no general-road state worth keeping.
+ * A lane and a reason that disagree (the pair the `profile.profiling_lane_decided` event refuses)
+ * read as "undecided" rather than trusting either half. Skills are re-capped and filtered to
+ * strings; the gate cannot be open on a session that already handed over.
+ */
+function narrowGeneralRoad(value: unknown): GeneralRoadState {
+  if (typeof value !== "object" || value === null) return emptyGeneralRoad();
+  const v = value as Record<string, unknown>;
+  if (v.armed !== true) return emptyGeneralRoad();
+  const handedOver = v.handedOver === true;
+  let lane = PROFILING_LANES.find((candidate) => candidate === v.lane) ?? null;
+  let laneReason = PROFILING_LANE_REASONS.find((candidate) => candidate === v.laneReason) ?? null;
+  const coherent =
+    lane !== null &&
+    laneReason !== null &&
+    (lane === "skills") === (laneReason === "outside_declared_roles");
+  if (!coherent) {
+    // ONLY THE SKILLS LANE HANDS OVER, so a handed-over session with a drifted lane was on it —
+    // restoring that keeps its durable `general_road` stamp (the only copy of the worker's
+    // confirmed skills after the flush) instead of silently dropping it. Anything else with an
+    // incoherent pair is undecided, and the lane-bound state goes with it: an undecided session
+    // with a gate on screen would read the worker's next sentence as a gate answer.
+    if (!handedOver) return { ...emptyGeneralRoad(), armed: true };
+    lane = "skills";
+    laneReason = "outside_declared_roles";
+  }
+  const label = (x: unknown): string | null =>
+    typeof x === "string" && x.trim().length > 0 ? x : null;
+  return {
+    armed: true,
+    lane,
+    laneReason,
+    roleLabel: label(v.roleLabel),
+    domainLabel: label(v.domainLabel),
+    skills: Array.isArray(v.skills)
+      ? v.skills
+          .filter((s): s is string => typeof s === "string" && s.length > 0)
+          .slice(0, MAX_SKILLS)
+      : [],
+    skillsAsks: nonNegativeInt(v.skillsAsks),
+    staleTurns: nonNegativeInt(v.staleTurns),
+    gateOpen: v.gateOpen === true && !handedOver,
+    gateRounds: nonNegativeInt(v.gateRounds),
+    rejectedCount: nonNegativeInt(v.rejectedCount),
+    outcome: SKILLS_STAGE_OUTCOMES.find((candidate) => candidate === v.outcome) ?? null,
+    handedOver,
   };
 }
 
@@ -1372,6 +1536,69 @@ export function toResumeHistoryStatePatch(envelope: ProfilingEnvelope): {
         ? { accepted: offer.accepted === true, answered_at: offer.answeredAt }
         : null,
   };
+}
+
+/**
+ * The general road's durable stamp on `chat_sessions.conversation_state.general_road` (ADR-0045).
+ *
+ * WHY IT MUST BE DURABLE. The chat's draft and the envelope live in Redis and are DROPPED the
+ * moment the flush commits — and the general form, the profile build and the résumé all run after
+ * that. The role and the certified skills the worker confirmed at the gate exist nowhere else.
+ *
+ * OUTSIDE THE FROZEN `ConversationState` CONTRACT, like `form_kind` and `resume_update`. Versioned
+ * (`v: 1`) because three later readers (the form API, the profile build, the résumé) parse it.
+ */
+export const GeneralRoadStampSchema = z
+  .object({
+    v: z.literal(1),
+    lane: z.literal("skills"),
+    role_label: z.string().min(1).nullable(),
+    domain_label: z.string().min(1).nullable(),
+    skills: z.array(z.string().min(1)).max(MAX_SKILLS),
+    outcome: z.enum(SKILLS_STAGE_OUTCOMES).nullable(),
+    handed_over: z.boolean(),
+  })
+  .strict();
+export type GeneralRoadStamp = z.infer<typeof GeneralRoadStampSchema>;
+
+/**
+ * The general-road patch every writer of `conversation_state` spreads — the flush, the
+ * checkpoint and the abandon sweep, because the checkpoint REPLACES the whole column (the
+ * {@link toResumeHistoryStatePatch} precedent).
+ *
+ * `{}` — THE KEY ABSENT, not null — for every session that is unarmed or not on the skills lane,
+ * so a flag-off session's persisted state is byte-identical to today's.
+ */
+export function toGeneralRoadStatePatch(envelope: ProfilingEnvelope): {
+  general_road?: GeneralRoadStamp;
+} {
+  // `?? null`: an envelope built by a caller that predates this field (a fixture, a hand-built
+  // buffer) carries it as `undefined`, and a projection that threw would cost the flush.
+  const road = envelope.generalRoad ?? null;
+  if (road === null || !road.armed || road.lane !== "skills") return {};
+  return {
+    general_road: {
+      v: 1,
+      lane: "skills",
+      role_label: road.roleLabel,
+      domain_label: road.domainLabel,
+      skills: [...road.skills],
+      outcome: road.outcome,
+      handed_over: road.handedOver,
+    },
+  };
+}
+
+/**
+ * Read the stamp back off a persisted `conversation_state`, or `null` — FAILS SOFT, never throws.
+ * The one narrower every later reader uses, so the three of them cannot disagree about the shape.
+ */
+export function readGeneralRoadStamp(conversationState: unknown): GeneralRoadStamp | null {
+  if (typeof conversationState !== "object" || conversationState === null) return null;
+  const parsed = GeneralRoadStampSchema.safeParse(
+    (conversationState as Record<string, unknown>).general_road,
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 /** A stored `prefilledKeys` array, filtered to strings — see {@link ProfilingEnvelope.prefilledKeys}. */

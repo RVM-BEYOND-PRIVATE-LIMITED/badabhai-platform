@@ -1,3 +1,4 @@
+import { GENERAL_FORM_OFFER } from "./skills-gate";
 import { TRADE_FORM_OFFERS } from "./trade-form-router";
 import { describe, expect, it } from "vitest";
 
@@ -5,10 +6,13 @@ import type { AnswerRecord, OccupationPin } from "@badabhai/ai-contracts";
 
 import {
   answersOf,
+  emptyGeneralRoad,
   emptyProfilingEnvelope,
   inboundHash,
   narrowProfilingEnvelope,
   PROFILING_ENVELOPE_KEYS,
+  readGeneralRoadStamp,
+  toGeneralRoadStatePatch,
   toConversationStatePatch,
   toEngineState,
   withAnswers,
@@ -86,6 +90,11 @@ const FULL: ProfilingEnvelope = {
     // dropped the field would rebuild, so a null here would assert nothing. A replayed handover
     // that lost its button leaves the worker a closing message with no way forward.
     formOffer: TRADE_FORM_OFFERS.cnc_turner,
+    // NON-DEFAULT (ADR-0045), for the same reason as `formOffer`: null is what a narrower that
+    // dropped either would rebuild — and a replayed skills gate that lost its kind comes back with
+    // its keyboard unlocked.
+    gateKind: "skills",
+    generalFormOffer: GENERAL_FORM_OFFER,
     // NON-DEFAULT for the same reason as everything else here, and this one is the point of the
     // exercise: `null` is what a `narrowLastTurn` that dropped the field would rebuild, so a
     // fixture seeding `null` would assert nothing at all — and a dropped submission id is a reply
@@ -169,6 +178,23 @@ const FULL: ProfilingEnvelope = {
     answeredAt: "2026-09-24T10:00:00.000Z",
   },
   importAppliedId: "33333333-3333-4333-8333-333333333333",
+  // NON-DEFAULT in EVERY sub-field (ADR-0045): an unarmed default is what a narrower that dropped
+  // the field would rebuild, and each counter is a value a lossy narrower could reset to zero.
+  generalRoad: {
+    armed: true,
+    lane: "skills",
+    laneReason: "outside_declared_roles",
+    roleLabel: "Software developer",
+    domainLabel: "Software",
+    skills: ["Python", "Django"],
+    skillsAsks: 3,
+    staleTurns: 1,
+    gateOpen: true,
+    gateRounds: 1,
+    rejectedCount: 2,
+    outcome: "capped",
+    handedOver: false,
+  },
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
@@ -501,5 +527,132 @@ describe("projections", () => {
     expect(patch).not.toHaveProperty("role_family");
     expect(patch).not.toHaveProperty("turn_count");
     expect(patch).not.toHaveProperty("answered_topics");
+  });
+});
+
+describe("the general road's state (ADR-0045)", () => {
+  const ARMED = FULL.generalRoad;
+  const narrowRoad = (generalRoad: unknown) =>
+    narrowProfilingEnvelope(JSON.parse(JSON.stringify({ ...FULL, generalRoad })))!.generalRoad;
+
+  it("a fresh envelope is UNARMED, so a flag-off session is today's interview", () => {
+    expect(emptyProfilingEnvelope().generalRoad).toEqual(emptyGeneralRoad());
+    expect(emptyGeneralRoad().armed).toBe(false);
+  });
+
+  it("ABSENT reads as unarmed — every envelope in flight across the deploy stays on its road", () => {
+    const { generalRoad: _absent, ...legacy } = FULL;
+    const reloaded = narrowProfilingEnvelope(JSON.parse(JSON.stringify(legacy)));
+    expect(reloaded?.generalRoad).toEqual(emptyGeneralRoad());
+  });
+
+  it("only a literal `true` arms it, and an unarmed value discards everything else", () => {
+    expect(narrowRoad({ ...ARMED, armed: "true" })).toEqual(emptyGeneralRoad());
+    expect(narrowRoad({ ...ARMED, armed: false })).toEqual(emptyGeneralRoad());
+  });
+
+  it("a lane and a reason that disagree read as UNDECIDED, and the lane-bound state goes too", () => {
+    const road = narrowRoad({
+      ...ARMED,
+      lane: "skills",
+      laneReason: "declared_role",
+      gateOpen: true,
+    });
+    // Not either half — and no gate on screen for a session that is not on the skills lane.
+    expect(road).toEqual({ ...emptyGeneralRoad(), armed: true });
+    expect(narrowRoad({ ...ARMED, lane: "classic", laneReason: "form_offered" }).lane).toBe(
+      "classic",
+    );
+  });
+
+  it("a HANDED-OVER session with a drifted lane keeps the skills lane, so its stamp survives", () => {
+    // Only the skills lane hands over. Clearing the lane here would drop the durable
+    // general_road stamp — the only copy of the confirmed skills after the flush.
+    const road = narrowRoad({
+      ...ARMED,
+      lane: "skills",
+      laneReason: "declared_role",
+      gateOpen: false,
+      handedOver: true,
+      outcome: "confirmed",
+    });
+    expect(road.lane).toBe("skills");
+    expect(road.laneReason).toBe("outside_declared_roles");
+    expect(road.skills).toEqual(["Python", "Django"]);
+    expect(toGeneralRoadStatePatch({ ...FULL, generalRoad: road }).general_road?.handed_over).toBe(
+      true,
+    );
+  });
+
+  it("the gate cannot be open on a session that already handed over", () => {
+    expect(narrowRoad({ ...ARMED, gateOpen: true, handedOver: true }).gateOpen).toBe(false);
+  });
+
+  it("skills are filtered to non-empty strings and re-capped at 30; counters clamp at zero", () => {
+    const many = Array.from({ length: 40 }, (_, i) => `skill ${i}`);
+    // The junk comes FIRST, so a narrower that only slices (no filter) cannot pass.
+    const road = narrowRoad({ ...ARMED, skills: [7, "", null, ...many], skillsAsks: -3 });
+    expect(road.skills).toHaveLength(30);
+    expect(road.skills[0]).toBe("skill 0");
+    expect(road.skills.every((s) => typeof s === "string" && s.length > 0)).toBe(true);
+    expect(road.skillsAsks).toBe(0);
+  });
+
+  it("an outcome outside the closed set reads as null", () => {
+    expect(narrowRoad({ ...ARMED, outcome: "whatever" }).outcome).toBeNull();
+  });
+});
+
+describe("toGeneralRoadStatePatch — the durable stamp (ADR-0045)", () => {
+  it("is ABSENT (not null) for an unarmed session, so flag-off state is byte-identical", () => {
+    const patch = toGeneralRoadStatePatch(emptyProfilingEnvelope());
+    expect(patch).toEqual({});
+    expect(Object.prototype.hasOwnProperty.call(patch, "general_road")).toBe(false);
+  });
+
+  it("is absent on the classic lane and while the lane is undecided", () => {
+    const classic = {
+      ...FULL.generalRoad,
+      lane: "classic" as const,
+      laneReason: "declared_role" as const,
+    };
+    expect(toGeneralRoadStatePatch({ ...FULL, generalRoad: classic })).toEqual({});
+    const undecided = { ...FULL.generalRoad, lane: null, laneReason: null };
+    expect(toGeneralRoadStatePatch({ ...FULL, generalRoad: undecided })).toEqual({});
+  });
+
+  it("tolerates an envelope built without the field (fixtures, hand-built buffers)", () => {
+    const { generalRoad: _absent, ...legacy } = FULL;
+    expect(toGeneralRoadStatePatch(legacy as unknown as ProfilingEnvelope)).toEqual({});
+  });
+
+  it("stamps the role, the certified skills and the outcome on the skills lane — nothing else", () => {
+    const patch = toGeneralRoadStatePatch({
+      ...FULL,
+      generalRoad: { ...FULL.generalRoad, outcome: "confirmed", handedOver: true, gateOpen: false },
+    });
+    expect(patch).toEqual({
+      general_road: {
+        v: 1,
+        lane: "skills",
+        role_label: "Software developer",
+        domain_label: "Software",
+        skills: ["Python", "Django"],
+        outcome: "confirmed",
+        handed_over: true,
+      },
+    });
+  });
+
+  it("reads back through readGeneralRoadStamp, which fails soft on anything else", () => {
+    const patch = toGeneralRoadStatePatch(FULL);
+    expect(readGeneralRoadStamp({ role_family: "x", ...patch })).toEqual(patch.general_road);
+    expect(readGeneralRoadStamp(null)).toBeNull();
+    expect(readGeneralRoadStamp({})).toBeNull();
+    expect(readGeneralRoadStamp({ general_road: { ...patch.general_road, v: 2 } })).toBeNull();
+    // Strict: a smuggled key is refused rather than carried to the three later readers.
+    expect(
+      readGeneralRoadStamp({ general_road: { ...patch.general_road, brief: "x" } }),
+    ).toBeNull();
   });
 });

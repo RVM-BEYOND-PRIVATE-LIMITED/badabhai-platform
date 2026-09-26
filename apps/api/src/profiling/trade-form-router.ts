@@ -121,7 +121,7 @@ const TRADE_FORM_ROUTES: readonly TradeFormRoute[] = ENABLED_ROLE_DESCRIPTORS.ma
  * the failure is SILENT: the router simply never routes a worker who spoke Hindi. The unit table
  * catches it, which is why those cases are in it.
  */
-function normalise(value: string | null | undefined): string {
+export function normalise(value: string | null | undefined): string {
   if (!value) return "";
   const stripped = value
     .toLowerCase()
@@ -130,7 +130,7 @@ function normalise(value: string | null | undefined): string {
   return stripped.length === 0 ? "" : ` ${stripped} `;
 }
 
-function containsAny(haystack: string, terms: readonly string[]): boolean {
+export function containsAny(haystack: string, terms: readonly string[]): boolean {
   if (haystack.length === 0) return false;
   return terms.some((term) => haystack.includes(` ${term} `));
 }

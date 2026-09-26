@@ -4,6 +4,7 @@ import type { AnswerRecord } from "@badabhai/ai-contracts";
 import {
   answerSetHash,
   emptyAnswerMap,
+  forgetAnswer,
   isSettled,
   recordAnswer,
   recordDeclined,
@@ -265,5 +266,39 @@ describe("answerSetHash — what it must and must not notice", () => {
     expect(answerSetHash({})).not.toBe(
       answerSetHash(mapOf(rec({ question_key: "a", value_normalized: null }))),
     );
+  });
+});
+
+describe("forgetAnswer — the one path that removes a value (ADR-0045)", () => {
+  it("drops the record whole, so it reads as never asked — unlike declined/unanswered", () => {
+    const answered = recordAnswer(
+      {},
+      value({
+        questionKey: "experience_years",
+        targetField: "experience_years",
+        valueNormalized: 4,
+      }),
+      1,
+    );
+    const forgotten = forgetAnswer(answered, "experience_years");
+    expect(forgotten.experience_years).toBeUndefined();
+    expect(isSettled(forgotten, "experience_years")).toBe(false);
+    expect(toCapturedProjection(forgotten)).toEqual({});
+  });
+
+  it("is pure — the input map is untouched — and leaves every other record alone", () => {
+    const map = recordAnswer(
+      recordAnswer({}, value({ questionKey: "city", valueNormalized: "Pune" }), 1),
+      value({ questionKey: "experience_years", valueNormalized: 4 }),
+      2,
+    );
+    const forgotten = forgetAnswer(map, "experience_years");
+    expect(map.experience_years?.value_normalized).toBe(4);
+    expect(forgotten.city?.value_normalized).toBe("Pune");
+  });
+
+  it("returns the same map when the key is absent", () => {
+    const map = recordAnswer({}, value({ questionKey: "city", valueNormalized: "Pune" }), 1);
+    expect(forgetAnswer(map, "experience_years")).toBe(map);
   });
 });
