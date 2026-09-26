@@ -553,6 +553,21 @@ export type LlmInterviewStage = (typeof LLM_INTERVIEW_STAGES)[number];
 export const INPUT_MODES = ["text", "options_only"] as const;
 export type InputMode = (typeof INPUT_MODES)[number];
 
+/**
+ * WHICH INTERVIEW THE MODEL IS RUNNING (ADR-0045).
+ *
+ * `classic` is the Phase A stretch every worker has today (domain → role → skills → experience).
+ * `skills_only` is the general road's skills stage, for a worker whose role is outside the 21
+ * predefined roles: the role is already known and the model asks ONLY for skills.
+ *
+ * A REQUEST FIELD, NOT A NEW STAGE VALUE. `LLM_INTERVIEW_STAGES` is frozen in both languages and
+ * the model itself emits it; a mode is chosen by the API and never by the model. Optional rather
+ * than defaulted, so a classic request body is byte-identical to today's. NAMED `skills_only`,
+ * not `skills`, so a trace never confuses the mode with the `skills` STAGE value.
+ */
+export const LLM_INTERVIEW_MODES = ["classic", "skills_only"] as const;
+export type LlmInterviewMode = (typeof LLM_INTERVIEW_MODES)[number];
+
 /** What the model has gathered so far. Sent back each turn so the call stays stateless. */
 export const LlmInterviewDraftSchema = z.object({
   domain_label: z.string().nullable().default(null),
@@ -581,6 +596,14 @@ export const LlmTurnInputSchema = z.object({
    * Phase A without calling, so a runaway costs nothing. This is the one turn before that.
    */
   force_close: z.boolean().default(false),
+  /**
+   * Which interview to run — see {@link LLM_INTERVIEW_MODES}. Absent means `classic`.
+   *
+   * In `skills_only` mode the output's `skills` are the skills in the worker's LATEST message (the
+   * API merges them), `phase_a_done` means "the worker's skills are exhausted" (advisory — the API
+   * decides), and `experience_entry` is ignored.
+   */
+  interview_mode: z.enum(LLM_INTERVIEW_MODES).optional(),
 });
 export type LlmTurnInput = z.infer<typeof LlmTurnInputSchema>;
 

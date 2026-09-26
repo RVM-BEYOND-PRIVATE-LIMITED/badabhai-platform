@@ -99,7 +99,11 @@ void main() {
         '${kCompanionJobKeyPrefix}123',
       ]) {
         expect(companionJobId(bad), isNull, reason: bad);
-        expect(companionActionFor(bad), CompanionAction.none, reason: bad);
+        // #1747 — it stays a companion JOB action (the call site's null-id guard
+        // makes it a no-op). Answering `none` sent it down the ordinary path
+        // instead, and the worker's transcript gained the chip's LABEL as a
+        // message he never typed.
+        expect(companionActionFor(bad), CompanionAction.openJob, reason: bad);
       }
       expect(companionJobId('$kCompanionJobKeyPrefix$id'), id);
     });

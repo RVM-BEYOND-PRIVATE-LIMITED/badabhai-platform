@@ -137,6 +137,8 @@ ProfilingPhase = Literal[
 ]
 LlmInterviewStage = Literal["domain", "role", "skills", "experience", "done"]
 InputMode = Literal["text", "options_only"]
+# ADR-0045: which interview the model runs. Chosen by the API, never emitted by the model.
+LlmInterviewMode = Literal["classic", "skills_only"]
 OccupationMatchLayer = Literal["l0_exact", "l1_skeleton", "l2_trigram", "l3_vector"]
 # The five job-domain statuses PLUS the two deterministic-engine outcomes migration 0076
 # adds to the worker_profiles CHECK — declared ahead of 0076 because this file freezes at
@@ -520,6 +522,9 @@ class LlmTurnInput(BaseModel):
     # could not count turns even if it were trusted to. A cap that has already fired never
     # reaches here: the API ends Phase A without calling, so a runaway costs nothing.
     force_close: bool = False
+    # ADR-0045: `skills_only` runs the general road's skills stage (role already known, ask ONLY for
+    # skills). Absent/None is `classic`, today's Phase A — so a classic request is unchanged.
+    interview_mode: LlmInterviewMode | None = None
 
 
 class LlmTurnOutput(BaseModel):

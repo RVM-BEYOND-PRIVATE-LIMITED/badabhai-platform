@@ -19,6 +19,16 @@ import {
   COMPANION_INTENTS,
   COMPANION_NUDGES,
   COMPANION_JOBS_SCOPES,
+  PROFILING_LANES,
+  PROFILING_LANE_REASONS,
+  SKILLS_GATE_REPLIES,
+  SKILLS_STAGE_OUTCOMES,
+  GENERAL_FORM_QUESTION_KEYS,
+  GENERAL_FORM_ANSWER_STATUSES,
+  WORK_HISTORY_ANSWERS,
+  WORK_HISTORY_STATES,
+  GENERAL_FORM_BRIEF_MIN_CHARS,
+  GENERAL_FORM_BRIEF_MAX_CHARS,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -4508,3 +4518,147 @@ export const ChatCompanionTurnServedPayload = z
       "(read failed) and 'no_skills' (no claim) carry no count",
   });
 export type ChatCompanionTurnServedPayload = z.infer<typeof ChatCompanionTurnServedPayload>;
+
+// ── THE GENERAL ROAD (ADR-0045) ──────────────────────────────────────────────────────────────
+//
+// A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with a
+// card to the offline general form. Five events make that funnel measurable end to end: which lane
+// a session took, each answer at the skills gate, the handover, each of the form's own two
+// questions, and the form's completion. PII-FREE BY CONSTRUCTION: ids, closed sets from
+// `@badabhai/types` and counts — never a role label, a skill, the brief or anything else typed.
+// `.strict()` on every one, so a later field cannot add a label back.
+
+/**
+ * THE LANE A CHAT SESSION SETTLED INTO once its role was known — once per armed session.
+ *
+ * `lane: skills` is the general road; `classic` is today's interview. `reason` is why, so a
+ * mis-pin that keeps an outside worker on the classic lane shows up as a share of
+ * `declared_role` rather than hiding inside it.
+ */
+export const ProfileProfilingLaneDecidedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    lane: z.enum(PROFILING_LANES),
+    reason: z.enum(PROFILING_LANE_REASONS),
+    /** Model-led turns Phase A spent before the lane was decided. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model had asked by then. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict()
+  // THE LANE FOLLOWS FROM THE REASON. Only "outside the 21" puts a session on the skills lane;
+  // every other reason is a classic outcome. Refused rather than recorded when they disagree.
+  .refine((v) => (v.lane === "skills") === (v.reason === "outside_declared_roles"), {
+    message: "lane 'skills' goes with reason 'outside_declared_roles' and nothing else",
+  });
+export type ProfileProfilingLaneDecidedPayload = z.infer<typeof ProfileProfilingLaneDecidedPayload>;
+
+/**
+ * ONE ANSWER AT THE SKILLS GATE ("Kya aur koi skill jodni hai?") — once per round.
+ *
+ * `reply` keeps `unclear` apart from `done` although both close the stage, so a rising share of
+ * unreadable replies reads as the parser needing teaching rather than as workers finishing.
+ */
+export const ProfileSkillsGateAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which time the gate was answered in this session, from 1. */
+    round: z.number().int().min(1),
+    reply: z.enum(SKILLS_GATE_REPLIES),
+    /** Certified skills held when the gate was answered. */
+    skills_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileSkillsGateAnsweredPayload = z.infer<typeof ProfileSkillsGateAnsweredPayload>;
+
+/**
+ * THE CHAT HANDED THE WORKER TO THE GENERAL FORM — once per session.
+ *
+ * NOT `profile.form_mode_entered`: that event's `form_kind` is the closed set of trade forms, and
+ * widening it with a "general" member would leak into every reader of that set.
+ */
+export const ProfileGeneralFormModeEnteredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    outcome: z.enum(SKILLS_STAGE_OUTCOMES),
+    skills_count: z.number().int().nonnegative(),
+    /** Questions the skills stage asked. */
+    skills_asks: z.number().int().nonnegative(),
+    /** Times the gate was served. */
+    gate_rounds: z.number().int().nonnegative(),
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Model-suggested skills the certifier refused — a count, never the phrases. */
+    rejected_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileGeneralFormModeEnteredPayload = z.infer<
+  typeof ProfileGeneralFormModeEnteredPayload
+>;
+
+/**
+ * ONE OF THE GENERAL FORM'S OWN QUESTIONS WAS ANSWERED — per write.
+ *
+ * The form's other screens are the existing pages, which already emit their own events
+ * (`worker.preferences_recorded`, `worker.employment_recorded`, `worker.qualifications_recorded`).
+ * `chars` is the brief's LENGTH only — the text never leaves the worker's own row.
+ */
+export const ProfileGeneralFormAnsweredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The handover session the form belongs to; null if it could not be read. */
+    session_id: uuidSchema.nullable(),
+    question_key: z.enum(GENERAL_FORM_QUESTION_KEYS),
+    status: z.enum(GENERAL_FORM_ANSWER_STATUSES),
+    /**
+     * The yes/no to "Kya pehle kaam kiya hai?" — recorded HERE so a worker who leaves before the
+     * brief still has it on the audit trail. Null for the brief.
+     */
+    value: z.enum(WORK_HISTORY_ANSWERS).nullable(),
+    /** The brief's length when answered; null for every other answer. */
+    chars: z
+      .number()
+      .int()
+      .min(GENERAL_FORM_BRIEF_MIN_CHARS)
+      .max(GENERAL_FORM_BRIEF_MAX_CHARS)
+      .nullable(),
+  })
+  .strict()
+  .refine(
+    (v) => (v.chars !== null) === (v.question_key === "profile_brief" && v.status === "answered"),
+    { message: "chars is set iff an answered profile_brief" },
+  )
+  .refine((v) => (v.value !== null) === (v.question_key === "has_work_history"), {
+    message: "value is set iff has_work_history",
+  });
+export type ProfileGeneralFormAnsweredPayload = z.infer<typeof ProfileGeneralFormAnsweredPayload>;
+
+/**
+ * THE WORKER FINISHED THE GENERAL FORM — once per (worker, handover session).
+ *
+ * "Finished" is the brief settled (answered or declined): it is the form's last question. The
+ * counts say what the résumé will actually carry, so an empty work history reads as one here
+ * rather than as a missing section discovered on the PDF.
+ */
+export const ProfileGeneralFormCompletedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema.nullable(),
+    brief: z.enum(GENERAL_FORM_ANSWER_STATUSES),
+    has_work_history: z.enum(WORK_HISTORY_STATES),
+    employments: z.number().int().nonnegative(),
+    /** Employments carrying a start month — the ones the experience total can count. */
+    employments_dated: z.number().int().nonnegative(),
+    educations: z.number().int().nonnegative(),
+    certificates: z.number().int().nonnegative(),
+    trainings: z.number().int().nonnegative(),
+    /** Availability & Terms keys stored for the worker. */
+    terms_keys: z.number().int().nonnegative(),
+  })
+  .strict()
+  .refine((v) => v.employments_dated <= v.employments, {
+    message: "employments_dated cannot exceed employments",
+  });
+export type ProfileGeneralFormCompletedPayload = z.infer<typeof ProfileGeneralFormCompletedPayload>;

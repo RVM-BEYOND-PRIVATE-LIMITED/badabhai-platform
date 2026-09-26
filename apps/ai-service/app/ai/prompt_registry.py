@@ -50,6 +50,10 @@ logger = get_logger("ai.prompts")
 #: ``langfuse_tracing``: renaming one unhooks every dashboard, evaluator and prompt-version
 #: comparison that referenced it. Kebab-case to match the observation-name convention.
 INTERVIEW_TURN = "worker-interview-turn"
+# ADR-0045 — the general road's skills stage. Its own name rather than a version of
+# INTERVIEW_TURN, because it is a different prompt on the same route: a trace must say WHICH
+# interview asked, and a dashboard over INTERVIEW_TURN must keep meaning the classic one.
+INTERVIEW_SKILLS_TURN = "worker-interview-skills-turn"
 INTERVIEW_EXTRACT = "worker-interview-extract"
 PROFILE_PARSE = "profile-parse"
 # The one prompt licensed to COMPOSE printed text, by the owner ruling in #1350 that overrides
@@ -213,6 +217,7 @@ def install_default_prompts() -> None:
     from ..profiling.interview_prompts import (
         extract_system_prompt,
         interview_system_prompt,
+        skills_interview_system_prompt,
         work_history_polish_prompt,
     )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
@@ -221,6 +226,7 @@ def install_default_prompts() -> None:
     from ..resume_import.summary_prompt import RESUME_SUMMARY_SYSTEM_PROMPT
 
     register(INTERVIEW_TURN, interview_system_prompt)
+    register(INTERVIEW_SKILLS_TURN, skills_interview_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
     register(WORK_HISTORY_POLISH, work_history_polish_prompt)

@@ -158,6 +158,13 @@ describe("the four Phase-9 flags, as they reach the box", () => {
       /RESUME_AUTOFILL_ENABLED:\s*\$\{\{\s*secrets\.RESUME_AUTOFILL_ENABLED\s*\}\}/,
       /envs:[^\n]*\bRESUME_AUTOFILL_ENABLED\b/,
     ],
+    // ADR-0045 — the general road. A plain boolean flag, and the ONLY way it turns on in
+    // production is the environment secret, so the bridge is the switch.
+    [
+      "CHAT_GENERAL_ROAD_ENABLED",
+      /CHAT_GENERAL_ROAD_ENABLED:\s*\$\{\{\s*secrets\.CHAT_GENERAL_ROAD_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bCHAT_GENERAL_ROAD_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -183,6 +190,7 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
     ["WORK_HISTORY_POLISH_ENABLED", "false"],
     ["RESUME_AUTOFILL_ENABLED", "false"],
+    ["CHAT_GENERAL_ROAD_ENABLED", "false"],
   ])(
     "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
     (name, fallback) => {
