@@ -491,11 +491,16 @@ describe("TradeFormService", () => {
         "render",
         expect.objectContaining({ resumeId: RESUME, workerId: WORKER, force: true }),
         expect.objectContaining({
-          jobId: `trade-form-rerender:${WORKER}`,
+          jobId: `trade-form-rerender-${WORKER}`,
           delay: 60_000,
           removeOnComplete: true,
         }),
       );
+      // THE LIBRARY RULE, not the mock's silence: BullMQ refuses a custom id containing ":"
+      // unless it splits into exactly three parts. The old `trade-form-rerender:<id>` threw on
+      // every enqueue in production, and this test, against a mocked queue, pinned it anyway.
+      const { jobId } = renderQueueAdd.mock.calls[0]![2] as { jobId: string };
+      expect(!jobId.includes(":") || jobId.split(":").length === 3).toBe(true);
     });
 
     it("does NOT refresh when there is no resume yet — the first generate owns version 1", async () => {

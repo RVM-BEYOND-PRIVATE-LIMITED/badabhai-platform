@@ -227,10 +227,18 @@ export const WorkerAnswerTextSourceSetPayload = z
 export const WorkerPreferencesRecordedPayload = z
   .object({
     worker_id: uuidSchema,
-    /** How many attribute keys this submission set. */
-    keys_written: z.number().int().min(0).max(16),
+    /**
+     * How many attribute keys this submission set.
+     *
+     * BOUND RAISED 16 → 32 (2026-09-26), AND IT WAS A LIVE OUTAGE. `PREFERENCE_KEYS` reached 17,
+     * so a page with every field answered wrote 17 rows — and this emit, which runs AFTER the
+     * rows commit, threw on validation: the data was saved, the worker got a 500, and the résumé
+     * re-render that follows the emit never ran. The bound is deliberately loose (not derived
+     * from the key count), so the next key does not reopen it.
+     */
+    keys_written: z.number().int().min(0).max(32),
     /** How many it explicitly CLEARED — a real edit, and distinguishable from "not answered". */
-    keys_cleared: z.number().int().min(0).max(16),
+    keys_cleared: z.number().int().min(0).max(32),
   })
   .strict();
 
@@ -240,9 +248,9 @@ export const WorkerPreferencesRecordedPayload = z
  *
  * ═══ WHY NOT MORE COUNTS ON `worker.preferences_recorded` ═══
  *
- * That payload counts ATTRIBUTE KEYS, and its `keys_written` is bounded at 16 because
- * `PREFERENCE_KEYS` has twelve entries (counted 2026-09-05; this line said sixteen and was never
- * moved as the map changed — the cap below is deliberately loose, not derived from the count). Certificates and educations are rows in their own tables
+ * That payload counts ATTRIBUTE KEYS, and its `keys_written` is bounded at 32 — deliberately loose,
+ * not derived from `PREFERENCE_KEYS` (17 as of 2026-09-26; the old bound of 16 was overtaken by the
+ * map and failed a full page submission). Certificates and educations are rows in their own tables
  * with their own uniqueness constraint and their own endpoint; folding their counts into a field
  * named for attribute keys would make the number mean two things and its bound meaningless. This
  * is the shape `worker.employment_recorded` already has, for a table of the same kind.

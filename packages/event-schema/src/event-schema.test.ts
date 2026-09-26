@@ -5215,3 +5215,25 @@ describe("the general road (ADR-0045)", () => {
     expect(validateEvent(envelope("profile.general_form_completed", { ...completed, employments: 1, employments_dated: 2 })).success).toBe(false);
   });
 });
+
+describe("worker.preferences_recorded — the key-count bound is loose, not the key count", () => {
+  const payload = (keys_written: number, keys_cleared = 0) => ({
+    worker_id: UUID_A,
+    keys_written,
+    keys_cleared,
+  });
+  const schema = EVENT_REGISTRY["worker.preferences_recorded"].payload;
+
+  it("accepts a page with every preference answered (17 keys today) — the old bound of 16 did not", () => {
+    // THE OUTAGE THIS PINS (2026-09-26): the emit runs AFTER the rows commit, so a failed
+    // validation meant saved data, a 500 to the worker and no résumé re-render.
+    expect(schema.safeParse(payload(17)).success).toBe(true);
+    expect(schema.safeParse(payload(0, 17)).success).toBe(true);
+  });
+
+  it("keeps room for the map to grow, and still refuses an absurd count", () => {
+    expect(schema.safeParse(payload(32, 32)).success).toBe(true);
+    expect(schema.safeParse(payload(33)).success).toBe(false);
+    expect(schema.safeParse(payload(0, 33)).success).toBe(false);
+  });
+});
