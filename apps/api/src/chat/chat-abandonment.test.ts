@@ -57,10 +57,13 @@ function make(
     /** `abandonSession` loses its conditional update — the worker came back and finished. */
     closeLost?: boolean;
     sessionState?: Record<string, unknown> | null;
+    /** #1744 — the row `closeSessionForConfirmedProfile` reads. Omitted = no such session. */
+    row?: Record<string, unknown>;
   } = {},
 ) {
   let nextMessageId = 0;
   const chat = {
+    findSession: vi.fn(async (_id: string) => opts.row),
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work({ __tx: true })),
     abandonSession: vi.fn().mockResolvedValue(!opts.closeLost),
     insertMessages: vi.fn(async (_tx: unknown, rows: { direction: string }[]) =>
@@ -460,5 +463,61 @@ describe("ChatService.abandonInterview — an interview idle at the résumé-upd
     expect(chat.abandonSession).toHaveBeenCalledTimes(1);
     expect(chat.endSession).not.toHaveBeenCalled();
     expect(emittedNames(events)).toContain("chat.session_abandoned");
+  });
+});
+
+describe("ChatService.closeSessionForConfirmedProfile (#1744) — the sweep's close, at confirm", () => {
+  const MIN = 60_000;
+  const liveRow = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    workerId: WORKER,
+    status: "active",
+    startedAt: new Date(Date.now() - 40 * MIN),
+    lastMessageAt: new Date(Date.now() - 12 * MIN),
+    conversationState: { captured: { current_city: "Pune" } },
+    ...over,
+  });
+
+  it("closes a live session through abandonInterview: same transcript, answers and event", async () => {
+    const { svc, chat, events } = make({ row: liveRow() });
+    expect(await svc.closeSessionForConfirmedProfile(WORKER, SESSION, CTX)).toBe(true);
+    expect(chat.findSession).toHaveBeenCalledWith(SESSION);
+    expect(chat.abandonSession).toHaveBeenCalledOnce();
+    expect(chat.insertMessages.mock.calls[0]![1]).toHaveLength(2);
+    expect(emittedNames(events)).toContain("chat.session_abandoned");
+    // No profile is ever minted by a close — the worker's profile already exists.
+    expect(emittedNames(events)).not.toContain("profile.extraction_ready");
+    expect(persistedState(chat)?.extraction_ready_emitted).toBe(false);
+  });
+
+  it("reports idle minutes from the last recorded activity, like the sweep", async () => {
+    const { svc, events } = make({ row: liveRow() });
+    await svc.closeSessionForConfirmedProfile(WORKER, SESSION, CTX);
+    expect(abandonPayload(events)?.idle_minutes).toBe(12);
+  });
+
+  it("falls back to started_at when no checkpoint ever stamped last_message_at", async () => {
+    const { svc, events } = make({ row: liveRow({ lastMessageAt: null }) });
+    await svc.closeSessionForConfirmedProfile(WORKER, SESSION, CTX);
+    expect(abandonPayload(events)?.idle_minutes).toBe(40);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["owned by another worker", liveRow({ workerId: "99999999-9999-4999-8999-999999999999" })],
+    ["already ended (a normal completion flushed it)", liveRow({ status: "ended" })],
+    ["already abandoned (the sweep or a duplicate confirm won)", liveRow({ status: "abandoned" })],
+  ])("leaves a session that is %s alone, writing nothing", async (_label, row) => {
+    const { svc, chat, events, buffer } = make({ row });
+    expect(await svc.closeSessionForConfirmedProfile(WORKER, SESSION, CTX)).toBe(false);
+    expect(buffer.load).not.toHaveBeenCalled();
+    expect(chat.abandonSession).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("returns false when the worker finished in the same instant and the conditional close lost", async () => {
+    const { svc, chat } = make({ row: liveRow(), closeLost: true });
+    expect(await svc.closeSessionForConfirmedProfile(WORKER, SESSION, CTX)).toBe(false);
+    expect(chat.insertMessages).not.toHaveBeenCalled();
   });
 });

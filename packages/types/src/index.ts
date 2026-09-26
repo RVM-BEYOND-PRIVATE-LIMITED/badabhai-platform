@@ -191,8 +191,10 @@ export const CURRENT_CONSENT_VERSION = "2026-08-28" as const;
 
 // ---- Chat ----
 /**
- * `active` → running. `ended` → the worker finished the interview. `abandoned` → they
- * stopped answering and the idle sweep closed the session on their behalf.
+ * `active` → running. `ended` → the worker finished the interview. `abandoned` → the interview
+ * did NOT finish and the system closed it: the idle sweep, after the worker stopped answering, or
+ * (#1744) the confirm of a profile the worker made from an early finish — the same close, and the
+ * same end-state, the sweep would otherwise write hours later.
  *
  * WHY `abandoned` IS ITS OWN VALUE rather than `ended` + a reason in
  * `conversation_state`. "What share of workers finish the interview?" is a funnel

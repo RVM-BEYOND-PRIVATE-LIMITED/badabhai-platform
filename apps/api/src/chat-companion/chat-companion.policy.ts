@@ -22,20 +22,17 @@ const INTERVIEW: CompanionMode = { mode: "interview" };
  *      part-way through a redo keeps today's path, including the "build my profile" button.
  *   3. The live chat session — the one `POST /chat/session` would reattach to — shows ACTIVITY
  *      AFTER that confirmation → interview. Activity is the later of its `started_at` and its
- *      `last_message_at`: a session minted after the confirmation is a deliberate new interview
- *      ("Chat se resume banayein"), and a pre-confirmation session that has moved since is that
- *      same redo REATTACHED to the early-finish leftover (the server reattaches before it mints).
- *   4. Otherwise → companion. A live session whose every clock predates the confirmation is the
- *      early-finish leftover ("Phir bhi profile banaiye" → preview → confirm, which never ends
- *      the session); it does not block the companion, and the abandonment sweep closes it as it
- *      always has.
+ *      `last_message_at`. Since #1744 a redo ("Chat se resume banayein") always runs in a session
+ *      minted after the confirmation, so its `started_at` alone decides it, from the first turn.
+ *   4. Otherwise → companion. A live session whose every clock predates the confirmation is an
+ *      early-finish leftover confirmed BEFORE #1744 shipped: since then `ProfilesService.confirm`
+ *      closes the interview behind the profile it confirms, so no new one is left behind. Such a
+ *      leftover does not block the companion, and the abandonment sweep closes it as it always has.
  *
- * KNOWN GAP, ACCEPTED (ADR-0044 §2.1, TD143). `last_message_at` moves only at the interview's
- * checkpoints (every `CHECKPOINT_EVERY_ASKS` = 5 asks) and at its end — the per-turn transcript
- * lives in the chat module's Redis buffer, which this module must not read. So for the first four
- * answers of a redo reattached to a leftover, a COLD app start is shown the recap; the worker's
- * live bloc is unaffected (it left companion mode when they chose the redo), and one more tap on
- * the redo reattaches the same session with nothing lost.
+ * TD143 — CLOSED BY #1744. The `last_message_at` half of rule 3 existed for a redo REATTACHED to a
+ * pre-confirmation leftover, whose first four answers move no clock this module can read (the
+ * per-turn transcript lives in the chat module's Redis buffer). A redo can no longer reattach to
+ * one. The half stays: it is harmless, and still right for a leftover from before the fix.
  *
  * Not "any live session blocks": that would leave the most common chat-road completion — the
  * early finish — silent for the hours until the sweep. Not "a résumé exists": a redo in progress

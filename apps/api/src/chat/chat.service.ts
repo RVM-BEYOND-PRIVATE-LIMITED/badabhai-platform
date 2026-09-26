@@ -1412,8 +1412,9 @@ export class ChatService {
 
       await this.events.emit({
         event_name: "chat.session_abandoned",
-        // The SWEEP closed this, not the worker. Attributing it to them would put an action
-        // they did not take in their own audit trail.
+        // The SYSTEM closed this — the idle sweep, or (#1744) the confirm of the profile an early
+        // finish produced — not the worker. Attributing it to them would put an action they did
+        // not take in their own audit trail.
         actor: { actor_type: "system" },
         subject: { subject_type: "chat_session", subject_id: sessionId },
         payload: {
@@ -1457,6 +1458,48 @@ export class ChatService {
       messages: closed ? messageRows.length : 0,
       answers: closed ? answerRows.length : 0,
     };
+  }
+
+  /**
+   * #1744 — CLOSE THE INTERVIEW WHOSE PROFILE THE WORKER JUST CONFIRMED.
+   *
+   * An EARLY FINISH ("Phir bhi profile banaiye" → preview → confirm) never flushes: the app
+   * extracts straight from the live buffer and the session stays `active`. Until now only the
+   * idle sweep ended it, ~6h later. In that window it was a LEFTOVER that everything keyed on
+   * `status = 'active'` still treated as the worker's live interview:
+   *   - "Chat se resume banayein" reattached to it (#1197) instead of starting a new interview,
+   *     so the redo ran inside the pre-confirmation session, and its extraction deduped onto
+   *     the early-finish job — the redo's answers never became a profile;
+   *   - the companion's mode rule had to reason about it (TD143);
+   *   - a later sweep of it would upsert its old pack answers over a redo's newer ones.
+   *
+   * THIS IS THE SWEEP'S CLOSE, RUN AT THE MOMENT IT BECOMES TRUE. It delegates to
+   * `abandonInterview` unchanged: same `abandoned` status, same preserved transcript and pack
+   * answers, same events and payloads, no extraction. The only difference is WHEN — the
+   * business event (the worker confirmed the profile this interview produced) instead of an
+   * idle timer. A session that never produced a confirmed profile is never closed here, so an
+   * unfinished interview still reattaches exactly as before.
+   *
+   * Returns true only when THIS call closed the session. A session that is missing, owned by
+   * someone else, or no longer `active` (a normal completion already flushed it; the sweep or a
+   * duplicate confirm won) is left alone.
+   */
+  async closeSessionForConfirmedProfile(
+    workerId: string,
+    sessionId: string,
+    ctx: RequestContext,
+  ): Promise<boolean> {
+    const session = await this.chat.findSession(sessionId);
+    if (!session || session.workerId !== workerId || session.status !== "active") return false;
+    // Same derivation as the sweep, so `idle_minutes` on the event means the same thing.
+    const lastActivity = session.lastMessageAt ?? session.startedAt;
+    const idleMinutes = Math.max(0, Math.floor((Date.now() - lastActivity.getTime()) / 60_000));
+    const outcome = await this.abandonInterview(
+      { id: session.id, workerId: session.workerId, conversationState: session.conversationState },
+      idleMinutes,
+      ctx,
+    );
+    return outcome.closed;
   }
 
   /**

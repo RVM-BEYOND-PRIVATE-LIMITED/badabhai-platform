@@ -650,7 +650,8 @@ export const ChatMessageSentPayload = z.object({
 });
 
 /**
- * A session the worker stopped answering, closed by the idle sweep rather than by them.
+ * A session that did not finish, closed by the system rather than by the worker: the idle sweep,
+ * or (#1744) the confirm of a profile made from an early finish. Same payload either way.
  *
  * COUNTS ONLY — no message text, no answer values, no free text of any kind. This is the
  * audit fact that an interview ended without finishing plus the shape of what was
