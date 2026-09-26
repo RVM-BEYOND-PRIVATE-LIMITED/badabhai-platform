@@ -1437,6 +1437,17 @@ export const serverEnvSchema = z.object({
   // OFF DOES NOT DISABLE THE FALLBACK. The engine is the fallback and it is always live;
   // this only decides whether the model is asked first.
   CHAT_LLM_INTERVIEW_ENABLED: booleanFromString,
+  // ADR-0045 — THE GENERAL ROAD, for workers whose role is OUTSIDE the 21 predefined roles.
+  // On, such a worker's chat runs role → skills (the model asks only for skills, then a fixed
+  // "Kya aur koi skill jodni hai?" gate) and closes with a card to the offline general form
+  // (terms, work history, education, certificates, a brief in their own words). The 21 roles are
+  // untouched either way. Needs CHAT_LLM_INTERVIEW_ENABLED too: the skills stage is model-led.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY. STAMPED PER SESSION when the chat starts,
+  // so a flip reaches new sessions only and can never switch engines mid-interview.
+  // PRODUCTION ON ONLY AFTER the app release that draws the card and the form has shipped (an
+  // older app would dead-end at the handover) and the owner has signed ADR-0045.
+  CHAT_GENERAL_ROAD_ENABLED: booleanFromString,
 
   // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
   // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout

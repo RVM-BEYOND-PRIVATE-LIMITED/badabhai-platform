@@ -118,7 +118,20 @@ class ChatCompanionStarted extends ChatEvent {
 /// (the server's `digest_key`) — the worker who just applied on the Jobs tab sees
 /// the new count; a worker who changed nothing sees nothing new.
 class ChatCompanionRefreshRequested extends ChatEvent {
-  const ChatCompanionRefreshRequested();
+  const ChatCompanionRefreshRequested({this.force = false});
+
+  /// Skip the 60 s throttle (#1747 review).
+  ///
+  /// The throttle exists for tab refocus, which a worker can trigger as fast as
+  /// he can tap. A return from the companion's OWN job detail is not that: it is
+  /// one deliberate trip, and the fact it most likely changed — "jobs applied
+  /// to" — is the one the recap leads with. Without this the counts a worker
+  /// just moved stay stale on screen for a minute, which reads as the tab not
+  /// having noticed he applied.
+  final bool force;
+
+  @override
+  List<Object?> get props => <Object?>[force];
 }
 
 // ---------------- State ----------------
@@ -968,7 +981,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     if (!state.companion || state.initializing || state.sending) return;
     final DateTime now = _clock();
     final DateTime? last = _companionReadAt;
-    if (last != null && now.difference(last) < _companionRefreshMinGap) return;
+    if (!event.force &&
+        last != null &&
+        now.difference(last) < _companionRefreshMinGap) {
+      return;
+    }
     _companionReadAt = now;
     // The transcript as this read began. Handlers run CONCURRENTLY (see
     // [_inFlightSends]), so a send can start AND finish inside the await below;

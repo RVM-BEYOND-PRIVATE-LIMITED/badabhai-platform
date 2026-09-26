@@ -42,6 +42,7 @@ from app.contracts import (
     JobPostingChatTurnOutput,
     JobPostingDraft,
     LlmInterviewDraft,
+    LlmInterviewMode,
     LlmTurnInput,
     LlmTurnOutput,
     OccupationPin,
@@ -418,6 +419,8 @@ def test_oie_enum_values_match_not_just_their_key_names():
     assert _zod_string_union("PROFILING_PHASES") == list(get_args(ProfilingPhase))
     assert _zod_string_union("QUESTION_PACK_STATUSES") == list(get_args(QuestionPackStatus))
     assert _zod_string_union("ANSWER_STATUSES") == list(get_args(AnswerStatus))
+    # ADR-0045 — the interview mode the API selects (classic Phase A vs the skills stage).
+    assert _zod_string_union("LLM_INTERVIEW_MODES") == list(get_args(LlmInterviewMode))
 
 
 def test_the_enum_parity_check_is_capable_of_failing():

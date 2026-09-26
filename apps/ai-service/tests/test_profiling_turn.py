@@ -308,3 +308,22 @@ def test_the_turn_prompt_still_lets_experience_entry_be_null_on_ordinary_turns()
     prompt = interview_system_prompt()
     assert "It is null on turns where no job was just completed" in prompt
     assert "that is most turns, and that is correct" in prompt
+
+
+# --- ADR-0045: interview_mode ------------------------------------------------------------------
+
+
+def test_interview_mode_is_none_unless_sent_so_a_classic_request_is_unchanged() -> None:
+    assert LlmTurnInput(worker_ref="w1").interview_mode is None
+
+
+def test_interview_mode_accepts_the_two_modes_and_refuses_the_stage_word() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    for mode in ("classic", "skills_only"):
+        assert LlmTurnInput(worker_ref="w1", interview_mode=mode).interview_mode == mode
+    # `skills` is a STAGE value; the mode is `skills_only` so a trace never confuses the two.
+    for bad in ("skills", "general", ""):
+        with pytest.raises(ValidationError):
+            LlmTurnInput(worker_ref="w1", interview_mode=bad)

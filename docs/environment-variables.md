@@ -104,6 +104,11 @@ NestJS boot assertion).
   the chat tab as it was), `CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS` (7), `CHAT_COMPANION_NEW_JOBS_COUNT_CAP`
   (20) and `CHAT_COMPANION_JOB_CHIPS` (3). Only the flag is bridged to staging; the knobs run on
   their defaults. Production ON only after ADR-0044 is Accepted.
+- **The general road (ADR-0045)** — `CHAT_GENERAL_ROAD_ENABLED` (default off; off is the interview
+  as it was for every worker). On, a chat worker whose role is outside the 21 predefined roles gets
+  role → skills and then the offline general form. Needs `CHAT_LLM_INTERVIEW_ENABLED`. Stamped per
+  session, so a flip reaches new sessions only. Bridged to staging/production through the GitHub
+  secret of the same name; production ON only after the app release with the card and the form.
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).
