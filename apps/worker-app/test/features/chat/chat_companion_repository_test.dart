@@ -8,6 +8,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 
 /// The recap exactly as `GET /chat/companion` serves it (ADR-0044): the chat
@@ -115,7 +116,8 @@ void main() {
         session,
       );
 
-      final ChatTurn? turn = await repo.openCompanion();
+      final CompanionOpening opening = await repo.openCompanion();
+      final ChatTurn? turn = opening.turn;
 
       expect(hit, <String>['GET /chat/companion']);
       expect(session.sessionId, isNull);
@@ -136,11 +138,11 @@ void main() {
         _signedIn(),
         reportNonFatal: (Object e, StackTrace s, {required String reason}) => reported++,
       );
-      expect(await repo.openCompanion(), isNull);
+      expect((await repo.openCompanion()).outcome, CompanionOpenOutcome.interview);
       expect(reported, 0);
     });
 
-    test('an old server (404) is null — today\'s chat — and the miss is reported, PII-free', () async {
+    test('an old server (404) is an ANSWER — today\'s chat, reported once, never retried (#1750)', () async {
       final List<String> reasons = <String>[];
       final ChatRepositoryImpl repo = ChatRepositoryImpl(
         ApiClient(
@@ -150,7 +152,10 @@ void main() {
         _signedIn(),
         reportNonFatal: (Object e, StackTrace s, {required String reason}) => reasons.add(reason),
       );
-      expect(await repo.openCompanion(), isNull);
+      // The route does not exist on this server, so there is no companion for
+      // anyone on it: retrying cannot help, and a retry state would offer the
+      // worker a button that can never succeed.
+      expect((await repo.openCompanion()).outcome, CompanionOpenOutcome.interview);
       expect(reasons, <String>['chat_companion_open_failed']);
     });
 
@@ -168,7 +173,7 @@ void main() {
         ),
         SessionRepository(),
       );
-      expect(await repo.openCompanion(), isNull);
+      expect((await repo.openCompanion()).isUnreachable, isTrue);
       expect(requests, 0);
     });
   });

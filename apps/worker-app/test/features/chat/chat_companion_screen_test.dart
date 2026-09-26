@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -7,8 +8,10 @@ import 'package:badabhai_worker_app/core/api/api_models.dart'
     show ChatOption, ChatQuestionKind;
 import 'package:badabhai_worker_app/core/config/remote_config.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_companion_keys.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
@@ -54,7 +57,7 @@ void main() {
     locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
     when(() => repo.loadHistory()).thenAnswer((_) async => const <ChatMessage>[]);
     when(() => repo.ensureSession()).thenAnswer((_) async => null);
-    when(() => repo.openCompanion()).thenAnswer((_) async => _companion(_recap, _recapOptions));
+    when(() => repo.openCompanion()).thenAnswer((_) async => CompanionOpening(CompanionOpenOutcome.companion, _companion(_recap, _recapOptions)));
   });
 
   tearDown(() async {
@@ -192,11 +195,114 @@ void main() {
 
   testWidgets('not a companion worker (null): today\'s tab, CTA included', (WidgetTester tester) async {
     companionSwitch(true);
-    when(() => repo.openCompanion()).thenAnswer((_) async => null);
+    when(() => repo.openCompanion())
+          .thenAnswer((_) async => const CompanionOpening.interview());
     await pumpTab(tester);
 
     verify(() => repo.ensureSession()).called(1);
     expect(find.text(_recap), findsNothing);
     expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
+  });
+
+  // ── #1755.1 — THE REFOCUS TRIGGER, through the real wrapper ────────────────
+  // Every other test leaves `TabFocus` unregistered, so `_CompanionRefocus`
+  // takes its bail-out and renders the bare child: a wrong tab index, a dropped
+  // wrapper or a bloc read from above its provider would all pass unnoticed.
+  testWidgets('a tab refocus re-reads the recap through TabFocusRefetch',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    DateTime now = DateTime.utc(2026, 9, 26, 10);
+    final TabFocus focus = TabFocus(TabIndex.chat);
+    locator
+      ..unregister<ChatBloc>()
+      ..registerFactory<ChatBloc>(() => ChatBloc(repo, clock: () => now))
+      ..registerLazySingleton<TabFocus>(() => focus);
+
+    await pumpTab(tester);
+    verify(() => repo.openCompanion()).called(1);
+
+    // Away and back, past the throttle.
+    focus.value = TabIndex.jobs;
+    await tester.pump();
+    now = now.add(const Duration(seconds: 61));
+    focus.value = TabIndex.chat;
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    verify(() => repo.openCompanion()).called(1);
+  });
+
+  // ── #1755.3 — the recap on the smallest supported screen, at 2.0 text ──────
+  testWidgets('the recap and its chips fit at 320x568, text scale 2.0',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+        child: MaterialApp.router(routerConfig: router()),
+      ),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // No overflow, and a chip is really on screen — not painted past the edge.
+    expect(tester.takeException(), isNull);
+    final Finder chip = find.text('Sabhi jobs dekhein');
+    expect(chip, findsOneWidget);
+    final Rect box = tester.getRect(chip);
+    expect(box.left, greaterThanOrEqualTo(0));
+    expect(box.right, lessThanOrEqualTo(320));
+  });
+
+  // ── #1752 — the chip goes, and he is told the apply landed ─────────────────
+  testWidgets('applying through a job chip drops that chip and confirms',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    await pumpTab(tester);
+    expect(find.text('CNC Operator — Pune'), findsOneWidget);
+
+    await tester.tap(find.text('CNC Operator — Pune'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('DETAIL $_jobId'), findsOneWidget);
+
+    // Job detail pops 'applied', exactly as JobDetailScreen does.
+    final NavigatorState nav = tester.state<NavigatorState>(find.byType(Navigator).last);
+    nav.pop('applied');
+    await tester.pumpAndSettle();
+
+    expect(find.text(kCompanionAppliedToast), findsOneWidget);
+    // The chip is gone: tapping it again would reopen the detail with
+    // "Apply karein" for a job he has already applied to.
+    expect(find.text('CNC Operator — Pune'), findsNothing);
+    // The other chips are untouched.
+    expect(find.text('Sabhi jobs dekhein'), findsOneWidget);
+  });
+
+  // ── #1754 — the chips announce as BUTTONS, not as an unchecked radio group ─
+  testWidgets('a companion chip is a button, with no checked state',
+      (WidgetTester tester) async {
+    companionSwitch(true);
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await pumpTab(tester);
+
+    expect(
+      tester.getSemantics(find.text('Sabhi jobs dekhein')),
+      matchesSemantics(
+        label: 'Sabhi jobs dekhein',
+        isButton: true,
+        hasTapAction: true,
+        hasFocusAction: true,
+        isFocusable: true,
+        // The point of #1754: no radio state, and no group to be one of.
+        hasCheckedState: false,
+        isInMutuallyExclusiveGroup: false,
+      ),
+    );
+    handle.dispose();
   });
 }

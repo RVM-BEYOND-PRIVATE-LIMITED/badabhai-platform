@@ -5,6 +5,46 @@ import 'chat_turn.dart';
 /// Chat boundary for the profiling conversation. Implementations read the
 /// session token / session id from the session (never the widget) and throw a
 /// [Failure] on error.
+/// What `GET /chat/companion` actually said (#1750).
+///
+/// THREE ANSWERS, NOT TWO. The old contract returned `ChatTurn?` and collapsed
+/// "this worker runs the interview" into the same `null` as "the read did not
+/// come back". That cost the main group — form and upload workers — the whole
+/// feature on a slow link: the tab fell back to the interview, `ensureSession`
+/// minted an EMPTY session, and from then on the server's own policy answered
+/// `interview` for six or seven hours because it could see a live session
+/// started after the profile was confirmed. An unreachable read must therefore
+/// be distinguishable, so the tab can decline to mint anything and retry.
+enum CompanionOpenOutcome {
+  /// The server says this worker is a companion worker; [CompanionOpening.turn]
+  /// is the recap.
+  companion,
+
+  /// The server says this worker runs the ordinary interview. A real answer.
+  interview,
+
+  /// No answer: timeout, transport error, 5xx, or no session token. NOT a
+  /// verdict about the worker — nothing may be minted on it.
+  unreachable,
+}
+
+/// The result of one companion open.
+class CompanionOpening {
+  const CompanionOpening(this.outcome, [this.turn]);
+
+  const CompanionOpening.interview() : this(CompanionOpenOutcome.interview);
+  const CompanionOpening.unreachable() : this(CompanionOpenOutcome.unreachable);
+
+  final CompanionOpenOutcome outcome;
+
+  /// The recap, present only for [CompanionOpenOutcome.companion].
+  final ChatTurn? turn;
+
+  bool get isCompanion =>
+      outcome == CompanionOpenOutcome.companion && turn != null;
+  bool get isUnreachable => outcome == CompanionOpenOutcome.unreachable;
+}
+
 abstract interface class ChatRepository {
   /// Ensures a chat session exists (starts one if needed) and stores its id in
   /// the session. No-op when a session is already open.
@@ -57,7 +97,7 @@ abstract interface class ChatRepository {
   /// NEVER opens, resumes or mints a chat session: a companion worker has no
   /// interview in flight, and minting one here is exactly the bug this fixes for
   /// workers whose profile came from a form.
-  Future<ChatTurn?> openCompanion();
+  Future<CompanionOpening> openCompanion();
 
   /// ADR-0044 — one companion answer (`POST /chat/companion/message`), with
   /// [ChatTurn.companion] set. Null when the server answers 409 (this worker is

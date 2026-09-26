@@ -538,10 +538,13 @@ class _ChatViewState extends State<_ChatView> {
       extra: JobDetail(jobId: jobId, title: parts.title, city: parts.city),
     );
     if (!mounted || result != 'applied') return;
-    // FORCED: he applied seconds ago, and the throttle is for refocus taps.
-    context.read<ChatBloc>().add(
-      const ChatCompanionRefreshRequested(force: true),
-    );
+    // #1752 — the same confirmation the feed gives for the same pop, and the
+    // chip goes with it: tapping it again would reopen the detail showing
+    // "Apply karein" for a job he has already applied to.
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text(kCompanionAppliedToast)));
+    context.read<ChatBloc>().add(ChatCompanionJobApplied(jobId));
   }
 
   /// The applied-list chip, and the recap re-read on the way back. Not forced:
@@ -557,7 +560,16 @@ class _ChatViewState extends State<_ChatView> {
     // ADR-0044 — the companion's app-routed chips FIRST. None of them is ever
     // posted; every other key (interview chips, the résumé menu, the companion's
     // server-answered chips) falls through to exactly the routing below.
-    switch (companionActionFor(option.optionKey)) {
+    final CompanionAction companionAction = companionActionFor(option.optionKey);
+    // #1753 — counts only, by key CLASS, and only while the tab is the companion.
+    final ChatBloc bloc = context.read<ChatBloc>();
+    if (bloc.state.companion) {
+      bloc.add(ChatCompanionChipTapped(
+        companionChipKeyClass(option.optionKey),
+        openedJob: companionAction == CompanionAction.openJob,
+      ));
+    }
+    switch (companionAction) {
       case CompanionAction.openJob:
         final String? jobId = companionJobId(option.optionKey);
         if (jobId == null) return;
@@ -1670,7 +1682,7 @@ class _ChatViewState extends State<_ChatView> {
                 vertical: AppSpacing.s3,
               ),
               enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.md),
+                borderRadius: BorderRadius.circular(OnboardingRadii.card),
                 borderSide: const BorderSide(
                   color: OnboardingColors.borderDefault,
                   width: 1.2,
@@ -1682,7 +1694,7 @@ class _ChatViewState extends State<_ChatView> {
               // nothing else, so a caret sitting in the composer can no longer
               // read as an answer the worker has already given.
               focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.md),
+                borderRadius: BorderRadius.circular(OnboardingRadii.card),
                 borderSide: const BorderSide(
                   color: OnboardingColors.shiftBlue,
                   width: 1.8,
@@ -1843,7 +1855,7 @@ class _ChatViewState extends State<_ChatView> {
     fixedSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
     minimumSize: const Size(OnboardingLayout.tapTarget, OnboardingLayout.tapTarget),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppRadii.md),
+      borderRadius: BorderRadius.circular(OnboardingRadii.card),
     ),
   );
 
@@ -1944,9 +1956,19 @@ class _ChatViewState extends State<_ChatView> {
     if (state.suggestedOptions.isNotEmpty) {
       return KeyedSubtree(
         key: const ValueKey<String>('chips'),
-        child: state.questionKind == ChatQuestionKind.disambiguate
-            ? _disambiguateOptions(state.suggestedOptions)
-            : _followupOptions(state.suggestedOptions),
+        // #1754 — IN COMPANION MODE THESE CHIPS NAVIGATE. The server sets
+        // `question_kind: disambiguate` on every companion turn that carries
+        // chips (it wants the vertical layout), and this client renders that as
+        // SingleSelectQuestionCard rows: an empty radio circle, announced
+        // `checked: false, inMutuallyExclusiveGroup: true`. TalkBack therefore
+        // read "unchecked radio button" for a chip that opens a screen on tap,
+        // and a sighted low-literacy worker saw circles that say "pick one, then
+        // confirm". ADR-0044 R3 says chips, not cards.
+        child: state.companion
+            ? _companionActionChips(state.suggestedOptions)
+            : state.questionKind == ChatQuestionKind.disambiguate
+                ? _disambiguateOptions(state.suggestedOptions)
+                : _followupOptions(state.suggestedOptions),
       );
     }
     if (state.followups.isNotEmpty) {
@@ -2172,6 +2194,83 @@ class _ChatViewState extends State<_ChatView> {
   /// The escape does NOT submit: sending it as `'__declined'` made the server
   /// stop identifying the trade with nobody asking the worker to name it. It
   /// opens [_enterCustomAnswer] so they type their own profile.
+  /// #1754 — the companion's chips: VERTICAL ROWS THAT ARE BUTTONS.
+  ///
+  /// The server sets `question_kind: disambiguate` on every companion turn that
+  /// carries chips — it wants the vertical layout — and this client rendered that
+  /// as `SingleSelectQuestionCard`: an empty radio circle, announced
+  /// `checked: false, inMutuallyExclusiveGroup: true`. So TalkBack read "unchecked
+  /// radio button" for a chip that opens a screen on one tap, and a sighted
+  /// low-literacy worker saw circles that say "pick one, then confirm"
+  /// (ADR-0044 R3: chips, not cards).
+  ///
+  /// Vertical, not the horizontal chip scroller: a recap carries up to three job
+  /// chips plus two more, and in the scroller the later ones sit off-screen where
+  /// a worker — and a test — cannot reach them. Routing is untouched: the tap
+  /// still goes to [_sendChoice], which decides on the KEY.
+  Widget _companionActionChips(List<ChatOption> options) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        AppSpacing.s1,
+        AppSpacing.s4,
+        AppSpacing.s2,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          for (final ChatOption o in options)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+              child: Semantics(
+                container: true,
+                button: true,
+                label: o.labelText,
+                child: Material(
+                  color: OnboardingColors.paperWhite,
+                  borderRadius: BorderRadius.circular(OnboardingRadii.card),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(OnboardingRadii.card),
+                    onTap: () => _sendChoice(o),
+                    child: Container(
+                      // The 48dp tap floor every other row on this screen keeps.
+                      constraints: const BoxConstraints(minHeight: 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.s3,
+                        vertical: AppSpacing.s2,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(OnboardingRadii.card),
+                        border: Border.all(color: OnboardingColors.borderCard),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: ExcludeSemantics(
+                              child: Text(
+                                o.labelText,
+                                style: OnboardingTypography.inter(
+                                  size: 14,
+                                  weight: FontWeight.w600,
+                                  height: 1.35,
+                                  color: OnboardingColors.ink900,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _disambiguateOptions(List<ChatOption> options) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
