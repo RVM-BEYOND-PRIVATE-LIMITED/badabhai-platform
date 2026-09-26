@@ -172,6 +172,10 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 
 | TD140 | **A transcript buffer that parses but fails the shape check is treated as absent and left in Redis** — [`chat-transcript.buffer.ts`](../../apps/api/src/chat/chat-transcript.buffer.ts) calls `this.narrow(parsed)` *inside* the `try`, so the `drop` in the `catch` only covers a JSON parse throw; a shape mismatch returns `null` with the key intact. | Smaller than it first looks: `postMessage`'s next `save()` overwrites the key, so it lingers one turn. The real cost is diagnostic — `chat.service.ts` only warns when the session is older than the TTL, so a shape-mismatch restart-from-zero (a mid-deploy shape change, or an absent `workerId`) is completely silent, and the worker's earlier turns are simply gone. Via `listMessages`, which never saves, it does linger to the TTL. | Move the `narrow` call out of the `try` and drop the key when it returns null, so a shape mismatch is one loud event rather than a silent restart. | **Open** — logged 2026-08-05 in PR #583 review. Owner Backend |
 
+| TD141 | **`job_postings_reach_gin` cannot serve the `reach_skill_ids ?|` overlap it was built for** — the index uses the `jsonb_path_ops` opclass, which indexes only `@>`, `@?` and `@@`; the key-existence operators `?`, `?|`, `?&` need the default `jsonb_ops`. So the #1240 search fallback (`JobsRepository.searchOpenPostings`), reach reconciliation (`WorkerSkillsRepository.reconcileReachForWorker`, `listPostingIdsReaching`) and the ADR-0044 companion evaluate the overlap row by row. Three comments claimed a GIN probe; corrected in PR #1742. | Cheap at today's volume, and the companion's read is bounded by its `published_at` window on `job_postings_feed_idx`. The search fallback with no window and reach reconciliation scan every open posting. | Additive migration: a `jsonb_ops` GIN on `reach_skill_ids` (or rewrite the predicate to an indexable form), proven with `EXPLAIN ANALYZE` showing an index scan — before open postings reach the low thousands. | **Open** — logged 2026-09-26 (ADR-0044 review). Owner Backend |
+
+| TD142 | **The companion's "new jobs" is a fixed window, not "since your last visit"** (ADR-0044 R2) — `CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS` (7) means a worker who opens the tab daily reads the same jobs announced as new for a week. | Owner-accepted for V1: no new storage, the copy states the window honestly ("Pichhle 7 din mein"). | A per-worker watermark — derived from the worker's own `chat.companion_turn_served` rows via `events_subject_idx` (occurred_at only, never the payload) or a column — with a grace period so a re-open within one sitting sees the same set. | **Open** — logged 2026-09-26 (ADR-0044). Owner Backend |
+
 > When you pay debt down, mark it **Paid** with the PR link and date — don't
 > delete the row. When you take *new* debt, add a row in the same PR that creates it.
 
@@ -283,8 +287,10 @@ another row is how a register starts lying. Owner: whoever runs TD125.
 | TD138 | T2 | **P1** | Pair with the `captured`-as-source-of-truth work, which makes the map load-bearing |
 | TD139 | T2 | **P1** | Before `DOMAIN_MATCH_ENABLED` is flipped, and certainly before postings classify per-write |
 | TD140 | T2 | **P2** | Opportunistic — one turn of loss today, but silent |
+| TD141 | T2 | **P2** | Before open postings reach the low thousands, or the search fallback is measured slow |
+| TD142 | T2 | **P3** | If workers report the recap repeating itself, or visit frequency makes it noise |
 
-**By thread:** T2 Backend Platform 45 · T3 Infrastructure 20 · T4 Future Product 26 ·
+**By thread:** T2 Backend Platform 47 · T3 Infrastructure 20 · T4 Future Product 26 ·
 T5 Product Streams 18. **Asserted:** every open row has exactly one thread and one priority;
 no P0/P1 overlap; nothing prioritised that is already closed.
 
