@@ -625,6 +625,14 @@ describe("loadServerConfig", () => {
   it("rejects an invalid DATABASE_URL", () => {
     expect(() => loadServerConfig({ DATABASE_URL: "not-a-url" })).toThrow();
   });
+
+  it("CHAT_GENERAL_ROAD_ENABLED (ADR-0045) is OFF by default and for the empty string", () => {
+    // The box's `${CHAT_GENERAL_ROAD_ENABLED:-false}` passes an unset secret as "false", but a
+    // shell that exports it empty must still read as OFF, never throw at boot.
+    expect(loadServerConfig({}).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "" }).CHAT_GENERAL_ROAD_ENABLED).toBe(false);
+    expect(loadServerConfig({ CHAT_GENERAL_ROAD_ENABLED: "true" }).CHAT_GENERAL_ROAD_ENABLED).toBe(true);
+  });
 });
 
 describe("realAiCalls gating (fail closed)", () => {

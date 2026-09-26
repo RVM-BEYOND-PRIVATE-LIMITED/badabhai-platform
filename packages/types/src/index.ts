@@ -86,6 +86,67 @@ export type CompanionNudge = (typeof COMPANION_NUDGES)[number];
 export const COMPANION_JOBS_SCOPES = ["profile", "no_skills", "unavailable"] as const;
 export type CompanionJobsScope = (typeof COMPANION_JOBS_SCOPES)[number];
 
+// ---- The general road (ADR-0045) ----
+// A chat worker whose role is OUTSIDE the 21 predefined roles runs role → skills and closes with
+// a card to the offline general form. Shared by the API (which decides) and the event spine
+// (which records), so an event can never carry a value the service does not know. IDS AND CLOSED
+// SETS, NEVER TEXT: nothing here names a role, a skill or anything the worker typed.
+//
+// WHICH LANE a chat session settled into once its role was known. `skills` is the general road;
+// `classic` is today's interview (every one of the 21 roles, and every fallback).
+export const PROFILING_LANES = ["skills", "classic"] as const;
+export type ProfilingLane = (typeof PROFILING_LANES)[number];
+// WHY the lane was chosen.
+//   outside_declared_roles  the role is known and is not one of the 21     → skills
+//   declared_role           the role is one of the 21                      → classic
+//   form_offered            the trade-form offer went on screen            → classic
+//   model_unavailable       the model could not run the stretch            → classic
+//   role_unresolved         Phase A ended without a role                   → classic
+export const PROFILING_LANE_REASONS = [
+  "outside_declared_roles",
+  "declared_role",
+  "form_offered",
+  "model_unavailable",
+  "role_unresolved",
+] as const;
+export type ProfilingLaneReason = (typeof PROFILING_LANE_REASONS)[number];
+// THE WORKER'S ANSWER to "Kya aur koi skill jodni hai?". `add` a yes; `typed` the worker typed a
+// skill instead of tapping; `done` a no; `unclear` no yes/no and no skill — treated as `done`, counted
+// apart so the reader's miss rate stays visible.
+export const SKILLS_GATE_REPLIES = ["add", "typed", "done", "unclear"] as const;
+export type SkillsGateReply = (typeof SKILLS_GATE_REPLIES)[number];
+// HOW the skills stage ended. `confirmed` the worker said no more at the gate; `no_skills` none
+// could be certified; `capped` a question/skill/gate budget ran out; `unavailable` the model failed;
+// `turn_cap` the session's hard turn cap closed it.
+export const SKILLS_STAGE_OUTCOMES = [
+  "confirmed",
+  "no_skills",
+  "capped",
+  "unavailable",
+  "turn_cap",
+] as const;
+export type SkillsStageOutcome = (typeof SKILLS_STAGE_OUTCOMES)[number];
+// The general form's own two questions (everything else is a page with its own event).
+export const GENERAL_FORM_QUESTION_KEYS = ["profile_brief", "has_work_history"] as const;
+export type GeneralFormQuestionKey = (typeof GENERAL_FORM_QUESTION_KEYS)[number];
+// How one of those questions was settled. `declined` is the brief skipped ("Chhod dein").
+export const GENERAL_FORM_ANSWER_STATUSES = ["answered", "declined"] as const;
+export type GeneralFormAnswerStatus = (typeof GENERAL_FORM_ANSWER_STATUSES)[number];
+// The worker's answer to "Kya pehle kaam kiya hai?".
+export const WORK_HISTORY_ANSWERS = ["yes", "no"] as const;
+export type WorkHistoryAnswer = (typeof WORK_HISTORY_ANSWERS)[number];
+// The same, at completion — `unanswered` when the form finished without it.
+export const WORK_HISTORY_STATES = ["yes", "no", "unanswered"] as const;
+export type WorkHistoryState = (typeof WORK_HISTORY_STATES)[number];
+// The brief's length bounds, shared by the form's validator and the event that records its length,
+// so raising the limit in one place cannot make the other throw.
+export const GENERAL_FORM_BRIEF_MIN_CHARS = 1;
+export const GENERAL_FORM_BRIEF_MAX_CHARS = 160;
+// A chat turn carrying a system gate the client should lock the keyboard for. `skills` is the
+// general road's "Kya aur koi skill jodni hai?". Additive: a new gate kind is a new member.
+export const CHAT_GATE_KINDS = ["skills"] as const;
+export type ChatGateKind = (typeof CHAT_GATE_KINDS)[number];
+
 // ---- Consent ----
 export const CONSENT_PURPOSES = [
   "profiling",

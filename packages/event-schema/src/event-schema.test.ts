@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 200 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn)", () => {
-    expect(EVENT_NAMES).toHaveLength(200);
+  it("exposes all 205 event names (179 prior + the two trade-form offer steps + Layer A + resume.edited + resume-identity + resume-autofill + profile.viewed_v2 + E0's relay trio + the C-2 consent exit + the ADR-0043 resume-update answer + its erasure backfill + the four tiered-profiling events + the ADR-0044 companion turn + the five ADR-0045 general-road events)", () => {
+    expect(EVENT_NAMES).toHaveLength(205);
     // ADR-0041 — the résumé-import funnel, as FOUR events rather than one. Each step fails for
     // its own reasons and the gaps between them are the whole diagnosis: upload fails on a
     // network or a bucket, the parse fails on the document, and the prefill "fails" when a
@@ -5074,5 +5074,144 @@ describe("chat.companion_turn_served (ADR-0044)", () => {
     expect(validateEvent(envelope({ ...valid, new_jobs_count: 1.5 })).success).toBe(false);
     expect(validateEvent(envelope({ ...valid, job_chips_count: -1 })).success).toBe(false);
     expect(validateEvent(envelope({ ...valid, day: "2026-09-26T10:00:00Z" })).success).toBe(false);
+  });
+});
+
+describe("the general road (ADR-0045)", () => {
+  const envelope = (event_name: string, payload: Record<string, unknown>) => ({
+    event_id: UUID_A,
+    event_name,
+    event_version: 1,
+    occurred_at: "2026-09-26T10:00:00.000Z",
+    actor: { actor_type: "worker", actor_id: UUID_B },
+    subject: { subject_type: "worker", subject_id: UUID_B },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload,
+    metadata: { environment: "test", service: "api" },
+  });
+
+  // One valid payload per event. Every test below starts from these, so a refusal is always the
+  // mutated field's own fault.
+  const VALID: Record<string, Record<string, unknown>> = {
+    "profile.profiling_lane_decided": {
+      worker_id: UUID_B,
+      session_id: UUID_C,
+      lane: "skills",
+      reason: "outside_declared_roles",
+      llm_led_turns: 2,
+      asks: 2,
+    },
+    "profile.skills_gate_answered": {
+      worker_id: UUID_B,
+      session_id: UUID_C,
+      round: 1,
+      reply: "done",
+      skills_count: 6,
+    },
+    "profile.general_form_mode_entered": {
+      worker_id: UUID_B,
+      session_id: UUID_C,
+      outcome: "confirmed",
+      skills_count: 6,
+      skills_asks: 5,
+      gate_rounds: 1,
+      llm_led_turns: 2,
+      rejected_count: 0,
+    },
+    "profile.general_form_answered": {
+      worker_id: UUID_B,
+      session_id: UUID_C,
+      question_key: "profile_brief",
+      status: "answered",
+      value: null,
+      chars: 84,
+    },
+    "profile.general_form_completed": {
+      worker_id: UUID_B,
+      session_id: null,
+      brief: "declined",
+      has_work_history: "yes",
+      employments: 2,
+      employments_dated: 2,
+      educations: 1,
+      certificates: 1,
+      trainings: 0,
+      terms_keys: 5,
+    },
+  };
+
+  it.each(Object.keys(VALID))("%s is registered and accepts its ids-and-counts payload", (name) => {
+    expect(isEventName(name)).toBe(true);
+    expect(validateEvent(envelope(name, VALID[name]!)).success).toBe(true);
+  });
+
+  it.each(Object.keys(VALID))(
+    "%s is strict — no field can carry a label, a skill or typed text",
+    (name) => {
+      for (const smuggled of [
+        { role_label: "Captain" },
+        { skills: ["Boeing 737 operation"] },
+        { brief: "Main 10 saal se plane uda raha hoon" },
+        { text: "haan" },
+      ]) {
+        // `brief` IS a field on general_form_completed — as a closed status, never text.
+        const payload = { ...VALID[name]!, ...smuggled };
+        expect(
+          validateEvent(envelope(name, payload)).success,
+          `${name} + ${Object.keys(smuggled)[0]}`,
+        ).toBe(false);
+      }
+    },
+  );
+
+  it("closes every set — an unknown lane, reason, reply or outcome is refused", () => {
+    const bad: Array<[string, Record<string, unknown>]> = [
+      ["profile.profiling_lane_decided", { lane: "general" }],
+      ["profile.profiling_lane_decided", { reason: "because" }],
+      ["profile.skills_gate_answered", { reply: "maybe" }],
+      ["profile.skills_gate_answered", { round: 0 }],
+      ["profile.general_form_mode_entered", { outcome: "abandoned" }],
+      ["profile.general_form_answered", { question_key: "salary" }],
+      ["profile.general_form_answered", { chars: 161 }],
+      ["profile.general_form_completed", { has_work_history: "maybe" }],
+      ["profile.general_form_completed", { employments: -1 }],
+      ["profile.general_form_answered", { chars: 0 }],
+    ];
+    for (const [name, patch] of bad) {
+      expect(
+        validateEvent(envelope(name, { ...VALID[name]!, ...patch })).success,
+        `${name} ${JSON.stringify(patch)}`,
+      ).toBe(false);
+    }
+  });
+
+  it("ties the lane to its reason — only 'outside the 21' is the skills lane", () => {
+    const lane = VALID["profile.profiling_lane_decided"]!;
+    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "classic", reason: "declared_role" })).success).toBe(true);
+    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "skills", reason: "declared_role" })).success).toBe(false);
+    expect(validateEvent(envelope("profile.profiling_lane_decided", { ...lane, lane: "classic", reason: "outside_declared_roles" })).success).toBe(false);
+  });
+
+  it("carries the brief's length only for an answered brief, and the yes/no only for 'worked before'", () => {
+    const answered = VALID["profile.general_form_answered"]!;
+    const ok = (p: Record<string, unknown>) => validateEvent(envelope("profile.general_form_answered", p)).success;
+    // A declined brief has no length.
+    expect(ok({ ...answered, status: "declined", chars: null })).toBe(true);
+    expect(ok({ ...answered, status: "declined", chars: 12 })).toBe(false);
+    // An answered brief must carry one.
+    expect(ok({ ...answered, chars: null })).toBe(false);
+    // "Kya pehle kaam kiya hai?" carries its yes/no and no length.
+    const worked = { ...answered, question_key: "has_work_history", status: "answered", value: "no", chars: null };
+    expect(ok(worked)).toBe(true);
+    expect(ok({ ...worked, value: null })).toBe(false);
+    expect(ok({ ...worked, chars: 3 })).toBe(false);
+    expect(ok({ ...answered, value: "yes" })).toBe(false);
+  });
+
+  it("never counts more dated jobs than jobs", () => {
+    const completed = VALID["profile.general_form_completed"]!;
+    expect(validateEvent(envelope("profile.general_form_completed", { ...completed, employments: 1, employments_dated: 2 })).success).toBe(false);
   });
 });

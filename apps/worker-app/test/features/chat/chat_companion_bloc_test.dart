@@ -224,6 +224,31 @@ void main() {
       await bloc.close();
     });
 
+    test('a FORCED refresh ignores the throttle; an unforced one obeys it', () async {
+      // #1747 — the throttle is for refocus taps. A return from the companion's
+      // own job detail is one deliberate trip, and "jobs applied to" is the
+      // fact the recap leads with, so it must not wait out the minute.
+      int n = 0;
+      when(() => repo.openCompanion()).thenAnswer((_) async {
+        n++;
+        return _companion(_recap, digestKey: 'k$n');
+      });
+      final ChatBloc bloc = bloc0()..add(const ChatCompanionStarted());
+      await pumpEventQueue();
+      expect(n, 1);
+
+      // Inside the window, unforced: dropped.
+      bloc.add(const ChatCompanionRefreshRequested());
+      await pumpEventQueue();
+      expect(n, 1);
+
+      // Inside the same window, forced: read.
+      bloc.add(const ChatCompanionRefreshRequested(force: true));
+      await pumpEventQueue();
+      expect(n, 2);
+      await bloc.close();
+    });
+
     test('changed facts append ONE new recap bubble and replace the chips', () async {
       const List<ChatOption> newChips = <ChatOption>[
         ChatOption(optionKey: 'companion_applied', labelText: 'Apni applications dekhein'),
