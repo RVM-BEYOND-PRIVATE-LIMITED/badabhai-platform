@@ -20,9 +20,11 @@ import type {
  * ── TWO FORMATS, N TRADES ──────────────────────────────────────────────────────────────────
  *
  * `format` is what the client SWITCHES ON and there are exactly two, because there are exactly
- * two layouts: the twelve `classic`/`modern`/`minimal`/`fallback` layouts all render the same
- * flat set of slots, and `bb_trade` renders zoned rows. `trade` is what the client LABELS with,
- * and it is open-ended.
+ * two DATA SHAPES: the twelve `classic`/`modern`/`minimal`/`fallback` layouts all render the same
+ * flat set of slots, and the BadaBhai sheets render zoned rows. Both BadaBhai layouts — `bb_trade`
+ * (the 21 predefined roles) and `bb_general` (every other pack) — read that same zoned input, so
+ * both project as `trade_sheet`; a second print layout is not a second client format. `trade` is
+ * what the client LABELS with, and it is open-ended.
  *
  * That split is the scalability property, and it is deliberate: adding the next trade adds a pack,
  * a resume map and a `trade` value — and NO client branch, because a welder's sheet is the same
@@ -51,7 +53,8 @@ export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = Object.freez
 );
 
 /**
- * Does this worker render through the universal trade sheet? (Layer A (i) — "no map, no cliff".)
+ * Does this worker get a BadaBhai sheet — `bb_trade` or `bb_general`? (Layer A (i) — "no map, no
+ * cliff".)
  *
  * IT USED TO ASK "does this pack have a bespoke capability map?", and the answer decided whether
  * the worker got the BadaBhai sheet at all: ~102 of the 111 packs had no map, so their workers
@@ -60,8 +63,9 @@ export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = Object.freez
  * drove Zone 2's per-trade rows, and `buildTradeCapabilityRows` already collapses that section
  * cleanly when no map exists. The cliff was the template gate, not the map.
  *
- * Now the gate is the PACK ITSELF: any pack at all gets the universal sheet. A null pack (a
- * profile with no pack answers, e.g. pre-pack rows) keeps `classic`, which is the only case
+ * Now the gate is the PACK ITSELF: any pack at all gets a BadaBhai sheet — `bb_trade` for the
+ * 21 predefined roles, `bb_general` for every other pack (see `templateIdForPack`). A null pack
+ * (a profile with no pack answers, e.g. pre-pack rows) keeps `classic`, which is the only case
  * where the universal sheet has nothing extra to say.
  */
 export function packUsesUniversalSheet(packId: string | null): boolean {
@@ -69,14 +73,57 @@ export function packUsesUniversalSheet(packId: string | null): boolean {
 }
 
 /**
+ * Is this pack one of the 21 predefined roles (`ROLE_FORM_DESCRIPTORS`)?
+ *
+ * OWN-PROPERTY LOOKUP, NOT `in`: `TRADE_KIND_BY_PACK` is a plain object, so `"constructor" in`
+ * it is true, and a pack id is data read back from `worker_attributes`.
+ */
+export function packIsPredefinedRole(packId: string | null): boolean {
+  return packId !== null && Object.prototype.hasOwnProperty.call(TRADE_KIND_BY_PACK, packId);
+}
+
+/**
  * The template a worker's résumé renders through.
  *
- * EVERY PACK GETS `bb_trade` — see `packUsesUniversalSheet` for why the map gate was wrong.
- * The bespoke-map workers are unchanged (same template as before); the no-map families MOVE
- * from `classic` to the universal sheet, which is the cliff this closes.
+ * THREE LAYOUTS, SPLIT BY WHAT THE WORKER WAS PROFILED WITH:
+ *   - one of the 21 predefined roles → `bb_trade`, the locked trade sheet, unchanged;
+ *   - any other pack (the universal fallback, every family pack without a trade form)
+ *     → `bb_general`, the owner's general format of 2026-09-25;
+ *   - no pack at all → `classic`, unchanged.
+ *
+ * `bb_general` IS A LAYOUT CHANGE, NOT A DATA CHANGE. Until it existed the second group rendered
+ * through `bb_trade` with its capability section collapsed; both templates read the same render
+ * input. The id is chosen at generation and stored on the row, so a worker's existing résumés
+ * keep rendering as `bb_trade` and only the next generation uses the new sheet.
+ *
+ * The app's résumé document is keyed on the pack, not on this id (`tradeKindForPack`), so the
+ * worker app's own résumé screen does not change with it.
  */
 export function templateIdForPack(packId: string | null): string {
-  return packUsesUniversalSheet(packId) ? "bb_trade" : "classic";
+  if (!packUsesUniversalSheet(packId)) return "classic";
+  return packIsPredefinedRole(packId) ? "bb_trade" : "bb_general";
+}
+
+/**
+ * The template a STORED résumé renders through NOW — its recorded id, with one upgrade.
+ *
+ * THE GAP THIS CLOSES. The id is fixed at generation, but the pack the sheet's rows come from is
+ * re-elected on every render (`loadTradeSheet`, newest attribute row wins). A worker profiled in
+ * the chat gets `bb_general`; if he then completes one of the 21 role forms, every re-render of
+ * that row — and every employer disclosure of it — would print a role's capability rows through
+ * the general layout until his next generation lands, which a rate limit or an abandoned form can
+ * postpone indefinitely. Before `bb_general` existed both packs mapped to `bb_trade`, so the
+ * mismatch could not happen.
+ *
+ * ONE WAY ONLY: `bb_general` → `bb_trade` when the elected pack is a predefined role. A stored
+ * `bb_trade` is never downgraded (a form worker whose newest answer is a universal one keeps the
+ * sheet he was issued), and `classic` and every legacy id render exactly as recorded.
+ */
+export function renderTemplateId(
+  storedId: string | null,
+  electedPackId: string | null,
+): string | null {
+  return storedId === "bb_general" && packIsPredefinedRole(electedPackId) ? "bb_trade" : storedId;
 }
 
 export function tradeKindForPack(packId: string | null): string | null {
