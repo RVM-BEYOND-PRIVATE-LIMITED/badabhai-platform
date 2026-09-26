@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
+import { logSafeReason } from "../common/db-error";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -203,7 +204,13 @@ export class ChatService {
     // needs a partial unique index on `(worker_id) WHERE status = 'active'`, which the
     // existing multi-active backlog would violate on creation; the sweep already retires
     // those rows, and the loser of the race loses nothing but an empty row.
-    const live = await this.chat.findActiveSessionByWorker(workerId);
+    //
+    // #1744 — EXCEPT a leftover that already became a confirmed profile (an early finish). A new
+    // session asked for on top of it is a redo, and a redo must not run inside it: see
+    // `supersedeConfirmedLeftover`.
+    const found = await this.chat.findActiveSessionByWorker(workerId);
+    const live =
+      found && (await this.supersedeConfirmedLeftover(found, workerId, ctx)) ? undefined : found;
     if (live) {
       this.logger.log(`reattached to live session worker=${workerId} session=${live.id}`);
       const base = {
@@ -1412,9 +1419,9 @@ export class ChatService {
 
       await this.events.emit({
         event_name: "chat.session_abandoned",
-        // The SYSTEM closed this — the idle sweep, or (#1744) the confirm of the profile an early
-        // finish produced — not the worker. Attributing it to them would put an action they did
-        // not take in their own audit trail.
+        // The SYSTEM closed this — the idle sweep, or (#1744) a new chat session superseding an
+        // early-finish leftover — not the worker. Attributing it to them would put an action they
+        // did not take in their own audit trail.
         actor: { actor_type: "system" },
         subject: { subject_type: "chat_session", subject_id: sessionId },
         payload: {
@@ -1461,45 +1468,73 @@ export class ChatService {
   }
 
   /**
-   * #1744 — CLOSE THE INTERVIEW WHOSE PROFILE THE WORKER JUST CONFIRMED.
+   * #1744 — IS THIS LIVE SESSION A LEFTOVER THE WORKER HAS ALREADY TURNED INTO A PROFILE?
    *
    * An EARLY FINISH ("Phir bhi profile banaiye" → preview → confirm) never flushes: the app
-   * extracts straight from the live buffer and the session stays `active`. Until now only the
-   * idle sweep ended it, ~6h later. In that window it was a LEFTOVER that everything keyed on
-   * `status = 'active'` still treated as the worker's live interview:
-   *   - "Chat se resume banayein" reattached to it (#1197) instead of starting a new interview,
-   *     so the redo ran inside the pre-confirmation session, and its extraction deduped onto
-   *     the early-finish job — the redo's answers never became a profile;
-   *   - the companion's mode rule had to reason about it (TD143);
-   *   - a later sweep of it would upsert its old pack answers over a redo's newer ones.
+   * extracts straight from the live buffer and the session stays `active` until the idle sweep,
+   * ~6h later. The reattach above used to hand that leftover back to "Chat se resume banayein",
+   * so the redo ran inside the pre-confirmation session and its extraction deduped onto the
+   * early-finish job — the redo's answers never became a profile — and the companion's mode rule
+   * could not see its first turns (TD143).
    *
-   * THIS IS THE SWEEP'S CLOSE, RUN AT THE MOMENT IT BECOMES TRUE. It delegates to
-   * `abandonInterview` unchanged: same `abandoned` status, same preserved transcript and pack
-   * answers, same events and payloads, no extraction. The only difference is WHEN — the
-   * business event (the worker confirmed the profile this interview produced) instead of an
-   * idle timer. A session that never produced a confirmed profile is never closed here, so an
-   * unfinished interview still reattaches exactly as before.
+   * A NEW SESSION IS ASKED FOR, AND THIS ONE HAS ALREADY BECOME A CONFIRMED PROFILE: it is closed
+   * with the sweep's own close (`abandonInterview`, unchanged: transcript and pack answers
+   * preserved, `chat.session_abandoned`, no extraction; a session waiting at the ADR-0043 offer is
+   * finalized as "Abhi nahi", exactly as the sweep would), and the caller mints a fresh one. Only
+   * the moment moves — from an idle timer to the request that needs the session gone. The one
+   * exception is a leftover that had actually FINISHED but whose flush rolled back: that one is
+   * re-flushed, not abandoned.
    *
-   * Returns true only when THIS call closed the session. A session that is missing, owned by
-   * someone else, or no longer `active` (a normal completion already flushed it; the sweep or a
-   * duplicate confirm won) is left alone.
+   * WHY HERE AND NOT AT CONFIRM. A confirm does not mean the worker finished: the Résumé tab's
+   * self-heal extracts and confirms from whatever session the app holds, including one the worker
+   * is still answering. Closing there would end interviews nobody chose to end. Here, nothing is
+   * closed until a new session is actually requested, and resuming the same session through
+   * `GET /chat/session/latest` or `POST /chat/message` is untouched.
+   *
+   * FAILS TO TODAY'S REATTACH. Any error returns false and the caller reattaches exactly as
+   * before; the log names the session and a content-free reason, never what the worker said.
    */
-  async closeSessionForConfirmedProfile(
+  private async supersedeConfirmedLeftover(
+    live: { id: string; workerId: string; conversationState: Record<string, unknown> | null } & {
+      startedAt: Date;
+      lastMessageAt: Date | null;
+    },
     workerId: string,
-    sessionId: string,
     ctx: RequestContext,
   ): Promise<boolean> {
-    const session = await this.chat.findSession(sessionId);
-    if (!session || session.workerId !== workerId || session.status !== "active") return false;
-    // Same derivation as the sweep, so `idle_minutes` on the event means the same thing.
-    const lastActivity = session.lastMessageAt ?? session.startedAt;
-    const idleMinutes = Math.max(0, Math.floor((Date.now() - lastActivity.getTime()) / 60_000));
-    const outcome = await this.abandonInterview(
-      { id: session.id, workerId: session.workerId, conversationState: session.conversationState },
-      idleMinutes,
-      ctx,
-    );
-    return outcome.closed;
+    try {
+      if (!(await this.chat.sessionProducedConfirmedProfile(live.id, workerId))) return false;
+      // A COMPLETED-BUT-UNFLUSHED leftover is a FINISHED interview whose last flush rolled back
+      // (the worker then took the early-finish road to a profile). Re-drive its flush, exactly as
+      // runTurn step 1b does, instead of abandoning it: it keeps its completion record, its pack
+      // rows and its pin. A flush that fails again keeps today's reattach.
+      const buffered = await this.buffer.load(live.id);
+      if (buffered !== null && buffered.workerId === workerId && buffered.completedAt) {
+        if (!(await this.finalizeInterview(workerId, live.id, buffered, ctx))) return false;
+        this.logger.log(
+          `re-flushed a completed confirmed leftover worker=${workerId} session=${live.id}`,
+        );
+        return true;
+      }
+      // Same derivation as the sweep: whole minutes since the session's last recorded activity.
+      const lastActivity = live.lastMessageAt ?? live.startedAt;
+      const idleMinutes = Math.max(0, Math.floor((Date.now() - lastActivity.getTime()) / 60_000));
+      await this.abandonInterview(
+        { id: live.id, workerId: live.workerId, conversationState: live.conversationState },
+        idleMinutes,
+        ctx,
+      );
+      // Closed by us, or already closed by a flush or the sweep in the same instant (the close is
+      // conditional on `active`). Either way it is no longer the worker's live session.
+      this.logger.log(`superseded a confirmed leftover worker=${workerId} session=${live.id}`);
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        `could not supersede the confirmed leftover session=${live.id}; reattaching as before ` +
+          `(reason: ${logSafeReason(err, "confirmed-leftover close")})`,
+      );
+      return false;
+    }
   }
 
   /**
@@ -1783,9 +1818,37 @@ export class ChatService {
    * Worker id comes from the bearer (never a param) → no cross-worker leak.
    * READ-ONLY → no event, same rationale as {@link listMessages}.
    */
+  /**
+   * The session a cold app start should resume.
+   *
+   * `findLatestSessionByWorker` ranks `last_message_at DESC NULLS LAST` so that an EMPTY session
+   * never outranks the one holding the worker's real Q&A. But `last_message_at` moves only at
+   * checkpoints (every 5 asks) and at the end, so a redo's first four answers leave it NULL too,
+   * and the finished (or, since #1744, superseded) session outranked the live redo: a cold start
+   * redrew the old transcript and posted the next answer into a closed session.
+   *
+   * #1744 — THE LIVE SESSION WINS WHEN IT HAS BEEN USED: a checkpoint clock, or any turn in its
+   * transcript buffer. That is the same row `POST /chat/session` reattaches to (#1197). A live
+   * session with neither — a stray empty mint — still loses to the session with the Q&A, exactly
+   * as before. A buffer that cannot be read counts as unused, which is today's ranking.
+   */
   async latestSession(workerId: string): Promise<{ session_id: string | null }> {
+    const live = await this.chat.findActiveSessionByWorker(workerId);
+    if (live && (live.lastMessageAt !== null || (await this.hasBufferedTurns(live.id, workerId)))) {
+      return { session_id: live.id };
+    }
     const session = await this.chat.findLatestSessionByWorker(workerId);
     return { session_id: session?.id ?? null };
+  }
+
+  /** Whether a live session's transcript buffer holds any turn. Fails to false (today's ranking). */
+  private async hasBufferedTurns(sessionId: string, workerId: string): Promise<boolean> {
+    try {
+      const buffered = await this.buffer.load(sessionId);
+      return buffered !== null && buffered.workerId === workerId && buffered.messages.length > 0;
+    } catch {
+      return false;
+    }
   }
 
   async listMessages(workerId: string, sessionId: string): Promise<SessionMessagesResponse> {

@@ -23,9 +23,10 @@ export class ChatCompanionRepository {
    * to — the same row and the same order as `ChatRepository.findActiveSessionByWorker`
    * (`coalesce(last_message_at, started_at) DESC`) — as its two clocks, or null when none is live.
    *
-   * WHY THE REATTACH ORDER. The server reattaches any live session before it mints (#1197), so
-   * the policy must look at the row a `POST /chat/session` would actually return. Since #1744 an
-   * early-finish session is closed when its profile is confirmed, so a redo mints a fresh row.
+   * WHY THE REATTACH ORDER. The server reattaches any live session before it mints (#1197), so the
+   * policy must look at the row a `POST /chat/session` would actually return. (Since #1744 that
+   * POST supersedes an early-finish leftover that already became the confirmed profile, so a redo
+   * mints a fresh row.)
    *
    * The two columns are read as mapped timestamps (not a raw `coalesce(...)` projection) so the
    * driver hands back `Date`s; the policy takes the later of the two.

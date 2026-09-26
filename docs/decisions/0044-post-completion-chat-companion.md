@@ -12,8 +12,8 @@
   [ADR-0034](0034-worker-push-notifications.md) / [ADR-0020](0020-whatsapp-invite-funnel-and-reengagement.md)
   (untouched: no push, no WhatsApp) · persona v3.2 (`docs/specs/persona-system-v3.2.md`)
 - **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and PR #1743 (the companion module) on
-  the backend; PR #1746 (the worker-app client, tracked by #1747; follow-ups #1750–#1756). #1744 closes the
-  early-finish leftover at confirmation (TD143).
+  the backend; PR #1746 (the worker-app client, tracked by #1747; follow-ups #1750–#1756). PR #1760 (#1744) makes a
+  redo supersede the early-finish leftover (TD143).
 
 ---
 
@@ -62,20 +62,21 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
 3. the live chat session that `POST /chat/session` would reattach to shows ACTIVITY after the confirmation →
    interview. Activity is the later of its `started_at` and its `last_message_at`. A session minted after the
    confirmation is a deliberate "Chat se resume banayein";
-4. otherwise → companion. A live session whose every clock predates the confirmation is an early-finish leftover
-   confirmed before #1744 shipped; it does not block, and the abandonment sweep closes it.
+4. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
+   ("Phir bhi profile banaiye" never ends the session); it does not block, and the abandonment sweep closes it.
 
 Any read error → interview.
 
-**TD143, closed by #1744.** An early finish ("Phir bhi profile banaiye" → preview → confirm) used to leave its
-session `active` until the idle sweep, so a redo REATTACHED to it (#1197) and ran inside the pre-confirmation
-session. Its first four answers moved no clock this module can read, so a cold start showed the recap, and its
-extraction deduped onto the early-finish job, so the redo never became a profile. Since #1744,
-`ProfilesService.confirm` closes the interview behind the profile it confirms. It runs the sweep's own close
-(`abandoned`, transcript and answers preserved, `chat.session_abandoned`, no extraction), just at confirmation
-instead of hours later. A redo therefore always mints a fresh session, and rule 3's `started_at` decides it from
-the first turn. The `last_message_at` half stays: it is harmless, and still right for a leftover from before the
-fix.
+**TD143, closed by #1744.** An early finish ("Phir bhi profile banaiye" → preview → confirm) leaves its session
+`active` until the idle sweep. A redo used to REATTACH to it (#1197): it ran inside the pre-confirmation session, its
+first four answers moved no clock this module can read (so a cold start showed the recap), and its extraction deduped
+onto the early-finish job (so the redo never became a profile). Since #1744, `POST /chat/session` checks whether the
+live session already became the worker's confirmed profile. If it did, the POST closes it with the sweep's own close
+and mints a fresh session, so a redo's `started_at` decides rule 3 from its first turn. A leftover that had really
+finished but whose last flush rolled back is re-flushed instead. The confirm itself closes nothing: the Résumé tab's
+self-heal can confirm from an interview the worker is still answering. If the supersede fails, it falls back to
+today's reattach, and the `last_message_at` half of rule 3 covers that case. `GET /chat/session/latest` now prefers
+a USED live session, so a cold start early in the redo resumes the redo, not the finished transcript.
 
 ### 2.2 What the recap must never claim
 
@@ -147,7 +148,8 @@ fix.
   `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).
 - **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142). A completed
   worker whose first companion read times out falls back to today's path, which mints an empty interview that then
-  holds the tab in interview mode until the sweep; the client fix is #1750 and must land before the switch is widened.
+  holds the tab in interview mode until the sweep. The client fix is #1750, and it must land before the switch is
+  widened.
 
 ```
 Owner rulings R1–R10 taken 2026-09-26 in the planning session; production flag-ON requires this signature.

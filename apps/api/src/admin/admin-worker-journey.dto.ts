@@ -392,7 +392,7 @@ export interface AdminChatSessionListItem {
   worker_id: string;
   /**
    * `active` | `ended` | `abandoned`. `abandoned` is written by the system, never by a finished
-   * interview: the idle sweep, or (#1744) the confirm of a profile made from an early finish.
+   * interview: the idle sweep, or (#1744) a new chat session superseding an early-finish leftover.
    */
   status: ChatSessionStatus;
   started_at: Date;
@@ -418,7 +418,7 @@ export interface AdminChatSessionListItem {
    * agreed only because no writer emits an `unanswered` row yet.
    */
   answer_count: number;
-  /** `status === 'abandoned'` — the system's close (sweep or early-finish confirm), as a flag. */
+  /** `status === 'abandoned'` — the system's close (sweep, or a superseded leftover), as a flag. */
   abandoned: boolean;
 }
 

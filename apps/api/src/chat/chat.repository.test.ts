@@ -253,3 +253,48 @@ describe("ChatRepository.findActiveSessionByWorker — WHICH session 'live' mean
     expect(out).toBeUndefined();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * sessionProducedConfirmedProfile — #1744: is this live session a confirmed leftover?
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+function makeJoiningDb(rows: unknown[]) {
+  const captured: { from?: unknown; join?: unknown; where?: unknown; limit?: number } = {};
+  const node: Record<string, unknown> = {
+    from: (t: unknown) => ((captured.from = t), node),
+    innerJoin: (_t: unknown, on: unknown) => ((captured.join = on), node),
+    where: (c: unknown) => ((captured.where = c), node),
+    limit: (n: number) => ((captured.limit = n), Promise.resolve(rows)),
+  };
+  return { db: { select: vi.fn(() => node) }, captured };
+}
+
+describe("ChatRepository.sessionProducedConfirmedProfile — the leftover test (#1744)", () => {
+  it("walks profile → extraction job → session, confirmed only, one row", async () => {
+    const h = makeJoiningDb([{ id: "p" }]);
+    expect(
+      await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER),
+    ).toBe(true);
+    expect(renderWhere(h.captured.join)).toMatch(/"ai_job_id"\s*=\s*"ai_jobs"\."id"/);
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain('"job_type"');
+    expect(where).toContain("->>'session_id'");
+    expect(where).toContain('"profile_status"');
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("scopes BOTH sides to the worker: the job's input_ref and the profile row", async () => {
+    const h = makeJoiningDb([]);
+    await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER);
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain("->>'worker_id'");
+    expect(where).toContain('"worker_profiles"."worker_id"');
+  });
+
+  it("false when no confirmed profile came from it", async () => {
+    const h = makeJoiningDb([]);
+    expect(
+      await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER),
+    ).toBe(false);
+  });
+});

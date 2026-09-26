@@ -1,18 +1,10 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-  forwardRef,
-} from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ChatRepository } from "../chat/chat.repository";
-import { ChatService } from "../chat/chat.service";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import {
@@ -169,13 +161,6 @@ export class ProfilesService {
     // path where no ConsentGuard stands. LAST AND OPTIONAL so every existing construction keeps
     // compiling; ABSENT MEANS NO AUTO-CONFIRM (fail closed), never "consent assumed".
     private readonly consents?: ConsentRepository,
-    // #1744 — closes the interview that produced a confirmed profile (see
-    // `closeProducingSession`). forwardRef: ChatService already injects THIS service to
-    // auto-trigger extraction, so the provider edge is mutual; the module edge is not new
-    // (ProfilesModule imports ChatModule, which exports ChatService). LAST AND OPTIONAL like
-    // `consents`: absent means the session is left to the idle sweep, which is today.
-    @Inject(forwardRef(() => ChatService))
-    private readonly chatSessions?: ChatService,
   ) {}
 
   /**
@@ -595,10 +580,6 @@ export class ProfilesService {
       requestId: ctx.requestId,
     });
 
-    // #1744 — BEFORE the résumé is queued, so the render reads the transcript this close
-    // persists, exactly as it does for an interview that completed normally.
-    await this.closeProducingSession(profile, input.worker_id, ctx);
-
     // Kick off async resume generation (refs only, no PII). A queue failure must
     // NEVER break confirmation — the worker can still trigger generation manually
     // via POST /resume/generate. Log a warning and move on.
@@ -676,50 +657,6 @@ export class ProfilesService {
       // behaviour, byte for byte, until the row is re-extracted.
       next: confirmNextFor(profile.source),
     };
-  }
-
-  /**
-   * #1744 — THE INTERVIEW THAT PRODUCED A CONFIRMED PROFILE IS OVER.
-   *
-   * An early finish ("Phir bhi profile banaiye" → preview → confirm) extracts from a session
-   * that was never flushed, so it stayed `active` until the idle sweep, ~6h later — and every
-   * reader of `status = 'active'` treated it as the worker's live interview. A "new résumé by
-   * chat" in that window reattached to it (#1197), ran inside it, and deduped its extraction
-   * onto the early-finish job, so the redo's answers never became a profile.
-   *
-   * The profile carries no session id; the link is `ai_job_id` → the extraction job's
-   * `input_ref.session_id`, the same walk `ResumeRepository.pendingChatUpdate` makes. The
-   * `input_ref` is untyped jsonb, so it is narrowed here and must name THIS worker.
-   *
-   * NEVER FAILS THE CONFIRM. The worker's confirmation is the business fact; a close that
-   * cannot run leaves the session exactly where it is today, for the sweep. Logs carry opaque
-   * ids only.
-   *
-   * A no-op for every other confirm: a normally completed interview is already `ended`, a
-   * form or upload profile has no session, and a second confirm finds the session closed.
-   */
-  private async closeProducingSession(
-    profile: { readonly id: string; readonly aiJobId: string | null },
-    workerId: string,
-    ctx: RequestContext,
-  ): Promise<void> {
-    if (!this.chatSessions || !profile.aiJobId) return;
-    try {
-      const job = await this.aiJobs.findById(profile.aiJobId);
-      if (!job || job.jobType !== "profile_extraction") return;
-      const ref = job.inputRef as { worker_id?: unknown; session_id?: unknown } | null;
-      if (ref?.worker_id !== workerId || typeof ref.session_id !== "string") return;
-      if (await this.chatSessions.closeSessionForConfirmedProfile(workerId, ref.session_id, ctx)) {
-        this.logger.log(
-          `closed the interview behind confirmed profile ${profile.id} session=${ref.session_id}`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn(
-        `could not close the interview behind confirmed profile ${profile.id}; the idle sweep ` +
-          `will (reason: ${err instanceof Error ? err.message : String(err)})`,
-      );
-    }
   }
 
   /**

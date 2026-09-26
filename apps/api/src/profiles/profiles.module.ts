@@ -56,8 +56,7 @@ import {
   imports: [
     // forwardRef: ChatService also depends on ProfilesService (auto-trigger
     // extraction on the readiness flip), so the two modules reference each other.
-    // ChatRepository (transcript) + ChatService (#1744: confirm closes the interview).
-    forwardRef(() => ChatModule),
+    forwardRef(() => ChatModule), // for ChatRepository (transcript)
     AuthModule, // WorkerAuthGuard + ConsentGuard for the worker AI routes (inv. 4/6)
     // `WorkersRepository`, for the work-history writer's résumé re-render (it needs the
     // worker's latest résumé id). ACYCLIC: WorkersModule imports Auth/Storage/RateLimit and

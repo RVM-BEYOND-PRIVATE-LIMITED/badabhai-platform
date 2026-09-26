@@ -97,8 +97,6 @@ function setup(
      * built without it (every pre-existing construction), which must mean NO auto-confirm.
      */
     consent?: { revokedAt: Date | null; purposes?: string[] } | null;
-    /** #1744 — build the service WITHOUT the ChatService seam (every pre-#1744 construction). */
-    noChatSessions?: boolean;
   } = {},
 ) {
   const profiles = {
@@ -117,11 +115,6 @@ function setup(
     findCorrectionRebuildJob: vi.fn(
       async (_args: { sessionId: string; workerId: string; answerSetHash: string }) =>
         undefined as { id: string; status: string } | undefined,
-    ),
-    // #1744 — the confirmed profile's extraction job. Defaults to UNDEFINED, so every
-    // pre-existing confirm test (profiles with no `aiJobId`) closes nothing.
-    findById: vi.fn(
-      async (_id: string) => undefined as { jobType: string; inputRef: unknown } | undefined,
     ),
   };
   const workers = { findById: vi.fn(async () => undefined as Record<string, unknown> | undefined) };
@@ -169,14 +162,6 @@ function setup(
     "consent" in opts
       ? { findLatestByWorker: vi.fn(async (_workerId: string) => opts.consent ?? undefined) }
       : undefined;
-  // #1744 — the ChatService seam that closes the interview behind a confirmed profile.
-  const chatSessions = opts.noChatSessions
-    ? undefined
-    : {
-        closeSessionForConfirmedProfile: vi.fn(
-          async (_workerId: string, _sessionId: string, _ctx: RequestContext) => true,
-        ),
-      };
   const svc = new ProfilesService(
     profiles as unknown as ProfilesRepository,
     aiJobs as unknown as AiJobsRepository,
@@ -187,11 +172,9 @@ function setup(
     resumeGenerateQueue as unknown as Queue<ResumeGenerateJobData>,
     referralBonusQueue as unknown as Queue<ReferralBonusJobData>,
     consents as never,
-    chatSessions as never,
   );
   return {
     svc,
-    chatSessions,
     profiles,
     aiJobs,
     workers,
@@ -1176,94 +1159,5 @@ describe("ProfilesService.confirmAcceptedUpdate — the chat Haan confirms, behi
     const { svc, profiles } = setup({ consent: ACTIVE });
     profiles.findById.mockRejectedValue(new Error("pg down"));
     expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("error");
-  });
-});
-
-describe("ProfilesService.confirm — #1744 closes the interview behind the confirmed profile", () => {
-  const JOB = "66666666-6666-4666-8666-666666666666";
-  const earlyFinish = (over: Record<string, unknown> = {}) => ({
-    id: PROFILE,
-    workerId: WORKER,
-    aiJobId: JOB,
-    ...over,
-  });
-  const extractionJob = (inputRef: unknown, jobType = "profile_extraction") => ({
-    jobType,
-    inputRef,
-  });
-
-  it("closes the session the profile's extraction job read, BEFORE the résumé is queued", async () => {
-    const { svc, profiles, aiJobs, chatSessions, resumeGenerateQueue } = setup();
-    profiles.findById.mockResolvedValueOnce(earlyFinish());
-    aiJobs.findById.mockResolvedValueOnce(
-      extractionJob({ worker_id: WORKER, session_id: SESSION }),
-    );
-    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
-    expect(res.profile_status).toBe("confirmed");
-    expect(aiJobs.findById).toHaveBeenCalledWith(JOB);
-    expect(chatSessions!.closeSessionForConfirmedProfile).toHaveBeenCalledExactlyOnceWith(
-      WORKER,
-      SESSION,
-      CTX,
-    );
-    // The render reads the transcript this close persists — so the close must land first.
-    expect(chatSessions!.closeSessionForConfirmedProfile.mock.invocationCallOrder[0]!).toBeLessThan(
-      resumeGenerateQueue.add.mock.invocationCallOrder[0]!,
-    );
-  });
-
-  it("closes nothing for a profile with no extraction job (form / upload road)", async () => {
-    const { svc, profiles, aiJobs, chatSessions } = setup();
-    profiles.findById.mockResolvedValueOnce(earlyFinish({ aiJobId: null }));
-    await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
-    expect(aiJobs.findById).not.toHaveBeenCalled();
-    expect(chatSessions!.closeSessionForConfirmedProfile).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["the job is gone", undefined],
-    [
-      "the job is not an extraction",
-      extractionJob({ worker_id: WORKER, session_id: SESSION }, "resume_render"),
-    ],
-    ["input_ref names ANOTHER worker", extractionJob({ worker_id: OTHER, session_id: SESSION })],
-    [
-      "input_ref carries no session (a session-less extraction)",
-      extractionJob({ worker_id: WORKER, session_id: null }),
-    ],
-    ["input_ref is not an object", extractionJob(null)],
-  ])("closes nothing when %s", async (_label, job) => {
-    const { svc, profiles, aiJobs, chatSessions } = setup();
-    profiles.findById.mockResolvedValueOnce(earlyFinish());
-    aiJobs.findById.mockResolvedValueOnce(job);
-    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
-    expect(res.profile_status).toBe("confirmed");
-    expect(chatSessions!.closeSessionForConfirmedProfile).not.toHaveBeenCalled();
-  });
-
-  it("a close that throws never fails the confirm: event emitted, résumé still queued", async () => {
-    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
-    const { svc, profiles, aiJobs, chatSessions, events, resumeGenerateQueue } = setup();
-    profiles.findById.mockResolvedValueOnce(earlyFinish());
-    aiJobs.findById.mockResolvedValueOnce(
-      extractionJob({ worker_id: WORKER, session_id: SESSION }),
-    );
-    chatSessions!.closeSessionForConfirmedProfile.mockRejectedValueOnce(new Error("db down"));
-    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
-    expect(res.profile_status).toBe("confirmed");
-    expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.confirmed");
-    expect(resumeGenerateQueue.add).toHaveBeenCalledOnce();
-    // Opaque ids only: the warn names the profile, never anything the worker said.
-    expect(warn.mock.calls.some((c) => String(c[0]).includes(PROFILE))).toBe(true);
-    warn.mockRestore();
-  });
-
-  it("built without the seam (every pre-#1744 construction), confirm is exactly today's", async () => {
-    const { svc, profiles, aiJobs, resumeGenerateQueue } = setup({ noChatSessions: true });
-    profiles.findById.mockResolvedValueOnce(earlyFinish());
-    const res = await svc.confirm({ worker_id: WORKER, profile_id: PROFILE }, CTX);
-    expect(res.profile_status).toBe("confirmed");
-    expect(aiJobs.findById).not.toHaveBeenCalled();
-    expect(resumeGenerateQueue.add).toHaveBeenCalledOnce();
   });
 });
