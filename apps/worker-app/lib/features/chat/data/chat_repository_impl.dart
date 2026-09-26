@@ -153,6 +153,10 @@ class ChatRepositoryImpl implements ChatRepository {
   ///    fresh interview rather than a reattach to something he has finished with.
   ///
   /// Either way the old transcript stays readable server-side.
+  ///
+  /// #1768 — and this is the ONE caller that says `redo: true`. The fallback POST
+  /// in `_openSession` must not: it fires when the latest-session read failed,
+  /// and the worker may still be answering that session.
   @override
   Future<ChatSessionOpening?> startNewSession() async {
     final String? token = _session.sessionToken;
@@ -161,7 +165,7 @@ class ChatRepositoryImpl implements ChatRepository {
     // client-side resume guard in [ensureSession] is not on this path.
     _session.clearChatSession();
     try {
-      final ChatSessionStart start = await _api.startSession(authToken: token);
+      final ChatSessionStart start = await _api.startSession(authToken: token, redo: true);
       _session.setSession(start.sessionId);
       return _openingFrom(start);
     } catch (error) {
