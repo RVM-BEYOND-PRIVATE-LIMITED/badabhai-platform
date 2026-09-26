@@ -25,7 +25,13 @@ void main() {
       final Directory tmp =
           await Directory.systemTemp.createTemp('bb-tts-test');
       addTearDown(() => tmp.delete(recursive: true));
-      final File cached = File('${tmp.path}/bb-tts/q2.mp3');
+      // #1756 — `Platform.pathSeparator`, never a hard-coded '/'. The resolver
+      // composes this path with the platform separator, so on Windows a '/'
+      // here built a DIFFERENT string and the exact-match assertion below
+      // failed on a clean main — the product code is right, the test was not.
+      // The sibling test further down already does it this way.
+      final File cached = File('${tmp.path}${Platform.pathSeparator}bb-tts'
+          '${Platform.pathSeparator}q2.mp3');
       await cached.create(recursive: true);
 
       final TtsAssetResolver resolver = TtsAssetResolver(
