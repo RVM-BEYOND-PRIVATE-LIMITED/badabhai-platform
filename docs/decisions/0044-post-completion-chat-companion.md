@@ -11,8 +11,8 @@
   [ADR-0036](0036-matching-algorithm-v1.md) (untouched: no rank key) ·
   [ADR-0034](0034-worker-push-notifications.md) / [ADR-0020](0020-whatsapp-invite-funnel-and-reengagement.md)
   (untouched: no push, no WhatsApp) · persona v3.2 (`docs/specs/persona-system-v3.2.md`)
-- **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and the companion-module PR on the
-  backend; the worker-app data-layer and UI PRs on the app.
+- **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and PR #1743 (the companion module) on
+  the backend; the worker-app client PR on the app.
 
 ---
 
@@ -133,7 +133,10 @@ as #1744.
 
 - **Flag OFF is today's behaviour.** `CHAT_COMPANION_ENABLED` defaults off; off answers every open with
   `{mode:"interview"}`. Old app builds never call the routes. New builds on an old server get a 404 and fall back.
-  The app additionally holds a Remote Config switch so, when off, it does not even make the extra call.
+  The app additionally holds a Remote Config switch, `worker_chat_companion_enabled` (default `false`), so when it
+  is off the app does not even make the extra call. Only the `/bada-bhai` tab asks; the `/chat` route never does.
+- **Turning it on.** Staging first: `CHAT_COMPANION_ENABLED=true` on the server, then the Remote Config switch. Either one
+  off means today's tab, so the order is not a safety question. Production needs the signature below.
 - **Performance.** About seven indexed reads per open. The jobs read is bounded by the window predicate on
   `job_postings_feed_idx (status, published_at DESC)`; the `reach_skill_ids ?|` overlap is a FILTER, not a GIN probe —
   `job_postings_reach_gin` is `jsonb_path_ops`, which cannot serve `?|` (TD141).

@@ -15,6 +15,7 @@ import '../../../core/api/api_models.dart'
     show ChatInputMode, ChatOption, ChatQuestionKind, FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/util/devanagari_guard.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -36,7 +37,9 @@ import '../../voice/domain/voice_models.dart';
 import '../../voice/presentation/dictation_controller.dart';
 import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/chat_message.dart';
+import '../domain/chat_companion_keys.dart';
 import '../domain/chat_resume_menu.dart';
+import '../../swipe/domain/job_detail.dart';
 import 'bloc/chat_bloc.dart';
 import '../../../core/util/push_once.dart';
 
@@ -194,7 +197,19 @@ const String kChatNudgeProceedLabel = 'Phir bhi profile banaiye';
 const String kChatFromResumeImport = 'resume_import';
 
 class ChatProfilingScreen extends StatelessWidget {
-  const ChatProfilingScreen({super.key, this.fromResumeImport = false});
+  const ChatProfilingScreen({
+    super.key,
+    this.fromResumeImport = false,
+    this.assistantTab = false,
+  });
+
+  /// ADR-0044 — this screen is the Bada Bhai TAB, not the onboarding chat.
+  ///
+  /// Only the tab may open the post-completion companion, and only while the
+  /// `worker_chat_companion_enabled` Remote Config lever is on (it ships off).
+  /// The onboarding `/chat` route never passes it, so the interview a worker is
+  /// taken through at signup is byte-for-byte what it was.
+  final bool assistantTab;
 
   /// #1660 — this arrival came from an import that routed to the chat.
   ///
@@ -207,9 +222,40 @@ class ChatProfilingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Read ONCE, at mount: the lever decides which chat this tab opens, and a
+    // Remote Config fetch landing later must not swap it under the worker.
+    final bool companion =
+        assistantTab && BbRemoteConfig.instance.chatCompanionEnabled;
     return BlocProvider<ChatBloc>(
-      create: (_) => locator<ChatBloc>()..add(const ChatStarted()),
-      child: _ChatView(fromResumeImport: fromResumeImport),
+      create: (_) => locator<ChatBloc>()
+        ..add(companion ? const ChatCompanionStarted() : const ChatStarted()),
+      child: companion
+          ? _CompanionRefocus(child: _ChatView(fromResumeImport: fromResumeImport))
+          : _ChatView(fromResumeImport: fromResumeImport),
+    );
+  }
+}
+
+/// ADR-0044 — re-reads the companion recap each time the Bada Bhai tab comes
+/// back into focus (the shell keeps the tab mounted, so nothing else would).
+/// The bloc throttles it and appends a bubble only when the facts changed.
+///
+/// No-op when [TabFocus] is not registered (a widget test's bare locator), so a
+/// test that does not care about refocus need not wire it.
+class _CompanionRefocus extends StatelessWidget {
+  const _CompanionRefocus({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locator.isRegistered<TabFocus>()) return child;
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.chat,
+      onFocused: () =>
+          context.read<ChatBloc>().add(const ChatCompanionRefreshRequested()),
+      child: child,
     );
   }
 }
@@ -472,6 +518,32 @@ class _ChatViewState extends State<_ChatView> {
   /// other sections open the Resume Edit. An ordinary (non-menu) option
   /// falls through to exactly today's submit.
   void _sendChoice(ChatOption option) {
+    // ADR-0044 — the companion's app-routed chips FIRST. None of them is ever
+    // posted; every other key (interview chips, the résumé menu, the companion's
+    // server-answered chips) falls through to exactly the routing below.
+    switch (companionActionFor(option.optionKey)) {
+      case CompanionAction.openJob:
+        final String? jobId = companionJobId(option.optionKey);
+        if (jobId == null) return;
+        final ({String title, String? city}) parts =
+            companionJobLabelParts(option.labelText);
+        // The detail route REQUIRES a JobDetail extra (it redirects to the feed
+        // without one); the title and city pre-fill its header until
+        // GET /jobs/:id lands.
+        context.pushOnce(
+          '${Routes.jobDetail}/$jobId',
+          extra: JobDetail(jobId: jobId, title: parts.title, city: parts.city),
+        );
+        return;
+      case CompanionAction.openJobsTab:
+        context.go(Routes.jobs);
+        return;
+      case CompanionAction.openApplied:
+        context.pushOnce(Routes.appliedJobs);
+        return;
+      case CompanionAction.none:
+        break;
+    }
     switch (resumeMenuActionFor(option.optionKey)) {
       case ResumeMenuAction.openResumeUpload:
         // NO send, so no `_optionTapPending` latch: `pushOnce` already refuses a
@@ -1477,7 +1549,9 @@ class _ChatViewState extends State<_ChatView> {
         // both appearing.
         if (state.formOffer != null)
           _formOfferCard(state.formOffer!)
-        else
+        // ADR-0044 — a companion worker's profile is DONE: "build my profile"
+        // would only re-open the preview for a finished interview.
+        else if (!state.companion)
           _doneCta(state),
       ],
       ),

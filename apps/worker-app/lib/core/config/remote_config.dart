@@ -58,6 +58,13 @@ class BbRemoteConfig {
   /// Display copy for the free-quota line.
   static const String kKeyFreeQuotaCopy = 'worker_free_quota_copy';
 
+  /// ADR-0044 — may the Bada Bhai TAB ask the server for the post-completion
+  /// companion (`GET /chat/companion`)? The SERVER decides who is a companion
+  /// worker (`CHAT_COMPANION_ENABLED` + its mode rule); this only decides whether
+  /// the app asks at all. Off, the tab does exactly what it did before this
+  /// existed — not even the extra request is made.
+  static const String kKeyChatCompanionEnabled = 'worker_chat_companion_enabled';
+
   // ---- Compiled-in defaults == today's behaviour ----
 
   /// The mic is VISIBLE today.
@@ -79,6 +86,10 @@ class BbRemoteConfig {
   /// The worker app shows no free-quota line today (empty = show nothing).
   static const String kDefaultFreeQuotaCopy = '';
 
+  /// The tab does not ask for the companion today — it ships dark, and is flipped
+  /// on (with the server flag) staging-first.
+  static const bool kDefaultChatCompanionEnabled = false;
+
   /// EVERY remote key with the default its getter falls back to — the single
   /// source for `setDefaults` AND for the activated snapshot.
   ///
@@ -94,6 +105,7 @@ class BbRemoteConfig {
     kKeyChatMaintenanceNotice: kDefaultChatMaintenanceNotice,
     kKeyBoostVisible: kDefaultBoostVisible,
     kKeyFreeQuotaCopy: kDefaultFreeQuotaCopy,
+    kKeyChatCompanionEnabled: kDefaultChatCompanionEnabled,
   };
 
   /// The activated snapshot, or null until a fetch has succeeded. Read
@@ -142,6 +154,12 @@ class BbRemoteConfig {
   /// a number: the QUOTA itself is server-enforced and RC must never be read as
   /// the source of truth for one — this is only the sentence about it.
   String get freeQuotaCopy => _string(kKeyFreeQuotaCopy, kDefaultFreeQuotaCopy);
+
+  /// ADR-0044 — whether the Bada Bhai tab asks for the post-completion companion.
+  /// Client display only, like every lever here: the server still decides who
+  /// gets it, and answers `interview` to everyone while its own flag is off.
+  bool get chatCompanionEnabled =>
+      _bool(kKeyChatCompanionEnabled, kDefaultChatCompanionEnabled);
 
   bool _bool(String key, bool fallback) {
     final Object? value = _snapshot?[key];

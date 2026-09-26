@@ -1010,6 +1010,50 @@ class ChatReply extends Equatable {
       ];
 }
 
+/// `GET /chat/companion` (ADR-0044) — is this worker in the post-completion
+/// COMPANION, and if so, its opening turn.
+///
+/// The server decides (`CHAT_COMPANION_ENABLED` + its mode rule); the app only
+/// renders. A companion body is the chat reply's OWN shape minus `session_id`,
+/// plus `mode` and `digest_key`, so [turn] is parsed by the same
+/// [ChatReply.fromJson] every chat turn goes through.
+///
+/// FAILS CLOSED TO THE INTERVIEW. Anything but a well-formed companion body — an
+/// unknown `mode`, a missing or blank `reply`, a non-object — reads as
+/// `companion: false`, and the tab runs exactly today's chat.
+class CompanionOpen extends Equatable {
+  const CompanionOpen({required this.companion, this.turn, this.digestKey});
+
+  /// Not a companion worker (or the server flag is off): run today's chat.
+  static const CompanionOpen interview = CompanionOpen(companion: false);
+
+  factory CompanionOpen.fromJson(Map<String, dynamic> json) {
+    final Object? mode = json['mode'];
+    final Object? reply = json['reply'];
+    if (mode != 'companion' || reply is! String || reply.trim().isEmpty) {
+      return interview;
+    }
+    final Object? key = json['digest_key'];
+    return CompanionOpen(
+      companion: true,
+      turn: ChatReply.fromJson(json),
+      digestKey: key is String && key.isNotEmpty ? key : null,
+    );
+  }
+
+  final bool companion;
+
+  /// The opening turn — the "ab tak kya hua" recap. Null when [companion] is false.
+  final ChatReply? turn;
+
+  /// A short hash of the facts the recap states; a tab refocus compares it to
+  /// decide whether anything changed. Never shown.
+  final String? digestKey;
+
+  @override
+  List<Object?> get props => <Object?>[companion, turn, digestKey];
+}
+
 /// One row of GET /chat/sessions/:sessionId/messages (#502 transcript
 /// hydration). The persisted transcript, oldest-first, so a worker whose
 /// in-memory chat was lost — a >5min background re-lock rebuilds [ChatBloc] with

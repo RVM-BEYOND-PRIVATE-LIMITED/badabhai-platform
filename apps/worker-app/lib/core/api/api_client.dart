@@ -336,6 +336,46 @@ class ApiClient {
     return id is String && id.isNotEmpty ? id : null;
   }
 
+  /// ADR-0044 — how long the Bada Bhai tab waits for `GET /chat/companion`
+  /// before giving up and running today's chat. SHORT on purpose: the answer
+  /// only decides WHICH chat to open, so a slow link must fall back quickly
+  /// rather than hold the loading spinner for a full [kRequestTimeout].
+  static const Duration kCompanionOpenTimeout = Duration(seconds: 5);
+
+  /// `GET /chat/companion` (ADR-0044) — the post-completion companion's mode and,
+  /// for a companion worker, its opening recap. Worker-scoped: the worker is the
+  /// bearer's. Throws [ApiException] on non-2xx like every call (a 404 from a
+  /// server that predates the route included); the repository turns any failure
+  /// into "run today's chat".
+  Future<CompanionOpen> getChatCompanion({required String authToken}) async {
+    final Map<String, dynamic> json = await _get(
+      '/chat/companion',
+      authToken: authToken,
+      timeout: kCompanionOpenTimeout,
+    );
+    return CompanionOpen.fromJson(json);
+  }
+
+  /// `POST /chat/companion/message` (ADR-0044) — one companion answer, in the
+  /// chat reply's own shape. A 409 means the worker is not (or no longer) in
+  /// companion mode; the repository turns it into "send this down today's chat".
+  /// [submissionId] rides only when non-null, exactly as on [sendMessage].
+  Future<ChatReply> sendCompanionMessage({
+    required String authToken,
+    required String text,
+    String? submissionId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/companion/message',
+      <String, dynamic>{
+        'text': text,
+        if (submissionId != null) 'submission_id': submissionId,
+      },
+      authToken: authToken,
+    );
+    return ChatReply.fromJson(json);
+  }
+
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
   ///
@@ -2047,7 +2087,14 @@ class ApiClient {
   /// GET JSON and return the decoded object. Throws [ApiException] on non-2xx.
   ///
   /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`.
-  Future<Map<String, dynamic>> _get(String path, {String? authToken}) {
+  ///
+  /// [timeout] overrides the per-request ceiling, mirroring [_post]. Defaults to
+  /// [kRequestTimeout] so every existing GET is unchanged.
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    String? authToken,
+    Duration timeout = kRequestTimeout,
+  }) {
     final Uri uri = Uri.parse('$baseUrl$path');
     return _send(
       (String? token) => _client.get(
@@ -2055,6 +2102,7 @@ class ApiClient {
         headers: _headers(contentType: false, authToken: token),
       ),
       authToken,
+      timeout: timeout,
     );
   }
 
