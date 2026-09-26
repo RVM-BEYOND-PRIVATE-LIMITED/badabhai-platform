@@ -12,9 +12,14 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.da
 /// ── "Chat se resume banayein" MINTS A FRESH SESSION (#1566) ──────────────────
 ///
 /// `ensureSession()` resumes `GET /chat/session/latest` first, which would
-/// re-attach the just-ended session. [ChatRepositoryImpl.startNewSession] must
-/// NOT do that: it drops the cached id and POSTs `/chat/session`, which mints a
-/// new row because the old session is no longer active.
+/// re-attach whatever session the app is holding. [ChatRepositoryImpl.startNewSession]
+/// must NOT do that: it drops the cached id and POSTs `/chat/session`.
+///
+/// #1765 — WHAT THE SERVER DOES WITH THAT POST is not one thing, and this test
+/// pins the CLIENT half only (no resume, one POST). Since #1744/#1760 the server
+/// reattaches an UNFINISHED interview — which is what a worker who never finished
+/// wants — and closes-then-mints when the leftover is an early finish he has
+/// already confirmed as his profile.
 void main() {
   test('startNewSession POSTs /chat/session and never resumes the old id',
       () async {
@@ -53,5 +58,42 @@ void main() {
     expect(session.sessionId, 'new');
     expect(opening, isNotNull);
     expect(opening!.text, 'Naya sawaal');
+  });
+
+  // ── #1768 — the redo SAYS it is a redo; a fallback never does ──────────────
+  // Since #1744/#1760 the server closes an early-finish leftover before minting,
+  // but only when the request says redo. A fallback POST fires because the
+  // latest-session read FAILED, and the worker may still be answering that
+  // session — closing it there would destroy an interview in progress.
+  test('startNewSession sends redo: true; the ensureSession fallback does not',
+      () async {
+    final List<String> bodies = <String>[];
+    final SessionRepository session = SessionRepository()
+      ..setSessionToken('t');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          if (req.url.path == '/chat/session/latest') {
+            // A FAILED read is what sends ensureSession to the POST fallback.
+            return http.Response('{"message":"boom"}', 500);
+          }
+          bodies.add(req.body);
+          return http.Response('{"session_id":"s-1"}', 200);
+        }),
+      ),
+      session,
+    );
+
+    await repo.startNewSession();
+    expect(bodies, hasLength(1));
+    expect(bodies.single, contains('"redo":true'));
+
+    bodies.clear();
+    session.clearChatSession();
+    await repo.ensureSession();
+    expect(bodies, hasLength(1));
+    expect(bodies.single, isNot(contains('redo')));
+    expect(bodies.single, contains('"confirm_first":true'));
   });
 }

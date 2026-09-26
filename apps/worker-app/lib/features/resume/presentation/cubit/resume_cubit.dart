@@ -8,6 +8,7 @@ import '../../../../core/api/api_models.dart'
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
+import '../../../../core/session/session_repository.dart';
 import '../../../profile/domain/profile_repository.dart';
 import '../../../profile_tab/domain/profile_summary.dart';
 import '../../../profile_tab/domain/profile_summary_repository.dart';
@@ -150,7 +151,9 @@ class ResumeCubit extends Cubit<ResumeState> {
     this._editRepo,
     this._profileRepo, {
     ProfileSummaryRepository? profileSummaryRepository,
+    SessionRepository? sessionRepository,
   }) : _injectedSummaryRepo = profileSummaryRepository,
+       _injectedSessionRepo = sessionRepository,
        super(const ResumeState());
 
   final ResumeRepository _repo;
@@ -167,6 +170,11 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// not, which is what keeps the partial-locator widget tests working. A
   /// test that wants to exercise the DRAFT pill passes a fake here.
   final ProfileSummaryRepository? _injectedSummaryRepo;
+
+  /// #1763 — the held CHAT session, read only to answer one question: is the
+  /// worker in the middle of an interview right now? Injectable on the same
+  /// terms as [_injectedSummaryRepo], for the same reason.
+  final SessionRepository? _injectedSessionRepo;
 
   /// True while a load is in flight. The tab-focus refetch and the screen's own
   /// create:-time load can both fire around a first visit, and a second
@@ -256,6 +264,24 @@ class ResumeCubit extends Cubit<ResumeState> {
       );
     } on ProfileIncompleteFailure catch (_) {
       if (isClosed) return;
+      // #1763 — NEVER SELF-HEAL OUT OF A LIVE INTERVIEW.
+      //
+      // The self-heal extracts and CONFIRMS, and `extractProfile` sends whatever
+      // chat session the app holds. For a worker three answers into the interview
+      // that confirmed a thin profile from those three answers — and because the
+      // server then had an extraction for that session, the finished interview
+      // was deduplicated onto the early job, so his full answers never became his
+      // profile. He never chose to finish early; only the preview's
+      // "Phir bhi profile banaiye" may confirm a partial interview.
+      //
+      // So it runs only where it was meant to: the #1371 form handover, where the
+      // profile is missing because extraction was SKIPPED and no chat session is
+      // held. Mid-interview he gets noProfile, whose own screen offers the way
+      // back to the chat.
+      if (_interviewInProgress) {
+        emit(const ResumeState(status: ResumeStatus.noProfile));
+        return;
+      }
       // #1371 — form handover skips extraction, so the profile may not exist
       // yet. Trigger extraction (idempotent — a normal-profiled worker's call
       // dedupes server-side), confirm it so resume generation can proceed, and
@@ -535,6 +561,25 @@ class ResumeCubit extends Cubit<ResumeState> {
     } catch (_) {
       return null;
     }
+  }
+
+  /// #1763 — TRUE while the worker is still answering a chat interview.
+  ///
+  /// A held chat session id IS that signal, and it is exact: the client drops
+  /// the id the moment the server reports the session ended
+  /// ([SessionRepository.clearChatSession]), so an id still in hand means an
+  /// interview that has not ended. A form-road worker — the #1371 case the
+  /// self-heal was built for — holds none, because the form road opens no chat.
+  ///
+  /// Unknown (no session repository registered, as in the partial-locator widget
+  /// tests) reads FALSE, which keeps today's self-heal behaviour for them.
+  bool get _interviewInProgress {
+    final SessionRepository? session = _injectedSessionRepo ??
+        (locator.isRegistered<SessionRepository>()
+            ? locator<SessionRepository>()
+            : null);
+    final String? id = session?.sessionId;
+    return id != null && id.isNotEmpty;
   }
 
   /// The injected repository, else the registered one, else none. See

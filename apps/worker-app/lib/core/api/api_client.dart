@@ -311,13 +311,33 @@ class ApiClient {
   /// serves the one-shot opener. The opener is RENDERED ONLY — it is never posted
   /// back as a chat message, so it never enters the stored transcript that
   /// extraction reads.
-  Future<ChatSessionStart> startSession({required String authToken}) async {
+  /// #1768 — [redo] says THIS POST is the worker tapping "Chat se resume
+  /// banayein", not a fallback.
+  ///
+  /// The two callers were indistinguishable on the wire, and since #1744/#1760
+  /// the server needs to tell them apart: on a redo it CLOSES an early-finish
+  /// leftover (a live session that has already become the worker's confirmed
+  /// profile) before minting the new one. Without the signal it reattaches, so
+  /// the redo runs inside the leftover — its answers never become the profile,
+  /// and the companion shows the recap during its first answers (TD143).
+  ///
+  /// A fallback must never carry it: `ensureSession`'s POST happens when the
+  /// latest-session read failed, and the worker may still be answering that
+  /// session. Closing it on a failed GET would destroy an interview in progress.
+  /// An older server ignores the extra key.
+  Future<ChatSessionStart> startSession({
+    required String authToken,
+    bool redo = false,
+  }) async {
     final Map<String, dynamic> json = await _post(
       '/chat/session',
       // `confirm_first: true` (ADR-0042 D8, #1523): a new build can render the
       // résumé-confirm as the session's first turn. The server writes NO confirm
       // for a client that does not ask, so an old build (no flag) is unchanged.
-      <String, dynamic>{'confirm_first': true},
+      <String, dynamic>{
+        'confirm_first': true,
+        if (redo) 'redo': true,
+      },
       authToken: authToken,
     );
     return ChatSessionStart.fromJson(json);
