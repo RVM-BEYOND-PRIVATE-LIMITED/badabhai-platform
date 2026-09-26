@@ -49,7 +49,7 @@ from typing import NamedTuple
 
 # The ONE city gazetteer (packages/profiling-lexicon cities.json). Read from the privacy
 # module this route already depends on — never from ``app.profiling`` (see __init__).
-from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES
+from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, phone_shaped_runs
 
 # --- Vacancy bands (ADR-0012) ----------------------------------------------
 # The EXACT shipped band strings from packages/types `VACANCY_BANDS`. Mirrored,
@@ -1304,7 +1304,62 @@ def carries_identity(placeholder_tokens: list[str] | None) -> bool:
     return any(_IDENTITY_TOKEN_RE.match(token or "") for token in (placeholder_tokens or []))
 
 
-def safe_draft_text(raw: str, pseudonymized: str, placeholder_tokens: list[str] | None) -> str:
+# A dashed PAY RANGE the phone rule claims (#1731). "20000-25000" is ten digits joined by one
+# separator — to the gateway's shape-only phone rule (R30, owner-accepted) it IS a phone, and a
+# real one ("98765-43210") has exactly that shape, so the GATEWAY cannot tell them apart and is
+# not asked to: it still masks every such run before anything leaves the process. What changes is
+# only what the job chat's own DRAFT keeps (this route makes no model call). A run counts as a
+# money range when it is exactly two amounts joined by a dash, ascending, the upper at most
+# `_MONEY_RANGE_MAX_RATIO` times the lower, both round to `_MONEY_RANGE_ROUNDING` rupees, and
+# inside the pay band. A real mobile number is descending half the time and round in both halves
+# essentially never; the residual (a round, ascending vanity number typed AS the pay) is recorded
+# as the payer's own pay figure on the payer's own posting.
+_RANGE_DASHES = "-‐‑‒–—―−"
+_MONEY_RANGE_AMOUNT = r"(\d{1,3}(?:,\d{2,3})+|\d{4,6})"
+_MONEY_RANGE_RE = re.compile(
+    r"\s*" + _MONEY_RANGE_AMOUNT + r"\s*[" + _RANGE_DASHES + r"]\s*" + _MONEY_RANGE_AMOUNT + r"\s*"
+)
+_MONEY_RANGE_MAX_RATIO = 5
+_MONEY_RANGE_ROUNDING = 100
+
+
+def is_money_range(run: str) -> bool:
+    """Is this phone-shaped run a round, ascending rupee range ("20,000-25,000")?"""
+    match = _MONEY_RANGE_RE.fullmatch(run or "")
+    if match is None:
+        return False
+    low, high = (int(group.replace(",", "")) for group in match.groups())
+    return (
+        _PAY_MIN_INR <= low < high <= _PAY_MAX_INR
+        and high <= low * _MONEY_RANGE_MAX_RATIO
+        and low % _MONEY_RANGE_ROUNDING == 0
+        and high % _MONEY_RANGE_ROUNDING == 0
+    )
+
+
+def _only_pay_ranges_were_masked(raw: str, placeholder_tokens: list[str] | None) -> bool:
+    """True when every identity token this turn minted is a PHONE and every phone-shaped run in
+    ``raw`` is a money range — i.e. the gateway's only identity finding was a pay range.
+
+    PHONE-only matters: the gateway masks emails and ids BEFORE phones and names/employers after,
+    so with no other identity token the phone rule saw ``raw`` itself, and the runs listed here
+    are exactly the runs it masked. Any other identity class, or any run that is not a money
+    range (a real phone), keeps the masked text.
+    """
+    identity = [t for t in (placeholder_tokens or []) if _IDENTITY_TOKEN_RE.match(t or "")]
+    if not identity or not all(t.startswith("[PHONE_") for t in identity):
+        return False
+    runs = phone_shaped_runs(raw)
+    return bool(runs) and all(is_money_range(run) for run in runs)
+
+
+def safe_draft_text(
+    raw: str,
+    pseudonymized: str,
+    placeholder_tokens: list[str] | None,
+    *,
+    pay_question: bool = False,
+) -> str:
     """The text the DRAFT is allowed to keep for this turn.
 
     Raw by default — the draft is the payer's own business copy, and a masked city
@@ -1312,5 +1367,16 @@ def safe_draft_text(raw: str, pseudonymized: str, placeholder_tokens: list[str] 
     content, so the phone number a payer typed into a description cannot reach the
     stored draft or the published posting. The payer sees the token and is asked
     (via ``clarification_questions``) to retype the field.
+
+    ONE EXCEPTION (#1731): when the only identity the gateway found was a dashed pay RANGE
+    (`_only_pay_ranges_were_masked`) AND the turn is about pay — the answer to the pay question
+    (``pay_question``) or a message that names money — the raw text is kept, so "20000-25000"
+    becomes the payer's pay band instead of a token. Without the pay context the masked text
+    stands: "call 98000-99000" in a description is a number, whatever its shape.
     """
-    return pseudonymized if carries_identity(placeholder_tokens) else raw
+    if not carries_identity(placeholder_tokens):
+        return raw
+    about_pay = pay_question or bool(_MONEY_CUE_RE.search(raw or ""))
+    if about_pay and _only_pay_ranges_were_masked(raw, placeholder_tokens):
+        return raw
+    return pseudonymized

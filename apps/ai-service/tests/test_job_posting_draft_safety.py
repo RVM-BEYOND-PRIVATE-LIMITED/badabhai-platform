@@ -88,30 +88,131 @@ def test_ordinary_business_copy_is_stored_exactly_as_the_payer_typed_it():
     assert _through_gateway(raw) == raw
 
 
-def test_a_PAY_RANGE_typed_with_a_dash_is_read_as_a_PHONE_and_blanks_the_payer_s_figure():
-    """OBSERVED BEHAVIOUR, PRE-EXISTING, and recorded rather than asserted as correct.
+def test_a_dashed_PAY_RANGE_now_reaches_the_draft_when_the_turn_is_about_pay():
+    """#1731 — this used to be pinned as OBSERVED, UNFIXED behaviour.
 
-    R30's narrowing (PR #392) masks 9–13 digits joined by any separator run, which is what a
-    phone split across a dash looks like — and also what ``18000-22000`` looks like. Ten digits,
-    one separator. The gateway mints ``[PHONE_1]``, that arms this gate, and the payer's own pay
-    range disappears from their own draft.
-
-    IT IS PINNED HERE BECAUSE IT IS INVISIBLE OTHERWISE. Nothing errors, nothing logs, and the
-    payer sees a token where their number was with a clarification question asking them to retype
-    the field they just typed. The comment above ``_IDENTITY_TOKEN_RE`` argues CITY / STATE /
-    AMOUNT out of the gate precisely so a pay figure survives — and a dashed RANGE defeats that
-    reasoning by never being classified as an amount in the first place.
-
-    NOT FIXED HERE. Narrowing R30's separator rule to spare a pay range is a change to the phone
-    net on the one risk the owner has accepted in writing, and it belongs to the pseudonymisation
-    owner rather than to a job-posting test. Found while adding the EMAIL class (R6).
+    R30's narrowing (PR #392, owner-accepted) masks 9–13 digits joined by any separator run, which
+    is what a phone split across a dash looks like — and also what ``18000-22000`` looks like. The
+    gateway still mints ``[PHONE_1]`` for it (asserted below: the phone net is NOT narrowed). What
+    changed is only the job chat's own draft: when the gateway's only identity finding was a round,
+    ascending rupee range and the turn is about pay, the draft keeps the payer's figure.
     """
-    drafted = _through_gateway("CNC turner chahiye, 18000-22000 salary")
-    assert "18000-22000" not in drafted
-    assert "[PHONE_1]" in drafted
-    # The single-figure form is unaffected, which is what makes this a RANGE problem.
+    text = "CNC turner chahiye, 18000-22000 salary"
+    assert pseudonymize(text).text == "CNC turner chahiye, [PHONE_1] salary"  # gateway unchanged
+    assert _through_gateway(text) == text
+    # The single-figure form was never affected.
     single = "CNC turner chahiye, 20000 salary"
     assert _through_gateway(single) == single
+
+
+def _pay_answer(text: str) -> str:
+    """The draft text for ``text`` given as the answer to the PAY question."""
+    result = pseudonymize(text)
+    return safe_draft_text(text, result.text, result.placeholder_tokens, pay_question=True)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "20000-25000",
+        "20000 - 25000",
+        "20,000-25,000",
+        "Rs 20,000 - 25,000",
+        "₹15000–18000",
+        "15000-18000 per month",
+        "8000-12000",
+        "12500-15500",
+        "1,20,000-1,50,000",
+        "60000-70000",
+        "18000-22000 in hand",
+        "25000-30000 CTC",
+    ],
+)
+def test_a_pay_range_answer_keeps_the_payer_s_figure(text: str):
+    assert "[PHONE_" in pseudonymize(text).text  # the gateway still calls it a phone
+    assert _pay_answer(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "98765-43210",  # a real mobile: descending halves
+        "98765 43210",  # the canonical phone split — a space is not a range
+        "20000 25000",  # ascending and round, but a space is still not a range dash
+        "9876543210",
+        "+91 98765 43210",
+        "12345-23456",  # not round
+        "10000-90000",  # ratio 9: not a pay band
+        "salary 20000-25000, call 9876543210",  # a real phone beside the range
+        "Ramesh, 20000-25000",  # another identity class in the same turn
+        "20000-25000 hr.ramesh@tatasteel.co.in",  # an email in the same turn
+    ],
+)
+def test_the_pay_exception_never_keeps_a_real_phone_or_other_identity(text: str):
+    drafted = _pay_answer(text)
+    assert drafted == pseudonymize(text).text  # the masked text, exactly as before #1731
+    assert "[" in drafted
+
+
+@pytest.mark.parametrize("text", ["20000-25000", "call 98000-99000", "office 20000-25000 wala"])
+def test_without_a_pay_context_a_phone_shaped_range_stays_masked(text: str):
+    # Not the pay question and no money word: a dashed number in a description is a number.
+    assert _through_gateway(text) == pseudonymize(text).text
+
+
+def test_is_money_range_is_exact():
+    from app.job_posting_chat.answers import is_money_range
+
+    assert is_money_range("20000-25000")
+    assert is_money_range("20,000 – 25,000")
+    assert is_money_range("1,20,000-1,50,000")
+    assert not is_money_range("25000-20000")  # descending
+    assert not is_money_range("20000-20000")  # not a range
+    assert not is_money_range("98765-43210")
+    assert not is_money_range("20050-25000")  # not round to 100
+    assert not is_money_range("500-1000")  # below the pay floor
+    assert not is_money_range("20000 25000")  # a space is not a range dash
+
+
+def test_the_route_records_a_dashed_pay_range_on_the_pay_question():
+    """End to end through /job-posting-chat/respond: the pay band lands on the draft, and a real
+    phone typed the same way does not — neither as text nor as numbers."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    state = {
+        "answered_topics": ["role_title", "location_label", "city", "vacancy", "skills"],
+        "asked_question_ids": ["role_title", "location_label", "vacancy", "skills", "pay_range"],
+        "ask_counts": {
+            "role_title": 1,
+            "location_label": 1,
+            "vacancy": 1,
+            "skills": 1,
+            "pay_range": 1,
+        },
+        "turn_count": 5,
+    }
+
+    def respond(message: str) -> dict:
+        res = client.post(
+            "/job-posting-chat/respond",
+            json={"session_id": "s1", "message_text": message, "conversation_state": state},
+        )
+        assert res.status_code == 200
+        return res.json()
+
+    body = respond("20000-25000")
+    assert (body["draft"]["pay_min"], body["draft"]["pay_max"]) == (20000, 25000)
+
+    body = respond("18000-22000 in hand")
+    assert (body["draft"]["pay_min"], body["draft"]["pay_max"]) == (18000, 22000)
+    assert body["draft"]["pay_type"] == "in_hand"
+
+    body = respond("98765-43210")
+    assert body["draft"]["pay_min"] is None and body["draft"]["pay_max"] is None
+    assert "98765" not in str(body) and "43210" not in str(body)
 
 
 def test_no_tokens_at_all_means_raw():

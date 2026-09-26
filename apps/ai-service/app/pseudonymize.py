@@ -242,6 +242,18 @@ _PHONE_SEPARATORS = (
 )
 _PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]*\d){8,12}(?!\d)")
 
+
+def phone_shaped_runs(text: str) -> list[str]:
+    """Every digit run the phone rule claims in ``text``, in order. READ-ONLY.
+
+    For a caller that must know WHICH runs the gateway calls a phone without re-deriving
+    `_PHONE_RE` (the job-posting chat's draft-safety decision, issue #1731: a dashed pay range
+    "20000-25000" is phone-shaped). It changes no masking — the gateway still masks every one of
+    these runs before anything leaves the process, and nothing here un-masks egress.
+    """
+    return [match.group(0) for match in _PHONE_RE.finditer(text or "")]
+
+
 # Email addresses. THE GAP THIS CLOSES, measured on main before the fix:
 #
 #     pseudonymize("ramesh@gmail.com")                  -> unchanged, blocked=False
