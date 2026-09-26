@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import {
   type Database,
   type Job,
@@ -230,8 +230,23 @@ export class JobsRepository {
     state: string | null;
     limit: number;
     offset: number;
+    /**
+     * ADR-0044 — ONLY postings published strictly AFTER this instant: the post-completion chat
+     * companion's "new jobs in the last N days". Absent or null is the search box, and the
+     * statement is then byte-identical to what it was before this argument existed (pinned by
+     * the statement test).
+     *
+     * WHAT MAKES THE COMPANION'S READ CHEAP IS THIS PREDICATE, NOT THE SKILL FILTER. Together with
+     * `status = 'open'` it is a bounded range on `job_postings_feed_idx (status, published_at
+     * DESC)`; the `reach_skill_ids ?|` overlap and the applied/skipped anti-join then filter that
+     * window. It is pushed directly after the status condition so the index-shaped pair reads
+     * together. A NULL `published_at` (never published) never satisfies `>`, which is correct: an
+     * unpublished posting is not new, it is not visible at all.
+     */
+    publishedAfter?: Date | null;
   }): Promise<{ rows: JobSearchRow[]; hasMore: boolean }> {
     const conditions = [eq(jobPostings.status, "open")];
+    if (args.publishedAfter) conditions.push(gt(jobPostings.publishedAt, args.publishedAfter));
 
     // ── Membership: the `search_vec` GIN probe (migration 0089) ──
     //
@@ -291,9 +306,15 @@ export class JobsRepository {
       // feed and search can agree on "matches my profile" without sharing the feed's budget.
       //
       // `?|` is jsonb key-existence-any — ANY overlap, not all: a worker holding five skills
-      // must not be required to match a posting on all five. It is the operator
-      // `job_postings_reach_gin` (jsonb_path_ops) is built for, so this stays an index probe;
-      // the identical idiom is at match/worker-skills.repository.ts:439. The ids are bound as
+      // must not be required to match a posting on all five. The identical idiom is at
+      // match/worker-skills.repository.ts:439.
+      //
+      // ⚠ THIS IS A FILTER, NOT AN INDEX PROBE (corrected by ADR-0044). This comment used to say
+      // `job_postings_reach_gin` serves `?|`. It cannot: that index is built with the
+      // `jsonb_path_ops` opclass, which indexes only `@>`, `@?` and `@@`; the key-existence
+      // operators `?`, `?|` and `?&` need the default `jsonb_ops` opclass. So this predicate is
+      // evaluated row by row over whatever the other conditions leave (see tech-debt register).
+      // The ids are bound as
       // ONE text[] parameter — never interpolated — so this is not an injection surface, and
       // they are opaque `mskill_*` vocabulary keys, so no PII crosses into the statement.
       //

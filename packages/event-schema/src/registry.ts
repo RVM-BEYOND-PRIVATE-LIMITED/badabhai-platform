@@ -1183,6 +1183,16 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileTierCompletedPayload,
   },
+
+  // ── Post-completion chat companion (ADR-0044) ───────────────────────────────
+  // APPENDED AT THE END, per the append-only protocol. One served companion turn on the Bada
+  // Bhai tab (the recap on open, or the answer to a message). Counts and closed sets only —
+  // no text, no job ids, no labels. v1.
+  "chat.companion_turn_served": {
+    version: 1,
+    domain: "chat",
+    payload: p.ChatCompanionTurnServedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -296,6 +296,23 @@ export const serverEnvSchema = z.object({
   // Sized above the extraction job's own retry envelope so a slow-but-healthy update is never
   // reported as failed while it is still working.
   RESUME_UPDATE_PENDING_TIMEOUT_SECONDS: positiveIntFromString(1_200),
+  // ADR-0044 — the post-completion Bada Bhai COMPANION. Once a worker's profile is confirmed, the
+  // chat tab opens on "ab tak kya hua" (how the résumé was made and what it says, how many jobs
+  // they applied to, new jobs that match their skills, one nudge) instead of a silent transcript.
+  // Deterministic reviewed copy, no LLM, never writes chat_sessions or chat_messages.
+  //
+  // DEFAULT OFF, AND OFF IS TODAY'S BEHAVIOUR EXACTLY: `GET /chat/companion` answers
+  // `{mode:"interview"}` and the app runs the chat tab as it always has. PRODUCTION ON ONLY AFTER
+  // ADR-0044 IS ACCEPTED (it carries the owner's persona scope ruling for the recap).
+  CHAT_COMPANION_ENABLED: booleanFromString,
+  // "New jobs" = matching postings published in the last N days (ADR-0044 R2: a fixed window, not a
+  // per-worker "since last visit" watermark). Printed in the copy, so it is the number the worker reads.
+  CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS: positiveIntFromString(7),
+  // The most matching postings the recap counts before it says "{cap} se zyada". Bounds the read.
+  CHAT_COMPANION_NEW_JOBS_COUNT_CAP: positiveIntFromString(20),
+  // How many new jobs ride a turn as tappable chips (the opening serves at most 2 of them, so the
+  // whole chip row stays inside the persona's four-chip limit).
+  CHAT_COMPANION_JOB_CHIPS: positiveIntFromString(3),
   // TIERED PROFILING (docs/profiling-tiers/tier-tagging.md) — the Easy / Medium / Hard choice on
   // the Chat path, the form's tier filter, the upgrade flow and the tier-aware résumé.
   //

@@ -285,6 +285,13 @@ services:
       # whether the chat asks. `:-false` for the reason RESUME_AUTOFILL_ENABLED gives above.
       RESUME_CHAT_UPDATE_OFFER_ENABLED: ${RESUME_CHAT_UPDATE_OFFER_ENABLED:-false}
 
+      # ---- POST-COMPLETION BADA BHAI COMPANION (ADR-0044).
+      #
+      # On, a worker whose profile is confirmed opens the chat tab on a recap (how the résumé was
+      # made, jobs applied to, new matching jobs, one nudge). OFF is the chat tab as it was.
+      # Production ON only after ADR-0044 is Accepted. `:-false` because this bool rejects "".
+      CHAT_COMPANION_ENABLED: ${CHAT_COMPANION_ENABLED:-false}
+
       # TIERED PROFILING (Easy/Medium/Hard on the Chat path). Off is today's full form and
       # résumé, and nothing reads migration 0126's table or column. Turn on only after 0126 is
       # applied and `db:seed:packs --apply` has run. `:-false` because this bool rejects "".

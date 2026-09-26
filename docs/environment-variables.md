@@ -100,6 +100,10 @@ NestJS boot assertion).
   `assertPaymentsConfig` above.
 - **Messaging / push** — `MESSAGING_ENABLE_REAL` (WhatsApp), `PUSH_ENABLE_REAL` (FCM, security
   alerts only in this phase — security pushes are exempt from the numeric daily ceiling).
+- **Post-completion chat companion (ADR-0044)** — `CHAT_COMPANION_ENABLED` (default off; off is
+  the chat tab as it was), `CHAT_COMPANION_NEW_JOBS_WINDOW_DAYS` (7), `CHAT_COMPANION_NEW_JOBS_COUNT_CAP`
+  (20) and `CHAT_COMPANION_JOB_CHIPS` (3). Only the flag is bridged to staging; the knobs run on
+  their defaults. Production ON only after ADR-0044 is Accepted.
 - **Chat / profiling** — `CHAT_TRANSCRIPT_TTL_SECONDS`, `CHAT_ABANDON_AFTER_SECONDS`,
   `CHAT_MAX_TURNS` (the authoritative hard cap — the ai-service mirrors it but holds no
   per-session state, so it can only enforce what the API tells it).

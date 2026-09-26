@@ -51,5 +51,10 @@ import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
     ProfilingTierRepository,
     ResumeTierScopeReader,
   ],
+  // ADR-0044 — the post-completion chat companion tells the worker how their résumé was made and
+  // what it says. It reads `history()` — the SAME projection the Resume tab shows (source,
+  // trigger, the rendered glance facts, pending_update) — so the chat can never describe a
+  // different résumé than the tab. `history()` is a pure read: no event, no generation.
+  exports: [ResumeService],
 })
 export class ResumeModule {}
