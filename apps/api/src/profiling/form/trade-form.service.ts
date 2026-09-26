@@ -609,7 +609,11 @@ export class TradeFormService {
           requestId: requestCtx?.requestId ?? "trade-form-answer",
         },
         {
-          jobId: `trade-form-rerender:${workerId}`,
+          // NO COLON. BullMQ refuses a custom id containing ":" unless it splits into exactly
+          // three parts ("Custom Id cannot contain :"), so the old `trade-form-rerender:<id>` threw
+          // on EVERY enqueue — swallowed by the catch below — and this safety-net re-render never
+          // ran in production. A mocked queue in the unit test could not see it.
+          jobId: `trade-form-rerender-${workerId}`,
           delay: RESUME_REFRESH_DELAY_MS,
           attempts: 3,
           backoff: { type: "exponential", delay: 2000 },
