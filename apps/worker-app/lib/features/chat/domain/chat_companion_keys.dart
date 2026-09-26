@@ -58,7 +58,14 @@ CompanionAction companionActionFor(String optionKey) {
     case kCompanionAppliedKey:
       return CompanionAction.openApplied;
     default:
-      return companionJobId(optionKey) != null
+      // CLASSIFY ON THE PREFIX, NOT THE PAYLOAD (#1747 review). Keying this on
+      // `companionJobId() != null` meant a `companion_job:` chip whose payload
+      // is not a uuid answered `none` — so it fell through the résumé-menu
+      // routing into the ordinary send, and the worker's own transcript gained
+      // the chip's LABEL as a message he never typed. It is a companion job
+      // chip either way; the `jobId == null` guard at the call site is what
+      // makes a malformed one do nothing at all.
+      return optionKey.startsWith(kCompanionJobKeyPrefix)
           ? CompanionAction.openJob
           : CompanionAction.none;
   }
