@@ -10,10 +10,15 @@ import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrato
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
 import {
+  readGeneralRoadStamp,
   resolvePackPointer,
+  skillsGateOnScreen,
   toConversationStatePatch,
+  toGeneralRoadStatePatch,
   toResumeHistoryStatePatch,
+  type ProfilingEnvelope,
 } from "../profiling/conversation-state";
+import { generalFormOfferFor, type GeneralFormOffer } from "../profiling/skills-gate";
 import { packAnswerRowFor } from "../profiling/pack-answer-row";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
 // dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
@@ -139,10 +144,21 @@ const CHAT_ALREADY_COMPLETE_REPLY = CLOSING_REPLY_TEXT;
  * the worker said was written, and the honest response is one they can retry into.
  */
 export type ChatTurnOutcome =
-  /** The session was already finalized. No writes, no engine call — a late duplicate POST. */
-  | { readonly kind: "session_over" }
-  /** A completed-but-unflushed buffer was re-driven. `flushed` says whether it landed this time. */
-  | { readonly kind: "reflushed"; readonly flushed: boolean }
+  /**
+   * The session was already finalized. No writes, no engine call — a late duplicate POST.
+   * `generalFormOffer` is the card when it handed over to the general form (ADR-0045), read off
+   * the durable state, so it is re-served rather than the résumé menu.
+   */
+  | { readonly kind: "session_over"; readonly generalFormOffer?: GeneralFormOffer | null }
+  /**
+   * A completed-but-unflushed buffer was re-driven. `flushed` says whether it landed this time;
+   * `generalFormOffer` is the card when the interview handed over to the general form.
+   */
+  | {
+      readonly kind: "reflushed";
+      readonly flushed: boolean;
+      readonly generalFormOffer?: GeneralFormOffer | null;
+    }
   /** The orchestrator wrote NOTHING: a lost CAS after two attempts, or no resolvable pack. */
   | { readonly kind: "unavailable"; readonly reply: string }
   /** The buffer vanished between the CAS write and the read-back. The reply is still served. */
@@ -160,6 +176,13 @@ export type ChatTurnOutcome =
        * being regenerated. Only the buffer that became the record may say so.
        */
       readonly updateQueued: boolean;
+      /**
+       * ADR-0045 — the general-form card, ONLY when this handover is on record: the flush won, or
+       * it failed and the handover's own checkpoint made the stamp durable. When another request
+       * closed the session first (the abandonment sweep), the record is not this handover, and a
+       * card would point at a form with no context behind it.
+       */
+      readonly generalFormOffer?: GeneralFormOffer | null;
     };
 
 @Injectable()
@@ -419,8 +442,23 @@ export class ChatService {
     );
     switch (outcome.kind) {
       case "session_over":
+        // ADR-0045: a session that handed over to the general form re-serves ITS card — the one
+        // way forward — rather than the résumé menu, and never lights the build-profile CTA.
+        if (outcome.generalFormOffer != null) {
+          return this.generalFormResponse(dto.session_id, outcome.generalFormOffer);
+        }
         return this.terminalResponse(dto.session_id, dto.text);
       case "reflushed":
+        // A general handover keeps its card whether or not this re-drive landed: the handover
+        // turn already served it (its own checkpoint made it durable), and a failed re-flush that
+        // dropped it would leave "Profile taiyaar ho rahi hai" — false on this road — and no CTA.
+        if (outcome.generalFormOffer != null) {
+          return this.generalFormResponse(
+            dto.session_id,
+            outcome.generalFormOffer,
+            outcome.flushed,
+          );
+        }
         return this.checkedResponse(
           {
             session_id: dto.session_id,
@@ -483,6 +521,8 @@ export class ChatService {
             unanswered_essentials: [],
             session_ended: false,
             question_kind: outcome.turn.kind,
+            // ADR-0045 — the gate's kind and the handover card ride the replay, ABSENT when unset.
+            ...wireGeneralRoadFields(outcome.turn),
             // FROM THE REPLAYED TURN, for the same reason the chips above are. The gate is served
             // `options_only`, and re-deriving `text` here would give a worker who resubmitted over
             // a bad link a keyboard where the response it claims to repeat had two buttons.
@@ -576,7 +616,10 @@ export class ChatService {
     // surface to the worker as an error for something that actually succeeded. No LLM
     // call, no writes — a late duplicate POST costs nothing.
     if (session.status !== "active") {
-      return { kind: "session_over" };
+      return {
+        kind: "session_over",
+        generalFormOffer: durableGeneralFormOffer(session.conversationState),
+      };
     }
 
     // 1. The buffered interview. Fails CLOSED (503) rather than silently restarting at
@@ -628,7 +671,11 @@ export class ChatService {
         `session ${dto.session_id} had a completed-but-unflushed buffer; ` +
           `re-flush ${reflushed ? "succeeded" : "FAILED again"}`,
       );
-      return { kind: "reflushed", flushed: reflushed };
+      return {
+        kind: "reflushed",
+        flushed: reflushed,
+        generalFormOffer: generalFormHandoverOf(buffer.profiling),
+      };
     }
 
     // 2. THE TURN. Deterministic, in-process, ZERO LLM CALLS.
@@ -744,6 +791,9 @@ export class ChatService {
             // ADR-0043 — same reasoning: this write REPLACES the column, so the accepted CV import
             // the worker claimed earlier in this interview must ride along or be lost.
             ...toResumeHistoryStatePatch(buffered.profiling),
+            // ADR-0045 — same reasoning: a skills-lane checkpoint (the gate) must carry the
+            // worker's certified skills, or this REPLACING write would drop them.
+            ...toGeneralRoadStatePatch(buffered.profiling),
           },
           now,
         );
@@ -762,7 +812,11 @@ export class ChatService {
         `complete=${turn.complete} flushed=${flushed}`,
     );
 
-    return { kind: "turn", turn, buffered, terminal, updateQueued };
+    const generalFormOffer =
+      turn.generalFormOffer != null && (flush === "won" || flush === "failed")
+        ? turn.generalFormOffer
+        : null;
+    return { kind: "turn", turn, buffered, terminal, updateQueued, generalFormOffer };
   }
 
   /**
@@ -778,7 +832,7 @@ export class ChatService {
     workerId: string,
     outcome: Extract<ChatTurnOutcome, { kind: "turn" }>,
   ): Promise<PostMessageResponse> {
-    const { turn, buffered, terminal, updateQueued } = outcome;
+    const { turn, buffered, terminal, updateQueued, generalFormOffer } = outcome;
     const dto = { session_id: sessionId };
     // 7. Personalize ONLY the client-returned reply — post-buffer, post-flush, post-emit —
     //    by interpolating the worker's real first name over the `{{worker_name}}` token.
@@ -824,7 +878,8 @@ export class ChatService {
       // build-my-profile CTA, and on a handover the only correct next step is the form button
       // in `form_offer`. Two competing CTAs on one screen makes the worker choose between a
       // resume built from nothing and the form that actually fills it.
-      extraction_ready: terminal && turn.formOffer == null,
+      // ADR-0045: the general-form handover withholds it for the same reason.
+      extraction_ready: terminal && turn.formOffer == null && turn.generalFormOffer == null,
       // Required-but-unanswered pack questions. Question keys only, never PII — and unlike the
       // LLM path, empty here genuinely means "nothing essential is outstanding" rather than
       // "the model did not say".
@@ -846,6 +901,13 @@ export class ChatService {
               headline: turn.formOffer.headline,
               cta_label: turn.formOffer.ctaLabel,
             },
+      // ADR-0045 — the skills gate's kind and the general-form card (the ON-RECORD one, see
+      // `generalFormOffer` on the outcome). ABSENT, never null, when unset
+      // (`chat-general-road.wire.test.ts`), so every flag-off response is byte-identical.
+      ...(turn.gateKind != null ? { gate_kind: turn.gateKind } : {}),
+      ...(generalFormOffer != null
+        ? { general_form_offer: toWireGeneralFormOffer(generalFormOffer) }
+        : {}),
       // ADR-0043 — the worker said "Haan" to "Resume update kar doon?" and the interview is
       // durably flushed: the résumé is being regenerated in the background. `queued` ONLY on the
       // terminal turn that settled it, so a client never routes on an update that did not happen.
@@ -947,7 +1009,11 @@ export class ChatService {
     // (`messages`, `workerId`) can ride into the JSONB column.
     // THE INTERVIEW HANDED OVER TO A FORM. Read once here and used twice below, so the emit
     // and the persisted marker cannot disagree about whether extraction was withheld.
-    const handedToForm = buffer.profiling?.formKind != null;
+    // ADR-0045: the GENERAL-form handover withholds extraction exactly as a trade handover does
+    // — the profile is built after the form, from the form — while `form_kind` stays null so the
+    // source stays "chat" and no trade form is ever served for it.
+    const handedToForm =
+      buffer.profiling?.formKind != null || buffer.profiling?.generalRoad?.handedOver === true;
     const finalState: Record<string, unknown> = {
       role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
       turn_count: buffer.turnCount,
@@ -978,6 +1044,10 @@ export class ChatService {
       ...(buffer.profiling
         ? toResumeHistoryStatePatch(buffer.profiling)
         : { import_applied_id: null, resume_update: null }),
+      // ADR-0045 — the general road's durable stamp: the certified role and skills the worker
+      // confirmed at the gate, which the general form, the profile build and the résumé read
+      // after this buffer is gone. ABSENT for every session not on the skills lane.
+      ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -1337,10 +1407,21 @@ export class ChatService {
     // is over, and abandoning it would withhold the extraction that promise depends on. The
     // buffer already carries `completedAt` and the settled answer, so the flush is re-driven as-is
     // — the same re-drive `runTurn` step 1b performs when the worker posts again.
-    if (buffer?.completedAt && buffer.profiling?.resumeUpdateOffer?.state === "settled") {
+    // ADR-0045 — THE SAME RE-DRIVE FOR A GENERAL-FORM HANDOVER whose flush failed. Abandoning it
+    // would lose the durable `general_road` stamp (the certified skills the worker confirmed) and
+    // leave the worker holding a card to a form whose context no longer exists.
+    if (
+      buffer?.completedAt &&
+      (buffer.profiling?.resumeUpdateOffer?.state === "settled" ||
+        buffer.profiling?.generalRoad?.handedOver === true)
+    ) {
       const outcome = await this.flushInterview(workerId, sessionId, buffer, ctx);
       this.logger.log(
-        `completed-but-unflushed session with a settled résumé-update answer re-driven ` +
+        `completed-but-unflushed session re-driven reason=${
+          buffer.profiling?.generalRoad?.handedOver === true
+            ? "general_form_handoff"
+            : "resume_update_settled"
+        } ` +
           `session=${sessionId} idle=${idleMinutes}m outcome=${outcome}`,
       );
       const closed = outcome === "won";
@@ -1367,6 +1448,8 @@ export class ChatService {
           ...(buffer.profiling
             ? toResumeHistoryStatePatch(buffer.profiling)
             : { import_applied_id: null, resume_update: null }),
+          // ADR-0045 — an abandoned skills-lane session keeps what the worker confirmed.
+          ...(buffer.profiling ? toGeneralRoadStatePatch(buffer.profiling) : {}),
           ...(buffer.profiling ? toConversationStatePatch(buffer.profiling) : {}),
         }
       : // Buffer gone: keep the checkpoint verbatim and only stamp WHY it closed. Rebuilding
@@ -1629,6 +1712,43 @@ export class ChatService {
   }
 
   /**
+   * THE GENERAL-FORM HANDOVER, served again (ADR-0045) — to a late POST on the ended session or
+   * to a re-driven flush. The card is the only way forward, and `extraction_ready` stays false:
+   * the profile is built after the form, never from the chat alone.
+   */
+  private generalFormResponse(
+    sessionId: string,
+    card: GeneralFormOffer,
+    sessionEnded = true,
+  ): PostMessageResponse {
+    return this.checkedResponse(
+      {
+        session_id: sessionId,
+        reply: card.reply,
+        ...this.ttsField(card.reply, null),
+        blocked: false,
+        is_mock: true,
+        suggested_followups: [],
+        suggested_options: [],
+        asked_question_id: null,
+        extraction_ready: false,
+        unanswered_essentials: [],
+        session_ended: sessionEnded,
+        question_kind: "close",
+        input_mode: "text",
+        answer_type: null,
+        progress: null,
+        occupation_label: null,
+        lookahead: null,
+        form_offer: null,
+        resume_update: null,
+        general_form_offer: toWireGeneralFormOffer(card),
+      },
+      sessionId,
+    );
+  }
+
+  /**
    * A message posted after the interview was finalized. Terminal, idempotent, free.
    *
    * Also the RECOVERY path: a client that missed the `session_ended` flag on the
@@ -1772,6 +1892,7 @@ export class ChatService {
           ...(m.role === "worker" ? {} : this.ttsField(m.text, null)),
           created_at: m.at,
         })),
+        ...liveGeneralRoadFields(buffered.profiling),
       };
     }
 
@@ -1793,6 +1914,7 @@ export class ChatService {
         ...(row.direction === "inbound" ? {} : this.ttsField(row.bodyText ?? "", null)),
         created_at: row.createdAt.toISOString(),
       })),
+      ...durableGeneralRoadFields(session.conversationState),
     };
   }
 
@@ -1975,4 +2097,81 @@ export class ChatService {
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0045 — the general road on the wire
+// ---------------------------------------------------------------------------
+
+/** The card, mapped field by field so an internal field can never leak onto the wire. */
+function toWireGeneralFormOffer(offer: GeneralFormOffer): { headline: string; cta_label: string } {
+  return { headline: offer.headline, cta_label: offer.ctaLabel };
+}
+
+/**
+ * A turn's gate kind and card, as wire fields — each ABSENT, never null, when unset. A spread of
+ * `{ gate_kind: undefined }` would still put the key on the object, which is exactly what
+ * `chat-general-road.wire.test.ts` forbids.
+ */
+function wireGeneralRoadFields(turn: TurnResult): {
+  gate_kind?: "skills";
+  general_form_offer?: { headline: string; cta_label: string };
+} {
+  return {
+    ...(turn.gateKind != null ? { gate_kind: turn.gateKind } : {}),
+    ...(turn.generalFormOffer != null
+      ? { general_form_offer: toWireGeneralFormOffer(turn.generalFormOffer) }
+      : {}),
+  };
+}
+
+/** The card for an envelope that handed over to the general form, else null. */
+function generalFormHandoverOf(envelope: ProfilingEnvelope | undefined): GeneralFormOffer | null {
+  const road = envelope?.generalRoad;
+  return road?.handedOver === true ? generalFormOfferFor(road.skills.length) : null;
+}
+
+/**
+ * The redraw fields for a LIVE session's message list: the gate while it is actually on screen
+ * (open, and the last reply served was the gate — a hardship line over it is not a gate), and the
+ * card once handed over.
+ */
+function liveGeneralRoadFields(envelope: ProfilingEnvelope | undefined): {
+  gate_kind?: "skills";
+  general_form_offer?: { headline: string; cta_label: string };
+} {
+  const road = envelope?.generalRoad;
+  if (road?.armed !== true) return {};
+  const card = generalFormHandoverOf(envelope);
+  return {
+    ...(skillsGateOnScreen(envelope) ? { gate_kind: "skills" as const } : {}),
+    ...(card !== null ? { general_form_offer: toWireGeneralFormOffer(card) } : {}),
+  };
+}
+
+/** The redraw field for an ENDED session: its card, from the durable stamp, when it handed over. */
+function durableGeneralRoadFields(conversationState: unknown): {
+  general_form_offer?: { headline: string; cta_label: string };
+} {
+  const card = durableGeneralFormOffer(conversationState);
+  return card !== null ? { general_form_offer: toWireGeneralFormOffer(card) } : {};
+}
+
+/**
+ * The card for an ENDED session that handed over to the general form, read off its persisted
+ * state — or null.
+ *
+ * FAILS CLOSED ON A STAMP IT CANNOT READ. The stamp is strict and versioned, so one written by a
+ * later build (or read after a rollback) fails the parse; the same column's `completion_reason`
+ * still says the session handed over, and that alone must keep the build-profile CTA dark. The
+ * card is then the no-skills one, whose headline makes no claim.
+ */
+function durableGeneralFormOffer(conversationState: unknown): GeneralFormOffer | null {
+  const stamp = readGeneralRoadStamp(conversationState);
+  if (stamp?.handed_over === true) return generalFormOfferFor(stamp.skills.length);
+  const reason =
+    typeof conversationState === "object" && conversationState !== null
+      ? (conversationState as Record<string, unknown>).completion_reason
+      : undefined;
+  return reason === "general_form_handoff" ? generalFormOfferFor(0) : null;
 }

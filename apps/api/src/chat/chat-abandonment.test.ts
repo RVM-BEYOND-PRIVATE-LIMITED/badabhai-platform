@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ChatService } from "./chat.service";
 import { ChatAbandonmentSweepProcessor, SWEEP_BATCH_LIMIT } from "./chat-abandonment-sweep.processor";
 import type { TranscriptBuffer } from "./chat-transcript.buffer";
-import { emptyProfilingEnvelope } from "../profiling/conversation-state";
+import { emptyGeneralRoad, emptyProfilingEnvelope } from "../profiling/conversation-state";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -449,6 +449,68 @@ describe("ChatService.abandonInterview — an interview idle at the résumé-upd
     // The answer was recorded when the turn landed; the re-drive records nothing new about it.
     expect(emittedNames(events)).not.toContain("profile.resume_update_answered");
     expect(profiles.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it("ADR-0045: a GENERAL-FORM handover whose flush failed is re-driven, not abandoned", async () => {
+    // Abandoning it would lose the durable general_road stamp — the certified skills the worker
+    // confirmed — and leave them holding a card to a form with no context behind it.
+    const HANDED_OVER = {
+      ...emptyProfilingEnvelope(),
+      ...(ENVELOPE_WITH_ANSWER as object),
+      generalRoad: {
+        ...emptyGeneralRoad(),
+        armed: true,
+        lane: "skills",
+        laneReason: "outside_declared_roles",
+        roleLabel: "Graphic designer",
+        domainLabel: null,
+        skills: ["CorelDRAW"],
+        outcome: "confirmed",
+        handedOver: true,
+      },
+    } as never;
+    const { svc, chat, events, profiles, session } = make({
+      buffer: partialBuffer({
+        profiling: HANDED_OVER,
+        completedAt: T0,
+        completionReason: "general_form_handoff",
+      }),
+    });
+    const out = await svc.abandonInterview(session, 380, CTX);
+    expect(out.closed).toBe(true);
+    expect(chat.abandonSession).not.toHaveBeenCalled();
+    expect(chat.endSession).toHaveBeenCalledTimes(1);
+    expect(chat.endSession.mock.calls[0]![2].general_road).toMatchObject({
+      skills: ["CorelDRAW"],
+      handed_over: true,
+    });
+    expect(emittedNames(events)).not.toContain("chat.session_abandoned");
+    // Still withheld — the profile waits for the general form.
+    expect(emittedNames(events)).not.toContain("profile.extraction_ready");
+    expect(profiles.extract).not.toHaveBeenCalled();
+  });
+
+  it("ADR-0045: a skills-lane session idle mid-stage is abandoned WITH its stamp", async () => {
+    const MID_STAGE = {
+      ...emptyProfilingEnvelope(),
+      ...(ENVELOPE_WITH_ANSWER as object),
+      generalRoad: {
+        ...emptyGeneralRoad(),
+        armed: true,
+        lane: "skills",
+        laneReason: "outside_declared_roles",
+        roleLabel: "Graphic designer",
+        domainLabel: null,
+        skills: ["CorelDRAW"],
+        gateOpen: true,
+        gateRounds: 1,
+      },
+    } as never;
+    const { svc, chat, session } = make({ buffer: partialBuffer({ profiling: MID_STAGE }) });
+    await svc.abandonInterview(session, 380, CTX);
+    expect(chat.abandonSession).toHaveBeenCalledTimes(1);
+    const state = chat.abandonSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.general_road).toMatchObject({ skills: ["CorelDRAW"], handed_over: false });
   });
 
   it("an interview idle on an ORDINARY question is still abandoned exactly as before", async () => {

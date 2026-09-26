@@ -123,6 +123,7 @@ import { packAnswerRowFor } from "./pack-answer-row";
 import {
   answersOf,
   emptyGeneralRoad,
+  skillsGateOnScreen,
   emptyProfilingEnvelope,
   inboundHash,
   MAX_REPLAYS_PER_TURN,
@@ -3652,7 +3653,10 @@ export class ProfilingOrchestrator {
       replayed: false,
       excludeFromParse,
       unavailable: false,
-      checkpointDue: false,
+      // AND A CHECKPOINT, which the chat writes ONLY when that flush fails (`checkpointDue &&
+      // !terminal`): the handed-over stamp is then durable anyway, so the card the worker is
+      // shown always points at a handover that is on record.
+      checkpointDue: true,
       generalFormOffer: card,
     });
   }
@@ -4897,14 +4901,6 @@ function transcriptOf(buffer: TranscriptBuffer): TranscriptLine[] {
 function onSkillsLane(envelope: ProfilingEnvelope): boolean {
   const road = envelope.generalRoad;
   return road?.armed === true && road.lane === "skills" && !road.handedOver;
-}
-
-/**
- * Is the skills gate what the worker is looking at — open AND the last turn served (ADR-0045)?
- * See the `openTurn` re-serve: an off-script turn over an open gate is on screen instead of it.
- */
-function skillsGateOnScreen(envelope: ProfilingEnvelope): boolean {
-  return envelope.generalRoad?.gateOpen === true && envelope.lastTurn?.gateKind === "skills";
 }
 
 /** Armed, and the lane not yet decided — the one state in which the lane may be decided. */
