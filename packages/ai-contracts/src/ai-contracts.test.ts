@@ -12,6 +12,7 @@ import {
   ParsedFieldSchema,
   ExperienceEntrySchema,
   LlmInterviewDraftSchema,
+  LLM_INTERVIEW_MODES,
   LlmTurnInputSchema,
   LlmTurnOutputSchema,
   InterviewExtractInputSchema,
@@ -1070,5 +1071,24 @@ describe("ResumeParse trade association (Task 1 B2 — contracts.py parity)", ()
     expect(TradeAssociationSchema.parse({ kind: "cnc_turner" }).kind).toBe("cnc_turner");
     expect(TradeAssociationSchema.parse({}).kind).toBeNull();
     expect(TradeAssociationSchema.parse({ kind: null }).kind).toBeNull();
+  });
+});
+
+describe("LlmTurnInput.interview_mode (ADR-0045)", () => {
+  it("is ABSENT when not sent, so a classic request body is byte-identical to today's", () => {
+    const parsed = LlmTurnInputSchema.parse({ worker_ref: "w1" });
+    expect(Object.prototype.hasOwnProperty.call(parsed, "interview_mode")).toBe(false);
+  });
+
+  it("accepts exactly the two modes, and neither the stage word nor an invented one", () => {
+    for (const mode of LLM_INTERVIEW_MODES) {
+      expect(
+        LlmTurnInputSchema.parse({ worker_ref: "w1", interview_mode: mode }).interview_mode,
+      ).toBe(mode);
+    }
+    // `skills` is a STAGE value; the mode is `skills_only` so a trace never confuses the two.
+    for (const bad of ["skills", "general", ""]) {
+      expect(() => LlmTurnInputSchema.parse({ worker_ref: "w1", interview_mode: bad })).toThrow();
+    }
   });
 });

@@ -146,7 +146,8 @@
     "history",
     "draft",
     "experience_count",
-    "force_close"
+    "force_close",
+    "interview_mode"
   ],
   "LlmTurnOutput": [
     "reply_text",
