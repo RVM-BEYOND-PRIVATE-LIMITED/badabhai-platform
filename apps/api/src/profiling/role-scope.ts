@@ -194,6 +194,20 @@ export const SCOPE_DECLARED_TERMS: readonly string[] = prepareTerms([
   "molder",
   "मोल्डिंग",
   "मोल्डर",
+  // The material alone, for the same reason (Phase 2b review): "Plastic machine operator",
+  // "Plastic operator", "Rubber operator" read `outside` with no pin, and a worker who says
+  // "plastic company mein machine operator hoon" is most likely one of the polymer 5. A false
+  // `declared` here costs nothing — it is today's interview. Both spellings of vulcanise, because
+  // the rubber moulding role lists only the British one as a machine term.
+  "plastic",
+  "plastics",
+  "rubber",
+  "vulcanizing",
+  "vulcanising",
+  "vulcanizer",
+  "vulcaniser",
+  "प्लास्टिक",
+  "रबर",
   // ── MACHINIST. `conventional-machinist.role.ts` lists the bare Devanagari "मशीनिस्ट" but not the
   // Latin word, so the lane depended on the script. A bare machinist is one of the 21 whichever
   // machining role he is.
