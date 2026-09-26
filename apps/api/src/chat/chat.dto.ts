@@ -39,6 +39,15 @@ export const PostMessageSchema = z.object({
 export type PostMessageDto = z.infer<typeof PostMessageSchema>;
 
 /**
+ * The general-form card on the wire (ADR-0045): the handover's headline and its button label.
+ * One definition for the two responses that can carry it — a turn and a reopened thread.
+ */
+export const GeneralFormOfferWireSchema = z.object({
+  headline: z.string(),
+  cta_label: z.string(),
+});
+
+/**
  * Outbound shape of POST /chat/message (CHAT-UE-1). Mirrors the return object
  * `ChatService.postMessage` constructs field-by-field at step 7 — the schema is
  * the outbound boundary check, validated with `safeParse` so a malformed value
@@ -313,12 +322,7 @@ export const PostMessageResponseSchema = z.object({
    * response literal must set them). This card is the ONLY way forward from its turn, so the
    * chat-engine phase MUST pin it on the replay and reopen paths with a test, not the compiler.
    */
-  general_form_offer: z
-    .object({
-      headline: z.string(),
-      cta_label: z.string(),
-    })
-    .optional(),
+  general_form_offer: GeneralFormOfferWireSchema.optional(),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
 
@@ -417,5 +421,13 @@ export const SessionMessagesResponseSchema = z.object({
   // repository read already guarantees it (`listMessages` takes the newest
   // CHAT_HISTORY_MAX then reverses); the service must not re-sort.
   messages: z.array(SessionMessageSchema),
+  /**
+   * ADR-0045 — THE ONLY SERVER REDRAW FOR A COLD-STARTED CHAT. Bubbles alone cannot say that the
+   * last one is the skills gate (its text is the worker's own skills, so no client can match it)
+   * or that the session closed with the general-form card. ABSENT — never null — whenever there is
+   * neither, so every existing reopen response is byte-identical.
+   */
+  gate_kind: z.enum(CHAT_GATE_KINDS).optional(),
+  general_form_offer: GeneralFormOfferWireSchema.optional(),
 });
 export type SessionMessagesResponse = z.infer<typeof SessionMessagesResponseSchema>;

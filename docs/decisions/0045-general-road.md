@@ -129,6 +129,15 @@ their dated jobs only (R5). An undated job makes the total unknown, exactly as t
   on this road saves the parse and transcript-read calls.
 - **Older app builds** have no card for the handover — the flag stays off until the release that draws it ships.
 - **Matching** does not see these skills (R7). Revisit with the owner.
+- **Open before flag-ON** (recorded while building the chat engine, Phase 2):
+  - An ended, handed-over chat session re-serves the general-form card to every later message and reopen. The stamp
+    has no "form completed" field yet, so this lasts after the form is done. The general-form phase must add that
+    signal and fall back to the résumé menu once the form is complete.
+  - The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the voice
+    surface runs the skills stage and its handover has no card on that surface. The voice form is hidden by default;
+    before flag-ON either refuse to continue an armed skills-lane envelope on the voice surface or give it a step.
+  - The lane, gate and handover events are emitted inside the turn's retry loop with once-per-session (or per-round)
+    keys, like `profile.form_offered`, so a lost attempt's outcome can be the one recorded.
 
 ## 6. Defaults approved with the plan (overridable)
 

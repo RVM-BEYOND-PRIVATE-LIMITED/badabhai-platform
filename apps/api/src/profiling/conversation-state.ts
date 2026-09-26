@@ -1601,6 +1601,16 @@ export function readGeneralRoadStamp(conversationState: unknown): GeneralRoadSta
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * Is the general road's skills GATE actually on screen (ADR-0045)? Open, AND the last reply served
+ * was the gate — a hardship or de-escalation line served over an open gate is not a gate, and
+ * redrawing it as one would lock the keyboard over a message with nothing to tap. ONE rule for the
+ * two readers — the orchestrator's reopen and the chat's `listMessages` — so they cannot disagree.
+ */
+export function skillsGateOnScreen(envelope: ProfilingEnvelope | undefined): boolean {
+  return envelope?.generalRoad?.gateOpen === true && envelope.lastTurn?.gateKind === "skills";
+}
+
 /** A stored `prefilledKeys` array, filtered to strings — see {@link ProfilingEnvelope.prefilledKeys}. */
 function narrowPrefilledKeys(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

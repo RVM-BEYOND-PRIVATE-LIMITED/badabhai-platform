@@ -34,6 +34,11 @@ import {
 import { DISAMBIGUATION_ESCAPE_KEY, DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
 import { llmChipOptions } from "../profiling/orchestrator.service";
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
+import {
+  GENERAL_FORM_OFFER,
+  GENERAL_FORM_OFFER_NO_SKILLS,
+  SKILLS_GATE_OPTIONS,
+} from "../profiling/skills-gate";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -143,13 +148,15 @@ function make(
      * pending résumé), which is what every pre-existing test in this file assumes.
      */
     resumeConfirmOpen?: Record<string, unknown> | null;
+    /** ADR-0045 — the ended session's persisted `conversation_state`. Default null. */
+    conversationState?: unknown;
   } = {},
 ) {
   const session = {
     id: SESSION,
     workerId: WORKER,
     status: opts.sessionStatus ?? "active",
-    conversationState: null,
+    conversationState: opts.conversationState ?? null,
     startedAt: new Date(),
   };
 
@@ -1865,5 +1872,348 @@ describe("ChatService — the résumé-update answer (ADR-0043)", () => {
     expect(res.session_ended).toBe(false);
     expect(res.resume_update).toBeNull();
     vi.restoreAllMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0045 — the general road on the wire, in the flush, and on reopen
+// ---------------------------------------------------------------------------
+
+describe("ChatService — the general road (ADR-0045)", () => {
+  /** An armed session on the skills lane, before the handover. */
+  const onSkillsLane = (over: Partial<ProfilingEnvelope["generalRoad"]> = {}) =>
+    envelope({
+      answerMap: [answer()] as never,
+      generalRoad: {
+        ...emptyGeneralRoad(),
+        armed: true,
+        lane: "skills",
+        laneReason: "outside_declared_roles",
+        roleLabel: "Graphic designer",
+        domainLabel: "Design",
+        skills: ["CorelDRAW", "Photoshop"],
+        skillsAsks: 3,
+        ...over,
+      },
+    });
+  const HANDED_OVER = onSkillsLane({ handedOver: true, outcome: "confirmed" });
+  const handover = {
+    complete: true,
+    kind: "close",
+    questionKey: null,
+    options: [],
+    completionReason: "general_form_handoff",
+    generalFormOffer: GENERAL_FORM_OFFER,
+  };
+  const has = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
+
+  it("a flag-off turn carries NEITHER key — absent, never null", async () => {
+    const { res } = await run();
+    expect(has(res, "gate_kind")).toBe(false);
+    expect(has(res, "general_form_offer")).toBe(false);
+  });
+
+  it("the gate turn projects gate_kind and its locked keyboard", async () => {
+    const { res } = await run({
+      turn: {
+        kind: "ask",
+        questionKey: null,
+        inputMode: "options_only",
+        gateKind: "skills",
+        options: [...SKILLS_GATE_OPTIONS],
+      },
+    });
+    expect(res.gate_kind).toBe("skills");
+    expect(res.input_mode).toBe("options_only");
+    expect(has(res, "general_form_offer")).toBe(false);
+  });
+
+  it("a replayed gate keeps its kind", async () => {
+    const { res } = await run({
+      turn: { replayed: true, inputMode: "options_only", gateKind: "skills", questionKey: null },
+    });
+    expect(res.gate_kind).toBe("skills");
+  });
+
+  it("the handover: the card, NO build-profile CTA, and extraction withheld like a trade handover", async () => {
+    const { res, chat, events, profiles } = await run({
+      buffer: {},
+      written: { ...COMPLETED, completionReason: "general_form_handoff", profiling: HANDED_OVER },
+      turn: handover,
+    });
+    expect(res.general_form_offer).toEqual({
+      headline: GENERAL_FORM_OFFER.headline,
+      cta_label: GENERAL_FORM_OFFER.ctaLabel,
+    });
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(true);
+    expect(has(res, "gate_kind")).toBe(false);
+    expect(res.form_offer).toBeNull();
+    // Withheld: the profile is built after the general form, from the form.
+    expect(emittedNames(events)).not.toContain("profile.extraction_ready");
+    expect(profiles.extract).not.toHaveBeenCalled();
+
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(state.extraction_ready_emitted).toBe(false);
+    // The source stays "chat": no trade form is recorded for this road.
+    expect(state.form_kind).toBeNull();
+    // THE DURABLE STAMP — the only copy of the confirmed skills once the buffer is dropped.
+    expect(state.general_road).toEqual({
+      v: 1,
+      lane: "skills",
+      role_label: "Graphic designer",
+      domain_label: "Design",
+      skills: ["CorelDRAW", "Photoshop"],
+      outcome: "confirmed",
+      handed_over: true,
+    });
+  });
+
+  it("a session that is not on the skills lane persists no general_road key at all", async () => {
+    const { chat } = await run({
+      buffer: {},
+      written: COMPLETED,
+      turn: { complete: true, questionKey: null, completionReason: "fields_complete" },
+    });
+    const state = chat.endSession.mock.calls[0]![2] as Record<string, unknown>;
+    expect(has(state, "general_road")).toBe(false);
+  });
+
+  it("the gate's checkpoint carries the stamp — that write REPLACES the column", async () => {
+    const { chat } = await run({
+      written: { profiling: onSkillsLane({ gateOpen: true, gateRounds: 1 }) },
+      turn: {
+        checkpointDue: true,
+        gateKind: "skills",
+        inputMode: "options_only",
+        questionKey: null,
+      },
+    });
+    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    expect(state.general_road).toMatchObject({
+      skills: ["CorelDRAW", "Photoshop"],
+      handed_over: false,
+    });
+  });
+
+  it("a late POST to a handed-over session re-serves the CARD, never the résumé menu", async () => {
+    const stamp = {
+      v: 1,
+      lane: "skills",
+      role_label: "Graphic designer",
+      domain_label: "Design",
+      skills: ["CorelDRAW"],
+      outcome: "confirmed",
+      handed_over: true,
+    };
+    const { res } = await run({
+      sessionStatus: "ended",
+      conversationState: { general_road: stamp },
+    });
+    expect(res.general_form_offer).toEqual({
+      headline: GENERAL_FORM_OFFER.headline,
+      cta_label: GENERAL_FORM_OFFER.ctaLabel,
+    });
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(true);
+    expect(res.reply).toBe(GENERAL_FORM_OFFER.reply);
+  });
+
+  it("with NO skills recorded the re-served card makes no claim about skills", async () => {
+    const stamp = {
+      v: 1,
+      lane: "skills",
+      role_label: "Pilot",
+      domain_label: null,
+      skills: [],
+      outcome: "no_skills",
+      handed_over: true,
+    };
+    const { res } = await run({
+      sessionStatus: "ended",
+      conversationState: { general_road: stamp },
+    });
+    expect(res.general_form_offer?.headline).toBe(GENERAL_FORM_OFFER_NO_SKILLS.headline);
+  });
+
+  it("a late POST to an ordinary ended session is the résumé menu exactly as before", async () => {
+    const { res } = await run({ sessionStatus: "ended" });
+    expect(has(res, "general_form_offer")).toBe(false);
+    expect(res.extraction_ready).toBe(true);
+  });
+
+  describe("listMessages — the only server redraw for a cold-started chat", () => {
+    const line = (role: "worker" | "assistant", text: string) => ({
+      role,
+      text,
+      at: T0,
+      voiceNoteId: null,
+    });
+
+    it("a live session with the gate on screen says so", async () => {
+      const profiling = {
+        ...onSkillsLane({ gateOpen: true, gateRounds: 1 }),
+        lastTurn: {
+          inboundHash: "a".repeat(64),
+          submissionId: null,
+          reply: "Aapki skills: …",
+          kind: "ask",
+          questionKey: null,
+          at: T0,
+          options: [],
+          progress: { answered: 0, total: 1 },
+          whyText: null,
+          answerType: "single_select",
+          formOffer: null,
+          gateKind: "skills",
+          generalFormOffer: null,
+          lookahead: null,
+          inputMode: "options_only",
+          replays: 0,
+        },
+      } as ProfilingEnvelope;
+      const { svc } = make({
+        buffer: { messages: [line("assistant", "Aapki skills: …")], profiling },
+      });
+      const out = await svc.listMessages(WORKER, SESSION);
+      expect(out.gate_kind).toBe("skills");
+      expect(has(out, "general_form_offer")).toBe(false);
+    });
+
+    it("an ended, handed-over session redraws its card from the durable stamp", async () => {
+      const stamp = {
+        v: 1,
+        lane: "skills",
+        role_label: "Graphic designer",
+        domain_label: null,
+        skills: ["CorelDRAW"],
+        outcome: "confirmed",
+        handed_over: true,
+      };
+      const { svc } = make({ buffer: null, conversationState: { general_road: stamp } });
+      const out = await svc.listMessages(WORKER, SESSION);
+      expect(out.general_form_offer).toEqual({
+        headline: GENERAL_FORM_OFFER.headline,
+        cta_label: GENERAL_FORM_OFFER.ctaLabel,
+      });
+      expect(has(out, "gate_kind")).toBe(false);
+    });
+
+    it("an ordinary session's thread carries neither key", async () => {
+      const { svc } = make({ buffer: { messages: [line("assistant", "Namaste")] } });
+      const out = await svc.listMessages(WORKER, SESSION);
+      expect(has(out, "gate_kind")).toBe(false);
+      expect(has(out, "general_form_offer")).toBe(false);
+    });
+  });
+});
+
+describe("ChatService — the general-form card is only ever served ON RECORD (ADR-0045, review 2c)", () => {
+  const handedOver = () =>
+    envelope({
+      answerMap: [answer()] as never,
+      generalRoad: {
+        ...emptyGeneralRoad(),
+        armed: true,
+        lane: "skills",
+        laneReason: "outside_declared_roles",
+        roleLabel: "Graphic designer",
+        domainLabel: null,
+        skills: ["CorelDRAW"],
+        outcome: "confirmed",
+        handedOver: true,
+      },
+    });
+  const handoverTurn = {
+    complete: true,
+    kind: "close",
+    questionKey: null,
+    options: [],
+    completionReason: "general_form_handoff",
+    generalFormOffer: GENERAL_FORM_OFFER,
+    checkpointDue: true,
+  };
+  const WIRE = { headline: GENERAL_FORM_OFFER.headline, cta_label: GENERAL_FORM_OFFER.ctaLabel };
+  const has = (o: object, key: string) => Object.prototype.hasOwnProperty.call(o, key);
+
+  it("a re-driven handover flush serves the card — never the build-profile CTA", async () => {
+    const { res, events, profiles } = await run({
+      buffer: { ...COMPLETED, completionReason: "general_form_handoff", profiling: handedOver() },
+    });
+    expect(res.general_form_offer).toEqual(WIRE);
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(true);
+    expect(emittedNames(events)).not.toContain("profile.extraction_ready");
+    expect(profiles.extract).not.toHaveBeenCalled();
+  });
+
+  it("a re-drive that FAILS again still shows the card — and says the session is not over", async () => {
+    const { res } = await run({
+      buffer: { ...COMPLETED, completionReason: "general_form_handoff", profiling: handedOver() },
+      flushThrows: true,
+    });
+    expect(res.general_form_offer).toEqual(WIRE);
+    expect(res.extraction_ready).toBe(false);
+    expect(res.session_ended).toBe(false);
+    // Never the "Profile taiyaar ho rahi hai" line, which is false on this road.
+    expect(res.reply).toBe(GENERAL_FORM_OFFER.reply);
+  });
+
+  it("a replayed handover keeps its card", async () => {
+    const { res } = await run({
+      turn: { ...handoverTurn, replayed: true, complete: false },
+    });
+    expect(res.general_form_offer).toEqual(WIRE);
+  });
+
+  it("a handover whose flush FAILED still serves the card, because its checkpoint put it on record", async () => {
+    const { res, chat } = await run({
+      buffer: {},
+      written: { ...COMPLETED, completionReason: "general_form_handoff", profiling: handedOver() },
+      turn: handoverTurn,
+      flushThrows: true,
+    });
+    expect(res.general_form_offer).toEqual(WIRE);
+    expect(res.extraction_ready).toBe(false);
+    const state = chat.saveConversationState.mock.calls[0]![1] as Record<string, unknown>;
+    expect(state.general_road).toMatchObject({ handed_over: true, skills: ["CorelDRAW"] });
+  });
+
+  it("a handover that LOST the race (another request closed the session) serves no card", async () => {
+    const { res } = await run({
+      buffer: {},
+      written: { ...COMPLETED, completionReason: "general_form_handoff", profiling: handedOver() },
+      turn: handoverTurn,
+      flushLost: true,
+    });
+    expect(has(res, "general_form_offer")).toBe(false);
+    // Still no build-profile CTA: this turn WAS a general-road handover.
+    expect(res.extraction_ready).toBe(false);
+  });
+
+  it("an unreadable stamp on a handed-over session still keeps the CTA dark, with the no-claim card", async () => {
+    const { res } = await run({
+      sessionStatus: "ended",
+      conversationState: {
+        completion_reason: "general_form_handoff",
+        general_road: { v: 2, something: "from a later build" },
+      },
+    });
+    expect(res.extraction_ready).toBe(false);
+    expect(res.general_form_offer?.headline).toBe(GENERAL_FORM_OFFER_NO_SKILLS.headline);
+  });
+
+  it("listMessages on a LIVE session that handed over (flush pending) redraws the card", async () => {
+    const { svc } = make({
+      buffer: {
+        messages: [
+          { role: "assistant", text: GENERAL_FORM_OFFER.reply, at: T0, voiceNoteId: null },
+        ],
+        profiling: handedOver(),
+      },
+    });
+    const out = await svc.listMessages(WORKER, SESSION);
+    expect(out.general_form_offer).toEqual(WIRE);
+    expect(has(out, "gate_kind")).toBe(false);
   });
 });
