@@ -92,7 +92,9 @@ prompt fired), and on the worker side the model never saw the trade named.
   closed list after a city (`"Pune, Chakan"`) is withheld too. And the city
   gazetteer is now also an ALLOWLIST for these gates: a city that is also a common
   given name or surname ("Kota", "Surat") passes after a released word, so adding a
-  city to `cities.json` needs that check. "Survived only by a
+  city to `cities.json` needs that check. The same holds for `states.json` (names,
+  regions and abbreviations) and the connecting-word list in `pseudonymize.py`: a
+  new entry in any of them widens these three gates, not only the detector. "Survived only by a
   carve-out" is decided structurally, never by a second vocabulary lookup, so a
   lookup failure withholds. A leading stoplisted greeting (`"Hello, ..."`) is not a
   carve-out and is certified exactly as before (a stated residual: tightening it

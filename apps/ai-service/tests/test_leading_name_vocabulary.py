@@ -423,6 +423,7 @@ _CITY_LED_WITHHELD = [
     "Pune, Chakan",  # a locality in no closed list — the stated cost
     "Pune, Maharashtra Ramesh",  # a state does not launder a name beside it
     "Pune, ya Ramesh",  # nor a connecting word
+    "Pune, south india Ramesh",  # nor a region
     "Pune, mh Ramesh",  # a lowercase "mh" is not an abbreviation (they are case-sensitive)
 ]
 _CITY_LED_KEPT = [
@@ -438,6 +439,7 @@ _CITY_LED_KEPT = [
     "Faridabad, Haryana",
     "Lucknow, UP",  # an UPPERCASE listed abbreviation
     "Pune, India",
+    "Pune, South India",  # a region containing a connecting word
     "Pune, anywhere",
     "Pune, ya Mumbai",
     "Pune, or Mumbai",

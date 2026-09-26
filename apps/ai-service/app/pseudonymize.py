@@ -720,7 +720,9 @@ def _is_closed_vocabulary(rest: str) -> bool:
     error consulting a closed list withholds the label."""
     if not _PRINTABLE_ASCII_TEXT_RE.fullmatch(rest):
         return False
-    remaining = _without_state_names(_REST_CLOSED_WORDS_RE.sub(" ", _CITY_NAME_RE.sub(" ", rest)))
+    # States and regions BEFORE connecting words: "south india" is a region only while "india" is
+    # still in it.
+    remaining = _REST_CLOSED_WORDS_RE.sub(" ", _without_state_names(_CITY_NAME_RE.sub(" ", rest)))
     if not re.search(r"[A-Za-z0-9]", remaining):
         return True  # nothing but places, connecting words and punctuation
     return _is_known_trade_vocabulary(remaining)
