@@ -9,7 +9,11 @@ import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/api/api_models.dart'
-    show ResumeDocument, ResumeHistoryItem, TradeSheetResumeDocument;
+    show
+        isGeneralSheetDocument,
+        ResumeDocument,
+        ResumeHistoryItem,
+        TradeSheetResumeDocument;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
@@ -36,6 +40,7 @@ import 'cubit/resume_cubit.dart';
 import 'widgets/resume_action_row.dart';
 import 'widgets/resume_card_slots.dart';
 import 'widgets/resume_document_view.dart';
+import 'widgets/resume_general_sheet_view.dart';
 import '../../trade_form/presentation/widgets/add_more_detail_button.dart';
 import 'widgets/resume_history_section.dart';
 import 'widgets/resume_profile_card.dart';
@@ -291,12 +296,22 @@ class _ResumeViewState extends State<_ResumeView> {
       parsed,
       state.nightShiftReady,
     );
+    //
+    // #1736 — AND, INSIDE the trade-sheet branch, on WHICH SHEET was printed.
+    // A worker outside the 21 predefined roles now prints `bb_general` (#1735),
+    // so drawing him the v3 trade cards made his own tab disagree with his
+    // Download, his Share and the copy an employer reads. The question is asked
+    // once, by `isGeneralSheetDocument`, and the 21 form roles keep exactly
+    // today's view.
     final Widget resumeBody = switch (resumeRoadOf(document)) {
       ResumeRoad.chat => ChatResumeView(child: legacyBody),
-      ResumeRoad.form || ResumeRoad.unknown =>
-        document is TradeSheetResumeDocument
-            ? ResumeDocumentView(document: document)
-            : legacyBody,
+      ResumeRoad.form || ResumeRoad.unknown => switch (document) {
+        final TradeSheetResumeDocument sheet =>
+          isGeneralSheetDocument(sheet)
+              ? ResumeGeneralSheetView(document: sheet)
+              : ResumeDocumentView(document: sheet),
+        _ => legacyBody,
+      },
     };
 
     final double width = MediaQuery.sizeOf(context).width;

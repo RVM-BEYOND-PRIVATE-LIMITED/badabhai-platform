@@ -13,6 +13,7 @@ import '../../../../core/widgets/kit/kit_info_chip.dart';
 import '../../../../core/widgets/kit/kit_micro_label.dart';
 import '../cubit/resume_cubit.dart';
 import 'resume_card_slots.dart';
+import 'resume_general_sheet_rows.dart';
 
 /// Gap between two v3 cards in the resume stack.
 const double kResumeCardGap = 12;
@@ -373,7 +374,7 @@ class _WorkHistoryCard extends StatelessWidget {
           // what put two employments three gaps apart instead of one.
           for (final ResumeEmploymentDto e in document.employments) ...<Widget>[
             const SizedBox(height: 12),
-            _EmploymentEntry(employment: e),
+            ResumeEmploymentEntry(employment: e),
           ],
           if (document.employmentsMore != null &&
               document.employmentsMore!.isNotEmpty) ...<Widget>[
@@ -415,7 +416,7 @@ class _TrainingCard extends StatelessWidget {
           for (final ResumeExperienceLineDto line
               in document.experiences) ...<Widget>[
             const SizedBox(height: 12),
-            _TrainingEntry(line: line),
+            ResumeTrainingEntry(line: line),
           ],
         ],
       ),
@@ -597,16 +598,32 @@ class _FactLine extends StatelessWidget {
 /// #1353/#1354 — STATEFUL only for the own-words reveal/choice affordance
 /// below the work line (see [_OwnWordsChoice]); everything else is the
 /// unchanged #1343 render.
-class _EmploymentEntry extends StatefulWidget {
-  const _EmploymentEntry({required this.employment});
+///
+/// #1736 — SHARED WITH THE GENERAL SHEET through [style]. It is public for that
+/// reason and no other: the reveal, the refusal and their failure toast are the
+/// worker's only way to keep a sentence that carries his name, and a second
+/// copy of them in the other view would be one copy to forget.
+class ResumeEmploymentEntry extends StatefulWidget {
+  const ResumeEmploymentEntry({
+    super.key,
+    required this.employment,
+    this.style = ResumeEmploymentStyle.card,
+  });
 
   final ResumeEmploymentDto employment;
 
+  /// #1736 — which sheet is drawing this entry. [ResumeEmploymentStyle.card] is
+  /// the trade sheet's layout and the DEFAULT, so the 21 form roles render byte
+  /// for byte as before; the general sheet passes its own style. The reveal /
+  /// refusal machinery below is shared either way, which is the point of the
+  /// parameter: #1354's mitigation cannot be lost by a layout that forgot it.
+  final ResumeEmploymentStyle style;
+
   @override
-  State<_EmploymentEntry> createState() => _EmploymentEntryState();
+  State<ResumeEmploymentEntry> createState() => _ResumeEmploymentEntryState();
 }
 
-class _EmploymentEntryState extends State<_EmploymentEntry> {
+class _ResumeEmploymentEntryState extends State<ResumeEmploymentEntry> {
   bool _revealed = false;
   bool _pending = false;
 
@@ -666,32 +683,48 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
     final bool canOfferPolishedBack =
         !canOfferOwnWords && employment.id != null && _justKeptOwnWords;
 
+    final bool general = widget.style == ResumeEmploymentStyle.generalSheet;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        if (heading.isNotEmpty)
-          Text(
-            heading,
-            style: OnboardingTypography.inter(
-              size: 14,
-              weight: FontWeight.w700,
-              height: 1.35,
+        // THE GENERAL SHEET puts the employer (and its city) on the left and
+        // the span on the right; the trade sheet stacks them. Same strings,
+        // same server-composed separators — only the geometry differs.
+        if (general)
+          ResumeSheetHeadRow(
+            title: '${employment.employer}${employment.roleInline ?? ''}',
+            titleSuffix: employment.locationSuffix,
+            when: employment.when,
+          )
+        else ...<Widget>[
+          if (heading.isNotEmpty)
+            Text(
+              heading,
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w700,
+                height: 1.35,
+              ),
             ),
-          ),
-        if (employment.when.isNotEmpty)
-          Text(
-            employment.when,
-            style: OnboardingTypography.inter(
-              size: 12,
-              color: OnboardingColors.ink500,
+          if (employment.when.isNotEmpty)
+            Text(
+              employment.when,
+              style: OnboardingTypography.inter(
+                size: 12,
+                color: OnboardingColors.ink500,
+              ),
             ),
-          ),
+        ],
         if (employment.work.isNotEmpty) ...<Widget>[
           const SizedBox(height: 4),
-          Text(
-            employment.work,
-            style: OnboardingTypography.inter(size: 13, height: 1.45),
-          ),
+          if (general)
+            ResumeSheetBullet(text: employment.work)
+          else
+            Text(
+              employment.work,
+              style: OnboardingTypography.inter(size: 13, height: 1.45),
+            ),
         ],
         // #1353/#1354 — an entry with nothing to compare shows NOTHING extra:
         // no affordance, no disabled/greyed placeholder.
@@ -714,17 +747,25 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
             loading: _pending,
           ),
         ],
-        for (final ResumeEmploymentRoleStintDto stint in employment.roles)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '${stint.role} · ${stint.when}',
-              style: OnboardingTypography.inter(
-                size: 12,
-                color: OnboardingColors.ink600,
+        for (int i = 0; i < employment.roles.length; i++)
+          if (general)
+            ResumeSheetStint(
+              role: employment.roles[i].role,
+              when: employment.roles[i].when,
+              // The current role sits flush; earlier ones step in.
+              stepped: i > 0,
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '${employment.roles[i].role} · ${employment.roles[i].when}',
+                style: OnboardingTypography.inter(
+                  size: 12,
+                  color: OnboardingColors.ink600,
+                ),
               ),
             ),
-          ),
       ],
     );
   }
@@ -732,7 +773,7 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
 
 /// One training block on the sheet, with the reveal beside it (#1476).
 ///
-/// The fresher's counterpart to [_EmploymentEntry]: the printed line, and —
+/// The fresher's counterpart to [ResumeEmploymentEntry]: the printed line, and —
 /// only when a model rewrote it — a quiet link to see the sentence he actually
 /// wrote. Stateful for exactly the same reason that one is: the reveal is a
 /// LOCAL toggle and must not reset every time the tab rebuilds.
@@ -751,16 +792,24 @@ class _EmploymentEntryState extends State<_EmploymentEntry> {
 /// toggle would need the document to carry the declined STATE rather than just
 /// the comparison — a backend change, on both paths at once, not something to
 /// fake here.
-class _TrainingEntry extends StatefulWidget {
-  const _TrainingEntry({required this.line});
+class ResumeTrainingEntry extends StatefulWidget {
+  const ResumeTrainingEntry({
+    super.key,
+    required this.line,
+    this.style = ResumeEmploymentStyle.card,
+  });
 
   final ResumeExperienceLineDto line;
 
+  /// #1736 — see [ResumeEmploymentEntry.style]. The general sheet lays the head
+  /// out its own way and keeps #1492's refusal exactly as it is here.
+  final ResumeEmploymentStyle style;
+
   @override
-  State<_TrainingEntry> createState() => _TrainingEntryState();
+  State<ResumeTrainingEntry> createState() => _ResumeTrainingEntryState();
 }
 
-class _TrainingEntryState extends State<_TrainingEntry> {
+class _ResumeTrainingEntryState extends State<ResumeTrainingEntry> {
   bool _revealed = false;
 
   /// True while the refusal is in flight, so a second tap cannot fire it twice.
@@ -782,7 +831,7 @@ class _TrainingEntryState extends State<_TrainingEntry> {
     } on Failure catch (f) {
       // He tapped a deliberate choice about a sentence carrying his name. A
       // failed write must surface honestly, never look like it silently
-      // worked — the same rule `_EmploymentEntry._choose` follows.
+      // worked — the same rule `ResumeEmploymentEntry`'s own `_choose` follows.
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
@@ -795,32 +844,46 @@ class _TrainingEntryState extends State<_TrainingEntry> {
   @override
   Widget build(BuildContext context) {
     final ResumeExperienceLineDto line = widget.line;
+    final bool general = widget.style == ResumeEmploymentStyle.generalSheet;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        if (line.role.isNotEmpty)
-          Text(
-            line.role,
-            style: OnboardingTypography.inter(
-              size: 14,
-              weight: FontWeight.w700,
-              height: 1.35,
+        if (general)
+          // The duration is the worker's OWN words here, not a date range, so
+          // it is allowed to wrap — right-aligned, within half the row.
+          ResumeSheetHeadRow(
+            title: line.role,
+            when: line.duration,
+            wrapWhen: true,
+          )
+        else ...<Widget>[
+          if (line.role.isNotEmpty)
+            Text(
+              line.role,
+              style: OnboardingTypography.inter(
+                size: 14,
+                weight: FontWeight.w700,
+                height: 1.35,
+              ),
             ),
-          ),
-        if (line.duration.isNotEmpty)
-          Text(
-            line.duration,
-            style: OnboardingTypography.inter(
-              size: 12,
-              color: OnboardingColors.ink500,
+          if (line.duration.isNotEmpty)
+            Text(
+              line.duration,
+              style: OnboardingTypography.inter(
+                size: 12,
+                color: OnboardingColors.ink500,
+              ),
             ),
-          ),
+        ],
         if (line.work.isNotEmpty) ...<Widget>[
           const SizedBox(height: 4),
-          Text(
-            line.work,
-            style: OnboardingTypography.inter(size: 13, height: 1.45),
-          ),
+          if (general)
+            ResumeSheetBullet(text: line.work)
+          else
+            Text(
+              line.work,
+              style: OnboardingTypography.inter(size: 13, height: 1.45),
+            ),
         ],
         // Nothing to compare ⇒ nothing extra. No affordance, no greyed
         // placeholder — the same rule the employment entry follows.

@@ -507,9 +507,19 @@ ResumeProfileFacts resolveProfileFacts({
   if (document is TradeSheetResumeDocument) {
     // The server already composed both lines with its own ` · ` separators.
     // NEVER re-split them: the joiner is also used inside values.
+    //
+    // #1736 — THE GENERAL SHEET PRINTS NO SUBHEAD. Its own template says why:
+    // every fact that line carries (city, availability, pay) is printed again
+    // as an Availability & Terms row, and the owner's format has no place for
+    // it. Suppressing it HERE rather than in the card keeps the rule in the one
+    // spot all three document shapes meet, and leaves the trade sheet's two-line
+    // masthead verbatim. The bold headline stays on both sheets.
+    final bool general = isGeneralSheetDocument(document);
     return ResumeProfileFacts(
       subtitle: _nullIfEmpty(_clean(document.headline.line1 ?? '')),
-      secondLine: _nullIfEmpty(_clean(document.headline.line2 ?? '')),
+      secondLine: general
+          ? null
+          : _nullIfEmpty(_clean(document.headline.line2 ?? '')),
       salary: _tradeSheetSalary(document),
     );
   }
