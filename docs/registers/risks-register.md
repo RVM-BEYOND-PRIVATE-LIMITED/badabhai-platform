@@ -322,3 +322,19 @@ These residuals were accepted with that ruling. They are recorded so nobody redi
 4. **Consent-withdrawn workers get a 403 on their own saved answers** (ConsentGuard on the GETs). This
    matches every other `/workers/me/*` route. A DSAR self-view is a separate question and is not
    settled here.
+
+## 2026-09-26 — R30 addendum: a dashed pay range on the job chat's pay question (#1731)
+
+**Owner ruling, Prakash, 2026-09-26** (direct working session, PR #1733). R30's shape-only phone
+rule masks `"20000-25000"` because it is ten digits joined by a dash, and the payer job chat
+kept the masked text, so a pay band typed with a dash was never recorded. The gateway and the
+draft text are unchanged. On the pay question only, the pay parser alone may read the raw answer
+when that answer is exactly one round, ascending, money-shaped range and every other word is a
+pay word (currency, salary/pay, a pay basis, a period). A contact word, a name, a second figure
+or any other identity class leaves the masked text in place, exactly as before.
+
+**Accepted residual.** A round, ascending phone-shaped number typed alone as the pay answer is
+recorded as `pay_min` / `pay_max`. Bounds: two integers, never text; only on the pay question;
+never on the first turn; shown to the payer on their own draft card before publishing. It gives
+a payer who wants to publish a number nothing that R30's word-split gap does not already give.
+Owner: ai-service. Code: `apps/ai-service/app/job_posting_chat/answers.py` (`pay_text_for`).

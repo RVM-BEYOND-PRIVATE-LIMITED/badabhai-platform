@@ -1328,8 +1328,9 @@ def carries_identity(placeholder_tokens: list[str] | None) -> bool:
 # 0-prefixed or +91-prefixed mobile is never one). A real mobile is descending half the time and
 # round in both halves essentially never. And the rest of the answer may hold only pay words
 # (`_PAY_ANSWER_WORD_RE`): "call 98000-99000" is a phone however round it is. STATED RESIDUAL
-# (risks register, R30): a round, ascending vanity number typed ALONE as the pay answer is
-# recorded as the pay band — two numbers a worker reads as a wage, never text.
+# (owner-accepted 2026-09-26, risks register R30 addendum): a round, ascending vanity number
+# typed ALONE as the pay answer is recorded as the pay band — two numbers a worker reads as a
+# wage, never text.
 _RANGE_DASHES = "-‐‑‒–—―−"
 _MONEY_RANGE_AMOUNT = r"([1-9]\d{0,2}(?:,\d{2,3})+|[1-9]\d{3,4})"
 _MONEY_RANGE_RE = re.compile(
