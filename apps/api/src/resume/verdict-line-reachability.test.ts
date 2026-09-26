@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { templateIdForPack } from "./resume-document";
+import { getResumeTemplate } from "./templates/registry";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
@@ -78,8 +79,14 @@ describe("R16 §1 — the Verdict Line's reachability, measured rather than assu
     // It USED to be "the pack has a resume map", which dropped ~102 packs onto the flat classic
     // layout and took the verdict line with them — the cliff Layer A (i) closes. The only
     // remaining `classic` case is a worker whose profile carries no pack answers at all.
+    //
+    // A pack outside the 21 predefined roles gets `bb_general` (owner format, 2026-09-25), which
+    // prints the verdict line too — so the cliff stays closed on both sheets.
     expect(templateIdForPack("qp_cnc_turning")).toBe("bb_trade");
-    expect(templateIdForPack("qp_universal")).toBe("bb_trade");
+    expect(templateIdForPack("qp_universal")).toBe("bb_general");
     expect(templateIdForPack(null)).toBe("classic");
+    expect(read(`templates/${getResumeTemplate("bb_general").file}`)).toContain(
+      "{{headline_line}}",
+    );
   });
 });

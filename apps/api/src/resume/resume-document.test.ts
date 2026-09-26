@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 import {
+  packIsPredefinedRole,
   packUsesUniversalSheet,
   readResumeGlance,
+  renderTemplateId,
   templateIdForPack,
   toResumeDocument,
   tradeKindForPack,
@@ -60,14 +63,53 @@ describe("the template gate (Layer A (i) — no map, no cliff)", () => {
     expect(TRADE_RESUME_MAPS.length).toBeGreaterThan(0);
   });
 
-  it("selects it for an UNMAPPED pack too — the cliff this closes", () => {
-    // ~102 packs have no bespoke capability map. They used to fall back to `classic` and lose
-    // the verdict line, the terms rows, Zone 5, the QR and the footer — none of which a map
-    // drives. The template gate is now the PACK, and the no-map capability zone collapses
-    // (buildTradeCapabilityRows already handles that) rather than costing the whole sheet.
-    expect(templateIdForPack("qp_universal")).toBe("bb_trade");
-    expect(templateIdForPack("qp_welding")).toBe("bb_trade");
+  it("selects the trade sheet for EVERY one of the 21 predefined roles, form or not", () => {
+    // The 21 are the owner's line, not the 16 with a form live today: the five polymer roles are
+    // declared but formless, and they stay on the trade sheet with the rest of the 21.
+    expect(ROLE_FORM_DESCRIPTORS).toHaveLength(21);
+    for (const role of ROLE_FORM_DESCRIPTORS) {
+      expect(packIsPredefinedRole(role.packId), role.packId).toBe(true);
+      expect(templateIdForPack(role.packId), role.packId).toBe("bb_trade");
+    }
+  });
+
+  it("selects the GENERAL sheet for every other pack — the owner's format of 2026-09-25", () => {
+    // ~102 packs are outside the 21: the universal fallback and every family pack without a
+    // trade form. They rendered through `bb_trade` with its capability zone collapsed; they now
+    // get the owner's general format. Still a BadaBhai sheet — verdict line, terms rows, QR and
+    // footer all print — so the cliff Layer A (i) closed stays closed.
+    expect(templateIdForPack("qp_universal")).toBe("bb_general");
+    // A FAMILY pack beside a role pack is not the role: `qp_welding` is the chat's welding
+    // family, `qp_welding_trade` is the Welder form.
+    expect(templateIdForPack("qp_welding")).toBe("bb_general");
+    expect(templateIdForPack("qp_welding_trade")).toBe("bb_trade");
     expect(packUsesUniversalSheet("qp_universal")).toBe(true);
+    expect(packIsPredefinedRole("qp_universal")).toBe(false);
+  });
+
+  it("renders a stored general sheet as the trade sheet once the worker holds a role pack", () => {
+    // The id is fixed at generation; the pack is re-elected on every render. A worker profiled
+    // in the chat who later takes a role form must not get the role's capability rows printed
+    // through the general layout until his next generation lands.
+    expect(renderTemplateId("bb_general", "qp_cnc_turning")).toBe("bb_trade");
+    expect(renderTemplateId("bb_general", "qp_maintenance_tech")).toBe("bb_trade");
+    // Unchanged while he is still outside the 21, or the pack could not be loaded.
+    expect(renderTemplateId("bb_general", "qp_universal")).toBe("bb_general");
+    expect(renderTemplateId("bb_general", null)).toBe("bb_general");
+    // ONE WAY: a trade sheet is never downgraded, and every other id renders as recorded.
+    expect(renderTemplateId("bb_trade", "qp_universal")).toBe("bb_trade");
+    expect(renderTemplateId("bb_trade", null)).toBe("bb_trade");
+    expect(renderTemplateId("classic", "qp_cnc_turning")).toBe("classic");
+    expect(renderTemplateId("fallback", "qp_cnc_turning")).toBe("fallback");
+    expect(renderTemplateId(null, "qp_cnc_turning")).toBeNull();
+  });
+
+  it("never mistakes an inherited object key for a role pack", () => {
+    // The pack id is data read back from `worker_attributes`; `in` would say yes to these.
+    for (const key of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(packIsPredefinedRole(key), key).toBe(false);
+      expect(templateIdForPack(key), key).toBe("bb_general");
+    }
   });
 
   it("keeps classic only when there is no pack at all", () => {

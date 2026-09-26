@@ -338,16 +338,12 @@ export class ResumeService {
     const resumeText = fullName ? `${fullName}\n${result.resume_text}` : result.resume_text;
     const resumeJson = fullName ? { ...result.resume_json, name: fullName } : result.resume_json;
 
-    // THE LAYOUT, CHOSEN FROM THE WORKER'S TRADE.
+    // THE LAYOUT, CHOSEN FROM THE WORKER'S PACK — `bb_trade` for the 21 predefined roles,
+    // `bb_general` for any other pack, `classic` for none. `templateIdForPack` owns the rule.
     //
-    // `bb_trade` has been shipped, tested and immutable for sixteen packets and NOTHING HAS
-    // EVER SELECTED IT: both branches below hardcoded "classic", so the trade sheet — the
-    // zoned one-page layout the whole role-pack track exists to fill — has been dark code.
-    //
-    // GATED ON THE PACK HAVING A RESUME MAP, which is the same condition the capability rows
-    // already use, so a worker whose trade has no map keeps `classic` and renders
-    // byte-identically to yesterday. Workers flip over one at a time as their trade is
-    // authored — no cutover, no backfill — exactly how the work-history reader was staged.
+    // CHOSEN HERE, AT GENERATION, AND NOWHERE ELSE. The id is stored on the row and every
+    // re-render and employer disclosure reuses it, so a worker's existing résumés keep the
+    // layout they were issued with — no cutover, no backfill.
     //
     // DEGRADES TO `classic`, NEVER TO A FAILED GENERATE. A trade lookup that throws must not
     // cost a worker their resume; the wrong-but-working layout is the correct failure here.

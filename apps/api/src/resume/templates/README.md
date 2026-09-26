@@ -7,13 +7,22 @@ into the build.
 
 ## Files & registry
 
+The LIVE version of each id (older `v<n>` files stay on disk, untouched):
+
 | template_id | version | file | notes |
 | ----------- | ------- | ---- | ----- |
-| `classic`   | 1 | `classic.v1.html` | single column, serif, print-first |
-| `modern`    | 1 | `modern.v1.html`  | two column (sidebar + main) |
-| `minimal`   | 1 | `minimal.v1.html` | compact, label/value rows |
-| `fallback`  | 1 | `fallback.v1.html` | **generic fallback** — plain, robust, sparse-data safe |
-| `bb_trade`  | 1 | `bb_trade.v1.html` | **the locked BadaBhai trade sheet** — see below |
+| `classic`   | 3 | `classic.v3.html` | single column, serif, print-first — a profile with **no pack** |
+| `modern`    | 3 | `modern.v3.html`  | two column (sidebar + main) |
+| `minimal`   | 3 | `minimal.v3.html` | compact, label/value rows |
+| `fallback`  | 3 | `fallback.v3.html` | **generic fallback** — plain, robust, sparse-data safe |
+| `bb_trade`  | 2 | `bb_trade.v2.html` | **the locked BadaBhai trade sheet** — the **21 predefined roles**; see below |
+| `bb_general` | 1 | `bb_general.v1.html` | **the BadaBhai general sheet** — **every other pack**; see below |
+
+Which id a worker gets is `templateIdForPack` in `../resume-document.ts`, decided once at
+generation and stored on the row; every re-render and employer disclosure reuses the stored id —
+with one upgrade, `renderTemplateId`: a stored `bb_general` renders as `bb_trade` once the
+worker's elected pack is one of the 21 (he took a role form after his last generation). Never the
+other way.
 
 [`registry.ts`](./registry.ts) is the source of truth. `getResumeTemplate(id)`
 resolves a stable `template_id` and returns the **fallback** for any unknown /
@@ -68,7 +77,9 @@ No contact PII (phone/address/employer) appears in `classic`, `modern`, `minimal
 or `fallback` — only `{{full_name}}`. **Keep it that way for those four.**
 
 `bb_trade` is the documented exception and the scope of the rule is now per-template,
-not global:
+not global. **`bb_general` carries the same exception on the same terms** — every bullet below
+applies to it too. That is not new exposure: until `bb_general` existed, the same workers'
+résumés rendered through `bb_trade` and printed all of it.
 
 - **Phone renders**, on *both* the worker copy and the employer disclosure (owner
   ruling 2026-08-28). A sheet handed over at a factory gate is useless without a
@@ -218,3 +229,85 @@ worker's résumé intact, so it stays until there is a reason better than "we fo
 **Re-running it.** Emit with `EMIT_SHEETS=<dir> npx vitest run src/resume/sheet-shape-emit`,
 then render the directory with the recipe above; count pages through the WeasyPrint API
 rather than a PDF page-object grep, which miscounts.
+
+## `bb_general` — the general sheet
+
+The owner's format of 2026-09-25 ("Standard Professional Resume Template v3") for every worker
+whose pack is **not** one of the 21 predefined roles (`ROLE_FORM_DESCRIPTORS`) — the universal
+fallback pack and every family pack without a trade form. Until it existed these workers rendered
+through `bb_trade` with its capability section collapsed; the 21 roles keep `bb_trade` unchanged.
+
+**A layout change, not a data change.** It reads only slots the renderer already fills for every
+template. Nothing in the mapper, the row composers or their separators changed for it, so the
+parts of the sample the data does not carry are absent rather than approximated: there is no
+summary paragraph (no prose source exists), no skill categories (the Skills rows are the worker's
+own `skills` / `machines` / `controllers` lists), and separators are the mapper's own
+("Employer · City", "Generated … · Ref …", certificates joined in one row).
+
+Layout, top to bottom: navy band with the lockup at the **left**; name (22pt) with the phone on the
+right; location line; WhatsApp line (worker copy only); the verdict line's first line as the
+headline; then grey section bars — **Skills**, **Availability & Terms**, **Work History**,
+**Education**, **Certifications & Training** — and the footer (framed QR, mark, caption, link,
+reference, disclaimer). A faint diagonal "BADABHAI" watermark sits behind every page.
+
+**Skills prints the worker's full `skills` / `machines` / `controllers` lists on both audiences**
+— `bb_trade` showed at most three of them, in the headline. Both mapper paths therefore screen
+those lists with `cleanList` (blanks, email shapes and 7+ digit runs drop); the legacy path did
+not until this sheet made it matter.
+
+Not printed, because the format has no place for them and each fact is on the page already: the
+verdict **subhead** (city, availability, pay — all Availability & Terms rows) and the **own words**
+quotes (the same sentences the Work History entries print).
+
+### How the qualification rows are split
+
+The qualification rows arrive as ONE list (Education, Certificates, Training, Languages spoken)
+and the format spreads them over three sections. The slot engine has no filter, so the region is
+repeated in each section and CSS keeps each section's own rows by `data-label`. Routing defaults
+to **visible**: Education keeps Education, Availability keeps Languages spoken, and Certifications
+& Training keeps everything else — so a label added later prints there with its label rather than
+nowhere. Because hidden rows are still child nodes, those sections cannot use `.sec:empty`; their
+heading rides the first visible row (`::before`) and is withdrawn from later rows by sibling
+combinators. `bb-general-template.test.ts` pins the routed labels against `buildQualificationRows`.
+
+### Print details
+
+- **Watermark:** the word as SVG outlines in the `@page` background, 159.5 mm square and
+  `#f6f6f6` — both measured off the owner's PDF. Outlines, not text, so nothing enters the text layer that résumé re-import and an
+  employer's ATS read. It repeats on every page and costs no layout.
+- **QR:** 18 mm, as on `bb_trade`, inside the sample's 1.5pt black frame, whose 2.9 mm white
+  padding (every edge) is the four-module quiet zone (the symbol is generated with no margin of its own). Pinned in
+  `sheet-qr.gate.test.ts`.
+- **Type:** the sample's sizes (body 10pt, name 22pt, bars 11pt); margins stay at 12mm, not the
+  sample's 7.4mm, because gate-desk printers clip.
+- **Footer flows:** nothing is positioned, so a two-page sheet ends with its footer on page 2.
+
+### Rendered — 2026-09-25, WeasyPrint 69.0
+
+`EMIT_GENERAL_SHEETS=<dir> npx vitest run src/resume/bb-general-sheet` writes 4 generalized
+personas (chat-road jobs, employer records, sparse, and a legacy-path worker with skills,
+machines and two PII-shaped entries) and all 14 `SHEET_SHAPES`, each for both audiences — 36
+sheets. Every one was rendered and its **text layer** checked: each qualification
+value prints exactly once, no section heading prints twice or with nothing under it, and
+"BADABHAI" never appears in extracted text.
+
+All eight persona sheets are **one page**; the masthead band measures 19.9pt against the
+sample's 19.5pt. Seven synthetic stress sheets spill to two (shapes 5, 6 and 9 on both audiences,
+11 on the worker copy) — every one a fully-answered CNC form pack whose capability rows a
+`bb_general` sheet never carries in production (`renderTemplateId` sends such a worker to
+`bb_trade`). A spilled sheet takes its last section onto page 2 with the footer.
+
+**The line model is `bb_trade`'s and is not calibrated to this layout.** It predicted one page for
+three of those spills (40.19 lines each: shapes 5 and 6 employer, 11 worker). Its only effects
+are the spill warning in the render log and the "employers beyond three" collapse, which may
+therefore not fire where it would have bought the page; the sheet spills instead, which the
+2026-09-03 ruling accepts. The history card's page count is measured from the PDF and is exact.
+
+### Rolling back
+
+Revert the routing, not the template: point `templateIdForPack` back at `bb_trade` and keep the
+`bb_general` registry entry and file. Rows already stored as `bb_general` keep rendering as
+issued. Deleting the registry entry instead sends those rows to `fallback.v3` — no phone, no
+employer blocks, no QR — on every re-render and employer disclosure; if it must go, first
+`UPDATE generated_resumes SET template_id = 'bb_trade' WHERE template_id = 'bb_general'`, which
+renders them exactly as these workers' sheets rendered before (bar the three skill lists).

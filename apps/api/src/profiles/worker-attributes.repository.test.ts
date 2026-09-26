@@ -227,7 +227,7 @@ describe("WorkerAttributesRepository.setTextPolishDeclined — the predicate IS 
     // a second role pack that does not re-ask it (the ITI items are gated on that trade's tenure, so
     // stating experience suppresses them), leaving newer rows under the second pack. Stamping
     // `updated_at` here would make `PUT .../text-source` hand the OLD pack back to the renderer —
-    // flipping `templateIdForPack` between classic and bb_trade, and re-resolving
+    // flipping `templateIdForPack` / `renderTemplateId` between bb_trade and bb_general, and re-resolving
     // `WORKSHOP_MACHINES` / `TRADE_TEST` / `TRAINING_LABEL` against the wrong trade. A route that
     // picks which of two sentences prints would be silently picking the trade.
     //
