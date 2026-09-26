@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/data/job_posting_chat_models.dart';
+import '../../../../core/data/models.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -56,9 +57,18 @@ class DraftPreview extends StatelessWidget {
     final List<(String, String)> rows = <(String, String)>[
       if (draft.roleTitle != null) ('Role', draft.roleTitle!),
       if (draft.locationLabel != null) ('Location', draft.locationLabel!),
+      // #1727 — the coarse card city, beside the poster's own location wording
+      // rather than instead of it: they are two different facts, and only this
+      // one reaches a worker's card.
+      if (draft.city != null) ('City', draft.city!),
       if (draft.vacancyBand != null) ('Vacancies', draft.vacancyBand!),
       if (_pay != null) ('Pay', _pay!),
-      if (draft.shift != null) ('Shift', draft.shift!),
+      // What the band MEANS (#1727). Humanised — `in_hand` never reaches a
+      // payer's eye, and neither do the other three enums below.
+      if (_payType != null) ('Pay type', _payType!),
+      if (_experience != null) ('Experience', _experience!),
+      if (_shift != null) ('Shift', _shift!),
+      if (_neededBy != null) ('Joining time', _neededBy!),
       if (draft.skillPhrases.isNotEmpty)
         ('Skills', draft.skillPhrases.join(' · ')),
       if (draft.requirements.isNotEmpty)
@@ -143,6 +153,33 @@ class DraftPreview extends StatelessWidget {
 
   /// "₹18,000 – ₹24,000" from whichever bound(s) the server holds. Never
   /// invents the missing half.
+  /// `in_hand` → "In-hand". The shared humaniser both demand forms use.
+  String? get _payType => jobPayTypeLabel(draft.payType);
+
+  /// `immediate` → "Immediate".
+  String? get _neededBy =>
+      draft.neededBy == null ? null : agencyNeededByLabel(draft.neededBy);
+
+  /// `night` → "Night". The raw enum used to print here verbatim.
+  String? get _shift => switch (draft.shift) {
+        'day' => 'Day',
+        'night' => 'Night',
+        'rotational' => 'Rotational',
+        _ => null,
+      };
+
+  /// "1–4 yrs" / "5+ yrs" / "up to 2 yrs" — the same shape the agency job view
+  /// prints, because either end may legitimately be absent ("5+ years" has no
+  /// max) and 0 is a real value (a fresher), not a missing one.
+  String? get _experience {
+    final int? lo = draft.minExperienceYears;
+    final int? hi = draft.maxExperienceYears;
+    if (lo == null && hi == null) return null;
+    if (lo != null && hi != null) return '$lo–$hi yrs';
+    if (lo != null) return '$lo+ yrs';
+    return 'up to $hi yrs';
+  }
+
   String? get _pay {
     final int? min = draft.payMin;
     final int? max = draft.payMax;

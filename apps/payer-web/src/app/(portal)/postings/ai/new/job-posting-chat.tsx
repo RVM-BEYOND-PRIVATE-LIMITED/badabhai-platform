@@ -12,7 +12,7 @@ import { Badge, Button, Card, Textarea } from "../../../../../components/ds";
 // Imported from the module path (not the ds barrel) so a test can mock just this
 // interactive pill while rendering the other hookless DS primitives for real.
 import { Chip } from "../../../../../components/ds/chip";
-import { DraftPreview } from "./draft-preview";
+import { cardGapLabels, DraftPreview } from "./draft-preview";
 import {
   publishJobPostingChatAction,
   resumeJobPostingChatAction,
@@ -98,6 +98,14 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
   // Keep the publish CTA disabled across the success→navigation window so it can never be
   // re-clicked (no double publish) — the same latch the manual posting form uses.
   const [navigating, setNavigating] = useState(false);
+  // #1727 — the worker-card columns the published posting holds NULL, with the
+  // posting to open. DECLARED LAST on purpose: the tests seed state positionally
+  // in declaration order (convo, text, error, navigating), so a hook inserted
+  // above would silently shift every seeded value.
+  const [published, setPublished] = useState<{
+    postingId: string;
+    cardGaps: string[];
+  } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const busy = pending || navigating;
@@ -188,6 +196,17 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
         setError(res.error);
         return;
       }
+      // #1727 — when the posting's worker card has empty columns, HOLD this
+      // screen and name them: navigating away in the same tick is why the
+      // server's honesty about a thin posting was never seen. A clean publish
+      // routes exactly as before.
+      const cardGaps = res.unsetCardFields ?? [];
+      if (cardGaps.length > 0) {
+        setPublished({ postingId: res.postingId, cardGaps });
+        setNavigating(true);
+        router.refresh();
+        return;
+      }
       // Latch BEFORE navigating, then route to the posting's EXISTING detail page.
       setNavigating(true);
       router.push(`/postings/${res.postingId}`);
@@ -212,7 +231,11 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
               {resumable.map((s) => (
                 <li key={s.sessionId} className="ai-chat-resume__item">
                   <div className="ai-chat-resume__meta">
-                    <span className="ai-chat-resume__role">{s.roleTitle ?? "Untitled role"}</span>
+                    <span className="ai-chat-resume__role">
+                      {s.roleTitle ?? "Untitled role"}
+                      {/* #1727 — the draft's coarse card city, when it has one. */}
+                      {s.city === null ? null : ` · ${s.city}`}
+                    </span>
                     <Badge tone={s.draftReady ? "success" : "info"} upper>
                       {s.draftReady ? "Ready to publish" : "In progress"}
                     </Badge>
@@ -325,6 +348,15 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
 
           <div aria-live="polite" className="ai-chat-status">
             {error !== null ? <p className="ai-chat-status__error">{error}</p> : null}
+            {published !== null ? (
+              <div className="alert alert--info">
+                <p>
+                  Posted as a draft. Empty on the worker&apos;s card:{" "}
+                  {cardGapLabels(published.cardGaps).join(", ")}.
+                </p>
+                <Link href={`/postings/${published.postingId}`}>Open the posting</Link>
+              </div>
+            ) : null}
           </div>
         </Card>
       </div>

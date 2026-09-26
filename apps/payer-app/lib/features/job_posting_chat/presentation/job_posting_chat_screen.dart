@@ -77,15 +77,72 @@ String jobChatJoinLabels(List<String> labels) {
   return '$head and ${labels.last}';
 }
 
-/// The publish-success copy, with an ADDITIVE honesty clause when the server
-/// could not fold some collected fields onto the live posting. Returns the base
-/// message unchanged when everything mapped cleanly.
-String jobChatPublishSuccessMessage(List<String> unmappedFields) {
-  final List<String> labels = jobChatFriendlyUnmappedLabels(unmappedFields);
-  if (labels.isEmpty) return kJobChatPublishSuccessMessage;
-  return '$kJobChatPublishSuccessMessage '
-      'A few details did not carry over — add ${jobChatJoinLabels(labels)} '
-      'on the posting.';
+/// Friendly labels for the worker-card columns the created posting holds NULL
+/// (`PublishJobResult.unsetCardFields`, #1727). The two pay bounds and the two
+/// experience bounds each collapse to one phrase, because that is how a payer
+/// reads them on the card.
+const Map<String, String> kJobChatCardFieldLabels = <String, String>{
+  'city': 'city',
+  'pay_min': 'pay band',
+  'pay_max': 'pay band',
+  'pay_type': 'pay type',
+  'min_experience_years': 'experience',
+  'max_experience_years': 'experience',
+  'shift': 'shift',
+  'needed_by': 'joining time',
+  'description': 'description',
+  'requirements': 'requirements',
+  'benefits': 'benefits',
+};
+
+/// Maps the raw card keys to friendly labels, de-duplicated in first-seen order.
+/// An unknown key is humanized rather than dropped, on the same terms as
+/// [jobChatFriendlyUnmappedLabels].
+List<String> jobChatCardGapLabels(List<String> raw) {
+  final List<String> labels = <String>[];
+  for (final String key in raw) {
+    final String trimmed = key.trim();
+    if (trimmed.isEmpty) continue;
+    final String label = kJobChatCardFieldLabels[trimmed] ??
+        trimmed.replaceAll(RegExp(r'[_\-]+'), ' ').toLowerCase();
+    if (!labels.contains(label)) labels.add(label);
+  }
+  return labels;
+}
+
+/// The publish-success copy, with up to TWO additive clauses.
+///
+/// THEY ARE NEVER MERGED, because they say different things. `unmappedFields` is
+/// "the interview collected this and the posting had nowhere to put it" — a
+/// carry-over failure. `unsetCardFields` is "this column on the worker's card is
+/// empty" — nothing was lost, the topic was simply never answered, and publish
+/// deliberately never refuses over it. Calling the second one a carry-over
+/// failure would be a lie, and calling the first one an empty field would hide a
+/// real one.
+///
+/// The gap clause points at My jobs because that is where the created draft sits
+/// and where its edit form is reached — the same place the base message already
+/// sends the payer.
+String jobChatPublishSuccessMessage(
+  List<String> unmappedFields, {
+  List<String> unsetCardFields = const <String>[],
+}) {
+  final StringBuffer out = StringBuffer(kJobChatPublishSuccessMessage);
+  final List<String> unmapped = jobChatFriendlyUnmappedLabels(unmappedFields);
+  if (unmapped.isNotEmpty) {
+    out.write(
+      ' A few details did not carry over — add ${jobChatJoinLabels(unmapped)} '
+      'on the posting.',
+    );
+  }
+  final List<String> gaps = jobChatCardGapLabels(unsetCardFields);
+  if (gaps.isNotEmpty) {
+    out.write(
+      ' Empty on the worker\'s card: ${jobChatJoinLabels(gaps)} — '
+      'fill them in from My jobs before you publish it.',
+    );
+  }
+  return out.toString();
 }
 
 /// The AI-assisted job-posting chat (ADR-0035).
@@ -209,7 +266,10 @@ class _ChatViewState extends State<_ChatView> {
           'Posted',
           // Success stays a success toast; the honesty clause about any fields
           // that did not persist is folded in, non-blocking (see the helper).
-          jobChatPublishSuccessMessage(state.unmappedFields),
+          jobChatPublishSuccessMessage(
+            state.unmappedFields,
+            unsetCardFields: state.unsetCardFields,
+          ),
           Icons.check_circle,
         ),
       PublishOutcome.incomplete => (

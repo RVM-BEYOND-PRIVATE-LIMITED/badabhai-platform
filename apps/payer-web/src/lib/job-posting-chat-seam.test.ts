@@ -269,7 +269,12 @@ describe("publishJobPostingChatSession — POST …/sessions/:id/publish", () =>
     expect(Object.keys(bodyOf(init))).toEqual([]);
     expect(init.body as string).not.toMatch(/org_label|payer_id/);
 
-    expect(res).toEqual({ jobPostingId: POSTING_ID });
+    // #1727 — the two gap reports ride back with the id; absent keys default to [].
+    expect(res).toEqual({
+      jobPostingId: POSTING_ID,
+      unsetCardFields: [],
+      unmappedFields: [],
+    });
   });
 
   it("maps the neutral 404 to null", async () => {

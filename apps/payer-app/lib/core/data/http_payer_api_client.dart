@@ -421,7 +421,20 @@ class HttpPayerApiClient implements PayerApiClient {
                 const <dynamic>[])
             .whereType<String>()
             .toList(growable: false);
-    return PublishJobResult(jobPostingId: id, unmappedFields: unmapped);
+    // #1727 — the worker-card columns the created posting holds NULL. Parsed on
+    // the same tolerant terms: a key this build does not know about must never
+    // throw here, because the posting has ALREADY been created server-side.
+    final List<String> unsetCard =
+        ((res.body['unset_card_fields'] ?? res.body['unsetCardFields'])
+                    as List<dynamic>? ??
+                const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false);
+    return PublishJobResult(
+      jobPostingId: id,
+      unmappedFields: unmapped,
+      unsetCardFields: unsetCard,
+    );
   }
 
   /// Rows from `{<key>: [...]}`, falling back to the `items` envelope

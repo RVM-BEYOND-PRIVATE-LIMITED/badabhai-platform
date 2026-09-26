@@ -45,7 +45,13 @@ export type ChatTranscriptResult =
   | { ok: false; error: string };
 
 export type ChatPublishResult =
-  | { ok: true; postingId: string }
+  /**
+   * `unsetCardFields` (#1727) are the worker-card columns the created posting
+   * holds NULL. Carried to the client so it can name them: publish never
+   * refuses a thin draft, so this is the only place the payer learns which rows
+   * of his worker's card are empty.
+   */
+  | { ok: true; postingId: string; unsetCardFields: string[] }
   | { ok: false; error: string };
 
 /** Start a brand-new chat for the session payer. Body is empty (no payer id, no org name). */
@@ -109,7 +115,11 @@ export async function publishJobPostingChatAction(input: {
     const published = await publishJobPostingChatSession(input.sessionId);
     if (!published) return { ok: false, error: NOT_FOUND };
     revalidatePath("/postings");
-    return { ok: true, postingId: published.jobPostingId };
+    return {
+      ok: true,
+      postingId: published.jobPostingId,
+      unsetCardFields: published.unsetCardFields,
+    };
   } catch {
     // A 409 (draft not ready / already published) and every transport failure collapse to
     // ONE retryable message — the draft preview already shows what is still missing.

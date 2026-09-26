@@ -1533,13 +1533,25 @@ class PublishJobResult extends Equatable {
   const PublishJobResult({
     required this.jobPostingId,
     this.unmappedFields = const <String>[],
+    this.unsetCardFields = const <String>[],
   });
 
   final String jobPostingId;
   final List<String> unmappedFields;
 
+  /// #1727 — the worker-card columns the created posting holds NULL.
+  ///
+  /// NOT the same report as [unmappedFields], and the two must never share a
+  /// sentence: unmapped means "the interview collected this and the posting had
+  /// nowhere to put it"; unset means "the column is empty". Publish deliberately
+  /// never refuses a thin draft, so this is FACTS for the payer to act on, not a
+  /// validation failure — and not every entry is a problem (a "5+ years" window
+  /// legitimately has no max).
+  final List<String> unsetCardFields;
+
   @override
-  List<Object?> get props => <Object?>[jobPostingId, unmappedFields];
+  List<Object?> get props =>
+      <Object?>[jobPostingId, unmappedFields, unsetCardFields];
 }
 
 /// Identity resolved at login for a chosen [PayerRole]. Kept here so the data
