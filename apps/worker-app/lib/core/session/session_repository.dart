@@ -83,9 +83,10 @@ class SessionRepository {
   /// Called when the server reports the profiling session has ended (`session_ended`).
   /// The backend now flushes the whole interview in one transaction at completion and
   /// marks the session terminal; posting into it again only ever returns a closing line.
-  /// Dropping the cached id is what lets the next entry into chat open a FRESH session,
-  /// which is what the "start a new chat" button on the Resume/Profile tabs and the
-  /// "Chat pe wapas jaayein" recovery on a thin profile both depend on.
+  /// Dropping the cached id is what lets the next entry into chat open a FRESH
+  /// session, which the "Chat pe wapas jaayein" recovery on a thin profile
+  /// depends on. (#1765 — the old "start a new chat" button on the Resume and
+  /// Profile tab headers is GONE; the Bada Bhai tab is the way into the chat.)
   ///
   /// Rebuilt explicitly rather than via [Session.copyWith] for the same reason
   /// [setDeletionScheduledFor] is: `copyWith` swallows a null behind `??`, so it cannot

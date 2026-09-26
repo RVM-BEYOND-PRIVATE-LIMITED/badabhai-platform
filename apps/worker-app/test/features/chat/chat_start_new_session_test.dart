@@ -12,9 +12,14 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_session_opening.da
 /// ── "Chat se resume banayein" MINTS A FRESH SESSION (#1566) ──────────────────
 ///
 /// `ensureSession()` resumes `GET /chat/session/latest` first, which would
-/// re-attach the just-ended session. [ChatRepositoryImpl.startNewSession] must
-/// NOT do that: it drops the cached id and POSTs `/chat/session`, which mints a
-/// new row because the old session is no longer active.
+/// re-attach whatever session the app is holding. [ChatRepositoryImpl.startNewSession]
+/// must NOT do that: it drops the cached id and POSTs `/chat/session`.
+///
+/// #1765 — WHAT THE SERVER DOES WITH THAT POST is not one thing, and this test
+/// pins the CLIENT half only (no resume, one POST). Since #1744/#1760 the server
+/// reattaches an UNFINISHED interview — which is what a worker who never finished
+/// wants — and closes-then-mints when the leftover is an early finish he has
+/// already confirmed as his profile.
 void main() {
   test('startNewSession POSTs /chat/session and never resumes the old id',
       () async {

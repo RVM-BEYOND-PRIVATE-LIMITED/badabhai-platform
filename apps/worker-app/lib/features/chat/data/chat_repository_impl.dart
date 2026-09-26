@@ -138,11 +138,21 @@ class ChatRepositoryImpl implements ChatRepository {
     );
   }
 
-  /// Mint a fresh session for the post-completion "Chat se resume banayein"
-  /// (#1566). Deliberately does NOT call `_resumeLatest`: the whole point is to
-  /// leave the just-ended session behind and start a new interview. The server
-  /// only reattaches a LIVE session, so with the previous one ended this POST
-  /// mints a new row; the old transcript stays readable server-side.
+  /// Mint a session for the post-completion "Chat se resume banayein" (#1566).
+  /// Deliberately does NOT call `_resumeLatest`: this is the redo, so it must not
+  /// resume the id the app happens to be holding.
+  ///
+  /// WHAT THE SERVER DOES WITH THIS POST changed with #1744 (#1760), and it is
+  /// two different things:
+  ///
+  ///  * an UNFINISHED interview — the session is still live, so the server
+  ///    REATTACHES to it, as it always has. The worker carries on where he was,
+  ///    which is what he wants when he never finished.
+  ///  * an EARLY FINISH he has already confirmed as his profile — the server
+  ///    closes that leftover session and mints a NEW one, so the redo is a real
+  ///    fresh interview rather than a reattach to something he has finished with.
+  ///
+  /// Either way the old transcript stays readable server-side.
   @override
   Future<ChatSessionOpening?> startNewSession() async {
     final String? token = _session.sessionToken;
@@ -229,10 +239,11 @@ class ChatRepositoryImpl implements ChatRepository {
       // that can only ever reply "Aapki baat poori ho chuki hai".
       //
       // Done HERE, not in the bloc, because the cached id lives in SessionRepository and
-      // every entry point goes through `ensureSession()` — the "start a new chat" button
-      // on the Resume/Profile tabs, and the "Chat pe wapas jaayein" the profile preview
-      // offers when a profile comes out thin. Leaving it cached silently disables both:
-      // the app tells the worker to go say more, and they cannot.
+      // every entry point goes through `ensureSession()` — including the
+      // "Chat pe wapas jaayein" the profile preview offers when a profile comes out
+      // thin. Leaving it cached silently disables that: the app tells the worker to go
+      // say more, and they cannot. (#1765 — the "start a new chat" button that used to
+      // sit on the Resume and Profile tab headers is gone.)
       //
       // The worker stays logged in — only the chat session id is dropped.
       if (reply.sessionEnded) {
