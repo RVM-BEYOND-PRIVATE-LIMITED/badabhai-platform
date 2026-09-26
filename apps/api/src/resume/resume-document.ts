@@ -63,10 +63,9 @@ export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = Object.freez
  * drove Zone 2's per-trade rows, and `buildTradeCapabilityRows` already collapses that section
  * cleanly when no map exists. The cliff was the template gate, not the map.
  *
- * Now the gate is the PACK ITSELF: any pack at all gets a BadaBhai sheet — `bb_trade` for the
- * 21 predefined roles, `bb_general` for every other pack (see `templateIdForPack`). A null pack
- * (a profile with no pack answers, e.g. pre-pack rows) keeps `classic`, which is the only case
- * where the universal sheet has nothing extra to say.
+ * Now the gate is the PACK ITSELF: any pack at all gets the trade-sheet DOCUMENT (`format`
+ * `trade_sheet`). The PDF layout is a separate question — see `templateIdForPack`, which gives a
+ * null pack the general sheet too.
  */
 export function packUsesUniversalSheet(packId: string | null): boolean {
   return packId !== null;
@@ -85,22 +84,26 @@ export function packIsPredefinedRole(packId: string | null): boolean {
 /**
  * The template a worker's résumé renders through.
  *
- * THREE LAYOUTS, SPLIT BY WHAT THE WORKER WAS PROFILED WITH:
- *   - one of the 21 predefined roles → `bb_trade`, the locked trade sheet, unchanged;
- *   - any other pack (the universal fallback, every family pack without a trade form)
- *     → `bb_general`, the owner's general format of 2026-09-25;
- *   - no pack at all → `classic`, unchanged.
+ * TWO LAYOUTS, SPLIT BY WHETHER THE WORKER WAS PROFILED AS ONE OF THE 21 PREDEFINED ROLES:
+ *   - one of the 21 → `bb_trade`, the locked trade sheet, unchanged;
+ *   - anything else → `bb_general`, the owner's general format of 2026-09-25: the universal
+ *     fallback pack, every family pack without a trade form, AND NO PACK AT ALL.
  *
- * `bb_general` IS A LAYOUT CHANGE, NOT A DATA CHANGE. Until it existed the second group rendered
- * through `bb_trade` with its capability section collapsed; both templates read the same render
+ * NO PACK IS THE COMMON CASE, NOT A LEGACY ONE. A chat interview for a role outside the
+ * taxonomy (a pilot, a nurse) writes its answers with no `pack_id`, so `loadTradeSheet` elects
+ * none — measured on the first production résumé after `bb_general` shipped (2026-09-26): a
+ * "Captain" profile, 7 attribute rows, all pack-less, rendered through `classic`. Such a worker is
+ * exactly who the general sheet is for, so `classic` is no longer selected for anyone; it stays in
+ * the registry only for rows already stored with it.
+ *
+ * `bb_general` IS A LAYOUT CHANGE, NOT A DATA CHANGE — every template reads the same render
  * input. The id is chosen at generation and stored on the row, so a worker's existing résumés
- * keep rendering as `bb_trade` and only the next generation uses the new sheet.
+ * keep the layout they were issued with and only the next generation uses the new sheet.
  *
  * The app's résumé document is keyed on the pack, not on this id (`tradeKindForPack`), so the
  * worker app's own résumé screen does not change with it.
  */
 export function templateIdForPack(packId: string | null): string {
-  if (!packUsesUniversalSheet(packId)) return "classic";
   return packIsPredefinedRole(packId) ? "bb_trade" : "bb_general";
 }
 

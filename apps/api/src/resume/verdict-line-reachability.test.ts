@@ -80,11 +80,12 @@ describe("R16 §1 — the Verdict Line's reachability, measured rather than assu
     // layout and took the verdict line with them — the cliff Layer A (i) closes. The only
     // remaining `classic` case is a worker whose profile carries no pack answers at all.
     //
-    // A pack outside the 21 predefined roles gets `bb_general` (owner format, 2026-09-25), which
-    // prints the verdict line too — so the cliff stays closed on both sheets.
+    // A pack outside the 21 predefined roles — and, since 2026-09-26, NO pack at all — gets
+    // `bb_general` (owner format, 2026-09-25), which prints the verdict line too, so the cliff is
+    // closed for every worker: `classic` is no longer selected for anyone.
     expect(templateIdForPack("qp_cnc_turning")).toBe("bb_trade");
     expect(templateIdForPack("qp_universal")).toBe("bb_general");
-    expect(templateIdForPack(null)).toBe("classic");
+    expect(templateIdForPack(null)).toBe("bb_general");
     expect(read(`templates/${getResumeTemplate("bb_general").file}`)).toContain(
       "{{headline_line}}",
     );
