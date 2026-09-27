@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/onboarding_theme.dart';
+import 'job_card_brand_footer.dart';
 import 'kit/kit_callout.dart';
 import 'kit/kit_info_chip.dart';
 import 'kit/kit_salary_box.dart';
@@ -171,9 +172,20 @@ class BbJobCard extends StatelessWidget {
     this.onApply,
     this.layout = BbJobCardLayout.list,
     this.compact = false,
+    this.showBrand = false,
   });
 
   final BbJobCardData data;
+
+  /// Draw the BadaBhai lockup at the foot of the card.
+  ///
+  /// OFF BY DEFAULT, and on only for the Jobs tab's scrollable view — the
+  /// surface a worker screenshots and forwards. The applied list and the search
+  /// results use the same card to answer a question the worker already asked on
+  /// a screen that is already branded; a lockup on every row there would be
+  /// noise, not provenance.
+  final bool showBrand;
+
   final VoidCallback? onTitleTap;
 
   /// Which arrangement to render — see [BbJobCardLayout]. Defaults to the
@@ -240,6 +252,10 @@ class BbJobCard extends StatelessWidget {
                         _SalaryRow(data: data, onApply: onApply),
                       ],
                       _PostingFacts(data: data),
+                      // FIXED AND SEPARATE: appended after the content, so no
+                      // card text can reach it. A list row is sized by its own
+                      // content inside the scroll view, so nothing here clips.
+                      if (showBrand) const JobCardBrandFooter(),
                     ],
                   ),
           ),

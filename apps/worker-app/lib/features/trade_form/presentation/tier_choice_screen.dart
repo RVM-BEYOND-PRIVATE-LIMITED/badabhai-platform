@@ -22,11 +22,18 @@ import 'widgets/tier_option_card.dart';
 const String kTierScreenTitle = 'Kitna time de sakte hain?';
 const String kTierScreenSubtitle =
     'Jitna zyada batayenge, resume utna hi strong banega.';
-const String kTierEasyTitle = 'Easy';
+/// THE CARD TITLES ARE COPY, NOT THE CONTRACT. The wire tokens stay
+/// `easy | medium | hard` (see [tierWireToken]) — only what the worker reads
+/// changes, so renaming here costs the server nothing and needs no migration.
+///
+/// "Lite" and "High" rather than "Easy" and "Hard": the old pair named how much
+/// work the WORKER has to do, and "Hard" reads as a warning on the one card the
+/// app actually recommends. These name the DEPTH of the resume he gets.
+const String kTierEasyTitle = 'Lite';
 const String kTierEasyDescription = 'Basic profile. Fastest to finish.';
 const String kTierMediumTitle = 'Medium';
 const String kTierMediumDescription = 'Skills, tools and full work history.';
-const String kTierHardTitle = 'Hard';
+const String kTierHardTitle = 'High';
 const String kTierHardDescription = 'Sab kuch — poori detail ke saath.';
 
 /// The upgrade variant's chrome (#1698 "Add more detail").
@@ -51,7 +58,7 @@ String tierDescriptionOf(ProfilingTier tier) => switch (tier) {
     };
 
 /// #1698 — the worker chooses how long profiling takes before the first form
-/// question: Easy, Medium or Hard ("BadaBhai Recommended").
+/// question: Lite, Medium or High ("BadaBhai Recommended").
 ///
 /// THIS SCREEN IS NEVER A GATE THE WORKER CANNOT PASS. It is only ever shown
 /// when the server said `needs_choice: true` with cards to draw; every other
