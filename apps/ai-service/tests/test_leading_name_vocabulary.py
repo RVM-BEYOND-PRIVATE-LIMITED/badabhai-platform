@@ -292,7 +292,6 @@ _WITHHELD_ANY_SCRIPT = [
     "Welding, ரமேஷ்",  # Tamil
     "Welding, রমেশ",  # Bengali
     "Welding, رمیش",  # Urdu
-    "Welding, Ｒａｍｅｓｈ",  # fullwidth Latin
     "Welding, 𝐑𝐚𝐦𝐞𝐬𝐡",  # mathematical bold
     "Welding, grinding\nरमेश",
     "Operator, रमेश सर के अंडर",
@@ -302,8 +301,6 @@ _WITHHELD_ANY_SCRIPT = [
     "Welding, 🅁🄰🄼🄴🅂🄷",  # squared
     "Welding, 🇷🇦🇲🇪🇸🇭",  # regional indicators
     "Welding, ⠗⠁⠍⠑⠎⠓",  # Braille
-    "Welding, grinding\U000e0052\U000e0061\U000e006d",  # invisible TAG characters
-    "Welding, grin\u200bding",  # zero-width space
 ]
 
 
@@ -533,3 +530,116 @@ def test_the_state_strip_fails_closed_when_it_cannot_be_consulted(monkeypatch: p
     monkeypatch.setattr(signals, "without_region_or_state_names", broken)
     assert is_certified_clean("Pune, Maharashtra") is False  # nothing stripped: withheld
     assert is_certified_clean("Pune, Mumbai") is True
+
+
+# --- #1738: the label's start as a READER sees it ---------------------------------------------
+#
+# An invisible format character, a Latin combining mark, fullwidth letters, or a bullet / quote /
+# dash / list number in front of the word switched the no-cue leading-name rule off — and with it
+# the #1730 closed-vocabulary check `is_certified_clean` reads through the same regex. Each of
+# these labels was left unmasked AND certified clean.
+
+_HIDDEN_NAME_LABELS = [
+    "\u200bRamesh, welding",  # zero-width space in front
+    "\ufeffRamesh, welding",  # byte-order mark in front
+    "\u2060Ramesh, welding",  # word joiner
+    "\u200eRamesh, welding",  # left-to-right mark
+    "\u202eRamesh, welding",  # right-to-left override
+    "\u00adRamesh, welding",  # soft hyphen
+    "Ramesh\u0301, welding",  # a combining mark on the name
+    "Ra\u0301mesh, welding",  # ... inside it
+    "Ｒａｍｅｓｈ, welding",  # fullwidth letters
+    "• Ramesh, welding",  # a bullet
+    '"Ramesh", welding',  # quoted
+    "- Ramesh, welding",  # a dash
+    "1. Ramesh, welding",  # a list number
+    "2) Ramesh, welding",
+]
+
+
+@pytest.mark.parametrize("label", _HIDDEN_NAME_LABELS)
+def test_a_name_behind_an_invisible_or_decorated_start_is_masked(label: str):
+    from app.pseudonymize import pseudonymize
+
+    result = pseudonymize(label)
+    assert result.blocked is False
+    assert "[PERSON_1]" in result.text
+    assert "Ramesh" not in result.text
+    assert "Ｒａｍｅｓｈ" not in result.text
+
+
+_HIDDEN_BEHIND_A_RELEASED_WORD = [
+    "\ufeffPune, Ramesh",  # the released city, behind an invisible character
+    "Pu\u200bne, Ramesh",  # ... split by one
+    "Pune\u0301, Ramesh",  # ... with a combining mark
+    "• Pune, Ramesh",  # ... behind a bullet
+    "- Welding, Anil Kumar",  # the released trade word, behind a dash
+    "Welding, Ｒａｍｅｓｈ",  # a fullwidth name after a released word
+    "Welding, grinding\U000e0052\U000e0061\U000e006d",  # invisible TAG characters
+    "Welding, grin\u200bding",  # a zero-width space inside a vocabulary word
+]
+
+
+@pytest.mark.parametrize("label", _HIDDEN_NAME_LABELS + _HIDDEN_BEHIND_A_RELEASED_WORD)
+def test_every_gate_withholds_a_label_whose_start_hides_a_name(label: str):
+    """Through the real gates. FAIL-CLOSED: a label the gateway had to normalise comes back
+    altered, and every certifier withholds an altered label."""
+    from app.pseudonymize import certified_clean_skill_labels, certify_value, is_certified_clean
+
+    assert is_certified_clean(label) is False
+    assert certified_clean_skill_labels([label]) == []
+    blocked, certified = certify_value(label)
+    assert certified != label
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Welding, grinding",
+        "Pune, Mumbai",
+        "• Welding, grinding",  # a bullet in front of a released word still certifies
+        "- Pune, Mumbai",
+        "10 Welders, urgent",  # a count is not a list number: nothing is guessed as a name
+        "वेल्डिंग\u200dकाम",  # a ZWJ inside Devanagari is part of the word and is kept
+        "CNC turning, 5 saal",
+    ],
+)
+def test_an_ordinary_label_is_certified_exactly_as_before(label: str):
+    from app.pseudonymize import certified_clean_skill_labels, is_certified_clean, pseudonymize
+
+    assert pseudonymize(label).text == label
+    assert is_certified_clean(label) is True
+    assert certified_clean_skill_labels([label]) == [label]
+
+
+def test_devanagari_and_hinglish_text_pass_the_gateway_unchanged():
+    from app.pseudonymize import pseudonymize
+
+    for text in (
+        "मैं वेल्डर हूँ, पाँच साल का अनुभव है",
+        "क्\u200dष",  # a ZWJ-shaped conjunct
+        "Main CNC operator hoon, Pune mein kaam karta hoon",
+    ):
+        result = pseudonymize(text)
+        assert (result.blocked, result.text) == (False, text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["my name is Rámesh", "mera naam Ra​mesh hai", "my name is ​Ramesh"],
+)
+def test_the_cue_rule_sees_the_whole_name_too(text: str):
+    """The normalised view is the whole gateway's, not the leading rule's alone."""
+    from app.pseudonymize import pseudonymize
+
+    result = pseudonymize(text)
+    assert "[PERSON_1]" in result.text
+    assert "mesh" not in result.text
+
+
+def test_a_phone_split_by_a_fullwidth_colon_is_still_masked():
+    """The fold is letters and digits only: the phone rule accepts "：" as a separator and
+    deliberately excludes the ASCII ":" it would otherwise have become."""
+    from app.pseudonymize import pseudonymize
+
+    assert "[PHONE_1]" in pseudonymize("98765：43210").text

@@ -37,6 +37,7 @@ Intentionally has NO third-party dependencies so its tests run with only pytest.
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 from .profiling import lexicon as _lexicon
@@ -292,7 +293,17 @@ _NAME_CUE_RE = re.compile(
     r"(?i:\bmy name is\b|\bmyself\b|\bi am\b|\bi'm\b|\bthis is\b|\bname is\b|"
     r"\bmera naam\b|\bnaam\b)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)"
 )
-_LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
+# #1738 — the label's start as a READER sees it. `^\s*` used to be the only thing allowed in front
+# of the word, so a bullet, a quote, a dash or a list number ("• Ramesh, welding", "1. Ramesh,
+# welding") switched the whole rule off — and with it the #1730 closed-vocabulary check that
+# `is_certified_clean` reads through this same regex. `[\W_]*` skips any run of non-word
+# characters, and one short list number may sit inside it; digits otherwise still stop the match,
+# so "10 Welders, urgent" is not read as a name. After the word, anything that is neither a word
+# character nor the comma itself may precede the comma ('"Ramesh", welding').
+#
+# Invisible format characters and Latin combining marks are not handled here: `pseudonymize`
+# removes them from the whole text first (`_normalised_view`), so this regex never sees them.
+_LEADING_NAME_RE = re.compile(r"^[\W_]*(?:\d{1,2}[.)][\W_]*)?([A-Z][a-z]+)[^\w,]*,")
 # The shortest leading word the trade-vocabulary carve-out may release (issue #1728, owner
 # ruling 2026-09-25; see `replace_leading_name`). The curated vocabulary holds 3-letter tokens
 # that ALSO read as names in a leading position — "Max", "Mag", "Arc", "Gas", "Cam", "Oxy" —
@@ -457,6 +468,68 @@ def _mask_money_amount(token_for):
     return _sub
 
 
+# The combining-mark blocks that decorate LATIN letters: Combining Diacritical Marks and its
+# extension and supplement, the symbol marks and the half marks. Devanagari's own vowel signs,
+# nukta and virama live inside U+0900-U+097F and are never touched.
+_LATIN_COMBINING_BLOCKS = (
+    (0x0300, 0x036F),
+    (0x1AB0, 0x1AFF),
+    (0x1DC0, 0x1DFF),
+    (0x20D0, 0x20FF),
+    (0xFE20, 0xFE2F),
+)
+_JOINERS = frozenset({"\u200c", "\u200d"})  # ZWNJ, ZWJ
+
+
+def _is_devanagari(ch: str) -> bool:
+    return "\u0900" <= ch <= "\u097f"
+
+
+def _normalised_view(text: str) -> str:
+    """``text`` as a READER sees it — the one view every rule below runs on (#1738).
+
+    THE BYPASS. Every identity rule here is written against visible characters. An invisible
+    format character or a combining mark in the right place switched rules off without changing
+    what a reader sees: "\\u200bRamesh, welding" and "Ramesh\\u0301, welding" were not masked,
+    "my name is \\u200bRamesh" slipped the cue rule, "mera naam Ra\\u200bmesh" masked only
+    "Ra", and a released leading city could not see "Pu\\u200bne". Each of those also passed
+    the clean-or-withhold certification, which reads this gateway's output.
+
+    WHAT IS REMOVED, AND WHY IT IS SAFE:
+      - every Unicode FORMAT character (category Cf): zero-width space, BOM, soft hyphen, bidi
+        controls, word joiner, tag characters. None of them is visible text. The one exception
+        is a ZWJ / ZWNJ right after a Devanagari character, where it shapes a conjunct and is
+        part of the word; it cannot hide a Latin name, which is all the name rules read.
+      - a COMBINING MARK from the Latin blocks above. Devanagari's vowel signs are marks too, but
+        from its own block, so Hindi text is untouched.
+      - FULLWIDTH LETTERS AND DIGITS are folded to ASCII ("Ｒａｍｅｓｈ" reads as "Ramesh"), so the
+        same rules see them. Fullwidth PUNCTUATION is left alone: the phone rule deliberately
+        accepts "：" as a separator while it excludes the ASCII ":", and folding one into the
+        other would unmask "98765：43210".
+
+    FAIL-CLOSED BY CONSTRUCTION FOR THE CERTIFIERS. A label containing any of these comes back
+    ALTERED, and `is_certified_clean` / `certify_value` / `certified_clean_skill_labels` withhold
+    any label the gateway altered. A label is never certified on a view it does not match.
+    """
+    if text.isascii():
+        return text
+    out: list[str] = []
+    for ch in text:
+        code = ord(ch)
+        if 0xFF10 <= code <= 0xFF19 or 0xFF21 <= code <= 0xFF3A or 0xFF41 <= code <= 0xFF5A:
+            out.append(chr(code - 0xFEE0))
+            continue
+        category = unicodedata.category(ch)
+        if category == "Cf":
+            if ch in _JOINERS and out and _is_devanagari(out[-1]):
+                out.append(ch)
+            continue
+        if category in ("Mn", "Me") and any(lo <= code <= hi for lo, hi in _LATIN_COMBINING_BLOCKS):
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
 def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> PseudonymizationResult:
     """Replace likely PII in ``text`` with placeholder tokens.
 
@@ -540,7 +613,8 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
                 return match.group(0)
             return replace_group1(match, "PERSON")
 
-        result = text
+        # #1738 — every rule reads the text as a reader sees it. See `_normalised_view`.
+        result = _normalised_view(text)
 
         # 0. EMAIL FIRST — before every other rule, because it is the only pattern
         #    here that is a COMPOSITE of other identity classes (a name in the local
