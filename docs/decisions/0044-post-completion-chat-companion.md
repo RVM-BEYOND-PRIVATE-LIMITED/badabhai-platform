@@ -13,7 +13,8 @@
   (untouched: no push, no WhatsApp) · persona v3.2 (`docs/specs/persona-system-v3.2.md`)
 - **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and PR #1743 (the companion module) on
   the backend; PR #1746 (the worker-app client, tracked by #1747; follow-ups #1750–#1756). PR #1760 (#1744, server half) lets
-  an explicit redo supersede the early-finish leftover, and PR #1769 (#1768, app half) sends it (TD143).
+  an explicit redo supersede the early-finish leftover, and PR #1769 (#1768, app half) sends it (TD143). The
+  unfinished-form-handover rule (4 below) is #1775.
 
 ---
 
@@ -62,7 +63,16 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
 3. the live chat session that `POST /chat/session` would reattach to shows ACTIVITY after the confirmation →
    interview. Activity is the later of its `started_at` and its `last_message_at`. A session minted after the
    confirmation is a deliberate "Chat se resume banayein";
-4. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
+4. a chat session that HANDED OVER TO A FORM, closed after the confirmation, and whose form is not finished →
+   interview (#1775). A redo reaching the trade-form offer ("Haan") or the general road's skills gate ("Nahi") ends
+   its session and withholds extraction until the form is done, so rules 2 and 3 both pass. The recap would then
+   describe the OLD profile, and the only way back to the form (the handover's card) lives on that ended session.
+   A handover is any marker its flush writes (`form_kind`, `general_road.handed_over`, or a `form_handoff` /
+   `general_form_handoff` completion reason). Finished means the general form's `general_form_completed_at` mark
+   (read fail-soft, so an unreadable mark stays unfinished). The trade form has no per-session mark: its finish is the
+   extract → confirm it leads to, which moves the confirmation past the handover. The read selects those two
+   scalars, never the session's captured answers;
+5. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
    ("Phir bhi profile banaiye" never ends the session); it does not block, and the abandonment sweep closes it.
 
 Any read error → interview.
