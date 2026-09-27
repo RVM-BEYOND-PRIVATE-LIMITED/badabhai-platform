@@ -14,7 +14,36 @@ import {
   type SetMyQualificationsDto,
 } from "./worker-qualifications.dto";
 import { WorkerQualificationsService } from "./worker-qualifications.service";
-import { EDUCATION_COUNCILS, EDUCATION_QUALIFICATIONS } from "./worker-preferences.vocabulary";
+import {
+  EDUCATION_COUNCILS,
+  EDUCATION_QUALIFICATIONS,
+  TRADE_FORM_EDUCATION_QUALIFICATIONS,
+} from "./worker-preferences.vocabulary";
+
+/**
+ * `GET /workers/me/qualifications/options` — a published contract with the worker app, named for
+ * the same reason `WorkPreferenceOptionsResponse` is.
+ */
+export interface QualificationOptionsResponse {
+  /**
+   * The credential CHIPS a trade form offers: {@link TRADE_FORM_EDUCATION_QUALIFICATIONS}, the six
+   * it offered before ADR-0045. The trade forms render this map as-is
+   * (`trade_form_repository_impl.dart` → `QualificationOptionsDto`), so widening it would change
+   * the 21's path, which ruling R1 forbids.
+   */
+  readonly education_credential: Record<string, string>;
+  /**
+   * EVERY credential slug the shared validator accepts, with its printed label — the whole
+   * {@link EDUCATION_QUALIFICATIONS}, `postgraduate` and `doctorate` included (ADR-0045 §6).
+   *
+   * A LABEL MAP, NOT A CHIP LIST. The extracted-review screen labels a STORED row from this
+   * response; a general-road worker's `postgraduate` row would otherwise have no label there,
+   * because `education_credential` above deliberately omits it. Additive: a decoder that does not
+   * know the key ignores it.
+   */
+  readonly education_credential_labels: Record<string, string>;
+  readonly education_council: Record<string, string>;
+}
 
 /**
  * The worker's own credentials — Zone 5's Education and Certificates rows (migration 0098).
@@ -47,15 +76,18 @@ export class WorkerQualificationsController {
    *
    * NO WORKER DATA IN THE RESPONSE — it is a static dictionary, guarded for consistency with the
    * write below rather than because it discloses anything.
+   *
+   * ADR-0045 §6 — THE CHIPS AND THE LABELS PART WAYS HERE, AND ONLY HERE. The validator accepts
+   * eight credentials; the trade forms keep offering six. So `education_credential` stays the
+   * six-slug chip set every shipped build renders, and `education_credential_labels` carries all
+   * eight for a screen that has to LABEL a stored row rather than offer a choice.
    */
   @Get("me/qualifications/options")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
-  options(): {
-    education_credential: Record<string, string>;
-    education_council: Record<string, string>;
-  } {
+  options(): QualificationOptionsResponse {
     return {
-      education_credential: EDUCATION_QUALIFICATIONS,
+      education_credential: TRADE_FORM_EDUCATION_QUALIFICATIONS,
+      education_credential_labels: EDUCATION_QUALIFICATIONS,
       education_council: EDUCATION_COUNCILS,
     };
   }

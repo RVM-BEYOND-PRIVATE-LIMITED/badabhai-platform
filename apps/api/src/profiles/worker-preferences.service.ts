@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { NewWorkerAttribute } from "@badabhai/db";
 import type { ZodTypeAny } from "zod";
@@ -66,11 +66,15 @@ export class WorkerPreferencesService {
 
   async setForWorker(
     workerId: string,
-    dto: SetMyPreferencesDto,
+    body: SetMyPreferencesDto,
     ctx: RequestContext,
   ): Promise<{ worker_id: string; keys_written: number; keys_cleared: number }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    // BEFORE ANY WRITE. An inverted band in one body is refused whole, never half-stored; one end
+    // sent alone that crosses the stored other end clears that end (see `settleSalaryBand`).
+    const dto = await this.settleSalaryBand(workerId, body);
 
     const rows: NewWorkerAttribute[] = [];
     const cleared: PreferenceKey[] = [];
@@ -273,6 +277,71 @@ export class WorkerPreferencesService {
       (await this.attributes.loadKeys(workerId, candidates)).map((r) => r.attributeKey),
     );
     return new Set(candidates.filter((key) => present.has(key)));
+  }
+
+  /**
+   * Keep the salary band ordered (ADR-0045 R4): the body to write, with a crossed stale end
+   * cleared, or a 400 for a band that contradicts itself.
+   *
+   * BOTH ENDS IN ONE BODY, INVERTED → REFUSED WHOLE. The client sent a band whose bottom is above
+   * its top; there is no reading of that which is the worker's answer. The 400 is in the validation
+   * pipe's own shape (`{message, issues: [{path, message}]}`), names the two fields and NEVER
+   * echoes a figure: an asking salary is the worker's, and an error body is logged by
+   * intermediaries this service does not control.
+   *
+   * ONE END SENT ALONE THAT CROSSES THE STORED OTHER END → THE STORED END IS CLEARED. The worker's
+   * latest word wins over his older one. This is the path of every page that shows only one end —
+   * an installed build, or any surface that knows only the top — lowering the top below a bottom
+   * the general form stored: refusing would fail the whole page (cities, languages, shift) with no
+   * field on screen the worker could fix. The clear is an ordinary one: counted in `keys_cleared`.
+   *
+   * The stored end is read only when the body sends one end and omits the other, so a body with
+   * neither (an installed build's ordinary save) costs no read. An end sent as `null` leaves at
+   * most one end stored, so there is nothing to order.
+   */
+  private async settleSalaryBand(
+    workerId: string,
+    dto: SetMyPreferencesDto,
+  ): Promise<SetMyPreferencesDto> {
+    const sentMin = dto.salary_expected_min;
+    const sentMax = dto.salary_expected_max;
+    if (sentMin === undefined && sentMax === undefined) return dto;
+    if (sentMin === null || sentMax === null) return dto;
+
+    if (sentMax === undefined) {
+      const storedMax = await this.storedNumber(workerId, "salary_expected_max");
+      return sentMin !== undefined && storedMax !== null && sentMin > storedMax
+        ? { ...dto, salary_expected_max: null }
+        : dto;
+    }
+    if (sentMin === undefined) {
+      const storedMin = await this.storedNumber(workerId, "salary_expected_min");
+      return storedMin !== null && sentMax < storedMin
+        ? { ...dto, salary_expected_min: null }
+        : dto;
+    }
+
+    if (sentMin <= sentMax) return dto;
+    throw new BadRequestException({
+      message: "salary_expected_min must not exceed salary_expected_max",
+      issues: [
+        {
+          path: "salary_expected_min",
+          message: "salary_expected_min must not exceed salary_expected_max",
+        },
+      ],
+    });
+  }
+
+  /** One stored `number` attribute as a JS number, or null when there is no usable row. */
+  private async storedNumber(workerId: string, key: PreferenceKey): Promise<number | null> {
+    const row = (await this.attributes.loadKeys(workerId, [key])).find(
+      (r) => r.attributeKey === key,
+    );
+    // `numeric` arrives from pg as text; a row of another kind has nothing in this column.
+    if (row === undefined || row.valueNumber === null) return null;
+    const value = Number(row.valueNumber);
+    return Number.isFinite(value) ? value : null;
   }
 
   /**

@@ -11,6 +11,7 @@ import {
   inboundHash,
   narrowProfilingEnvelope,
   PROFILING_ENVELOPE_KEYS,
+  readGeneralFormCompletedAt,
   readGeneralRoadStamp,
   toGeneralRoadStatePatch,
   toConversationStatePatch,
@@ -653,6 +654,40 @@ describe("toGeneralRoadStatePatch — the durable stamp (ADR-0045)", () => {
     // Strict: a smuggled key is refused rather than carried to the three later readers.
     expect(
       readGeneralRoadStamp({ general_road: { ...patch.general_road, brief: "x" } }),
+    ).toBeNull();
+  });
+});
+
+describe("readGeneralFormCompletedAt — the general form's completion mark (ADR-0045 §5)", () => {
+  const AT = "2026-09-26T10:00:00.000Z";
+
+  it("reads the ISO timestamp the form API merged in beside the stamp", () => {
+    const patch = toGeneralRoadStatePatch(FULL);
+    expect(readGeneralFormCompletedAt({ ...patch, general_form_completed_at: AT })).toBe(AT);
+    // An offset form is the same instant, and a timestamp is all the key is.
+    expect(
+      readGeneralFormCompletedAt({ general_form_completed_at: "2026-09-26T15:30:00+05:30" }),
+    ).toBe("2026-09-26T15:30:00+05:30");
+  });
+
+  it("is a SIBLING of the stamp — the stamp itself still parses strictly beside it", () => {
+    const patch = toGeneralRoadStatePatch(FULL);
+    const state = { ...patch, general_form_completed_at: AT };
+    expect(readGeneralRoadStamp(state)).toEqual(patch.general_road);
+  });
+
+  it("fails SOFT to null on anything unreadable — the direction that keeps serving the card", () => {
+    expect(readGeneralFormCompletedAt(null)).toBeNull();
+    expect(readGeneralFormCompletedAt(undefined)).toBeNull();
+    expect(readGeneralFormCompletedAt("not an object")).toBeNull();
+    expect(readGeneralFormCompletedAt({})).toBeNull();
+    expect(readGeneralFormCompletedAt({ general_form_completed_at: null })).toBeNull();
+    expect(readGeneralFormCompletedAt({ general_form_completed_at: true })).toBeNull();
+    expect(readGeneralFormCompletedAt({ general_form_completed_at: "yesterday" })).toBeNull();
+    expect(readGeneralFormCompletedAt({ general_form_completed_at: 1_758_880_000_000 })).toBeNull();
+    // Inside the stamp is NOT where it lives, and is not read from there.
+    expect(
+      readGeneralFormCompletedAt({ general_road: { general_form_completed_at: AT } }),
     ).toBeNull();
   });
 });

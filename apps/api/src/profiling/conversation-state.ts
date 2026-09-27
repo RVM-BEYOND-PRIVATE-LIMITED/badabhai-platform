@@ -1602,6 +1602,30 @@ export function readGeneralRoadStamp(conversationState: unknown): GeneralRoadSta
 }
 
 /**
+ * The general form's COMPLETION MARK on a persisted `conversation_state` — the ISO timestamp the
+ * form API merged in as `general_form_completed_at` when the worker settled the brief
+ * (`ChatRepository.markGeneralFormCompleted`) — or `null`.
+ *
+ * A SIBLING OF THE STAMP, NOT A FIELD OF IT. {@link GeneralRoadStampSchema} is strict and
+ * versioned, so a key inside it would fail every reader's parse; beside it, a reader that does not
+ * know the key never sees it.
+ *
+ * FAILS SOFT, never throws, and reads anything unreadable as "not completed" — the direction that
+ * keeps serving the card. A card offered to a worker who already finished costs him one tap into
+ * a form that shows his answers; a card withheld from a worker who has NOT finished strands him
+ * with no way back to the form.
+ */
+const GeneralFormCompletedAtSchema = z.string().datetime({ offset: true });
+
+export function readGeneralFormCompletedAt(conversationState: unknown): string | null {
+  if (typeof conversationState !== "object" || conversationState === null) return null;
+  const parsed = GeneralFormCompletedAtSchema.safeParse(
+    (conversationState as Record<string, unknown>).general_form_completed_at,
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Is the general road's skills GATE actually on screen (ADR-0045)? Open, AND the last reply served
  * was the gate — a hardship or de-escalation line served over an open gate is not a gate, and
  * redrawing it as one would lock the keyboard over a message with nothing to tap. ONE rule for the

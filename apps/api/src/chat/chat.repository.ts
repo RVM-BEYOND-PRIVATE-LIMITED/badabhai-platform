@@ -386,4 +386,96 @@ export class ChatRepository {
       .returning({ id: chatSessions.id });
     return updated.length > 0;
   }
+
+  /**
+   * The worker's newest session that HANDED OVER TO THE GENERAL FORM (ADR-0045 §3.3) — the one
+   * whose durable stamp says `general_road.handed_over = true` — or undefined.
+   *
+   * NOT {@link findLatestSessionByWorker}, and the difference is the defect it avoids. That read
+   * picks the session with the latest MESSAGE, and a worker handed the form can open the chat
+   * again before he fills it in — a companion question, a redo. "Latest session" would then be
+   * the new one, which carries no stamp, and the form he was handed would 404 in his hand. The
+   * predicate is in the WHERE clause for the same reason `findActiveSessionByWorker`'s is: a
+   * post-hoc check on the latest row fails exactly when it matters.
+   *
+   * THE JSONB PREDICATE READS THE STAMP'S OWN KEY. `->>` yields text, so the comparison is with
+   * the string `'true'`; a stamp written by a later build with another shape simply does not
+   * match, and the caller still parses what it gets with `readGeneralRoadStamp` (strict, v1).
+   *
+   * ORDER: `started_at DESC` — the NEWEST HANDOVER wins, ended or not. A handover whose flush
+   * failed is still `active` with the stamp on record from its checkpoint (`ended_at` NULL); ranking
+   * by `ended_at` would let an OLDER, ended handover outrank it, and the form would then write the
+   * old session's provenance while the new session's card stays live. Not the activity clock
+   * either: a later chat must not move which handover the form belongs to.
+   *
+   * NO NEW INDEX. `chat_sessions_worker_id_idx` narrows to one worker's sessions — a handful — and
+   * the JSONB test runs over those rows only. It is read once per form fetch and once per answer,
+   * never on the chat's turn path.
+   */
+  async findLatestGeneralHandoverSession(workerId: string): Promise<ChatSession | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chatSessions)
+      .where(
+        and(
+          eq(chatSessions.workerId, workerId),
+          sql`${chatSessions.conversationState} -> 'general_road' ->> 'handed_over' = 'true'`,
+        ),
+      )
+      .orderBy(desc(chatSessions.startedAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Record that the worker FINISHED the general form this session handed him (ADR-0045 §5 "open
+   * before flag-ON") — a sibling key, `general_form_completed_at`, merged into `conversation_state`.
+   *
+   * WHAT READS IT. `ChatService`'s ended-session paths (a late `POST /chat/message` and
+   * `GET /chat/.../messages`) re-serve the general-form card off the durable stamp. Without this
+   * mark they would keep offering "the form" to a worker who has already filled it in; with it
+   * they fall back to the résumé menu. Both paths already hold the session row, so the read costs
+   * nothing (`readGeneralFormCompletedAt`).
+   *
+   * A SIBLING, NEVER INSIDE `general_road`. The stamp is `.strict()` and versioned (`v: 1`): a key
+   * added inside it would make every reader that parses it — including an older build's — fail
+   * the parse and fall back to the no-skills card.
+   *
+   * A JSONB MERGE (`||`), NOT A REPLACE. Every other writer of this column replaces it whole
+   * (`saveConversationState`, `endSession`, `abandonSession`), which is right for them — they own
+   * the interview's state — and wrong here, where one key is added beside state this method did
+   * not read.
+   *
+   * `last_message_at` IS NOT TOUCHED, and that is deliberate rather than an omission:
+   * {@link findLatestSessionByWorker} ranks sessions by it, and the worker did not speak in this
+   * chat. Stamping it would make a finished handover outrank the chat he is actually using.
+   *
+   * CONDITIONAL, AND WRITE-ONCE. Scoped to the session AND its owner (defence in depth: the id
+   * came from {@link findLatestGeneralHandoverSession} for the same worker), only while the stamp
+   * says it handed over, and only while the key is ABSENT — so the FIRST completion time is kept
+   * and a re-submitted brief is a no-op here. Returns whether it wrote.
+   *
+   * KNOWN LIMIT: a handover whose flush FAILED is still `active`, and a later re-driven flush
+   * replaces the whole column through `endSession` — erasing this key, so the card returns until
+   * the worker settles the brief again (which re-marks). That window needs a failed flush AND a
+   * completed form before the next message; it is recorded rather than closed here, because the
+   * fix is in the flush's state projection, not in this write.
+   */
+  async markGeneralFormCompleted(sessionId: string, workerId: string, at: Date): Promise<boolean> {
+    const updated = await this.db
+      .update(chatSessions)
+      .set({
+        conversationState: sql`coalesce(${chatSessions.conversationState}, '{}'::jsonb) || jsonb_build_object('general_form_completed_at', ${at.toISOString()}::text)`,
+      })
+      .where(
+        and(
+          eq(chatSessions.id, sessionId),
+          eq(chatSessions.workerId, workerId),
+          sql`${chatSessions.conversationState} -> 'general_road' ->> 'handed_over' = 'true'`,
+          sql`${chatSessions.conversationState} -> 'general_form_completed_at' IS NULL`,
+        ),
+      )
+      .returning({ id: chatSessions.id });
+    return updated.length > 0;
+  }
 }

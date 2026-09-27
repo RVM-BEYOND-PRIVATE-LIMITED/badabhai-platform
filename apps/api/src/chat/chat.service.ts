@@ -10,6 +10,7 @@ import { ProfilingOrchestrator, type TurnResult } from "../profiling/orchestrato
 import { CLOSING_REPLY_TEXT } from "../profiling/next-question";
 import { ttsField, ttsTextFor } from "../profiling/question-tts-text";
 import {
+  readGeneralFormCompletedAt,
   readGeneralRoadStamp,
   resolvePackPointer,
   skillsGateOnScreen,
@@ -2165,8 +2166,16 @@ function durableGeneralRoadFields(conversationState: unknown): {
  * later build (or read after a rollback) fails the parse; the same column's `completion_reason`
  * still says the session handed over, and that alone must keep the build-profile CTA dark. The
  * card is then the no-skills one, whose headline makes no claim.
+ *
+ * NO CARD ONCE THE FORM IS DONE (ADR-0045 §5, "open before flag-ON"). The form API merges
+ * `general_form_completed_at` beside the stamp when the worker settles the brief; from then on
+ * this session is an ordinary finished interview, so a late POST gets the résumé menu and the
+ * message list drops the card. Checked FIRST — ahead of the `completion_reason` fallback too,
+ * because a finished form is finished whatever the stamp's shape. An unreadable mark reads as
+ * "not done" (`readGeneralFormCompletedAt` fails soft), which keeps offering the card.
  */
 function durableGeneralFormOffer(conversationState: unknown): GeneralFormOffer | null {
+  if (readGeneralFormCompletedAt(conversationState) !== null) return null;
   const stamp = readGeneralRoadStamp(conversationState);
   if (stamp?.handed_over === true) return generalFormOfferFor(stamp.skills.length);
   const reason =

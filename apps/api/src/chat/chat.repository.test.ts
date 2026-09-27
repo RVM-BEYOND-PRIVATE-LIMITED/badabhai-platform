@@ -253,3 +253,92 @@ describe("ChatRepository.findActiveSessionByWorker — WHICH session 'live' mean
     expect(out).toBeUndefined();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ADR-0045 — the general form's two reads/writes on chat_sessions.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+const renderQuery = (fragment: unknown) => new PgDialect().sqlToQuery(fragment as never);
+
+describe("ChatRepository.findLatestGeneralHandoverSession — the form's context", () => {
+  it("filters on the worker AND the stamp's handed_over key IN the WHERE clause", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findLatestGeneralHandoverSession(WORKER);
+
+    // THE REASON THIS IS NOT findLatestSessionByWorker. A worker handed the form can chat again
+    // before filling it in; "latest session" is then one with no stamp and the form 404s. The
+    // predicate must be in the WHERE, not a post-hoc check on the latest row.
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain('"worker_id"');
+    expect(where).toMatch(
+      /"conversation_state"\s*->\s*'general_road'\s*->>\s*'handed_over'\s*=\s*'true'/,
+    );
+    expect(where.toLowerCase()).toContain(" and ");
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("orders by started_at DESC alone — the newest handover wins, ended or not", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findLatestGeneralHandoverSession(WORKER);
+    const order = renderOrderBy(h);
+    expect(order).toMatch(/started_at"?\s+desc/i);
+    // NOT ended_at: a newer handover whose flush failed (still active, ended_at NULL) must not
+    // lose to an older, ended one.
+    expect(order).not.toContain("ended_at");
+    // NOT the activity clock: a later chat must not move which handover the form belongs to.
+    expect(order).not.toContain("last_message_at");
+  });
+
+  it("returns undefined for a worker never handed the form", async () => {
+    const h = makeSelectingDb([]);
+    expect(
+      await new ChatRepository(h.db as never).findLatestGeneralHandoverSession(WORKER),
+    ).toBeUndefined();
+  });
+});
+
+describe("ChatRepository.markGeneralFormCompleted — the chat's 'form done' signal", () => {
+  const AT = new Date("2026-09-26T10:00:00.000Z");
+
+  it("MERGES one sibling key into conversation_state — never a replace, never inside the stamp", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).markGeneralFormCompleted(SESSION, WORKER, AT);
+
+    const q = renderQuery(captured.set!.conversationState);
+    expect(q.sql).toMatch(
+      /^coalesce\((?:"chat_sessions"\.)?"conversation_state", '\{\}'::jsonb\) \|\| jsonb_build_object\('general_form_completed_at', \$1::text\)$/,
+    );
+    // The timestamp is a bound PARAMETER, not spliced into the statement.
+    expect(q.params).toEqual([AT.toISOString()]);
+    expect(q.sql).not.toContain("general_road");
+  });
+
+  it("does NOT touch last_message_at (session ordering) or status/ended_at", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).markGeneralFormCompleted(SESSION, WORKER, AT);
+    // findLatestSessionByWorker ranks by last_message_at; the worker did not speak here.
+    expect(Object.keys(captured.set!)).toEqual(["conversationState"]);
+  });
+
+  it("is scoped to the session, its owner, a handed-over stamp, and an ABSENT mark (write-once)", async () => {
+    const { db, captured } = makeCapturingDb();
+    await new ChatRepository(db as never).markGeneralFormCompleted(SESSION, WORKER, AT);
+    const where = renderWhere(captured.where);
+    expect(where).toContain('"id"');
+    expect(where).toContain('"worker_id"');
+    expect(where).toMatch(/'general_road'\s*->>\s*'handed_over'\s*=\s*'true'/);
+    expect(where).toMatch(/'general_form_completed_at'\s+IS NULL/);
+  });
+
+  it("reports whether it wrote — false once the mark exists or the stamp is not a handover", async () => {
+    const won = makeCapturingDb();
+    expect(
+      await new ChatRepository(won.db as never).markGeneralFormCompleted(SESSION, WORKER, AT),
+    ).toBe(true);
+    const lost = makeCapturingDb();
+    lost.setUpdateMatchesNothing();
+    expect(
+      await new ChatRepository(lost.db as never).markGeneralFormCompleted(SESSION, WORKER, AT),
+    ).toBe(false);
+  });
+});

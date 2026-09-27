@@ -117,7 +117,7 @@ function bodySendsKey(body: string, key: string, constants: Map<string, string>)
 }
 
 describe("the finishing form's server contract", () => {
-  it("accepts all seventeen fields, and every one of them has a storage kind", () => {
+  it("accepts all eighteen fields, and every one of them has a storage kind", () => {
     // The two halves of the BACKEND contract, asserted against each other. A field on the schema
     // with no `PREFERENCE_KEYS` entry is accepted, validated and then never written; one in
     // `PREFERENCE_KEYS` with no schema field can never be reached. Both are silent.
@@ -127,6 +127,9 @@ describe("the finishing form's server contract", () => {
     // The app does not send them YET — additive fields on a `.strict()` schema are forward-
     // compatible, and the mobile half of the contract below is deliberately a subset assertion,
     // not equality, so an app build that predates a field is never a test failure.
+    //
+    // EIGHTEEN SINCE ADR-0045 R4: `salary_expected_min`, the band's lower end, for the general
+    // road's terms page. Same argument — the finishing form does not send it and need not.
     const accepted = acceptedWireKeys();
     expect(accepted).toEqual([
       "accommodation_needed",
@@ -141,6 +144,7 @@ describe("the finishing form's server contract", () => {
       "languages",
       "preferred_cities",
       "salary_expected_max",
+      "salary_expected_min",
       "salary_period",
       "shift",
       "willing_to_relocate",
@@ -186,10 +190,26 @@ describe("the finishing form's server contract", () => {
   });
 
   it("rejects an unknown field rather than dropping it", () => {
-    // `.strict()`. A client sending `salary_expected_min` — a plausible name for a field that
-    // does not exist — must get a 400 naming it, not a 200 that stored nothing.
-    const result = SetMyPreferencesSchema.safeParse({ salary_expected_min: 24000 });
+    // `.strict()`. A client sending a plausible name for a field that does not exist must get a
+    // 400 naming it, not a 200 that stored nothing. This used to be `salary_expected_min`, until
+    // ADR-0045 R4 made that name a real field (below); `salary_expected` is the interview's RFS
+    // field and has never been a page key, so it is the likeliest wrong guess left.
+    const result = SetMyPreferencesSchema.safeParse({ salary_expected: 24000 });
     expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.code === "unrecognized_keys")).toBe(true);
+    }
+  });
+
+  it("ACCEPTS salary_expected_min since ADR-0045 R4 — the band's lower end, on the page", () => {
+    // INVERTED FROM "REJECTED". The general road's chat asks skills only, so the lower end the
+    // interview collects everywhere else has to be a page answer there.
+    const parsed = SetMyPreferencesSchema.safeParse({ salary_expected_min: 24000 });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.salary_expected_min).toBe(24000);
+    // Nullable, so a worker can withdraw it; optional, so a body without it is unchanged.
+    expect(SetMyPreferencesSchema.safeParse({ salary_expected_min: null }).success).toBe(true);
+    expect(SetMyPreferencesSchema.parse({})).not.toHaveProperty("salary_expected_min");
   });
 
   it("bounds the salary band's upper end, because a typo prints as a worker's asking price", () => {
@@ -198,6 +218,19 @@ describe("the finishing form's server contract", () => {
     expect(SetMyPreferencesSchema.safeParse({ salary_expected_max: 5_000_000 }).success).toBe(
       false,
     );
+  });
+
+  it("bounds the lower end EXACTLY as the upper end — same floor, ceiling and integer rule", () => {
+    // Mirrored, not merely similar: a band whose two ends took different ranges could store a
+    // bottom the top is not allowed to equal.
+    for (const value of [1000, 24000, 500000, 999, 500001, 24000.5, "24000"]) {
+      expect(
+        SetMyPreferencesSchema.safeParse({ salary_expected_min: value }).success,
+        `salary_expected_min: ${String(value)}`,
+      ).toBe(SetMyPreferencesSchema.safeParse({ salary_expected_max: value }).success);
+    }
+    expect(SetMyPreferencesSchema.safeParse({ salary_expected_min: 999 }).success).toBe(false);
+    expect(SetMyPreferencesSchema.safeParse({ salary_expected_min: 1000 }).success).toBe(true);
   });
 });
 

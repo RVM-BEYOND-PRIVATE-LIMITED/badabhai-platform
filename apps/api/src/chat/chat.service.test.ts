@@ -2042,6 +2042,64 @@ describe("ChatService — the general road (ADR-0045)", () => {
     expect(res.extraction_ready).toBe(true);
   });
 
+  describe("once the general form is COMPLETE (ADR-0045 §5, the form API's completion mark)", () => {
+    const STAMP = {
+      v: 1,
+      lane: "skills",
+      role_label: "Graphic designer",
+      domain_label: "Design",
+      skills: ["CorelDRAW"],
+      outcome: "confirmed",
+      handed_over: true,
+    };
+    const DONE = "2026-09-26T10:00:00.000Z";
+
+    it("a late POST gets the résumé menu — the card is not re-served for a finished form", async () => {
+      const { res } = await run({
+        sessionStatus: "ended",
+        conversationState: { general_road: STAMP, general_form_completed_at: DONE },
+      });
+      expect(has(res, "general_form_offer")).toBe(false);
+      expect(res.extraction_ready).toBe(true);
+      expect(res.session_ended).toBe(true);
+    });
+
+    it("the mark wins over the completion_reason fallback too (an unreadable stamp)", async () => {
+      const { res } = await run({
+        sessionStatus: "ended",
+        conversationState: {
+          completion_reason: "general_form_handoff",
+          general_road: { v: 2, something: "from a later build" },
+          general_form_completed_at: DONE,
+        },
+      });
+      expect(has(res, "general_form_offer")).toBe(false);
+      expect(res.extraction_ready).toBe(true);
+    });
+
+    it("an UNREADABLE mark reads as not done — the card is still served (fail soft)", async () => {
+      const { res } = await run({
+        sessionStatus: "ended",
+        conversationState: { general_road: STAMP, general_form_completed_at: "yesterday" },
+      });
+      expect(res.general_form_offer).toEqual({
+        headline: GENERAL_FORM_OFFER.headline,
+        cta_label: GENERAL_FORM_OFFER.ctaLabel,
+      });
+      expect(res.extraction_ready).toBe(false);
+    });
+
+    it("listMessages on the ended session drops the card", async () => {
+      const { svc } = make({
+        buffer: null,
+        conversationState: { general_road: STAMP, general_form_completed_at: DONE },
+      });
+      const out = await svc.listMessages(WORKER, SESSION);
+      expect(has(out, "general_form_offer")).toBe(false);
+      expect(has(out, "gate_kind")).toBe(false);
+    });
+  });
+
   describe("listMessages — the only server redraw for a cold-started chat", () => {
     const line = (role: "worker" | "assistant", text: string) => ({
       role,
