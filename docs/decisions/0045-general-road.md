@@ -1,8 +1,8 @@
 # ADR-0045: The general road — role → skills → offline general form, for roles outside the 21
 
-- **Status:** **Accepted for build (ships OFF).** The rulings R1–R7 below were given by the owner on 2026-09-26; the
-  defaults in §6 were approved with the plan. **Production flag-ON is gated on the owner's signature** at the foot and
-  on the worker-app release that draws the card and the form.
+- **Status:** **Accepted — signed 2026-09-27** (see the foot). The rulings R1–R7 below were given by the owner on
+  2026-09-26; the defaults in §6 were approved with the plan. The backend is complete and ships OFF. **Production
+  flag-ON is now gated only on the worker-app release** that draws the card and the form (#1791–#1795).
 - **Date:** 2026-09-26
 - **Owner:** product owner (rulings relayed by Divyanshu, 2026-09-26)
 - **Amends:** [ADR-0042](0042-profile-road-separation.md) D8 (chat-road completions no longer always go straight to
@@ -252,5 +252,5 @@ Added while building the résumé (Phase 5, 2026-09-27). The first four are owne
 
 ```
 Owner rulings R1–R7 taken 2026-09-26 in the planning session; production flag-ON requires this signature.
-Signed (CEO / Prakash): ______________________          Date: __________
+Signed: Divyanshu (Backend Platform; relayed the owner's rulings)          Date: 2026-09-27
 ```
