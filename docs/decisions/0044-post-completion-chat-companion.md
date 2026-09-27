@@ -63,15 +63,22 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
 3. the live chat session that `POST /chat/session` would reattach to shows ACTIVITY after the confirmation →
    interview. Activity is the later of its `started_at` and its `last_message_at`. A session minted after the
    confirmation is a deliberate "Chat se resume banayein";
-4. a chat session that HANDED OVER TO A FORM, closed after the confirmation, and whose form is not finished →
-   interview (#1775). A redo reaching the trade-form offer ("Haan") or the general road's skills gate ("Nahi") ends
-   its session and withholds extraction until the form is done, so rules 2 and 3 both pass. The recap would then
-   describe the OLD profile, and the only way back to the form (the handover's card) lives on that ended session.
-   A handover is any marker its flush writes (`form_kind`, `general_road.handed_over`, or a `form_handoff` /
-   `general_form_handoff` completion reason). Finished means the general form's `general_form_completed_at` mark
-   (read fail-soft, so an unreadable mark stays unfinished). The trade form has no per-session mark: its finish is the
-   extract → confirm it leads to, which moves the confirmation past the handover. The read selects those two
-   scalars, never the session's captured answers;
+4. a FORM HANDOVER still pending → interview (#1775). A redo reaching the trade-form offer ("Haan") or the general
+   road's skills gate ("Nahi") ends its session and withholds extraction until the form is done, so rules 2 and 3
+   both pass and the recap would describe the OLD profile. Pending means all of:
+   - the form is still SERVED from that session: it is the row the form API itself resolves (the trade form reads
+     the newest session by `last_message_at DESC NULLS LAST, started_at DESC`, the general form the newest session
+     stamped `general_road.handed_over`), carrying a declared `form_kind` or the stamp;
+   - that session closed after the current confirmation;
+   - the form is not finished: no résumé GENERATED since the handover, and for the general form no
+     `general_form_completed_at` mark (read fail-soft, so an unreadable mark stays unfinished).
+
+   The résumé is the finish signal because every form walk ends in a generate: the trade form's last step opens the
+   building screen, which regenerates the résumé, and the general brief leads to extract → confirm → generate. A redo
+   worker who finishes the trade form keeps his old confirmed profile (nothing re-confirms), so a confirmation cannot
+   be the signal (PR #1777, the #1776 review). In interview mode the chat resumes the handover session: its done CTA
+   extracts it with source `form` and the confirm routes to the trade form (ADR-0042); the general card is re-served
+   from the stamp. The reads select scalars only, never the session's captured answers;
 5. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
    ("Phir bhi profile banaiye" never ends the session); it does not block, and the abandonment sweep closes it.
 

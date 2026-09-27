@@ -3,6 +3,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { readGeneralFormCompletedAt } from "../profiling/conversation-state";
+import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 
@@ -28,16 +29,23 @@ const INTERVIEW: CompanionMode = { mode: "interview" };
  *      since #1769) never runs inside the early-finish leftover: `POST /chat/session` supersedes a
  *      live session that already became the confirmed profile and mints a fresh one, so the
  *      redo's `started_at` decides it from the first turn.
- *   4. A chat session that HANDED OVER TO A FORM, closed after that confirmation, and whose form
- *      is not finished → interview (#1775). A redo that reached the trade-form offer ("Haan") or
- *      the general road's skills gate ("Nahi") ends its session and withholds extraction until
- *      the form is done, so rules 2 and 3 both pass and the recap would describe the OLD profile
- *      while the only way back to the form — the handover's card — lives on that ended session.
- *      FINISHED: the general form's `general_form_completed_at` mark (read by the same fail-soft
- *      reader the chat uses, so an unreadable mark stays "not finished"). The trade form has no
- *      per-session mark; its finish is the extract → confirm it leads to, which moves
- *      `confirmedAt` past the handover, so the row stops matching. Until then the worker keeps
- *      today's chat, which is what this rule can only ever widen to.
+ *   4. A FORM HANDOVER still pending → interview (#1775). A redo that reached the trade-form
+ *      offer ("Haan") or the general road's skills gate ("Nahi") ends its session and withholds
+ *      extraction until the form is done, so rules 2 and 3 both pass and the recap would describe
+ *      the OLD profile. Pending means all of:
+ *        - the form is still SERVED from that session: it is the row the form API itself resolves
+ *          (`latestSessionFormKind` / `latestGeneralHandover` mirror `TradeFormService` and
+ *          `GeneralFormService`), with a declared trade `form_kind` or the general stamp;
+ *        - that session CLOSED after the current confirmation;
+ *        - the form is not finished: no résumé has been GENERATED since the handover (the exit of
+ *          every form walk — the trade form's building screen generates one, and the general
+ *          form's brief leads to extract → confirm → generate), and for the general form no
+ *          `general_form_completed_at` mark (the chat's fail-soft reader: unreadable = not done).
+ *      A redo worker who finishes the trade form keeps his old confirmed profile — the building
+ *      screen regenerates the résumé on it and nothing re-confirms — so the résumé, not a
+ *      confirmation, is what retires the handover. In interview mode the chat resumes the handover
+ *      session: its done CTA extracts it with source `form` and the confirm routes to the trade
+ *      form (ADR-0042), and the general card is re-served from the stamp.
  *   5. Otherwise → companion. A live session whose every clock predates the confirmation is the
  *      early-finish leftover ("Phir bhi profile banaiye" → preview → confirm, which never ends the
  *      session); it does not block the companion, and a redo or the abandonment sweep closes it.
@@ -55,19 +63,18 @@ const INTERVIEW: CompanionMode = { mode: "interview" };
  * FAILS TO `interview` on any read error, with a PII-free warn. Interview is today's behaviour,
  * so the safe failure costs the worker the recap, never their chat.
  */
-/**
- * Rule 4's "finished". Only the general form carries a per-session mark; a trade handover
- * (`form_kind` set) is finished only by the confirmation that makes it stop matching at all.
- */
-function formFinished(handover: {
-  readonly formKind: string | null;
-  readonly generalFormCompletedAt: string | null;
-}): boolean {
-  if (handover.formKind !== null) return false;
-  return (
-    readGeneralFormCompletedAt({ general_form_completed_at: handover.generalFormCompletedAt }) !==
-    null
-  );
+/** A declared trade form — one `GET /profiling/form` can actually serve. */
+function isTradeFormKind(kind: string | null): boolean {
+  return kind !== null && (TRADE_FORM_KINDS as readonly string[]).includes(kind);
+}
+
+/** When a handover session closed, if it closed AFTER `confirmedAt` — else null. */
+function closedAfter(
+  session: { readonly status: string; readonly endedAt: Date | null },
+  confirmedAt: Date,
+): Date | null {
+  if (session.status === "active" || session.endedAt === null) return null;
+  return session.endedAt.getTime() > confirmedAt.getTime() ? session.endedAt : null;
 }
 
 @Injectable()
@@ -90,8 +97,7 @@ export class ChatCompanionPolicy {
         const activity = Math.max(live.startedAt.getTime(), live.lastMessageAt?.getTime() ?? 0);
         if (activity > profile.confirmedAt.getTime()) return INTERVIEW;
       }
-      const handover = await this.repo.latestFormHandoverClosedAfter(workerId, profile.confirmedAt);
-      if (handover !== null && !formFinished(handover)) return INTERVIEW;
+      if (await this.formHandoverPending(workerId, profile.confirmedAt)) return INTERVIEW;
       return { mode: "companion", profile };
     } catch (err) {
       this.logger.warn(
@@ -101,5 +107,30 @@ export class ChatCompanionPolicy {
       );
       return INTERVIEW;
     }
+  }
+
+  /** Rule 4 — see the class header. Throws on a read error; `resolve` turns that into interview. */
+  private async formHandoverPending(workerId: string, confirmedAt: Date): Promise<boolean> {
+    const [latest, general] = await Promise.all([
+      this.repo.latestSessionFormKind(workerId),
+      this.repo.latestGeneralHandover(workerId),
+    ]);
+    const handedOverAt: Date[] = [];
+    if (latest !== null && isTradeFormKind(latest.formKind)) {
+      const at = closedAfter(latest, confirmedAt);
+      if (at !== null) handedOverAt.push(at);
+    }
+    if (
+      general !== null &&
+      readGeneralFormCompletedAt({ general_form_completed_at: general.generalFormCompletedAt }) ===
+        null
+    ) {
+      const at = closedAfter(general, confirmedAt);
+      if (at !== null) handedOverAt.push(at);
+    }
+    for (const at of handedOverAt) {
+      if (!(await this.repo.resumeGeneratedAfter(workerId, at))) return true;
+    }
+    return false;
   }
 }
