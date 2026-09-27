@@ -82,7 +82,7 @@ function escapeRegExp(value: string): string {
  */
 export function redactKnownName(text: string, fullName: string | null | undefined): string {
   if (typeof text !== "string" || text.length === 0) return text;
-  const pattern = knownNamePattern(fullName, "giu");
+  const pattern = knownNamePattern(fullName);
   if (pattern === null) return text;
   // Function replacement (never a string) so a placeholder containing `$&`-style
   // patterns could never be reinterpreted — same discipline as `renderWorkerName`.
@@ -94,13 +94,10 @@ export function redactKnownName(text: string, fullName: string | null | undefine
  * {@link MIN_TOKEN_LENGTH}+ characters, case-insensitive, word-anchored — or `null` when
  * the name has no usable token. Shared so that every surface that must keep the
  * worker's own name out of its text (the redaction here, the general form's brief
- * screen) reads the name the same way. `flags` is the caller's: `g` to replace every
- * occurrence, none to `test` without `lastIndex` state.
+ * screen) reads the name the same way. GLOBAL, for the replace: a caller that only asks
+ * "is it there?" uses `String.prototype.search`, which ignores `lastIndex`.
  */
-export function knownNamePattern(
-  fullName: string | null | undefined,
-  flags: "giu" | "iu",
-): RegExp | null {
+export function knownNamePattern(fullName: string | null | undefined): RegExp | null {
   if (typeof fullName !== "string") return null;
 
   const tokens = fullName
@@ -130,5 +127,5 @@ export function knownNamePattern(
   // `\bRam\b` behave inconsistently across the scripts this product actually sees.
   // The lookarounds say exactly what is meant: not adjacent to another letter,
   // digit, or underscore.
-  return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, flags);
+  return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, "giu");
 }
