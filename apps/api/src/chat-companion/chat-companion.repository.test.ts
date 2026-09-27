@@ -76,6 +76,47 @@ describe("latestActiveSession", () => {
   });
 });
 
+describe("latestFormHandoverClosedAfter (#1775)", () => {
+  const AFTER = new Date("2026-09-20T10:00:00.000Z");
+
+  it("this worker's CLOSED sessions that ended after the confirmation and handed over, newest first, one row", async () => {
+    const row = { formKind: "cnc_turner", generalFormCompletedAt: null };
+    const { repo, q } = makeDb([row]);
+    expect(await repo.latestFormHandoverClosedAfter(WORKER, AFTER)).toBe(row);
+    const { sql: text, params } = compile(q.where);
+    // A CONJUNCTION of the scope, with the handover markers OR-ed inside it — an `or` at the top
+    // would read another worker's sessions into the mode decision.
+    expect(text).toMatch(
+      /^\("chat_sessions"\."worker_id" = \$1 and "chat_sessions"\."status" <> \$2 and "chat_sessions"\."ended_at" > \$3 and \(/,
+    );
+    expect(params.slice(0, 3)).toEqual([WORKER, "active", AFTER.toISOString()]);
+    // Every marker a handover flush writes.
+    expect(text).toContain(`"chat_sessions"."conversation_state" ->> 'form_kind' is not null`);
+    expect(text).toContain(
+      `"chat_sessions"."conversation_state" -> 'general_road' ->> 'handed_over' = 'true'`,
+    );
+    expect(text).toMatch(/->> 'completion_reason' in \(\$4, \$5\)/);
+    expect(params.slice(3)).toEqual(["form_handoff", "general_form_handoff"]);
+    expect(compile(q.orderBy![0]).sql).toMatch(/"chat_sessions"\."ended_at" desc/i);
+    expect(q.limit).toBe(1);
+  });
+
+  it("selects two scalars, never the whole conversation_state (it holds the worker's answers)", async () => {
+    const { repo, q } = makeDb([]);
+    await repo.latestFormHandoverClosedAfter(WORKER, AFTER);
+    expect(Object.keys(q.selection ?? {}).sort()).toEqual(["formKind", "generalFormCompletedAt"]);
+    const projected = Object.values(q.selection ?? {}).map((node) => compile(node).sql);
+    expect(projected).toEqual([
+      `"chat_sessions"."conversation_state" ->> 'form_kind'`,
+      `"chat_sessions"."conversation_state" ->> 'general_form_completed_at'`,
+    ]);
+  });
+
+  it("no such session → null", async () => {
+    expect(await makeDb([]).repo.latestFormHandoverClosedAfter(WORKER, AFTER)).toBeNull();
+  });
+});
+
 describe("countApplied", () => {
   it("counts only this worker's `applied` decisions — never skips", async () => {
     const { repo, q } = makeDb([{ n: 3 }]);

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { WorkerProfile } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
+import { readGeneralFormCompletedAt } from "../profiling/conversation-state";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ChatCompanionRepository } from "./chat-companion.repository";
 
@@ -27,7 +28,17 @@ const INTERVIEW: CompanionMode = { mode: "interview" };
  *      since #1769) never runs inside the early-finish leftover: `POST /chat/session` supersedes a
  *      live session that already became the confirmed profile and mints a fresh one, so the
  *      redo's `started_at` decides it from the first turn.
- *   4. Otherwise → companion. A live session whose every clock predates the confirmation is the
+ *   4. A chat session that HANDED OVER TO A FORM, closed after that confirmation, and whose form
+ *      is not finished → interview (#1775). A redo that reached the trade-form offer ("Haan") or
+ *      the general road's skills gate ("Nahi") ends its session and withholds extraction until
+ *      the form is done, so rules 2 and 3 both pass and the recap would describe the OLD profile
+ *      while the only way back to the form — the handover's card — lives on that ended session.
+ *      FINISHED: the general form's `general_form_completed_at` mark (read by the same fail-soft
+ *      reader the chat uses, so an unreadable mark stays "not finished"). The trade form has no
+ *      per-session mark; its finish is the extract → confirm it leads to, which moves
+ *      `confirmedAt` past the handover, so the row stops matching. Until then the worker keeps
+ *      today's chat, which is what this rule can only ever widen to.
+ *   5. Otherwise → companion. A live session whose every clock predates the confirmation is the
  *      early-finish leftover ("Phir bhi profile banaiye" → preview → confirm, which never ends the
  *      session); it does not block the companion, and a redo or the abandonment sweep closes it.
  *
@@ -44,6 +55,21 @@ const INTERVIEW: CompanionMode = { mode: "interview" };
  * FAILS TO `interview` on any read error, with a PII-free warn. Interview is today's behaviour,
  * so the safe failure costs the worker the recap, never their chat.
  */
+/**
+ * Rule 4's "finished". Only the general form carries a per-session mark; a trade handover
+ * (`form_kind` set) is finished only by the confirmation that makes it stop matching at all.
+ */
+function formFinished(handover: {
+  readonly formKind: string | null;
+  readonly generalFormCompletedAt: string | null;
+}): boolean {
+  if (handover.formKind !== null) return false;
+  return (
+    readGeneralFormCompletedAt({ general_form_completed_at: handover.generalFormCompletedAt }) !==
+    null
+  );
+}
+
 @Injectable()
 export class ChatCompanionPolicy {
   private readonly logger = new Logger(ChatCompanionPolicy.name);
@@ -64,6 +90,8 @@ export class ChatCompanionPolicy {
         const activity = Math.max(live.startedAt.getTime(), live.lastMessageAt?.getTime() ?? 0);
         if (activity > profile.confirmedAt.getTime()) return INTERVIEW;
       }
+      const handover = await this.repo.latestFormHandoverClosedAfter(workerId, profile.confirmedAt);
+      if (handover !== null && !formFinished(handover)) return INTERVIEW;
       return { mode: "companion", profile };
     } catch (err) {
       this.logger.warn(
