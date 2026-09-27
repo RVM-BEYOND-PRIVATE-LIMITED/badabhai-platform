@@ -16,6 +16,7 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
+import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
 import 'widgets/match_skill_picker.dart';
 
@@ -78,7 +79,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final TextEditingController _expMin = TextEditingController();
   final TextEditingController _expMax = TextEditingController();
 
-  // --- Agency-only input (`POST /payer/agency/jobs`) -------------------------
+  // --- The city bucket — BOTH branches --------------------------------------
+  // The worker's card draws its place row from `city` (+ the coarse `area`), so
+  // both routes need one. The company form used to have NO city input at all:
+  // `_submit` reused the free-text Location box, which is `location_label` —
+  // poster free text the feed deliberately never reads. A payer who typed
+  // "Plot 42, MIDC" stored that as his city, and one who left Location blank
+  // published a posting with NO city, which the feed serves as "" and the card
+  // draws as a bare location pin with nothing beside it.
   final TextEditingController _city = TextEditingController();
 
   // COARSE locality bucket ("Chakan"), shared by both branches (#1646 gave the
@@ -121,9 +129,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// 'CNC Setter' would put a trade the payer never chose into `description`).
   String? _trade;
   String _band = '2-5';
-  // Agency `trade_key` enum + coarse `needed_by` timing (server-accepted values).
-  String _tradeKey = kAgencyTradeKeys.first;
-  String _neededBy = kAgencyNeededBy.first;
+  // Agency `trade_key` enum + coarse `needed_by` timing (server-accepted
+  // values). BOTH start NULL. The trade is the worker card's own trade line and
+  // the timing is its "Turant chahiye" chip, so a preselected first option would
+  // print a fact on that card the payer never chose (#357) — and a default is
+  // exactly how every agency job ended up advertising the same trade. Required
+  // at submit, like every other field the card renders.
+  String? _tradeKey;
+  String? _neededBy;
   // #357 — starts empty; '+ Add skill' prompts for a real phrase instead of
   // inserting the literal placeholder 'Skill N'. Used ONLY on the V1-off
   // fallback path (when the demand-skill picker is unavailable).
@@ -346,6 +359,26 @@ class _PostJobScreenState extends State<PostJobScreen> {
     return null;
   }
 
+  /// The card's own fields, checked against [workerCardGap] — the ONE
+  /// definition the two edit screens are held to as well, so a card row added
+  /// later cannot be required in one place and optional in three.
+  ///
+  /// `neededBy` is the only branch-dependent value: the company posting and the
+  /// agency job keep their own enum state, and only one branch is ever mounted.
+  WorkerCardGap? _cardContentGap() => workerCardGap(
+        city: _city.text,
+        payMin: _intOrNull(_payMin.text),
+        payMax: _intOrNull(_payMax.text),
+        payType: _payType,
+        expMin: _intOrNull(_expMin.text),
+        expMax: _intOrNull(_expMax.text),
+        shift: _shift,
+        neededBy: _isAgency ? _neededBy : _companyNeededBy,
+        description: _description.text,
+        requirements: _requirements,
+        benefits: _benefits,
+      );
+
   /// FOLD ONLY WHAT HAS NO COLUMN. `description` is the company posting's one
   /// free-text field, and #357 used it to carry every input the create route had
   /// no column for — trade, the pay band, the experience window and the
@@ -367,6 +400,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// filler string.
   String? _companyDescription() {
     final List<String> lines = <String>[];
+    // The payer's OWN words first — the company form now has the same typed
+    // description the agency form has, because the worker card renders one and
+    // a composed "Trade: X" line is not a description of the work.
+    final String typed = _description.text.trim();
+    if (typed.isNotEmpty) lines.add(typed);
     final String? trade = _trade;
     if (trade != null) lines.add('Trade: $trade');
     if (_skills.isNotEmpty) lines.add('Key skills: ${_skills.join(', ')}');
@@ -407,6 +445,35 @@ class _PostJobScreenState extends State<PostJobScreen> {
       return;
     }
 
+    // Every fact the worker's card renders — city, band, pay type, experience,
+    // shift, needed-by, description, requirement + benefit chips.
+    final WorkerCardGap? gap = _cardContentGap();
+    if (gap != null) {
+      showBbToast(
+        context,
+        title: gap.title,
+        message: gap.message,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
+    // Worker-visible free text: screened before the call so one bad line does
+    // not 400 the whole post (the chips are already screened at entry). The
+    // agency branch has always done this; the company description used to be
+    // composed rather than typed, so it never passed through here.
+    final String? descriptionError =
+        postingDescriptionError(_description.text.trim());
+    if (descriptionError != null) {
+      showBbToast(
+        context,
+        title: 'Check the description',
+        message: descriptionError,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
     // Defence in depth behind the disabled Post button: when the demand-skill
     // picker is live the job needs at least one skill so it can be matched to
     // workers (now, or as they join — reach is dynamic, see `_companyCanPost`).
@@ -434,7 +501,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
       // `MATCH_V1_ENABLED=false` server stored no pay and no shift at all, so
       // every company job showed a worker a card with no wage and no timing.
       // Only the match SKILL ids below are V1-conditional.
-      final String? city = location.isNotEmpty ? location : null;
+      //
+      // The city comes from the CITY box, never from Location. Location is
+      // `location_label` — poster free text the worker feed deliberately never
+      // reads — and reusing it here stored "Plot 42, MIDC" as a city, or no
+      // city at all when it was left blank.
+      final String city = _city.text.trim();
       final String areaText = _area.text.trim();
       final String? area = areaText.isEmpty ? null : areaText;
       final int? payMin = _intOrNull(_payMin.text);
@@ -662,11 +734,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
   Future<void> _submitAgency() async {
     final String title = _title.text.trim();
     final String city = _city.text.trim();
-    if (title.isEmpty || city.isEmpty) {
+    final String? tradeKey = _tradeKey;
+    if (tradeKey == null || title.isEmpty) {
       showBbToast(
         context,
         title: 'Add the basics',
-        message: 'Job title and city are needed.',
+        message: 'Trade and job title are needed — both are printed on the '
+            'worker\'s card.',
         icon: Icons.info_outline,
       );
       return;
@@ -684,6 +758,19 @@ class _PostJobScreenState extends State<PostJobScreen> {
         context,
         title: 'Check the bands',
         message: bandError,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
+    // Every fact the worker's card renders — the same closed list the company
+    // branch is held to, because the two produce the SAME card.
+    final WorkerCardGap? gap = _cardContentGap();
+    if (gap != null) {
+      showBbToast(
+        context,
+        title: gap.title,
+        message: gap.message,
         icon: Icons.info_outline,
       );
       return;
@@ -707,7 +794,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
     try {
       final String area = _area.text.trim();
       await locator<PayerApiClient>().createAgencyJob(
-        tradeKey: _tradeKey,
+        tradeKey: tradeKey,
         title: title,
         city: city,
         area: area.isEmpty ? null : area,
@@ -884,9 +971,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// A labelled single-select rendered as aligned kit chips (the JUL31 pattern
   /// for enum choices) — selected flips to a solid haldi pill. Carries the same
   /// value/onChanged contract the old [BbSelect] did, so submit logic is intact.
-  Widget _chipField<T>({
+  /// [value] is nullable so a REQUIRED enum can start unpicked: no chip is
+  /// selected until the payer taps one, and submit refuses until they do. That
+  /// is what keeps a default off the worker's card.
+  Widget _chipField<T extends Object>({
     required String label,
-    required T value,
+    required T? value,
     required List<T> options,
     required String Function(T) labelOf,
     required ValueChanged<T> onSelected,
@@ -921,12 +1011,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// The pay-type selector, shared by both branches (`pay_type`, #1648) — what
   /// the ₹ band the payer just typed actually MEANS to the worker. Offered
   /// straight under the band for that reason.
-  Widget _payTypeField() => _chipField<String?>(
+  Widget _payTypeField() => _chipField<String>(
         label: 'Pay type',
         value: _payType,
-        options: const <String?>[null, ...kJobPayTypes],
+        options: kJobPayTypes,
         labelOf: _payTypeLabel,
-        onSelected: (String? v) => setState(() => _payType = v),
+        onSelected: (String v) => setState(() => _payType = v),
       );
 
   /// `in_hand|gross|ctc` → display labels; null = "Not stated".
@@ -973,10 +1063,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(
+                // THE CARD'S PLACE ROW. Its own input since #1725 — the submit
+                // used to reuse the free-text Location below, which is
+                // `location_label` and never reaches a worker.
                 child: BbField(
-                  label: 'Location',
-                  controller: _location,
-                  hint: 'optional',
+                  label: 'City',
+                  controller: _city,
+                  hint: 'e.g. Pune',
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -991,6 +1084,15 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // `location_label` — your own wording for the site. Kept optional and
+          // said plainly to be internal: the worker feed never reads it, so it
+          // can hold the detail the coarse city/area buckets may not.
+          BbField(
+            label: 'Location note (optional, not shown to workers)',
+            controller: _location,
+            hint: 'e.g. near Chakan MIDC Phase 2',
           ),
           const SizedBox(height: AppSpacing.s4),
           _chipField<String>(
@@ -1012,7 +1114,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Pay min ₹/mo',
                   controller: _payMin,
-                  hint: 'optional',
+                  hint: 'e.g. 18000',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1022,7 +1124,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Pay max ₹/mo',
                   controller: _payMax,
-                  hint: 'optional',
+                  hint: 'e.g. 25000',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1039,7 +1141,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Exp min (yrs)',
                   controller: _expMin,
-                  hint: 'optional',
+                  hint: 'e.g. 1',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1049,7 +1151,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Exp max (yrs)',
                   controller: _expMax,
-                  hint: 'optional',
+                  hint: 'e.g. 4',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1062,20 +1164,20 @@ class _PostJobScreenState extends State<PostJobScreen> {
           // V1 is on. Null stays "Any shift" / "Not specified": an unpicked
           // value sends nothing, so the worker's card never claims a timing the
           // payer did not choose.
-          _chipField<String?>(
+          _chipField<String>(
             label: 'Shift',
             value: _shift,
-            options: const <String?>[null, 'day', 'night', 'rotational'],
+            options: const <String>['day', 'night', 'rotational'],
             labelOf: _shiftLabel,
-            onSelected: (String? v) => setState(() => _shift = v),
+            onSelected: (String v) => setState(() => _shift = v),
           ),
           const SizedBox(height: AppSpacing.s4),
-          _chipField<String?>(
+          _chipField<String>(
             label: 'Needed by',
             value: _companyNeededBy,
-            options: const <String?>[null, 'immediate', 'soon', 'flexible'],
+            options: const <String>['immediate', 'soon', 'flexible'],
             labelOf: _companyNeededByLabel,
-            onSelected: (String? v) => setState(() => _companyNeededBy = v),
+            onSelected: (String v) => setState(() => _companyNeededBy = v),
           ),
         ]),
         const SizedBox(height: AppSpacing.s4),
@@ -1098,8 +1200,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
+          // The card renders a description. The company form used to have no
+          // input for one — `description` was COMPOSED from the trade + the
+          // V1-off skill chips — so a company posting reached the worker with a
+          // "Trade: CNC Setter" line where the work should have been.
+          JobDescriptionField(controller: _description, label: 'Description'),
+          const SizedBox(height: AppSpacing.s4),
           _chipListField(
-            label: 'Benefits (optional)',
+            label: 'Benefits',
             values: _benefits,
             maxItems: JobContentLimits.listItems,
             addLabel: '+ Add benefit',
@@ -1107,7 +1215,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
           const SizedBox(height: AppSpacing.s4),
           _chipListField(
-            label: 'Requirements (optional)',
+            label: 'Requirements',
             values: _requirements,
             maxItems: JobContentLimits.listItems,
             addLabel: '+ Add requirement',
@@ -1343,7 +1451,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Pay min ₹/mo',
                   controller: _payMin,
-                  hint: 'optional',
+                  hint: 'e.g. 18000',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1353,7 +1461,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Pay max ₹/mo',
                   controller: _payMax,
-                  hint: 'optional',
+                  hint: 'e.g. 25000',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1370,7 +1478,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Exp min (yrs)',
                   controller: _expMin,
-                  hint: 'optional',
+                  hint: 'e.g. 1',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1380,7 +1488,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
                 child: BbField(
                   label: 'Exp max (yrs)',
                   controller: _expMax,
-                  hint: 'optional',
+                  hint: 'e.g. 4',
                   keyboardType: TextInputType.number,
                   mono: true,
                 ),
@@ -1400,12 +1508,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
           const SizedBox(height: AppSpacing.s4),
           // Null stays "Any shift" — an unpicked shift sends nothing, so the
           // worker's card never claims a shift the payer did not choose.
-          _chipField<String?>(
+          _chipField<String>(
             label: 'Shift',
             value: _shift,
-            options: const <String?>[null, 'day', 'night', 'rotational'],
+            options: const <String>['day', 'night', 'rotational'],
             labelOf: _shiftLabel,
-            onSelected: (String? v) => setState(() => _shift = v),
+            onSelected: (String v) => setState(() => _shift = v),
           ),
         ]),
         const SizedBox(height: AppSpacing.s4),
@@ -1423,10 +1531,10 @@ class _PostJobScreenState extends State<PostJobScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
-          JobDescriptionField(controller: _description),
+          JobDescriptionField(controller: _description, label: 'Description'),
           const SizedBox(height: AppSpacing.s4),
           _chipListField(
-            label: 'Benefits (optional)',
+            label: 'Benefits',
             values: _benefits,
             maxItems: JobContentLimits.listItems,
             addLabel: '+ Add benefit',
@@ -1434,7 +1542,7 @@ class _PostJobScreenState extends State<PostJobScreen> {
           ),
           const SizedBox(height: AppSpacing.s4),
           _chipListField(
-            label: 'Requirements (optional)',
+            label: 'Requirements',
             values: _requirements,
             maxItems: JobContentLimits.listItems,
             addLabel: '+ Add requirement',
@@ -1456,8 +1564,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
-                  'Pay & experience are optional bands — they only help us match '
-                  'the right workers. Posting is free.',
+                  'Pay, experience, shift and timing are printed on the '
+                  "worker's job card — that is why we ask for all of them. "
+                  'Posting is free.',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
                     color: AppColors.bluePressed,

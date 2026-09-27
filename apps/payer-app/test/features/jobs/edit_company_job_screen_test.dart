@@ -82,6 +82,15 @@ const JobPosting _job = JobPosting(
   city: 'Pune',
   payMin: 22000,
   payMax: 28000,
+  // The rest of what the worker's card renders. The form REFUSES a save that
+  // would leave any of them blank, so a fixture missing one is a row that could
+  // not legally be saved in the first place.
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
   shift: 'day',
   description: 'Turning job work on Fanuc controls.',
   filled: 0,
@@ -181,10 +190,13 @@ void main() {
     // The old lie.
     expect(find.textContaining('not editable here yet'), findsNothing);
 
-    // A stored shift is never offered a "Not set" it could not honour; the
-    // unset needed-by is.
+    // The stored enums are selected, and there is NO "leave it unstated" chip
+    // to select instead: every one of these is printed on the worker's card.
     expect(find.text('Day'), findsOneWidget);
-    expect(find.text('Not set'), findsOneWidget);
+    expect(find.text('Within weeks'), findsOneWidget);
+    expect(find.text('In-hand'), findsOneWidget);
+    expect(find.text('Not set'), findsNothing);
+    expect(find.text('Not stated'), findsNothing);
   });
 
   testWidgets('only the CHANGED fields ride the PATCH', (
@@ -196,7 +208,7 @@ void main() {
     await typeInto(tester, 'Pay max ₹/mo', '30000');
     await typeInto(
       tester,
-      'Description (optional)',
+      'Description',
       'Night-shift turning on Fanuc controls.',
     );
     await tester.tap(find.text('Rotational'));
@@ -219,13 +231,14 @@ void main() {
     expect(api.lastBand, isNull);
   });
 
-  testWidgets('an emptied box is not sent (this contract cannot clear)', (
+  testWidgets('an emptied OPTIONAL box is not sent (cannot clear)', (
     WidgetTester tester,
   ) async {
     await open(tester);
 
-    await typeInto(tester, 'City', '');
-    await typeInto(tester, 'Description (optional)', '');
+    // Location is the payer's own note — not a card field — so emptying it is
+    // allowed, and must still not ride as a blank the route would 400.
+    await typeInto(tester, 'Location', '');
     // One real change so there IS something to save.
     await typeInto(tester, 'Job title', 'CNC Setter — Night');
 
@@ -233,8 +246,45 @@ void main() {
 
     expect(api.updated, <String>['j1']);
     expect(api.lastRoleTitle, 'CNC Setter — Night');
-    expect(api.lastCity, isNull);
-    expect(api.lastDescription, isNull);
+    expect(api.lastLocation, isNull);
+  });
+
+  testWidgets('emptying the city is REFUSED — the card needs a place', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    await typeInto(tester, 'City', '');
+    await tapSave(tester);
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the city'), findsOneWidget);
+  });
+
+  testWidgets('emptying the description is REFUSED', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    await typeInto(tester, 'Description', '');
+    await tapSave(tester);
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the description'), findsOneWidget);
+  });
+
+  testWidgets('clearing the last requirement chip is REFUSED', (
+    WidgetTester tester,
+  ) async {
+    await open(tester);
+
+    // Tapping a chip removes it — the stored row has exactly one.
+    await tester.tap(find.text('Fanuc control'));
+    await tester.pumpAndSettle();
+    await tapSave(tester);
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add a requirement'), findsOneWidget);
   });
 
   testWidgets('an unchanged form says so instead of 400ing', (
@@ -266,7 +316,7 @@ void main() {
 
     await typeInto(
       tester,
-      'Description (optional)',
+      'Description',
       'Call 98765 43210 to apply',
     );
     await tapSave(tester);

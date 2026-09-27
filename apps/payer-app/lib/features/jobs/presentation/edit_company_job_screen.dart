@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/jobs_cubit.dart';
+import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
 
 /// Edit an existing COMPANY posting (`PATCH /payer/job-postings/:id`).
@@ -103,21 +104,10 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
   late String? _payType =
       kJobPayTypes.contains(widget.job.payType) ? widget.job.payType : null;
 
-  /// 'Not set' / 'Not stated' is offered ONLY while nothing is stored: the PATCH
-  /// enums have no clear value, so the form never shows a choice it could not
-  /// honour.
-  late final List<String?> _shiftOptions = <String?>[
-    if (_shift == null) null,
-    ..._shifts,
-  ];
-  late final List<String?> _neededByOptions = <String?>[
-    if (_neededBy == null) null,
-    ..._neededBys,
-  ];
-  late final List<String?> _payTypeOptions = <String?>[
-    if (_payType == null) null,
-    ...kJobPayTypes,
-  ];
+  // NO 'Not set' / 'Not stated' OPTION. Shift, needed-by and pay type are all
+  // printed on the worker's card, so "leave it unstated" is not a choice the
+  // form can offer — a row that stores none shows NO selected chip and the save
+  // is refused until the payer picks one.
 
   bool _saving = false;
 
@@ -219,6 +209,34 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
         context,
         title: 'Check the description',
         message: descriptionError,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
+    // The card's own fields — the SAME rule the create form applies, because an
+    // edit can empty what a create had to fill. Checked against the FORM state,
+    // which is the resulting card: every box here is prefilled from the stored
+    // row, so a blank one is either a field the row never had or one the payer
+    // just emptied, and both leave the same hole on the worker's card.
+    final WorkerCardGap? gap = workerCardGap(
+      city: _city.text,
+      payMin: payMin,
+      payMax: payMax,
+      payType: _payType,
+      expMin: expMin,
+      expMax: expMax,
+      shift: _shift,
+      neededBy: _neededBy,
+      description: _description.text,
+      requirements: _requirements,
+      benefits: _benefits,
+    );
+    if (gap != null) {
+      showBbToast(
+        context,
+        title: gap.title,
+        message: gap.message,
         icon: Icons.info_outline,
       );
       return;
@@ -334,9 +352,11 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
 
   /// A labelled single-select rendered as aligned kit chips — the JUL31 pattern
   /// for enum choices; selected flips to a solid haldi pill.
-  Widget _chipField<T>({
+  /// [value] is nullable so a REQUIRED enum can sit UNPICKED on a row that
+  /// stores none — no chip is selected until the payer taps one.
+  Widget _chipField<T extends Object>({
     required String label,
-    required T value,
+    required T? value,
     required List<T> options,
     required String Function(T) labelOf,
     required ValueChanged<T> onSelected,
@@ -511,7 +531,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     child: BbField(
                       label: 'Pay min ₹/mo',
                       controller: _payMin,
-                      hint: 'optional',
+                      hint: 'e.g. 18000',
                       keyboardType: TextInputType.number,
                       mono: true,
                     ),
@@ -521,7 +541,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     child: BbField(
                       label: 'Pay max ₹/mo',
                       controller: _payMax,
-                      hint: 'optional',
+                      hint: 'e.g. 25000',
                       keyboardType: TextInputType.number,
                       mono: true,
                     ),
@@ -531,12 +551,12 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
               const SizedBox(height: AppSpacing.s4),
               // What the band MEANS (#1648). 'Not stated' only while the row
               // states nothing — the PATCH enum cannot clear one.
-              _chipField<String?>(
+              _chipField<String>(
                 label: 'Pay type',
                 value: _payType,
-                options: _payTypeOptions,
+                options: kJobPayTypes,
                 labelOf: _payTypeLabel,
-                onSelected: (String? v) => setState(() => _payType = v),
+                onSelected: (String v) => setState(() => _payType = v),
               ),
               const SizedBox(height: AppSpacing.s4),
               Row(
@@ -546,7 +566,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     child: BbField(
                       label: 'Exp min (yrs)',
                       controller: _expMin,
-                      hint: 'optional',
+                      hint: 'e.g. 1',
                       keyboardType: TextInputType.number,
                       mono: true,
                     ),
@@ -556,7 +576,7 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                     child: BbField(
                       label: 'Exp max (yrs)',
                       controller: _expMax,
-                      hint: 'optional',
+                      hint: 'e.g. 4',
                       keyboardType: TextInputType.number,
                       mono: true,
                     ),
@@ -564,25 +584,25 @@ class _EditCompanyJobScreenState extends State<EditCompanyJobScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.s4),
-              _chipField<String?>(
+              _chipField<String>(
                 label: 'Shift',
                 value: _shift,
-                options: _shiftOptions,
+                options: _shifts,
                 labelOf: _shiftLabel,
-                onSelected: (String? v) => setState(() => _shift = v),
+                onSelected: (String v) => setState(() => _shift = v),
               ),
               const SizedBox(height: AppSpacing.s4),
-              _chipField<String?>(
+              _chipField<String>(
                 label: 'Needed by',
                 value: _neededBy,
-                options: _neededByOptions,
+                options: _neededBys,
                 labelOf: _neededByLabel,
-                onSelected: (String? v) => setState(() => _neededBy = v),
+                onSelected: (String v) => setState(() => _neededBy = v),
               ),
             ]),
             const SizedBox(height: AppSpacing.s4),
             _sectionCard('What workers see', <Widget>[
-              JobDescriptionField(controller: _description),
+              JobDescriptionField(controller: _description, label: 'Description'),
               const SizedBox(height: AppSpacing.s4),
               JobChipListField(
                 label: 'Benefits',

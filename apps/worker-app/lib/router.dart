@@ -551,13 +551,6 @@ GoRouter _buildRouter() {
         path: Routes.finishing,
         builder: (_, __) => const FinishingScreen(),
       ),
-      // #1687 — "Mere resume": every resume the worker has made. Pushed from
-      // the Profile tab, full-screen over the shell.
-      GoRoute(
-        path: Routes.resumeHistory,
-        parentNavigatorKey: _rootNavKey,
-        builder: (_, __) => const ResumeHistoryScreen(),
-      ),
       GoRoute(
         path: Routes.tradeForm,
         builder: (_, GoRouterState state) {
@@ -778,6 +771,30 @@ GoRouter _buildRouter() {
                       ),
                     ],
                   ),
+              // #1687 — "Mere resume": every résumé the worker has made.
+              //
+              // INSIDE THE PROFILE BRANCH, so the bottom tab bar stays: this is a
+              // place the worker moves around in (open one, come back, open
+              // another), not a one-way full-screen task like Settings or the
+              // résumé editor, which both set `parentNavigatorKey: _rootNavKey`
+              // to drop the bar deliberately.
+              //
+              // AFTER the branch root, and with its ABSOLUTE constant:
+              //  * AFTER, because the FIRST route in a branch is that branch's
+              //    initial location — declared first, the Profile tab opened on
+              //    the résumé list instead of the profile (caught by the mock-mode
+              //    journey test).
+              //  * ABSOLUTE rather than a relative `'resumes'` nested under
+              //    `/profile`, because both render identically on this navigator
+              //    while the absolute form leaves the route table describable by
+              //    `Routes.resumeHistory` alone — which is what the server's
+              //    screen-template contract consumes. A new relative literal would
+              //    have changed a pinned set in `apps/api`'s contract test, a
+              //    backend-owned file, for nothing the worker can see.
+              GoRoute(
+                path: Routes.resumeHistory,
+                builder: (_, __) => const ResumeHistoryScreen(),
+              ),
                 ],
               ),
             ],

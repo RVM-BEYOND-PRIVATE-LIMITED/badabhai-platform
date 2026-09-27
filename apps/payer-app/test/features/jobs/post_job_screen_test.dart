@@ -355,6 +355,72 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   }
 
+  /// Tap an enum chip by its visible label.
+  Future<void> tapChip(WidgetTester tester, String label) async {
+    await tester.tap(find.text(label).last);
+    await tester.pumpAndSettle();
+  }
+
+  /// Add one chip through the '+ Add …' prompt (the only way in — there is no
+  /// placeholder chip to edit).
+  Future<void> addChip(
+    WidgetTester tester, {
+    required String addLabel,
+    required Key fieldKey,
+    required String phrase,
+  }) async {
+    await tester.tap(find.text(addLabel));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(fieldKey), phrase);
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+  }
+
+  /// Fill EVERY field the worker's job card renders, on either branch.
+  ///
+  /// The card draws the place (city + optional area), the ₹ band, what that
+  /// band MEANS, the experience window, the shift, the needed-by chip, the
+  /// description and the two chip rows — so the form refuses to post until all
+  /// of them are set, and a test that posts must set all of them. `neededBy`
+  /// differs by branch only in its LABEL ('Immediately' vs 'Immediate'); the
+  /// value on the wire is `immediate` either way.
+  Future<void> fillCardContent(
+    WidgetTester tester, {
+    String city = 'Pune',
+    String payMin = '18000',
+    String payMax = '24000',
+    String expMin = '1',
+    String expMax = '4',
+    String payType = 'In-hand',
+    String shift = 'Night',
+    String neededBy = 'Immediately',
+    String description = 'Turning job work on Fanuc controls.',
+    String benefit = 'PF + ESI',
+    String requirement = 'Fanuc control',
+  }) async {
+    await typeInto(tester, 'City', city);
+    await typeInto(tester, 'Pay min ₹/mo', payMin);
+    await typeInto(tester, 'Pay max ₹/mo', payMax);
+    await typeInto(tester, 'Exp min (yrs)', expMin);
+    await typeInto(tester, 'Exp max (yrs)', expMax);
+    await typeInto(tester, 'Description', description);
+    await tapChip(tester, payType);
+    await tapChip(tester, shift);
+    await tapChip(tester, neededBy);
+    await addChip(
+      tester,
+      addLabel: '+ Add benefit',
+      fieldKey: const Key('add-benefit-field'),
+      phrase: benefit,
+    );
+    await addChip(
+      tester,
+      addLabel: '+ Add requirement',
+      fieldKey: const Key('add-requirement-field'),
+      phrase: requirement,
+    );
+  }
+
   // The posting's DISPLAY half (city / pay / shift / needed_by) is worker-visible
   // data, not a match input, so it must ride the post whether or not the
   // Matching-V1 routes are on. It used to be gated on the picker being live, so
@@ -367,16 +433,9 @@ void main() {
       await pump(tester, PayerRole.company);
 
       await typeInto(tester, 'Job title', 'CNC Operator');
-      await typeInto(tester, 'Location', 'Nashik');
-      await typeInto(tester, 'Pay min ₹/mo', '18000');
-      await typeInto(tester, 'Pay max ₹/mo', '24000');
-
       // Both selectors must EXIST with the picker off — they are on the
       // Pay, experience & timing card, not inside the V1 branch.
-      await tester.tap(find.text('Night'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Immediately'));
-      await tester.pumpAndSettle();
+      await fillCardContent(tester, city: 'Nashik');
 
       await tapPost(tester);
 
@@ -446,11 +505,17 @@ void main() {
       await pump(tester, PayerRole.company);
 
       await typeInto(tester, 'Job title', 'VMC Operator');
-      await typeInto(tester, 'Location', 'Nashik');
-      await typeInto(tester, 'Pay min ₹/mo', '22000');
-      await typeInto(tester, 'Pay max ₹/mo', '28000');
-      await typeInto(tester, 'Exp min (yrs)', '2');
-      await typeInto(tester, 'Exp max (yrs)', '6');
+      await typeInto(tester, 'Location note (optional, not shown to workers)',
+          'Nashik MIDC');
+      await fillCardContent(
+        tester,
+        city: 'Nashik',
+        payMin: '22000',
+        payMax: '28000',
+        expMin: '2',
+        expMax: '6',
+        description: 'Setting and running VMC machines.',
+      );
 
       // Trade is a deliberate pick — it starts unset so nothing lands in the
       // description the payer did not choose.
@@ -470,7 +535,10 @@ void main() {
       expect(api.created, hasLength(1));
       final created = api.created.single;
       expect(created.title, 'VMC Operator');
-      expect(created.location, 'Nashik');
+      // `location_label` is the payer's own note and stays SEPARATE from the
+      // city — the worker feed never reads it.
+      expect(created.location, 'Nashik MIDC');
+      expect(api.companyCity, 'Nashik');
       expect(created.org, 'Kalyani Industries');
 
       // The description now folds ONLY what still has no column of its own:
@@ -478,20 +546,24 @@ void main() {
       // experience are real fields since #1645/#1646, so repeating them in the
       // prose would print the same fact twice on the worker's card.
       final String description = created.description!;
+      // The payer's OWN words lead; the fold only adds what has no column.
+      expect(description, contains('Setting and running VMC machines.'));
       expect(description, contains('Trade: Quality Inspector'));
       expect(description, contains('Key skills: Fanuc'));
       expect(description, isNot(contains('Monthly pay')));
       expect(description, isNot(contains('Experience:')));
     });
 
-    testWidgets('an untouched detail block sends NO description, not filler', (
+    testWidgets('a blank description is refused — the card renders one', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.company);
       await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester, description: '');
       await tapPost(tester);
 
-      expect(api.created.single.description, isNull);
+      expect(api.created, isEmpty);
+      expect(find.text('Add the description'), findsOneWidget);
     });
 
     testWidgets('pay band is rejected when max is below min', (
@@ -509,49 +581,18 @@ void main() {
   });
 
   group('agency — the worker-visible content reaches the create call', () {
-    /// Add one chip through the '+ Add …' prompt (the only way in — there is no
-    /// placeholder chip to edit).
-    Future<void> addChip(
-      WidgetTester tester, {
-      required String addLabel,
-      required Key fieldKey,
-      required String phrase,
-    }) async {
-      await tester.tap(find.text(addLabel));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(fieldKey), phrase);
-      await tester.tap(find.text('Add'));
-      await tester.pumpAndSettle();
-    }
-
     testWidgets('description, shift, benefits and requirements are all sent', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.agency);
 
-      await typeInto(tester, 'Job title', 'CNC Operator');
-      await typeInto(tester, 'City', 'Pune');
-      await typeInto(
+      await typeInto(tester, 'Job title', 'Lathe hand');
+      // The trade is the card's own trade line — no longer defaulted.
+      await tapChip(tester, 'CNC / VMC Setter');
+      await fillCardContent(
         tester,
-        'Description (optional)',
-        'Turning job work on Fanuc controls. Two-shift plant.',
-      );
-
-      // Shift lives on the Timing card; null stays "Any shift".
-      await tester.tap(find.text('Night'));
-      await tester.pumpAndSettle();
-
-      await addChip(
-        tester,
-        addLabel: '+ Add benefit',
-        fieldKey: const Key('add-benefit-field'),
-        phrase: 'PF + ESI',
-      );
-      await addChip(
-        tester,
-        addLabel: '+ Add requirement',
-        fieldKey: const Key('add-requirement-field'),
-        phrase: 'Fanuc control',
+        neededBy: 'Immediate',
+        description: 'Turning job work on Fanuc controls. Two-shift plant.',
       );
 
       await tapPost(tester);
@@ -566,22 +607,22 @@ void main() {
       expect(api.agencyShift, 'night');
       expect(api.agencyBenefits, <String>['PF + ESI']);
       expect(api.agencyRequirements, <String>['Fanuc control']);
+      expect(api.createdAgency.single.city, 'Pune');
     });
 
-    testWidgets('untouched content sends nothing — no filler, no empty lists', (
+    testWidgets('an untouched content block is REFUSED — the card needs it', (
       WidgetTester tester,
     ) async {
       await pump(tester, PayerRole.agency);
 
       await typeInto(tester, 'Job title', 'Fitter');
+      await tapChip(tester, 'CNC / VMC Setter');
       await typeInto(tester, 'City', 'Pune');
       await tapPost(tester);
 
-      expect(api.createdAgency, hasLength(1));
-      expect(api.agencyDescription, isNull);
-      expect(api.agencyShift, isNull);
-      expect(api.agencyBenefits, isNull);
-      expect(api.agencyRequirements, isNull);
+      // It used to post a job whose card had no wage, no shift and no chips.
+      expect(api.createdAgency, isEmpty);
+      expect(find.text('Add the pay band'), findsOneWidget);
     });
 
     testWidgets('a phone-shaped description is refused before the call', (
@@ -590,11 +631,11 @@ void main() {
       await pump(tester, PayerRole.agency);
 
       await typeInto(tester, 'Job title', 'Fitter');
-      await typeInto(tester, 'City', 'Pune');
-      await typeInto(
+      await tapChip(tester, 'CNC / VMC Setter');
+      await fillCardContent(
         tester,
-        'Description (optional)',
-        'Call 98765 43210 for details',
+        neededBy: 'Immediate',
+        description: 'Call 98765 43210 for details',
       );
       await tapPost(tester);
 
@@ -610,16 +651,15 @@ void main() {
     /// shift + needed-by.
     Future<void> fillV1Form(WidgetTester tester) async {
       await typeInto(tester, 'Job title', 'VMC Operator');
-      await typeInto(tester, 'Location', 'Nashik');
-      await typeInto(tester, 'Pay min ₹/mo', '22000');
-      await typeInto(tester, 'Pay max ₹/mo', '28000');
-
       await tester.tap(find.text('CNC operating'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Day'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Immediately'));
-      await tester.pumpAndSettle();
+      await fillCardContent(
+        tester,
+        city: 'Nashik',
+        payMin: '22000',
+        payMax: '28000',
+        shift: 'Day',
+      );
     }
 
     testWidgets('city, pay, shift, needed-by and skills ride a follow-up PATCH',
@@ -663,27 +703,25 @@ void main() {
       expect(api.created, hasLength(1));
     });
 
-    testWidgets('only the values the create dropped ride the PATCH', (
+    testWidgets('the Location note never becomes the city', (
       WidgetTester tester,
     ) async {
-      await pump(tester, PayerRole.company, spy: _OldRouteSpyApi());
+      // The company form had NO city input: `_submit` reused the free-text
+      // Location box, so "Plot 42, MIDC Chakan" was stored as the city and a
+      // blank one published a posting with none at all.
+      await pump(tester, PayerRole.company, spy: _V1SpyApi());
 
-      // An untouched pay band / location / shift / needed-by must not be
-      // invented into the repair — only the picked skills were dropped.
       await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'Location note (optional, not shown to workers)',
+          'Plot 42, MIDC Chakan');
       await tester.tap(find.text('CNC operating'));
       await tester.pumpAndSettle();
+      await fillCardContent(tester, city: 'Pune');
       await tapPost(tester);
 
       expect(api.created, hasLength(1));
-      expect(api.patched, hasLength(1));
-      expect(api.patched.single.city, isNull);
-      expect(api.patched.single.payMin, isNull);
-      expect(api.patched.single.shift, isNull);
-      expect(
-        api.patched.single.matchSkillIds,
-        <String>['mskill_cnc_operate'],
-      );
+      expect(api.companyCity, 'Pune');
+      expect(api.created.single.location, 'Plot 42, MIDC Chakan');
     });
 
     testWidgets('against the FIXED route the create carries them and no PATCH '
@@ -698,6 +736,125 @@ void main() {
       expect(api.created, hasLength(1));
       expect(api.patched, isEmpty);
       expect(find.textContaining('did not'), findsNothing);
+    });
+  });
+
+  /// EVERY FACT THE WORKER'S CARD SHOWS MUST COME FROM THIS FORM. Each field
+  /// below was optional, and an unstated one is a HOLE on the card — the city
+  /// especially, which the feed serves as "" and the card draws as a bare
+  /// location pin with nothing beside it.
+  group('every field the worker card shows is required', () {
+    testWidgets('company — a blank city is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester, city: '');
+      await tapPost(tester);
+
+      expect(api.created, isEmpty);
+      expect(find.text('Add the city'), findsOneWidget);
+    });
+
+    testWidgets('agency — a blank city is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await tapChip(tester, 'CNC / VMC Setter');
+      await fillCardContent(tester, city: '', neededBy: 'Immediate');
+      await tapPost(tester);
+
+      expect(api.createdAgency, isEmpty);
+      expect(find.text('Add the city'), findsOneWidget);
+    });
+
+    testWidgets('agency — an unpicked trade is refused, never defaulted', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester, neededBy: 'Immediate');
+      await tapPost(tester);
+
+      // It used to default to the FIRST trade, so an agency that never chose
+      // one still advertised 'CNC Operator' on the worker's card.
+      expect(api.createdAgency, isEmpty);
+      expect(find.text('Add the basics'), findsOneWidget);
+    });
+
+    testWidgets('company — an unpicked pay type is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'City', 'Pune');
+      await typeInto(tester, 'Pay min ₹/mo', '18000');
+      await typeInto(tester, 'Pay max ₹/mo', '24000');
+      await tapPost(tester);
+
+      // "kitna haath me aayega" — the band alone does not answer it.
+      expect(api.created, isEmpty);
+      expect(find.text('Pick the pay type'), findsOneWidget);
+    });
+
+    testWidgets('company — a missing experience window is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await fillCardContent(tester, expMax: '');
+      await tapPost(tester);
+
+      expect(api.created, isEmpty);
+      expect(find.text('Add the experience'), findsOneWidget);
+    });
+
+    testWidgets('company — an empty requirement row is refused', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.company);
+
+      await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'City', 'Pune');
+      await typeInto(tester, 'Pay min ₹/mo', '18000');
+      await typeInto(tester, 'Pay max ₹/mo', '24000');
+      await typeInto(tester, 'Exp min (yrs)', '1');
+      await typeInto(tester, 'Exp max (yrs)', '4');
+      await typeInto(tester, 'Description', 'Fitting work on site.');
+      await tapChip(tester, 'In-hand');
+      await tapChip(tester, 'Night');
+      await tapChip(tester, 'Immediately');
+      await addChip(
+        tester,
+        addLabel: '+ Add benefit',
+        fieldKey: const Key('add-benefit-field'),
+        phrase: 'PF + ESI',
+      );
+      await tapPost(tester);
+
+      expect(api.created, isEmpty);
+      expect(find.text('Add a requirement'), findsOneWidget);
+    });
+
+    testWidgets('no enum chip starts selected — nothing lands unchosen', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, PayerRole.agency);
+
+      // The old form preselected the first trade AND the first needed-by, so
+      // both reached the card without the payer ever tapping them.
+      await typeInto(tester, 'Job title', 'Fitter');
+      await typeInto(tester, 'City', 'Pune');
+      await tapPost(tester);
+
+      expect(api.createdAgency, isEmpty);
+      expect(find.text('Add the basics'), findsOneWidget);
     });
   });
 

@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/agency_jobs_cubit.dart';
+import '../domain/worker_card_fields.dart';
 import 'widgets/job_content_input.dart';
 
 /// Edit an existing AGENCY posting (`PATCH /payer/agency/jobs/:id`). The
@@ -63,12 +64,13 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   late final TextEditingController _expMax =
       TextEditingController(text: widget.job.maxExperienceYears?.toString() ?? '');
 
-  late String _tradeKey = kAgencyTradeKeys.contains(widget.job.tradeKey)
-      ? widget.job.tradeKey
-      : kAgencyTradeKeys.first;
-  late String _neededBy = kAgencyNeededBy.contains(widget.job.neededBy)
-      ? widget.job.neededBy!
-      : kAgencyNeededBy.first;
+  // NULL when the row states neither — never the FIRST option. A fallback to
+  // `kAgencyTradeKeys.first` put 'CNC Operator' on the chip for any row whose
+  // trade was unknown, and a save then wrote it to the worker's card as fact.
+  late String? _tradeKey =
+      kAgencyTradeKeys.contains(widget.job.tradeKey) ? widget.job.tradeKey : null;
+  late String? _neededBy =
+      kAgencyNeededBy.contains(widget.job.neededBy) ? widget.job.neededBy : null;
 
   // --- Worker-visible content, PREFILLED from the row (#1647) ---------------
   // All four come back on the job view now, so there is a real stored value to
@@ -99,14 +101,6 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   /// The coarse shift enum the PATCH accepts (`day|night|rotational`).
   static const List<String> _shifts = <String>['day', 'night', 'rotational'];
 
-  late final List<String?> _shiftOptions = <String?>[
-    if (_shift == null) null,
-    ..._shifts,
-  ];
-  late final List<String?> _payTypeOptions = <String?>[
-    if (_payType == null) null,
-    ...kJobPayTypes,
-  ];
 
   bool _saving = false;
 
@@ -132,11 +126,13 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   Future<void> _save() async {
     final String title = _title.text.trim();
     final String city = _city.text.trim();
-    if (title.isEmpty || city.isEmpty) {
+    final String? tradeKey = _tradeKey;
+    if (title.isEmpty || tradeKey == null) {
       showBbToast(
         context,
         title: 'Add the basics',
-        message: 'Job title and city are needed.',
+        message: 'Trade and job title are needed — both are printed on the '
+            'worker\'s card.',
         icon: Icons.info_outline,
       );
       return;
@@ -165,6 +161,31 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
       return;
     }
 
+    // The card's own fields — the SAME rule the create form applies, because an
+    // edit can empty what a create had to fill.
+    final WorkerCardGap? gap = workerCardGap(
+      city: city,
+      payMin: payMin,
+      payMax: payMax,
+      payType: _payType,
+      expMin: expMin,
+      expMax: expMax,
+      shift: _shift,
+      neededBy: _neededBy,
+      description: _description.text,
+      requirements: _requirements,
+      benefits: _benefits,
+    );
+    if (gap != null) {
+      showBbToast(
+        context,
+        title: gap.title,
+        message: gap.message,
+        icon: Icons.info_outline,
+      );
+      return;
+    }
+
     // Worker-visible free text: screened here so one bad line does not 400 the
     // whole save (the chips are screened at entry).
     final String description = _description.text.trim();
@@ -183,7 +204,7 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
     final String area = _area.text.trim();
     final JobActionResult result = await widget.cubit.editJob(
       widget.job.id,
-      tradeKey: _tradeKey,
+      tradeKey: tradeKey,
       title: title,
       city: city,
       area: area.isEmpty ? null : area,
@@ -279,9 +300,12 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
   /// A labelled single-select rendered as aligned kit chips — the JUL31 pattern
   /// for enum choices; selected flips to a solid haldi pill. Keeps the same
   /// value/onChanged contract, so the PATCH payload is unchanged.
-  Widget _chipField<T>({
+  /// [value] is nullable so a REQUIRED enum can sit UNPICKED: a row whose trade
+  /// or timing the server never stated shows no selected chip, instead of the
+  /// first option pretending to be the stored one.
+  Widget _chipField<T extends Object>({
     required String label,
-    required T value,
+    required T? value,
     required List<T> options,
     required String Function(T) labelOf,
     required ValueChanged<T> onSelected,
@@ -418,12 +442,12 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
               const SizedBox(height: AppSpacing.s4),
               // What the band MEANS (#1648). 'Not stated' only while the row
               // states nothing — the PATCH enum cannot clear one.
-              _chipField<String?>(
+              _chipField<String>(
                 label: 'Pay type',
                 value: _payType,
-                options: _payTypeOptions,
+                options: kJobPayTypes,
                 labelOf: _payTypeLabel,
-                onSelected: (String? v) => setState(() => _payType = v),
+                onSelected: (String v) => setState(() => _payType = v),
               ),
               const SizedBox(height: AppSpacing.s4),
               Row(
@@ -476,14 +500,14 @@ class _EditAgencyJobScreenState extends State<EditAgencyJobScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.s3),
-              JobDescriptionField(controller: _description),
+              JobDescriptionField(controller: _description, label: 'Description'),
               const SizedBox(height: AppSpacing.s4),
-              _chipField<String?>(
+              _chipField<String>(
                 label: 'Shift',
                 value: _shift,
-                options: _shiftOptions,
+                options: _shifts,
                 labelOf: _shiftLabel,
-                onSelected: (String? v) => setState(() => _shift = v),
+                onSelected: (String v) => setState(() => _shift = v),
               ),
               const SizedBox(height: AppSpacing.s4),
               JobChipListField(

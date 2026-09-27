@@ -23,6 +23,7 @@ class ResumeActionRow extends StatelessWidget {
     super.key,
     required this.share,
     required this.download,
+    this.stackBelowWidth = _kStackBelowWidth,
   });
 
   /// The green share action (money / WhatsApp tone).
@@ -32,8 +33,19 @@ class ResumeActionRow extends StatelessWidget {
   final Widget download;
 
   /// Measured, not guessed: the narrowest width at which both labels still
-  /// render in full at a 1.0 text scale.
+  /// render ON ONE LINE at a 1.0 text scale.
   static const double _kStackBelowWidth = 340;
+
+  /// Below this width the two actions go vertical. Defaults to
+  /// [_kStackBelowWidth] — the profile card's own measurement, unchanged.
+  ///
+  /// A caller passes a LOWER value when its buttons may wrap their labels to
+  /// two lines rather than ellipsise (both of these do —
+  /// `allowMultilineLabel: true`), which is what the résumé-history cards do:
+  /// inside a card's own padding the row gets ~325dp on a 390dp handset, and
+  /// the design keeps the pair side by side there with the labels on two
+  /// lines. Stacking instead made one card as tall as two.
+  final double stackBelowWidth;
 
   static const double _kGap = 10;
 
@@ -45,7 +57,7 @@ class ResumeActionRow extends StatelessWidget {
             MediaQuery.textScalerOf(context).scale(14) >
             14 * OnboardingLayout.chromeMaxTextScale;
         final bool stack =
-            constraints.maxWidth < _kStackBelowWidth || largeText;
+            constraints.maxWidth < stackBelowWidth || largeText;
         if (stack) {
           return Column(
             mainAxisSize: MainAxisSize.min,
