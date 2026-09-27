@@ -1576,6 +1576,44 @@ describe("ProfilesService.extract — #1764, an interview finished after an earl
     });
   });
 
+  // THE PATH THE BUG ACTUALLY TAKES. The preview's extract after the finish carries NO session id
+  // (the app drops it on session_ended), so the session is RESOLVED as the worker's latest (#828).
+  // The rule and the flag must read that resolved row, not only a supplied one.
+  const withLatest = (status: string) => {
+    const h = setup();
+    h.workers.findById.mockResolvedValue({ id: WORKER });
+    h.chat.findLatestSessionByWorker.mockResolvedValue({
+      id: SESSION,
+      workerId: WORKER,
+      status,
+      conversationState: null,
+    });
+    return h;
+  };
+
+  it("no session id in the body: a finished interview's RESOLVED session still re-runs the early job", async () => {
+    const { svc, aiJobs } = withLatest("ended");
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(earlyJob());
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-1", status: "queued" });
+    expect(aiJobs.findExtractionDedupeCandidate.mock.calls[0]![0].sessionId).toBe(SESSION);
+    expect(aiJobs.create).toHaveBeenCalledOnce();
+  });
+
+  it("no session id in the body: a LIVE resolved session records the flag", async () => {
+    const { svc, aiJobs } = withLatest("active");
+
+    await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(aiJobs.create.mock.calls[0]![0].inputRef).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+      session_live: true,
+    });
+  });
+
   it("an extraction of an ENDED session mints a job with exactly today's input_ref", async () => {
     const { svc, aiJobs } = withStatus("ended");
 

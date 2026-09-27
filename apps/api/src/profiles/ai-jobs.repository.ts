@@ -6,12 +6,6 @@ import { DATABASE } from "../database/database.module";
 import type { ProfileContentFields } from "./profile-content";
 
 /**
- * A prior `profile_extraction` job for a session that MIGHT make a fresh
- * extraction redundant. Whether it actually does is decided by the caller —
- * for a `completed` job that depends on whether it produced a usable profile
- * (`hasExtractedContent`), which is domain logic, not data access.
- */
-/**
  * #1764 — the `input_ref` key `ProfilesService.extract` sets when it mints an extraction while the
  * session it reads is still LIVE (`status = 'active'`): an early finish, where the worker built a
  * profile from part of an interview they may go on to finish. Absent on every other job, so an
@@ -19,6 +13,12 @@ import type { ProfileContentFields } from "./profile-content";
  */
 export const EXTRACTION_SESSION_LIVE_KEY = "session_live";
 
+/**
+ * A prior `profile_extraction` job for a session that MIGHT make a fresh
+ * extraction redundant. Whether it actually does is decided by the caller —
+ * for a `completed` job that depends on whether it produced a usable profile
+ * (`hasExtractedContent`), which is domain logic, not data access.
+ */
 export interface ExtractionDedupeCandidate {
   id: string;
   status: AiJobStatus;

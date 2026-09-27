@@ -146,20 +146,6 @@ function secondsUntilEndOfUtcHour(now: Date = new Date()): number {
 }
 
 /**
- * ADR-0045 §3.4 — was this COMPLETED extraction minted before the worker finished the general form?
- *
- * WHY IT CANNOT BE DEDUPED AGAINST. The general-road profile takes its `total_years` from the Work
- * History the form stores, and the form is filled in AFTER the chat hands over. A job minted
- * before the form's completion mark — the app's own extract on an earlier visit, an escape-hatch
- * tap — was built from a Work History that did not exist yet, so the session's newest completed
- * job is not "this worker's profile" any more. Re-running costs no model call on that road.
- *
- * NARROW ON PURPOSE: only a COMPLETED job, and only when the session carries a mark. An in-flight
- * job still dedupes (its result is re-judged by this same rule once it completes), a failed one
- * never did, and a session with no mark — every session off the general road — is judged exactly
- * as before. The attempt cap still applies to the re-run.
- */
-/**
  * #1764 — was this COMPLETED extraction minted while its session was still LIVE, and has that
  * interview since FINISHED?
  *
@@ -190,6 +176,20 @@ function completedWhileInterviewLive(
   return candidate.mintedWhileLive && session.status === "ended";
 }
 
+/**
+ * ADR-0045 §3.4 — was this COMPLETED extraction minted before the worker finished the general form?
+ *
+ * WHY IT CANNOT BE DEDUPED AGAINST. The general-road profile takes its `total_years` from the Work
+ * History the form stores, and the form is filled in AFTER the chat hands over. A job minted
+ * before the form's completion mark — the app's own extract on an earlier visit, an escape-hatch
+ * tap — was built from a Work History that did not exist yet, so the session's newest completed
+ * job is not "this worker's profile" any more. Re-running costs no model call on that road.
+ *
+ * NARROW ON PURPOSE: only a COMPLETED job, and only when the session carries a mark. An in-flight
+ * job still dedupes (its result is re-judged by this same rule once it completes), a failed one
+ * never did, and a session with no mark — every session off the general road — is judged exactly
+ * as before. The attempt cap still applies to the re-run.
+ */
 function completedBeforeGeneralForm(
   candidate: ExtractionDedupeCandidate | undefined,
   formCompletedAt: string | null,
