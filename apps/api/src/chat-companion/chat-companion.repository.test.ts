@@ -76,44 +76,79 @@ describe("latestActiveSession", () => {
   });
 });
 
-describe("latestFormHandoverClosedAfter (#1775)", () => {
-  const AFTER = new Date("2026-09-20T10:00:00.000Z");
-
-  it("this worker's CLOSED sessions that ended after the confirmation and handed over, newest first, one row", async () => {
-    const row = { formKind: "cnc_turner", generalFormCompletedAt: null };
+describe("latestSessionFormKind (#1775)", () => {
+  it("the worker's newest session in findLatestSessionByWorker's order — the trade form's own read", async () => {
+    const row = { status: "ended", endedAt: new Date("2026-09-20T10:00:00.000Z"), formKind: "x" };
     const { repo, q } = makeDb([row]);
-    expect(await repo.latestFormHandoverClosedAfter(WORKER, AFTER)).toBe(row);
+    expect(await repo.latestSessionFormKind(WORKER)).toBe(row);
     const { sql: text, params } = compile(q.where);
-    // A CONJUNCTION of the scope, with the handover markers OR-ed inside it — an `or` at the top
-    // would read another worker's sessions into the mode decision.
-    expect(text).toMatch(
-      /^\("chat_sessions"\."worker_id" = \$1 and "chat_sessions"\."status" <> \$2 and "chat_sessions"\."ended_at" > \$3 and \(/,
-    );
-    expect(params.slice(0, 3)).toEqual([WORKER, "active", AFTER.toISOString()]);
-    // Every marker a handover flush writes.
-    expect(text).toContain(`"chat_sessions"."conversation_state" ->> 'form_kind' is not null`);
-    expect(text).toContain(
-      `"chat_sessions"."conversation_state" -> 'general_road' ->> 'handed_over' = 'true'`,
-    );
-    expect(text).toMatch(/->> 'completion_reason' in \(\$4, \$5\)/);
-    expect(params.slice(3)).toEqual(["form_handoff", "general_form_handoff"]);
-    expect(compile(q.orderBy![0]).sql).toMatch(/"chat_sessions"\."ended_at" desc/i);
+    expect(text).toBe(`"chat_sessions"."worker_id" = $1`);
+    expect(params).toEqual([WORKER]);
+    expect(q.orderBy!.map((o) => compile(o).sql)).toEqual([
+      `"chat_sessions"."last_message_at" DESC NULLS LAST`,
+      `"chat_sessions"."started_at" desc`,
+    ]);
     expect(q.limit).toBe(1);
   });
 
-  it("selects two scalars, never the whole conversation_state (it holds the worker's answers)", async () => {
+  it("projects status, close time and form_kind as text — never the captured answers", async () => {
     const { repo, q } = makeDb([]);
-    await repo.latestFormHandoverClosedAfter(WORKER, AFTER);
-    expect(Object.keys(q.selection ?? {}).sort()).toEqual(["formKind", "generalFormCompletedAt"]);
-    const projected = Object.values(q.selection ?? {}).map((node) => compile(node).sql);
-    expect(projected).toEqual([
+    expect(await repo.latestSessionFormKind(WORKER)).toBeNull();
+    expect(Object.keys(q.selection ?? {}).sort()).toEqual(["endedAt", "formKind", "status"]);
+    expect(compile(q.selection!.formKind).sql).toBe(
       `"chat_sessions"."conversation_state" ->> 'form_kind'`,
-      `"chat_sessions"."conversation_state" ->> 'general_form_completed_at'`,
-    ]);
+    );
+  });
+});
+
+describe("latestGeneralHandover (#1775)", () => {
+  it("the worker's newest STAMPED session by started_at — the general form's own read", async () => {
+    const row = {
+      status: "ended",
+      endedAt: new Date("2026-09-20T10:00:00.000Z"),
+      generalFormCompletedAt: null,
+    };
+    const { repo, q } = makeDb([row]);
+    expect(await repo.latestGeneralHandover(WORKER)).toBe(row);
+    const { sql: text, params } = compile(q.where);
+    expect(text).toBe(
+      `("chat_sessions"."worker_id" = $1 and "chat_sessions"."conversation_state" -> 'general_road' ->> 'handed_over' = 'true')`,
+    );
+    expect(params).toEqual([WORKER]);
+    expect(q.orderBy!.map((o) => compile(o).sql)).toEqual([`"chat_sessions"."started_at" desc`]);
+    expect(q.limit).toBe(1);
   });
 
-  it("no such session → null", async () => {
-    expect(await makeDb([]).repo.latestFormHandoverClosedAfter(WORKER, AFTER)).toBeNull();
+  it("projects status, close time and the completion mark as text — never the captured answers", async () => {
+    const { repo, q } = makeDb([]);
+    expect(await repo.latestGeneralHandover(WORKER)).toBeNull();
+    expect(Object.keys(q.selection ?? {}).sort()).toEqual([
+      "endedAt",
+      "generalFormCompletedAt",
+      "status",
+    ]);
+    expect(compile(q.selection!.generalFormCompletedAt).sql).toBe(
+      `"chat_sessions"."conversation_state" ->> 'general_form_completed_at'`,
+    );
+  });
+});
+
+describe("resumeGeneratedAfter (#1775)", () => {
+  const AFTER = new Date("2026-09-20T10:00:00.000Z");
+
+  it("this worker's résumés GENERATED after the handover, one row", async () => {
+    const { repo, q } = makeDb([{ id: "r1" }]);
+    expect(await repo.resumeGeneratedAfter(WORKER, AFTER)).toBe(true);
+    const { sql: text, params } = compile(q.where);
+    expect(text).toBe(
+      `("generated_resumes"."worker_id" = $1 and "generated_resumes"."generated_at" > $2)`,
+    );
+    expect(params).toEqual([WORKER, AFTER.toISOString()]);
+    expect(q.limit).toBe(1);
+  });
+
+  it("none → false", async () => {
+    expect(await makeDb([]).repo.resumeGeneratedAfter(WORKER, AFTER)).toBe(false);
   });
 });
 
