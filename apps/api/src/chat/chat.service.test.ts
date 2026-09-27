@@ -131,6 +131,8 @@ function make(
     flushLost?: boolean;
     /** The flush transaction throws (rolled back). */
     flushThrows?: boolean;
+    /** #1744 review — the exact error the flush transaction throws, when the shape matters. */
+    flushError?: Error;
     /** The bulk answer INSERT throws — the flush must roll back with it. */
     answersThrow?: boolean;
     oneShotOpener?: boolean;
@@ -142,7 +144,7 @@ function make(
      */
     liveConfirmed?: boolean | "throws";
     /** #1744 — what `findLatestSessionByWorker` returns (the GET /chat/session/latest fallback). */
-    latestSession?: { id: string } | undefined;
+    latestSession?: { id: string; status?: string } | undefined;
     /**
      * Task 1 B3 — what `orchestrator.openResumeConfirm` returns. `undefined` = null (no
      * pending résumé), which is what every pre-existing test in this file assumes.
@@ -165,7 +167,8 @@ function make(
     // every pre-existing test in this file assumes.
     findActiveSessionByWorker: vi.fn().mockResolvedValue(opts.liveSession ?? undefined),
     sessionProducedConfirmedProfile: vi.fn(async (_sessionId: string, _workerId: string) => {
-      if (opts.liveConfirmed === "throws") throw new Error("statement timeout");
+      // A message carrying the worker's words, so a log line that passed it through would show.
+      if (opts.liveConfirmed === "throws") throw new Error("statement timeout: 'Mera naam Ramesh'");
       return opts.liveConfirmed === true;
     }),
     findLatestSessionByWorker: vi.fn().mockResolvedValue(opts.latestSession ?? undefined),
@@ -175,6 +178,7 @@ function make(
     saveConversationState: vi.fn().mockResolvedValue(undefined),
     touchSession: vi.fn().mockResolvedValue(undefined),
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => {
+      if (opts.flushError) throw opts.flushError;
       if (opts.flushThrows) throw new Error("deadlock detected");
       return work({ __tx: true });
     }),
@@ -476,6 +480,33 @@ describe("ChatService.postMessage — deterministic, in-process, zero LLM calls"
       expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
       expect(res.reply).toBe("Aap kis sheher mein rehte hain?");
       expect(res.blocked).toBe(false);
+    });
+
+    it("…and its log carries the driver code, never the captured answers it was writing", async () => {
+      // `saveConversationState` binds the answer map, and a Drizzle query error's message is
+      // `Failed query: … params: <the row>` (#1744 review).
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      const { chat, svc } = make({
+        turn: { checkpointDue: true },
+        written: { profiling: envelope({ engineAsks: 5 }) },
+      });
+      const said = "Mera naam Ramesh hai, number 98765 43210";
+      chat.saveConversationState.mockRejectedValue(
+        Object.assign(new Error(`Failed query: update "chat_sessions" ... params: ${said}`), {
+          query: 'update "chat_sessions" set "conversation_state" = $1',
+          params: [said],
+          cause: { code: "57014" },
+        }),
+      );
+
+      await svc.postMessage(WORKER, DTO as never, CTX);
+
+      const logged = warn.mock.calls.map((c) => String(c[0])).join(" | ");
+      expect(logged).toContain("mid-interview checkpoint failed");
+      expect(logged).toContain("57014");
+      expect(logged).not.toContain("Ramesh");
+      expect(logged).not.toContain("98765");
+      warn.mockRestore();
     });
   });
 
@@ -1590,7 +1621,7 @@ describe("ChatService.startSession — reattaches to the live session instead of
 // #1744 — a leftover that already became a confirmed profile is superseded, never reattached
 // ---------------------------------------------------------------------------
 
-describe("ChatService.startSession — #1744 supersedes a confirmed early-finish leftover", () => {
+describe("ChatService.startSession — #1744 a REDO supersedes a confirmed early-finish leftover", () => {
   const LEFTOVER = "33333333-3333-4333-8333-333333333333";
   const MIN = 60_000;
   const leftover = () => ({
@@ -1602,11 +1633,38 @@ describe("ChatService.startSession — #1744 supersedes a confirmed early-finish
     lastMessageAt: new Date(Date.now() - 20 * MIN),
   });
   const closedOutcome = { closed: true, transcriptRecovered: true, messages: 4, answers: 0 };
+  /** "Chat se resume banayein" — the only request that may supersede. */
+  const REDO = { confirmFirst: true, redo: true };
+  const said = "Mera naam Ramesh hai, number 98765 43210";
+  /** A Drizzle query error as the driver builds it: the bound row is in the message. */
+  const queryError = () =>
+    Object.assign(new Error(`Failed query: insert into "chat_messages" ... params: ${said}`), {
+      query: 'insert into "chat_messages" ("body_text") values ($1)',
+      params: [said],
+      cause: { code: "40P01" },
+    });
+
+  it.each([
+    ["a plain POST (the cold-start resume fallback)", { confirmFirst: true }],
+    ["an old build's body", {}],
+    ["redo: false", { confirmFirst: true, redo: false }],
+  ])(
+    "%s REATTACHES a confirmed leftover — it cannot be told from a resume",
+    async (_label, opts) => {
+      const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: true });
+      const abandon = vi.spyOn(svc, "abandonInterview");
+      const res = (await svc.startSession(WORKER, CTX, opts)) as Record<string, unknown>;
+      expect(res.session_id).toBe(LEFTOVER);
+      expect(chat.sessionProducedConfirmedProfile).not.toHaveBeenCalled();
+      expect(abandon).not.toHaveBeenCalled();
+      expect(chat.createSession).not.toHaveBeenCalled();
+    },
+  );
 
   it("closes it with the sweep's own close, then MINTS a new session for the redo", async () => {
     const { svc, chat, events } = make({ liveSession: leftover(), liveConfirmed: true });
     const abandon = vi.spyOn(svc, "abandonInterview").mockResolvedValue(closedOutcome);
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
 
     expect(chat.sessionProducedConfirmedProfile).toHaveBeenCalledWith(LEFTOVER, WORKER);
     expect(abandon).toHaveBeenCalledTimes(1);
@@ -1632,7 +1690,7 @@ describe("ChatService.startSession — #1744 supersedes a confirmed early-finish
       buffer: { completedAt: T0, completionReason: "complete" } as never,
     });
     const abandon = vi.spyOn(svc, "abandonInterview");
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
     expect(abandon).not.toHaveBeenCalled();
     // The flush ran: the session is ENDED as the finished interview it was.
     expect(chat.endSession).toHaveBeenCalledTimes(1);
@@ -1641,30 +1699,80 @@ describe("ChatService.startSession — #1744 supersedes a confirmed early-finish
     expect(chat.createSession).toHaveBeenCalledTimes(1);
   });
 
-  it("…and if that re-flush fails again, it reattaches as before", async () => {
+  it("…and if that re-flush fails again, it reattaches as before, logging no transcript", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { svc, chat } = make({
       liveSession: leftover(),
       liveConfirmed: true,
       buffer: { completedAt: T0, completionReason: "complete" } as never,
-      flushThrows: true,
+      flushError: queryError(),
     });
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
     expect(res.session_id).toBe(LEFTOVER);
     expect(chat.createSession).not.toHaveBeenCalled();
+    const logged = [...error.mock.calls, ...warn.mock.calls].map((c) => String(c[0])).join(" | ");
+    expect(logged).toContain("transcript flush FAILED");
+    expect(logged).toContain("40P01");
+    expect(logged).not.toContain("Ramesh");
+    error.mockRestore();
+    warn.mockRestore();
+  });
+
+  it("a leftover at the résumé-update offer whose 'Abhi nahi' flush rolls back is REATTACHED, not left beside a new session", async () => {
+    // The offer branch swallows the rollback and reports `closed: false`; the row is still live.
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const { svc, chat } = make({
+      liveSession: leftover(),
+      liveConfirmed: true,
+      buffer: {
+        profiling: envelope({
+          resumeUpdateOffer: {
+            state: "pending",
+            accepted: null,
+            completionReason: "complete",
+            answeredAt: null,
+          },
+        } as never),
+      } as never,
+      flushError: queryError(),
+    });
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
+    expect(chat.withTransaction).toHaveBeenCalled();
+    expect(chat.findSession).toHaveBeenCalledWith(LEFTOVER);
+    expect(res.session_id).toBe(LEFTOVER);
+    expect(chat.createSession).not.toHaveBeenCalled();
+    expect(error.mock.calls.map((c) => String(c[0])).join(" | ")).not.toContain("Ramesh");
+    error.mockRestore();
   });
 
   it("mints even when the conditional close lost (a flush or the sweep closed it first)", async () => {
     const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: true });
     vi.spyOn(svc, "abandonInterview").mockResolvedValue({ ...closedOutcome, closed: false });
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    chat.findSession.mockResolvedValueOnce({ ...leftover(), status: "ended" });
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
     expect(res.session_id).toBe(SESSION);
     expect(chat.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("…but a close that did not commit, with the row still live, reattaches", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: true });
+    vi.spyOn(svc, "abandonInterview").mockResolvedValue({ ...closedOutcome, closed: false });
+    chat.findSession.mockResolvedValueOnce(leftover());
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
+    expect(res.session_id).toBe(LEFTOVER);
+    expect(chat.createSession).not.toHaveBeenCalled();
+    expect(warn.mock.calls.map((c) => String(c[0])).join(" | ")).toContain(
+      "the close did not commit",
+    );
+    warn.mockRestore();
   });
 
   it("an UNFINISHED interview (no confirmed profile) still reattaches exactly as before", async () => {
     const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: false });
     const abandon = vi.spyOn(svc, "abandonInterview");
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
     expect(res.session_id).toBe(LEFTOVER);
     expect(abandon).not.toHaveBeenCalled();
     expect(chat.createSession).not.toHaveBeenCalled();
@@ -1679,7 +1787,6 @@ describe("ChatService.startSession — #1744 supersedes a confirmed early-finish
   ])("%s → reattach as before, and the log carries no content", async (_label, o) => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const { svc, chat } = make({ liveSession: leftover(), liveConfirmed: o.liveConfirmed });
-    const said = "Mera naam Ramesh hai, number 98765 43210";
     vi.spyOn(svc, "abandonInterview").mockImplementation(async () => {
       if (o.abandonThrows) {
         throw Object.assign(new Error(`Failed query: insert ... params: ${said}`), {
@@ -1689,7 +1796,7 @@ describe("ChatService.startSession — #1744 supersedes a confirmed early-finish
       }
       return closedOutcome;
     });
-    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    const res = (await svc.startSession(WORKER, CTX, REDO)) as Record<string, unknown>;
     expect(res.session_id).toBe(LEFTOVER);
     expect(chat.createSession).not.toHaveBeenCalled();
     const logged = warn.mock.calls.map((c) => String(c[0])).join(" | ");
@@ -1706,13 +1813,53 @@ describe("ChatService.latestSession — #1744 a USED live session wins, an empty
   it("a live redo with buffered turns wins over the finished session it would lose to on clocks", async () => {
     // Its last_message_at is NULL until its first checkpoint, so NULLS LAST ranked the finished
     // session first and a cold start redrew the wrong transcript.
-    const { svc, chat } = make({
-      liveSession: { id: LIVE, status: "active", startedAt: new Date() },
-      latestSession: { id: DONE },
+    const { svc, chat, buffer } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: null,
+      } as never,
+      latestSession: { id: DONE, status: "ended" },
       buffer: { messages: [{ role: "worker", text: "Turner", at: T0 }] as never },
     });
     expect(await svc.latestSession(WORKER)).toEqual({ session_id: LIVE });
+    // The buffer is the only thing that can make it win here: no clock.
+    expect(buffer.load).toHaveBeenCalledWith(LIVE);
     expect(chat.findLatestSessionByWorker).not.toHaveBeenCalled();
+  });
+
+  it("buffered turns that belong to ANOTHER worker do not count (the key-reuse tripwire)", async () => {
+    const { svc } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: null,
+      } as never,
+      latestSession: { id: DONE, status: "ended" },
+      buffer: {
+        workerId: "99999999-9999-4999-8999-999999999999",
+        messages: [{ role: "worker", text: "Turner", at: T0 }],
+      } as never,
+    });
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: DONE });
+  });
+
+  it("an unused live session beats an ABANDONED one — the leftover a redo just superseded", async () => {
+    // The redo has no clock and no turn yet; the superseded leftover has a clock. Resuming it
+    // would redraw a dead transcript whose every next answer is `session_over`.
+    const { svc } = make({
+      liveSession: {
+        id: LIVE,
+        status: "active",
+        startedAt: new Date(),
+        lastMessageAt: null,
+      } as never,
+      latestSession: { id: DONE, status: "abandoned" },
+      buffer: { messages: [] },
+    });
+    expect(await svc.latestSession(WORKER)).toEqual({ session_id: LIVE });
   });
 
   it("a live session past its first checkpoint wins without reading the buffer", async () => {
@@ -1737,7 +1884,7 @@ describe("ChatService.latestSession — #1744 a USED live session wins, an empty
         startedAt: new Date(),
         lastMessageAt: null,
       } as never,
-      latestSession: { id: DONE },
+      latestSession: { id: DONE, status: "ended" },
       buffer: { messages: [] },
     });
     expect(await svc.latestSession(WORKER)).toEqual({ session_id: DONE });
@@ -1761,6 +1908,9 @@ describe("ChatService.latestSession — #1744 a USED live session wins, an empty
     expect(await make({ latestSession: { id: DONE } }).svc.latestSession(WORKER)).toEqual({
       session_id: DONE,
     });
+    expect(
+      await make({ latestSession: { id: DONE, status: "abandoned" } }).svc.latestSession(WORKER),
+    ).toEqual({ session_id: DONE });
     expect(await make().svc.latestSession(WORKER)).toEqual({ session_id: null });
   });
 });

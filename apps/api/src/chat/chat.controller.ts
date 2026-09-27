@@ -36,7 +36,10 @@ export class ChatController {
     @Body(new ZodValidationPipe(StartSessionSchema)) dto: StartSessionDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.chat.startSession(worker.id, ctx, { confirmFirst: dto.confirm_first === true });
+    return this.chat.startSession(worker.id, ctx, {
+      confirmFirst: dto.confirm_first === true,
+      redo: dto.redo === true,
+    });
   }
 
   @Post("message")

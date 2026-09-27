@@ -392,7 +392,7 @@ export interface AdminChatSessionListItem {
   worker_id: string;
   /**
    * `active` | `ended` | `abandoned`. `abandoned` is written by the system, never by a finished
-   * interview: the idle sweep, or (#1744) a new chat session superseding an early-finish leftover.
+   * interview: the idle sweep, or (#1744) a redo superseding an early-finish leftover.
    */
   status: ChatSessionStatus;
   started_at: Date;

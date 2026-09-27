@@ -183,7 +183,11 @@ export class ChatService {
     private readonly orchestrator: ProfilingOrchestrator,
   ) {}
 
-  async startSession(workerId: string, ctx: RequestContext, opts: { confirmFirst?: boolean } = {}) {
+  async startSession(
+    workerId: string,
+    ctx: RequestContext,
+    opts: { confirmFirst?: boolean; redo?: boolean } = {},
+  ) {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
@@ -205,12 +209,15 @@ export class ChatService {
     // existing multi-active backlog would violate on creation; the sweep already retires
     // those rows, and the loser of the race loses nothing but an empty row.
     //
-    // #1744 — EXCEPT a leftover that already became a confirmed profile (an early finish). A new
-    // session asked for on top of it is a redo, and a redo must not run inside it: see
-    // `supersedeConfirmedLeftover`.
+    // #1744 — EXCEPT on an explicit REDO over a leftover that already became a confirmed profile
+    // (an early finish): a redo must not run inside it, see `supersedeConfirmedLeftover`. Only
+    // the client's `redo` flag says so. Without it this POST is indistinguishable from the resume
+    // fallback above, which must keep reattaching whatever the session's history.
     const found = await this.chat.findActiveSessionByWorker(workerId);
     const live =
-      found && (await this.supersedeConfirmedLeftover(found, workerId, ctx)) ? undefined : found;
+      found && opts.redo === true && (await this.supersedeConfirmedLeftover(found, workerId, ctx))
+        ? undefined
+        : found;
     if (live) {
       this.logger.log(`reattached to live session worker=${workerId} session=${live.id}`);
       const base = {
@@ -749,7 +756,7 @@ export class ChatService {
         this.logger.warn(
           `mid-interview checkpoint failed session=${dto.session_id} ` +
             `asks=${buffered.profiling.engineAsks}; the interview continues on the Redis buffer ` +
-            `and the next checkpoint will retry (${err instanceof Error ? err.message : "unknown"})`,
+            `and the next checkpoint will retry (${logSafeReason(err, "mid-interview checkpoint")})`,
         );
       }
     }
@@ -1170,7 +1177,7 @@ export class ChatService {
       // zero messages, zero events, no profile.
       this.logger.error(
         `transcript flush FAILED session=${sessionId}; the buffer is intact and the ` +
-          `flush will be retried: ${err instanceof Error ? err.message : String(err)}`,
+          `flush will be retried: ${logSafeReason(err, "transcript flush")}`,
       );
       return "failed";
     }
@@ -1477,7 +1484,7 @@ export class ChatService {
    * early-finish job — the redo's answers never became a profile — and the companion's mode rule
    * could not see its first turns (TD143).
    *
-   * A NEW SESSION IS ASKED FOR, AND THIS ONE HAS ALREADY BECOME A CONFIRMED PROFILE: it is closed
+   * THE WORKER ASKED FOR A REDO, AND THIS ONE HAS ALREADY BECOME A CONFIRMED PROFILE: it is closed
    * with the sweep's own close (`abandonInterview`, unchanged: transcript and pack answers
    * preserved, `chat.session_abandoned`, no extraction; a session waiting at the ADR-0043 offer is
    * finalized as "Abhi nahi", exactly as the sweep would), and the caller mints a fresh one. Only
@@ -1488,11 +1495,13 @@ export class ChatService {
    * WHY HERE AND NOT AT CONFIRM. A confirm does not mean the worker finished: the Résumé tab's
    * self-heal extracts and confirms from whatever session the app holds, including one the worker
    * is still answering. Closing there would end interviews nobody chose to end. Here, nothing is
-   * closed until a new session is actually requested, and resuming the same session through
-   * `GET /chat/session/latest` or `POST /chat/message` is untouched.
+   * closed until the worker explicitly asks for a redo (`redo: true`, see `StartSessionSchema`).
+   * A plain `POST /chat/session` is also the cold-start resume fallback and an old build's every
+   * open, so it keeps the reattach; so do `GET /chat/session/latest` and `POST /chat/message`.
    *
-   * FAILS TO TODAY'S REATTACH. Any error returns false and the caller reattaches exactly as
-   * before; the log names the session and a content-free reason, never what the worker said.
+   * FAILS TO TODAY'S REATTACH. Any error, or a close that did not commit (a rolled-back "Abhi
+   * nahi" flush at the offer), returns false and the caller reattaches exactly as before. The log
+   * names the session and a content-free reason, never what the worker said.
    */
   private async supersedeConfirmedLeftover(
     live: { id: string; workerId: string; conversationState: Record<string, unknown> | null } & {
@@ -1519,13 +1528,24 @@ export class ChatService {
       // Same derivation as the sweep: whole minutes since the session's last recorded activity.
       const lastActivity = live.lastMessageAt ?? live.startedAt;
       const idleMinutes = Math.max(0, Math.floor((Date.now() - lastActivity.getTime()) / 60_000));
-      await this.abandonInterview(
+      const { closed } = await this.abandonInterview(
         { id: live.id, workerId: live.workerId, conversationState: live.conversationState },
         idleMinutes,
         ctx,
       );
-      // Closed by us, or already closed by a flush or the sweep in the same instant (the close is
-      // conditional on `active`). Either way it is no longer the worker's live session.
+      if (!closed) {
+        // Not closed by us. Either a flush or the sweep closed it first (the close is conditional
+        // on `active`), and it is no longer the worker's live session; or the offer branch's
+        // flush rolled back WITHOUT throwing, and it still is. Only the row can tell them apart.
+        const row = await this.chat.findSession(live.id);
+        if (!row || row.status === "active") {
+          this.logger.warn(
+            `could not supersede the confirmed leftover session=${live.id}; reattaching as ` +
+              `before (reason: the close did not commit)`,
+          );
+          return false;
+        }
+      }
       this.logger.log(`superseded a confirmed leftover worker=${workerId} session=${live.id}`);
       return true;
     } catch (err) {
@@ -1817,9 +1837,6 @@ export class ChatService {
    *
    * Worker id comes from the bearer (never a param) → no cross-worker leak.
    * READ-ONLY → no event, same rationale as {@link listMessages}.
-   */
-  /**
-   * The session a cold app start should resume.
    *
    * `findLatestSessionByWorker` ranks `last_message_at DESC NULLS LAST` so that an EMPTY session
    * never outranks the one holding the worker's real Q&A. But `last_message_at` moves only at
@@ -1831,6 +1848,13 @@ export class ChatService {
    * transcript buffer. That is the same row `POST /chat/session` reattaches to (#1197). A live
    * session with neither — a stray empty mint — still loses to the session with the Q&A, exactly
    * as before. A buffer that cannot be read counts as unused, which is today's ranking.
+   *
+   * #1744 — AND A LIVE SESSION ALWAYS BEATS AN ABANDONED ONE. A redo that has not been answered
+   * yet is unused, and the leftover it superseded is `abandoned` with a clock, so the ranking
+   * above would hand a cold start the dead leftover, whose every next answer is `session_over`.
+   * An abandoned session can never be continued, so no live session is a worse resume target.
+   * An `ended` (finished) session still wins over an unused one: its transcript and the
+   * post-completion replies are what a completed worker should see.
    */
   async latestSession(workerId: string): Promise<{ session_id: string | null }> {
     const live = await this.chat.findActiveSessionByWorker(workerId);
@@ -1838,6 +1862,7 @@ export class ChatService {
       return { session_id: live.id };
     }
     const session = await this.chat.findLatestSessionByWorker(workerId);
+    if (live && session?.status === "abandoned") return { session_id: live.id };
     return { session_id: session?.id ?? null };
   }
 

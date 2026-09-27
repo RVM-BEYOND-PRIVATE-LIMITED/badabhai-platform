@@ -25,8 +25,8 @@ export class ChatCompanionRepository {
    *
    * WHY THE REATTACH ORDER. The server reattaches any live session before it mints (#1197), so the
    * policy must look at the row a `POST /chat/session` would actually return. (Since #1744 that
-   * POST supersedes an early-finish leftover that already became the confirmed profile, so a redo
-   * mints a fresh row.)
+   * POST, when it is an explicit redo, supersedes an early-finish leftover that already became the
+   * confirmed profile, so the redo mints a fresh row.)
    *
    * The two columns are read as mapped timestamps (not a raw `coalesce(...)` projection) so the
    * driver hands back `Date`s; the policy takes the later of the two.

@@ -61,9 +61,9 @@ describe("ChatCompanionPolicy — who gets the companion (ADR-0044)", () => {
 
   it("a pre-confirmation session that moved after the confirmation keeps running", async () => {
     // Before #1744 a redo after an early finish REATTACHED to the old session: started before the
-    // confirmation, checkpointed after it. #1744 supersedes that leftover at the redo's POST, but
-    // a failed supersede falls back to the reattach, and then its start time alone would call
-    // this worker a companion worker.
+    // confirmation, checkpointed after it. #1744 supersedes that leftover only at an explicit
+    // redo's POST; a build that does not send `redo: true`, or a failed supersede, still
+    // reattaches, and then its start time alone would call this worker a companion worker.
     const { policy } = make({
       profile: confirmed,
       live: { startedAt: minutes(-30), lastMessageAt: minutes(20) },

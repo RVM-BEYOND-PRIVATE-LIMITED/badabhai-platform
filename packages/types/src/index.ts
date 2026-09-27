@@ -254,7 +254,7 @@ export const CURRENT_CONSENT_VERSION = "2026-08-28" as const;
 /**
  * `active` → running. `ended` → the worker finished the interview. `abandoned` → the interview did
  * NOT finish and the system closed it: the idle sweep, after the worker stopped answering, or
- * (#1744) a new chat session superseding an early-finish leftover that had already become the
+ * (#1744) a worker's explicit redo superseding an early-finish leftover that had already become the
  * worker's confirmed profile — the same close, and the same end-state, the sweep would write.
  *
  * WHY `abandoned` IS ITS OWN VALUE rather than `ended` + a reason in

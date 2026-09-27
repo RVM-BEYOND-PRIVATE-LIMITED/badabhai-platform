@@ -661,7 +661,7 @@ export const ChatMessageSentPayload = z.object({
 
 /**
  * A session that did not finish, closed by the system rather than by the worker: the idle sweep,
- * or (#1744) a new chat session superseding an early-finish leftover. Same payload either way.
+ * or (#1744) a worker's explicit redo superseding an early-finish leftover. Same payload either way.
  *
  * COUNTS ONLY — no message text, no answer values, no free text of any kind. This is the
  * audit fact that an interview ended without finishing plus the shape of what was
@@ -684,7 +684,7 @@ export const ChatSessionAbandonedPayload = z.object({
   answers_preserved: z.number().int().nonnegative(),
   /**
    * Whole minutes between the session's last recorded activity and the close. At least
-   * CHAT_ABANDON_AFTER_SECONDS for a sweep close; possibly less when a new session superseded an
+   * CHAT_ABANDON_AFTER_SECONDS / 60 for a sweep close; possibly less when a redo superseded an
    * early-finish leftover (#1744).
    */
   idle_minutes: z.number().int().nonnegative(),
