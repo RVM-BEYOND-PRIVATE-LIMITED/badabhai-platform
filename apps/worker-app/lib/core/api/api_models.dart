@@ -815,10 +815,11 @@ class ChatReply extends Equatable {
   /// The server flushes the whole interview in one transaction at completion and marks
   /// the session `ended`; every later POST gets a closing line instead of a turn. The
   /// app caches its session id in memory, so without this signal it would keep posting
-  /// into a dead session for the rest of the process — silently breaking the "start a
-  /// fresh chat" button on the Resume and Profile tabs, and the "Chat pe wapas jaayein"
-  /// the profile preview offers when a profile comes out thin. The worker would be told
-  /// to go say more, and be unable to.
+  /// into a dead session for the rest of the process — silently breaking the
+  /// "Chat pe wapas jaayein" the profile preview offers when a profile comes out thin.
+  /// The worker would be told to go say more, and be unable to. (#1765 — the old
+  /// "start a fresh chat" button on the Resume and Profile tab headers is gone; the
+  /// Bada Bhai tab is the way in.)
   ///
   /// DEFAULT `false` when absent, and that is the safe direction: a parse miss leaves
   /// the session cached, which is exactly today's behaviour. `true` on a miss would

@@ -129,6 +129,18 @@ their dated jobs only (R5). An undated job makes the total unknown, exactly as t
   on this road saves the parse and transcript-read calls.
 - **Older app builds** have no card for the handover — the flag stays off until the release that draws it ships.
 - **Matching** does not see these skills (R7). Revisit with the owner.
+- **Open before flag-ON** (recorded while building the chat engine, Phase 2):
+  - ~~An ended, handed-over chat session re-serves the general-form card to every later message and reopen.~~
+    **Closed in Phase 3:** saving the brief (answered or declined) merges `general_form_completed_at` beside the
+    stamp. From then on that session serves the résumé menu, and `GET /profiling/general-form` reports `complete` from
+    the same mark, per handover, so a chat redo that hands the form over again starts incomplete. Residual: a handover
+    whose flush failed is still active, and a later re-flush replaces the whole column and drops the mark; the card
+    then returns until the brief is saved again.
+  - The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the voice
+    surface runs the skills stage and its handover has no card on that surface. The voice form is hidden by default;
+    before flag-ON either refuse to continue an armed skills-lane envelope on the voice surface or give it a step.
+  - The lane, gate and handover events are emitted inside the turn's retry loop with once-per-session (or per-round)
+    keys, like `profile.form_offered`, so a lost attempt's outcome can be the one recorded.
 
 ## 6. Defaults approved with the plan (overridable)
 
@@ -137,6 +149,29 @@ Nahi; zero certified skills skip the gate and go to the form; single-select skil
 characters, typed only; salary is monthly only; education gains "Postgraduate" and "Doctorate" (the shared validator
 accepts both slugs, but only the general form's schema offers them — the trade forms' choices are unchanged);
 work-history polish is unchanged; voice-form sessions are never armed.
+
+Added while building (Phase 2a, 2026-09-26), both in the safe direction:
+
+- **Adjacent families count as "one of the 21".** A worker pinned to a generic sibling family whose members are
+  overwhelmingly the 21's trades — machining/CNC, fitting, tool and die, sheet metal, assembly, rubber/plastic,
+  welding — stays on today's path, as do generic manufacturing words ("CNC operator", "machine operator"), which read
+  as "not yet known". This keeps the 5 polymer roles (whose own families are never pinned) and likely members of the
+  21 off the general road. Domestic electricians and house painters are still outside the 21.
+- **A skill must be grounded in the worker's own words**, with typo tolerance, except when the message has no Latin
+  letters at all (Devanagari from voice): the model returns Latin labels there, so grounding is skipped and only the
+  privacy walls apply.
+
+Added while building the general form (Phase 3, 2026-09-26):
+
+- **The brief refuses the worker's own name.** The employer copy prints only the name's initials, so a brief carrying
+  the stored name (the whole name or any token of 3+ characters, matched as `redactKnownName` matches it) or a
+  self-introduction ("mera naam", "my name is", "मेरा नाम") is refused as `brief_name`. If the stored name cannot
+  be decrypted, the brief is refused as `brief_unscreenable`. There is no gazetteer: a Latin-stored name typed in
+  Devanagari with no cue still passes. The brief also refuses identifiers, contact routes, links, legal-entity names,
+  emoji and brackets.
+- **The salary band keeps the worker's latest word.** A body with both ends inverted is refused (400). One end sent
+  alone that crosses the stored other end clears the stored end, so a page that shows only the top of the band can
+  still save.
 
 ## 7. Rollout
 

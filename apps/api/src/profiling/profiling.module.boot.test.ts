@@ -13,6 +13,8 @@ import { ResumeUpdateOfferPolicy } from "./resume-update-offer";
 import { ResumeSuggestionReader } from "./resume-import/resume-suggestion-reader";
 import { TradeFormRepository } from "./form/trade-form.repository";
 import { TradeFormService } from "./form/trade-form.service";
+import { GeneralFormController } from "./general-form/general-form.controller";
+import { GeneralFormService } from "./general-form/general-form.service";
 import { ProfilingTierRepository } from "./tiers/profiling-tier.repository";
 import { ProfilingTierService } from "./tiers/profiling-tier.service";
 import { OtherAnswerPolishService } from "./other-answer-polish.service";
@@ -21,6 +23,7 @@ import { describe, expect, it } from "vitest";
 
 import { IdentifyService } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
+import { SkillsTurnService } from "./skills-turn.service";
 import { ProfilingOrchestrator } from "./orchestrator.service";
 import { PackCacheService } from "./pack-cache.service";
 import { PackRegistryService } from "./pack-registry.service";
@@ -98,6 +101,9 @@ describe("ProfilingModule wiring", () => {
       // The LLM-led opening. A CONSTRUCTOR dependency of the orchestrator, so omitting it here
       // does not fail a metadata test — it fails BOOT, exactly as `PackCacheService` above.
       LlmTurnService,
+      // ADR-0045. Trailing and optional on the orchestrator, so omitting it would not fail boot —
+      // it would silently leave every session unarmed. Pinned here for that reason.
+      SkillsTurnService,
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,
@@ -106,6 +112,9 @@ describe("ProfilingModule wiring", () => {
       // and `LlmTurnService` above.
       TradeFormRepository,
       TradeFormService,
+      // ADR-0045 — the general form. Its controller is declared below, so omitting the service
+      // does not fail a metadata test — it fails BOOT, exactly as the entries above.
+      GeneralFormService,
       // TIERED PROFILING. `TradeFormService` takes the tier service as an @Optional() dependency, so
       // omitting these two would NOT fail boot — the form would silently serve Hard to everyone
       // with the flag on. This pin is the only thing that notices.
@@ -172,6 +181,10 @@ describe("ProfilingModule wiring", () => {
       ProfilingController,
       TradeFormController,
       ResumeImportController,
+      // ADR-0045 — the general form, the trade form's sibling for roles outside the 21: a FORM
+      // (every question up front, resumable), whose screens are the existing pages plus two
+      // questions of its own. Declared here for the same reason the others are.
+      GeneralFormController,
     ]);
   });
 

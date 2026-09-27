@@ -90,3 +90,25 @@ String? companionJobId(String optionKey) {
   final String city = label.substring(at + kCompanionJobLabelSeparator.length).trim();
   return (title: label.substring(0, at).trim(), city: city.isEmpty ? null : city);
 }
+
+/// #1752 — the confirmation after applying through a companion job chip. The
+/// SAME word the jobs feed uses for the same pop, so one action reads one way.
+const String kCompanionAppliedToast = 'Applied';
+
+/// #1753 — a chip's key CLASS, for counts-only analytics. Never the key itself
+/// (a job key carries a posting id) and never the label.
+String companionChipKeyClass(String optionKey) {
+  if (optionKey.startsWith(kCompanionJobKeyPrefix)) return 'job';
+  switch (optionKey) {
+    case kCompanionJobsTabKey:
+      return 'jobs_tab';
+    case kCompanionAppliedKey:
+      return 'applied';
+    case kCompanionNewJobsKey:
+      return 'new_jobs';
+    case kCompanionResumeKey:
+      return 'resume';
+    default:
+      return 'other';
+  }
+}

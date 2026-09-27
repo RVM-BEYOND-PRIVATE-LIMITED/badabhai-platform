@@ -311,13 +311,33 @@ class ApiClient {
   /// serves the one-shot opener. The opener is RENDERED ONLY — it is never posted
   /// back as a chat message, so it never enters the stored transcript that
   /// extraction reads.
-  Future<ChatSessionStart> startSession({required String authToken}) async {
+  /// #1768 — [redo] says THIS POST is the worker tapping "Chat se resume
+  /// banayein", not a fallback.
+  ///
+  /// The two callers were indistinguishable on the wire, and since #1744/#1760
+  /// the server needs to tell them apart: on a redo it CLOSES an early-finish
+  /// leftover (a live session that has already become the worker's confirmed
+  /// profile) before minting the new one. Without the signal it reattaches, so
+  /// the redo runs inside the leftover — its answers never become the profile,
+  /// and the companion shows the recap during its first answers (TD143).
+  ///
+  /// A fallback must never carry it: `ensureSession`'s POST happens when the
+  /// latest-session read failed, and the worker may still be answering that
+  /// session. Closing it on a failed GET would destroy an interview in progress.
+  /// An older server ignores the extra key.
+  Future<ChatSessionStart> startSession({
+    required String authToken,
+    bool redo = false,
+  }) async {
     final Map<String, dynamic> json = await _post(
       '/chat/session',
       // `confirm_first: true` (ADR-0042 D8, #1523): a new build can render the
       // résumé-confirm as the session's first turn. The server writes NO confirm
       // for a client that does not ask, so an old build (no flag) is unchanged.
-      <String, dynamic>{'confirm_first': true},
+      <String, dynamic>{
+        'confirm_first': true,
+        if (redo) 'redo': true,
+      },
       authToken: authToken,
     );
     return ChatSessionStart.fromJson(json);
@@ -336,11 +356,17 @@ class ApiClient {
     return id is String && id.isNotEmpty ? id : null;
   }
 
-  /// ADR-0044 — how long the Bada Bhai tab waits for `GET /chat/companion`
-  /// before giving up and running today's chat. SHORT on purpose: the answer
-  /// only decides WHICH chat to open, so a slow link must fall back quickly
-  /// rather than hold the loading spinner for a full [kRequestTimeout].
-  static const Duration kCompanionOpenTimeout = Duration(seconds: 5);
+  /// ADR-0044 / #1750 — how long the Bada Bhai tab waits for
+  /// `GET /chat/companion`.
+  ///
+  /// THE SAME BUDGET AS THE THING IT GATES. It was 5 s, on the reasoning that
+  /// the answer "only decides which chat to open" — but giving up early did not
+  /// cost a fast decision, it cost the feature: the fallback minted an empty
+  /// interview session, and the server's policy then answered `interview` for
+  /// six or seven hours. A read that is allowed less time than the session mint
+  /// it triggers is the wrong way round, so it now gets [kRequestTimeout] and
+  /// the repository retries once, exactly as the latest-session read does.
+  static const Duration kCompanionOpenTimeout = kRequestTimeout;
 
   /// `GET /chat/companion` (ADR-0044) — the post-completion companion's mode and,
   /// for a companion worker, its opening recap. Worker-scoped: the worker is the

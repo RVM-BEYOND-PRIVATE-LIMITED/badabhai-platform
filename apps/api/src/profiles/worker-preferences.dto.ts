@@ -181,6 +181,26 @@ export const SetMyPreferencesSchema = z
     accommodation_needed: z.boolean().nullable().optional(),
 
     /**
+     * The LOWER end of the expected-salary band, monthly (ADR-0045 R4) — the figure the worker
+     * will not go below.
+     *
+     * WHY THE PAGE ASKS IT NOW. Every other road collects the lower end in the interview
+     * (`salary_expected`); the general road's chat asks skills only, so without this field a
+     * general-road worker could state the top of his band and never the bottom. Monthly only, per
+     * the ADR's approved defaults — `salary_period` still says otherwise for a worker who needs it.
+     *
+     * THE SAME BOUNDS AS `salary_expected_max`, EXACTLY, and the same three states: absent leaves
+     * the stored value alone, `null` clears it. An installed build never sends it, so its bodies
+     * validate and are stored exactly as before.
+     *
+     * MIN ≤ MAX IS NOT CHECKED HERE. It is a rule across two fields, and an object-level refine
+     * would wrap this schema in `ZodEffects` and take away the `.shape` that the GET's read-back
+     * validates each stored value through. It also depends on what is already STORED — a body can
+     * carry one end alone — so `WorkerPreferencesService` decides it against the resulting state.
+     */
+    salary_expected_min: z.number().int().min(1000).max(500000).nullable().optional(),
+
+    /**
      * The upper end of the expected-salary BAND (R10 R-1).
      *
      * §4.4 is explicit that a point figure invites anchoring against the worker, and the ratified
@@ -299,7 +319,7 @@ export type PreferenceWireKey = Exclude<keyof SetMyPreferencesDto, "touched_only
 /**
  * STORAGE KEY → WIRE KEY, the ONE table both directions read (#1504).
  *
- * THREE OF TWELVE DIFFER, AND THAT IS EXACTLY WHY IT IS A TABLE. `preferred_locations` is the
+ * THREE OF EIGHTEEN DIFFER, AND THAT IS EXACTLY WHY IT IS A TABLE. `preferred_locations` is the
  * attribute the interview also writes, `shift_preference` is `qp_universal`'s key and
  * `relocation_willingness` was `qp_universal@1`'s — each name is fixed by a store the form shares —
  * while the wire names are what two Flutter models already send. A writer and a reader that each
@@ -323,6 +343,7 @@ export const PREFERENCE_WIRE_KEYS = {
   shift_preference: "shift",
   relocation_willingness: "willing_to_relocate",
   accommodation_needed: "accommodation_needed",
+  salary_expected_min: "salary_expected_min",
   salary_expected_max: "salary_expected_max",
   education_credential: "education_credential",
   education_council: "education_council",

@@ -240,3 +240,169 @@ export function classifyLlmReply(reply: string, history: readonly TranscriptLine
   if (repeatsHistory(reply, history)) return "repeat";
   return "ok";
 }
+
+/**
+ * ═══ THE SAME READ, FOR THE SKILLS STAGE ═══ (ADR-0045 §3.2)
+ *
+ * On the general road a skills-only model asks for skills and the ENGINE ends each round with its
+ * own gate — "Kya aur koi skill jodni hai?" [Haan] [Nahi] (`skills-gate.ts`). The two failure
+ * shapes at the top of this file recur there with one noun changed: the model writes that gate in
+ * its own words ("Aur koi skill add karni hai?"), whose "Nahi" closes nothing and hands the worker
+ * nowhere; or it asks a question it has already asked. `classifySkillsReply` is the read for that
+ * stage, and the enforcement is the caller's, under the same "move on, no retry" ruling.
+ *
+ * A SEPARATE FUNCTION, NOT A FLAG ON `classifyLlmReply`, because the two stages disagree about one
+ * word class: "Koi aur cheez batana chahenge?" is an ordinary question during Phase A (its fixture
+ * pins it `ok`), and in a stage that asks for nothing BUT skills it is the gate. Every constant
+ * above is shared unchanged; the skills stage only adds its own nouns and two refinements of the
+ * WH-exemption (a WH-word inside the marker's window; the exemption judged per sentence), all below.
+ */
+
+/**
+ * MIRROR of `skills-gate.ts`'s `SKILLS_GATE_QUESTION` — the engine's own skills-gate line.
+ *
+ * DUPLICATED, NOT IMPORTED, so this guard stays a leaf that imports types only. Exported so
+ * `skills-reply-guard.test.ts` can pin it byte-equal to the original: a reword of the gate that
+ * forgets this line fails CI. Import the gate's text from `skills-gate.ts`, never from here.
+ */
+export const SKILLS_GATE_QUESTION_MIRROR = "Kya aur koi skill jodni hai?";
+
+/**
+ * A SKILL noun — the thing an ADD marker must be adding another of for a skills-stage line to be
+ * gate-shaped. "cheez" belongs here and not in {@link JOB_NOUN_TOKENS}: in a stage that asks only
+ * for skills, "koi aur cheez" can mean nothing else. Normalised on the way in, so a Devanagari
+ * nukta written either way matches the tokens {@link normalize} produces.
+ */
+const SKILL_NOUN_TOKENS: ReadonlySet<string> = new Set(
+  [
+    "skill",
+    "skills",
+    "hunar",
+    "kaushal",
+    "cheez",
+    "cheezein",
+    "cheezen",
+    "cheeze",
+    "स्किल",
+    "स्किल्स",
+    "हुनर",
+    "कौशल",
+    "चीज़",
+    "चीज",
+    "चीज़ें",
+    "चीजें",
+  ].map(normalize),
+);
+
+/**
+ * The WH-tokens that make a skills-stage line an OPEN question — {@link LEADING_WH_TOKENS}, plus the
+ * common "konsi" spellings and the Devanagari forms a model echoing a Hindi speaker writes.
+ *
+ * WHY THE SKILLS STAGE NEEDS MORE THAN THE LEADING POSITION. The line a skills-only model writes
+ * most is "Aur kaunsi skill aati hai?" — WH in the middle, an ADD marker in front of it. That is
+ * the stage doing its job (ruling R3: as many skills as possible), not the gate: it asks WHICH,
+ * and the gate asks WHETHER. The Phase A rule only exempts a leading WH-token, and under it that
+ * line would be discarded every round — the worker would see the gate after the model's first
+ * question, every time. So a WH-token BETWEEN the marker and the noun exempts that match too.
+ */
+const SKILLS_WH_TOKENS: ReadonlySet<string> = new Set([
+  ...LEADING_WH_TOKENS,
+  "konsa",
+  "konsi",
+  "konse",
+  "kis",
+  "kin",
+  ...[
+    "कौन",
+    "कौनसा",
+    "कौनसी",
+    "कौनसे",
+    "किस",
+    "किन",
+    "कितना",
+    "कितने",
+    "कितनी",
+    "कैसे",
+    "कहाँ",
+    "कब",
+  ].map(normalize),
+]);
+
+/**
+ * "kya" / "क्या" — excepted at the HEAD of a line, exactly as {@link LEADING_WH_TOKENS} excepts it,
+ * because there it opens a yes/no question ("Kya aur koi skill jodni hai?" is the gate itself).
+ * BETWEEN an ADD marker and its noun it can only be the interrogative "what" — "aur kya cheezein
+ * aati hain?" asks which — so there, and only there, it exempts like any WH-token.
+ */
+const WHAT_TOKENS: ReadonlySet<string> = new Set(["kya", ...["क्या"].map(normalize)]);
+
+const NORMALIZED_SKILLS_GATE = normalize(SKILLS_GATE_QUESTION_MIRROR);
+
+/**
+ * Where one sentence of a model line ends: "?", "!", the danda, a newline — and "." only when a
+ * space or the end of the line follows it, so "B.Com", "Node.js" and "2.5 saal" stay one sentence.
+ *
+ * WHY THE SKILLS READ SPLITS AT ALL. The leading-WH exemption says "this line asks WHICH", and that
+ * is only ever true of the sentence the WH-word opens. Applied to the whole line it waved through
+ * "Kaunsa software chalate hain? Aur koi skill bhi hai?" — a WHICH question, then the gate's twin —
+ * and a worker's "Nahi" would then answer a gate the model wrote, the failure this guard exists to
+ * stop. The one-question-per-reply rule that would forbid that line is a prompt instruction, not an
+ * enforcement, so the line is reachable. Each sentence is judged on its own; the gate's twin in ANY
+ * of them makes the line `gate_shaped`.
+ */
+const SENTENCE_BREAK = /[?？!！।॥\n\r]+|\.(?=\s|$)/u;
+
+/**
+ * Is `reply` shaped like the engine's own skills gate — the gate's words exactly, or, in any one
+ * sentence, an ADD marker followed within three tokens by a SKILL noun, with no WH-token leading
+ * THAT sentence or standing between that marker and that noun?
+ */
+function isSkillsGateShaped(reply: string): boolean {
+  const normalized = normalize(reply);
+  if (normalized.length === 0) return false;
+  // The engine's own words. Today's wording is ALSO caught by the marker rule below; this is what
+  // keeps the guard honest the day the gate is reworded into something the marker rule misses.
+  if (normalized === NORMALIZED_SKILLS_GATE) return true;
+
+  return reply.split(SENTENCE_BREAK).some(isSkillsGateSentence);
+}
+
+/** One sentence of {@link isSkillsGateShaped}: the WH-exemption and the marker rule, both local. */
+function isSkillsGateSentence(sentence: string): boolean {
+  const toks = tokens(normalize(sentence));
+  if (toks.length === 0) return false;
+  if (SKILLS_WH_TOKENS.has(toks[0] as string)) return false;
+
+  for (let i = 0; i < toks.length; i++) {
+    if (!ADD_MARKER_TOKENS.has(toks[i] as string)) continue;
+    const window = toks.slice(i + 1, i + 1 + 3);
+    const nounAt = window.findIndex((t) => SKILL_NOUN_TOKENS.has(t));
+    if (nounAt === -1) continue;
+    const asksWhich = window
+      .slice(0, nounAt)
+      .some((t) => SKILLS_WH_TOKENS.has(t) || WHAT_TOKENS.has(t));
+    if (!asksWhich) return true;
+  }
+  return false;
+}
+
+/**
+ * Classify a skills-stage model `reply_text` before it is served.
+ *
+ * `gate_shaped` — the model asked the engine's add-more-skills question (see
+ * {@link isSkillsGateShaped}). "Kaunsi skill jodni hai?", asked after a Haan, is NOT: it asks
+ * which, and that is the stage's own question. "Kaunsa software chalate hain? Aur koi skill bhi
+ * hai?" IS: the WH-word excuses only the sentence it opens ({@link SENTENCE_BREAK}).
+ * `repeat` — {@link repeatsHistory}, unchanged: the full history, both exemptions, and never an
+ * exemption for an exact repeat.
+ *
+ * ORDER as in {@link classifyLlmReply}, and cosmetic for the same reason.
+ */
+export function classifySkillsReply(
+  reply: string,
+  history: readonly TranscriptLine[],
+): LlmReplyClass {
+  if (isSkillsGateShaped(reply)) return "gate_shaped";
+  if (repeatsHistory(reply, history)) return "repeat";
+  return "ok";
+}

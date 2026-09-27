@@ -200,6 +200,13 @@ export const COMPLETION_REASONS = [
    * reasons a later phase adds". This is that later phase.
    */
   "form_handoff",
+  /**
+   * The general road (ADR-0045) handed over to the offline GENERAL form — a worker outside the
+   * 21 roles, after the skills stage and its gate. Distinct from "form_handoff" for that reason's
+   * own argument: the two are different surfaces, and a fleet-wide count of one must not absorb
+   * the other. Same free-slug safety on the completion event.
+   */
+  "general_form_handoff",
 ] as const;
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
 

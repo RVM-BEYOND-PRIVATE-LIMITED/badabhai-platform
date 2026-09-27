@@ -112,10 +112,11 @@ export const WORK_TYPES: PreferenceVocabulary = JOB_TYPES;
  * Layer A (c) — the PERIOD a stated salary figure is quoted in.
  *
  * EXISTING MEANING IS PRESERVED, NOT INVENTED: every salary key on this platform has always meant
- * monthly (`salary_expected`, `salary_expected_max`, the interview's salary gate, the sheet's
- * "/ month"), so an ABSENT period means MONTH and a worker who never answers this keeps exactly
- * the figure they always had. The dictionary exists so a daily-wage worker can say so instead of
- * having ₹800 printed as "₹800 / month" — a real defect the under-representation gate documents.
+ * monthly (`salary_expected`, `salary_expected_max`, and since ADR-0045 `salary_expected_min`; the
+ * interview's salary gate; the sheet's "/ month"), so an ABSENT period means MONTH and a worker
+ * who never answers this keeps exactly the figure they always had. The dictionary exists so a
+ * daily-wage worker can say so instead of having ₹800 printed as "₹800 / month" — a real defect
+ * the under-representation gate documents.
  */
 export const SALARY_PERIODS: PreferenceVocabulary = {
   month: "per month",
@@ -271,6 +272,23 @@ export const EDUCATION_CREDENTIALS: PreferenceVocabulary = {
  * expressiveness plus one refinement rather than a new promise. Widening it is a data change with
  * no migration behind it — but a value added here starts printing on résumés immediately, so it
  * is a ratification decision (`docs/registers/trade-content-ratification.md`), not a typing one.
+ *
+ * ═══ ADR-0045 §6 — TWO RUNGS ABOVE GRADUATE, AND THAT RATIFICATION IS THE RULING ═══
+ *
+ * `postgraduate` and `doctorate` were added by the owner's approved defaults for the general road
+ * (2026-09-26). The general road serves the roles OUTSIDE the 21 trades — a lab chemist, a quality
+ * engineer — and for them an M.Sc or a PhD is an ordinary answer that "Graduate" understates on
+ * the one line an employer checks hardest. The labels are the plain English the rest of the ladder
+ * uses.
+ *
+ * THE VALIDATOR IS SHARED; THE CHOICES ARE NOT. `EducationEntrySchema` builds its enum from this
+ * WHOLE map, so `PUT /workers/me/qualifications` accepts both slugs from every client, and the
+ * résumé prints them through `labelFor` — which DROPS a slug it has no label for, so a slug
+ * accepted without a label here would be stored and then silently vanish from the sheet. What a
+ * TRADE form offers is {@link TRADE_FORM_EDUCATION_QUALIFICATIONS}: today's six, unchanged.
+ *
+ * NO MIGRATION. `worker_education.credential` is plain `text` capped at 40 characters with no CHECK
+ * on its values (0098), so a new slug needs no DDL.
  */
 export const EDUCATION_QUALIFICATIONS: PreferenceVocabulary = {
   // ── THE LABELS ARE `KNOWN_EDUCATION_LEVELS`'s OWN; THE SLUGS DELIBERATELY ARE NOT ──────────
@@ -300,7 +318,36 @@ export const EDUCATION_QUALIFICATIONS: PreferenceVocabulary = {
   iti: "ITI",
   diploma: "Diploma",
   graduate: "Graduate",
+  // ADR-0045 §6 — APPENDED, NEVER INSERTED. `Object.keys` order is the chip order and the ladder
+  // reads lowest rung first; both rungs sit above `graduate`, so the end of the map is their place.
+  // Neither has a `KNOWN_EDUCATION_LEVELS` counterpart (no pack option stores either), so the
+  // label-parity note above covers the first six only.
+  postgraduate: "Postgraduate",
+  doctorate: "Doctorate",
 };
+
+/**
+ * The credentials the TRADE forms offer — exactly the six they offered before ADR-0045 (§6).
+ *
+ * ═══ WHY A SUBSET IS SERVED, AND NOT THE WHOLE MAP ═══
+ *
+ * The trade forms render their credential chips straight from `education_credential` on
+ * `GET /workers/me/qualifications/options` (`trade_form_repository_impl.dart`). Serving the widened
+ * map there would put "Postgraduate" and "Doctorate" on all 21 trade forms, and ruling R1 says the
+ * 21 keep today's path exactly. The general form offers the full ladder through its own schema.
+ *
+ * AN ALLOW-LIST OF SLUGS, NOT "THE WHOLE MAP MINUS THE GENERAL ROAD'S RUNGS". Subtraction would hand
+ * the next rung added to {@link EDUCATION_QUALIFICATIONS} to the 21 by default. Offering an option on
+ * a trade form is its own decision, so a new slug reaches them only by being named here.
+ *
+ * THE LABELS ARE READ FROM THE WHOLE MAP, NEVER RESTATED, so one slug cannot print two spellings.
+ * A slug named here that the map does not hold fails at module load instead of serving a chip the
+ * printer would drop.
+ */
+export const TRADE_FORM_EDUCATION_QUALIFICATIONS: PreferenceVocabulary = subsetOf(
+  EDUCATION_QUALIFICATIONS,
+  ["below_10", "class_10", "class_12", "iti", "diploma", "graduate"],
+);
 
 /**
  * Every attribute key this form writes, and the storage kind each one takes.
@@ -336,6 +383,24 @@ export const PREFERENCE_KEYS = {
   // `{status, available_from, notice_period_days}`, every key optional and validated by the DTO.
   // Stored as one row so the parts cannot be clobbered independently by a re-answer.
   availability: "json",
+  // ADR-0045 R4 — the BAND's LOWER end, as a page answer. The general road's chat asks skills only
+  // (R3), so the interview's `salary_expected` is never asked on that road, and the general form's
+  // terms page has to ask the lower end itself. Old clients never send it and are unchanged.
+  //
+  // ITS OWN KEY, NOT `salary_expected`, DELIBERATELY. `salary_expected` is an RFS crosswalk field:
+  // `collectAttribute` skips it and it lives on `worker_profiles`, so it has never had a
+  // `worker_attributes` row. A row under the same name would give one string two stores, two write
+  // paths and no rule for which wins. `_min` beside `_max` keeps the band's two ends side by side,
+  // with the wire name and the storage name identical; `worker-fact.registry.ts` names all three
+  // spellings as ONE fact.
+  //
+  // MIN ≤ MAX IS THE SERVICE'S CHECK, NOT THE SCHEMA'S — an object-level refine would turn the
+  // schema into `ZodEffects` and lose the `.shape` the GET's read-back and several contracts use.
+  //
+  // NOT PRINTED YET. The résumé reads the lower end from the profile (`expected_salary`) and only
+  // the upper end from attributes (`resume-preference-facts.ts`); projecting this row onto the
+  // sheet is the general road's résumé phase.
+  salary_expected_min: "number",
   // R9 §3 — the three components of a credential the sheet prints and nothing captured. The
   // TRADE is not here: `education_field` already holds it, it rides the answer-map crosswalk onto
   // the draft, and adding a second key for the same fact is how two sources start disagreeing
@@ -350,6 +415,8 @@ export const PREFERENCE_KEYS = {
   // does not earn an engine ask when abandonment is the binding constraint (R-4's own reasoning).
   // If the ruling is that it belongs in the interview instead, that is a pack-data change plus a
   // ruling on the six-question tail.
+  //
+  // ON THE GENERAL ROAD THE LOWER END IS A PAGE ANSWER TOO — see `salary_expected_min` above.
   salary_expected_max: "number",
   // R11 §3.1 — WHICH of the two credentials the merged `iti_diploma` option covers. Not a
   // replacement for `education_level`: that key keeps its value and its meaning, and this one
@@ -392,4 +459,25 @@ export function labelFor(vocabulary: PreferenceVocabulary, slug: string): string
  */
 export function labelsFor(vocabulary: PreferenceVocabulary, slugs: readonly string[]): string[] {
   return slugs.map((s) => vocabulary[s]).filter((l): l is string => typeof l === "string");
+}
+
+/**
+ * A named subset of a dictionary, in the order the slugs are given, labels read from the whole.
+ *
+ * THROWS RATHER THAN DROPPING, the one place in this file that does, because the input is source
+ * code, not stored data: a slug that has no label is a typo in a constant, and the options endpoint
+ * would otherwise serve a chip row one option short with nothing naming why. A function declaration
+ * so the constants above can call it at module load.
+ */
+function subsetOf(
+  vocabulary: PreferenceVocabulary,
+  slugs: readonly string[],
+): PreferenceVocabulary {
+  const subset: Record<string, string> = {};
+  for (const slug of slugs) {
+    const label = labelFor(vocabulary, slug);
+    if (label === null) throw new Error(`vocabulary subset names an unknown slug: ${slug}`);
+    subset[slug] = label;
+  }
+  return subset;
 }

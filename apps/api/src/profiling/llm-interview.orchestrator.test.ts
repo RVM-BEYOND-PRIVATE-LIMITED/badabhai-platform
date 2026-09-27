@@ -511,6 +511,8 @@ describe("an old build's 'Kuch aur' tap on model chips (#1506)", () => {
       whyText: null,
       answerType: "single_select",
       formOffer: null,
+      gateKind: null,
+      generalFormOffer: null,
       lookahead: null,
       inputMode: "text",
       replays: 0,

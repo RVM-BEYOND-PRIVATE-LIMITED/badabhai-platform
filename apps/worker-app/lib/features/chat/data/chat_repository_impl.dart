@@ -138,11 +138,25 @@ class ChatRepositoryImpl implements ChatRepository {
     );
   }
 
-  /// Mint a fresh session for the post-completion "Chat se resume banayein"
-  /// (#1566). Deliberately does NOT call `_resumeLatest`: the whole point is to
-  /// leave the just-ended session behind and start a new interview. The server
-  /// only reattaches a LIVE session, so with the previous one ended this POST
-  /// mints a new row; the old transcript stays readable server-side.
+  /// Mint a session for the post-completion "Chat se resume banayein" (#1566).
+  /// Deliberately does NOT call `_resumeLatest`: this is the redo, so it must not
+  /// resume the id the app happens to be holding.
+  ///
+  /// WHAT THE SERVER DOES WITH THIS POST changed with #1744 (#1760), and it is
+  /// two different things:
+  ///
+  ///  * an UNFINISHED interview — the session is still live, so the server
+  ///    REATTACHES to it, as it always has. The worker carries on where he was,
+  ///    which is what he wants when he never finished.
+  ///  * an EARLY FINISH he has already confirmed as his profile — the server
+  ///    closes that leftover session and mints a NEW one, so the redo is a real
+  ///    fresh interview rather than a reattach to something he has finished with.
+  ///
+  /// Either way the old transcript stays readable server-side.
+  ///
+  /// #1768 — and this is the ONE caller that says `redo: true`. The fallback POST
+  /// in `_openSession` must not: it fires when the latest-session read failed,
+  /// and the worker may still be answering that session.
   @override
   Future<ChatSessionOpening?> startNewSession() async {
     final String? token = _session.sessionToken;
@@ -151,7 +165,7 @@ class ChatRepositoryImpl implements ChatRepository {
     // client-side resume guard in [ensureSession] is not on this path.
     _session.clearChatSession();
     try {
-      final ChatSessionStart start = await _api.startSession(authToken: token);
+      final ChatSessionStart start = await _api.startSession(authToken: token, redo: true);
       _session.setSession(start.sessionId);
       return _openingFrom(start);
     } catch (error) {
@@ -229,10 +243,11 @@ class ChatRepositoryImpl implements ChatRepository {
       // that can only ever reply "Aapki baat poori ho chuki hai".
       //
       // Done HERE, not in the bloc, because the cached id lives in SessionRepository and
-      // every entry point goes through `ensureSession()` — the "start a new chat" button
-      // on the Resume/Profile tabs, and the "Chat pe wapas jaayein" the profile preview
-      // offers when a profile comes out thin. Leaving it cached silently disables both:
-      // the app tells the worker to go say more, and they cannot.
+      // every entry point goes through `ensureSession()` — including the
+      // "Chat pe wapas jaayein" the profile preview offers when a profile comes out
+      // thin. Leaving it cached silently disables that: the app tells the worker to go
+      // say more, and they cannot. (#1765 — the "start a new chat" button that used to
+      // sit on the Resume and Profile tab headers is gone.)
       //
       // The worker stays logged in — only the chat session id is dropped.
       if (reply.sessionEnded) {
@@ -273,21 +288,48 @@ class ChatRepositoryImpl implements ChatRepository {
   /// ADR-0044 — see [ChatRepository.openCompanion]. Touches NO session state: no
   /// `GET /chat/session/latest`, no `POST /chat/session`, no cached id.
   @override
-  Future<ChatTurn?> openCompanion() async {
+  Future<CompanionOpening> openCompanion() async {
     final String? token = _session.sessionToken;
-    if (token == null) return null;
+    // No token is not a verdict about the worker either — nothing may be minted
+    // on it (#1750).
+    if (token == null) return const CompanionOpening.unreachable();
+    // ONE RETRY (#1750), the same shape the latest-session read has: the cost of
+    // a second request is one round trip, and the cost of giving up is an empty
+    // interview session plus six hours of the wrong tab.
+    for (int attempt = 0; attempt < 2; attempt++) {
+      final CompanionOpening result = await _openCompanionOnce(token);
+      if (!result.isUnreachable || attempt == 1) return result;
+    }
+    return const CompanionOpening.unreachable();
+  }
+
+  Future<CompanionOpening> _openCompanionOnce(String token) async {
     try {
       final CompanionOpen open = await _api.getChatCompanion(authToken: token);
       final ChatReply? reply = open.turn;
-      if (!open.companion || reply == null) return null;
-      return _companionTurn(reply, digestKey: open.digestKey);
+      // A REAL answer: this worker runs the interview.
+      if (!open.companion || reply == null) {
+        return const CompanionOpening.interview();
+      }
+      return CompanionOpening(
+        CompanionOpenOutcome.companion,
+        _companionTurn(reply, digestKey: open.digestKey),
+      );
     } catch (error, stack) {
       // Best-effort, but never silent: a companion that cannot be reached falls
       // back to today's chat, and the miss is reported like every other caught
       // error (static, PII-free reason). A 404 from a server that predates the
       // route lands here too, which is the intended fallback.
       _report(mapError(error), stack, reason: 'chat_companion_open_failed');
-      return null;
+      // A 404 IS AN ANSWER: this server predates the route, so there is no
+      // companion for anyone on it. Retrying that is pure waste, and calling it
+      // unreachable would leave the tab offering a retry that can never succeed.
+      if (error is ApiException && error.statusCode == 404) {
+        return const CompanionOpening.interview();
+      }
+      // Everything else is UNREACHABLE, not "interview" (#1750): the caller must
+      // not mint a session on a read that never came back.
+      return const CompanionOpening.unreachable();
     }
   }
 

@@ -12,6 +12,7 @@ import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
+import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
@@ -495,6 +496,60 @@ void main() {
     // skips extraction) saw the thin resumeText fallback immediately, with
     // no loader, exactly the "incomplete info shown before the real content
     // arrives" bug this whole mechanism exists to prevent.
+    // ── #1763 ───────────────────────────────────────────────────────────────
+    // The self-heal extracts and CONFIRMS, and `extractProfile` sends whatever
+    // chat session the app holds. For a worker three answers into the interview
+    // that confirmed a THIN profile from those three answers, and the finished
+    // interview was then deduplicated onto the early job server-side: his full
+    // answers never became his profile. He never chose to finish early.
+    blocTest<ResumeCubit, ResumeState>(
+      'a live interview is NEVER extracted-and-confirmed — noProfile instead',
+      build: () {
+        when(() => repo.generateResume(force: false))
+            .thenThrow(const ProfileIncompleteFailure());
+        final SessionRepository session = SessionRepository()
+          ..setSession('live-session-1');
+        return ResumeCubit(repo, editRepo, profileRepo,
+            sessionRepository: session);
+      },
+      act: (ResumeCubit c) => c.generate(),
+      expect: () => <ResumeState>[
+        const ResumeState(status: ResumeStatus.loading),
+        const ResumeState(status: ResumeStatus.noProfile),
+      ],
+      verify: (_) {
+        verifyNever(() => profileRepo.extractProfile());
+        verifyNever(() => profileRepo.confirmProfile());
+      },
+    );
+
+    // #1763 — and the #1371 case it was built for still self-heals: a form-road
+    // worker holds NO chat session, because the form road opens no chat.
+    blocTest<ResumeCubit, ResumeState>(
+      'the #1371 form handover still self-heals (no chat session held)',
+      build: () {
+        int calls = 0;
+        when(() => repo.generateResume(force: false)).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const ProfileIncompleteFailure();
+          return 'RETRY RESUME TEXT';
+        });
+        when(() => profileRepo.extractProfile())
+            .thenAnswer((_) async => 'profile-1');
+        when(() => profileRepo.confirmProfile()).thenAnswer((_) async => null);
+        when(() => repo.loadResumeDocument())
+            .thenAnswer((_) async => sheetSnapshot);
+        // A session repository with NO chat session id — the form road.
+        return ResumeCubit(repo, editRepo, profileRepo,
+            sessionRepository: SessionRepository());
+      },
+      act: (ResumeCubit c) => c.generate(),
+      verify: (_) {
+        verify(() => profileRepo.extractProfile()).called(1);
+        verify(() => profileRepo.confirmProfile()).called(1);
+      },
+    );
+
     blocTest<ResumeCubit, ResumeState>(
       'generate() retried after ProfileIncompleteFailure ALSO shows the '
       'loader and fetches the structured document — not a shortcut',

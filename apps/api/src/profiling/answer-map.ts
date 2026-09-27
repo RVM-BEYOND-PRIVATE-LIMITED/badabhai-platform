@@ -123,6 +123,22 @@ export function recordUnanswered(map: AnswerMap, questionKey: string, turn: numb
   return withStatus(map, questionKey, "unanswered", turn);
 }
 
+/**
+ * FORGET a question's record entirely — the map without that key.
+ *
+ * NOT `recordDeclined` OR `recordUnanswered`, both of which deliberately KEEP the captured value
+ * (a later "don't know" must never erase an answer). This exists for the one case where the
+ * value itself must go (ADR-0045): on the general road total experience comes ONLY from the work
+ * history in the general form, so the years a worker mentioned in the chat opener must not reach
+ * `answer_map`, the parse or `worker_pack_answer`. An absent record is "never asked", which is
+ * exactly what that question now is on this road. A missing key returns the map unchanged.
+ */
+export function forgetAnswer(map: AnswerMap, questionKey: string): AnswerMap {
+  if (!(questionKey in map)) return map;
+  const { [questionKey]: _forgotten, ...rest } = map;
+  return rest;
+}
+
 function withStatus(
   map: AnswerMap,
   questionKey: string,

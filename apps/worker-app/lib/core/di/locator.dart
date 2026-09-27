@@ -579,8 +579,14 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
         locator<ProfileRepository>(), locator<ProfileSummaryRepository>()),
   );
   locator.registerFactory<ResumeCubit>(
-    () => ResumeCubit(locator<ResumeRepository>(), locator<ResumeEditRepository>(),
-        locator<ProfileRepository>()),
+    () => ResumeCubit(
+      locator<ResumeRepository>(),
+      locator<ResumeEditRepository>(),
+      locator<ProfileRepository>(),
+      // #1763 — so the self-heal can tell a form handover from an interview the
+      // worker is still answering.
+      sessionRepository: locator<SessionRepository>(),
+    ),
   );
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),

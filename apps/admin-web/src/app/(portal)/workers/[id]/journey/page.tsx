@@ -157,10 +157,10 @@ export default async function WorkerJourneyPage({
               Interview sessions
             </h2>
             <p className="panel__sub">
-              Newest first. <strong>Abandoned</strong> is the idle sweep&rsquo;s verdict, not
-              something the worker did — and &ldquo;idle&rdquo; is measured from when they last
-              spoke, so a session they opened and dropped without a word has no idle figure at
-              all.
+              Newest first. <strong>Abandoned</strong> means the system closed the session
+              without a finished interview — the idle sweep, or an early finish the worker
+              confirmed (#1744) — and &ldquo;idle&rdquo; is measured from when they last spoke,
+              so a session they opened and dropped without a word has no idle figure at all.
             </p>
           </div>
           {/* Status filter as plain links, not a client form: the filter belongs in the URL
@@ -247,7 +247,7 @@ export default async function WorkerJourneyPage({
                         tone={s.abandoned ? "warn" : s.status === "ended" ? "ok" : "muted"}
                         title={
                           s.abandoned
-                            ? "Written by the idle sweep — the worker did not end this session"
+                            ? "Closed by the system without a finished interview: the idle sweep, or an early finish the worker confirmed"
                             : undefined
                         }
                       />

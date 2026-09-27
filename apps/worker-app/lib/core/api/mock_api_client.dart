@@ -91,7 +91,10 @@ class MockApiClient extends ApiClient {
   /// which is the single client-side copy — so demo mode and a
   /// flag-off/AI-service-down live session show exactly the same first bubble.
   @override
-  Future<ChatSessionStart> startSession({required String authToken}) async {
+  Future<ChatSessionStart> startSession({
+    required String authToken,
+    bool redo = false,
+  }) async {
     await _delay();
     return const ChatSessionStart(sessionId: 'mock-session-0001');
   }

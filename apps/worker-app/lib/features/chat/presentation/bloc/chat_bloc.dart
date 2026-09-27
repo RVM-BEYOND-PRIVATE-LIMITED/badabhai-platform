@@ -17,6 +17,7 @@ import '../../../../core/observability/analytics.dart';
 import '../../../../core/session/known_worker_facts_store.dart';
 import '../../domain/chat_answered_facts.dart';
 import '../../domain/chat_message.dart';
+import '../../domain/chat_companion_keys.dart';
 import '../../domain/chat_repository.dart';
 import '../../domain/chat_session_opening.dart';
 import '../../domain/chat_turn.dart';
@@ -117,6 +118,38 @@ class ChatCompanionStarted extends ChatEvent {
 /// recap is re-read, and a NEW bubble is appended only when its facts changed
 /// (the server's `digest_key`) — the worker who just applied on the Jobs tab sees
 /// the new count; a worker who changed nothing sees nothing new.
+/// #1753 — a companion chip was tapped. Routed through the bloc ONLY so it logs
+/// through the same analytics sink every other funnel event uses; the routing
+/// itself stays on the screen, which is the thing that owns navigation.
+class ChatCompanionChipTapped extends ChatEvent {
+  const ChatCompanionChipTapped(this.keyClass, {this.openedJob = false});
+
+  /// A CLASS, never the key: `job` | `jobs_tab` | `applied` | `new_jobs` |
+  /// `resume` | `other`.
+  final String keyClass;
+
+  /// True when the tap opened job detail, which logs its own event too.
+  final bool openedJob;
+
+  @override
+  List<Object?> get props => <Object?>[keyClass, openedJob];
+}
+
+/// #1752 — the worker applied to a job he reached through a companion chip.
+///
+/// Drops that chip immediately and re-reads the recap. The chip must go at once
+/// rather than wait for the read: it is the one thing on screen the worker has
+/// just acted on, and tapping it again reopens the detail with "Apply karein"
+/// for a job he has already applied to.
+class ChatCompanionJobApplied extends ChatEvent {
+  const ChatCompanionJobApplied(this.jobId);
+
+  final String jobId;
+
+  @override
+  List<Object?> get props => <Object?>[jobId];
+}
+
 class ChatCompanionRefreshRequested extends ChatEvent {
   const ChatCompanionRefreshRequested({this.force = false});
 
@@ -158,6 +191,7 @@ class ChatState extends Equatable {
     this.resumePending = false,
     this.resumeUpdateQueued = false,
     this.companion = false,
+    this.companionUnreachable = false,
   });
 
   /// Ordered, append-only transcript.
@@ -292,6 +326,14 @@ class ChatState extends Equatable {
   /// what the last reply actually was.
   final bool companion;
 
+  /// #1750 — the companion read did not come back, and NOTHING was minted on it.
+  ///
+  /// Distinct from [companion] being false, which means the server said this
+  /// worker runs the interview. Here the tab knows nothing yet, so it offers a
+  /// retry instead of silently opening an interview the worker did not ask for
+  /// and the server would then be stuck with for hours.
+  final bool companionUnreachable;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -322,6 +364,7 @@ class ChatState extends Equatable {
     bool? resumePending,
     bool? resumeUpdateQueued,
     bool? companion,
+    bool? companionUnreachable,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -352,6 +395,7 @@ class ChatState extends Equatable {
       // `?? this` only ever holds it across an emit that is not a new turn.
       resumeUpdateQueued: resumeUpdateQueued ?? this.resumeUpdateQueued,
       companion: companion ?? this.companion,
+      companionUnreachable: companionUnreachable ?? this.companionUnreachable,
     );
   }
 
@@ -377,6 +421,7 @@ class ChatState extends Equatable {
         resumePending,
         resumeUpdateQueued,
         companion,
+        companionUnreachable,
       ];
 }
 
@@ -456,6 +501,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatSessionRestarted>(_onSessionRestarted);
     on<ChatCompanionStarted>(_onCompanionStarted);
     on<ChatCompanionRefreshRequested>(_onCompanionRefreshRequested);
+    on<ChatCompanionChipTapped>(_onCompanionChipTapped);
+    on<ChatCompanionJobApplied>(_onCompanionJobApplied);
   }
 
   final ChatRepository _repo;
@@ -467,6 +514,22 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   /// ADR-0044 — the `digest_key` of the companion recap last shown, so a tab
   /// refocus that changed nothing adds nothing.
   String? _companionDigestKey;
+
+  /// #1751 — how many worker bubbles were sent in COMPANION mode, so the #1316
+  /// interview indices do not count them.
+  ///
+  /// `askIndex` is the rank of a worker bubble in the thread, and after a 409
+  /// fallback the thread still holds every companion message. Without this
+  /// offset the first real interview answer reported itself as (say) the third
+  /// ask and `bb_chat_wrap_up.turn_count` was inflated by the same amount, which
+  /// bends the #1316 drop-off curve for exactly the workers the companion is for.
+  int _companionBubbleOffset = 0;
+
+  /// The interview rank of a bubble, with the companion's own bubbles removed.
+  int _interviewIndex(int rank) {
+    final int adjusted = rank - _companionBubbleOffset;
+    return adjusted < 1 ? 1 : adjusted;
+  }
 
   /// ADR-0044 — when the companion recap was last read; refocus refreshes at
   /// most once per [_companionRefreshMinGap] so tab-flipping costs no requests.
@@ -489,6 +552,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   void _logWrapUpOnce({required bool ready}) {
     if (!ready || _wrapUpLogged) return;
     _wrapUpLogged = true;
+    // #1751 — interview turns only; a companion bubble is not an interview turn.
     _analytics(BbAnalytics.chatWrapUp(
       turnCount:
           state.messages.where((ChatMessage m) => m.fromWorker).length,
@@ -753,8 +817,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // branches above have appended the worker bubble) so it is stable under the
     // bloc-8.x concurrency: a second send appends its own bubble and reads its
     // own higher index. Emitted on delivery, not here — see [_deliver].
-    final int askIndex =
-        state.messages.where((ChatMessage m) => m.fromWorker).length;
+    final int askIndex = _interviewIndex(
+      state.messages.where((ChatMessage m) => m.fromWorker).length,
+    );
     await _deliver(
       text,
       index,
@@ -783,7 +848,26 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }) async {
     _inFlightSends++;
     try {
-      final ChatTurn turn = await _sendByMode(text, submissionId);
+      final ChatTurn? sent = await _sendByMode(text, submissionId);
+      if (sent == null) {
+        // #1751 — a 409. The text is NOT auto-posted anywhere: the bubble is
+        // marked failed (the worker can retry it into the interview himself) and
+        // the interview is opened the ordinary way, so he sees its opener or his
+        // own transcript instead of a question that follows nothing.
+        _inFlightSends--;
+        _leaveCompanionMode();
+        emit(state.copyWith(
+          messages: _withStatus(state.messages, index, ChatSendStatus.failed),
+          sending: _inFlightSends > 0,
+          companion: false,
+          followups: const <String>[],
+          suggestedOptions: const <ChatOption>[],
+          questionKind: ChatQuestionKind.ask,
+        ));
+        await _onStarted(const ChatStarted(), emit);
+        return;
+      }
+      final ChatTurn turn = sent;
       _inFlightSends--;
       // #761 — RECONCILE the optimistic lookahead render. The real reply is
       // ALWAYS authoritative: when an optimistic predicted bubble is on screen
@@ -916,17 +1000,77 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     }
   }
 
-  /// ADR-0044 — send [text] down the path the tab is on. In companion mode it
-  /// goes to the companion; when the server answers that the worker is no longer
-  /// a companion worker (409 → null), the SAME text is sent down today's chat, so
-  /// the worker's message is never lost to a mode change they did not see.
-  Future<ChatTurn> _sendByMode(String text, String? submissionId) async {
+  /// ADR-0044 / #1751 — send [text] down the path the tab is on.
+  ///
+  /// Returns null ONLY for the 409 case: the server says this worker is no longer
+  /// a companion worker. The old behaviour re-sent the same text down
+  /// `sendMessage`, and that was worse than losing it: `sendMessage` calls
+  /// `ensureSession()` lazily and DISCARDS the opening it returns, so a worker
+  /// who came in through résumé upload had a fresh interview minted, its opener
+  /// (a résumé confirm with Haan/Nahi) thrown away, and the chip's own label —
+  /// "Naye jobs dekhein" — posted as his first interview answer, into the
+  /// transcript that feeds extraction. The caller now leaves companion mode,
+  /// opens the interview properly, and leaves the text unsent for him to send
+  /// deliberately if he still wants to.
+  Future<ChatTurn?> _sendByMode(String text, String? submissionId) async {
     if (state.companion) {
-      final ChatTurn? answer =
-          await _repo.sendCompanionMessage(text, submissionId: submissionId);
-      if (answer != null) return answer;
+      return _repo.sendCompanionMessage(text, submissionId: submissionId);
     }
     return _repo.sendMessage(text, submissionId: submissionId);
+  }
+
+  /// #1751 — leave companion mode for the interview, cleanly.
+  ///
+  /// The companion's own worker bubbles stay in the transcript (they are what the
+  /// worker said), so the interview's #1316 indices are offset past them, and the
+  /// interview bookkeeping is reset exactly as [_onSessionRestarted] resets it.
+  void _leaveCompanionMode() {
+    _companionBubbleOffset =
+        state.messages.where((ChatMessage m) => m.fromWorker).length;
+    _wrapUpLogged = false;
+    _askedQuestionId = null;
+    _companionDigestKey = null;
+    _companionReadAt = null;
+  }
+
+  /// #1753 — log a companion chip tap through the same sink as every other
+  /// funnel event. Counts only: a CLASS, never the key, never the label.
+  void _onCompanionChipTapped(
+    ChatCompanionChipTapped event,
+    Emitter<ChatState> emit,
+  ) {
+    if (!state.companion) return;
+    _analytics(BbAnalytics.companionChipTapped(keyClass: event.keyClass));
+    if (event.openedJob) _analytics(BbAnalytics.companionJobOpened());
+  }
+
+  /// #1752 — he applied to a job the companion offered. Drop that chip now, then
+  /// re-read the recap (forced: the counts it leads with just changed).
+  Future<void> _onCompanionJobApplied(
+    ChatCompanionJobApplied event,
+    Emitter<ChatState> emit,
+  ) async {
+    if (!state.companion) return;
+    final String key = '$kCompanionJobKeyPrefix${event.jobId}';
+    final List<ChatOption> options = state.suggestedOptions
+        .where((ChatOption o) => o.optionKey != key)
+        .toList(growable: false);
+    final Set<String> droppedLabels = state.suggestedOptions
+        .where((ChatOption o) => o.optionKey == key)
+        .map((ChatOption o) => o.labelText)
+        .toSet();
+    emit(state.copyWith(
+      suggestedOptions: options,
+      // The chip may also be riding the plain followup list (an older turn shape
+      // serves labels only), so the same label goes with it.
+      followups: state.followups
+          .where((String f) => !droppedLabels.contains(f))
+          .toList(growable: false),
+    ));
+    await _onCompanionRefreshRequested(
+      const ChatCompanionRefreshRequested(force: true),
+      emit,
+    );
   }
 
   /// ADR-0044 — see [ChatCompanionStarted].
@@ -934,19 +1078,34 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatCompanionStarted event,
     Emitter<ChatState> emit,
   ) async {
-    ChatTurn? opening;
+    CompanionOpening result;
     try {
-      opening = await _repo.openCompanion();
+      result = await _repo.openCompanion();
     } catch (_) {
       // A bare catch, on purpose: the contract is "never throws", and anything
-      // that does anyway (an Error, an unstubbed test double) must still fall
-      // back to today's chat rather than strand the tab on its spinner.
-      opening = null;
+      // that does anyway (an Error, an unstubbed test double) is UNREACHABLE —
+      // it is not a verdict that this worker runs the interview.
+      result = const CompanionOpening.unreachable();
     }
+    // #1750 — UNREACHABLE MINTS NOTHING. `_onStarted` would call `ensureSession`,
+    // which creates an empty interview session the server's own policy then reads
+    // as "this worker is interviewing" for the next six or seven hours. So the
+    // tab says so and offers a retry; `ChatCompanionRefreshRequested` re-reads.
+    if (result.isUnreachable) {
+      emit(state.copyWith(
+        initializing: false,
+        companion: false,
+        companionUnreachable: true,
+      ));
+      return;
+    }
+    final ChatTurn? opening = result.turn;
     if (opening == null) {
+      // A REAL `interview` answer: exactly today's sequence, unchanged.
       await _onStarted(const ChatStarted(), emit);
       return;
     }
+    _analytics(BbAnalytics.companionOpened());
     _companionDigestKey = opening.digestKey;
     _companionReadAt = _clock();
     // The recap REPLACES the canned interview question in bubble 0: a finished
@@ -956,6 +1115,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       initializing: false,
       sessionFailed: false,
       companion: true,
+      companionUnreachable: false,
       messages: <ChatMessage>[
         ChatMessage(
           text: opening.reply,
@@ -978,6 +1138,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatCompanionRefreshRequested event,
     Emitter<ChatState> emit,
   ) async {
+    // #1750 — a tab that fell back on an UNREACHABLE read retries here. It is
+    // the one case where a refresh may ENTER companion mode: nothing is known
+    // yet, so nothing is being overridden.
+    if (state.companionUnreachable && !state.sending) {
+      await _onCompanionStarted(const ChatCompanionStarted(), emit);
+      return;
+    }
     if (!state.companion || state.initializing || state.sending) return;
     final DateTime now = _clock();
     final DateTime? last = _companionReadAt;
@@ -996,7 +1163,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
     ChatTurn? fresh;
     try {
-      fresh = await _repo.openCompanion();
+      fresh = (await _repo.openCompanion()).turn;
     } catch (_) {
       fresh = null;
     }
@@ -1105,10 +1272,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // #1316 — the ask this bubble answers, by its rank among worker bubbles UP TO
     // AND INCLUDING position [index]. Later worker bubbles do not shift it, so a
     // retry emits the SAME index the original send would have had once it lands.
-    final int askIndex = state.messages
+    final int askIndex = _interviewIndex(state.messages
         .take(index + 1)
         .where((ChatMessage m) => m.fromWorker)
-        .length;
+        .length);
 
     // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
     // the server sees a retry (same submission) rather than a fresh answer. The
