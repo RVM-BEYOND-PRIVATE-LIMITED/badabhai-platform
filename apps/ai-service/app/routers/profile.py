@@ -368,6 +368,11 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # gazetteer detector (`merge_model_draft` never overlays them), never from the model.
     legacy.education_level = certified_scalar(rich.education_level)
     legacy.education_field = certified_scalar(rich.education_field)
+    # AND ON THE RICH DRAFT, which is returned as `worker_profile_draft` and stored as
+    # `worker_profiles.rich_profile_draft`: withholding a value on one and storing it on the other
+    # would still store it.
+    rich.education_level = legacy.education_level
+    rich.education_field = legacy.education_field
 
     # #499 / TD102: carry the list-topics for education and certifications, sanitized.
     legacy.education = profile_extractor.sanitize_skill_labels(rich.education)

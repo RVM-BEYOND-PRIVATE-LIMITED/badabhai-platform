@@ -30,6 +30,7 @@ from ..ai.langfuse_tracing import (
     WORKFLOW_PROFILE_INTERVIEW,
     get_tracer,
 )
+from ..certified_values import certified_items, certified_scalar
 from ..config import get_settings
 from ..contracts import (
     ExperienceEntry,
@@ -525,11 +526,18 @@ async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtr
         # re-implementing it and drifting.
         out.experiences = [e for e in out.experiences if _certified(e)]
         out.skills = _certified_list(out.skills)
-        out.preferred_locations = _certified_list(out.preferred_locations)
+        # #1739: THE LOCATION IS CLEAN-OR-WITHHOLD, not blocked-only. This is the route where the
+        # MODEL writes it, and apps/api stores it on the profile and prints `current_city` on the
+        # worker's AND the employer's PDF (`resume-render-input.ts`), which renders from the stored
+        # profile, not from the résumé route's certified copy. The blocked-only check passed a
+        # name behind a leading city ("Pune, Ramesh Kumar") and anything the gateway merely masks.
+        # A withheld city costs no matching signal: the API falls back to the answer map's city
+        # when the model's is empty (`preferModel`).
+        out.preferred_locations = certified_items(out.preferred_locations)
         out.domain_label = _certified_scalar(out.domain_label)
         out.role_label = _certified_scalar(out.role_label)
         out.shift = _certified_scalar(out.shift)
-        out.current_city = _certified_scalar(out.current_city)
+        out.current_city = certified_scalar(out.current_city)  # #1739 — see above
         out.availability = _certified_scalar(out.availability)
         # `expected_salary` is a float and carries no free text, so there is nothing to certify.
 

@@ -253,9 +253,19 @@ def _extract(monkeypatch: pytest.MonkeyPatch, model_payload: dict) -> dict:
         return json.dumps(model_payload), _meta(real_call=True, task_type="profile_extraction")
 
     monkeypatch.setattr(main_module.router, "run", _fake_run)
+    return _extract_body(monkeypatch, model_payload)["profile"]
+
+
+def _extract_body(monkeypatch: pytest.MonkeyPatch, model_payload: dict) -> dict:
+    """The whole /profile/extract response for a REAL call answering ``model_payload``."""
+
+    async def _fake_run(*_a, **_kwargs):
+        return json.dumps(model_payload), _meta(real_call=True, task_type="profile_extraction")
+
+    monkeypatch.setattr(main_module.router, "run", _fake_run)
     res = client.post("/profile/extract", json={"transcript": "vmc chalata hu"})
     assert res.status_code == 200
-    return res.json()["profile"]
+    return res.json()
 
 
 def test_extract_withholds_a_model_authored_education_value_that_fails_certification(
@@ -276,3 +286,61 @@ def test_extract_keeps_a_certified_education_value_unchanged(monkeypatch: pytest
     )
     assert profile["education_level"] == "ITI"
     assert profile["education_field"] == "Diploma Mechanical Engineering"
+
+
+def test_extract_withholds_the_education_value_from_the_stored_rich_draft_too(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """`worker_profile_draft` is stored as `rich_profile_draft`: a value withheld from the profile
+    must not be stored beside it (security review of #1739)."""
+    body = _extract_body(
+        monkeypatch,
+        {"education_level": "Diploma, Anil Sharma", "education_field": "Welding, Anil Kumar"},
+    )
+    assert body["worker_profile_draft"]["education_level"] is None
+    assert body["worker_profile_draft"]["education_field"] is None
+    assert "Anil" not in json.dumps(body, ensure_ascii=False)
+
+
+def _profiling_extract(monkeypatch: pytest.MonkeyPatch, extracted: dict) -> dict:
+    """/profiling/extract (the interview's Phase C container) with the model answering
+    ``extracted`` on a real call."""
+
+    async def _fake_run(*_a, **_kwargs):
+        return json.dumps(extracted), _meta(real_call=True, task_type="profiling_extract")
+
+    monkeypatch.setattr(main_module.router, "run", _fake_run)
+    res = client.post(
+        "/profiling/extract",
+        json={
+            "worker_ref": "w1",
+            "transcript": [{"i": 0, "role": "worker", "text": "welder hu"}],
+        },
+    )
+    assert res.status_code == 200
+    return res.json()
+
+
+def test_profiling_extract_withholds_a_name_bearing_location(monkeypatch: pytest.MonkeyPatch):
+    """THE ROUTE WHERE THE MODEL WRITES THE LOCATION. apps/api stores this container and prints its
+    `current_city` on the worker's and the employer's PDF. A blocked-only check passed a name
+    behind a leading city (security review of #1739)."""
+    body = _profiling_extract(
+        monkeypatch,
+        {
+            "current_city": "Pune, Ramesh Kumar",
+            "preferred_locations": ["Ramesh, Pune", "Pune, Ramesh Kumar", "Chennai"],
+        },
+    )
+    assert body["current_city"] is None
+    assert body["preferred_locations"] == ["Chennai"]
+    assert "Ramesh" not in json.dumps(body, ensure_ascii=False)
+
+
+def test_profiling_extract_keeps_a_certified_location_unchanged(monkeypatch: pytest.MonkeyPatch):
+    body = _profiling_extract(
+        monkeypatch,
+        {"current_city": "Pune, Maharashtra", "preferred_locations": ["Pune", "Navi Mumbai"]},
+    )
+    assert body["current_city"] == "Pune, Maharashtra"
+    assert body["preferred_locations"] == ["Pune", "Navi Mumbai"]
