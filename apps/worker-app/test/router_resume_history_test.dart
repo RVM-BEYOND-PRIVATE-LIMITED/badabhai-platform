@@ -24,11 +24,13 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_tab_screen.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_history_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 /// Shell branch order (router.dart): Jobs 0 · Resume 1 · Bada Bhai 2 · Profile 3.
 const int kProfileTabIndex = 3;
+const int kChatTabIndex = 2;
 
 /// Every absolute location `lib/router.dart` declares as a `Routes` constant.
 ///
@@ -164,5 +166,38 @@ void main() {
             'shows "no routes for location" in a release build');
 
     expect(resolves(Routes.inboxThreadOf('probe-thread')), isTrue);
+  });
+
+  testWidgets(
+      '"+ Banayein" SWITCHES to the Bada Bhai tab — it does not stack a second '
+      'chat on the Profile branch (#1783)', (WidgetTester tester) async {
+    // `/bada-bhai` is the root of the chat branch, and "Mere resume" lives in
+    // the PROFILE branch. A `push` from there merged into the profile branch's
+    // navigator: a SECOND ChatProfilingScreen landed on the profile stack, the
+    // bar stayed on Profile, and — `ChatBloc` being a registerFactory — a whole
+    // separate chat started beside the real tab's. The worker then tapped Bada
+    // Bhai and found a different conversation from the one they had just been
+    // typing in.
+    final GoRouter router = await _pumpApp(tester);
+
+    router.go(Routes.resumeHistory);
+    await _pumpUntil(tester, find.byType(ResumeHistoryScreen));
+    expect(_activeTab(tester), kProfileTabIndex);
+
+    await tester.ensureVisible(find.text(kResumeQuickActionCta));
+    await tester.pump();
+    await tester.tap(find.text(kResumeQuickActionCta));
+    await _pumpUntil(tester, find.byType(ChatProfilingScreen));
+
+    expect(tester.takeException(), isNull);
+    // THE TAB, not a push: the bar moves to Bada Bhai.
+    expect(_activeTab(tester), kChatTabIndex,
+        reason: '"+ Banayein" must land on the Bada Bhai TAB');
+    // ONE chat in the tree. Two means the branch-root push re-created it on the
+    // profile stack, which is the duplicate-bloc bug.
+    expect(find.byType(ChatProfilingScreen, skipOffstage: false),
+        findsOneWidget);
+    // And "Mere resume" is no longer what is on screen.
+    expect(find.byType(ResumeHistoryScreen), findsNothing);
   });
 }
