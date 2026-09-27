@@ -180,7 +180,7 @@ const COMPOSED_PHRASES: readonly { re: RegExp; why: string }[] = [
 /** Chrome: the masthead, the footer and the fixed disclaimer. Not worker content, not a claim. */
 const CHROME_TEXT: readonly RegExp[] = [
   /^BadaBhai$/,
-  /^Scan to open this worker's live profile$/,
+  /^Scan to visit BadaBhai$/,
   /^badabhai\.ai$/,
   /^Generated \d{1,2} [A-Z][a-z]+ \d{4}$/,
   /^Ref [A-Z0-9]{6}$/,

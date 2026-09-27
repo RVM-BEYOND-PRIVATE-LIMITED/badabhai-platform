@@ -189,7 +189,7 @@ function buildParityInput() {
       // a sheet measured without it comes out ~18 mm shorter than the one production prints —
       // which is the whole margin this acceptance test is about.
       qrDataUri: QR,
-      qrCaption: "Scan to open this worker's live profile",
+      qrCaption: "Scan to visit BadaBhai",
       shortLink: "badabhai.ai",
       footerMeta: "Generated 27 August 2026 · Self-declared · Ref RK8M2Q",
     },

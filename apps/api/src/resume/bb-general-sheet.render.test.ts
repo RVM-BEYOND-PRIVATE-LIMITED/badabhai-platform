@@ -46,7 +46,7 @@ const PACK = "qp_universal";
 const CHROME = {
   phone: "+91 98765 43210",
   whatsapp: "+91 91234 56789",
-  qrCaption: "Scan to open this worker's live profile",
+  qrCaption: "Scan to visit BadaBhai",
   shortLink: "badabhai.ai",
   footerMeta: "Generated 25 September 2026  ·  Ref 9NRCFH",
   asOf: new Date("2026-09-25T09:00:00Z"),
@@ -300,7 +300,7 @@ describe("a worker outside the 21 roles renders the general sheet", () => {
     expect(section(html, "sec-cert")).toContain('data-label="Training"');
     // FOOTER
     expect(html).toContain(
-      '<div class="foot-lead">Scan to open this worker&#39;s live profile</div>',
+      '<div class="foot-lead">Scan to visit BadaBhai</div>',
     );
     expect(html).toContain(
       '<div class="foot-meta">Generated 25 September 2026  ·  Ref 9NRCFH</div>',

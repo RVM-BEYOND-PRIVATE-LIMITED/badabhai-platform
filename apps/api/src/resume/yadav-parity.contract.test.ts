@@ -732,7 +732,7 @@ describe("R9 §7 — the sheet assembles end to end at Yadav's density", () => {
         asOf: AS_OF,
         phone: "+91 98765 43210",
         qrDataUri: "data:image/png;base64,AAA",
-        qrCaption: "Scan to open this worker's live profile",
+        qrCaption: "Scan to visit BadaBhai",
         shortLink: "badabhai.ai",
         footerMeta: "Generated 27 August 2026 · Self-declared · Ref RK8M2Q",
       },

@@ -36,7 +36,8 @@ export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
   // so every PDF already issued keeps rendering identically. Only NEW renders pick up v3.
   // THE LOCKED BADABHAI TRADE SHEET. Not a variant of the three below — those are generic
   // Western resume chrome, this is the product's own identity, fixed by design review: navy
-  // masthead, one A4 page, chip pills, a two-level work history and a QR to the live profile.
+  // masthead, one A4 page, chip pills, a two-level work history and a QR (to the site root
+  // today — the per-worker live-profile page is Phase 3, #1800).
   //
   // A NEW ID RATHER THAN A v4 OF `classic`, because it is a different document, not a restyle:
   // it carries slots (phone, employer names, nested role stints, QR) that no earlier layout has
