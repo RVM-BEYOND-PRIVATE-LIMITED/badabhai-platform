@@ -23,15 +23,20 @@ import {
   PARSE_ENUM_VALUES,
   type Rejection,
 } from "../profiling/parse-gates";
-import { narrowAnswerRecords } from "../profiling/conversation-state";
+import {
+  conversationFormKind,
+  narrowAnswerRecords,
+  readGeneralRoadStamp,
+  type GeneralRoadStamp,
+} from "../profiling/conversation-state";
 import {
   projectProfile,
   type ProjectedAttribute,
   type ProjectionResult,
 } from "../profiling/answer-map-projector";
-import type { NewWorkerProfile } from "@badabhai/db";
+import type { ChatSession, NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
-import { TRADE_FORM_KINDS_ALL, type ProfileSource } from "@badabhai/types";
+import type { ProfileSource } from "@badabhai/types";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
@@ -53,6 +58,8 @@ import { AiJobsRepository } from "./ai-jobs.repository";
 import { ResumeImportRepository } from "../profiling/resume-import/resume-import.repository";
 import { ChatTableWritesService } from "./chat-table-writes";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
+import { WorkerEmploymentRepository } from "./worker-employment.repository";
+import { buildGeneralRoadExtraction } from "./general-road-profile";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import {
   AI_SPEND_CAP_REASONS,
@@ -139,22 +146,6 @@ function outageCodeOf(code: string | null | undefined): string | null {
 }
 
 /**
- * Task 1 — the closed road vocabulary, as a set for the derivation below.
- * Built from `TRADE_FORM_KINDS_ALL` (all 21 declared kinds), not the
- * enabled-only subset: the handover is `form_kind`'s sole writer today, but
- * the road question is "was this worker handed a form", not "is that form
- * switched on right now".
- */
-const FORM_KINDS: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
-
-/** `conversation_state.form_kind`, narrowed to a declared trade-form kind or null. */
-function conversationFormKind(state: unknown): string | null {
-  if (typeof state !== "object" || state === null) return null;
-  const kind = (state as Record<string, unknown>).form_kind;
-  return typeof kind === "string" && FORM_KINDS.has(kind) ? kind : null;
-}
-
-/**
  * The occupation-pin statuses that actually assert a trade — OIE O2.
  *
  * `OccupationPin.match_status` spans SEVEN values, five of which are `unmatched_*`. The pin
@@ -194,6 +185,65 @@ export function occupationPinScopesCanonicalization(pin: OccupationPin | null): 
 function readOccupationPin(raw: unknown): OccupationPin | null {
   const parsed = OccupationPinSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * `chat_sessions.conversation_state`, as {@link conversationStateOf} hands it back: every field
+ * `unknown` and narrowed by its own reader, because the column is persisted JSON and every read of
+ * it is untrusted input.
+ *
+ * A TYPE ALIAS, NOT AN INTERFACE: the cast from the column's `Record<string, unknown>` needs the
+ * implicit index signature only an alias carries.
+ */
+type PersistedConversationState = {
+  readonly answer_map: unknown;
+  readonly occupation: unknown;
+  readonly pack_id: unknown;
+  readonly pack_version: unknown;
+  // #1504 item 5 (city-seed). `unknown`, narrowed by the caller — same convention as every
+  // other field here.
+  readonly prefilled_keys: unknown;
+  // ADR-0045. Never narrowed here: `readGeneralRoadStamp` (strict, versioned) is its only reader.
+  readonly general_road: unknown;
+};
+
+/**
+ * The job's session row, narrowed to its `conversation_state` — or `null` for no row, or a row
+ * with no state (a pre-cutover session), which is what sends `extractOrParse` down the legacy
+ * branch.
+ *
+ * READ FROM POSTGRES, NOT REDIS, and that is forced rather than chosen: the transcript buffer
+ * is dropped the moment the flush transaction commits, and this job runs minutes later. The
+ * flush writes the envelope's projection into `conversation_state` precisely so this read has
+ * something to find.
+ *
+ * PURE, OVER THE ROW `process` READ ONCE. This used to be its own `findSession` with a catch that
+ * returned null — which made a FAILED read indistinguishable from "no OIE state" and sent it down
+ * the legacy model path. The read, and its failure, now belong to `process`; see the note there.
+ */
+function conversationStateOf(session: ChatSession | undefined): PersistedConversationState | null {
+  const state = session?.conversationState;
+  if (typeof state !== "object" || state === null) return null;
+  // `pack_id` / `pack_version` come along because every attribute row PINS the interview it
+  // was collected under. Pack contents are immutable per version, so that pair is the only
+  // thing that makes a stored value re-readable a year later — "did `safety_gear` mean the
+  // same question in v1 as in v3" is otherwise unanswerable.
+  return state as PersistedConversationState;
+}
+
+/**
+ * The pack the interview ran under, off its conversation state — the pin every attribute row
+ * carries. ONE narrowing for both answer-map branches (the OIE parse and the general road), so the
+ * two cannot write different provenance for the same session.
+ */
+function packPinOf(state: PersistedConversationState | null): {
+  packId: string | null;
+  packVersion: number | null;
+} {
+  return {
+    packId: typeof state?.pack_id === "string" ? state.pack_id : null,
+    packVersion: typeof state?.pack_version === "number" ? state.pack_version : null,
+  };
 }
 
 /**
@@ -271,6 +321,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // this repository (employment suggestions), so this adds an injection and
     // no module edge.
     private readonly resumeImports: ResumeImportRepository,
+    // ADR-0045 §3.4 — the general road's `experience.total_years` is the sum of the worker's dated
+    // Work History (R5), read through the résumé's own read. `ProfilesModule` already provides this
+    // repository, so this adds an injection and no module edge.
+    private readonly employments: WorkerEmploymentRepository,
     // #738 — the emitter this class used to OWN as a private method. Moving it out is the
     // point: while it was private here, the transcription path could not reach it, so STT
     // spend was emitted by nobody even though `aiTaskType` already listed it. `AiModule` is
@@ -305,22 +359,33 @@ export class ProfileExtractionProcessor extends WorkerHost {
    *   `resume_update`      `{ accepted: true }` when the worker said "Haan" to "Resume update kar
    *                        doon?". Becomes `resume_update_accepted_at`.
    *
-   * DEGRADE, NEVER FAIL — `resolveProfileSource`'s posture: an unreadable session costs the two
-   * labels, never the worker's profile. A value this build did not write narrows to null.
+   * DEGRADE, NEVER FAIL: an unreadable fact costs the two labels, never the worker's profile. A
+   * value this build did not write narrows to null.
+   *
+   * THE SESSION ROW COMES FROM `readSession`, because the two callers stand in different places.
+   * The extraction proper hands back the row `process` already read — ONE read decides the source,
+   * these facts and the road, and a failure of that read fails the attempt before this runs (see
+   * the note in `process`). The redelivery of an already-completed job reads for itself, and its
+   * failure still degrades here: that path writes nothing and spends nothing, so it keeps the
+   * posture it always had.
    */
   private async sessionResumeFacts(
     workerId: string,
     sessionId: string | null,
+    readSession: (sessionId: string) => Promise<ChatSession | undefined>,
   ): Promise<{
     importAppliedId: string | null;
     updateAcceptedAt: Date | null;
-    /** The session could not be read, so whether this is an accepted update is UNKNOWN. */
+    /**
+     * The facts could not be read — the session (on the redelivery path) or the import-ownership
+     * read (on either) — so whether this is an accepted update is UNKNOWN.
+     */
     readFailed: boolean;
   }> {
     const none = { importAppliedId: null, updateAcceptedAt: null, readFailed: false };
     if (!sessionId) return none;
     try {
-      const session = await this.chat.findSession(sessionId);
+      const session = await readSession(sessionId);
       // Defence in depth: the job's session was ownership-checked when the job was minted, but
       // a fact that confirms a profile and spends money is read only from THIS worker's session.
       if (session && session.workerId !== workerId) return none;
@@ -399,31 +464,39 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * `form` when the worker is on the trade-form road — this session carries a
    * handover `form_kind`, or their latest résumé import was routed to a form
    * (the no-session upload road). `chat` otherwise, including the no-session
-   * voice-form path (conversational, not the trade form) and a session whose
-   * state cannot be read.
+   * voice-form path (conversational, not the trade form) and a session with no
+   * state to read a road from.
    *
    * Form answers cannot exist without one of the two signals (the form 404s
    * otherwise), so no third signal — e.g. scanning pack answers — is needed.
-   * Both reads are worker-scoped and indexed; a throw retries the job before
-   * any AI spend (this is resolved at the top of `process` deliberately).
+   * The session is the row `process` read once (a failed read never reaches
+   * here — it fails the attempt); the import read is worker-scoped and indexed.
+   * Either throw retries the job before any AI spend (this is resolved at the
+   * top of `process` deliberately).
+   *
+   * ADR-0045 §3.4 — A GENERAL-ROAD HANDOVER IS `chat`, AND SAYS SO FIRST. The
+   * general form is not the trade form: `POST /profile/confirm` routes on this
+   * value, and "form" would send the worker to a trade form he was never handed.
+   * Decided BEFORE the import check because that check is worker-wide, not
+   * session-scoped — a worker whose latest CV upload was routed to a trade form
+   * and who then chatted onto the general road would otherwise be stamped
+   * "form" off an unrelated record. Before `form_kind` too, so the road this
+   * value names is always the road `extractOrParse` builds on: both key on the
+   * same stamp, read by the same strict reader. (A handover never writes
+   * `form_kind`, so the two cannot meet on a real session.)
    */
   private async resolveProfileSource(
     workerId: string,
-    sessionId: string | null,
+    session: ChatSession | undefined,
   ): Promise<ProfileSource> {
-    if (sessionId) {
-      // DEGRADE, NEVER FAIL — the same posture as the transcript read below: a
-      // session row that cannot be read costs the form_kind signal, not the
-      // worker's profile. The import check underneath still runs.
-      try {
-        const session = await this.chat.findSession(sessionId);
-        if (session && conversationFormKind(session.conversationState) !== null) return "form";
-      } catch {
-        this.logger.warn(
-          `profile source falling back to import check: session ${sessionId} unreadable`,
-        );
-      }
+    // NO CATCH ANY MORE, because there is no read here to catch. This used to read the session
+    // itself and, on a failure, fall through to the worker-wide import check — so a handed-over
+    // general-road session whose read failed could be stamped "form" off an unrelated CV upload,
+    // while `extractOrParse`, off its own separate read, built on a different road again.
+    if (session && readGeneralRoadStamp(session.conversationState)?.handed_over === true) {
+      return "chat";
     }
+    if (session && conversationFormKind(session.conversationState) !== null) return "form";
     const latest = await this.resumeImports.findLatestForWorker(workerId);
     if (latest?.route === "form") return "form";
     return "chat";
@@ -447,7 +520,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // A redelivery after the job completed but before the accepted update was confirmed would
       // otherwise strand the worker's "Haan". The confirm is idempotent, so re-driving it is safe.
       if (!isCorrection) {
-        const facts = await this.sessionResumeFacts(workerId, sessionId);
+        const facts = await this.sessionResumeFacts(workerId, sessionId, (id) =>
+          this.chat.findSession(id),
+        );
         if (facts.updateAcceptedAt !== null) {
           await this.landAcceptedUpdate(workerId, existingProfileId, { correlationId, requestId });
         }
@@ -458,14 +533,36 @@ export class ProfileExtractionProcessor extends WorkerHost {
     try {
       await this.aiJobs.markRunning(aiJobId);
 
+      // ── THE SESSION ROW, READ ONCE — AND A FAILED READ FAILS THE ATTEMPT ──────────────────
+      //
+      // The source below, the résumé-history facts and the road `extractOrParse` builds on are
+      // all decided off THIS ONE ROW. They used to be three reads with three private catches, each
+      // degrading on its own terms: `resolveProfileSource` fell through to the worker-wide import
+      // check, and `conversationState` returned null — which `extractOrParse` cannot tell from "no
+      // OIE state", so a failed read went down the legacy `/profile/extract` model path. For a
+      // general-road handover (ADR-0045 §3.4) that is not a degrade but the wrong profile: a
+      // model-written `total_years` R5 forbids, canonical skills R7 forbids — and the session
+      // dedupe then keeps it. Worse, one transient failure could SPLIT the three reads: a source
+      // decided off a readable stamp and a road decided off a failed read, in the same job.
+      //
+      // So this read is not caught. A throw lands in the catch at the bottom of this method and
+      // is rethrown to BullMQ, which retries on the job's backoff — and nothing above this line
+      // spends or writes (`markRunning` is bookkeeping), so the retry is free. The final attempt
+      // records the terminal failure like any other; a row Postgres cannot serve for the whole
+      // backoff ladder is an outage the profile write would not survive either.
+      //
+      // A read that SUCCEEDS is judged exactly as before: no row, or a row with no state, reads as
+      // "no stamp, no form_kind, no facts" and takes today's paths.
+      const session = sessionId ? await this.chat.findSession(sessionId) : undefined;
+
       // Task 1 — resolve the road BEFORE any AI spend. The derivation reads two
       // indexed rows (session, latest import); resolving it here rather than at
       // the `profiles.create` below means a transient read failure retries
       // before money is spent, not after. The records it reads are durable and
       // do not move during this job, so early and late resolve identically.
-      const profileSource = await this.resolveProfileSource(workerId, sessionId);
+      const profileSource = await this.resolveProfileSource(workerId, session);
       // ADR-0043 — read with the road and for the same reason: before any AI spend.
-      const resumeFacts = await this.sessionResumeFacts(workerId, sessionId);
+      const resumeFacts = await this.sessionResumeFacts(workerId, sessionId, async () => session);
       // THE ACCEPTED UPDATE IS AN OFF-REQUEST TRIGGER. Before ADR-0043 a returning worker's redo was
       // extracted only when the app called `POST /profile/extract`, behind ConsentGuard; the
       // accepted update is extracted from the flush, and this job retries for up to ~15 minutes.
@@ -474,8 +571,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // the ordinary retry and terminal-failure path, and a consent re-granted before the final
       // attempt lets the update proceed.
       //
-      // AN UNREADABLE SESSION TAKES THE CHECK TOO: whether this is an accepted update is then
-      // unknown, and "unknown" must not be the door around the gate. `profiling` is the purpose an
+      // AN UNREADABLE FACT TAKES THE CHECK TOO: whether this is an accepted update is then
+      // unknown, and "unknown" must not be the door around the gate. (An unreadable SESSION no
+      // longer gets this far — the read above fails the attempt first; the import-ownership read
+      // inside `sessionResumeFacts` still can.) `profiling` is the purpose an
       // interview's extraction runs under, so it is the one required — off the request path the
       // lawful basis is checked, never assumed.
       if (
@@ -486,29 +585,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
         throw new Error("consent is not active; the accepted résumé update is not extracted");
       }
 
-      // Both shapes of the same conversation, deliberately. `transcript` is the
-      // flat both-directions blob the model reads (and the rollback lever — drop
-      // `messages` and the AI service behaves exactly as it did before the split).
-      // `messages` carries the per-line role so the AI service's deterministic
-      // detector can read the WORKER's lines only; on the flat blob it read our
-      // own question text as the worker's answers.
-      const messages = await this.buildMessages(sessionId);
-      const transcript = this.renderTranscript(messages);
-      // R32 — the transcript is the OTHER worker-free-text egress to the ai-service
-      // (chat turns are the first, redacted in ChatService.postMessage), and it is
-      // the wider one: it replays EVERY inbound line, so an introduction typed on
-      // turn 1 rides along on every later extraction. Redact the worker's own known
-      // name out of BOTH shapes, which must describe the same lines. Fail SAFE — a
-      // null/undecryptable name sends the transcript as before (the ai-service's
-      // fail-closed pseudonymize gate still fronts the LLM); a name lookup must
-      // never fail an extraction.
-      const fullName = await this.workerFullName(workerId);
-      const redacted = messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) }));
+      // THE CONVERSATION IS READ LAZILY (ADR-0045 §3.4). Every model path reads it exactly as
+      // before — see `redactedConversation` — but a general-road handover builds its profile with
+      // no model call at all, and so reads no transcript and decrypts no name: worker text that
+      // no model will see is not loaded into this job in the first place.
       const { result, pin, attributes, pack, parseMeta, outageCode, interviewLanded } =
         await this.extractOrParse(
           { workerId, sessionId, aiJobId, correlationId, requestId },
-          redacted,
-          redactKnownName(transcript, fullName),
+          // The SAME row the source above was decided from — never a second read.
+          session,
+          () => this.redactedConversation(workerId, sessionId),
         );
 
       // ── THE RETRY, AND WHY IT THROWS HERE RATHER THAN COMPLETING ──────────────────
@@ -958,6 +1044,15 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * blocked, mis-shaped, or every field rejected by the gates — produces the SAME thing: a
    * profile projected from the answer map alone. The worker is never left without one because
    * a model was unavailable.
+   *
+   * A THIRD BRANCH SITS IN FRONT OF BOTH (ADR-0045 §3.4): a session whose durable stamp says it
+   * handed over to the general form is built with no model call — see
+   * {@link extractOnGeneralRoad}. `loadConversation` is therefore a thunk, called only by the two
+   * branches that send the conversation to a model.
+   *
+   * `session` IS THE ROW `process` READ ONCE, not a second read: the road chosen here and the
+   * `source` stamped there must come from the same row, or a transient failure between two reads
+   * could stamp one road and build on another.
    */
   private async extractOrParse(
     job: {
@@ -967,8 +1062,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
       correlationId?: string | null;
       requestId?: string | null;
     },
-    messages: readonly ConversationMessage[],
-    transcript: string,
+    session: ChatSession | undefined,
+    loadConversation: () => Promise<{
+      readonly messages: readonly ConversationMessage[];
+      readonly transcript: string;
+    }>,
   ): Promise<{
     result: ProfileExtractionOutput;
     pin: OccupationPin | null;
@@ -1009,7 +1107,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }> {
     // NO SESSION, NO ANSWER MAP. An extraction can be triggered without one (the app's
     // "make the profile anyway" escape hatch); there is no interview record to read.
-    const state = job.sessionId === null ? null : await this.conversationState(job.sessionId);
+    const state = conversationStateOf(session);
     const answerMap = state === null ? [] : narrowAnswerRecords(state.answer_map);
     // #1504 item 5 (city-seed). Keys `conversation_state.prefilled_keys` names — seeded, never
     // asked. `answerMap` (FULL, including these) still feeds the parse call's request, gate 4
@@ -1019,6 +1117,32 @@ export class ProfileExtractionProcessor extends WorkerHost {
       state !== null && Array.isArray(state.prefilled_keys)
         ? state.prefilled_keys.filter((key): key is string => typeof key === "string")
         : [];
+
+    // ── ADR-0045 §3.4: THE GENERAL ROAD — BEFORE THE LEGACY BRANCH AND BEFORE ANY PARSE ──────
+    //
+    // KEYED ON THE STAMP ALONE, NOT ON `CHAT_GENERAL_ROAD_ENABLED`, and that is the safe direction
+    // rather than an oversight. A handed-over stamp can only be WRITTEN while the flag was on (the
+    // road is armed per session, at envelope creation), and the road is a property of that session
+    // from then on. Reading the flag here would let a flag flip — a rollback, say — move a worker
+    // who has already been handed the form, and has already filled it in, back onto the model
+    // path: a transcript read that knows nothing of his Work History, a model-written
+    // `total_years` R5 forbids, and skills fed to wherever the parse puts them.
+    //
+    // No stamp, `handed_over !== true`, or a stamp the strict reader cannot parse (a `v: 2` from a
+    // later build, a hand-edited row) all read as null here, and the two branches below run
+    // exactly as they always have.
+    const generalRoad = readGeneralRoadStamp(state);
+    if (generalRoad?.handed_over === true) {
+      return {
+        ...(await this.extractOnGeneralRoad(job, state, answerMap, generalRoad)),
+        // NO MODEL LEG: no spend to carry to the job row, no outage to retry, no overlay to protect.
+        parseMeta: null,
+        outageCode: null,
+        interviewLanded: false,
+      };
+    }
+
+    const { messages, transcript } = await loadConversation();
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
@@ -1221,10 +1345,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // produced 10 typed answers and ZERO rows in `worker_attributes` — the original 77% defect,
       // moved one layer later and no less total.
       attributes: projection.attributes,
-      pack: {
-        packId: typeof state?.pack_id === "string" ? state.pack_id : null,
-        packVersion: typeof state?.pack_version === "number" ? state.pack_version : null,
-      },
+      pack: packPinOf(state),
       // THE INTERVIEW'S ONLY MODEL SPEND, CARRIED OUT TO THE JOB ROW.
       //
       // `toExtractionOutput` hardcodes `ai_metadata: null` — correctly, since no `/profile/extract`
@@ -1295,46 +1416,60 @@ export class ProfileExtractionProcessor extends WorkerHost {
   }
 
   /**
-   * `chat_sessions.conversation_state`, narrowed to the two OIE fields this needs.
+   * ADR-0045 §3.4 — THE PROFILE BUILD ON THE GENERAL ROAD, WITH ZERO MODEL CALLS.
    *
-   * READ FROM POSTGRES, NOT REDIS, and that is forced rather than chosen: the transcript buffer
-   * is dropped the moment the flush transaction commits, and this job runs minutes later. The
-   * flush writes the envelope's projection into `conversation_state` precisely so this read has
-   * something to find.
+   * After the general form the app runs extract → confirm → generate, as the trade-form road
+   * does. Everything a model could contribute already happened in the chat (the role, and the
+   * skills the worker confirmed at the gate); everything else was asked offline. So this makes no
+   * `/profile/parse` call, no `/profile/extract` call and no Phase C call — whatever
+   * `CHAT_LLM_INTERVIEW_ENABLED` says — and reads no transcript.
+   *
+   * THE SAME DETERMINISTIC PROJECTION the OIE branch writes when its parse and its overlay both
+   * come back empty: the pin, the pack and the attributes are computed from this conversation state
+   * exactly as that branch computes them, so the worker's attribute rows, his pinned occupation and
+   * their provenance are what any other interview would have written. Only the merge on top is new,
+   * and it lives in the pure `buildGeneralRoadExtraction`.
+   *
+   * THE EMPLOYMENT READ IS ALLOWED TO THROW, like the `worker_attributes` write in `process`: a
+   * failure costs a retry and loses nothing. Swallowing it would write a profile with no
+   * `total_years` for a worker who gave dated jobs — a wrong profile, not a degraded one, and one
+   * the session dedupe would then keep.
    */
-  private async conversationState(sessionId: string): Promise<{
-    answer_map: unknown;
-    occupation: unknown;
-    pack_id: unknown;
-    pack_version: unknown;
-    // #1504 item 5 (city-seed). `unknown`, narrowed by the caller — same convention as every
-    // other field here.
-    prefilled_keys: unknown;
-  } | null> {
-    try {
-      const session = await this.chat.findSession(sessionId);
-      const state = session?.conversationState;
-      if (typeof state !== "object" || state === null) return null;
-      // `pack_id` / `pack_version` come along because every attribute row PINS the interview it
-      // was collected under. Pack contents are immutable per version, so that pair is the only
-      // thing that makes a stored value re-readable a year later — "did `safety_gear` mean the
-      // same question in v1 as in v3" is otherwise unanswerable.
-      return state as {
-        answer_map: unknown;
-        occupation: unknown;
-        pack_id: unknown;
-        pack_version: unknown;
-        prefilled_keys: unknown;
-      };
-    } catch (err) {
-      // A read failure must not fail the extraction — it degrades to the legacy path, which is
-      // exactly what a pre-cutover session would have taken anyway.
-      this.logger.warn(
-        `could not read conversation_state for session ${sessionId}; falling back to the ` +
-          `transcript re-parse: ${err instanceof Error ? err.name : "UnknownError"}`,
-      );
-      return null;
-    }
+  private async extractOnGeneralRoad(
+    job: { workerId: string; aiJobId: string },
+    state: PersistedConversationState | null,
+    answerMap: ReturnType<typeof narrowAnswerRecords>,
+    stamp: GeneralRoadStamp,
+  ): Promise<{
+    result: ProfileExtractionOutput;
+    pin: OccupationPin | null;
+    attributes: readonly ProjectedAttribute[];
+    pack: { packId: string | null; packVersion: number | null };
+  }> {
+    const projection = projectProfile(answerMap, {}, { split: splitToolsEquipment });
+    const employments = await this.employments.loadForResume(job.workerId);
+    const result = buildGeneralRoadExtraction({
+      deterministic: toExtractionOutput(projection, null),
+      stamp,
+      employments,
+      // The job's processing time: what closes a current job's span in the total.
+      asOf: new Date(),
+    });
+    // COUNTS AND IDS ONLY — never a label, a skill or an employer (no-PII-in-logs).
+    this.logger.log(
+      `profile built on the general road for job ${job.aiJobId} (no model call): ` +
+        `fields=${Object.keys(projection.draft).length} ` +
+        `skills=${result.profile.skill_labels.length} ` +
+        `role=${result.profile.role_label === null ? "none" : "set"} ` +
+        `employments=${employments.length} ` +
+        `total_years=${result.profile.experience.total_years === null ? "unknown" : "summed"}`,
+    );
+    return {
+      result,
+      pin: readOccupationPin(state?.occupation),
+      attributes: projection.attributes,
+      pack: packPinOf(state),
+    };
   }
 
   /**
@@ -1785,6 +1920,42 @@ export class ProfileExtractionProcessor extends WorkerHost {
         `ai.spend_cap_exceeded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`,
       );
     }
+  }
+
+  /**
+   * The conversation the model paths send, in both shapes and name-redacted.
+   *
+   * Both shapes of the same conversation, deliberately. `transcript` is the
+   * flat both-directions blob the model reads (and the rollback lever — drop
+   * `messages` and the AI service behaves exactly as it did before the split).
+   * `messages` carries the per-line role so the AI service's deterministic
+   * detector can read the WORKER's lines only; on the flat blob it read our
+   * own question text as the worker's answers.
+   *
+   * R32 — the transcript is the OTHER worker-free-text egress to the ai-service
+   * (chat turns are the first, redacted in ChatService.postMessage), and it is
+   * the wider one: it replays EVERY inbound line, so an introduction typed on
+   * turn 1 rides along on every later extraction. Redact the worker's own known
+   * name out of BOTH shapes, which must describe the same lines. Fail SAFE — a
+   * null/undecryptable name sends the transcript as before (the ai-service's
+   * fail-closed pseudonymize gate still fronts the LLM); a name lookup must
+   * never fail an extraction.
+   *
+   * CALLED ONLY BY THE BRANCHES THAT SEND IT, through the thunk `extractOrParse` takes. The
+   * reads, their order and the result are exactly what `process` used to do inline; the
+   * general road (ADR-0045 §3.4) simply never calls it.
+   */
+  private async redactedConversation(
+    workerId: string,
+    sessionId: string | null,
+  ): Promise<{ messages: ConversationMessage[]; transcript: string }> {
+    const messages = await this.buildMessages(sessionId);
+    const transcript = this.renderTranscript(messages);
+    const fullName = await this.workerFullName(workerId);
+    return {
+      messages: messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) })),
+      transcript: redactKnownName(transcript, fullName),
+    };
   }
 
   /**
