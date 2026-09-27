@@ -1085,13 +1085,39 @@ _NOT_READ_CROSS_TOPIC_FROM: dict[str, frozenset[str]] = {
     "description": frozenset({"experience"}),
 }
 
+# Every topic whose parser reads a FIGURE — a head count, an amount, years, "2 shift",
+# "15 days". None of them ever sees a placeholder token's index (#1737).
+_READS_FIGURES: frozenset[str] = frozenset(
+    {"vacancy", "pay_range", "pay_type", "experience", "shift", "needed_by"}
+)
+_DIGIT_RE = re.compile(r"\d")
 
-def _parse_topic(topic_id: str, text: str, *, attributed: bool) -> object | None:
+
+def _hide_placeholder_indexes(text: str) -> str:
+    """``text`` with every placeholder token's INDEX removed: "[PHONE_1]" -> "[PHONE_]".
+
+    The index is a counter the gateway minted, not a figure the payer typed, yet the
+    figure parsers read it: on the vacancy question "Salary [PHONE_1]" (a pay range the
+    phone rule masked) recorded ONE opening, and an index past the pay floor recorded as
+    pay (#1737). Only the digits go. The brackets and the class name stay put, so nothing
+    outside a token moves or joins: every figure the payer did type reads exactly as
+    before ("need [PERSON_1] 5 welders" never becomes "need 5 welders"). The label topics
+    never get this text — the retype ask and :func:`_is_recordable` need the whole token.
+    """
+    return PLACEHOLDER_TOKEN_RE.sub(lambda token: _DIGIT_RE.sub("", token.group(0)), text)
+
+
+def _parse_topic(
+    topic_id: str, text: str, *, attributed: bool, band: object = None
+) -> object | None:
     """Parse ``text`` as an answer to ``topic_id``. ``None`` = nothing recorded.
 
-    ``pay_type`` read in passing is not dispatched here: it needs the band the same
-    message recorded (see :func:`detect_answers`).
+    The ONE dispatch to every parser, and so the one place a placeholder token's index is
+    hidden from the figure parsers (:func:`_hide_placeholder_indexes`). ``band`` is the pay
+    band this same message recorded: a ``pay_type`` read in passing must describe it.
     """
+    if topic_id in _READS_FIGURES:
+        text = _hide_placeholder_indexes(text)
     if topic_id == "role_title":
         return _parse_label(text, _ROLE_CUE_RE, allow_bare=attributed)
     if topic_id == "location_label":
@@ -1103,7 +1129,7 @@ def _parse_topic(topic_id: str, text: str, *, attributed: bool) -> object | None
     if topic_id == "pay_range":
         return _parse_pay(text, require_cue=not attributed)
     if topic_id == "pay_type":
-        return _parse_pay_type(text) if attributed else None
+        return _parse_pay_type(text) if attributed else _cross_topic_pay_type(text, band)
     if topic_id == "experience":
         return _parse_experience(text, require_cue=not attributed)
     if topic_id == "shift":
@@ -1186,10 +1212,8 @@ def detect_answers(
     for topic_id in _CROSS_TOPIC:
         if topic_id in found or topic_id == last_asked or topic_id in skipped:
             continue
-        if topic_id == "pay_type":
-            value = _cross_topic_pay_type(pay_source, found.get("pay_range"))
-        else:
-            value = _parse_topic(topic_id, text, attributed=False)
+        source = pay_source if topic_id == "pay_type" else text
+        value = _parse_topic(topic_id, source, attributed=False, band=found.get("pay_range"))
         if value is not None and _is_recordable(topic_id, value):
             found[topic_id] = value
     return found

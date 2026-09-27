@@ -771,6 +771,8 @@ GoRouter _buildRouter() {
                       ),
                     ],
                   ),
+                ],
+              ),
               // #1687 — "Mere resume": every résumé the worker has made.
               //
               // INSIDE THE PROFILE BRANCH, so the bottom tab bar stays: this is a
@@ -779,7 +781,8 @@ GoRouter _buildRouter() {
               // résumé editor, which both set `parentNavigatorKey: _rootNavKey`
               // to drop the bar deliberately.
               //
-              // AFTER the branch root, and with its ABSOLUTE constant:
+              // A SIBLING of the `/profile` route above (this branch's own
+              // `routes:` list), AFTER it, and with its ABSOLUTE constant:
               //  * AFTER, because the FIRST route in a branch is that branch's
               //    initial location — declared first, the Profile tab opened on
               //    the résumé list instead of the profile (caught by the mock-mode
@@ -791,11 +794,16 @@ GoRouter _buildRouter() {
               //    screen-template contract consumes. A new relative literal would
               //    have changed a pinned set in `apps/api`'s contract test, a
               //    backend-owned file, for nothing the worker can see.
+              //  * NEVER inside `/profile`'s `routes:` list with this absolute
+              //    constant — a sub-route is matched against what is LEFT after
+              //    its parent (`resumes`), which `/profile/resumes` never matches.
+              //    go_router accepts that tree without an assert, so it only
+              //    fails at runtime — "no routes for location: /profile/resumes"
+              //    on every "Mere resume" tap. Pinned by
+              //    test/router_resume_history_test.dart.
               GoRoute(
                 path: Routes.resumeHistory,
                 builder: (_, __) => const ResumeHistoryScreen(),
-              ),
-                ],
               ),
             ],
           ),
