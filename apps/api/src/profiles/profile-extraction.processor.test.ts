@@ -16,6 +16,7 @@ import {
   occupationPinScopesCanonicalization,
 } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
+import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 
 const JOB = {
   workerId: "11111111-1111-4111-8111-111111111111",
@@ -76,7 +77,10 @@ function make(
      * (a session with no OIE state), so the harness tests with `in`, never `??`.
      */
     conversationState?: unknown;
-    /** The session read fails; the processor must degrade to the legacy path. */
+    /**
+     * The session read fails. The attempt FAILS CLOSED — it throws, before any model call, and
+     * BullMQ retries it; it never degrades to a road decided without the row.
+     */
     sessionThrows?: boolean;
     /**
      * Task 1 — the worker's latest résumé import road. Omit entirely = no import
@@ -108,6 +112,13 @@ function make(
     importOwned?: boolean;
     /** ADR-0043 — the worker's latest consent row. Default: active. `null`: none on file. */
     consent?: { revokedAt: Date | null; purposes: string[] } | null;
+    /**
+     * ADR-0045 §3.4 — the Work History the general form stored (`loadForResume`). Default: none,
+     * which is also what every non-general-road case below expects (it is never read there).
+     */
+    employments?: WorkerEmploymentRecord[];
+    /** ADR-0045 §3.4 — the employment read fails. */
+    employmentsThrow?: boolean;
   } = {},
 ) {
   const draft = opts.profile ?? DraftProfileSchema.parse({});
@@ -256,6 +267,13 @@ function make(
           : undefined,
       ),
   };
+  // ADR-0045 §3.4 — read ONLY on the general road, so a spy that records the call is what lets the
+  // other paths assert it was never made.
+  const employments = {
+    loadForResume: opts.employmentsThrow
+      ? vi.fn().mockRejectedValue(new Error("db down"))
+      : vi.fn().mockResolvedValue(opts.employments ?? []),
+  };
   const traces = fakeAiTraceRecorder();
   const proc = new ProfileExtractionProcessor(
     profiles as never,
@@ -271,6 +289,7 @@ function make(
     workerAttributes as never,
     chatTableWrites as never,
     resumeImports as never,
+    employments as never,
     // The REAL recorder over the fake events service, not a stub — the emit assertions below
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
     // one of them pass without an event ever being built (#738).
@@ -304,6 +323,7 @@ function make(
     workerAttributes,
     chatTableWrites,
     resumeImports,
+    employments,
     traces,
   };
 }
@@ -387,18 +407,42 @@ describe("ProfileExtractionProcessor", () => {
       expect(createdSource(profiles)).toBe("chat");
     });
 
-    it("an unreadable session still consults the import, and never fails the job", async () => {
-      const { proc, profiles } = make({ sessionThrows: true, resumeImport: { route: "form" } });
-      const res = await proc.process(makeJob());
-      expect(res).toEqual({ profile_id: PROFILE });
-      expect(createdSource(profiles)).toBe("form");
+    // FAIL CLOSED, NOT "DEGRADE TO THE IMPORT". These two used to pin the opposite: an unreadable
+    // session fell through to the worker-wide import check and the job completed. But the row
+    // that decides the source also decides the ROAD, and a general-road handover (ADR-0045 §3.4)
+    // stamped off an unrelated CV upload — or built on the model path — is a wrong profile the
+    // dedupe then keeps. The session is read once, and a failed read retries the attempt.
+    it("an unreadable session is never stamped off the import alone — the attempt retries", async () => {
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      try {
+        const { proc, profiles, resumeImports, aiJobs } = make({
+          sessionThrows: true,
+          resumeImport: { route: "form" },
+        });
+        await expect(proc.process(makeJob())).rejects.toThrow("db down");
+        expect(resumeImports.findLatestForWorker).not.toHaveBeenCalled();
+        expect(profiles.create).not.toHaveBeenCalled();
+        // Attempts remain, so this is a retry, not a terminal failure.
+        expect(aiJobs.markFailed).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
     });
 
-    it("an unreadable session with no import degrades to source:'chat', job succeeds", async () => {
-      const { proc, profiles } = make({ sessionThrows: true });
-      const res = await proc.process(makeJob());
-      expect(res).toEqual({ profile_id: PROFILE });
-      expect(createdSource(profiles)).toBe("chat");
+    it("an unreadable session on the FINAL attempt records the terminal failure, writes nothing", async () => {
+      const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+      try {
+        const { proc, profiles, aiJobs, events } = make({ sessionThrows: true });
+        await expect(proc.process(makeJob({ attemptsMade: 2, attempts: 3 }))).rejects.toThrow(
+          "db down",
+        );
+        expect(profiles.create).not.toHaveBeenCalled();
+        expect(aiJobs.markFailed).toHaveBeenCalledOnce();
+        const names = events.emit.mock.calls.map((c) => c[0].event_name);
+        expect(names).toEqual(["profile.extraction_failed"]);
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 
@@ -1691,10 +1735,29 @@ describe("the answer map is the profile, and the LLM is an overlay on it", () =>
     expect(ai.parseProfile).not.toHaveBeenCalled();
   });
 
-  it("a failed conversation_state read degrades to the legacy path, never fails the job", async () => {
-    const { proc, ai } = make({ sessionThrows: true });
-    const res = await proc.process(makeJob());
-    expect(res).toEqual({ profile_id: PROFILE });
+  // THE CONTRACT THIS USED TO PIN WAS THE DEFECT. A failed read returned null, null is also "a
+  // pre-cutover session with no answer map", and so an unreadable row went down the legacy
+  // `/profile/extract` model path. For a session that had handed over to the general form
+  // (ADR-0045 §3.4) that wrote a model `total_years` (R5) and canonical skills (R7), and the
+  // session dedupe then pinned the wrong profile. "Could not read" is not "nothing there": the
+  // attempt now fails closed — before any model call — and BullMQ retries it.
+  it("a failed conversation_state read FAILS THE ATTEMPT before any model call — never the legacy path", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc, ai, profiles } = make({ sessionThrows: true });
+      await expect(proc.process(makeJob())).rejects.toThrow("db down");
+      expect(ai.extractProfile).not.toHaveBeenCalled();
+      expect(ai.parseProfile).not.toHaveBeenCalled();
+      expect(profiles.create).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a read that SUCCEEDS but finds no row still takes the legacy path, as before", async () => {
+    const { proc, ai, chat } = make();
+    chat.findSession.mockResolvedValue(undefined);
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
     expect(ai.extractProfile).toHaveBeenCalledOnce();
   });
 
@@ -2682,6 +2745,25 @@ describe("ProfileExtractionProcessor — résumé history facts (ADR-0043)", () 
     );
   });
 
+  it("a redelivery whose session read FAILS still returns the recorded profile — it writes and spends nothing", async () => {
+    // The ONE session read that still degrades: this path makes no model call and no write, so
+    // the fail-closed rule for the extraction proper does not apply to it. It keeps its posture.
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const profilesService = service();
+      const { proc, profiles } = make({
+        findById: { status: "completed", inputRef: {}, outputRef: { profile_id: PROFILE } },
+        sessionThrows: true,
+        profilesService,
+      });
+      expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+      expect(profiles.create).not.toHaveBeenCalled();
+      expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("a worker who WITHDREW consent after the Haan has nothing sent to the model", async () => {
     vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     const profilesService = service();
@@ -2701,15 +2783,39 @@ describe("ProfileExtractionProcessor — résumé history facts (ADR-0043)", () 
     expect(profilesService.confirmAcceptedUpdate).not.toHaveBeenCalled();
   });
 
-  it("an UNREADABLE session takes the consent check too — 'unknown' is not a way around the gate", async () => {
-    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
-    const { proc, ai, profiles } = make({
-      sessionThrows: true,
-      consent: { revokedAt: new Date(), purposes: ["profiling"] },
-    });
-    await expect(proc.process(makeJob())).rejects.toThrow(/consent is not active/);
-    expect(ai.extractProfile).not.toHaveBeenCalled();
-    expect(profiles.create).not.toHaveBeenCalled();
+  // "UNKNOWN IS NOT A WAY AROUND THE GATE" still holds, but an unreadable SESSION no longer reaches
+  // the gate: the processor reads the session once and a failed read fails the attempt first —
+  // before the gate and before any model call. The fact that can still be unknown AT the gate is
+  // the import-ownership read, so that is the case that takes the check now.
+  it("an UNREADABLE session fails the attempt before the gate — nothing reaches the model", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc, ai, profiles } = make({
+        sessionThrows: true,
+        consent: { revokedAt: new Date(), purposes: ["profiling"] },
+      });
+      await expect(proc.process(makeJob())).rejects.toThrow("db down");
+      expect(ai.extractProfile).not.toHaveBeenCalled();
+      expect(profiles.create).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("an UNREADABLE import-ownership read takes the consent check — 'unknown' is not a way around the gate", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc, ai, profiles, resumeImports } = make({
+        conversationState: { answer_map: [], import_applied_id: IMPORT },
+        consent: { revokedAt: new Date(), purposes: ["profiling"] },
+      });
+      resumeImports.findForWorker.mockRejectedValue(new Error("db down"));
+      await expect(proc.process(makeJob())).rejects.toThrow(/consent is not active/);
+      expect(ai.extractProfile).not.toHaveBeenCalled();
+      expect(profiles.create).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("an accepted update needs the `profiling` purpose on record, not just any active consent", async () => {
@@ -2773,5 +2879,393 @@ describe("ProfileExtractionProcessor — résumé history facts (ADR-0043)", () 
     expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
     expect(aiJobs.markCompleted).toHaveBeenCalledOnce();
     expect(aiJobs.markFailed).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0045 §3.4 — the profile build on the general road
+// ---------------------------------------------------------------------------
+
+describe("ADR-0045 §3.4 — a handed-over general-road session is built with ZERO model calls", () => {
+  /** `conversation_state.general_road` exactly as `toGeneralRoadStatePatch` writes it. */
+  const STAMP = (over: Record<string, unknown> = {}) => ({
+    v: 1,
+    lane: "skills",
+    role_label: "Drone pilot",
+    domain_label: "Aviation",
+    skills: ["Aerial survey", "Flight planning", "Payload handling"],
+    outcome: "confirmed",
+    handed_over: true,
+    ...over,
+  });
+
+  /** One stored job as `loadForResume` returns it. */
+  const employment = (over: Partial<WorkerEmploymentRecord> = {}): WorkerEmploymentRecord => ({
+    employer: "Contract work",
+    employerCity: null,
+    employerState: null,
+    startYm: "2019-01",
+    endYm: "2020-12",
+    durationStated: true,
+    roles: [],
+    ...over,
+  });
+
+  /** 2019-01..2020-12 (24 months) + 2021-01..2021-06 (6 months) = 30 months = 2.5 years. */
+  const DATED = [
+    employment(),
+    employment({ employer: "Sky Survey Pvt Ltd", startYm: "2021-01", endYm: "2021-06" }),
+  ];
+
+  /** `withMap()` — an answer map WITH a projected `experience_years: 7` — plus the stamp. */
+  const handedOver = (over: Record<string, unknown> = {}) => ({
+    conversationState: { ...withMap().conversationState, general_road: STAMP(), ...over },
+  });
+
+  const CHAT = [
+    { direction: "outbound", bodyText: "Aap kaunsa kaam karte hain?" },
+    { direction: "inbound", bodyText: "drone pilot hoon, survey karta hoon" },
+  ];
+
+  const created = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+  const rawOf = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    created(profiles).rawProfile as DraftProfile;
+  const richOf = (profiles: { create: { mock: { calls: unknown[][] } } }) =>
+    created(profiles).richProfileDraft as Record<string, unknown>;
+
+  it("never calls /profile/parse, /profile/extract or Phase C — even with the interview flag ON", async () => {
+    // THE WHOLE POINT OF THE ROAD: a non-empty answer map would take the parse, and the flag
+    // would add Phase C; the stamp must pre-empt both.
+    const { proc, ai, profiles } = make({
+      ...handedOver(),
+      messages: CHAT,
+      llmInterview: true,
+      interview: { skills: ["should never land"] },
+    });
+    await proc.process(makeJob());
+    expect(ai.parseProfile).not.toHaveBeenCalled();
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+    expect(ai.extractInterview).not.toHaveBeenCalled();
+    expect(profiles.create).toHaveBeenCalledOnce();
+  });
+
+  it("reads no transcript and decrypts no name — nothing is loaded for a model never asked", async () => {
+    const { proc, chat, buffer, workers, pii } = make({
+      ...handedOver(),
+      messages: CHAT,
+      workerName: "Ramesh Kumar",
+      llmInterview: true,
+    });
+    await proc.process(makeJob());
+    expect(chat.listMessages).not.toHaveBeenCalled();
+    expect(buffer.load).not.toHaveBeenCalled();
+    expect(workers.findById).not.toHaveBeenCalled();
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("takes the stamp's role, domain and skills onto the legacy draft (skill_labels only)", async () => {
+    const { proc, profiles } = make(handedOver());
+    await proc.process(makeJob());
+    const raw = rawOf(profiles);
+    expect(raw.skill_labels).toEqual(["Aerial survey", "Flight planning", "Payload handling"]);
+    expect(raw.role_label).toBe("Drone pilot");
+    expect(raw.domain_label).toBe("Aviation");
+  });
+
+  it("R7: the canonical `skills` column matching reads is NOT fed from the stamp", async () => {
+    const { proc, profiles } = make(handedOver());
+    await proc.process(makeJob());
+    expect(created(profiles).skills).toEqual([]);
+    expect(rawOf(profiles).skills).toEqual([]);
+  });
+
+  it("stores no résumé container, no metadata and no cost event — nothing a model produced", async () => {
+    const { proc, profiles, aiJobs, events } = make(handedOver());
+    await proc.process(makeJob());
+    expect(rawOf(profiles).resume_profile).toBeNull();
+    // No job-row usage: `toAiJobUsage(null)` is `undefined`, the value every model-free job gets.
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { profile_id: PROFILE },
+      undefined,
+    );
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("profile.extraction_completed");
+    expect(names).not.toContain("ai.cost_recorded");
+    expect(names).not.toContain("ai.spend_cap_exceeded");
+  });
+
+  it("source stays 'chat' even when the worker's latest CV import was routed to a form", async () => {
+    const { proc, profiles } = make({ ...handedOver(), resumeImport: { route: "form" } });
+    await proc.process(makeJob());
+    expect(created(profiles).source).toBe("chat");
+  });
+
+  it("…while the SAME import still stamps 'form' for a session that did not hand over", async () => {
+    const { proc, profiles } = make({
+      ...handedOver({ general_road: STAMP({ handed_over: false }) }),
+      resumeImport: { route: "form" },
+    });
+    await proc.process(makeJob());
+    expect(created(profiles).source).toBe("form");
+  });
+
+  it("lands as 'extracted', not 'draft', when the gate's skills are the only content", async () => {
+    // An EMPTY answer map on purpose: that would take the legacy `/profile/extract` branch, and
+    // the stamp must come first. The skills reach `hasExtractedContent` through the rich draft.
+    const { proc, profiles, ai, events } = make({
+      conversationState: { answer_map: [], general_road: STAMP() },
+    });
+    await proc.process(makeJob());
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+    expect(created(profiles).profileStatus).toBe("extracted");
+    expect(richOf(profiles).skills).toEqual([
+      "Aerial survey",
+      "Flight planning",
+      "Payload handling",
+    ]);
+    expect(richOf(profiles).primary_role).toBe("Drone pilot");
+    const completed = events.emit.mock.calls.find(
+      (c) => c[0].event_name === "profile.extraction_completed",
+    )![0];
+    expect(completed.payload.profile_status).toBe("extracted");
+  });
+
+  it("total_years is the sum of the DATED employment (R5) — column, draft and rich draft", async () => {
+    const { proc, profiles, employments } = make({ ...handedOver(), employments: DATED });
+    await proc.process(makeJob());
+    expect(employments.loadForResume).toHaveBeenCalledWith(JOB.workerId);
+    expect(rawOf(profiles).experience.total_years).toBe(2.5);
+    expect((created(profiles).experience as { total_years: unknown }).total_years).toBe(2.5);
+    expect(richOf(profiles).experience_years).toBe(2.5);
+  });
+
+  it("a current job is closed at the job's processing time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T10:00:00.000Z"));
+    try {
+      // 2025-07 .. 2026-06, inclusive: 12 months.
+      const { proc, profiles } = make({
+        ...handedOver(),
+        employments: [employment({ startYm: "2025-07", endYm: null })],
+      });
+      await proc.process(makeJob());
+      expect(rawOf(profiles).experience.total_years).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an UNDATED job makes the total unknown — the chat's projected 7 years never survives", async () => {
+    const { proc, profiles } = make({
+      ...handedOver(),
+      employments: [...DATED, employment({ startYm: null, endYm: null, durationStated: false })],
+    });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).experience.total_years).toBeNull();
+    expect(richOf(profiles).experience_years).toBeNull();
+  });
+
+  it("NO stored job means no total — the chat's projected 7 years never survives", async () => {
+    const { proc, profiles } = make({ ...handedOver(), employments: [] });
+    await proc.process(makeJob());
+    expect(rawOf(profiles).experience.total_years).toBeNull();
+    expect(richOf(profiles).experience_years).toBeNull();
+    // The same map WITHOUT the stamp keeps its 7 — the control that proves the 7 was there.
+    const control = make(withMap());
+    await control.proc.process(makeJob());
+    expect(rawOf(control.profiles).experience.total_years).toBe(7);
+  });
+
+  it("an employment read that FAILS retries the job before anything is written", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc, profiles, aiJobs } = make({ ...handedOver(), employmentsThrow: true });
+      await expect(proc.process(makeJob())).rejects.toThrow("db down");
+      expect(profiles.create).not.toHaveBeenCalled();
+      expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+      // Attempts remain, so this is a retry, not a terminal failure.
+      expect(aiJobs.markFailed).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // ── ONE SESSION READ DECIDES THE SOURCE AND THE ROAD, AND IT FAILS CLOSED ─────────────────
+  //
+  // Found in review, and reproduced: the source, the résumé facts and the road were three separate
+  // session reads, and the road's read swallowed a failure into "no state" — which is the legacy
+  // `/profile/extract` branch. One transient failure on a handed-over session therefore wrote a
+  // model `total_years` (R5) and canonical skills (R7) under a "chat" source, and the session
+  // dedupe then pinned that profile. The two cases below are the two halves of the fix.
+
+  it("a session read that FAILS makes no model call — the attempt throws and BullMQ retries", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc, ai, chat, employments, profiles, aiJobs } = make({
+        ...handedOver(),
+        messages: CHAT,
+        llmInterview: true,
+        resumeImport: { route: "form" },
+        employments: DATED,
+      });
+      chat.findSession.mockRejectedValue(new Error("connection reset"));
+      await expect(proc.process(makeJob())).rejects.toThrow("connection reset");
+      expect(ai.parseProfile).not.toHaveBeenCalled();
+      expect(ai.extractProfile).not.toHaveBeenCalled();
+      expect(ai.extractInterview).not.toHaveBeenCalled();
+      expect(chat.listMessages).not.toHaveBeenCalled();
+      expect(employments.loadForResume).not.toHaveBeenCalled();
+      expect(profiles.create).not.toHaveBeenCalled();
+      expect(aiJobs.markCompleted).not.toHaveBeenCalled();
+      // Attempts remain, so this is a retry, not a terminal failure.
+      expect(aiJobs.markFailed).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("the source and the road come from ONE read — a blip after it cannot split them", async () => {
+    // The reproduction's shape: the row reads, then the database blips. Any second read on the
+    // decision path would land on the blip — and either fail the job or, swallowed, send it to
+    // the model.
+    const { proc, ai, chat, profiles } = make({
+      ...handedOver(),
+      messages: CHAT,
+      llmInterview: true,
+      resumeImport: { route: "form" },
+      employments: DATED,
+    });
+    chat.findSession
+      .mockResolvedValueOnce({
+        id: JOB.sessionId,
+        workerId: JOB.workerId,
+        conversationState: handedOver().conversationState,
+      })
+      .mockRejectedValue(new Error("connection reset"));
+
+    expect(await proc.process(makeJob())).toEqual({ profile_id: PROFILE });
+    expect(chat.findSession).toHaveBeenCalledOnce();
+    expect(chat.findSession).toHaveBeenCalledWith(JOB.sessionId);
+    expect(ai.parseProfile).not.toHaveBeenCalled();
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+    expect(ai.extractInterview).not.toHaveBeenCalled();
+    // The source AND the road read the same stamp: "chat", built on the general road.
+    expect(created(profiles).source).toBe("chat");
+    expect(created(profiles).skills).toEqual([]);
+    expect(rawOf(profiles).skill_labels).toEqual([
+      "Aerial survey",
+      "Flight planning",
+      "Payload handling",
+    ]);
+    expect(rawOf(profiles).experience.total_years).toBe(2.5);
+  });
+
+  it("pin, pack and attributes are what the deterministic OIE path writes for the same state", async () => {
+    const state = {
+      answer_map: [
+        record({
+          question_key: "workplace_type",
+          target_field: "workplace_type",
+          value_normalized: "outdoor",
+        }),
+        record({
+          question_key: "current_city",
+          target_field: "current_city",
+          value_normalized: "Pune",
+        }),
+      ],
+      occupation: PIN,
+      pack_id: "qp_universal",
+      pack_version: 3,
+    };
+    const road = make({ conversationState: { ...state, general_road: STAMP() } });
+    await road.proc.process(makeJob());
+    // The OIE path with a parse that added nothing and no Phase C — the same projection.
+    const oie = make({ conversationState: state });
+    await oie.proc.process(makeJob());
+
+    const roadRows = road.workerAttributes.upsertMany.mock.calls[0]![0] as unknown[];
+    expect(roadRows).toHaveLength(1);
+    expect(roadRows).toEqual(oie.workerAttributes.upsertMany.mock.calls[0]![0]);
+    expect(roadRows[0]).toMatchObject({ packId: "qp_universal", packVersion: 3 });
+    expect(domainCols(road.profiles)).toEqual(domainCols(oie.profiles));
+    expect(domainCols(road.profiles).jobDomainId).toBe(PIN.job_domain_id);
+    // …and every legacy field the road does not own is byte-for-byte the OIE value.
+    const owned = ["skill_labels", "role_label", "domain_label", "experience"];
+    const rest = (p: DraftProfile) =>
+      Object.fromEntries(Object.entries(p).filter(([key]) => !owned.includes(key)));
+    expect(rest(rawOf(road.profiles))).toEqual(rest(rawOf(oie.profiles)));
+    expect(rawOf(road.profiles).location_preference.current_city).toBe("Pune");
+  });
+
+  it("logs counts and ids only — never a label, a skill or an employer", async () => {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { proc } = make({ ...handedOver(), employments: DATED });
+      await proc.process(makeJob());
+      const lines = [...log.mock.calls, ...warn.mock.calls].map((c) => String(c[0]));
+      expect(lines.some((line) => line.includes("general road"))).toBe(true);
+      const all = lines.join("\n");
+      for (const secret of [
+        "Drone pilot",
+        "Aviation",
+        "Aerial survey",
+        "Flight planning",
+        "Payload handling",
+        "Sky Survey",
+      ]) {
+        expect(all).not.toContain(secret);
+      }
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  describe("anything short of a readable handed-over stamp runs today's path unchanged", () => {
+    const variants: ReadonlyArray<[string, Record<string, unknown>]> = [
+      ["no stamp at all", {}],
+      [
+        "handed_over: false (still on the skills stage)",
+        { general_road: STAMP({ handed_over: false }) },
+      ],
+      ["a v:2 stamp this build cannot read", { general_road: STAMP({ v: 2 }) }],
+      ["a malformed stamp", { general_road: { handed_over: true } }],
+    ];
+
+    it.each(variants)("%s → the OIE parse runs; the employment is never read", async (_, over) => {
+      const { proc, ai, chat, employments, profiles } = make({
+        conversationState: { ...withMap().conversationState, ...over },
+        messages: CHAT,
+      });
+      await proc.process(makeJob());
+      expect(ai.parseProfile).toHaveBeenCalledOnce();
+      expect(chat.listMessages).toHaveBeenCalledOnce();
+      expect(employments.loadForResume).not.toHaveBeenCalled();
+      // The chat's own 7 years stand, as they always have off this road.
+      expect(rawOf(profiles).experience.total_years).toBe(7);
+    });
+
+    it.each(variants)("%s → Phase C still runs under the flag", async (_, over) => {
+      const { proc, ai } = make({
+        conversationState: { ...withMap().conversationState, ...over },
+        messages: CHAT,
+        llmInterview: true,
+      });
+      await proc.process(makeJob());
+      expect(ai.extractInterview).toHaveBeenCalledOnce();
+    });
+
+    it.each(variants)("%s, empty map → the legacy /profile/extract runs", async (_, over) => {
+      const { proc, ai } = make({
+        conversationState: { answer_map: [], ...over },
+        messages: CHAT,
+      });
+      await proc.process(makeJob());
+      expect(ai.extractProfile).toHaveBeenCalledOnce();
+    });
   });
 });

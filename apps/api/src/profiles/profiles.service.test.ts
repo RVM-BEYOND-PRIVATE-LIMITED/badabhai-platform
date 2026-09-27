@@ -39,7 +39,21 @@ type FakeProfile = {
   richProfileDraft: unknown;
 };
 
-type FakeCandidate = { id: string; status: string; profile: FakeProfile | null };
+type FakeCandidate = {
+  id: string;
+  status: string;
+  /** ADR-0045 §3.4 — read only when the session carries a general-form completion mark. */
+  createdAt?: Date;
+  profile: FakeProfile | null;
+};
+
+/** The `chat_sessions` columns `extract` reads. */
+type FakeSession = {
+  id: string;
+  workerId: string;
+  lastMessageAt?: Date | null;
+  conversationState?: Record<string, unknown> | null;
+};
 
 /** An empty profile exactly as `DraftProfileSchema.parse({})` persists it (AI-down fallback). */
 const EMPTY_PROFILE: FakeProfile = {
@@ -121,16 +135,18 @@ function setup(
   // Issue #435 — the session the caller named. Defaults to a session OWNED by WORKER,
   // so every pre-existing test keeps its old meaning; the ownership tests override it.
   const chat = {
-    findSession: vi.fn(
-      async (id: string) =>
-        ({ id, workerId: WORKER }) as { id: string; workerId: string } | undefined,
-    ),
+    findSession: vi.fn(async (id: string) => ({ id, workerId: WORKER }) as FakeSession | undefined),
     // #828 — the session `extract` falls back to when the body carries none. Defaults to
     // UNDEFINED ("this worker has never chatted"), which is the one case that still takes
     // the create-always path, so every pre-existing session-less test keeps its old
     // meaning verbatim. The #828 tests override it.
     findLatestSessionByWorker: vi.fn(
-      async (_workerId: string) => undefined as { id: string; workerId: string } | undefined,
+      async (_workerId: string) => undefined as FakeSession | undefined,
+    ),
+    // ADR-0045 §3.4 — the worker's newest general handover. Defaults to UNDEFINED (no handover:
+    // every worker while the flag is off), so every pre-existing test keeps its old meaning.
+    findLatestGeneralHandoverSession: vi.fn(
+      async (_workerId: string) => undefined as FakeSession | undefined,
     ),
   };
   const events = {
@@ -747,6 +763,290 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
 
     expect(client.ai_job_id).not.toBe(auto.ai_job_id);
     expect(aiJobs.create).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * ADR-0045 §3.4 — the general form is finished AFTER the chat that handed it over. The profile on
+ * that road takes its years from the Work History the form stores, so an extraction minted before
+ * the form's completion mark is stale, and a session-less extract is about the form, not about a
+ * companion chat the worker opened in between.
+ */
+describe("ProfilesService.extract — ADR-0045 §3.4, the general form finishes after the chat", () => {
+  const MARK = "2026-09-26T12:00:00.000Z";
+  const BEFORE = new Date("2026-09-26T11:00:00.000Z");
+  const AFTER = new Date("2026-09-26T13:00:00.000Z");
+  const STAMP = {
+    v: 1,
+    lane: "skills",
+    role_label: "Drone pilot",
+    domain_label: null,
+    skills: ["Aerial survey"],
+    outcome: "confirmed",
+    handed_over: true,
+  };
+  const FINISHED_STATE = { general_road: STAMP, general_form_completed_at: MARK };
+
+  /** setup() with a known worker, and the named session owned by him carrying `state`. */
+  const withSession = (state: Record<string, unknown> | null) => {
+    const h = setup();
+    h.workers.findById.mockResolvedValue({ id: WORKER });
+    h.chat.findSession.mockImplementation(async (id: string) => ({
+      id,
+      workerId: WORKER,
+      conversationState: state,
+    }));
+    return h;
+  };
+
+  const completedAt = (createdAt: Date): FakeCandidate => ({
+    id: "job-old",
+    status: "completed",
+    createdAt,
+    profile: FILLED_PROFILE,
+  });
+
+  // --- the dedupe ---------------------------------------------------------
+
+  it("a COMPLETED job minted BEFORE the completion mark re-runs, even with a usable profile", async () => {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    try {
+      const { svc, aiJobs, extractionQueue } = withSession(FINISHED_STATE);
+      aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(BEFORE));
+
+      const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+      expect(res).toEqual({ ai_job_id: "job-1", status: "queued" });
+      expect(aiJobs.create).toHaveBeenCalledOnce();
+      expect(extractionQueue.add).toHaveBeenCalledOnce();
+      // The re-run says WHY — the same line used to claim an empty profile for every re-run.
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.includes("before the general form was finished"))).toBe(true);
+      expect(lines.some((l) => l.includes("with an empty profile"))).toBe(false);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("a COMPLETED job minted AFTER the completion mark still dedupes", async () => {
+    const { svc, aiJobs, extractionQueue } = withSession(FINISHED_STATE);
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(AFTER));
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-old", status: "completed" });
+    expect(aiJobs.create).not.toHaveBeenCalled();
+    expect(extractionQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("NO completion mark → dedupe exactly as today, however old the completed job", async () => {
+    const { svc, aiJobs } = withSession({ general_road: STAMP });
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(BEFORE));
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-old", status: "completed" });
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it("an unreadable mark reads as no mark", async () => {
+    const { svc, aiJobs } = withSession({ general_road: STAMP, general_form_completed_at: "soon" });
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(BEFORE));
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res.ai_job_id).toBe("job-old");
+  });
+
+  it("an IN-FLIGHT job minted before the mark still dedupes — only a completed one is stale", async () => {
+    const { svc, aiJobs } = withSession(FINISHED_STATE);
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue({
+      id: "job-running",
+      status: "running",
+      createdAt: BEFORE,
+      profile: null,
+    });
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-running", status: "running" });
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it("the re-run is still charged against the hourly cap", async () => {
+    const { svc, aiJobs, extractionQueue } = withSession(FINISHED_STATE);
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(BEFORE));
+
+    for (let i = 0; i < EXTRACTION_ATTEMPT_CAP; i++) {
+      await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    }
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(extractionQueue.add).toHaveBeenCalledTimes(EXTRACTION_ATTEMPT_CAP);
+  });
+
+  it("applies to a RESOLVED session too — the mark is read off the row the fallback chose", async () => {
+    const { svc, aiJobs, chat } = withSession(null);
+    chat.findLatestSessionByWorker.mockResolvedValue({
+      id: SESSION,
+      workerId: WORKER,
+      lastMessageAt: BEFORE,
+      conversationState: FINISHED_STATE,
+    });
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(completedAt(BEFORE));
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(res.ai_job_id).toBe("job-1");
+    expect(aiJobs.create).toHaveBeenCalledOnce();
+  });
+
+  // --- the session a session-less extract resolves to ---------------------
+
+  const HANDOVER = "66666666-6666-4666-8666-666666666666";
+  const COMPANION = "77777777-7777-4777-8777-777777777777";
+
+  /** A worker whose latest-by-message session is a companion chat, plus a handover session. */
+  const twoSessions = (opts: {
+    companionLastMessageAt: Date | null;
+    handoverState: Record<string, unknown>;
+    handoverWorker?: string;
+    /** The latest session's own state. Default `{}`: plain chat, handed over to no form. */
+    companionState?: Record<string, unknown>;
+  }) => {
+    const h = withSession(null);
+    h.chat.findLatestSessionByWorker.mockResolvedValue({
+      id: COMPANION,
+      workerId: WORKER,
+      lastMessageAt: opts.companionLastMessageAt,
+      conversationState: opts.companionState ?? {},
+    });
+    h.chat.findLatestGeneralHandoverSession.mockResolvedValue({
+      id: HANDOVER,
+      workerId: opts.handoverWorker ?? WORKER,
+      lastMessageAt: new Date("2026-09-26T10:00:00.000Z"),
+      conversationState: opts.handoverState,
+    });
+    return h;
+  };
+
+  const enqueuedSession = (h: ReturnType<typeof setup>) =>
+    (h.extractionQueue.add.mock.calls[0] as unknown as [string, { sessionId: string | null }])[1]
+      .sessionId;
+
+  it("a form finished AFTER the latest chat's last message → the handover session is extracted", async () => {
+    const h = twoSessions({ companionLastMessageAt: BEFORE, handoverState: FINISHED_STATE });
+
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+
+    expect(enqueuedSession(h)).toBe(HANDOVER);
+    expect(h.aiJobs.findExtractionDedupeCandidate.mock.calls[0]![0].sessionId).toBe(HANDOVER);
+    // WORKER-SCOPED: both reads are by the authenticated worker, never by a body value.
+    expect(h.chat.findLatestSessionByWorker).toHaveBeenCalledWith(WORKER);
+    expect(h.chat.findLatestGeneralHandoverSession).toHaveBeenCalledWith(WORKER);
+    expect(h.chat.findSession).not.toHaveBeenCalled();
+  });
+
+  it("a chat still in use AFTER the form was finished keeps today's answer — the latest session", async () => {
+    const h = twoSessions({ companionLastMessageAt: AFTER, handoverState: FINISHED_STATE });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  it("a handover whose form is NOT finished (no mark) → the latest session, as today", async () => {
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: { general_road: STAMP },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  it("a handover this build cannot read (v:2) is never chosen — it would not build on the road", async () => {
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: { ...FINISHED_STATE, general_road: { ...STAMP, v: 2 } },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  it("defence in depth: a handover row owned by someone else is never chosen", async () => {
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: FINISHED_STATE,
+      handoverWorker: OTHER,
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  // A TRADE form is filled in without touching `chat_sessions`, so its completion is invisible to
+  // "the mark is later than the last message". A latest session that handed over to a form of its
+  // own is therefore never overridden by an older general handover; only plain chat yields.
+
+  it("a trade-form redo AFTER a general handover whose mark is later → the trade-form session is extracted", async () => {
+    // The latest session is the redo that handed over to the CNC turner form; its last message
+    // predates the general mark because the trade form it went on to fill never touches the row.
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: FINISHED_STATE,
+      companionState: { form_kind: "cnc_turner", answer_map: [] },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+    expect(h.aiJobs.findExtractionDedupeCandidate.mock.calls[0]![0].sessionId).toBe(COMPANION);
+  });
+
+  it("a latest session that is ITSELF a general handover is returned unchanged", async () => {
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: FINISHED_STATE,
+      companionState: { general_road: STAMP },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  it("an undeclared form_kind is not a handover — the finished general form still wins", async () => {
+    // The shared strict narrower, not a null check: a kind no build declares never routed anyone.
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: FINISHED_STATE,
+      companionState: { form_kind: "not_a_trade" },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(HANDOVER);
+  });
+
+  it("a redo that stopped short of a handover (stamp, handed_over:false) still yields to the finished form", async () => {
+    const h = twoSessions({
+      companionLastMessageAt: BEFORE,
+      handoverState: FINISHED_STATE,
+      companionState: { general_road: { ...STAMP, handed_over: false } },
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(HANDOVER);
+  });
+
+  it("no handover at all (every worker while the flag is off) → the latest session, as today", async () => {
+    const h = withSession(null);
+    h.chat.findLatestSessionByWorker.mockResolvedValue({
+      id: COMPANION,
+      workerId: WORKER,
+      lastMessageAt: BEFORE,
+      conversationState: {},
+    });
+    await h.svc.extract({ worker_id: WORKER, session_id: null }, CTX);
+    expect(enqueuedSession(h)).toBe(COMPANION);
+  });
+
+  it("a body-supplied session never consults the handover lookup", async () => {
+    const h = withSession(FINISHED_STATE);
+    await h.svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    expect(h.chat.findLatestGeneralHandoverSession).not.toHaveBeenCalled();
+    expect(enqueuedSession(h)).toBe(SESSION);
   });
 });
 

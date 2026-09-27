@@ -14,6 +14,12 @@ import type { ProfileContentFields } from "./profile-content";
 export interface ExtractionDedupeCandidate {
   id: string;
   status: AiJobStatus;
+  /**
+   * When the job was minted. ADR-0045 §3.4: a completed extraction that PREDATES the session's
+   * general-form completion mark was built before the worker's Work History was stored, so the
+   * caller re-runs rather than dedupes against it.
+   */
+  createdAt: Date;
   /** The profile this job produced (`worker_profiles.ai_job_id`), if any. */
   profile: ProfileContentFields | null;
 }
@@ -177,6 +183,9 @@ export class AiJobsRepository {
       .select({
         id: aiJobs.id,
         status: aiJobs.status,
+        // ADR-0045 §3.4 — the caller compares it with the general-form completion mark. Already the
+        // ORDER BY column, so selecting it costs nothing.
+        createdAt: aiJobs.createdAt,
         canonicalTradeId: workerProfiles.canonicalTradeId,
         canonicalRoleId: workerProfiles.canonicalRoleId,
         skills: workerProfiles.skills,
@@ -228,6 +237,7 @@ export class AiJobsRepository {
     return {
       id: row.id,
       status: row.status,
+      createdAt: row.createdAt,
       profile:
         row.profileId == null
           ? null

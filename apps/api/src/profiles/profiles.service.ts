@@ -1,12 +1,18 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
+import type { ChatSession } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ChatRepository } from "../chat/chat.repository";
+import {
+  conversationFormKind,
+  readGeneralFormCompletedAt,
+  readGeneralRoadStamp,
+} from "../profiling/conversation-state";
 import { ProfilesRepository } from "./profiles.repository";
-import { AiJobsRepository } from "./ai-jobs.repository";
+import { AiJobsRepository, type ExtractionDedupeCandidate } from "./ai-jobs.repository";
 import {
   PROFILE_EXTRACTION_QUEUE,
   REFERRAL_BONUS_QUEUE,
@@ -135,6 +141,40 @@ function secondsUntilEndOfUtcHour(now: Date = new Date()): number {
   return Math.max(1, Math.ceil((endOfHour - now.getTime()) / 1000));
 }
 
+/**
+ * ADR-0045 §3.4 — was this COMPLETED extraction minted before the worker finished the general form?
+ *
+ * WHY IT CANNOT BE DEDUPED AGAINST. The general-road profile takes its `total_years` from the Work
+ * History the form stores, and the form is filled in AFTER the chat hands over. A job minted
+ * before the form's completion mark — the app's own extract on an earlier visit, an escape-hatch
+ * tap — was built from a Work History that did not exist yet, so the session's newest completed
+ * job is not "this worker's profile" any more. Re-running costs no model call on that road.
+ *
+ * NARROW ON PURPOSE: only a COMPLETED job, and only when the session carries a mark. An in-flight
+ * job still dedupes (its result is re-judged by this same rule once it completes), a failed one
+ * never did, and a session with no mark — every session off the general road — is judged exactly
+ * as before. The attempt cap still applies to the re-run.
+ */
+function completedBeforeGeneralForm(
+  candidate: ExtractionDedupeCandidate | undefined,
+  formCompletedAt: string | null,
+): boolean {
+  if (candidate?.status !== "completed" || formCompletedAt === null) return false;
+  return candidate.createdAt.getTime() < Date.parse(formCompletedAt);
+}
+
+/**
+ * Did this session hand the worker over to a FORM — a declared trade form (`form_kind`) or the
+ * general form (a readable, handed-over stamp)? Both through the shared strict readers, never a
+ * hand parse, so "is a handover" means here exactly what it means to the processor's `source`.
+ */
+function isFormHandover(conversationState: unknown): boolean {
+  return (
+    conversationFormKind(conversationState) !== null ||
+    readGeneralRoadStamp(conversationState)?.handed_over === true
+  );
+}
+
 @Injectable()
 export class ProfilesService {
   private readonly logger = new Logger(ProfilesService.name);
@@ -184,6 +224,8 @@ export class ProfilesService {
    *    never dedupes; treated as a zombie, since nothing reaps stuck ai_jobs.
    *  - `completed` but with an EMPTY profile (the AI-down fallback persists one
    *    with status "extracted") → never dedupes; see `hasExtractedContent`.
+   *  - `completed` but minted BEFORE the session's general-form completion mark
+   *    (ADR-0045 §3.4) → never dedupes; see `completedBeforeGeneralForm`.
    *  - a worker with NO chat session at all → create-always. There is genuinely
    *    no session to scope to (the voice-form path), so this degrades to exactly
    *    the pre-#828 behaviour.
@@ -193,6 +235,9 @@ export class ProfilesService {
     if (!worker) throw new NotFoundException(`Worker ${input.worker_id} not found`);
 
     const suppliedSessionId = input.session_id ?? null;
+    // The owned session row, kept: its `conversation_state` carries the general-form completion
+    // mark the dedupe below reads (ADR-0045 §3.4), so it is read once, here.
+    let suppliedSession: ChatSession | null = null;
     if (suppliedSessionId) {
       // OWNERSHIP (issue #435). `session_id` arrives from the REQUEST BODY, so without
       // this a worker could pass someone else's session id: the job is created with
@@ -213,6 +258,7 @@ export class ProfilesService {
       if (!session || session.workerId !== input.worker_id) {
         throw new NotFoundException(`Session ${suppliedSessionId} not found`);
       }
+      suppliedSession = session;
     }
 
     // ── #828: A BODY WITH NO SESSION IS NOT A REQUEST FOR A SESSION-LESS EXTRACTION ──
@@ -249,7 +295,8 @@ export class ProfilesService {
     //
     // A worker with no chat session at all still resolves to null and still takes the
     // create-always path, so the voice-form route is untouched.
-    const sessionId = suppliedSessionId ?? (await this.resolveLatestSession(input.worker_id));
+    const session = suppliedSession ?? (await this.resolveLatestSession(input.worker_id));
+    const sessionId = suppliedSessionId ?? session?.id ?? null;
     if (sessionId) {
       if (!suppliedSessionId) {
         this.logger.log(
@@ -263,11 +310,18 @@ export class ProfilesService {
         workerId: input.worker_id,
         inFlightSince: new Date(Date.now() - EXTRACTION_IN_FLIGHT_WINDOW_MS),
       });
+      // ADR-0045 §3.4 — a completed job minted before this session's general form was finished
+      // was built without the Work History the form stored. See `completedBeforeGeneralForm`.
+      const predatesForm = completedBeforeGeneralForm(
+        existing,
+        session ? readGeneralFormCompletedAt(session.conversationState) : null,
+      );
       // A completed job only counts if it actually produced something. An empty
       // profile from the AI-down fallback must NOT pin the session forever.
       const usable =
         existing !== undefined &&
-        (existing.status !== "completed" || hasExtractedContent(existing.profile));
+        (existing.status !== "completed" ||
+          (hasExtractedContent(existing.profile) && !predatesForm));
 
       if (existing && usable) {
         // No second `profile.extraction_requested`: one event per extraction
@@ -282,7 +336,10 @@ export class ProfilesService {
       if (existing) {
         this.logger.log(
           `extract re-running session=${sessionId} worker=${input.worker_id}: prior ai_job ` +
-            `${existing.id} completed with an empty profile`,
+            `${existing.id} completed ` +
+            (hasExtractedContent(existing.profile)
+              ? `before the general form was finished`
+              : `with an empty profile`),
         );
       }
 
@@ -393,10 +450,45 @@ export class ProfilesService {
    * NOT WRAPPED IN A try/catch. If this read fails the database is unreachable, and the
    * very next statement (`aiJobs.create`) would fail too — swallowing it here would only
    * convert a clean 500 into a job that is guaranteed to extract nothing.
+   *
+   * ── ADR-0045 §3.4: A FINISHED GENERAL FORM IS "THE THING THIS WORKER JUST FINISHED" ──────
+   *
+   * "Latest" means latest MESSAGE, and on the general road that is the wrong clock. The chat
+   * hands the worker a form and ends; he may open the chat again before he fills it in — a
+   * companion question, a redo — and that later session then ranks first, although the thing he
+   * has just finished (and the thing the app's session-less extract is about) is the form. So
+   * when his newest general handover carries a completion mark LATER than the latest session's
+   * last message, the handover is extracted instead. A chat he is still using after the form was
+   * finished keeps the old answer: its last message is later than the mark.
+   *
+   * ONLY A HANDOVER THE PROCESSOR WILL BUILD ON THE GENERAL ROAD: the stamp must read as
+   * `handed_over` with the same strict reader `extractOrParse` keys on, so this never redirects an
+   * extraction to a session that would then be sent to a model. Both reads are BY `workerId`, so
+   * ownership is still a property of the query; the owner comparison is defence in depth.
+   * Without a stamped, finished handover — every worker while the flag is off — this returns
+   * exactly what it always has.
+   *
+   * NEVER OVER A LATEST SESSION THAT IS ITSELF A FORM HANDOVER. The comparison above sees chat
+   * messages and the general form's own completion mark — nothing else. A TRADE form is filled in
+   * without touching `chat_sessions` at all (`TradeFormService` never writes the row), so its
+   * completion is invisible to it. A worker who was handed the general form, then redid the chat
+   * into a trade form and finished THAT, has a trade-form session whose last message predates the
+   * general mark — and "the mark is later" would extract the general handover over the form he
+   * actually just filled in. So a latest session that handed over to a form of its own (a declared
+   * `form_kind`, or its own general handover) is returned unchanged; only a latest session that is
+   * plain chat — a companion question, a redo that ended in no form — yields to a finished form.
    */
-  private async resolveLatestSession(workerId: string): Promise<string | null> {
-    const session = await this.chat.findLatestSessionByWorker(workerId);
-    return session?.id ?? null;
+  private async resolveLatestSession(workerId: string): Promise<ChatSession | null> {
+    const latest = await this.chat.findLatestSessionByWorker(workerId);
+    if (!latest) return null;
+    if (isFormHandover(latest.conversationState)) return latest;
+    const handover = await this.chat.findLatestGeneralHandoverSession(workerId);
+    if (!handover || handover.id === latest.id || handover.workerId !== workerId) return latest;
+    if (readGeneralRoadStamp(handover.conversationState)?.handed_over !== true) return latest;
+    const finishedAt = readGeneralFormCompletedAt(handover.conversationState);
+    if (finishedAt === null) return latest;
+    const lastMessageAt = latest.lastMessageAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+    return Date.parse(finishedAt) > lastMessageAt ? handover : latest;
   }
 
   /**
