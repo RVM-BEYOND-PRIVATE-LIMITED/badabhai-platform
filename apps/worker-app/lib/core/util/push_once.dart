@@ -22,12 +22,24 @@ extension BbPushOnce on BuildContext {
   Future<T?> pushOnce<T extends Object?>(String location, {Object? extra}) {
     final GoRouter router = GoRouter.of(this);
     final RouteMatchList stack = router.routerDelegate.currentConfiguration;
-    // The TOP of the stack, not `stack.uri` — that one reports the BASE
-    // location and does not move when a route is pushed on top of it, so
-    // comparing against it never matched and every duplicate sailed through.
-    final String current = stack.matches.isEmpty
-        ? stack.uri.toString()
-        : stack.matches.last.matchedLocation;
+    // THE LEAF match, not `stack.uri` and not `stack.matches.last` (#1784).
+    //
+    // `stack.uri` reports the BASE location and does not move when a route is
+    // pushed on top of it, so comparing against it never matched.
+    //
+    // `matches.last` fixed that only OUTSIDE the bottom-nav shell. Inside it,
+    // `matches.last` is the `ShellRouteMatch`, whose `matchedLocation` is
+    // pinned at the shell's own location (`/profile`) and does not move when a
+    // route is pushed INSIDE the branch — so the guard never fired for
+    // "Mere resume" or "Interview kit", and a fast double tap stacked two
+    // copies. Back then only removed the duplicate, which is the exact #1474
+    // failure this extension exists to stop.
+    //
+    // `lastOrNull` descends into shell matches and yields the route actually on
+    // top, however it got there (`push`, `go`, or a `pop` back onto it). Same
+    // read `feedback_fab.dart` already uses, for the same reason.
+    final String current =
+        stack.lastOrNull?.matchedLocation ?? stack.uri.toString();
     // Compare the PATH, so a push differing only by query string still counts
     // as the same screen.
     if (_pathOf(current) == _pathOf(location)) {

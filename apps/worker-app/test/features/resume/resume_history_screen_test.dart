@@ -19,6 +19,10 @@ import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.da
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_history_screen.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_history_section.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/profiling_tier.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
+import 'package:badabhai_worker_app/router.dart' show Routes;
+import 'package:go_router/go_router.dart';
 
 class _MockResumeRepository extends Mock implements ResumeRepository {}
 
@@ -30,14 +34,20 @@ class _MockProfileRepository extends Mock implements ProfileRepository {}
 /// than mocked so a test can also make the read FAIL, which the screen must
 /// survive with fewer facts and no error.
 class _FakeSummary implements ProfileSummaryRepository {
-  const _FakeSummary(this._summary) : _fails = false;
-  const _FakeSummary.failing() : _summary = null, _fails = true;
+  _FakeSummary(this._summary) : _fails = false;
+  _FakeSummary.failing() : _summary = null, _fails = true;
 
   final ProfileSummary? _summary;
   final bool _fails;
 
+  /// What the screen asked for on its last read (#1782). Attestation is only
+  /// populated in EXTRAS mode, so "did the screen ask for extras" is the
+  /// difference between a real verification note and one that can never be true.
+  bool? askedForExtras;
+
   @override
   Future<ProfileSummary> summary({bool includeDisplayExtras = false}) async {
+    askedForExtras = includeDisplayExtras;
     if (_fails || _summary == null) throw const NetworkFailure();
     return _summary;
   }
@@ -53,7 +63,7 @@ void main() {
   late _MockResumeRepository repo;
 
   /// Swapped per test, before `pump`.
-  ProfileSummaryRepository summaryRepo = const _FakeSummary(
+  ProfileSummaryRepository summaryRepo = _FakeSummary(
     ProfileSummary(strengthSignals: 0),
   );
 
@@ -87,7 +97,7 @@ void main() {
     );
     when(() => repo.loadResumeDocument())
         .thenAnswer((_) async => const ResumeDocumentSnapshot());
-    summaryRepo = const _FakeSummary(ProfileSummary(strengthSignals: 0));
+    summaryRepo = _FakeSummary(ProfileSummary(strengthSignals: 0));
     locator.registerFactory<ResumeCubit>(
       () => ResumeCubit(repo, editRepo, _MockProfileRepository()),
     );
@@ -234,7 +244,9 @@ void main() {
           city: 'Pune MIDC',
           machines: <String>['Fanuc', 'Siemens'],
           experienceYears: 3.5,
-          verified: true,
+          // ATTESTED, not merely `verified` (#1782): the note is a trust signal
+          // and `verified` is a lifecycle flag, so only this drives it now.
+          attested: true,
           strengthSignals: 0,
         ),
       );
@@ -566,4 +578,215 @@ void main() {
     verify(() => repo.loadResumeHistory()).called(greaterThan(0));
     verifyNever(() => repo.generateResume(force: any(named: 'force')));
   });
+
+  /// #1782 — the note came from `verified || attested`, and on this screen the
+  /// summary was read in LEAN mode, where `attested` is never populated. So it
+  /// was really `verified`: every worker with a confirmed profile was told
+  /// "Complete Verification Done" though nobody had checked their profile, and
+  /// everyone else got the "Unverified" copy #1586 forbids outright.
+  group('the verification note is ATTESTATION, never the lifecycle flag (#1782)',
+      () {
+    testWidgets('a confirmed but UNATTESTED worker sees no note at all',
+        (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(
+        const ProfileSummary(
+          tradeLabel: 'CNC Turner',
+          // The lifecycle flag is ON — this is the confirmed worker the bug
+          // mislabelled — and attestation is off, which is the real state.
+          verified: true,
+          strengthSignals: 0,
+        ),
+      );
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+
+      expect(find.textContaining(kResumeVerifiedNote), findsNothing,
+          reason: 'nobody has checked this profile');
+      expect(find.textContaining('Verification baaki hai'), findsNothing,
+          reason: '#1586: an unattested profile gets NO "Unverified" copy');
+    });
+
+    testWidgets('an ATTESTED worker sees the note, on the current card only',
+        (WidgetTester tester) async {
+      // The facts matter: the spec row (and so the note) is drawn only under a
+      // card that has a fact line, which is the shape a real confirmed profile
+      // has.
+      summaryRepo = _FakeSummary(
+        const ProfileSummary(
+          tradeLabel: 'CNC Turner',
+          city: 'Pune MIDC',
+          machines: <String>['Fanuc'],
+          experienceYears: 3,
+          attested: true,
+          strengthSignals: 0,
+        ),
+      );
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[
+            item(id: 'r2', day: 20, current: true),
+            item(id: 'r1', day: 12),
+          ],
+        ),
+      );
+
+      // ONE note for TWO cards: an older file must not carry a claim about the
+      // profile that is vouched for today.
+      expect(find.textContaining(kResumeVerifiedNote), findsOneWidget);
+    });
+
+    testWidgets('no card ever shows the "Verification baaki hai" copy',
+        (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(
+        const ProfileSummary(strengthSignals: 0),
+      );
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[
+            item(id: 'r2', day: 20, current: true),
+            item(id: 'r1', day: 12),
+          ],
+        ),
+      );
+
+      expect(find.textContaining('Verification baaki hai'), findsNothing);
+      expect(find.textContaining(kResumeVerifiedNote), findsNothing);
+    });
+
+    testWidgets('the screen READS attestation — a lean read could never be true',
+        (WidgetTester tester) async {
+      final _FakeSummary fake = _FakeSummary(
+        const ProfileSummary(attested: true, strengthSignals: 0),
+      );
+      summaryRepo = fake;
+      await pump(
+        tester,
+        ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+
+      expect(fake.askedForExtras, isTrue,
+          reason: 'attested stays false in lean mode, so the note would be dead '
+              'code and the old fallback to `verified` would creep back');
+    });
+  });
+
+  /// #1785 — the unfinished-profile card pushed `Routes.tradeForm` directly,
+  /// the one road into the form that skipped `openTradeFormWithTier`. With
+  /// tiers live, a worker the server answered `needs_choice` for went straight
+  /// into the full walk and never saw the Easy / Medium / Hard chooser.
+  group('the draft card goes through the tier gate (#1785)', () {
+    /// A summary with missing fields, which is what makes the card appear.
+    ProfileSummary draftSummary() => const ProfileSummary(
+          strengthSignals: 2,
+          strengthMax: 10,
+          missingFields: <String>['machines'],
+        );
+
+    Future<GoRouter> pumpRouted(WidgetTester tester) async {
+      when(() => repo.loadResumeHistory()).thenAnswer(
+        (_) async => ResumeHistory(
+          items: <ResumeHistoryItem>[item(id: 'r1', day: 20, current: true)],
+        ),
+      );
+      tester.view.physicalSize = const Size(420, 2200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (_, __) => const ResumeHistoryScreen()),
+          GoRoute(
+            path: Routes.tierChoice,
+            builder: (_, __) =>
+                const Scaffold(body: Center(child: Text('TIER CHOOSER'))),
+          ),
+          GoRoute(
+            path: Routes.tradeForm,
+            builder: (_, __) =>
+                const Scaffold(body: Center(child: Text('TRADE FORM'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      );
+      await tester.pump();
+      await tester.pump();
+      return router;
+    }
+
+    Future<void> tapContinue(WidgetTester tester) async {
+      await tester.ensureVisible(find.text(kResumeDraftCta));
+      await tester.pump();
+      await tester.tap(find.text(kResumeDraftCta));
+      // `openTradeFormWithTier` awaits `loadTierState()` before navigating.
+      await tester.pump();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('needs_choice → Continue shows the tier chooser',
+        (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(draftSummary());
+      locator.registerFactory<TradeFormRepository>(
+        () => _FakeTiers(
+          const TierState(
+            enabled: true,
+            needsChoice: true,
+            tiers: <TierEstimate>[
+              TierEstimate(
+                tier: ProfilingTier.easy,
+                minMinutes: 3,
+                maxMinutes: 5,
+              ),
+            ],
+          ),
+        ),
+      );
+      await pumpRouted(tester);
+      await tapContinue(tester);
+
+      expect(find.text('TIER CHOOSER'), findsOneWidget);
+      expect(find.text('TRADE FORM'), findsNothing);
+    });
+
+    testWidgets('any other answer → Continue opens the form, exactly as today',
+        (WidgetTester tester) async {
+      summaryRepo = _FakeSummary(draftSummary());
+      locator.registerFactory<TradeFormRepository>(
+        () => _FakeTiers(TierState.disabled),
+      );
+      await pumpRouted(tester);
+      await tapContinue(tester);
+
+      expect(find.text('TRADE FORM'), findsOneWidget);
+      expect(find.text('TIER CHOOSER'), findsNothing);
+    });
+  });
+}
+
+/// Answers only the one question `openTradeFormWithTier` asks. Hand-written
+/// rather than a mock so the tier gate's "never throws" contract is honoured
+/// without stubbing every other member of the repository.
+class _FakeTiers implements TradeFormRepository {
+  _FakeTiers(this._state);
+
+  final TierState _state;
+
+  @override
+  Future<TierState> loadTierState() async => _state;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not used by the tier gate: ${invocation.memberName}');
 }

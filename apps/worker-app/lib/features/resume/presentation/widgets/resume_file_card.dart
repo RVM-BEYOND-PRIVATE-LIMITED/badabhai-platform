@@ -11,9 +11,13 @@ import 'resume_history_section.dart';
 /// fixed A4 sheet (`apps/api` renders one size). Stated, not measured.
 const String kResumeFormatChip = 'A4 Format';
 
-/// The verification line, from the profile's OWN verified/attested flags.
+/// The verification line, driven by ATTESTATION ALONE (#1586/#1782).
+///
+/// There is no negative counterpart on purpose: an unattested profile says
+/// nothing at all. The "Verification baaki hai" string this file used to carry
+/// was the "Unverified" copy #1586 forbids, and it was reached by every worker
+/// who had merely confirmed their profile.
 const String kResumeVerifiedNote = 'Complete Verification Done';
-const String kResumeUnverifiedNote = 'Verification baaki hai';
 
 /// One saved résumé card (design: Mere resume).
 ///
@@ -207,9 +211,17 @@ class ResumeFileCard extends StatelessWidget {
               const SizedBox(height: 8),
               _SpecRow(
                 pageCount: item.pageCount,
-                verified: item.isCurrent && s != null
-                    ? (s.verified || s.attested)
-                    : null,
+                // ATTESTATION ONLY (#1782, the #1586 rule). `verified` is a
+                // LIFECYCLE flag — "this worker confirmed their profile" — and
+                // must never drive a trust note. Reading `verified || attested`
+                // told every confirmed worker "Complete Verification Done"
+                // when nobody had checked their profile, and told everyone else
+                // "Verification baaki hai", which #1586 forbids outright.
+                //
+                // Only the CURRENT résumé can carry it: an older file's note
+                // would claim something about a document that is no longer the
+                // one being vouched for.
+                attested: item.isCurrent && (s?.attested ?? false),
               ),
             ],
             const SizedBox(height: 12),
@@ -316,15 +328,19 @@ class _FactLine extends StatelessWidget {
 /// history row nor the document read reports how many pages the rendered PDF
 /// has — so the slot is left out rather than filled with a guessed number.
 class _SpecRow extends StatelessWidget {
-  const _SpecRow({required this.pageCount, required this.verified});
+  const _SpecRow({required this.pageCount, required this.attested});
 
   /// "2 Pages". Null until the server reports it (#1714) — the slot is then
   /// left out rather than filled with a guessed number.
   final int? pageCount;
 
-  /// Null when this résumé's verification state is not known — an older row on
-  /// a server without #1714. The note is then omitted rather than claimed.
-  final bool? verified;
+  /// Whether a human has actually attested this worker's profile (#1586).
+  ///
+  /// A PLAIN BOOL, AND ONLY THE POSITIVE NOTE (#1782). There is deliberately no
+  /// third "unknown" state and no "not verified" copy: #1586's rule is that an
+  /// unattested profile renders NO badge and NO "Unverified" wording, so false
+  /// and unknown are the same thing on screen — nothing is said.
+  final bool attested;
 
   @override
   Widget build(BuildContext context) {
@@ -357,9 +373,9 @@ class _SpecRow extends StatelessWidget {
               color: OnboardingColors.ink500,
             ),
           ),
-        if (verified != null)
+        if (attested)
           Text(
-            '• ${verified! ? kResumeVerifiedNote : kResumeUnverifiedNote}',
+            '• $kResumeVerifiedNote',
             style: OnboardingTypography.inter(
               size: 11,
               weight: FontWeight.w500,
