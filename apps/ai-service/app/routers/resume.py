@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter
 
 from ..ai.langfuse_tracing import WORKFLOW_RESUME
+from ..certified_values import certify_resume_single_values
 from ..contracts import ResumeGenerationInput, ResumeGenerationOutput
 from ..extraction import build_resume, resolve_taxonomy_ids
 from ..profiling.prompts import RESUME_SYSTEM_PROMPT
@@ -57,8 +58,8 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     """The handler body, split out only so the trace root above can wrap it whole without
     re-indenting (and forcing a re-review of) every privacy comment in it. Same shape and
     same reason as ``routers/voice.py``; nothing below this line changed."""
-    # Q14: `skill_labels` is the ONLY free-text field on the résumé profile
-    # (everything else is closed-set ids/enums/numbers). Labels are already
+    # Q14: `skill_labels` was the first free-text field certified here (the
+    # education/location single values followed in #1739, below). Labels are already
     # CERTIFIED AT REST at population (/profile/extract → sanitize_skill_labels),
     # but the boundary RE-certifies every label (defense in depth — this also
     # covers old/hand-crafted payloads) before it may appear in the artifact OR
@@ -85,6 +86,20 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     if profile.certifications:
         kept = certified_clean_skill_labels(profile.certifications)
         profile = profile.model_copy(update={"certifications": kept})
+    # #1739: THE SINGLE-VALUE FIELDS, through the same certifier as the lists above. The
+    # location (current city, preferred cities, in the container and in `location_preference`)
+    # and the education level/field are model-authored free text that `build_resume` prints and
+    # `resume_json` carries. The payload gate below masks them for the MODEL only, and it passes
+    # a name behind a leading city or trade word untouched. A value that fails is withheld
+    # (None, or dropped from its list) BEFORE `build_resume`, so the text, `resume_json` and the
+    # LLM payload all see the same certified profile. Never raises; the résumé always completes.
+    profile, withheld = certify_resume_single_values(profile)
+    if withheld:
+        # COUNT only, never the value (a withheld value is suspect PII).
+        logger.debug(
+            "resume single-value fields withheld by the certification gate",
+            extra={"extra": {"withheld": withheld}},
+        )
     text, data = build_resume(profile)
     # Resolve all taxonomy IDs to human-readable labels BEFORE the LLM sees
     # them, so the LLM never echoes raw IDs like skill_milling or mach_vmc
@@ -115,6 +130,11 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     # `salary_expectation`, `availability`. A name, phone or employer that a model
     # wrote into any of those egressed raw — while `/profiling/respond` and
     # `/profile/extract` mask that exact class of value on every turn.
+    #
+    # #1739 has since certified the education and location values before `build_resume`
+    # (above), so a failing one never reaches this payload at all. The rest (`experience`,
+    # `salary_expectation`, `availability`, the role/domain labels, `shift`, the container's
+    # skills and experiences) still reach this gate uncertified; it remains their only mask.
     #
     # FAIL-CLOSED THE SAME WAY `/profiling/respond` DOES: on `blocked` the provider is
     # NEVER called. The route still COMPLETES — `text` is the deterministic résumé

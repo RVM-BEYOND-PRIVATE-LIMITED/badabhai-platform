@@ -53,8 +53,10 @@ def _resume_body(**profile_overrides) -> dict:
 def test_resume_generate_pseudonymizes_the_llm_payload(monkeypatch):
     """The gap FIX 2 closes: a value stored in ANY profile field used to egress raw.
 
-    `education_level` is a MODEL-AUTHORED free-text scalar certified by nothing, so it
-    is the honest carrier for this probe.
+    `shift` is a free-text scalar the résumé boundary does not certify, so the payload gate is
+    its only mask here and it is the honest carrier for this probe. (It used to be
+    `education_level`; #1739 now certifies that one BEFORE the payload, so a failing value never
+    reaches this gate at all — see tests/test_resume_single_value_certification.py.)
     """
     from app import main as main_module
 
@@ -67,7 +69,7 @@ def test_resume_generate_pseudonymizes_the_llm_payload(monkeypatch):
     monkeypatch.setattr(main_module.router, "run", _fake_run)
     res = client.post(
         "/resume/generate",
-        json=_resume_body(education_level="Diploma from Sharma Industries, call 9876543210"),
+        json=_resume_body(shift="Diploma from Sharma Industries, call 9876543210"),
     )
     assert res.status_code == 200
 
@@ -144,7 +146,8 @@ def test_resume_generate_fails_closed_without_calling_the_provider(monkeypatch):
     monkeypatch.setattr(main_module.router, "run", _fake_run)
     # A 9-digit zero-led run is neither phone-shaped nor an in-range amount, so it
     # survives to the residual-digit net -> blocked (the gateway's fail-closed leg).
-    res = client.post("/resume/generate", json=_resume_body(education_field="batch 01234567"))
+    # `shift`: a field the résumé boundary does not certify, so the gate itself must block.
+    res = client.post("/resume/generate", json=_resume_body(shift="batch 01234567"))
     assert res.status_code == 200
     assert calls == [], "the provider was called on a BLOCKED gate"
 
