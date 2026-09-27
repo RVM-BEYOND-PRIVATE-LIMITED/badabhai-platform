@@ -205,7 +205,9 @@ def test_resume_generate_reports_no_cost_when_the_gate_blocks():
     """
     body = client.post(
         "/resume/generate",
-        json={"profile": {"education_level": "my reference number is 12345678"}},
+        # `shift`, not education: #1739 withholds an uncertified education value BEFORE the
+        # payload, so it could no longer make the gate block.
+        json={"profile": {"shift": "my reference number is 12345678"}},
     ).json()
 
     assert body["is_mock"] is True

@@ -115,7 +115,8 @@ def test_a_blocked_gate_returns_the_same_shape_and_calls_nobody(monkeypatch):
 
     # The carrier `test_egress_gates.py` uses for this class: a 9-digit zero-led run is neither
     # phone-shaped nor an in-range amount, so it survives to the residual-digit net -> blocked.
-    res = client.post("/resume/generate", json=_body(education_field="batch 01234567"))
+    # `shift`: #1739 withholds an uncertified education value before the payload gate.
+    res = client.post("/resume/generate", json=_body(shift="batch 01234567"))
     assert res.status_code == 200
     assert calls == [], "the provider was called on a BLOCKED gate"
 
