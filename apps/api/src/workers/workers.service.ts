@@ -10,6 +10,8 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import { canonicalCity, canonicalState } from "@badabhai/profiling-lexicon";
+import type { GeneratedResume } from "@badabhai/db";
+import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -40,6 +42,50 @@ const NOT_STARTED_JOB_STATES: ReadonlySet<string> = new Set([
   "prioritized",
   "waiting-children",
 ]);
+
+/** A résumé SAFE FIELD, as `resume.edited_v2` names it (#1318). */
+type ResumeSafeField = PayloadInputOf<"resume.edited_v2">["field"];
+
+/**
+ * WHO IS WRITING THE NAME — decided by the route, because only the route knows its guard.
+ *
+ * `worker_self` is `PATCH /workers/me/name` (WorkerAuthGuard + ConsentGuard, id from the session):
+ * the worker editing their own name, which is what `resume.edited_v2` counts. `internal_ops` is the
+ * legacy `PUT /workers/:id/name` behind InternalServiceGuard — the ops shared secret, a path id, no
+ * worker session — so it is NOT the worker's résumé edit and emits no `resume.edited_v2`. REQUIRED,
+ * with no default, so a future caller has to say which it is.
+ */
+export type NameWriteOrigin = "worker_self" | "internal_ops";
+
+/**
+ * The latest-résumé lookup once it has been MADE, so the re-render can reuse it instead of asking
+ * again. A wrapper rather than a bare value because "looked, and there is none" (`latest:
+ * undefined`) and "never looked" (no lookup at all) must stay distinguishable.
+ */
+interface LatestResumeLookup {
+  readonly latest: GeneratedResume | undefined;
+}
+
+/**
+ * Which of the two résumé display prefs REALLY changed, before-vs-after on the row — never "which
+ * keys were in the body", so a partial PATCH or a same-value PATCH names nothing.
+ *
+ * `night_shift_ready` COMPARES COALESCED (null ≡ false). The column is three-state, but every
+ * reader of it is two-state: `worker.resume_prefs_updated` and `GET /workers/me/resume-fields`
+ * both report null as false, and the résumé prints the availability line only when it is true. A
+ * worker whose null became false has changed nothing they or any consumer can see, so it is no edit.
+ */
+function changedResumePrefs(
+  before: { resumeShowPhoto: boolean; resumeNightShiftReady: boolean | null },
+  after: { resumeShowPhoto: boolean; resumeNightShiftReady: boolean | null },
+): ResumeSafeField[] {
+  const changed: ResumeSafeField[] = [];
+  if (before.resumeShowPhoto !== after.resumeShowPhoto) changed.push("show_photo");
+  if ((before.resumeNightShiftReady ?? false) !== (after.resumeNightShiftReady ?? false)) {
+    changed.push("night_shift_ready");
+  }
+  return changed;
+}
 
 /**
  * Worker write-side logic (identity) + the worker SELF-view summary read.
@@ -93,10 +139,12 @@ export class WorkersService {
   private async enqueueResumeRerender(
     workerId: string,
     ctx: RequestContext,
-    opts: { failClosed: boolean },
+    opts: { failClosed: boolean; lookup?: LatestResumeLookup },
   ): Promise<void> {
     try {
-      const latest = await this.workers.latestResume(workerId);
+      // A lookup already made by `emitResumeEdited` for this request is reused — same row, one
+      // query instead of two. Without one, this asks exactly as it always has.
+      const latest = opts.lookup ? opts.lookup.latest : await this.workers.latestResume(workerId);
       // No resume yet → nothing to re-render; the first generate picks the photo up.
       if (!latest) return;
       const job = (resumeId: string): ResumeRenderJobData => ({
@@ -272,15 +320,127 @@ export class WorkersService {
   }
 
   /**
+   * #1318 (owner ruling 2026-09-27) — one `resume.edited_v2` per safe field that REALLY changed,
+   * and only for a worker who ALREADY HAS A RÉSUMÉ: onboarding name capture and a pre-résumé
+   * avatar are not résumé edits. `resume_id` is the latest résumé — the one the edit re-renders.
+   *
+   * Called AFTER the write and its sibling `worker.*` event, BEFORE the re-render. Nothing is
+   * looked up when nothing changed. Returns the lookup it made so the re-render reuses it.
+   *
+   * SHAPED LIKE ITS SIBLINGS: worker actor; the `resume` subject every other `resume.*` emitter
+   * with a résumé in hand uses; no tx and no idempotency key, because none of the `worker.*`
+   * events beside it has one and a retried request is a new request (whose before-vs-after then
+   * finds no change).
+   *
+   * BEST-EFFORT, UNLIKE THE SIBLING. The sibling `worker.*` event is this write's audit record and
+   * stays fail-loud. This one is a measurement signal, and it sits in front of two PII-ERASURE
+   * re-renders (a removed photo, show_photo turned off). Were it to throw there, the erasure would
+   * never be queued — and the worker's retry could not repair it, because the retry finds the
+   * photo already gone or the pref already off and re-renders nothing. Same rule as the audit row
+   * beside the erasure backfill below: a lost analytics row must never un-queue an erasure. Loud,
+   * so the gap is visible.
+   *
+   * PII-FREE BY CONSTRUCTION: ids and the field name only. The caller's before/after values never
+   * reach this method.
+   */
+  private async emitResumeEdited(
+    workerId: string,
+    fields: readonly ResumeSafeField[],
+    ctx: RequestContext,
+  ): Promise<LatestResumeLookup | undefined> {
+    if (fields.length === 0) return undefined;
+    const lookup = await this.lookupLatestResume(workerId);
+    if (lookup?.latest) await this.emitEditedFields(workerId, lookup.latest.id, fields, ctx);
+    return lookup;
+  }
+
+  /**
+   * The `resume.edited_v2` résumé gate. A failure returns `undefined` — "never looked" — so
+   * `enqueueResumeRerender` makes its own (equally best-effort) lookup exactly as it did before
+   * #1318. See {@link emitResumeEdited} for why this must not throw.
+   */
+  private async lookupLatestResume(workerId: string): Promise<LatestResumeLookup | undefined> {
+    try {
+      return { latest: await this.workers.latestResume(workerId) };
+    } catch (err) {
+      this.logger.error(
+        `resume.edited_v2 skipped for worker ${workerId}: the résumé lookup failed (reason: ${
+          err instanceof Error ? err.message : String(err)
+        }); the edit stands and the re-render still runs`,
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * One `resume.edited_v2` per field, each best-effort on its own — one failed field never drops
+   * the next. See {@link emitResumeEdited}. The log names the error CLASS, so an
+   * `EventValidationException` (a programming error) can be alerted on apart from an I/O failure.
+   */
+  private async emitEditedFields(
+    workerId: string,
+    resumeId: string,
+    fields: readonly ResumeSafeField[],
+    ctx: RequestContext,
+  ): Promise<void> {
+    for (const field of fields) {
+      try {
+        await this.events.emit({
+          event_name: "resume.edited_v2",
+          actor: { actor_type: "worker", actor_id: workerId },
+          subject: { subject_type: "resume", subject_id: resumeId },
+          payload: { worker_id: workerId, resume_id: resumeId, field },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      } catch (err) {
+        this.logger.error(
+          `resume.edited_v2 (${field}) emission FAILED for worker ${workerId} (${
+            err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+          }); the edit stands and the re-render still runs`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Does `next` REALLY change the stored name? Compared IN MEMORY ONLY — neither value is logged,
+   * returned, or emitted, and the decrypted one does not outlive this call.
+   *
+   * No stored name → setting one is a change. An UNREADABLE stored name (wrong key, corrupt,
+   * legacy plaintext) → a change too, and never a throw: the save has already landed and an
+   * analytics signal must not 500 it. That is the same degrade-and-warn every other `full_name`
+   * decrypt here follows (`getResumeFields`, `getWhatsapp`), and it is also the TRUE answer — the
+   * render degrades an unreadable name to a name-less résumé, so a readable name now changes what
+   * the résumé prints.
+   */
+  private nameChanged(workerId: string, storedCipher: string | null, next: string): boolean {
+    if (!storedCipher) return true;
+    try {
+      return this.pii.decrypt(storedCipher) !== next;
+    } catch {
+      this.logger.warn(
+        `could not decrypt full_name for worker ${workerId}; counting the save as a name edit`,
+      );
+      return true;
+    }
+  }
+
+  /**
    * Record the worker's real name. The name is PII (TD21): it is encrypted at
    * rest (AES-256-GCM, same as phone_e164) and NEVER logged, returned, or placed
    * in an event — only the fact that a name was recorded is emitted. The plaintext
    * name does not leave this method. Returns `{ worker_id }` only.
+   *
+   * #1318: a `worker_self` save that REALLY changes the stored name, on a worker who already has a
+   * résumé, also emits `resume.edited_v2` (field `name`). An `internal_ops` write never does — see
+   * {@link NameWriteOrigin}.
    */
   async setFullName(
     workerId: string,
     fullName: string,
     ctx: RequestContext,
+    opts: { origin: NameWriteOrigin },
   ): Promise<{ worker_id: string }> {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
@@ -299,6 +459,18 @@ export class WorkersService {
       requestId: ctx.requestId,
     });
 
+    // THE RÉSUMÉ GATE FIRST, THEN THE DECRYPT: the stored name is read back only when a résumé
+    // exists for it to change, so an onboarding save never decrypts PII it cannot use. Costs no
+    // extra query — the re-render below reuses this lookup. `worker.fullName` is the PRE-write
+    // ciphertext (read above), so the compare is old vs new.
+    let lookup: LatestResumeLookup | undefined;
+    if (opts.origin === "worker_self") {
+      lookup = await this.lookupLatestResume(workerId);
+      if (lookup?.latest && this.nameChanged(workerId, worker.fullName, fullName)) {
+        await this.emitEditedFields(workerId, lookup.latest.id, ["name"], ctx);
+      }
+    }
+
     this.logger.log(`full_name recorded (encrypted) for worker ${workerId}`); // never logs the name
 
     // TD77 parity with updateResumePrefs: the worker's real name is baked onto the
@@ -308,7 +480,7 @@ export class WorkersService {
     // regenerate on edit-return (that would bin the PDF + burn the 5/day generate cap).
     // failClosed:false — a name update is not a content REMOVAL, so a failed render just
     // leaves the previous (old-name) PDF until the next render, never a privacy leak.
-    await this.enqueueResumeRerender(workerId, ctx, { failClosed: false });
+    await this.enqueueResumeRerender(workerId, ctx, { failClosed: false, lookup });
 
     return { worker_id: workerId };
   }
@@ -618,13 +790,21 @@ export class WorkersService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+    // #1318: a confirmed NEW object is a photo edit, whatever show_photo says — it is the résumé's
+    // own photo, shown or not. Re-confirming the key already on file is a retry (keys are minted
+    // once per upload), not a change, so it counts nothing. Résumé-gated inside.
+    const lookup = await this.emitResumeEdited(
+      workerId,
+      oldKey !== dto.storage_path ? ["photo"] : [],
+      ctx,
+    );
 
     this.logger.log(`profile photo recorded for worker ${workerId}`); // never the key/URL
     // TD77: put the new photo onto the worker's existing resume PDF (top-right of
     // the template). ONLY when show_photo is on — with it off the render gate drops
     // the photo anyway, so a re-render could not change one byte of the PDF.
     if (worker.resumeShowPhoto) {
-      await this.enqueueResumeRerender(workerId, ctx, { failClosed: false });
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: false, lookup });
     }
     return { worker_id: workerId, has_photo: true };
   }
@@ -692,6 +872,8 @@ export class WorkersService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+    // #1318: a photo was really removed (the no-photo case returned above). Résumé-gated inside.
+    const lookup = await this.emitResumeEdited(workerId, ["photo"], ctx);
 
     this.logger.log(`profile photo removed for worker ${workerId}`);
     // TD77: take the photo back OFF the worker's existing resume PDF — but only if it
@@ -699,7 +881,7 @@ export class WorkersService {
     // erase). failClosed: this render's purpose is to remove PII, so a terminal
     // failure must NOT keep serving the face the worker just erased.
     if (worker.resumeShowPhoto) {
-      await this.enqueueResumeRerender(workerId, ctx, { failClosed: true });
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: true, lookup });
     }
     return { worker_id: workerId, has_photo: false };
   }
@@ -740,6 +922,10 @@ export class WorkersService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+    // #1318: one resume.edited_v2 per pref that REALLY changed (before-vs-after, null ≡ false —
+    // see changedResumePrefs). Independent of whether a photo exists: the toggle is the worker's
+    // edit to their résumé even while the PDF has no photo to show. Résumé-gated inside.
+    const lookup = await this.emitResumeEdited(workerId, changedResumePrefs(worker, updated), ctx);
 
     this.logger.log(`resume prefs updated for worker ${workerId}`);
     // TD77: the "Photo dikhayein" toggle decides whether the photo is on the PDF, so
@@ -772,6 +958,7 @@ export class WorkersService {
     if (photoFlipped || nightShiftFlipped) {
       await this.enqueueResumeRerender(workerId, ctx, {
         failClosed: photoFlipped && !updated.resumeShowPhoto,
+        lookup,
       });
     }
     return { worker_id: workerId };

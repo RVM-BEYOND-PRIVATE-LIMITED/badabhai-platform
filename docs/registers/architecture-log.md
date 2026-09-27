@@ -8,6 +8,37 @@ boundary moved).
 
 ---
 
+## 2026-09-27 — #1318 ruled: `resume.edited_v2` for résumé safe-field edits; v1 untouched
+- **Owner ruling (2026-09-27), recorded.** The safe-field edit gets its OWN registry entry,
+  `resume.edited_v2` (v2, domain `resume`, appended at the registry tail) — not a widened v1.
+  `resume.edited` v1's `correction_id`/`session_id`/`profile_id` are REQUIRED and a safe-field
+  edit has none of them; relaxing them would mutate a shipped schema (CLAUDE.md §3), and the
+  registry allows one version per name. v1 keeps its definition and its emitter
+  (`ExtractedCorrectionsService`, extracted-profile corrections). Same route as
+  `profile.viewed_v2`.
+- **New contract surface: `resume.edited_v2`** (`packages/event-schema`). Payload `worker_id`,
+  `resume_id`, `field ∈ {name, photo, show_photo, night_shift_ready}`, `.strict()` — no value in
+  either direction, no name, no storage key. Emitted from `WorkersService` (`setFullName`,
+  `confirmPhoto`, `deletePhoto`, `updateResumePrefs`) after the sibling `worker.*` event, one per
+  field that REALLY changed (before-vs-after; `night_shift_ready` compares null ≡ false), and
+  ONLY when the worker already has a résumé — onboarding name capture and pre-résumé avatars do
+  not count. Subject is the latest résumé; no idempotency key, like its `worker.*` siblings.
+  `photo` counts a NEW object only — re-confirming the key already on file is a retry. The stored
+  name is decrypted for the compare only AFTER the résumé gate passes, never on onboarding.
+- **Best-effort, unlike its siblings — a deliberate asymmetry.** The sibling `worker.*` event is
+  the write's audit record and stays fail-loud. `resume.edited_v2` is a measurement signal that
+  sits in front of two PII-erasure re-renders (photo removed, show_photo off); a failure there
+  (lookup or insert) is logged at error and swallowed, so the fail-closed erasure is always
+  queued. A retry could not repair a skipped erasure (the photo is already gone / the pref already
+  off), and a lost analytics row must never un-queue an erasure — the same rule as the audit row
+  beside the erasure backfill.
+- **Name writes now declare their origin.** `setFullName` takes a required
+  `{ origin: "worker_self" | "internal_ops" }`. The ops-only `PUT /workers/:id/name`
+  (InternalServiceGuard) passes `internal_ops` and never emits `resume.edited_v2`; the
+  worker-self `PATCH /workers/me/name` passes `worker_self`.
+- **Out of scope, split:** `profile.qr_scanned` → #1800, `resume.skin_changed` → #1801. Neither is
+  registered.
+
 ## 2026-09-21 — E0 relay built: resolution, message table, send/read/reply, notification, and the per-purpose exit
 - **The handle now resolves.** `UnlockService.resolveRelayForPayer` / `resolveRelayForWorker`
   walk `relay_handle -> unlock_routing -> unlocks -> worker` and re-check AT USE TIME: caller

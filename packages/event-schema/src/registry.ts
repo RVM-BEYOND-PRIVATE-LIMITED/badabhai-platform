@@ -1229,6 +1229,13 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileGeneralFormCompletedPayload,
   },
+
+  // #1318 (owner ruling 2026-09-27) — `resume.edited` VERSION 2: a worker edited a résumé SAFE
+  // FIELD (name, photo, show_photo, night_shift_ready). The v1 entry keeps its definition,
+  // unmodified, and its emitter (extracted-profile corrections); v1's required correction/session
+  // ids cannot describe a safe-field edit. Emitted from `WorkersService` only on a REAL change by
+  // the worker themself, only once a résumé exists, one per field. Ids + closed enum, strict. v2.
+  "resume.edited_v2": { version: 2, domain: "resume", payload: p.ResumeEditedV2Payload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

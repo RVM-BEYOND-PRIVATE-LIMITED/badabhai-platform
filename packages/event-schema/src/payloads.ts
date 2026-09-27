@@ -964,6 +964,34 @@ export const ResumeEditedPayload = z.object({
   field: z.enum(["skills", "machines", "experience", "education", "certificates"]),
 });
 
+/**
+ * A worker edited one of the résumé SAFE FIELDS (#1318; owner ruling 2026-09-27) — VERSION 2.
+ *
+ * WHY A NEW NAME AND NOT A WIDER v1. v1 (`ResumeEditedPayload` above) is the extracted-profile
+ * CORRECTION event: `correction_id`/`session_id`/`profile_id` are REQUIRED because every v1 fact is
+ * a `profile_correction` row anchored to a pinned interview. A safe-field edit (name, photo, the two
+ * display prefs) has none of the three, so it could only ride v1 by relaxing shipped required
+ * fields or widening a shipped enum — both mutate a shipped schema (CLAUDE.md §3), and the registry
+ * allows one version per NAME. v1 stays exactly as it is and keeps its emitter
+ * (`ExtractedCorrectionsService`); v2 is the `profile.viewed_v2` precedent: new name, v1 untouched.
+ *
+ * EMITTED ONLY FOR A REAL CHANGE ON A WORKER WHO ALREADY HAS A RÉSUMÉ — onboarding name capture and
+ * a pre-résumé avatar are not résumé edits. One event per changed field.
+ *
+ * PII-FREE BY CONSTRUCTION: two opaque ids and a closed field enum. No value in either direction —
+ * not the name, not the photo's storage key, not even the resulting boolean of a pref — and
+ * `.strict()`, so a value cannot be smuggled in beside them without a version bump.
+ */
+export const ResumeEditedV2Payload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The worker's LATEST résumé at the time of the edit — the one the edit re-renders. */
+    resume_id: uuidSchema,
+    field: z.enum(["name", "photo", "show_photo", "night_shift_ready"]),
+  })
+  .strict();
+export type ResumeEditedV2Payload = z.infer<typeof ResumeEditedV2Payload>;
+
 // ---------------------------------------------------------------------------
 // interview_kit.* (per-trade preparation kit — deterministic, render-once)
 //

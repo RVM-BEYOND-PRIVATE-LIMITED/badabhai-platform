@@ -21,6 +21,8 @@ const NAME = "Asha Kumari";
 /** TD77: the worker's latest resume — the target of a forced presentation re-render. */
 const RESUME_ID = "3c4d5e6f-3333-4333-8333-000000000003";
 const TOKEN = "v1.opaqueciphertext"; // encrypt() output — must NOT contain the name
+/** The worker-self name route (PATCH /workers/me/name) — the only one that counts as a résumé edit. */
+const SELF = { origin: "worker_self" } as const;
 
 /** Default storage mock — every method resolves happily; override per test. */
 function mockStorage() {
@@ -112,7 +114,7 @@ function setup(workerExists = true) {
 describe("WorkersService.setFullName (TD21)", () => {
   it("encrypts the name before storing — a plaintext name is never persisted", async () => {
     const { svc, repo, pii } = setup();
-    await svc.setFullName("w-1", NAME, CTX);
+    await svc.setFullName("w-1", NAME, CTX, SELF);
 
     expect(pii.encrypt).toHaveBeenCalledWith(NAME);
     expect(repo.updateFullName).toHaveBeenCalledWith("w-1", TOKEN);
@@ -122,7 +124,7 @@ describe("WorkersService.setFullName (TD21)", () => {
 
   it("emits a PII-free worker.name_recorded event (no name) and returns only worker_id", async () => {
     const { svc, events } = setup();
-    const res = await svc.setFullName("w-1", NAME, CTX);
+    const res = await svc.setFullName("w-1", NAME, CTX, SELF);
 
     expect(res).toEqual({ worker_id: "w-1" });
     const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
@@ -134,14 +136,16 @@ describe("WorkersService.setFullName (TD21)", () => {
 
   it("throws NotFound for an unknown worker — no write, no event", async () => {
     const { svc, repo, events } = setup(false);
-    await expect(svc.setFullName("missing", NAME, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.setFullName("missing", NAME, CTX, SELF)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(repo.updateFullName).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
   });
 
   it("re-renders the latest resume PDF in place so a name change reaches the download (TD77)", async () => {
     const { svc, renderQueue } = setup();
-    await svc.setFullName("w-1", NAME, CTX);
+    await svc.setFullName("w-1", NAME, CTX, SELF);
     // The name is decrypted live in the render worker, so a forced in-place re-render
     // rebuilds the PDF with the new name — without it the downloaded PDF keeps the old
     // name (the app defers to this server-side re-render and never regenerates on edit).
@@ -154,7 +158,7 @@ describe("WorkersService.setFullName (TD21)", () => {
   it("skips the re-render when the worker has no resume yet — the first generate picks the name up", async () => {
     const { svc, repo, renderQueue } = setup();
     repo.latestResume.mockResolvedValueOnce(undefined as never);
-    await svc.setFullName("w-1", NAME, CTX);
+    await svc.setFullName("w-1", NAME, CTX, SELF);
     expect(renderQueue.add).not.toHaveBeenCalled();
   });
 });
@@ -1325,5 +1329,521 @@ describe("WorkersService.backfillErasureRerenders (ADR-0043 launch gate)", () =>
     );
     expect(last.repo.listErasureBackfillTargets).toHaveBeenCalledWith(2, T(2).resumeId);
     expect(res.next_after).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1318 (owner ruling 2026-09-27) — `resume.edited_v2`, the résumé SAFE-FIELD edit.
+//
+// One event per field that REALLY changed, only for a worker who already has a résumé, ids + a
+// closed enum only. Emitted after the sibling `worker.*` event, which must stay exactly as it was.
+// ---------------------------------------------------------------------------
+
+const OLD_NAME = "Ramesh Yadav";
+const OLD_TOKEN = "v1.oldopaqueciphertext";
+
+interface EditWorker {
+  id: string;
+  fullName: string | null;
+  resumeShowPhoto: boolean;
+  resumeNightShiftReady: boolean | null;
+  photoStorageKey: string | null;
+}
+
+function editSetup(
+  opts: {
+    worker?: Partial<EditWorker>;
+    /** The row `updateResumePrefs` returns; defaults to the worker unchanged. */
+    updated?: Partial<EditWorker>;
+    /** Pass `undefined` for "no résumé yet". */
+    latestResume?: { id: string; version: number } | undefined;
+    decrypt?: (token: string) => string;
+    /** Make ONLY the `resume.edited_v2` emit reject — the siblings still land. */
+    failEdited?: boolean;
+  } = {},
+) {
+  const worker: EditWorker = {
+    id: WORKER_ID,
+    fullName: null,
+    resumeShowPhoto: true,
+    resumeNightShiftReady: false,
+    photoStorageKey: null,
+    ...opts.worker,
+  };
+  const latestResume = "latestResume" in opts ? opts.latestResume : { id: RESUME_ID, version: 1 };
+  const repo = {
+    findById: vi.fn(async (_id: string) => worker),
+    updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: WORKER_ID })),
+    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) => ({
+      ...worker,
+      photoStorageKey: key,
+    })),
+    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => ({
+      ...worker,
+      ...opts.updated,
+    })),
+    latestResume: vi.fn(async (_id: string) => latestResume),
+    listErasureTargetIds: vi.fn(async (_id: string) => (latestResume ? [latestResume.id] : [])),
+  };
+  const pii = {
+    encrypt: vi.fn((_plaintext: string) => TOKEN),
+    decrypt: vi.fn(opts.decrypt ?? ((token: string) => (token === OLD_TOKEN ? OLD_NAME : NAME))),
+  };
+  const events = {
+    emit: vi.fn(async (e: unknown) => {
+      if (opts.failEdited && (e as { event_name: string }).event_name === "resume.edited_v2") {
+        throw new Error("events table unreachable");
+      }
+      return true;
+    }),
+  };
+  const renderQueue = mockRenderQueue();
+  const svc = newSvc(repo, pii, events, mockStorage(), mockConfig(), renderQueue);
+  return { svc, repo, pii, events, renderQueue };
+}
+
+type Emitted = { event_name: string; payload: unknown; actor: unknown; subject: unknown };
+const emitted = (events: { emit: ReturnType<typeof vi.fn> }): Emitted[] =>
+  events.emit.mock.calls.map((c) => c[0] as Emitted);
+const editedV2 = (events: { emit: ReturnType<typeof vi.fn> }): Emitted[] =>
+  emitted(events).filter((e) => e.event_name === "resume.edited_v2");
+
+/** The whole resume.edited_v2 emit call for one field — exact, so nothing else can ride along. */
+function expectedEdit(field: string) {
+  return {
+    event_name: "resume.edited_v2",
+    actor: { actor_type: "worker", actor_id: WORKER_ID },
+    subject: { subject_type: "resume", subject_id: RESUME_ID },
+    payload: { worker_id: WORKER_ID, resume_id: RESUME_ID, field },
+    correlationId: CTX.correlationId,
+    requestId: CTX.requestId,
+  };
+}
+
+describe("resume.edited_v2 — name (#1318)", () => {
+  it("a worker's own name CHANGE on a worker with a résumé emits exactly one, after worker.name_recorded", async () => {
+    const { svc, events } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+
+    const all = emitted(events);
+    expect(all.map((e) => e.event_name)).toEqual(["worker.name_recorded", "resume.edited_v2"]);
+    // The sibling is byte-for-byte what it always was.
+    expect(all[0]).toMatchObject({
+      actor: { actor_type: "worker", actor_id: WORKER_ID },
+      subject: { subject_type: "worker", subject_id: WORKER_ID },
+      payload: { worker_id: WORKER_ID },
+    });
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("name"));
+  });
+
+  it("never lets the plaintext name — old or new — or either ciphertext into an emit call", async () => {
+    const { svc, events } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    const serialized = JSON.stringify(events.emit.mock.calls);
+    for (const secret of [NAME, OLD_NAME, "Asha", "Ramesh", TOKEN, OLD_TOKEN, "ciphertext"]) {
+      expect(serialized).not.toContain(secret);
+    }
+  });
+
+  it("a first name on a worker with a résumé (none stored) is a change", async () => {
+    const { svc, events, pii } = editSetup({ worker: { fullName: null } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(editedV2(events)).toHaveLength(1);
+    expect(pii.decrypt).not.toHaveBeenCalled(); // nothing stored → nothing to read
+  });
+
+  it("re-saving the SAME name emits nothing — the sibling and the re-render are unchanged", async () => {
+    const { svc, events, renderQueue } = editSetup({ worker: { fullName: TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(editedV2(events)).toHaveLength(0);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.name_recorded"]);
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, force: true, failClosed: false }),
+    );
+  });
+
+  it("ONBOARDING name capture (no résumé yet) emits nothing", async () => {
+    const { svc, events } = editSetup({ worker: { fullName: null }, latestResume: undefined });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.name_recorded"]);
+  });
+
+  it("with NO résumé the stored name is never decrypted — PII it cannot use is not read", async () => {
+    const { svc, events, pii } = editSetup({
+      worker: { fullName: OLD_TOKEN },
+      latestResume: undefined,
+    });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(pii.decrypt).not.toHaveBeenCalled();
+    expect(editedV2(events)).toHaveLength(0);
+  });
+
+  it("an UNREADABLE stored name counts as a change and never fails the save — nor logs a value", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { svc, events } = editSetup({
+        worker: { fullName: OLD_TOKEN },
+        decrypt: () => {
+          throw new Error("decrypt failed");
+        },
+      });
+      await expect(svc.setFullName(WORKER_ID, NAME, CTX, SELF)).resolves.toEqual({
+        worker_id: WORKER_ID,
+      });
+      expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("name"));
+      // Not vacuous: the degrade IS logged — once, with the worker id and nothing else.
+      expect(warn).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).toContain(WORKER_ID);
+      for (const secret of [NAME, OLD_TOKEN, "Asha"]) expect(logged).not.toContain(secret);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("if the name's resume.edited_v2 EMIT fails, the save still succeeds and still re-renders", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, renderQueue } = editSetup({ worker: { fullName: OLD_TOKEN }, failEdited: true });
+      await expect(svc.setFullName(WORKER_ID, NAME, CTX, SELF)).resolves.toEqual({
+        worker_id: WORKER_ID,
+      });
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: false }),
+      );
+      expect(error).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(error.mock.calls);
+      expect(logged).toContain("(name)");
+      for (const secret of [NAME, OLD_NAME, TOKEN, OLD_TOKEN]) expect(logged).not.toContain(secret);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("if the résumé LOOKUP fails on a name save, the save succeeds, nothing is decrypted, and it still re-renders", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, events, pii, repo, renderQueue } = editSetup({
+        worker: { fullName: OLD_TOKEN },
+      });
+      repo.latestResume.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(svc.setFullName(WORKER_ID, NAME, CTX, SELF)).resolves.toEqual({
+        worker_id: WORKER_ID,
+      });
+      expect(editedV2(events)).toHaveLength(0);
+      expect(pii.decrypt).not.toHaveBeenCalled();
+      expect(repo.latestResume).toHaveBeenCalledTimes(2); // the gate's, then the re-render's own
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID }),
+      );
+      expect(error).toHaveBeenCalledTimes(1);
+      const logged = JSON.stringify(error.mock.calls);
+      for (const secret of [NAME, OLD_NAME, TOKEN, OLD_TOKEN]) expect(logged).not.toContain(secret);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("the INTERNAL ops route (PUT /workers/:id/name) is not a résumé edit: no event, no decrypt", async () => {
+    const { svc, events, pii } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, { origin: "internal_ops" });
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.name_recorded"]);
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("looks the résumé up ONCE and re-renders that one", async () => {
+    const { svc, repo, renderQueue } = editSetup({ worker: { fullName: OLD_TOKEN } });
+    await svc.setFullName(WORKER_ID, NAME, CTX, SELF);
+    expect(repo.latestResume).toHaveBeenCalledTimes(1);
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, force: true }),
+    );
+  });
+});
+
+describe("resume.edited_v2 — photo (#1318)", () => {
+  it("a confirmed upload emits exactly one `photo`, after worker.photo_uploaded — never the key", async () => {
+    const { svc, events, repo } = editSetup();
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+
+    const all = emitted(events);
+    expect(all.map((e) => e.event_name)).toEqual(["worker.photo_uploaded", "resume.edited_v2"]);
+    expect(all[0]!.payload).toEqual({ worker_id: WORKER_ID });
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("photo"));
+    expect(JSON.stringify(events.emit.mock.calls)).not.toMatch(/photos\/|https?:|\.jpg/);
+    expect(repo.latestResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("a REPLACEMENT is a change too — a new object is always a new photo", async () => {
+    const OLD_KEY = `photos/${WORKER_ID}/00000000-3333-4333-8333-000000000003.jpg`;
+    const { svc, events } = editSetup({ worker: { photoStorageKey: OLD_KEY } });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(editedV2(events)).toHaveLength(1);
+    expect(JSON.stringify(events.emit.mock.calls)).not.toContain(OLD_KEY);
+  });
+
+  it("emits even with show_photo OFF (the photo is still the résumé's) — and still skips the re-render", async () => {
+    const { svc, events, renderQueue } = editSetup({ worker: { resumeShowPhoto: false } });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("photo"));
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("re-confirming the key ALREADY on file (a retry) is no edit — the sibling still lands", async () => {
+    const { svc, events, repo } = editSetup({
+      worker: { photoStorageKey: MINTED_KEY, resumeShowPhoto: false },
+    });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.photo_uploaded"]);
+    expect(repo.latestResume).not.toHaveBeenCalled();
+  });
+
+  it("a PRE-RÉSUMÉ avatar upload emits nothing", async () => {
+    const { svc, events } = editSetup({ latestResume: undefined });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.photo_uploaded"]);
+  });
+
+  it("removing a photo emits exactly one `photo`, after worker.photo_removed", async () => {
+    const { svc, events, repo, renderQueue } = editSetup({
+      worker: { photoStorageKey: MINTED_KEY },
+    });
+    await svc.deletePhoto(WORKER_ID, CTX);
+
+    const all = emitted(events);
+    expect(all.map((e) => e.event_name)).toEqual(["worker.photo_removed", "resume.edited_v2"]);
+    expect(all[0]!.payload).toEqual({ worker_id: WORKER_ID });
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("photo"));
+    expect(JSON.stringify(events.emit.mock.calls)).not.toMatch(/photos\/|\.jpg/);
+    // The erasure re-render still targets the same résumé, fail-closed — the SAME lookup the event
+    // named, so resume_id is the résumé being erased.
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+    );
+    expect(repo.latestResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("deleting when there is NO photo emits nothing at all", async () => {
+    const { svc, events } = editSetup({ worker: { photoStorageKey: null } });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("removing a photo before any résumé exists emits only the sibling", async () => {
+    const { svc, events } = editSetup({
+      worker: { photoStorageKey: MINTED_KEY },
+      latestResume: undefined,
+    });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.photo_removed"]);
+  });
+
+  // THE ERASURE MUST OUTLIVE THE ANALYTICS. A retry cannot repair a skipped erasure here (the
+  // photo is already gone, so it takes the no-photo early return), so a failing
+  // resume.edited_v2 must never stand between the removal and its fail-closed re-render.
+  it("if the resume.edited_v2 EMIT fails, the removal still succeeds and the fail-closed erasure is queued", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, events, renderQueue } = editSetup({
+        worker: { photoStorageKey: MINTED_KEY },
+        failEdited: true,
+      });
+      await expect(svc.deletePhoto(WORKER_ID, CTX)).resolves.toEqual({
+        worker_id: WORKER_ID,
+        has_photo: false,
+      });
+      expect(emitted(events)[0]!.event_name).toBe("worker.photo_removed");
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+      );
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(error.mock.calls)).not.toMatch(/photos\/|\.jpg/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("if the résumé LOOKUP for the gate fails, the removal still succeeds and the erasure is queued", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, events, repo, renderQueue } = editSetup({
+        worker: { photoStorageKey: MINTED_KEY },
+      });
+      repo.latestResume.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(svc.deletePhoto(WORKER_ID, CTX)).resolves.toEqual({
+        worker_id: WORKER_ID,
+        has_photo: false,
+      });
+      expect(editedV2(events)).toHaveLength(0);
+      // The gate's lookup failed, so the re-render made its own — exactly as before #1318.
+      expect(repo.latestResume).toHaveBeenCalledTimes(2);
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+      );
+      // Loud, not silent — and without the key.
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(error.mock.calls)).not.toMatch(/photos\/|\.jpg/);
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
+describe("resume.edited_v2 — show_photo / night_shift_ready (#1318)", () => {
+  const WITH_PHOTO = { photoStorageKey: MINTED_KEY };
+
+  it("a show_photo flip emits exactly one `show_photo`; the sibling carries the same flags as before", async () => {
+    const { svc, events } = editSetup({ worker: WITH_PHOTO, updated: { resumeShowPhoto: false } });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+
+    const all = emitted(events);
+    expect(all.map((e) => e.event_name)).toEqual([
+      "worker.resume_prefs_updated",
+      "resume.edited_v2",
+    ]);
+    expect(all[0]!.payload).toEqual({
+      worker_id: WORKER_ID,
+      show_photo: false,
+      night_shift_ready: false,
+    });
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("show_photo"));
+  });
+
+  it("flipping BOTH emits one per field, and no value of either", async () => {
+    const { svc, events } = editSetup({
+      worker: WITH_PHOTO,
+      updated: { resumeShowPhoto: false, resumeNightShiftReady: true },
+    });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false, night_shift_ready: true }, CTX);
+    expect(events.emit.mock.calls.slice(1).map((c) => c[0])).toEqual([
+      expectedEdit("show_photo"),
+      expectedEdit("night_shift_ready"),
+    ]);
+  });
+
+  it("a night_shift_ready flip emits exactly one `night_shift_ready`", async () => {
+    const { svc, events } = editSetup({ updated: { resumeNightShiftReady: true } });
+    await svc.updateResumePrefs(WORKER_ID, { night_shift_ready: true }, CTX);
+    expect(editedV2(events)).toHaveLength(1);
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("night_shift_ready"));
+  });
+
+  it("a same-value PATCH emits nothing and looks nothing up — the sibling still lands", async () => {
+    const { svc, events, repo } = editSetup({ worker: WITH_PHOTO });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: true, night_shift_ready: false }, CTX);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.resume_prefs_updated"]);
+    expect(repo.latestResume).not.toHaveBeenCalled();
+  });
+
+  it("turning show_photo OFF still queues the fail-closed erasure when resume.edited_v2 fails", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, renderQueue } = editSetup({
+        worker: WITH_PHOTO,
+        updated: { resumeShowPhoto: false },
+        failEdited: true,
+      });
+      await expect(svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX)).resolves.toEqual({
+        worker_id: WORKER_ID,
+      });
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+      );
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("a PARTIAL PATCH names only the field that moved, never the one it left alone", async () => {
+    const { svc, events } = editSetup({ updated: { resumeShowPhoto: false } });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+    expect(editedV2(events).map((e) => (e.payload as { field: string }).field)).toEqual([
+      "show_photo",
+    ]);
+  });
+
+  it("night_shift_ready null → false is NO edit (null ≡ false, as the sibling payload reports it)", async () => {
+    const { svc, events, repo, renderQueue } = editSetup({
+      worker: { resumeNightShiftReady: null },
+      updated: { resumeNightShiftReady: false },
+    });
+    await svc.updateResumePrefs(WORKER_ID, { night_shift_ready: false }, CTX);
+    expect(editedV2(events)).toHaveLength(0);
+    // …but the re-render gate compares RAW values (null !== false) and is untouched by #1318: it
+    // still re-renders, making its own lookup because the edit gate never looked.
+    expect(repo.latestResume).toHaveBeenCalledTimes(1);
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID }),
+    );
+  });
+
+  it("if the résumé LOOKUP fails as show_photo turns OFF, the fail-closed erasure is still queued", async () => {
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    try {
+      const { svc, events, repo, renderQueue } = editSetup({
+        worker: WITH_PHOTO,
+        updated: { resumeShowPhoto: false },
+      });
+      repo.latestResume.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX)).resolves.toEqual({
+        worker_id: WORKER_ID,
+      });
+      expect(editedV2(events)).toHaveLength(0);
+      expect(renderQueue.add).toHaveBeenCalledWith(
+        "render",
+        expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+      );
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("night_shift_ready null → true IS an edit", async () => {
+    const { svc, events } = editSetup({
+      worker: { resumeNightShiftReady: null },
+      updated: { resumeNightShiftReady: true },
+    });
+    await svc.updateResumePrefs(WORKER_ID, { night_shift_ready: true }, CTX);
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("night_shift_ready"));
+  });
+
+  it("a show_photo flip with NO photo on file is still the worker's edit (no re-render, as before)", async () => {
+    const { svc, events, renderQueue } = editSetup({ updated: { resumeShowPhoto: false } });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+    expect(events.emit.mock.calls[1]![0]).toEqual(expectedEdit("show_photo"));
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("a flip before any résumé exists emits nothing", async () => {
+    const { svc, events } = editSetup({
+      updated: { resumeShowPhoto: false, resumeNightShiftReady: true },
+      latestResume: undefined,
+    });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false, night_shift_ready: true }, CTX);
+    expect(emitted(events).map((e) => e.event_name)).toEqual(["worker.resume_prefs_updated"]);
+  });
+
+  it("a real flip looks the résumé up ONCE and re-renders that one", async () => {
+    const { svc, repo, renderQueue } = editSetup({
+      worker: WITH_PHOTO,
+      updated: { resumeShowPhoto: false },
+    });
+    await svc.updateResumePrefs(WORKER_ID, { show_photo: false }, CTX);
+    expect(repo.latestResume).toHaveBeenCalledTimes(1);
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ resumeId: RESUME_ID, failClosed: true }),
+    );
   });
 });
