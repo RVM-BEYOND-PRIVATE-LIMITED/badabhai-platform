@@ -76,7 +76,7 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
    The résumé is the finish signal because every form walk ends in a generate: the trade form's last step opens the
    building screen, which regenerates the résumé, and the general brief leads to extract → confirm → generate. A redo
    worker who finishes the trade form keeps his old confirmed profile (nothing re-confirms), so a confirmation cannot
-   be the signal (PR #1777, the #1776 review). In interview mode the chat resumes the handover session: its done CTA
+   be the signal (PR #1778, the #1776 review). In interview mode the chat resumes the handover session: its done CTA
    extracts it with source `form` and the confirm routes to the trade form (ADR-0042); the general card is re-served
    from the stamp. The reads select scalars only, never the session's captured answers;
 5. otherwise → companion. A live session whose every clock predates the confirmation is the early-finish leftover
