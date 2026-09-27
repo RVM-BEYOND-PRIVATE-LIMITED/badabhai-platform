@@ -326,3 +326,68 @@ describe("the masthead location line (owner ruling 2026-09-08)", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 });
+
+/**
+ * ADR-0045 R6 — THE GENERAL ROAD'S BRIEF, `{{profile_brief}}`, through the real slot engine.
+ *
+ * The same four properties the location line has (where it sits, which sheet carries it, that it
+ * collapses, that it is escaped) plus the one only a free-text line needs: braces in it are TEXT.
+ */
+describe("the general road's brief (ADR-0045 R6)", () => {
+  const GENERAL = {
+    ...BASE_INPUT,
+    templateId: "bb_general",
+    headlineLine: "House Electrician · 7 yrs 4 mo · House wiring",
+  };
+  const BRIEF = "Ghar aur dukaan ki wiring karta hoon.";
+
+  it("renders directly under the headline, above every section, and only on bb_general", () => {
+    const html = makeRenderer().buildResumeHtml({ ...GENERAL, profileBrief: BRIEF });
+    expect(html).toContain(`<div class="brief">${BRIEF}</div>`);
+    expect(html.split(BRIEF)).toHaveLength(2);
+    expect(html.indexOf("House Electrician · 7 yrs 4 mo")).toBeLessThan(html.indexOf(BRIEF));
+    expect(html.indexOf(BRIEF)).toBeLessThan(html.indexOf('class="sec sec-skills"'));
+
+    // Every other layout carries no such slot: the same input prints no brief anywhere.
+    for (const t of RESUME_TEMPLATES.filter((entry) => entry.id !== "bb_general")) {
+      const other = makeRenderer().buildResumeHtml({
+        ...GENERAL,
+        templateId: t.id,
+        profileBrief: BRIEF,
+      });
+      expect(other, `${t.id} v${t.version}`).not.toContain(BRIEF);
+    }
+  });
+
+  it("collapses to an EMPTY element when the road has no line, and off the road", () => {
+    for (const input of [{ ...GENERAL, profileBrief: null }, { ...GENERAL }]) {
+      const html = makeRenderer().buildResumeHtml(input);
+      // `.brief:empty` needs the element to hold nothing — not a space, not a newline.
+      expect(html).toContain('<div class="brief"></div>');
+      expect(html).not.toMatch(/\{\{profile_brief\}\}/);
+    }
+  });
+
+  it("HTML-escapes it — the worker typed it", () => {
+    const html = makeRenderer().buildResumeHtml({
+      ...GENERAL,
+      profileBrief: `<img src=x onerror="a()"> & 'wiring'`,
+    });
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain(
+      '<div class="brief">&lt;img src=x onerror=&quot;a()&quot;&gt; &amp; &#39;wiring&#39;</div>',
+    );
+  });
+
+  it("prints braces as TEXT — a scalar is never re-scanned, so a brief cannot expand a slot", () => {
+    // The write side refuses braces, but the stored row is untrusted at render. Were the brief a
+    // region, `{{phone}}` inside it would be filled by the scalar pass that runs after regions.
+    const html = makeRenderer().buildResumeHtml({
+      ...GENERAL,
+      phone: "+91 98765 43210",
+      profileBrief: "{{phone}} {{#skills}}x{{/skills}}",
+    });
+    expect(html).toContain('<div class="brief">{{phone}} {{#skills}}x{{/skills}}</div>');
+    expect(html.split("+91 98765 43210")).toHaveLength(2);
+  });
+});

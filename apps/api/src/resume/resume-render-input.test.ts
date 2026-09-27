@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildResumeRenderInput } from "./resume-render-input";
+import {
+  ROAD_DENSE_BRIEF,
+  ROAD_FALLBACK_DATED,
+  ROAD_FALLBACK_FRESHER,
+  ROAD_FALLBACK_UNDATED,
+  ROAD_ROLE,
+  ROAD_SKILLS,
+  roadContext,
+  roadPersona,
+  roadSnapshot,
+  type RoadPersona,
+} from "./__fixtures__/general-road";
+import { SHEET_SHAPES } from "./__fixtures__/sheet-shapes";
+import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 
 /**
  * Q14 (ADR-0030 OQ#3): the PDF skills array renders canonical ids + the
@@ -1385,5 +1398,391 @@ describe("the WhatsApp line is a worker-copy slot (Layer A (a))", () => {
   it("collapses when no number is on file, on both audiences", () => {
     expect(build("worker", null).whatsappLine).toBeNull();
     expect(build("employer", null).whatsappLine).toBeNull();
+  });
+});
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * ADR-0045 PHASE 5 — THE GENERAL ROAD ON THE SHEET (`resolveGeneralRoadFacts`).
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * FOUR RULES ARE REPLACED ON THIS ROAD, NOT PUT BEHIND THE OLD ONES — years, "Fresher", the
+ * headline's tools and the salary — plus two terms rows and the brief. Every test below pairs the
+ * road with the same input OFF the road where the difference is the point, because a road value
+ * that silently fell through to the rule it replaced would pass a one-sided assertion.
+ *
+ * AND THE ROAD MUST SWITCH ON FOR NOBODY ELSE: the template alone does not do it
+ * (`bb-general-sheet.render.test.ts` renders every content shape as `bb_general`), and a context
+ * alone does not do it either (a road worker who later elects one of the 21 renders `bb_trade`).
+ */
+describe("ADR-0045 — the general road on the sheet", () => {
+  const ANSWERED = roadPersona("road-answered");
+
+  const build = (
+    opts: {
+      persona?: RoadPersona;
+      snapshot?: Record<string, unknown>;
+      context?: Partial<TradeSheetContext>;
+      templateId?: string;
+      audience?: "worker" | "employer";
+    } = {},
+  ) => {
+    const persona = opts.persona ?? ANSWERED;
+    return buildResumeRenderInput(
+      opts.snapshot ?? persona.snapshot,
+      persona.displayName,
+      opts.templateId ?? "bb_general",
+      null,
+      false,
+      opts.audience ?? "worker",
+      roadContext(persona, opts.context),
+    );
+  };
+  /** The same input with the road marker removed — today's sheet for the same worker. */
+  const offRoad = (opts: Parameters<typeof build>[0] = {}) =>
+    build({ ...opts, context: { ...opts.context, generalRoad: undefined } });
+  const row = (input: ReturnType<typeof build>, label: string) =>
+    input.availFactRows?.find((r) => r.label === label)?.value;
+
+  describe("the gate: BOTH the road context and a bb_general render", () => {
+    it("switches on with both, and carries the brief and the document's marker", () => {
+      const input = build();
+      expect(input.generalRoad).toBe(true);
+      expect(input.profileBrief).toBe(ANSWERED.expectedBrief);
+    });
+
+    it("stays OFF when the resolved template is bb_trade — the elected-pack upgrade", () => {
+      // A road worker who later took one of the 21 role forms renders `bb_trade`
+      // (`renderTemplateId`), and the owner accepted that the road is then off (2026-09-27).
+      const withRoad = build({ templateId: "bb_trade" });
+      const without = offRoad({ templateId: "bb_trade" });
+      expect(JSON.stringify(withRoad)).toBe(JSON.stringify(without));
+      expect(withRoad.profileBrief).toBeUndefined();
+      expect(withRoad.generalRoad).toBeUndefined();
+      // The pre-road rules hold: the stated figure wins, as everywhere else.
+      expect(withRoad.experienceYears).toBe(11);
+    });
+
+    it("stays OFF on bb_general without the context — the template alone never switches it on", () => {
+      const absent = offRoad();
+      const nulled = build({ context: { generalRoad: null } });
+      expect(JSON.stringify(nulled)).toBe(JSON.stringify(absent));
+      expect(absent.profileBrief).toBeUndefined();
+      expect(absent.generalRoad).toBeUndefined();
+      expect(absent.experienceYears).toBe(11);
+    });
+
+    it("leaves every content shape rendered as bb_general without a road byte-identical", () => {
+      // `bb-general-sheet.render.test.ts` emits all fourteen shapes as `bb_general`. None of them
+      // is on the road, so none may gain a key: the new fields are UNDEFINED, not null, off the
+      // road, and an explicit `generalRoad: null` is the same sheet as none at all.
+      for (const shape of SHEET_SHAPES) {
+        for (const audience of ["worker", "employer"] as const) {
+          const render = (ctx: TradeSheetContext | null) =>
+            JSON.stringify(
+              buildResumeRenderInput(
+                shape.snapshot,
+                shape.displayName,
+                "bb_general",
+                null,
+                false,
+                audience,
+                ctx,
+              ),
+            );
+          const plain = render(shape.tradeSheet);
+          expect(plain, `shape ${shape.n}/${audience}`).not.toMatch(/profileBrief|generalRoad/);
+          if (shape.tradeSheet !== null) {
+            expect(render({ ...shape.tradeSheet, generalRoad: null }), `shape ${shape.n}`).toBe(
+              plain,
+            );
+          }
+        }
+      }
+    });
+
+    it("takes the LEGACY path: a road snapshot carries no container", () => {
+      // Phase 4 writes `resume_profile: null`, so the overrides live on the legacy branch only.
+      const input = build();
+      expect(input.experienceYears).toBe(7.3);
+      expect(input.canonicalRole).toBe(ROAD_ROLE);
+    });
+
+    it("a container beside a road context is not a profile the road built — the road is off", () => {
+      const container = {
+        ...ANSWERED.snapshot,
+        resume_profile: { role_label: "Store Keeper", skills: ["Tally"], experiences: [] },
+      };
+      const withRoad = build({ snapshot: container });
+      expect(JSON.stringify(withRoad)).toBe(JSON.stringify(offRoad({ snapshot: container })));
+      expect(withRoad.generalRoad).toBeUndefined();
+      expect(withRoad.canonicalRole).toBe("Store Keeper");
+    });
+  });
+
+  describe("years: the dated jobs and nothing else (R5, §4.2)", () => {
+    it("ignores the frozen build-time total, the stated figure and a tier's years", () => {
+      const input = build({ context: { tierExperienceYears: 9 } });
+      expect(input.experienceYears).toBe(7.3);
+      expect(input.headlineLine).toBe(
+        "House Electrician · 7 yrs 4 mo · House wiring, Panel fitting, MCB installation",
+      );
+      expect(input.profileHeadline).toContain("7 yrs 4 mo");
+      expect(input.summary).toContain("7 yrs 4 mo");
+      expect(input.verdictFacts?.years).toBe(7.3);
+      for (const text of [input.headlineLine, input.profileHeadline, input.summary]) {
+        expect(text).not.toMatch(/\b(?:11|9) yrs\b/);
+      }
+      // Off the road, the stated figure wins exactly as before (R8 §1).
+      expect(offRoad({ context: { tierExperienceYears: 9 } }).experienceYears).toBe(11);
+    });
+
+    it("an undated job leaves no total — never the stated figure in its place", () => {
+      const input = build({ persona: roadPersona("road-undated") });
+      expect(input.experienceYears).toBeNull();
+      expect(input.headlineLine).toContain("House Electrician · duration not stated");
+      expect(offRoad({ persona: roadPersona("road-undated") }).experienceYears).toBe(11);
+    });
+  });
+
+  describe('"Fresher": no job stored, and the read worked', () => {
+    const FRESHER = roadPersona("road-fresher");
+
+    it("prints Fresher for a worker with no job stored", () => {
+      const input = build({ persona: FRESHER });
+      expect(input.headlineLine).toBe(
+        "House Electrician · Fresher · House wiring, Panel fitting, MCB installation",
+      );
+      expect(input.experienceYears).toBeNull();
+    });
+
+    it("has_work_history=true with ZERO jobs is still Fresher — the answer is never a source", () => {
+      // "Kya pehle kaam kiya hai?" only decides whether the Work History page is shown (§3.4).
+      const input = build({
+        persona: FRESHER,
+        context: { attributes: { has_work_history: true, profile_brief: { status: "declined" } } },
+      });
+      expect(input.headlineLine).toContain("· Fresher ·");
+      expect(input.profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    });
+
+    it("NEVER on a failed employment read — and the fixed line has nothing to say either", () => {
+      const input = build({ persona: FRESHER, context: { employmentsUnavailable: true } });
+      expect(input.headlineLine).toContain("House Electrician · duration not stated");
+      expect(input.headlineLine).not.toContain("Fresher");
+      // §4.3's grammar is not widened to cover a history nobody could read.
+      expect(input.profileBrief).toBeNull();
+      // The worker's OWN line does not depend on his history, and still prints.
+      expect(build({ context: { employmentsUnavailable: true } }).profileBrief).toBe(
+        ANSWERED.expectedBrief,
+      );
+    });
+
+    it("is the road's own rule — off the road a pack-less worker is not a Fresher", () => {
+      const snapshot = roadSnapshot({ experience: {} });
+      expect(offRoad({ persona: FRESHER, snapshot }).headlineLine).toContain("duration not stated");
+    });
+  });
+
+  describe("the headline's tools: his skills, then his machines", () => {
+    it("puts the skills first, still capped at three", () => {
+      const snapshot = roadSnapshot({ skill_labels: ["House wiring"], machines: ["Megger"] });
+      const input = build({ snapshot });
+      expect(input.headlineLine).toBe("House Electrician · 7 yrs 4 mo · House wiring, Megger");
+      // Off the road the machining rule: his machines, and his skills only when he has none.
+      expect(offRoad({ snapshot }).headlineLine).toMatch(/ · Megger$/);
+      const many = build({ snapshot: roadSnapshot({ machines: ["Megger"] }) });
+      expect(many.headlineLine).toMatch(/· House wiring, Panel fitting, MCB installation$/);
+    });
+
+    it("the printed Skills list is the same list, in the same order", () => {
+      expect(build().skills).toEqual([...ROAD_SKILLS]);
+    });
+  });
+
+  describe("one cased role for every line that names him", () => {
+    it("the Verdict Line, canonicalRole, the profile headline and the brief agree", () => {
+      const input = build({ persona: roadPersona("road-declined") });
+      expect(input.canonicalRole).toBe(ROAD_ROLE);
+      expect(input.verdictFacts?.role).toBe(ROAD_ROLE);
+      expect(input.headlineLine?.startsWith(`${ROAD_ROLE} · `)).toBe(true);
+      expect(input.profileHeadline?.startsWith(`${ROAD_ROLE} · `)).toBe(true);
+      expect(input.profileBrief?.startsWith(`${ROAD_ROLE} with `)).toBe(true);
+    });
+
+    it("falls back to the cased domain label, and a PII-shaped role is not a role", () => {
+      for (const role_label of [null, "ramesh@example.com"]) {
+        const input = build({
+          persona: roadPersona("road-declined"),
+          snapshot: roadSnapshot({ role_label, domain_label: "electrical work" }),
+        });
+        expect(input.canonicalRole, String(role_label)).toBe("Electrical Work");
+        expect(input.profileBrief).toMatch(/^Electrical Work with 7 yrs 4 mo of experience in /);
+      }
+    });
+
+    it("no role and no domain: no headline claim and no fixed line", () => {
+      const input = build({
+        persona: roadPersona("road-declined"),
+        snapshot: roadSnapshot({ role_label: null, domain_label: null }),
+      });
+      expect(input.headlineLine).toBeNull();
+      expect(input.profileHeadline).toBeNull();
+      expect(input.canonicalRole).toBeNull();
+      expect(input.profileBrief).toBeNull();
+    });
+  });
+
+  describe("the salary band: the form's, on the worker's copy only", () => {
+    it("prints the band, and the low end as the asking price", () => {
+      const input = build();
+      expect(row(input, "Salary expected")).toBe("₹18,000 – ₹22,000 / month");
+      expect(input.expectedSalary).toBe(18000);
+      expect(input.subheadLine).toBe("expects ₹18,000 – ₹22,000 / month");
+    });
+
+    it("a min-only band prints the min, a max-only band the max — each his own number", () => {
+      const min = build({ persona: roadPersona("road-band-min-only") });
+      expect(row(min, "Salary expected")).toBe("₹15,000 / month");
+      expect(min.expectedSalary).toBe(15000);
+      const max = build({ persona: roadPersona("road-band-max-only") });
+      expect(row(max, "Salary expected")).toBe("₹25,000 / month");
+      expect(max.expectedSalary).toBe(25000);
+    });
+
+    it("an inverted band prints the lower figure alone", () => {
+      const input = build({
+        context: { attributes: { salary_expected_min: 20000, salary_expected_max: 18000 } },
+      });
+      expect(row(input, "Salary expected")).toBe("₹20,000 / month");
+      expect(input.expectedSalary).toBe(20000);
+    });
+
+    it("no band is NO salary — never the draft's figure the road does not read", () => {
+      const snapshot = roadSnapshot({ salary_expectation: { amount_min: 9999, amount_max: 9999 } });
+      const input = build({ persona: roadPersona("road-fresher"), snapshot });
+      expect(row(input, "Salary expected")).toBeUndefined();
+      expect(input.expectedSalary).toBeNull();
+      // Off the road the draft's figure is what prints — the difference is the explicit ternary.
+      expect(offRoad({ persona: roadPersona("road-fresher"), snapshot }).expectedSalary).toBe(9999);
+    });
+
+    it("never on the employer copy: no row, no asking price, no figure anywhere in the input", () => {
+      for (const name of ["road-answered", "road-band-min-only", "road-band-max-only"]) {
+        const input = build({ persona: roadPersona(name), audience: "employer" });
+        expect(row(input, "Salary expected"), name).toBeUndefined();
+        expect(input.expectedSalary, name).toBeNull();
+        expect(input.subheadLine ?? "", name).not.toContain("₹");
+        expect(JSON.stringify(input), name).not.toMatch(/18,?000|22,?000|15,?000|25,?000/);
+      }
+    });
+  });
+
+  describe('"Available from": the form\'s answer, phrased for a page read later', () => {
+    it("a date still ahead prints 'From <d Mon yyyy>'; the verdict availability is unchanged", () => {
+      const input = build();
+      expect(row(input, "Available from")).toBe("From 12 Oct 2026");
+      expect(input.subheadLine ?? "").not.toContain("From");
+    });
+
+    it("nothing answered keeps today's value", () => {
+      const snapshot = roadSnapshot({ availability: { status: "immediate" } });
+      const persona = roadPersona("road-band-min-only");
+      expect(row(build({ persona, snapshot }), "Available from")).toBe("Immediate");
+      expect(row(build({ persona, snapshot }), "Available from")).toBe(
+        row(offRoad({ persona, snapshot }), "Available from"),
+      );
+    });
+
+    it("the answer outranks the draft's value when both exist", () => {
+      const snapshot = roadSnapshot({ availability: { status: "immediate" } });
+      expect(
+        row(build({ persona: roadPersona("road-declined"), snapshot }), "Available from"),
+      ).toBe("Serving notice (30 days)");
+    });
+  });
+
+  describe("the Shift row: the shift and his work types", () => {
+    const shiftOf = (attributes: Record<string, unknown>, snapshot?: Record<string, unknown>) =>
+      row(
+        build({ persona: roadPersona("road-band-min-only"), snapshot, context: { attributes } }),
+        "Shift",
+      );
+
+    it("joins both, either alone, and work_types replaces the single job_type", () => {
+      expect(shiftOf({ shift_preference: "day", work_types: ["permanent", "contract"] })).toBe(
+        "Day shift · Permanent, Contract",
+      );
+      expect(shiftOf({ shift_preference: "night" })).toBe("Night shift");
+      expect(shiftOf({ work_types: ["contract", "daily_wage"] })).toBe("Contract, Daily wage");
+      const both = { shift_preference: "day", job_type: "permanent", work_types: ["contract"] };
+      expect(shiftOf(both)).toBe("Day shift · Contract");
+      // Off the road the row is the shift and the single job_type, as it always was.
+      expect(
+        row(
+          offRoad({ persona: roadPersona("road-band-min-only"), context: { attributes: both } }),
+          "Shift",
+        ),
+      ).toBe("Day shift · Permanent");
+    });
+
+    it("neither answered keeps today's value", () => {
+      expect(shiftOf({}, roadSnapshot({ shift: "night" }))).toBe("Night shift");
+      expect(shiftOf({})).toBeUndefined();
+    });
+  });
+
+  describe("the brief: his own line, else the fixed line, else nothing", () => {
+    it("prints his own line when the caller's re-check passed, on both copies", () => {
+      expect(build().profileBrief).toBe(ANSWERED.expectedBrief);
+      expect(build({ audience: "employer" }).profileBrief).toBe(ANSWERED.expectedBrief);
+    });
+
+    it("the caller's re-check failed (his current name, an unreadable name): the fixed line", () => {
+      const input = build({ context: { generalRoad: { ownBriefUsable: false } } });
+      expect(input.profileBrief).toBe(ROAD_FALLBACK_DATED);
+    });
+
+    it("re-checks the name-free half itself: money or an over-long row falls back", () => {
+      // A caller that passed `true` without vetting still cannot print a figure.
+      for (const text of ["Wiring karta hoon, 15k chahiye", "x".repeat(161)]) {
+        const input = build({
+          context: {
+            attributes: { profile_brief: { status: "answered", text } },
+            generalRoad: { ownBriefUsable: true },
+          },
+        });
+        expect(input.profileBrief).toBe(ROAD_FALLBACK_DATED);
+      }
+    });
+
+    it("a decline, a missing row and a damaged row all print the fixed line", () => {
+      for (const profile_brief of [{ status: "declined" }, undefined, { status: "answered" }]) {
+        const input = build({
+          context: { attributes: { profile_brief }, generalRoad: { ownBriefUsable: true } },
+        });
+        expect(input.profileBrief, JSON.stringify(profile_brief) ?? "absent").toBe(
+          ROAD_FALLBACK_DATED,
+        );
+      }
+    });
+
+    it("spells each fixed line exactly — dated, fresher, undated", () => {
+      expect(build({ persona: roadPersona("road-declined") }).profileBrief).toBe(
+        ROAD_FALLBACK_DATED,
+      );
+      expect(build({ persona: roadPersona("road-fresher") }).profileBrief).toBe(
+        ROAD_FALLBACK_FRESHER,
+      );
+      expect(build({ persona: roadPersona("road-undated") }).profileBrief).toBe(
+        ROAD_FALLBACK_UNDATED,
+      );
+    });
+
+    it("rides the render input as a SCALAR the ladder never drops", () => {
+      const input = build({ persona: roadPersona("road-dense") });
+      expect(input.profileBrief).toBe(ROAD_DENSE_BRIEF);
+      expect(input.degradationDropped ?? []).not.toContain("profile_brief");
+    });
   });
 });

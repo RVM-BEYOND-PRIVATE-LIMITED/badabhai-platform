@@ -7,7 +7,7 @@ import {
 import type { GeneralRoadStamp } from "../profiling/conversation-state";
 import { MAX_SKILLS } from "../profiling/skill-certifier";
 import { totalEmployedYears, type WorkerEmploymentRecord } from "../resume/resume-employment-rows";
-import { cleanList, cleanScalar } from "../resume/resume-render-input";
+import { cleanList, cleanScalar } from "../resume/resume-clean";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════

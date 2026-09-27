@@ -109,6 +109,9 @@ describe("bb_general — collapse mechanics", () => {
       ["loc", "location_line"],
       ["wa", "whatsapp_line"],
       ["headline", "headline_line"],
+      // ADR-0045 R6 — the general road's brief. Empty on every sheet off the road, so it must
+      // collapse exactly like the lines around it or every other sheet gains a blank line.
+      ["brief", "profile_brief"],
       ["foot-lead", "qr_caption"],
       ["foot-link", "short_link"],
       ["foot-meta", "footer_meta"],
@@ -196,6 +199,22 @@ describe("bb_general — the owner's section structure", () => {
     // Headline under the name block, above every section.
     expect(body.indexOf("{{location_line}}")).toBeLessThan(body.indexOf("{{headline_line}}"));
     expect(body.indexOf("{{headline_line}}")).toBeLessThan(order[0]!);
+    // ADR-0045 R6 — the brief DIRECTLY under the headline (nothing between the two elements but
+    // whitespace), and above every section.
+    expect(body).toMatch(
+      /<div class="headline">\{\{headline_line\}\}<\/div>\s*<div class="brief">\{\{profile_brief\}\}<\/div>/,
+    );
+    expect(body.indexOf("{{profile_brief}}")).toBeLessThan(order[0]!);
+  });
+
+  it("prints the brief as ONE scalar slot, once, outside every section and region", () => {
+    // A SCALAR, NEVER A REGION: the renderer HTML-escapes but does not brace-escape, and a value
+    // a region inserts is scanned again by the later fill steps (see `ResumeRenderInput`).
+    expect(body.split("{{profile_brief}}")).toHaveLength(2);
+    expect(body).not.toMatch(/\{\{[#/]profile_brief\}\}/);
+    // Not a `sec` container: the five-container count above stays five, and the grey-bar rules
+    // (which key on `.sec-*`) can never give the brief a heading.
+    expect(body).not.toMatch(/class="sec [^"]*brief/);
   });
 
   it("routes every qualification label the composer can emit to a section", () => {
@@ -269,6 +288,10 @@ describe("bb_general — print safety", () => {
     expect(ptIn(ruleFor("h1.fit"))).toBeGreaterThanOrEqual(18);
     // The grey section bar: every heading shares one rule.
     expect(ptIn(ruleFor(".sec-work::before"))).toBeGreaterThanOrEqual(9);
+    // ADR-0045 R6 — the brief is body text, at the body's floor, coloured through the palette.
+    expect(ptIn(ruleFor(".brief"))).toBeGreaterThanOrEqual(10);
+    expect(ruleFor(".brief")).toMatch(/color:\s*var\(--[a-z-]+\)/);
+    expect(ruleFor(".brief")).toMatch(/overflow-wrap:\s*anywhere/);
     // 12mm on EVERY edge — gate-desk printers clip. All values of the shorthand, not the first.
     const margin = /@page\s*\{[^}]*margin:\s*((?:[\d.]+mm\s*){1,4});/.exec(style)?.[1];
     expect(margin, "no @page margin in mm").toBeDefined();

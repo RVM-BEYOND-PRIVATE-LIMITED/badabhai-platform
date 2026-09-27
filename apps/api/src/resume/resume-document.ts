@@ -101,7 +101,8 @@ export function packIsPredefinedRole(packId: string | null): boolean {
  * keep the layout they were issued with and only the next generation uses the new sheet.
  *
  * The app's résumé document is keyed on the pack, not on this id (`tradeKindForPack`), so the
- * worker app's own résumé screen does not change with it.
+ * worker app's own résumé screen does not change with it — with one exception, the general road
+ * (ADR-0045), whose pack-less document is forced to `trade_sheet` by the marker the mapper sets.
  */
 export function templateIdForPack(packId: string | null): string {
   return packIsPredefinedRole(packId) ? "bb_trade" : "bb_general";
@@ -129,11 +130,31 @@ export function renderTemplateId(
   return storedId === "bb_general" && packIsPredefinedRole(electedPackId) ? "bb_trade" : storedId;
 }
 
+/**
+ * The `trade` label of a sheet with no reviewed role name — every pack outside the 21, and the
+ * general road. A raw slug the client never prints; the worker app reads it only as the
+ * pre-`layout` signal for "this is the general sheet" (`kGeneralSheetTradeFallback`).
+ */
+const UNNAMED_TRADE = "trade";
+
 export function tradeKindForPack(packId: string | null): string | null {
   if (!packUsesUniversalSheet(packId) || packId === null) return null;
   // A pack with a sheet but no name still gets a sheet — it is a labelling gap, not a render
   // fault, and refusing to render one would be a worse answer than a generic label.
-  return TRADE_KIND_BY_PACK[packId] ?? "trade";
+  return TRADE_KIND_BY_PACK[packId] ?? UNNAMED_TRADE;
+}
+
+/** The two BadaBhai print layouts a `trade_sheet` document can name (#1736). */
+export type SheetLayout = "bb_trade" | "bb_general";
+
+/**
+ * The document's `layout`: the RESOLVED template id the PDF was drawn with, when it is one of the
+ * two BadaBhai sheets — else null. A pack-bearing worker whose stored row predates #1745 can still
+ * render through `classic`, and a `trade_sheet` document for him must not claim a layout his
+ * paper does not have; null keeps the app on its pre-`layout` fallback, which is what it did.
+ */
+function sheetLayoutOf(templateId: string | null): SheetLayout | null {
+  return templateId === "bb_trade" || templateId === "bb_general" ? templateId : null;
 }
 
 // ── the document ─────────────────────────────────────────────────────────────────────────────
@@ -260,6 +281,28 @@ export interface TradeSheetResumeDocument extends ResumeDocumentBase {
    * `resume-render-input.ts`'s `experiences`).
    */
   readonly experiences: ResumeRenderInput["experiences"];
+  /**
+   * WHICH PRINTED SHEET this document was drawn as — `bb_trade` or `bb_general` — or null when the
+   * PDF went through a legacy layout (#1736's server half). The LAYOUT, not the trade and not the
+   * road: the app draws the general sheet's sections off this, so the tab and the PDF agree.
+   * Additive: every document rendered before it has no key, and the app keeps its fallback.
+   */
+  readonly layout: SheetLayout | null;
+  /**
+   * The worker's own SKILLS / MACHINES / CONTROLLERS lists, exactly as the render input holds them
+   * — the general sheet prints them in full as its Skills section (#1736). On every trade-sheet
+   * document, because the app decides from `layout` whether to draw them; a list the document
+   * withheld would be a section the PDF prints and the tab cannot.
+   */
+  readonly skills: readonly string[];
+  readonly machines: readonly string[];
+  readonly controllers: readonly string[];
+  /**
+   * ADR-0045 R6 — the general road's brief: the worker's own line or the fixed fallback line, null
+   * when neither applies. PRESENT ONLY ON THE ROAD; absent from every other document (a key the
+   * road does not own is never added to a sheet that has no brief slot).
+   */
+  readonly brief?: string | null;
 }
 
 export type ResumeDocument = GenericResumeDocument | TradeSheetResumeDocument;
@@ -293,7 +336,13 @@ export function toResumeDocument(
     pageCount,
   };
 
-  const trade = tradeKindForPack(packId);
+  // ADR-0045 — THE GENERAL ROAD IS A TRADE SHEET WHATEVER ITS PACK. Its worker is pack-less by
+  // construction (the general form writes pack-less rows so it can never re-elect a trade), and a
+  // null pack is `generic` below — which the app draws by parsing `resume_text`, not as the sheet
+  // his PDF prints. The marker rides the render input because this function is pure; the mapper
+  // sets it only on a `bb_general` render the reader proved was built on the road.
+  const road = input.generalRoad === true;
+  const trade = road ? UNNAMED_TRADE : tradeKindForPack(packId);
   if (trade === null) {
     return {
       format: "generic",
@@ -355,6 +404,12 @@ export function toResumeDocument(
     employments: input.employments ?? [],
     employmentsMore: input.employmentsMore ?? null,
     experiences: input.experiences,
+    // #1736's server half — on EVERY trade-sheet document, road or not.
+    layout: sheetLayoutOf(input.templateId),
+    skills: input.skills,
+    machines: input.machines,
+    controllers: input.controllers,
+    ...(road ? { brief: input.profileBrief ?? null } : {}),
   };
 }
 

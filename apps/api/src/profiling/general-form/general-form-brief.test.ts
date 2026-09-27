@@ -6,6 +6,8 @@ import {
   BRIEF_RAW_MAX_UNITS,
   BRIEF_REFUSAL_REASONS,
   briefLength,
+  looksLikeMoney,
+  readStoredBrief,
   screenBrief,
   type BriefRefusalReason,
 } from "./general-form-brief";
@@ -205,5 +207,166 @@ describe("screenBrief — the worker's OWN name (the employer copy prints only i
 
   it("the known gap: a Latin-stored name typed in Devanagari passes without a cue", () => {
     expect(reasonOf("मैं रमेश हूँ, वेल्डर", NAME)).toBeNull();
+  });
+});
+
+describe("screenBrief — MONEY is refused at write time (owner ruling 2026-09-27)", () => {
+  // The brief prints on the EMPLOYER copy, and the one figure that copy withholds is the worker's
+  // asking price. Every shape below would put it back on the page in prose.
+  it.each([
+    // a currency sign, anywhere
+    "₹15000 chahiye",
+    "Kam se kam ₹ 18,000",
+    "Dubai mein $800 milte the",
+    // a currency word next to a number, either side
+    "Rs 15000 per month",
+    "rs.15000 chahiye",
+    "INR 20000 expected",
+    "15000 rupees chahiye",
+    "15000 rupaye milne chahiye",
+    "18000 rupay",
+    "15000 रुपये चाहिए",
+    "रु 15000 महीना",
+    "15000 रु",
+    // a number followed by a magnitude or the rupee dash
+    "15k chahiye",
+    "15 k se kam nahi",
+    "15 hazar chahiye",
+    "18 hazaar mile",
+    "20 thousand expected",
+    "3 lakh saal ka",
+    "4 LPA",
+    "15 हजार चाहिए",
+    "15000/- per month",
+    // a salary word, with or without a figure
+    "Salary achhi honi chahiye",
+    "tankhwah time pe chahiye",
+    "Tankha badhiya ho",
+    "pagar kam hai",
+    "vetan ki baat baad mein",
+    "CTC negotiable",
+    "सैलरी अच्छी चाहिए",
+    "वेतन समय पर",
+    "पगार कम है",
+    "तनख्वाह ठीक हो",
+    // the other spellings of the rupee word (the review's probes)
+    "15000 रुपए चाहिए",
+    "१५००० रुपए महीना",
+    "15000 रूपये",
+    "15000 रुपया",
+    "रू 15000",
+    "15000 rupaya",
+    "15000 rupiya",
+    "15000 rupye",
+    // a salary-sized figure beside a pay period or an ask
+    "18000 mahina chahiye",
+    "15000 per month",
+    "15000/month",
+    "15,000 pm",
+    "मुझे 15000 महीना चाहिए",
+    "15000 प्रति माह",
+    "Welder hoon, 15000 chahiye",
+    "20000 expected",
+    "500 per day milta tha",
+    "700 daily",
+    // misspelled salary words, and pay synonyms beside a figure
+    "sallary 15000",
+    "salery achhi ho",
+    "salry kam thi",
+    "tankhwaah 15000",
+    "18000 ka package",
+    "wage 15000",
+    "pay: 12000",
+    "income 20000",
+    "15000 की कमाई",
+  ])("refuses %s as salary", (raw) => {
+    expect(reasonOf(raw)).toBe("salary");
+  });
+
+  it.each([
+    // The ordinary numbers of a work brief — years, spans, head-counts — are not money.
+    "10 saal ka experience hai",
+    "Maine 2015 se 2023 tak kaam kiya.",
+    "5 log ki team sambhali",
+    "3 shift mein machine chalayi",
+    "12th pass, ITI electrician",
+    "मैं 5 साल से वेल्डिंग का काम कर रहा हूँ।",
+    // A currency word that is not next to a number, and a word that merely starts like one.
+    "Working hours flexible",
+    "5 hours roz practice",
+    // A number written as a word is not a figure an employer can anchor on.
+    "do hazar log ke event mein cook raha",
+    // "k" as the chat form of "ke" before a postposition is prose, not a thousand.
+    "2019 k baad se wiring ka kaam karta hoon",
+    "Class 10 k baad ITI kiya, fitter hoon",
+    "5 saal k experience",
+    // Short durations and clock times beside a period word are not pay.
+    "6 mahine ka course kiya",
+    "3 month ka training",
+    "8 hours daily machine chalata hoon",
+    "Shift 5 pm tak",
+    // Pay synonyms that are ordinary prose away from a figure; a tailor's stitch.
+    "Tally package mein accounts",
+    "Kurta mein tanka lagata hoon",
+    // A bare figure with no cue at all cannot be told from a count.
+    "1500 parts roz banata hoon",
+  ])("passes %s", (raw) => {
+    expect(reasonOf(raw)).toBeNull();
+  });
+
+  it("any-script digits count — a Devanagari figure beside a currency word is money", () => {
+    expect(reasonOf("१५००० रुपये चाहिए")).toBe("salary");
+    expect(looksLikeMoney("१५००० रुपये चाहिए")).toBe(true);
+  });
+
+  it("the precomposed and the decomposed nukta are both read (NFKC decomposes it)", () => {
+    expect(looksLikeMoney("15 हज़ार")).toBe(true);
+    expect(looksLikeMoney("15 हज़ार".normalize("NFKC"))).toBe(true);
+    expect(looksLikeMoney("तनख़्वाह ठीक हो".normalize("NFKC"))).toBe(true);
+  });
+
+  it("sits after the routes and before the name: a handle is the route, a figure beats the name", () => {
+    // The UPI handle is the more specific thing to retype.
+    expect(reasonOf("UPI ramesh@okaxis, 15000 chahiye")).toBe("contact");
+    // A figure beside the worker's own name is refused for the figure.
+    expect(reasonOf("Ramesh ko 15k chahiye", "Ramesh Kumar")).toBe("salary");
+  });
+
+  it("a salary-sized figure beside an ask is money; the same figure with no cue is a count", () => {
+    // "15000 chahiye" is an asking price; "1500 parts roz" is output. Recorded in ADR-0045 §6.
+    expect(reasonOf("15000 chahiye, welder hoon")).toBe("salary");
+    expect(reasonOf("1500 parts roz banata hoon")).toBeNull();
+  });
+
+  it("the predicate the résumé re-runs is the one the wall runs", () => {
+    // `resume/resume-brief.ts` imports THIS function for its render-time re-check.
+    expect(looksLikeMoney("Salary 15k")).toBe(true);
+    expect(looksLikeMoney("10 saal ka experience hai")).toBe(false);
+  });
+});
+
+describe("readStoredBrief — the one narrower the form and the résumé share", () => {
+  it("reads an answered brief and a decline", () => {
+    expect(readStoredBrief({ status: "answered", text: "Welder hoon" })).toEqual({
+      status: "answered",
+      text: "Welder hoon",
+    });
+    expect(readStoredBrief({ status: "declined" })).toEqual({ status: "declined" });
+  });
+
+  it("reads anything else as no brief — strict, and it never throws", () => {
+    for (const value of [
+      undefined,
+      null,
+      "Welder hoon",
+      { status: "answered" },
+      { status: "answered", text: "" },
+      { status: "answered", text: "x", extra: 1 },
+      { status: "declined", text: "x" },
+      { kind: "other_answer", text: "x" },
+      [],
+    ]) {
+      expect(readStoredBrief(value), JSON.stringify(value) ?? "undefined").toBeUndefined();
+    }
   });
 });

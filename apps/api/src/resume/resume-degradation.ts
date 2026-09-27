@@ -223,6 +223,22 @@ export interface DegradableSheet {
    * in it. See {@link NEVER_DROPPED}.
    */
   locationLine?: string | null;
+  /**
+   * ADR-0045 R6 — the general road's brief under the headline (`bb_general` only; absent on every
+   * other sheet, where it costs nothing).
+   *
+   * CHARGED AND NEVER DROPPED, like the location line and for the same reason: an unmodelled line
+   * is a line the budget silently spends, and the brief is the worker's own words (or the fixed
+   * line R6 puts in their place) — the one element of the road that is his rather than ours.
+   *
+   * THE ARITHMETIC. `.brief` is 10pt at the sheet's 1.4 line height (4.94 mm against the model's
+   * 4.89 mm body line — 1% under, inside the rounding the budget already absorbs) plus a 1.2 mm top
+   * margin, charged as {@link BRIEF_MARGIN_LINES}. At most 160 characters, so at most two lines at
+   * `CHARS_PER_LINE`, which is calibrated at 10.5pt and so over-counts a 10pt line: the safe side.
+   * NO RECALIBRATION: the model is `bb_trade`'s, and the README records that `bb_general` is
+   * measured by rendering, not predicted.
+   */
+  profileBrief?: string | null;
   capSectionTitle?: string | null;
   capChipRows?: ResumeListRow[];
   capTickRows?: ResumeListRow[];
@@ -241,6 +257,9 @@ export interface DegradableSheet {
   ownWords?: string[];
 }
 
+/** `.brief`'s 1.2 mm top margin (`bb_general.v1.html`), in body lines. */
+const BRIEF_MARGIN_LINES = 1.2 / LINE_MM;
+
 /** Total rendered lines the page must find room for — masthead, section chrome and content. */
 export function sheetContentLines(s: DegradableSheet): number {
   const sections =
@@ -253,6 +272,7 @@ export function sheetContentLines(s: DegradableSheet): number {
     nameLines(s.displayName) +
     (s.nameDevanagari ? 1 : 0) +
     (s.locationLine ? rowLines("", s.locationLine) : 0) +
+    (s.profileBrief ? rowLines("", s.profileBrief) + BRIEF_MARGIN_LINES : 0) +
     sections * SECTION_CHROME_LINES +
     ownWordsLines(s.ownWords) +
     listRowLines(s.capChipRows) +
@@ -283,6 +303,7 @@ export const NEVER_DROPPED = [
   "verdict_line", // §5.1 rank 1 — the sheet's entire triage value
   "display_name", // a résumé without a name is not a résumé
   "location_line", // owner ruling 2026-09-08 — a sheet with no place cannot be acted on
+  "profile_brief", // ADR-0045 R6 — the worker's own line under the headline (general road)
   "availability", // §5.1 rank 6 — one of the four real rejection filters
   "expected_salary", // §5.1 rank 6 — the other one
   "trust_badge", // Part 10.2: absence must read as neutral, never as doubt

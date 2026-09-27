@@ -27,6 +27,23 @@ import type {
   WorkerTrainingRecord,
 } from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
+import { ROAD_FALLBACK_FRESHER, roadSnapshot } from "./__fixtures__/general-road";
+import type { TradeSheetContext } from "./resume-render-input";
+
+// ADR-0045 Phase 5 — THE CONTEXT the processor hands the mapper, captured by a PASS-THROUGH
+// wrapper so "the name never rides the context" is asserted on the object itself rather than
+// inferred from the output. Every call still reaches the real mapper unchanged.
+const mapperCalls = vi.hoisted(() => ({ contexts: [] as unknown[] }));
+vi.mock("./resume-render-input", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./resume-render-input")>();
+  return {
+    ...actual,
+    buildResumeRenderInput: (...args: Parameters<typeof actual.buildResumeRenderInput>) => {
+      mapperCalls.contexts.push(args[6]);
+      return actual.buildResumeRenderInput(...args);
+    },
+  };
+});
 
 const RESUME_ID = "res-1";
 const WORKER_ID = "w-1";
@@ -260,6 +277,10 @@ function setup(
     // ADR-0043 — the id `latestResume` reports as the worker's CURRENT résumé. Omitted, the row
     // under render IS current, which is every test written before résumé history existed.
     currentResumeId?: string;
+    // ADR-0045 Phase 5 — the general road's reader, as the optional 15th dependency. OMITTED is
+    // the reader absent (every construction before Phase 5); `"throws"` is a reader whose read
+    // escapes it, for the one-load-one-section degrade.
+    generalRoads?: { answer: { road: "general" } | null } | "throws";
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -372,6 +393,15 @@ function setup(
     // #1350 item 4 — the renderer half of the kill switch, and the gate the refusal rides on.
     WORK_HISTORY_POLISH_ENABLED: opts.polishEnabled ?? false,
   } as ServerConfig;
+  const generalRoads =
+    opts.generalRoads === undefined
+      ? undefined
+      : {
+          forResume: vi.fn(async (_resume: { id: string; workerId: string }) => {
+            if (opts.generalRoads === "throws") throw new Error("road boom Asha Kumari");
+            return (opts.generalRoads as { answer: { road: "general" } | null }).answer;
+          }),
+        };
 
   const proc = new ResumeRenderProcessor(
     resumes as unknown as ResumeRepository,
@@ -387,6 +417,9 @@ function setup(
     transcript as unknown as WorkerTranscriptRepository,
     polish as never,
     config,
+    // `tierScopes` — absent, as in every test here: its own suite covers it.
+    undefined,
+    generalRoads as never,
   );
   return {
     proc,
@@ -399,6 +432,7 @@ function setup(
     employments,
     transcript,
     polish,
+    generalRoads,
   };
 }
 
@@ -645,9 +679,14 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // @Global-DATABASE-only reads, plus SERVER_CONFIG; no service, no event surface. Checked
     // before this bump.
     //
+    // `generalRoads` (GeneralRoadReader) joined for ADR-0045 Phase 5 — whether the résumé's own
+    // provenance puts it on the general road. It reaches GeneralRoadRepository alone, whose only
+    // dependency is the @Global DATABASE: four primary-key reads, no service, no event surface.
+    // The render still emits nothing. Checked before this bump.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(14);
+    expect(ResumeRenderProcessor.length).toBe(15);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,
@@ -1536,5 +1575,153 @@ describe("ResumeRenderProcessor — the history card's facts (#1714)", () => {
       city: facts.city,
       pageCount: 2,
     });
+  });
+});
+
+/**
+ * ADR-0045 PHASE 5 — THE GENERAL ROAD ON THE WORKER'S OWN COPY.
+ *
+ * The reader is an EIGHTH independent load on the same degrade as the other seven: absent, null
+ * or throwing, the worker gets today's sheet and never a failed render. What only this processor
+ * can get right is the brief's re-check: it holds the worker's REAL name (decrypted once, for the
+ * masthead), and the verdict it passes on must never carry that name into the context.
+ */
+describe("ResumeRenderProcessor — the general road (ADR-0045 Phase 5)", () => {
+  const OWN = "Ghar aur dukaan ki wiring karta hoon.";
+  const ROAD_ROW = {
+    ...DEFAULT_ROW,
+    templateId: "bb_general",
+    sourceProfileSnapshot: roadSnapshot(),
+  };
+  const roadSheet = (brief: unknown = { status: "answered", text: OWN }) => ({
+    packId: null,
+    attributes: { profile_brief: brief },
+  });
+  const ON_ROAD = { answer: { road: "general" as const } };
+  const lastContext = () => mapperCalls.contexts.at(-1) as TradeSheetContext;
+  const drawn = (renderer: ReturnType<typeof setup>["renderer"]) =>
+    renderer.renderPdf.mock.calls[0]![0];
+  const stored = (resumes: ReturnType<typeof setup>["resumes"]) =>
+    (resumes.markRendered.mock.calls as unknown[][])[0]![2] as Record<string, unknown>;
+
+  it("asks the reader about THIS résumé on a bb_general render, and prints his own line", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(t.generalRoads!.forResume).toHaveBeenCalledWith({ id: RESUME_ID, workerId: WORKER_ID });
+    expect(drawn(t.renderer).profileBrief).toBe(OWN);
+    expect(drawn(t.renderer).generalRoad).toBe(true);
+    // A MARKER AND ONE VERDICT — never the name the verdict was reached with.
+    const ctx = lastContext();
+    expect(ctx.generalRoad).toEqual({ ownBriefUsable: true });
+    expect(JSON.stringify(ctx)).not.toContain(REAL_NAME);
+    // The document is the general sheet's, whatever the (absent) pack says.
+    expect(stored(t.resumes)).toMatchObject({
+      format: "trade_sheet",
+      trade: "trade",
+      layout: "bb_general",
+      brief: OWN,
+    });
+  });
+
+  it("re-checks his line against the name it decrypted — decrypting it no more than before", async () => {
+    // "Asha" is a token of his CURRENT name: the write-time screen may have seen another one.
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet({ status: "answered", text: "Asha ka kaam: wiring aur panel" }),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(drawn(t.renderer).profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(lastContext().generalRoad).toEqual({ ownBriefUsable: false });
+    expect(JSON.stringify(lastContext())).not.toContain(REAL_NAME);
+    // The re-check rides the masthead's decrypt: the name token is read exactly once.
+    expect(t.pii.decrypt.mock.calls.filter(([token]) => token === NAME_TOKEN)).toHaveLength(1);
+  });
+
+  it("a name that could not be decrypted fails the check — the fixed line, never unchecked words", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      decryptThrows: true,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(drawn(t.renderer).profileBrief).toBe(ROAD_FALLBACK_FRESHER);
+    expect(lastContext().generalRoad).toEqual({ ownBriefUsable: false });
+  });
+
+  it("a worker with no stored name has no name to find — his line prints", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: null,
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await t.proc.process(makeJob());
+    expect(drawn(t.renderer).profileBrief).toBe(OWN);
+  });
+
+  it("never asks for a bb_trade render, nor for a bb_general row a role pack now draws as bb_trade", async () => {
+    const trade = setup({
+      resume: { ...ROAD_ROW, templateId: "bb_trade" },
+      tradeSheet: roadSheet(),
+      generalRoads: ON_ROAD,
+    });
+    await trade.proc.process(makeJob());
+    expect(trade.generalRoads!.forResume).not.toHaveBeenCalled();
+    expect(drawn(trade.renderer).profileBrief).toBeUndefined();
+
+    // The template is RESOLVED once and read by both the gate and the mapper.
+    const upgraded = setup({
+      resume: ROAD_ROW,
+      tradeSheet: { packId: "qp_cnc_turning", attributes: {} },
+      generalRoads: ON_ROAD,
+    });
+    await upgraded.proc.process(makeJob());
+    expect(upgraded.generalRoads!.forResume).not.toHaveBeenCalled();
+    expect(drawn(upgraded.renderer).templateId).toBe("bb_trade");
+    expect(lastContext().generalRoad).toBeUndefined();
+  });
+
+  it("is optional: with no reader, or a reader that says no, the sheet is today's", async () => {
+    for (const generalRoads of [undefined, { answer: null }]) {
+      const t = setup({ resume: ROAD_ROW, tradeSheet: roadSheet(), generalRoads });
+      await t.proc.process(makeJob());
+      expect(drawn(t.renderer).profileBrief).toBeUndefined();
+      expect(drawn(t.renderer).generalRoad).toBeUndefined();
+      // ABSENT from the context, not null — so the context is exactly today's.
+      expect("generalRoad" in lastContext()).toBe(false);
+      // A pack-less document stays generic off the road.
+      expect(stored(t.resumes)).toMatchObject({ format: "generic" });
+    }
+  });
+
+  it("a reader that THROWS costs the road, never the PDF — and the warning carries ids only", async () => {
+    const t = setup({
+      resume: ROAD_ROW,
+      fullName: NAME_TOKEN,
+      tradeSheet: roadSheet(),
+      generalRoads: "throws",
+    });
+    const lines: string[] = [];
+    const logger = (t.proc as unknown as { logger: { warn: (m: string) => void } }).logger;
+    logger.warn = (m: string) => void lines.push(String(m));
+
+    expect(await t.proc.process(makeJob())).toEqual({ rendered: true });
+    expect(drawn(t.renderer).profileBrief).toBeUndefined();
+    expect(lines.some((l) => l.includes(`general-road provenance of resume ${RESUME_ID}`))).toBe(
+      true,
+    );
+    const joined = lines.join("\n");
+    expect(joined).not.toContain(REAL_NAME);
+    expect(joined).not.toContain("road boom");
+    expect(joined).not.toContain(OWN);
   });
 });

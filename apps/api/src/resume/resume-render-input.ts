@@ -1,7 +1,9 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
-import { looksLikePii } from "@badabhai/validators";
 import { titleCaseRoleLabel } from "./resume-text-case";
+// The read-path screens, in a leaf module since ADR-0045 Phase 5 (the brief module needs them and
+// is itself imported here). Every `cleanList` / `cleanScalar` note in this file still applies.
+import { cleanList, cleanScalar } from "./resume-clean";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
@@ -14,10 +16,17 @@ import {
   totalEmployedYears,
   type WorkerEmploymentRecord,
 } from "./resume-employment-rows";
-import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
+import {
+  formAvailabilityLabel,
+  readPreferenceFacts,
+  type ResumePreferenceFacts,
+} from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
-import { buildFresherRows, tenureStatusLabel } from "./resume-fresher-rows";
+import { buildFresherRows, FRESHER_LABEL, tenureStatusLabel } from "./resume-fresher-rows";
+import { composeFallbackBrief, vetOwnBrief } from "./resume-brief";
+import { readStoredBrief } from "../profiling/general-form/general-form-brief";
+import { resolveSalaryBand } from "../profiles/worker-field-precedence";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import { buildProfileHeadline, buildProfileSummary } from "./resume-headline";
 import {
@@ -30,6 +39,7 @@ import {
   buildVerdictLine,
   composeWhatsappLine,
   formatSalaryBand,
+  joinSegments,
 } from "./resume-sheet-rows";
 
 /**
@@ -285,6 +295,20 @@ export interface TradeSheetContext {
    * the sum of his filed work history is the total (owner ruling 2026-09-09).
    */
   readonly tierExperienceYears?: number | null;
+  /**
+   * ADR-0045 — THE GENERAL ROAD: present when the résumé's own provenance says the profile it
+   * renders was built from a general-form handover (`GeneralRoadReader`, `general-road.reader.ts`)
+   * and the sheet resolves to `bb_general`. OPTIONAL, AND ABSENT IS TODAY'S SHEET — the tier
+   * fields' precedent — so every existing caller and fixture renders exactly as before.
+   *
+   * A MARKER AND ONE VERDICT, NEVER THE BRIEF AND NEVER THE NAME. The brief's text is read by the
+   * mapper from `attributes.profile_brief`, the row `loadTradeSheet` already returns — one source,
+   * not a second copy that could disagree with it. `ownBriefUsable` is the render-time re-check
+   * (`vetOwnBrief`), decided by the CALLER before this function runs, because it needs the worker's
+   * real, current name, which this function never holds (the employer copy passes initials) and
+   * which must never ride this context: the disclosure's leak guard deep-scans it.
+   */
+  readonly generalRoad?: { readonly ownBriefUsable: boolean } | null;
 }
 
 /** Zone 5's values. Every field optional; an absent one contributes no row. */
@@ -336,6 +360,10 @@ type TradeCapabilitySlots = Pick<
   // that goes missing for exactly the workers nobody renders in a test.
   | "transcriptVetoes"
   | "ownWordsRejected"
+  // ADR-0045 — the general road's brief and its marker. Shared for the same reason: both return
+  // literals carry them without either having to remember to (absent off the road).
+  | "profileBrief"
+  | "generalRoad"
 >;
 
 /**
@@ -512,12 +540,35 @@ function buildUndegraded(
     !hasEmployments &&
     (draft.resume_profile?.experiences.length ?? 0) === 0 &&
     tradeSheet?.employmentsUnavailable !== true;
+  // ── ADR-0045: THE GENERAL ROAD'S FACTS, RESOLVED ONCE, ABOVE THE BRANCH ─────────────────────
+  //
+  // Null for every sheet but one built on the general road — see `resolveGeneralRoadFacts` for the
+  // two conditions, and why the template alone must not switch it on. Where it is not null it
+  // REPLACES four rules below rather than sitting behind them (years, "Fresher", the headline's
+  // tools, the salary), which is why each use site reads it through an explicit ternary: a road
+  // value that is null (no dated job, no band) must print as null, never fall through to the rule
+  // it replaced.
+  const road = resolveGeneralRoadFacts({
+    context: tradeSheet?.generalRoad ?? null,
+    templateId,
+    draft,
+    attributes: vettedAttributes,
+    preferences,
+    employments: tradeSheet?.employments ?? [],
+    employmentsUnavailable: tradeSheet?.employmentsUnavailable === true,
+    asOf: tradeSheet?.asOf ?? null,
+  });
   // AND THE LABEL FOR THE MAN THE SUM FINDS NOTHING FOR (owner ruling 2026-09-09b). It takes the
   // pack — to bound the rule to workers a form actually asked — and whether the history was READ
   // and empty. It no longer takes his answers: the tier gate sizes his questionnaire and says
   // nothing about his career, so "restrict only to the work history details" is enforced here by
   // giving the label nothing else to read. See `tenureStatusLabel`.
-  const tenureLabel = tenureStatusLabel(tradeSheet?.packId ?? null, filedNoWorkHistory);
+  //
+  // THE GENERAL ROAD HAS ITS OWN RULE (ADR-0045 §3.4) — pack-less, so the form-pack bound above
+  // would refuse it — and it is the SAME one-line rule: no employment stored, and the read worked.
+  const tenureLabel = road
+    ? road.tenureLabel
+    : tenureStatusLabel(tradeSheet?.packId ?? null, filedNoWorkHistory);
   const capabilitySlots = {
     capSectionTitle: tieredCapabilityTitle(
       capability.sectionTitle,
@@ -573,6 +624,12 @@ function buildUndegraded(
     shortLink: tradeSheet?.shortLink ?? null,
     footerMeta: tradeSheet?.footerMeta ?? null,
     transcriptVetoes,
+    // ADR-0045 R6 — the brief under the headline, and the marker the document keys on. UNDEFINED,
+    // not null, off the road: the key is then absent from every other sheet's render input, which
+    // keeps those inputs byte-identical down to their JSON. On the road a null brief is a real
+    // answer ("nothing applies") and the slot collapses.
+    profileBrief: road ? road.brief : undefined,
+    generalRoad: road ? true : undefined,
   } as const;
 
   // ── THE RÉSUMÉ CONTAINER WINS OUTRIGHT WHEN IT EXISTS ────────────────────────────────
@@ -672,7 +729,7 @@ function buildUndegraded(
         education: draft.education.map(labelForTaxonomyId),
         certifications: draft.certifications.map(labelForTaxonomyId),
         // Screened like every list this path prints (`cleanList`) — `bb_general` prints it in full.
-        machines: cleanList(draft.machines.map(labelForTaxonomyId)),
+        machines: draftMachineLabels(draft),
         educationLevel: humanizeEducationLevel(draft.education_level),
         educationField: draft.education_field,
         // R15 §1 — THE LEGACY BRANCH'S OWN `shift` FALLBACK, HOISTED SO BOTH CAN USE IT.
@@ -697,31 +754,58 @@ function buildUndegraded(
   }
 
   const trade = resolveTradeContent(draft.canonical_role_id, draft.canonical_trade_id);
-  const legacyRole =
-    trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null;
+  // ADR-0045 — on the general road the role is ONE cased value (`road.role`), read by the Verdict
+  // Line, `canonicalRole`, the profile headline and the brief's {R} alike: the fallback line's role
+  // must be the headline's role letter for letter, or the page names the worker two ways.
+  const legacyRole = road
+    ? road.role
+    : (trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null);
   const legacyCity =
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   // SCREENED WITH `cleanList`, AS THE CONTAINER PATH'S LISTS ARE. `skill_labels` are the worker's
   // own words, and `bb_general` prints these lists in full on BOTH audiences (Skills section) —
   // `bb_trade` only ever printed three of them in the headline — so an email or a phone number
   // typed as a skill must drop here rather than reach a payer's PDF.
-  const legacyMachines = cleanList(draft.machines.map(labelForTaxonomyId));
+  const legacyMachines = draftMachineLabels(draft);
   // R16 §2 — the third fallback for the headline's tools segment, and the SAME VALUE the
   // `skills` slot below prints, so the strip and the chips can never name different things.
-  const legacySkills = cleanList(
-    mergeSkillsWithLabels(
-      draft.skills.map(labelForTaxonomyId),
-      draft.skill_labels.map(labelForTaxonomyId),
-    ),
-  );
+  const legacySkills = draftSkillLabels(draft);
   // R16 §2 — ONE EXPRESSION, READ BY THE VERDICT LINE *AND* THE LAYER A (h) HEADLINE/SUMMARY,
   // so the strip and the generic slots cannot name different tools.
-  const legacyHeadlineTools = headlineToolsOrFallback(
-    capability.headlineTools,
-    legacyMachines,
-    legacySkills,
-  );
+  //
+  // ADR-0045 §3.4 — ON THE GENERAL ROAD THE TOOLS ARE THE WORKER'S SKILLS, then his machines: the
+  // skills are what the road captured him for, and the machines-first order is a machining
+  // advertisement's. The same 3-cap applies (`printedTools`).
+  const legacyHeadlineTools = road
+    ? road.tools
+    : headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills);
   const legacyAvailability = bareAvailability(draft.availability);
+  // ADR-0045 §3.4 — THE ROAD'S TWO TERMS ROWS, each falling back to what the row printed before
+  // when the worker answered nothing for it. These two fall back and the four above do not,
+  // deliberately: an unanswered availability or shift is ABSENCE, and today's value is the honest
+  // rendering of absence; an unknown years total or salary band is itself the road's answer.
+  //   - "Available from": the form's own answer, dated where it can be (`formAvailabilityLabel`).
+  //     The Verdict Line's availability is NOT changed — `bb_general` does not print the subhead.
+  //   - "Shift": the shift and the worker's work types, `work_types` in place of the single
+  //     `job_type`.
+  const legacyShift = preferences.shiftLine ?? humanizeShift(draft.shift);
+  const legacyShiftRow = road !== null && road.shiftLine !== null ? road.shiftLine : legacyShift;
+  const legacyAvailabilityRow =
+    road !== null && road.availableFrom !== null ? road.availableFrom : legacyAvailability;
+  // ONE TOTAL ON THIS BRANCH, READ BY THE VERDICT LINE, THE PROFILE HEADLINE, `experienceYears`
+  // AND THE SUMMARY — four renderings of one fact, computed once so they cannot disagree.
+  //
+  // ADR-0045 §4.2 — THE ROAD-SCOPED EXCEPTION TO "THE STATED FIGURE WINS". Everywhere else a
+  // worker's stated total outranks the sum of his jobs (`renderedTotalYears`, R8 §1, and the
+  // under-representation gate). On the general road the total is the sum of his DATED jobs and
+  // nothing else (R5): not the figure the profile froze at build time, not the chat opener's answer
+  // and not a tier's stated years. No dated total means no figure — the headline then says
+  // "Fresher" or "duration not stated", never a number the road forbids.
+  const legacyYears = road
+    ? road.years
+    : renderedTotalYears(draft.experience.total_years, employedYears);
+  // The headline and summary role: the road's one value, else the role with the domain beneath it.
+  const legacyHeadlineRole = road ? road.role : (legacyRole ?? draft.domain_label);
   // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
   // price by someone adding a second call site. Same rule and same shape as the container path.
   // R10 R-1 — THE LIVE DEFECT THIS FIXES. `amount_min` was written by TWO writers with OPPOSITE
@@ -735,9 +819,16 @@ function buildUndegraded(
   // current pay goes to `current_salary`, its own field on the rich draft). This side reads the
   // band, so a worker who answered both ends gets a range and one who answered neither gets no row
   // — §8.4's "a field with no value collapses", never a wrong number.
+  //
+  // ADR-0045 §3.4 — ON THE GENERAL ROAD THE BAND IS THE FORM'S, and it is new rather than an
+  // override: the road's profile carries no `salary_expectation` (it is built with no model call
+  // and the form writes attributes only), so this branch printed no salary for these workers at
+  // all. THE AUDIENCE GATE STAYS OUTERMOST, so the road's band cannot reach a payer either.
   const legacySalary =
     audience === "worker"
-      ? formatSalaryBand(draft.salary_expectation.amount_min, draft.salary_expectation.amount_max)
+      ? road
+        ? road.salaryBand
+        : formatSalaryBand(draft.salary_expectation.amount_min, draft.salary_expectation.amount_max)
       : null;
 
   return {
@@ -753,7 +844,8 @@ function buildUndegraded(
       // a stated total still outranks the sum (R8 §1, and the under-representation gate), and
       // where he stated none — which is every form-first worker, because the universal
       // `experience_years` ask never runs for him — the sum of his own dated jobs is the answer.
-      years: renderedTotalYears(draft.experience.total_years, employedYears),
+      // (The general road is the one exception, ADR-0045 §4.2 — see `legacyYears`.)
+      years: legacyYears,
       // R16 §2 — Q17, RULED. ONE EXPRESSION, BOTH BRANCHES.
       //
       // These read `… : legacyMachines` on one branch and `… : skillChips` on the other, so with
@@ -813,7 +905,8 @@ function buildUndegraded(
       axes: capability.headlineAxes,
     }),
     availFactRows: buildAvailabilityRows({
-      availability: legacyAvailability,
+      // The general road's dated row where it answered, else today's — see `legacyAvailabilityRow`.
+      availability: legacyAvailabilityRow,
       // WAS HARD `null`, AND IT SHOULD NOT HAVE BEEN. `salary_expected` is a universal pack ask
       // on every interview, the crosswalk carries it onto the draft, and the extraction
       // projection scatters it into `salary_expectation.amount_min` — so the figure was captured,
@@ -835,7 +928,9 @@ function buildUndegraded(
       // same literal already reads it — so a worker who told the interview his shift and never
       // opened the finishing form got the fact in his availability line and no Shift row, on
       // the branch most existing profiles take.
-      shift: preferences.shiftLine ?? humanizeShift(draft.shift),
+      //
+      // ADR-0045 §3.4 — on the general road, the shift with his work types (`legacyShiftRow`).
+      shift: legacyShiftRow,
       occupations: tradeSheet?.occupations ?? [],
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
@@ -899,7 +994,16 @@ function buildUndegraded(
     // `amount_min` IS THE ASKING PRICE, not the current wage — R10 R-1 corrected the Python
     // writer that had those reversed, and `legacySalary` reads the same field to compose the
     // band the row prints.
-    expectedSalary: audience === "worker" ? draft.salary_expectation.amount_min : null,
+    //
+    // ADR-0045 — on the general road, the low end of the form's band (`resolveSalaryBand`: the
+    // max alone when only the max was stated, exactly the figure the row prints). The audience
+    // gate stays outermost.
+    expectedSalary:
+      audience === "worker"
+        ? road
+          ? road.expectedSalary
+          : draft.salary_expectation.amount_min
+        : null,
     templateId,
     displayName,
     photoDataUri,
@@ -926,14 +1030,17 @@ function buildUndegraded(
     // reviewed vocabulary that is already correct ("VMC Operator", "CNC Turner"); the third is the
     // model's own free text and is the only one that ever printed "CNC turner". See
     // `titleCaseRoleLabel` for why this is not `titleCaseName`.
-    canonicalRole:
-      trade?.display_name ??
-      resolveId(draft.canonical_role_id) ??
-      titleCaseRoleLabel(draft.role_label),
+    //
+    // ADR-0045 — the general road's one cased role (`road.role`), the value the Verdict Line reads.
+    canonicalRole: road
+      ? road.role
+      : (trade?.display_name ??
+        resolveId(draft.canonical_role_id) ??
+        titleCaseRoleLabel(draft.role_label)),
     // Layer A (h) — the richer `{{headline}}`, same segments and helpers as the Verdict Line.
     profileHeadline: buildProfileHeadline({
-      role: legacyRole ?? draft.domain_label,
-      years: renderedTotalYears(draft.experience.total_years, employedYears),
+      role: legacyHeadlineRole,
+      years: legacyYears,
       tenureLabel,
       tools: legacyHeadlineTools,
     }),
@@ -949,7 +1056,7 @@ function buildUndegraded(
     // ONE TOTAL ON THIS BRANCH TOO. The Verdict Line above and this slot are two renderings of
     // one fact, and computing them from different expressions is how a sheet ends up saying
     // "4 yrs" at the top and nothing three lines down.
-    experienceYears: renderedTotalYears(draft.experience.total_years, employedYears),
+    experienceYears: legacyYears,
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
     // default renders this line byte-for-byte as it does today; see `humanizeAvailability`.
@@ -966,8 +1073,8 @@ function buildUndegraded(
       draft.experience.summary ??
       (trade ? buildSummary(draft, trade) : null) ??
       buildProfileSummary({
-        role: legacyRole ?? draft.domain_label,
-        years: renderedTotalYears(draft.experience.total_years, employedYears),
+        role: legacyHeadlineRole,
+        years: legacyYears,
         tenureLabel,
         tools: legacyHeadlineTools,
         city: legacyCity,
@@ -1412,44 +1519,137 @@ function headlineToolsOrFallback(
   return [...skills];
 }
 
+/** The parsed snapshot, as every reader in this file sees it. */
+type ParsedDraft = ReturnType<typeof DraftProfileSchema.parse>;
+
 /**
- * Trimmed entries with the blanks removed — see the note at the `skills` call site.
- *
- * EXPORTED FOR ONE OTHER READER, `general-road-profile.ts` (ADR-0045 §3.4), which re-screens the
- * general road's persisted skills with THIS rule before they are written to `skill_labels` — the
- * list this file then prints. One rule on the way in and the way out, not two that can drift.
+ * The draft's MACHINES as the sheet prints them — ids resolved to names, screened (`cleanList`).
+ * ONE EXPRESSION for the legacy branch, the container branch's draft fallback and the general
+ * road's headline tools, so the three can never print different machines from one draft.
  */
-export function cleanList(items: readonly string[]): string[] {
-  return items.map((s) => s.trim()).filter((s) => s.length > 0 && !looksLikePii(s));
+function draftMachineLabels(draft: ParsedDraft): string[] {
+  return cleanList(draft.machines.map(labelForTaxonomyId));
 }
 
 /**
- * A stored container's scalar, or null when it looks like raw PII (#831).
- *
- * THE BACKSTOP, NOT THE GATE. The gate is `_certified_scalar` in the ai-service, which runs
- * every one of these fields through the pseudonymizer before the container is ever persisted.
- * This exists because that gate protects FUTURE extractions and nothing else: rows written
- * before it landed hold values no gateway ever vouched for, they are rendered from storage on
- * every download, and `fromResumeProfile` feeds BOTH the worker's PDF and the employer-facing
- * masked disclosure. A read-path check is the only thing those rows will ever see.
- *
- * `looksLikePii` DELIBERATELY, and not the stricter `looksLikeActionContextPii`. The strict one
- * also rejects 2-4 title-cased words, which is the exact shape of "New Delhi", "Night Shift"
- * and most legitimate role labels — it would blank real résumé fields, and a blanked résumé is
- * the failure #824 already cost us once. `looksLikePii` matches only email shapes and 7+ digit
- * runs, neither of which any honest value of these fields contains.
- *
- * NULL RATHER THAN A MASK, matching the ai-service: absence is a shape every template already
- * handles, and "[PHONE]" printed under `Shift` would be worse than the line not being there.
- *
- * EXPORTED beside {@link cleanList}, for the same reader: the general road's role and domain
- * labels are screened with it before they reach `role_label` / `domain_label`.
+ * The draft's SKILLS as the legacy branch prints them — canonical names first, then the worker's
+ * own labels, de-duplicated on identity (`mergeSkillsWithLabels`), screened. ONE EXPRESSION for the
+ * Skills list and the general road's headline tools and fallback brief: the brief's {S} must be the
+ * first skills of the list printed below it, never a list of its own.
  */
-export function cleanScalar(value: string | null): string | null {
-  if (value === null) return null;
-  const trimmed = value.trim();
-  if (!trimmed || looksLikePii(trimmed)) return null;
-  return trimmed;
+function draftSkillLabels(draft: ParsedDraft): string[] {
+  return cleanList(
+    mergeSkillsWithLabels(
+      draft.skills.map(labelForTaxonomyId),
+      draft.skill_labels.map(labelForTaxonomyId),
+    ),
+  );
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * THE GENERAL ROAD'S FACTS (ADR-0045 §3.4, R5, R6) — resolved once, above the source branch.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * NULL UNLESS BOTH HOLD, and each condition closes a different hole:
+ *   - `context` is present — the CALLER's reader found, by the résumé's own provenance, that the
+ *     profile it renders was built from a general-form handover. The template alone must NOT switch
+ *     the road on: `bb-general-sheet.render.test.ts` renders every content shape as `bb_general`,
+ *     and so does production for every non-21 worker whose profile came from anywhere else.
+ *   - the template is `bb_general` — the RESOLVED id. A stored `bb_general` row renders as
+ *     `bb_trade` once the worker elects one of the 21 (`renderTemplateId`); the road is then off
+ *     and the trade sheet renders exactly as it always has (owner ruling 2026-09-27: a known
+ *     limit, recorded in the ADR).
+ * AND NULL FOR A SNAPSHOT THAT CARRIES A RÉSUMÉ CONTAINER. The road's profile is built with no
+ * model call and writes `resume_profile: null` (`general-road-profile.ts`), so it always takes
+ * the legacy branch; a container beside a road context is not a profile the road built, and the
+ * container branch then renders exactly as it does for everyone else. The overrides therefore
+ * live on the legacy branch only, and `fromResumeProfile` never sees the road.
+ *
+ * WHAT IT DECIDES — each value REPLACES a rule rather than sitting behind it:
+ *   role     the draft's role label, screened and cased; else the cased domain label. ONE value
+ *            for the Verdict Line, `canonicalRole`, the profile headline and the brief's {R}.
+ *   years    the sum of the DATED employment rows and nothing else (R5, §4.2) — not the total the
+ *            profile froze at build time, not a stated figure, not `tierExperienceYears`.
+ *   tenure   "Fresher" iff no employment is stored AND the read succeeded. `has_work_history` is
+ *            never a source (§3.4): it decides whether the form SHOWS the page, not what the
+ *            worker has done — "yes" with no job filed is still nothing on file, and a failed read
+ *            must never put the word over a man whose jobs could not be fetched.
+ *   tools    his skills, then his machines (the verdict line caps them at three).
+ *   salary   the form's band (`salary_expected_min` / `_max`), through the shared precedence
+ *            helper. AUDIENCE-BLIND HERE ON PURPOSE: the gate is applied OUTERMOST at each use
+ *            site, where it has always lived, so there is one gate and not two that must agree.
+ *   rows     "Available from" and "Shift" — null when unanswered; the use site falls back.
+ *   brief    the worker's own line when the caller's re-check passed AND it is still clean here;
+ *            else the fixed fallback line (`composeFallbackBrief`); else null.
+ *
+ * PURE: every input is already in hand, and nothing is logged — the brief is worker text.
+ */
+interface GeneralRoadFacts {
+  readonly role: string | null;
+  readonly years: number | null;
+  readonly tenureLabel: string | null;
+  readonly tools: string[];
+  readonly salaryBand: string | null;
+  readonly expectedSalary: number | null;
+  readonly availableFrom: string | null;
+  readonly shiftLine: string | null;
+  readonly brief: string | null;
+}
+
+function resolveGeneralRoadFacts(input: {
+  readonly context: { readonly ownBriefUsable: boolean } | null;
+  readonly templateId: string | null;
+  readonly draft: ParsedDraft;
+  readonly attributes: WorkerAttributeValues;
+  readonly preferences: ResumePreferenceFacts;
+  readonly employments: readonly WorkerEmploymentRecord[];
+  readonly employmentsUnavailable: boolean;
+  readonly asOf: Date | null;
+}): GeneralRoadFacts | null {
+  const { context, draft, preferences, employments, asOf } = input;
+  if (context === null || input.templateId !== "bb_general") return null;
+  if (resumeProfileCarriesValues(draft.resume_profile)) return null;
+
+  const role =
+    titleCaseRoleLabel(cleanScalar(draft.role_label)) ??
+    titleCaseRoleLabel(cleanScalar(draft.domain_label));
+  const years = totalEmployedYears(employments, asOf);
+  const fresher = employments.length === 0 && !input.employmentsUnavailable;
+  const skills = draftSkillLabels(draft);
+  const band = resolveSalaryBand({
+    expected: preferences.salaryMin,
+    expectedMax: preferences.salaryMax,
+  });
+
+  // THE WORKER'S OWN LINE, TWICE CHECKED. The caller's verdict (`ownBriefUsable`) is the one that
+  // knows his current name; `vetOwnBrief(…, null)` re-runs the name-free half here, so a caller
+  // that ever passed `true` without vetting still cannot print a money or PII shape.
+  const stored = readStoredBrief(input.attributes.profile_brief);
+  const ownLine =
+    context.ownBriefUsable && stored?.status === "answered" && vetOwnBrief(stored.text, null)
+      ? stored.text
+      : null;
+
+  return {
+    role,
+    years,
+    tenureLabel: fresher ? FRESHER_LABEL : null,
+    tools: [...skills, ...draftMachineLabels(draft)],
+    salaryBand: band === null ? null : formatSalaryBand(band.low, band.high),
+    expectedSalary: band === null ? null : band.low,
+    availableFrom: formAvailabilityLabel(preferences, asOf),
+    shiftLine: joinSegments([preferences.shiftLabel, preferences.workTypes.join(", ")]),
+    brief:
+      ownLine ??
+      composeFallbackBrief({
+        role,
+        years,
+        fresher,
+        employmentsReadable: !input.employmentsUnavailable,
+        skills,
+      }),
+  };
 }
 
 /**

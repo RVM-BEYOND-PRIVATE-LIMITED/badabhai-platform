@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readPreferenceFacts } from "./resume-preference-facts";
+import { formAvailabilityLabel, readPreferenceFacts } from "./resume-preference-facts";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 
 /** The finishing form's answers, exactly as `loadTradeSheet` returns them. */
@@ -155,5 +155,105 @@ describe("the form's answers reach the sheet (R6 §4)", () => {
     });
     expect(rowValue(input.qualFactRows, "Languages spoken")).toBe("Tamil");
     expect(input.qualTickRows?.[0]?.values).toContain("Aadhaar");
+  });
+});
+
+/**
+ * ADR-0045 §3.4 — THE GENERAL ROAD'S "Available from" ROW, phrased for a page read LATER than it
+ * was written: the employer copy renders live, possibly months after the answer. The rules are the
+ * owner's (2026-09-27), first match wins.
+ */
+describe("formAvailabilityLabel — the general road's Available from row", () => {
+  // Noon in India on 27 Sep 2026 — and 06:30 UTC, the same day on both clocks.
+  const NOON_IST = new Date("2026-09-27T06:30:00Z");
+  const label = (availability: Record<string, unknown>, asOf: Date | null = NOON_IST) =>
+    formAvailabilityLabel(readPreferenceFacts({ availability }), asOf);
+
+  it("a date still ahead prints 'From <day> <Mon> <year>', the day unpadded", () => {
+    expect(label({ available_from: "2026-10-12" })).toBe("From 12 Oct 2026");
+    expect(label({ available_from: "2026-11-02" })).toBe("From 2 Nov 2026");
+    // The sheet's own month spelling, never ICU's ("Sept" on current builds).
+    expect(label({ available_from: "2026-09-28" })).toBe("From 28 Sep 2026");
+  });
+
+  it("a date already reached — past or today — prints Immediately", () => {
+    expect(label({ available_from: "2026-09-01" })).toBe("Immediately");
+    expect(label({ available_from: "2026-09-27" })).toBe("Immediately");
+  });
+
+  it("today is the RENDER DAY IN INDIA, not in UTC", () => {
+    // 20:00 UTC on the 27th is already 01:30 on the 28th in India: the 28th has begun.
+    const lateUtc = new Date("2026-09-27T20:00:00Z");
+    expect(label({ available_from: "2026-09-28" }, lateUtc)).toBe("Immediately");
+    expect(label({ available_from: "2026-09-29" }, lateUtc)).toBe("From 29 Sep 2026");
+  });
+
+  it("the date wins over the status — it is the more specific statement", () => {
+    expect(
+      label({ status: "serving_notice", notice_period_days: 30, available_from: "2026-10-26" }),
+    ).toBe("From 26 Oct 2026");
+    expect(label({ status: "within_month", available_from: "2026-09-01" })).toBe("Immediately");
+  });
+
+  it("a status alone prints its vocabulary label, notice with its days", () => {
+    expect(label({ status: "immediate" })).toBe("Immediately");
+    expect(label({ status: "within_week" })).toBe("Within a week");
+    expect(label({ status: "within_month" })).toBe("Within a month");
+    expect(label({ status: "serving_notice", notice_period_days: 30 })).toBe(
+      "Serving notice (30 days)",
+    );
+    expect(label({ status: "serving_notice", notice_period_days: 1 })).toBe(
+      "Serving notice (1 day)",
+    );
+    expect(label({ status: "serving_notice" })).toBe("Serving notice");
+    expect(label({ status: "serving_notice", notice_period_days: 0 })).toBe("Serving notice");
+  });
+
+  it("nothing answered, an unknown status or a date no calendar has: null (the caller falls back)", () => {
+    expect(label({})).toBeNull();
+    expect(label({ status: "not_looking" })).toBeNull();
+    expect(label({ available_from: "2026-02-31" })).toBeNull();
+    expect(formAvailabilityLabel(readPreferenceFacts({}), NOON_IST)).toBeNull();
+  });
+
+  it("with no clock no date is judged — the status decides, and a bare date prints nothing", () => {
+    expect(label({ available_from: "2026-10-12" }, null)).toBeNull();
+    expect(label({ status: "within_week", available_from: "2026-10-12" }, null)).toBe(
+      "Within a week",
+    );
+  });
+});
+
+describe("readPreferenceFacts — the band's lower end and the status slug (ADR-0045)", () => {
+  it("reads salary_expected_min beside salary_expected_max", () => {
+    const facts = readPreferenceFacts({ salary_expected_min: 18000, salary_expected_max: 22000 });
+    expect(facts.salaryMin).toBe(18000);
+    expect(facts.salaryMax).toBe(22000);
+    expect(readPreferenceFacts({}).salaryMin).toBeNull();
+  });
+
+  it("narrows the status slug to the vocabulary, exactly as its label is narrowed", () => {
+    expect(readPreferenceFacts({ availability: { status: "serving_notice" } })).toMatchObject({
+      availabilityStatus: "serving_notice",
+      availabilityStatusLabel: "Serving notice",
+    });
+    expect(readPreferenceFacts({ availability: { status: "not_looking" } })).toMatchObject({
+      availabilityStatus: null,
+      availabilityStatusLabel: null,
+    });
+  });
+
+  it("prints the lower end on no sheet off the road — a pack-less worker's row is unchanged", () => {
+    // The key is read for every sheet; only the general road prints it.
+    const input = buildResumeRenderInput(
+      {},
+      null,
+      "bb_general",
+      null,
+      false,
+      "worker",
+      sheet({ salary_expected_min: 18000 }),
+    );
+    expect(rowValue(input.availFactRows, "Salary expected")).toBeUndefined();
   });
 });

@@ -15,6 +15,8 @@ import { ResumeGenerateProcessor } from "./resume-generate.processor";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import { ProfilingTierRepository } from "../profiling/tiers/profiling-tier.repository";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
+import { GeneralRoadRepository } from "./general-road.repository";
+import { GeneralRoadReader } from "./general-road.reader";
 
 /**
  * Resume generation + async PDF render (TD5).
@@ -50,6 +52,11 @@ import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
     // PROFILING_TIERS_ENABLED is off.
     ProfilingTierRepository,
     ResumeTierScopeReader,
+    // ADR-0045 Phase 5 — the general road, by the résumé's own provenance. The repository depends
+    // only on the @Global DATABASE (provided here on the same terms as the tier repository), and
+    // the reader queries only for a `bb_general` render.
+    GeneralRoadRepository,
+    GeneralRoadReader,
   ],
   // ADR-0044 — the post-completion chat companion tells the worker how their résumé was made and
   // what it says. It reads `history()` — the SAME projection the Resume tab shows (source,

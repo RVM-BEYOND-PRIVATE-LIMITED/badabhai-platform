@@ -17,6 +17,7 @@ import {
   resolveWorkTypes,
   type SalaryPeriod,
 } from "../profiles/worker-field-precedence";
+import { MONTHS } from "./resume-employment-rows";
 
 /**
  * The finishing form's answers, read off `worker_attributes` and printed in English (R6 §4).
@@ -80,6 +81,13 @@ export interface ResumePreferenceFacts {
    * figure. NEVER derived — see `formatSalaryBand`.
    */
   readonly salaryMax: number | null;
+  /**
+   * The LOWER end of the band as the GENERAL FORM stores it (`salary_expected_min`, ADR-0045), or
+   * null. Read here beside {@link salaryMax} so the band's two ends have one narrower; printed only
+   * by the general road (`resume-render-input.ts`), the one road whose form writes this key — so on
+   * every other sheet it is read and prints nothing.
+   */
+  readonly salaryMin: number | null;
 
   // ── ADR-0042 D9 / Layer A (c) — the attribute extensions, read for the renderers ──────────
   //
@@ -102,6 +110,13 @@ export interface ResumePreferenceFacts {
   readonly willingToTravel: boolean | undefined;
   /** The printed status ("Within a week"), from the worker's own answer or the model's. */
   readonly availabilityStatusLabel: string | null;
+  /**
+   * The same status as its SLUG (`immediate`, `serving_notice`, …), or null — narrowed to the
+   * vocabulary, so an unknown slug reads as null exactly as its label does. For a rule that must
+   * branch on the answer (the general road's "Available from", {@link formAvailabilityLabel}):
+   * branching on the printed label would make a copy edit a behaviour change.
+   */
+  readonly availabilityStatus: string | null;
   /** `YYYY-MM-DD`, as the worker stated it. Null unless the structured answer carries one. */
   readonly availableFrom: string | null;
   readonly noticePeriodDays: number | null;
@@ -118,12 +133,14 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   educationDetail: null,
   educationCredential: null,
   salaryMax: null,
+  salaryMin: null,
   workTypes: [],
   salaryPeriod: "month",
   salaryPeriodLabel: null,
   commuteMaxKm: null,
   willingToTravel: undefined,
   availabilityStatusLabel: null,
+  availabilityStatus: null,
   availableFrom: null,
   noticePeriodDays: null,
 };
@@ -199,6 +216,7 @@ export function readPreferenceFacts(
     // COUNCIL, YEAR, INSTITUTE - in the order the ratified sheet prints them, each dropping its
     // own separator when absent. A worker who gave only the year gets "2018", not "· 2018 ·".
     salaryMax: numeric(attributes.salary_expected_max),
+    salaryMin: numeric(attributes.salary_expected_min),
     // R11 §3.1 — an UNKNOWN slug yields null and the caller falls back to the merged label, which
     // is the same drop-the-unknown rule every dictionary here follows. Falling back to
     // "ITI / Diploma" is not a degradation: it is the less specific truth, and printing a slug or
@@ -231,6 +249,10 @@ export function readPreferenceFacts(
     commuteMaxKm: nonNegativeNumber(attributes.commute_max_km),
     willingToTravel: flag(attributes.willing_to_travel),
     availabilityStatusLabel: labelFor(AVAILABILITY_STATUSES, availability.status ?? ""),
+    availabilityStatus:
+      labelFor(AVAILABILITY_STATUSES, availability.status ?? "") === null
+        ? null
+        : availability.status,
     availableFrom: availability.availableFrom,
     noticePeriodDays: availability.noticePeriodDays,
   };
@@ -254,4 +276,91 @@ function asObject(value: unknown): Record<string, unknown> | null {
 function nonNegativeNumber(value: unknown): number | null {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * THE GENERAL ROAD'S "Available from" ROW (ADR-0045 §3.4) — the general form's own availability
+ * answer, phrased for a page that is read LATER than it is written. Null when the worker answered
+ * none of it, and the caller then prints what the row printed before.
+ *
+ * FIRST RULE THAT APPLIES:
+ *   - a date after the render day            → "From 12 Oct 2026"
+ *   - a date on or before it, or `immediate` → "Immediately" (the vocabulary's own label)
+ *   - `serving_notice` with a day count      → "Serving notice (30 days)"; without one, the label
+ *   - `within_week` / `within_month`         → "Within a week" / "Within a month"
+ *
+ * THE DATE WINS OVER THE STATUS, because it is the more specific statement — "serving notice"
+ * with an `available_from` has already told us the day. A PAST date prints "Immediately" rather
+ * than "From <a day already gone>": the employer copy renders live, possibly months after the
+ * answer, and a start date in the past means the worker is free now.
+ *
+ * "TODAY" IS THE RENDER DAY IN INDIA (`Asia/Kolkata`), the footer's clock — so a sheet generated
+ * at 1 a.m. IST does not call today's date "From" a day that has already begun. With no clock
+ * (`asOf` null) no date is judged at all and the status decides; a date nobody can place against
+ * the calendar is not printed.
+ *
+ * THE MONTH IS THE SHEET'S OWN ABBREVIATION (`MONTHS`), not `Intl`'s, whose en-GB short month
+ * changed spelling between ICU builds ("Sept"/"Sep").
+ */
+export function formAvailabilityLabel(
+  facts: Pick<ResumePreferenceFacts, "availabilityStatus" | "availableFrom" | "noticePeriodDays">,
+  asOf: Date | null,
+): string | null {
+  const from = facts.availableFrom === null ? null : calendarDate(facts.availableFrom);
+  const today = asOf === null ? null : indiaCalendarDay(asOf);
+  const immediately = labelFor(AVAILABILITY_STATUSES, "immediate");
+  if (from !== null && today !== null) {
+    return from.iso > today
+      ? `From ${from.day} ${MONTHS[from.month - 1]} ${from.year}`
+      : immediately;
+  }
+  switch (facts.availabilityStatus) {
+    case "immediate":
+      return immediately;
+    case "serving_notice": {
+      const label = labelFor(AVAILABILITY_STATUSES, "serving_notice");
+      const days = facts.noticePeriodDays;
+      if (label === null || days === null || days <= 0) return label;
+      return `${label} (${days} ${days === 1 ? "day" : "days"})`;
+    }
+    case "within_week":
+    case "within_month":
+      return labelFor(AVAILABILITY_STATUSES, facts.availabilityStatus);
+    default:
+      return null;
+  }
+}
+
+/**
+ * A stored `YYYY-MM-DD` as its parts, or null when it names no real day ("2026-02-31"): the
+ * write-side DTO checks the shape, and `resolveAvailabilityState` re-checks only the shape, so a
+ * hand-written row can still carry a date no calendar has.
+ */
+function calendarDate(iso: string): {
+  readonly iso: string;
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+} | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const at = new Date(Date.UTC(year, month - 1, day));
+  const real =
+    at.getUTCFullYear() === year && at.getUTCMonth() === month - 1 && at.getUTCDate() === day;
+  return real ? { iso, year, month, day } : null;
+}
+
+/** The render instant's calendar day in India, as `YYYY-MM-DD` — comparable to a stored date. */
+function indiaCalendarDay(at: Date): string | null {
+  if (Number.isNaN(at.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(at);
+  const part = (type: "year" | "month" | "day") => parts.find((p) => p.type === type)?.value;
+  const [year, month, day] = [part("year"), part("month"), part("day")];
+  return year && month && day ? `${year}-${month}-${day}` : null;
 }

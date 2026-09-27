@@ -29,6 +29,8 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.co
 import { PROFILING_TIER_FOOTER_LABEL } from "../profiling/tiers/profiling-tier.policy";
 import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
 import { ResumeTierScopeReader } from "./resume-tier-scope.reader";
+import { GeneralRoadReader, type GeneralRoadMarker } from "./general-road.reader";
+import { ownBriefUsable } from "./resume-brief";
 
 /**
  * Renders a resume PDF off the request path (NODE-ONLY render, see ADR).
@@ -85,6 +87,9 @@ export class ResumeRenderProcessor extends WorkerHost {
     // TIERED PROFILING. Optional so its absence is today's sheet — every pre-tier construction
     // (the processor tests) renders exactly as before, as does PROFILING_TIERS_ENABLED off.
     @Optional() private readonly tierScopes?: ResumeTierScopeReader,
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, by the résumé's own provenance. Optional on the same
+    // terms as the tier reader: absent is today's sheet. Database-only reads, no event surface.
+    @Optional() private readonly generalRoads?: GeneralRoadReader,
   ) {
     super();
   }
@@ -141,11 +146,16 @@ export class ResumeRenderProcessor extends WorkerHost {
     // any failure (rotated key / tampered token) — same as ResumeService. Never log
     // the token, the error detail, or the name.
     let displayName: string | null = null;
+    // ADR-0045 — whether a STORED name could not be read, which is not the same as no name stored.
+    // The general road's brief is re-checked against this name before it prints, and a check that
+    // could not run is not a check that passed: the brief then prints the fallback line.
+    let nameUnreadable = false;
     const worker = await this.workers.findById(workerId);
     if (worker?.fullName) {
       try {
         displayName = this.pii.decrypt(worker.fullName);
       } catch {
+        nameUnreadable = true;
         this.logger.warn(
           `could not decrypt full_name for worker ${workerId}; rendering a name-less resume`,
         );
@@ -421,6 +431,41 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // THE TEMPLATE THIS RENDER DRAWS WITH — the stored id, upgraded to the trade sheet if he has
+    // since taken a role form. RESOLVED ONCE and read twice: by the general-road gate below and by
+    // the mapper, so the two can never disagree about which sheet this is.
+    const templateId = renderTemplateId(resume.templateId, loaded?.packId ?? null);
+
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, an EIGHTH independent load on the same degrade as the
+    // seven above: a failure costs the road (today's sheet — no brief, the pre-road years rule) and
+    // never the PDF. QUERIED ONLY FOR A `bb_general` RENDER: the trade sheet has no brief slot and
+    // no road, so every other render makes no extra query at all. The reader answers by the
+    // résumé's own provenance and itself degrades to null; this catch is the one-load-one-section
+    // rule held regardless.
+    let road: GeneralRoadMarker | null = null;
+    if (templateId === "bb_general") {
+      try {
+        road =
+          (await this.generalRoads?.forResume({ id: resume.id, workerId: resume.workerId })) ??
+          null;
+      } catch {
+        this.logger.warn(
+          `could not read the general-road provenance of resume ${resumeId}; rendering without`,
+        );
+      }
+    }
+    // THE BRIEF'S RENDER-TIME RE-CHECK, decided HERE because it needs the worker's real name, which
+    // is decrypted above for the masthead and must never ride the context. A name that could not be
+    // decrypted fails the check (fail closed); the mapper then prints the fixed fallback line —
+    // exactly what the employer copy prints on the same failure, so the two copies agree.
+    const generalRoad =
+      road === null
+        ? null
+        : {
+            ownBriefUsable:
+              !nameUnreadable && ownBriefUsable(loaded?.attributes?.profile_brief, displayName),
+          };
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -476,13 +521,17 @@ export class ResumeRenderProcessor extends WorkerHost {
         // Absent while tiers are off, so the footer is exactly today's.
         tierLabel: tierScope ? PROFILING_TIER_FOOTER_LABEL[tierScope.tier] : null,
       }),
+      // ADR-0045 — ABSENT, not null, off the road, so this context is exactly today's for every
+      // other worker. A marker and one verdict; never the name, never the brief.
+      ...(generalRoad === null ? {} : { generalRoad }),
     };
 
     const input = buildResumeRenderInput(
       resume.sourceProfileSnapshot,
       displayName,
-      // The stored id, upgraded to the trade sheet if he has since taken a role form.
-      renderTemplateId(resume.templateId, loaded?.packId ?? null),
+      // The stored id, upgraded to the trade sheet if he has since taken a role form — resolved
+      // once above, the same value the general-road gate read.
+      templateId,
       photoDataUri,
       // #947 — the worker's OWN "Night shift ke liye taiyaar" answer. Off the worker row
       // already loaded above for the name and the photo, so this costs no extra query.
