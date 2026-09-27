@@ -94,7 +94,7 @@ const CHROME = {
   nameDevanagari: null,
   trustBadge: null,
   qrDataUri: null,
-  qrCaption: "Scan to open this worker's live profile",
+  qrCaption: "Scan to visit BadaBhai",
   shortLink: "badabhai.ai",
   footerMeta: "Generated 28 August 2026 · Ref RK8M2Q",
   asOf: SHEET_AS_OF,

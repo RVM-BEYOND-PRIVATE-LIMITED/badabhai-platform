@@ -565,7 +565,7 @@ const MILLING_SHEET = {
   },
   phone: "+919876543210",
   qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
-  qrCaption: "Scan to open this worker's live profile",
+  qrCaption: "Scan to visit BadaBhai",
   shortLink: "badabhai.ai/w/abc123",
   footerMeta: "Generated 29 Aug 2026 · Ref RK8M2Q",
   nameDevanagari: "रमेश कुमार यादव",

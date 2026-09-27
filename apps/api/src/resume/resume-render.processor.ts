@@ -24,7 +24,12 @@ import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 import { buildResumeQrDataUri } from "./resume-qr";
 import { verificationBadgeFor } from "./verification-tier";
-import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
+import {
+  buildSheetFooterMeta,
+  RESUME_PROFILE_ORIGIN,
+  RESUME_QR_CAPTION,
+  resumeRefCode,
+} from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { PROFILING_TIER_FOOTER_LABEL } from "../profiling/tiers/profiling-tier.policy";
 import { applyTierScope, type ResumeTierScope } from "./resume-tier-scope";
@@ -511,7 +516,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // as a warning. The five-value→label mapping lives in `verification-tier.ts`.
       trustBadge,
       qrDataUri,
-      qrCaption: "Scan to open this worker's live profile",
+      qrCaption: RESUME_QR_CAPTION,
       shortLink: RESUME_PROFILE_ORIGIN.replace(/^https?:\/\//, ""),
       footerMeta: buildSheetFooterMeta({
         generatedAt: renderedAt,

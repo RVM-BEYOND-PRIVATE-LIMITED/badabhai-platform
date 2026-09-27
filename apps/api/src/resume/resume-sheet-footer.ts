@@ -14,6 +14,16 @@ import { createHash } from "node:crypto";
 export const RESUME_PROFILE_ORIGIN = "https://badabhai.ai";
 
 /**
+ * The line printed under the QR. It must describe what {@link RESUME_PROFILE_ORIGIN} opens
+ * TODAY, because the sheet outlives the render and is read by the employer holding it.
+ *
+ * It used to say "Scan to open this worker's live profile". The QR opens the homepage, so every
+ * printed sheet promised a per-worker page that does not exist. When the Phase 3 page ships
+ * (#1800), this line and the origin above change TOGETHER, never one without the other.
+ */
+export const RESUME_QR_CAPTION = "Scan to visit BadaBhai";
+
+/**
  * The `bb_trade` sheet's footer line and its reference code. PURE — the clock is an argument.
  *
  * WHY THE REF CODE EXISTS. A supervisor holding a stack of printed sheets needs one short token

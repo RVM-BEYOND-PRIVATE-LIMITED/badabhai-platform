@@ -196,7 +196,7 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
         nameDevanagari: null,
         trustBadge: null,
         qrDataUri: null,
-        qrCaption: "Scan to open this worker's live profile",
+        qrCaption: "Scan to visit BadaBhai",
         shortLink: "badabhai.ai",
         footerMeta: `Generated 28 August 2026 · Self-declared · Ref ${persona.id.slice(0, 6).toUpperCase()}`,
       };
