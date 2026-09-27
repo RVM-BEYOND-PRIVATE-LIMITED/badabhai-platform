@@ -19,6 +19,15 @@ export const StartSessionSchema = z.object({
    * opener, byte for byte. Absent/false ⇒ the old flow, unchanged.
    */
   confirm_first: z.boolean().optional(),
+  /**
+   * #1744 — is this request the worker's explicit REDO ("Chat se resume banayein")?
+   *
+   * This POST is also the resume fallback: a cold start whose `GET /chat/session/latest` failed
+   * lands here, and older builds land here on every open, all with the same body. Only an explicit
+   * redo may supersede a live leftover that already became the confirmed profile; everything else
+   * keeps the #1197 reattach. Absent/false ⇒ the reattach, unchanged.
+   */
+  redo: z.boolean().optional(),
 });
 export type StartSessionDto = z.infer<typeof StartSessionSchema>;
 

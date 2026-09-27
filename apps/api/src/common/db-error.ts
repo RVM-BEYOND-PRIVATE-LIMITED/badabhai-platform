@@ -67,3 +67,25 @@ export function redactQueryParams(err: unknown, operation: string): unknown {
   // parameter values in its message the way the drizzle wrapper does.
   return new RedactedQueryError(operation, err.query, code, cause);
 }
+
+/**
+ * A log-safe REASON for a failure on a path that writes a worker's own words (#1744 review).
+ *
+ * `redactQueryParams` strips a query error's bound parameters but hands every OTHER error back
+ * unchanged, and an arbitrary `.message` is not safe to log on such a path either: a JSON parse
+ * error quotes the text it choked on, a validation error can echo the value it rejected. So this
+ * never logs a message it cannot vouch for:
+ *   - a query error → the redacted message (the operation, the driver's code, the SQL text — never
+ *     the parameters);
+ *   - anything else → its class name and its driver `code` if it has one. That is enough to tell a
+ *     timeout from a deadlock from a missing table, and it carries no row data.
+ */
+export function logSafeReason(err: unknown, operation: string): string {
+  const safe = redactQueryParams(err, operation);
+  if (safe instanceof RedactedQueryError) return safe.message;
+  const code = (safe as { code?: unknown } | null)?.code;
+  const name = safe instanceof Error ? safe.name : typeof safe;
+  return typeof code === "string" && /^[A-Z0-9_]{1,40}$/i.test(code)
+    ? `${name} (code ${code})`
+    : name;
+}

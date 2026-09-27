@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { ChatController } from "./chat.controller";
+import { StartSessionSchema } from "./chat.dto";
 import type { ChatService } from "./chat.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -21,13 +22,42 @@ describe("ChatController (thin) — worker from token, never the body", () => {
   it("startSession passes the authenticated worker id (ignores any worker id in the body)", async () => {
     const { controller, chat } = make();
     await controller.startSession(WORKER, {} as never, CTX);
-    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, { confirmFirst: false });
+    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, {
+      confirmFirst: false,
+      redo: false,
+    });
   });
 
   it("startSession forwards the client's confirm_first capability flag (Task 1 B3)", async () => {
     const { controller, chat } = make();
     await controller.startSession(WORKER, { confirm_first: true } as never, CTX);
-    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, { confirmFirst: true });
+    expect(chat.startSession).toHaveBeenCalledWith(WORKER.id, CTX, {
+      confirmFirst: true,
+      redo: false,
+    });
+  });
+
+  it("startSession forwards the explicit redo flag, and only a literal true counts (#1744)", async () => {
+    const { controller, chat } = make();
+    await controller.startSession(WORKER, { redo: true } as never, CTX);
+    expect(chat.startSession).toHaveBeenLastCalledWith(WORKER.id, CTX, {
+      confirmFirst: false,
+      redo: true,
+    });
+    await controller.startSession(WORKER, { redo: "true" } as never, CTX);
+    expect(chat.startSession).toHaveBeenLastCalledWith(WORKER.id, CTX, {
+      confirmFirst: false,
+      redo: false,
+    });
+  });
+
+  it("the start body takes an optional boolean redo; a missing one is today's body (#1744)", () => {
+    expect(StartSessionSchema.parse({ confirm_first: true, redo: true })).toEqual({
+      confirm_first: true,
+      redo: true,
+    });
+    expect(StartSessionSchema.parse({ confirm_first: true })).toEqual({ confirm_first: true });
+    expect(StartSessionSchema.safeParse({ redo: "yes" }).success).toBe(false);
   });
 
   it("postMessage passes the authenticated worker id + dto", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RedactedQueryError, redactQueryParams } from "./db-error";
+import { RedactedQueryError, logSafeReason, redactQueryParams } from "./db-error";
 
 /**
  * The exact shape `drizzle-orm` throws: a `DrizzleQueryError` whose own message embeds the bound
@@ -69,5 +69,36 @@ describe("redactQueryParams — the bound-parameter privacy boundary", () => {
     expect(safe.code).toBeUndefined();
     expect(safe.message).not.toContain("code undefined");
     expect(safe.message).not.toContain(MESSAGE);
+  });
+});
+
+describe("logSafeReason — a failure reason that never carries row data", () => {
+  it("a query error: the operation, the SQL and the driver code, never the parameters", () => {
+    const reason = logSafeReason(
+      drizzleQueryError(QUERY, ["w-1", MESSAGE], { code: "57014" }),
+      "confirm-time interview close",
+    );
+    expect(reason).toContain("confirm-time interview close");
+    expect(reason).toContain("57014");
+    expect(reason).not.toContain("Ramesh");
+    expect(reason).not.toContain("98765");
+  });
+
+  it("any other error: its class name only — an arbitrary message is not trusted", () => {
+    // A JSON parse error quotes the text it choked on; so can a validation error.
+    const parse = new SyntaxError(`Unexpected token 'M', "${MESSAGE}" is not valid JSON`);
+    expect(logSafeReason(parse, "op")).toBe("SyntaxError");
+  });
+
+  it("keeps a driver code on a non-query error, but only a code-shaped one", () => {
+    expect(logSafeReason(Object.assign(new Error("x"), { code: "ECONNRESET" }), "op")).toBe(
+      "Error (code ECONNRESET)",
+    );
+    expect(logSafeReason(Object.assign(new Error("x"), { code: MESSAGE }), "op")).toBe("Error");
+  });
+
+  it("a thrown non-Error is named by its type", () => {
+    expect(logSafeReason(MESSAGE, "op")).toBe("string");
+    expect(logSafeReason(null, "op")).toBe("object");
   });
 });

@@ -255,6 +255,77 @@ describe("ChatRepository.findActiveSessionByWorker — WHICH session 'live' mean
 });
 
 /* ════════════════════════════════════════════════════════════════════════════
+ * sessionProducedConfirmedProfile — #1744: is this live session a confirmed leftover?
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+function makeJoiningDb(rows: unknown[]) {
+  const captured: { from?: unknown; join?: unknown; where?: unknown; limit?: number } = {};
+  const node: Record<string, unknown> = {
+    from: (t: unknown) => ((captured.from = t), node),
+    innerJoin: (_t: unknown, on: unknown) => ((captured.join = on), node),
+    where: (c: unknown) => ((captured.where = c), node),
+    limit: (n: number) => ((captured.limit = n), Promise.resolve(rows)),
+  };
+  return { db: { select: vi.fn(() => node) }, captured };
+}
+
+/**
+ * Each `<column> = $n` in a rendered predicate, mapped to the value bound at `$n`. The SQL text
+ * alone cannot tell `'confirmed'` from `'draft'`, or the session id from the worker id: drizzle
+ * binds all of them as parameters.
+ */
+function bindings(predicate: unknown): Record<string, unknown> {
+  const { sql, params } = new PgDialect().sqlToQuery(predicate as never);
+  const out: Record<string, unknown> = {};
+  for (const m of sql.matchAll(/("[^"]+"\."[^"]+"(?:->>'[a-z_]+')?)\s*=\s*\$(\d+)/g)) {
+    out[m[1]!] = params[Number(m[2]) - 1];
+  }
+  return out;
+}
+
+describe("ChatRepository.sessionProducedConfirmedProfile — the leftover test (#1744)", () => {
+  it("binds each value to its own column: this session's job, this worker, confirmed only", async () => {
+    const h = makeJoiningDb([]);
+    await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER);
+    expect(bindings(h.captured.where)).toEqual({
+      '"ai_jobs"."job_type"': "profile_extraction",
+      '"ai_jobs"."input_ref"->>\'session_id\'': SESSION,
+      '"ai_jobs"."input_ref"->>\'worker_id\'': WORKER,
+      '"worker_profiles"."worker_id"': WORKER,
+      '"worker_profiles"."profile_status"': "confirmed",
+    });
+  });
+
+  it("walks profile → extraction job → session, confirmed only, one row", async () => {
+    const h = makeJoiningDb([{ id: "p" }]);
+    expect(
+      await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER),
+    ).toBe(true);
+    expect(renderWhere(h.captured.join)).toMatch(/"ai_job_id"\s*=\s*"ai_jobs"\."id"/);
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain('"job_type"');
+    expect(where).toContain("->>'session_id'");
+    expect(where).toContain('"profile_status"');
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("scopes BOTH sides to the worker: the job's input_ref and the profile row", async () => {
+    const h = makeJoiningDb([]);
+    await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER);
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain("->>'worker_id'");
+    expect(where).toContain('"worker_profiles"."worker_id"');
+  });
+
+  it("false when no confirmed profile came from it", async () => {
+    const h = makeJoiningDb([]);
+    expect(
+      await new ChatRepository(h.db as never).sessionProducedConfirmedProfile(SESSION, WORKER),
+    ).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
  * ADR-0045 — the general form's two reads/writes on chat_sessions.
  * ══════════════════════════════════════════════════════════════════════════ */
 

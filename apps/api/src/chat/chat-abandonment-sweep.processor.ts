@@ -1,14 +1,10 @@
 import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
-import {
-  Inject,
-  Logger,
-  type OnApplicationBootstrap,
-  type OnModuleDestroy,
-} from "@nestjs/common";
+import { Inject, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { randomUUID } from "node:crypto";
 import { SERVER_CONFIG } from "../config/config.module";
+import { logSafeReason } from "../common/db-error";
 import {
   CHAT_ABANDONMENT_QUEUE,
   CHAT_ABANDONMENT_SWEEP_SCHEDULER_ID,
@@ -243,7 +239,7 @@ export class ChatAbandonmentSweepProcessor
         // and none of it may reach a log line (§2).
         this.logger.warn(
           `abandonment sweep failed for session=${idPrefix}; continuing with the rest of the ` +
-            `batch (reason: ${err instanceof Error ? err.message : String(err)})`,
+            `batch (reason: ${logSafeReason(err, "abandonment sweep close")})`,
         );
       }
     }

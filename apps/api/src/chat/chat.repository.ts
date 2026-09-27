@@ -2,9 +2,11 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import {
   type Database,
+  aiJobs,
   chatSessions,
   chatMessages,
   workerPackAnswers,
+  workerProfiles,
   type ChatSession,
   type ChatMessage,
   type NewChatMessage,
@@ -191,6 +193,34 @@ export class ChatRepository {
       .orderBy(sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) DESC`)
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * #1744 — has this session already become a CONFIRMED profile for this worker?
+   *
+   * A profile carries no session id; the link is its extraction job:
+   * `worker_profiles.ai_job_id` → `ai_jobs.input_ref->>'session_id'` — the same walk
+   * `ResumeRepository.pendingChatUpdate` makes. Served by `ai_jobs_extraction_session_idx`
+   * (session_id, worker_id WHERE job_type = 'profile_extraction'), then the unique
+   * `worker_profiles_ai_job_id_uq`. Scoped to the worker on BOTH sides, so a foreign job or a
+   * foreign profile can never answer for this session.
+   */
+  async sessionProducedConfirmedProfile(sessionId: string, workerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: workerProfiles.id })
+      .from(aiJobs)
+      .innerJoin(workerProfiles, eq(workerProfiles.aiJobId, aiJobs.id))
+      .where(
+        and(
+          eq(aiJobs.jobType, "profile_extraction"),
+          sql`${aiJobs.inputRef}->>'session_id' = ${sessionId}`,
+          sql`${aiJobs.inputRef}->>'worker_id' = ${workerId}`,
+          eq(workerProfiles.workerId, workerId),
+          eq(workerProfiles.profileStatus, "confirmed"),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
   }
 
   /**
