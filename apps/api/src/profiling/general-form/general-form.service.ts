@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import type { Queue } from "bullmq";
-import { z } from "zod";
 
 import type { NewWorkerAttribute } from "@badabhai/db";
 import type {
@@ -26,7 +25,7 @@ import {
   readGeneralRoadStamp,
   type GeneralRoadStamp,
 } from "../conversation-state";
-import { briefLength, screenBrief } from "./general-form-brief";
+import { briefLength, readStoredBrief, screenBrief, type StoredBrief } from "./general-form-brief";
 import {
   BRIEF_REFUSAL_CODES,
   GENERAL_FORM_TERMS_FIELDS,
@@ -100,26 +99,8 @@ export const GENERAL_FORM_TERMS_STORAGE_KEYS: readonly string[] = Object.entries
 /** The form's own two attribute keys — the same strings as the question keys, by design. */
 const OWN_KEYS: readonly GeneralFormQuestionKey[] = ["has_work_history", "profile_brief"];
 
-/**
- * The brief's stored value (`worker_attributes.value_json`).
- *
- * A `json` ROW, NOT `text`, for two reasons that each close a leak:
- *  - a DECLINE must be a row too (`wa_value_present_chk` allows no value-less row, and "the worker
- *    skipped it" is a settled answer that must not be re-asked), and
- *  - `WorkerSkillsRepository.findPackAttributeOptions` reads every `value_text` as an option KEY
- *    for the matcher; free text there would enter a matching read whose own docstring promises it
- *    never carries free text.
- * NOT the `{kind: "other_answer", text}` shape: `other-answer-leak-guard.ts` deep-scans the
- * employer disclosure context for that shape and fails the whole disclosure closed on it.
- *
- * STRICT ON READ: a hand-written or damaged row reads as UNSETTLED — the form asks again — rather
- * than as an answer nobody gave.
- */
-const StoredBriefSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("answered"), text: z.string().min(1) }).strict(),
-  z.object({ status: z.literal("declined") }).strict(),
-]);
-type StoredBrief = z.infer<typeof StoredBriefSchema>;
+// The brief's stored shape (`StoredBriefSchema`) lives in `general-form-brief.ts` beside the walls,
+// because the résumé reads the same row — see `readStoredBrief`.
 
 type StoredRow = Awaited<ReturnType<WorkerAttributesRepository["loadKeys"]>>[number];
 
@@ -654,8 +635,7 @@ function storedBoolean(row: StoredRow | undefined): boolean | undefined {
 
 function storedBrief(row: StoredRow | undefined): StoredBrief | undefined {
   if (!row || row.valueKind !== "json") return undefined;
-  const parsed = StoredBriefSchema.safeParse(row.valueJson);
-  return parsed.success ? parsed.data : undefined;
+  return readStoredBrief(row.valueJson);
 }
 
 /** The trade form's saved-answer shape for a yes/no. */

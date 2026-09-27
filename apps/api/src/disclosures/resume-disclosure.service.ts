@@ -26,6 +26,8 @@ import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
 import { applyTierScope, type ResumeTierScope } from "../resume/resume-tier-scope";
 import { ResumeTierScopeReader } from "../resume/resume-tier-scope.reader";
+import { GeneralRoadReader, type GeneralRoadMarker } from "../resume/general-road.reader";
+import { ownBriefUsable } from "../resume/resume-brief";
 
 /** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
 const EMPLOYER_SHARING = "employer_sharing";
@@ -100,6 +102,10 @@ export class ResumeDisclosureService {
     // TIERED PROFILING — the employer's copy prints the worker's tier exactly as his own copy
     // does (same reader, same transform). Optional so its absence is today's disclosure.
     @Optional() private readonly tierScopes?: ResumeTierScopeReader,
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, by the résumé's own provenance: the same reader the
+    // worker's render uses, so the two copies agree about whether the sheet is on the road.
+    // Optional on the tier reader's terms: absent is today's disclosure.
+    @Optional() private readonly generalRoads?: GeneralRoadReader,
   ) {}
 
   async requestDisclosure(
@@ -243,12 +249,24 @@ export class ResumeDisclosureService {
     // The real name is read ONCE here to derive the MASK, then discarded. It is NEVER
     // bound into the document, logged, evented, or persisted (F-5 / B-G). Decrypt
     // failure → render name-less (degrade), NOT a thrown error that could embed PII.
+    //
+    // ADR-0045 — AND THE BRIEF'S NAME RE-CHECK IS BOUND HERE, off the SAME single decrypt. The
+    // general road prints the worker's own line on this copy, and the one thing this copy hides
+    // is his name: a line that carries his CURRENT name (it may have changed since he wrote the
+    // line) must fall back to the fixed line. The check is captured as a predicate so the real name
+    // never leaves this block as a value — not into the context (the leak guard scans it), not into
+    // the mapper (which holds initials only). A name that could not be decrypted fails every brief
+    // (fail closed); a worker with no stored name has no name to find.
     let maskedName: string | null = null;
+    let briefIsUsable: (storedBrief: unknown) => boolean = (stored) => ownBriefUsable(stored, null);
     const worker = await this.workers.findById(workerId);
     if (worker?.fullName) {
       try {
-        maskedName = maskInitials(this.pii.decrypt(worker.fullName));
+        const realName = this.pii.decrypt(worker.fullName);
+        maskedName = maskInitials(realName);
+        briefIsUsable = (stored) => ownBriefUsable(stored, realName);
       } catch {
+        briefIsUsable = () => false;
         this.logger.warn(
           `could not decrypt full_name for worker ${workerId}; masked-nameless render`,
         );
@@ -396,6 +414,36 @@ export class ResumeDisclosureService {
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
     };
 
+    // THE TEMPLATE THIS COPY DRAWS WITH — the same upgrade as the render worker: a general-sheet
+    // row renders as the trade sheet once the worker's elected pack is a predefined role, so the
+    // payer never gets a mismatch. RESOLVED ONCE, read by the road gate below and by the mapper.
+    const templateId = renderTemplateId(source.templateId, tradeSheet.packId);
+
+    // ADR-0045 Phase 5 — THE GENERAL ROAD, on the render worker's degrade (a failure is today's
+    // sheet, never a failed disclosure) and only for a `bb_general` copy. MERGED BEFORE THE
+    // LEAK GUARD BELOW, so the guard scans exactly what the mapper will read.
+    let road: GeneralRoadMarker | null = null;
+    if (templateId === "bb_general") {
+      try {
+        road = (await this.generalRoads?.forResume({ id: source.resumeId, workerId })) ?? null;
+      } catch {
+        this.logger.warn(
+          `could not read the general-road provenance for disclosure=${disclosureId}; rendering without`,
+        );
+      }
+    }
+    if (road !== null) {
+      tradeSheet = {
+        ...tradeSheet,
+        // The re-check bound at the decrypt above, over the stored row the mapper will read.
+        generalRoad: { ownBriefUsable: briefIsUsable(tradeSheet.attributes.profile_brief) },
+        // A CLOCK ON EVERY ROAD COPY, not only when employments exist (the merge above): the
+        // road's "Available from" row is dated against it, and a fresher's copy must not print a
+        // different row from his own copy for want of one. The merge's own clock wins when set.
+        asOf: tradeSheet.asOf ?? new Date(),
+      };
+    }
+
     // LAST-LINE GUARD (mandatory fix, "typed custom answer, everywhere" ruling): an unreviewed
     // "other" answer must never reach this payer-facing render. The primary defence is that
     // nothing above reads `worker_pack_answer` at all — see `other-answer-leak-guard.ts` for why
@@ -426,9 +474,8 @@ export class ResumeDisclosureService {
     const renderInput = buildResumeRenderInput(
       source.sourceProfileSnapshot,
       maskedName,
-      // Same upgrade as the render worker: a general-sheet row renders as the trade sheet once
-      // the worker's elected pack is a predefined role, so the payer never gets a mismatch.
-      renderTemplateId(source.templateId, tradeSheet.packId),
+      // Same upgrade as the render worker — resolved once above, the value the road gate read.
+      templateId,
       null,
       // #947 — the worker's night-shift toggle, off the row already loaded above for the mask.
       //

@@ -50,8 +50,10 @@ export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
   // NOT one of the 21 predefined roles. Those workers rendered through `bb_trade` until now.
   // A NEW ID rather than an edit, because `bb_trade` also serves the 21 form roles, which keep
   // it unchanged; and a résumé row records its id, so only new generations pick this up.
-  // Same slots as `bb_trade`, no new data — see the file's header for what the format shows
-  // that the data does not carry.
+  // Same slots as `bb_trade`, plus ONE added in place (ADR-0045 R6, the bb_trade precedent in
+  // README.md): `{{profile_brief}}` under the headline, which collapses on every sheet that does
+  // not supply it — so the version stays 1. See the file's header for what the format shows that
+  // the data does not carry.
   { id: "bb_general", version: 1, label: "BadaBhai general sheet (A4)", file: "bb_general.v1.html" },
   { id: "classic", version: 3, label: "Classic (single column)", file: "classic.v3.html" },
   { id: "modern", version: 3, label: "Modern (two column)", file: "modern.v3.html" },

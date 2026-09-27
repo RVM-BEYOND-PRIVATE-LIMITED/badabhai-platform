@@ -1,6 +1,17 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { screenBrief } from "../profiling/general-form/general-form-brief";
+import {
+  ROAD_DENSE_BRIEF,
+  ROAD_FALLBACK_DATED,
+  ROAD_FALLBACK_FRESHER,
+  ROAD_FALLBACK_UNDATED,
+  ROAD_PERSONAS,
+  roadContext,
+  roadPersona,
+  type RoadPersona,
+} from "./__fixtures__/general-road";
 import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
 import { maskInitials } from "./mask-initials";
 import { templateIdForPack } from "./resume-document";
@@ -21,8 +32,9 @@ import { ResumeRenderer } from "./resume-renderer.service";
  *
  *   EMIT_GENERAL_SHEETS=<dir> pnpm --filter @badabhai/api exec vitest run src/resume/bb-general-sheet
  *
- * writes the personas below and every `SHEET_SHAPES` sheet rendered as `bb_general`, for the
- * Docker recipe in templates/README.md.
+ * writes the personas below, the general road's personas (ADR-0045 Phase 5,
+ * `__fixtures__/general-road.ts`) and every `SHEET_SHAPES` sheet rendered as `bb_general`, for
+ * the Docker recipe in templates/README.md.
  */
 
 const renderer = new ResumeRenderer({} as never);
@@ -376,6 +388,132 @@ describe("a worker outside the 21 roles renders the general sheet", () => {
     expect(html).toContain('<div class="sec sec-cert"></div>');
     expect(html).toContain('<ul class="u lrow l-skills"></ul>');
     expect(html).toContain('<div class="wa"></div>');
+    // No worker off the general road has a brief: the element is empty and `.brief:empty` hides
+    // it, so these sheets print exactly as they did before ADR-0045.
+    expect(html).toContain('<div class="brief"></div>');
+  });
+});
+
+/**
+ * ADR-0045 PHASE 5 — THE GENERAL ROAD'S SHEET, rendered from the mapper with the road context
+ * the résumé's provenance supplies (`__fixtures__/general-road.ts`): the brief under the headline
+ * on BOTH copies, the dated years or "Fresher", the form's band on the worker's copy only.
+ */
+const ROAD_QR = { qrCaption: CHROME.qrCaption, shortLink: CHROME.shortLink } as const;
+
+/** The context each road copy's CALLER builds — the QR and footer on the worker's copy only. */
+function roadCtx(p: RoadPersona, audience: "worker" | "employer"): TradeSheetContext {
+  return audience === "worker"
+    ? withSheetQr(
+        roadContext(p, { ...ROAD_QR, footerMeta: CHROME.footerMeta, phone: CHROME.phone }),
+      )!
+    : roadContext(p, { phone: CHROME.phone });
+}
+
+function renderRoad(p: RoadPersona, audience: "worker" | "employer"): string {
+  return renderer.buildResumeHtml(
+    buildResumeRenderInput(
+      p.snapshot,
+      audience === "employer" ? maskInitials(p.displayName) : p.displayName,
+      "bb_general",
+      null,
+      false,
+      audience,
+      roadCtx(p, audience),
+    ),
+  );
+}
+
+/** The renderer's own escaping, for comparing a worker-typed line against the page. */
+const escapeHtml = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+describe("the general road's sheet (ADR-0045 Phase 5)", () => {
+  const DATED = ROAD_PERSONAS.filter((p) => p.employments.every((e) => e.durationStated));
+
+  it("prints the brief ONCE, directly under the headline, on both copies", () => {
+    for (const p of ROAD_PERSONAS) {
+      for (const audience of ["worker", "employer"] as const) {
+        const html = renderRoad(p, audience);
+        const brief = escapeHtml(p.expectedBrief!);
+        expect(html, `${p.name}/${audience}`).toMatch(
+          new RegExp(
+            `<div class="headline">[^<]+</div>\\s*<div class="brief">${brief.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</div>`,
+          ),
+        );
+        expect(html.split(brief), `${p.name}/${audience}: printed more than once`).toHaveLength(2);
+        expect(html, `${p.name}/${audience}`).not.toMatch(/\{\{|\}\}/);
+      }
+    }
+  });
+
+  it("prints each fixed line exactly — dated, fresher, undated", () => {
+    expect(renderRoad(roadPersona("road-declined"), "worker")).toContain(
+      `<div class="brief">${ROAD_FALLBACK_DATED}</div>`,
+    );
+    expect(renderRoad(roadPersona("road-fresher"), "worker")).toContain(
+      `<div class="brief">${ROAD_FALLBACK_FRESHER}</div>`,
+    );
+    expect(renderRoad(roadPersona("road-undated"), "worker")).toContain(
+      `<div class="brief">${ROAD_FALLBACK_UNDATED}</div>`,
+    );
+  });
+
+  it("dated jobs print their total and never 'duration not stated'; the fresher prints Fresher", () => {
+    for (const p of DATED.filter((persona) => persona.employments.length > 0)) {
+      const html = renderRoad(p, "worker");
+      expect(html, p.name).toContain("House Electrician · 7 yrs 4 mo · ");
+      expect(html, p.name).not.toContain("duration not stated");
+    }
+    expect(renderRoad(roadPersona("road-fresher"), "worker")).toContain(
+      '<div class="headline">House Electrician · Fresher · ',
+    );
+    expect(renderRoad(roadPersona("road-undated"), "worker")).toContain("duration not stated");
+  });
+
+  it("prints the form's band on the worker's copy — min-only and max-only as their one figure", () => {
+    const band = (name: string) =>
+      section(renderRoad(roadPersona(name), "worker"), "sec-avail").match(
+        /<span class="lab">Salary expected<\/span> ([^<]+)</,
+      )?.[1];
+    expect(band("road-answered")).toBe("₹18,000 – ₹22,000 / month");
+    expect(band("road-band-min-only")).toBe("₹15,000 / month");
+    expect(band("road-band-max-only")).toBe("₹25,000 / month");
+  });
+
+  it("the employer copy: the brief present, no salary anywhere, the name masked", () => {
+    for (const p of ROAD_PERSONAS) {
+      const html = renderRoad(p, "employer");
+      expect(html, p.name).toContain(`<div class="brief">${escapeHtml(p.expectedBrief!)}</div>`);
+      expect(html, p.name).not.toContain("Salary expected");
+      expect(html, p.name).not.toContain("₹");
+      expect(html, p.name).not.toContain(p.displayName);
+      expect(html, p.name).toContain(`>${maskInitials(p.displayName)}</h1>`);
+    }
+  });
+
+  it("prints the terms rows the road adds: the dated start and the shift with work types", () => {
+    const avail = section(renderRoad(roadPersona("road-answered"), "worker"), "sec-avail");
+    expect(avail).toMatch(/<span class="lab">Available from<\/span> From 12 Oct 2026</);
+    expect(avail).toMatch(/<span class="lab">Shift<\/span> Day shift · Permanent, Contract</);
+  });
+
+  it("every own line is one the form would have stored — the write walls pass it", () => {
+    for (const p of ROAD_PERSONAS) {
+      const stored = p.storedBrief as { status?: string; text?: string } | undefined;
+      if (stored?.status !== "answered") continue;
+      expect(screenBrief(stored.text!, p.displayName), p.name).toEqual({
+        ok: true,
+        text: stored.text,
+      });
+    }
+    // The dense persona's line sits exactly at the write bound.
+    expect([...ROAD_DENSE_BRIEF]).toHaveLength(160);
   });
 });
 
@@ -422,6 +560,19 @@ describe.skipIf(!OUT_DIR)("emit general sheets for a real PDF render", () => {
         );
       }
     }
+    // ADR-0045 Phase 5 — the general road's personas, each as both copies, with the road context
+    // the résumé's provenance supplies. File names carry the `road-` prefix of the persona name.
+    for (const p of ROAD_PERSONAS) {
+      for (const audience of ["worker", "employer"] as const) {
+        write(
+          `persona-${p.name}-${audience}.html`,
+          p.snapshot,
+          audience === "employer" ? maskInitials(p.displayName) : p.displayName,
+          audience,
+          roadCtx(p, audience),
+        );
+      }
+    }
     for (const shape of SHEET_SHAPES) {
       for (const audience of ["worker", "employer"] as const) {
         const tag = `${String(shape.n).padStart(2, "0")}-${audience}`;
@@ -435,6 +586,8 @@ describe.skipIf(!OUT_DIR)("emit general sheets for a real PDF render", () => {
       }
     }
     writeFileSync(`${OUT_DIR}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    expect(manifest).toHaveLength((PERSONAS.length + SHEET_SHAPES.length) * 2);
+    expect(manifest).toHaveLength(
+      (PERSONAS.length + ROAD_PERSONAS.length + SHEET_SHAPES.length) * 2,
+    );
   });
 });

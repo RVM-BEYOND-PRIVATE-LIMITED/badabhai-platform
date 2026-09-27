@@ -142,8 +142,12 @@ function verdictFactsOf(facts: {
  * number renders as — and that is a separate, RECORDED-OPEN wording ruling (docs/profiling/
  * persona-ladder-r8.md: a stated zero). Keeping the fallback in the caller leaves that question
  * exactly where it was.
+ *
+ * EXPORTED FOR THE GENERAL ROAD'S FALLBACK BRIEF (ADR-0045 §4.3), whose {Y} is "the employment
+ * total written as the headline writes it" — this function IS how the headline writes it, so the
+ * brief under the headline and the headline above it cannot spell one figure two ways.
  */
-function knownYearsPhrase(years: number | null): string | null {
+export function knownYearsPhrase(years: number | null): string | null {
   if (years === null || !Number.isFinite(years) || years <= 0) return null;
   const whole = Math.floor(years);
   const months = Math.round((years - whole) * 12);

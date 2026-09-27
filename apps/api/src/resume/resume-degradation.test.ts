@@ -80,6 +80,38 @@ describe("the cost model is calibrated, and the calibration is stated", () => {
     expect(long).toBeGreaterThan(short);
   });
 
+  it("charges the general road's brief its wrapped lines plus its margin (ADR-0045 R6)", () => {
+    // An unmodelled line is a line the budget silently spends. The brief is at most 160 code
+    // points, so at most two lines at `CHARS_PER_LINE`, plus `.brief`'s 1.2 mm top margin.
+    const without = sheetContentLines(sheet());
+    const short = sheetContentLines(sheet({ profileBrief: "Wiring aur panel ka kaam, 12 saal." }));
+    const long = sheetContentLines(sheet({ profileBrief: "x".repeat(160) }));
+    const margin = 1.2 / LINE_MM;
+    expect(short - without).toBeCloseTo(1 + margin, 10);
+    expect(long - without).toBeCloseTo(rowLines("", "x".repeat(160)) + margin, 10);
+    expect(rowLines("", "x".repeat(160))).toBe(2);
+    // Absent and null cost nothing, so every sheet off the road is priced exactly as before.
+    expect(sheetContentLines(sheet({ profileBrief: null }))).toBe(without);
+  });
+
+  it("keeps the brief intact on a sheet the ladder cannot fit", () => {
+    // NEVER_DROPPED, asserted rather than listed: under real page pressure the brief survives.
+    const brief = "Wiring aur panel ka kaam, 12 saal.";
+    const r = degradeToFit(
+      sheet({
+        profileBrief: brief,
+        capFactRows: Array.from({ length: 200 }, (_, i) => ({
+          label: `f${i}`,
+          value: "x".repeat(120),
+          key: `f${i}`,
+          rank: 50,
+        })),
+      }),
+    );
+    expect(r.overflows).toBe(true);
+    expect(r.sheet.profileBrief).toBe(brief);
+  });
+
   it("keeps the floor above the largest measured renderer variance", () => {
     // 3.64mm is the largest movement observed across WeasyPrint 63.1/66.0/69.0 and a DejaVu
     // font fallback. A floor at or below it would be a floor that the variance alone can breach.
@@ -337,6 +369,9 @@ describe("what may never be dropped", () => {
       // Owner ruling 2026-09-08. A supervisor hires for ONE plant, so a sheet that does not say
       // where the worker is cannot be acted on — the same class of fact as the two above it.
       "location_line",
+      // ADR-0045 R6 — the general road's brief: the worker's own line (or the fixed line put in
+      // its place). Charged in the line model, and no ladder step may take it.
+      "profile_brief",
       "availability",
       "expected_salary",
       "trust_badge",
@@ -344,7 +379,7 @@ describe("what may never be dropped", () => {
       "top_qualification",
     ]);
     const steps = LADDER.map((s) => s.what.toLowerCase()).join(" | ");
-    for (const protectedKey of ["verdict", "salary", "badge", "qr", "location"]) {
+    for (const protectedKey of ["verdict", "salary", "badge", "qr", "location", "brief"]) {
       expect(steps).not.toContain(protectedKey);
     }
   });

@@ -39,6 +39,11 @@ describe("ResumeDisclosureModule wiring (cross-module DI regression guard)", () 
     // Feeds the trade capability block on the masked sheet. Provided locally rather than
     // imported from ProfilesModule so the payer surface gains no edge into that subtree.
     expect(providers).toContain("WorkerAttributesRepository");
+    // ADR-0045 Phase 5 — the general road's reader (an @Optional service dependency, so a
+    // forgotten provider would not even fail the boot: the employer copy would silently lose the
+    // road) and the one repository it needs.
+    expect(providers).toContain("GeneralRoadReader");
+    expect(providers).toContain("GeneralRoadRepository");
 
     // THIS LIST IS HAND-MAINTAINED, AND THAT IS THIS FILE'S REAL LIMITATION — worth stating
     // because the filename promises more than the test delivers. Nothing here builds the
