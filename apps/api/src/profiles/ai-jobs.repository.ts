@@ -11,9 +11,22 @@ import type { ProfileContentFields } from "./profile-content";
  * for a `completed` job that depends on whether it produced a usable profile
  * (`hasExtractedContent`), which is domain logic, not data access.
  */
+/**
+ * #1764 — the `input_ref` key `ProfilesService.extract` sets when it mints an extraction while the
+ * session it reads is still LIVE (`status = 'active'`): an early finish, where the worker built a
+ * profile from part of an interview they may go on to finish. Absent on every other job, so an
+ * ordinary job's `input_ref` is byte-identical to before.
+ */
+export const EXTRACTION_SESSION_LIVE_KEY = "session_live";
+
 export interface ExtractionDedupeCandidate {
   id: string;
   status: AiJobStatus;
+  /**
+   * #1764 — the job was minted while its session was still live. A completed one is stale once
+   * that interview has FINISHED, and the caller re-runs rather than dedupes against it.
+   */
+  mintedWhileLive: boolean;
   /**
    * When the job was minted. ADR-0045 §3.4: a completed extraction that PREDATES the session's
    * general-form completion mark was built before the worker's Work History was stored, so the
@@ -186,6 +199,9 @@ export class AiJobsRepository {
         // ADR-0045 §3.4 — the caller compares it with the general-form completion mark. Already the
         // ORDER BY column, so selecting it costs nothing.
         createdAt: aiJobs.createdAt,
+        // #1764 — see `EXTRACTION_SESSION_LIVE_KEY`. A job minted before the key existed reads
+        // false, which is today's behaviour: it dedupes exactly as it always did.
+        mintedWhileLive: sql<boolean>`coalesce((${aiJobs.inputRef}->>${EXTRACTION_SESSION_LIVE_KEY}) = 'true', false)`,
         canonicalTradeId: workerProfiles.canonicalTradeId,
         canonicalRoleId: workerProfiles.canonicalRoleId,
         skills: workerProfiles.skills,
@@ -238,6 +254,7 @@ export class AiJobsRepository {
       id: row.id,
       status: row.status,
       createdAt: row.createdAt,
+      mintedWhileLive: row.mintedWhileLive === true,
       profile:
         row.profileId == null
           ? null

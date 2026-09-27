@@ -44,6 +44,8 @@ type FakeCandidate = {
   status: string;
   /** ADR-0045 §3.4 — read only when the session carries a general-form completion mark. */
   createdAt?: Date;
+  /** #1764 — minted while its session was still live (an early finish). */
+  mintedWhileLive?: boolean;
   profile: FakeProfile | null;
 };
 
@@ -51,6 +53,8 @@ type FakeCandidate = {
 type FakeSession = {
   id: string;
   workerId: string;
+  /** #1764 — read to tell a finished interview (`ended`) from a live one. */
+  status?: string;
   lastMessageAt?: Date | null;
   conversationState?: Record<string, unknown> | null;
 };
@@ -1459,5 +1463,127 @@ describe("ProfilesService.confirmAcceptedUpdate — the chat Haan confirms, behi
     const { svc, profiles } = setup({ consent: ACTIVE });
     profiles.findById.mockRejectedValue(new Error("pg down"));
     expect(await svc.confirmAcceptedUpdate(input, CTX)).toBe("error");
+  });
+});
+
+/**
+ * #1764 — an early finish ("Phir bhi profile banaiye" → preview → confirm) extracts from the live
+ * session and never ends it. The worker can keep answering; when that interview finishes, the
+ * early job must not stand in for it. The signal is recorded on the job at mint time — never a
+ * comparison of the database's `created_at` with the API's `ended_at`.
+ */
+describe("ProfilesService.extract — #1764, an interview finished after an early-finish extraction", () => {
+  /** setup() with a known worker, and the named session owned by him in `status`. */
+  const withStatus = (status: string) => {
+    const h = setup();
+    h.workers.findById.mockResolvedValue({ id: WORKER });
+    h.chat.findSession.mockImplementation(async (id: string) => ({
+      id,
+      workerId: WORKER,
+      status,
+      conversationState: null,
+    }));
+    return h;
+  };
+  const earlyJob = (over: Partial<FakeCandidate> = {}): FakeCandidate => ({
+    id: "job-early",
+    status: "completed",
+    createdAt: new Date("2026-09-26T10:00:00.000Z"),
+    mintedWhileLive: true,
+    profile: FILLED_PROFILE,
+    ...over,
+  });
+
+  it("the early job is NOT reused once the interview has finished: a new extraction runs", async () => {
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    try {
+      const { svc, aiJobs, extractionQueue } = withStatus("ended");
+      aiJobs.findExtractionDedupeCandidate.mockResolvedValue(earlyJob());
+
+      const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+      expect(res).toEqual({ ai_job_id: "job-1", status: "queued" });
+      expect(aiJobs.create).toHaveBeenCalledOnce();
+      expect(extractionQueue.add).toHaveBeenCalledOnce();
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.some((l) => l.includes("while the interview was still live"))).toBe(true);
+      // The finished interview's job is an ordinary one: no live flag.
+      expect(aiJobs.create.mock.calls[0]![0].inputRef).toEqual({
+        worker_id: WORKER,
+        session_id: SESSION,
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("a normal completion's job (minted after the session ended) still dedupes", async () => {
+    const { svc, aiJobs } = withStatus("ended");
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(earlyJob({ mintedWhileLive: false }));
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-early", status: "completed" });
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it("a job from before the flag existed (no key) dedupes exactly as today", async () => {
+    const { svc, aiJobs } = withStatus("ended");
+    const legacy = earlyJob();
+    delete legacy.mintedWhileLive;
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(legacy);
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res.ai_job_id).toBe("job-early");
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["still live (the preview tapped twice mid-interview)", "active"],
+    ["abandoned (never finished)", "abandoned"],
+  ])("the session %s: the early job still dedupes", async (_label, status) => {
+    const { svc, aiJobs } = withStatus(status);
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(earlyJob());
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res.ai_job_id).toBe("job-early");
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it("an IN-FLIGHT early job still dedupes after the finish (it is re-judged once it completes)", async () => {
+    const { svc, aiJobs } = withStatus("ended");
+    aiJobs.findExtractionDedupeCandidate.mockResolvedValue(
+      earlyJob({ status: "running", profile: null }),
+    );
+
+    const res = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(res).toEqual({ ai_job_id: "job-early", status: "running" });
+    expect(aiJobs.create).not.toHaveBeenCalled();
+  });
+
+  it("an extraction of a LIVE session records the flag on the job it mints", async () => {
+    const { svc, aiJobs } = withStatus("active");
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(aiJobs.create.mock.calls[0]![0].inputRef).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+      session_live: true,
+    });
+  });
+
+  it("an extraction of an ENDED session mints a job with exactly today's input_ref", async () => {
+    const { svc, aiJobs } = withStatus("ended");
+
+    await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(aiJobs.create.mock.calls[0]![0].inputRef).toEqual({
+      worker_id: WORKER,
+      session_id: SESSION,
+    });
   });
 });
