@@ -3108,6 +3108,12 @@ class ResumeHistoryItem extends Equatable {
     this.renderStatus,
     this.renderedAt,
     this.isCurrent = false,
+    this.tradeLabel,
+    this.experienceYears,
+    this.machines = const <String>[],
+    this.city,
+    this.pageCount,
+    this.displayRef,
   });
 
   final String resumeId;
@@ -3129,6 +3135,30 @@ class ResumeHistoryItem extends Equatable {
   /// Exactly one item is current when the list is non-empty.
   final bool isCurrent;
 
+  // ---- The per-résumé FACTS (backend issue #1714) -------------------------
+  //
+  // All six are nullable/empty today: `GET /resume/history` does not send them
+  // yet. They are parsed now so the Résumé cards fill in the moment the server
+  // starts sending them, with no second client release — and, more importantly,
+  // so the app never has to borrow the CURRENT profile's trade/city for an
+  // OLDER résumé, which was generated from a different profile entirely (that
+  // is what `profile_id` records).
+
+  /// The humanised trade THIS résumé was generated for.
+  final String? tradeLabel;
+  final double? experienceYears;
+
+  /// Machines / controllers that résumé was written against.
+  final List<String> machines;
+  final String? city;
+
+  /// Pages in the rendered PDF. Null before the render lands.
+  final int? pageCount;
+
+  /// A SHORT, human-readable reference the worker can quote to support. Never
+  /// [resumeId], which is a uuid and does not go on a worker-facing screen.
+  final String? displayRef;
+
   /// Fails closed: only an explicit `'rendered'` counts as ready.
   bool get isRendered => renderStatus == 'rendered';
 
@@ -3146,6 +3176,18 @@ class ResumeHistoryItem extends Equatable {
         renderStatus: json['render_status'] as String?,
         renderedAt: DateTime.tryParse(json['rendered_at'] as String? ?? ''),
         isCurrent: json['is_current'] as bool? ?? false,
+        // #1714 — absent on every server today; each one is rendered only
+        // when present, so a partial rollout fills the card in gradually
+        // rather than all at once.
+        tradeLabel: json['trade_label'] as String?,
+        experienceYears: (json['experience_years'] as num?)?.toDouble(),
+        machines:
+            (json['machines'] as List<dynamic>? ?? <dynamic>[])
+                .whereType<String>()
+                .toList(growable: false),
+        city: json['city'] as String?,
+        pageCount: (json['page_count'] as num?)?.toInt(),
+        displayRef: json['display_ref'] as String?,
       );
 
   @override
@@ -3158,6 +3200,12 @@ class ResumeHistoryItem extends Equatable {
         renderStatus,
         renderedAt,
         isCurrent,
+        tradeLabel,
+        experienceYears,
+        machines,
+        city,
+        pageCount,
+        displayRef,
       ];
 }
 

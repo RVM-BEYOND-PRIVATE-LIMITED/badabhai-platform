@@ -82,6 +82,7 @@ class ShiftBlueHeader extends StatelessWidget {
     this.onBack,
     this.showBrandBadge = true,
     this.trailing,
+    this.titleTrailing,
     this.actions = const <Widget>[],
     this.titleColor = OnboardingColors.textOnBlue,
     this.variant = OnboardingVariant.standard,
@@ -108,6 +109,14 @@ class ShiftBlueHeader extends StatelessWidget {
   /// Trailing controls, each already a 48dp hit box. A superset of [trailing];
   /// when both are given, [actions] wins.
   final List<Widget> actions;
+
+  /// A small widget pinned to the END of the TITLE line — a count pill, a
+  /// state badge. Not an action: it takes no tap and no hit box.
+  ///
+  /// Drawn on the full header only. The collapsed drawing exists to give the
+  /// body its vertical space back, and holds the title to one ellipsised line;
+  /// a pill competing for that line is the first thing that should go.
+  final Widget? titleTrailing;
 
   /// The title colour. White by default; the form flow's question screens use
   /// safety yellow.
@@ -193,7 +202,25 @@ class ShiftBlueHeader extends StatelessWidget {
           _stepBadgeText(form),
         ],
         const SizedBox(height: 8),
-        Text(title, style: OnboardingTypography.headerTitle(color: titleColor)),
+        if (titleTrailing == null)
+          Text(
+            title,
+            style: OnboardingTypography.headerTitle(color: titleColor),
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Flexible(
+                child: Text(
+                  title,
+                  style: OnboardingTypography.headerTitle(color: titleColor),
+                ),
+              ),
+              const SizedBox(width: 10),
+              titleTrailing!,
+            ],
+          ),
         if (subtitle != null && subtitle!.isNotEmpty) ...<Widget>[
           const SizedBox(height: 4),
           Text(subtitle!, style: _subtitleStyle),

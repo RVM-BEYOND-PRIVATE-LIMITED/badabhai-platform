@@ -62,6 +62,8 @@ class _ScriptedApi extends MockPayerApiClient {
   Future<List<AgencyJobView>> fetchAgencyJobs() async => const <AgencyJobView>[];
 }
 
+/// A row the worker card can be drawn from in full — the form refuses a save
+/// that would leave any card field blank, so anything less could not be saved.
 const AgencyJobView _job = AgencyJobView(
   id: 'a1',
   status: 'open',
@@ -69,6 +71,16 @@ const AgencyJobView _job = AgencyJobView(
   title: 'Fitter',
   city: 'Pune',
   area: 'Chakan',
+  payMin: 18000,
+  payMax: 24000,
+  payType: 'in_hand',
+  minExperienceYears: 1,
+  maxExperienceYears: 4,
+  neededBy: 'soon',
+  shift: 'day',
+  description: 'Fitting and assembly on site.',
+  benefits: <String>['PF + ESI'],
+  requirements: <String>['Fanuc control'],
   applicantsReceived: 4,
 );
 
@@ -156,7 +168,7 @@ void main() {
     // section is prefilled rather than carrying an "typing here overwrites"
     // warning. What must still hold: an UNTOUCHED field sends nothing, so a
     // save that edits only the title can never wipe stored content.
-    expect(find.text('Description (optional)'), findsOneWidget);
+    expect(find.text('Description'), findsOneWidget);
 
     await save(tester);
 
@@ -180,7 +192,7 @@ void main() {
     final Finder description = find.descendant(
       of: find
           .ancestor(
-            of: find.text('Description (optional)'),
+            of: find.text('Description'),
             matching: find.byType(Column),
           )
           .first,
@@ -196,7 +208,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('add-benefit-field')),
-      'PF + ESI',
+      'Canteen',
     );
     await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
@@ -205,12 +217,13 @@ void main() {
 
     expect(api.lastDescription, 'Two-shift plant, canteen on site.');
     expect(api.lastShift, 'rotational');
-    expect(api.lastBenefits, <String>['PF + ESI']);
+    // The stored chip survives; the typed one is added beside it.
+    expect(api.lastBenefits, <String>['PF + ESI', 'Canteen']);
     // Requirements were never touched → still omitted.
     expect(api.lastRequirements, isNull);
   });
 
-  testWidgets('a chip list emptied on purpose sends [] so it CLEARS', (
+  testWidgets('removing one chip of several rides as the remaining list', (
     WidgetTester tester,
   ) async {
     final _ScriptedApi api = _ScriptedApi();
@@ -223,19 +236,61 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('add-requirement-field')),
-      'Fanuc control',
+      'ITI fitter',
     );
     await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
 
-    // …then remove it again: TOUCHED-but-empty is the only way to clear the
-    // stored chips, and it must not be confused with "left alone".
+    // Tapping a chip removes it.
     await tester.tap(find.text('Fanuc control'));
     await tester.pumpAndSettle();
 
     await save(tester);
 
-    expect(api.lastRequirements, isEmpty);
+    expect(api.lastRequirements, <String>['ITI fitter']);
     expect(api.lastBenefits, isNull);
+  });
+
+  testWidgets('emptying a chip row is REFUSED — the card has a row for it', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit);
+
+    // The stored row has exactly one requirement; removing it empties the row.
+    await tester.tap(find.text('Fanuc control'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add a requirement'), findsOneWidget);
+  });
+
+  testWidgets('emptying the city is REFUSED — the card needs a place', (
+    WidgetTester tester,
+  ) async {
+    final _ScriptedApi api = _ScriptedApi();
+    final AgencyJobsCubit cubit = AgencyJobsCubit(api);
+    addTearDown(cubit.close);
+
+    await open(tester, cubit);
+
+    final Finder city = find.descendant(
+      of: find.ancestor(of: find.text('City'), matching: find.byType(Column)).first,
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(city, '');
+    await tester.pump();
+    await tester.tap(find.text('Save changes'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(api.updated, isEmpty);
+    expect(find.text('Add the city'), findsOneWidget);
   });
 }
