@@ -173,6 +173,22 @@ Added while building the general form (Phase 3, 2026-09-26):
   alone that crosses the stored other end clears the stored end, so a page that shows only the top of the band can
   still save.
 
+Added while building the profile build (Phase 4, 2026-09-27):
+
+- **The profile's `experience.total_years` is fixed at build time.** It is the dated-employment sum when the profile is
+  extracted, and matching's tenure reads it from there. A later Work History edit re-renders the résumé (which
+  recomputes the years live) but does not refresh the profile, and because the completion mark is write-once, a later
+  extract dedupes onto the job that ran after completion. Open: re-extract on employment writes for a handed-over
+  session (model-free), or judge staleness against the newest employment write instead of the mark.
+- **The extraction reads its session once, and fails closed.** The source, the résumé facts and the road all come from
+  one `chat_sessions` read. If that read fails, the attempt throws and BullMQ retries it before any model call — for
+  every session, since without the row a handed-over session cannot be told from any other. Before, a failed read fell
+  to the legacy model path and could build a handed-over session with model years and canonical skills.
+- **A session-less extract prefers a finished general handover over a later plain chat**, but never over a later form
+  handover (trade `form_kind` or another general handover). Open: a worker who finished the general form and then
+  fills a trade form through the CV-import fallback has no session carrying that form, so a session-less extract still
+  goes to the general handover and the trade-form answers do not become the profile.
+
 ## 7. Rollout
 
 1. Backend in phases, each merged dark: contracts → ai-service skills mode → chat engine → general form API → profile

@@ -1412,8 +1412,14 @@ function headlineToolsOrFallback(
   return [...skills];
 }
 
-/** Trimmed entries with the blanks removed — see the note at the `skills` call site. */
-function cleanList(items: readonly string[]): string[] {
+/**
+ * Trimmed entries with the blanks removed — see the note at the `skills` call site.
+ *
+ * EXPORTED FOR ONE OTHER READER, `general-road-profile.ts` (ADR-0045 §3.4), which re-screens the
+ * general road's persisted skills with THIS rule before they are written to `skill_labels` — the
+ * list this file then prints. One rule on the way in and the way out, not two that can drift.
+ */
+export function cleanList(items: readonly string[]): string[] {
   return items.map((s) => s.trim()).filter((s) => s.length > 0 && !looksLikePii(s));
 }
 
@@ -1435,8 +1441,11 @@ function cleanList(items: readonly string[]): string[] {
  *
  * NULL RATHER THAN A MASK, matching the ai-service: absence is a shape every template already
  * handles, and "[PHONE]" printed under `Shift` would be worse than the line not being there.
+ *
+ * EXPORTED beside {@link cleanList}, for the same reader: the general road's role and domain
+ * labels are screened with it before they reach `role_label` / `domain_label`.
  */
-function cleanScalar(value: string | null): string | null {
+export function cleanScalar(value: string | null): string | null {
   if (value === null) return null;
   const trimmed = value.trim();
   if (!trimmed || looksLikePii(trimmed)) return null;

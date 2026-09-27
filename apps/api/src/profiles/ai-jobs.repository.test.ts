@@ -238,6 +238,8 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
       "availability",
       "canonicalRoleId",
       "canonicalTradeId",
+      // ADR-0045 §3.4 — compared with the general-form completion mark by the caller.
+      "createdAt",
       "experience",
       "id",
       "locationPreference",
@@ -482,11 +484,17 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
     expect(result).toBeUndefined();
   });
 
+  it("selects ai_jobs.created_at itself as `createdAt` (ADR-0045 §3.4)", async () => {
+    const { captured } = await run();
+    expect(captured.selection!.createdAt).toBe(aiJobs.createdAt);
+  });
+
   it("maps a job with NO joined profile to profile: null (LEFT JOIN miss)", async () => {
     const { result } = await run([
       {
         id: "job-1",
         status: "completed",
+        createdAt: SINCE,
         profileId: null,
         canonicalTradeId: null,
         canonicalRoleId: null,
@@ -499,7 +507,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
         richProfileDraft: null,
       },
     ]);
-    expect(result).toEqual({ id: "job-1", status: "completed", profile: null });
+    expect(result).toEqual({ id: "job-1", status: "completed", createdAt: SINCE, profile: null });
   });
 
   it("maps the joined profile columns through when a profile row exists", async () => {
@@ -507,6 +515,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
       {
         id: "job-1",
         status: "completed",
+        createdAt: SINCE,
         profileId: "profile-1",
         canonicalTradeId: "cnc",
         canonicalRoleId: null,
@@ -520,6 +529,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
       },
     ]);
     expect(result?.id).toBe("job-1");
+    expect(result?.createdAt).toBe(SINCE);
     expect(result?.profile).toEqual({
       canonicalTradeId: "cnc",
       canonicalRoleId: null,

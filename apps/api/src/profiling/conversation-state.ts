@@ -64,6 +64,7 @@ import {
   PROFILING_LANE_REASONS,
   PROFILING_LANES,
   SKILLS_STAGE_OUTCOMES,
+  TRADE_FORM_KINDS_ALL,
   type ChatGateKind,
   type ProfilingLane,
   type ProfilingLaneReason,
@@ -1623,6 +1624,29 @@ export function readGeneralFormCompletedAt(conversationState: unknown): string |
     (conversationState as Record<string, unknown>).general_form_completed_at,
   );
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Task 1 — the closed road vocabulary, as a set for {@link conversationFormKind}. Built from
+ * `TRADE_FORM_KINDS_ALL` (all 21 declared kinds), not the enabled-only subset: the handover is
+ * `form_kind`'s sole writer today, but the road question is "was this worker handed a form", not
+ * "is that form switched on right now".
+ */
+const FORM_KINDS: ReadonlySet<string> = new Set(TRADE_FORM_KINDS_ALL);
+
+/**
+ * `conversation_state.form_kind` — the trade-form handover the chat recorded — narrowed to a
+ * declared trade-form kind, or `null`. FAILS SOFT, never throws.
+ *
+ * HERE, BESIDE THE STAMP'S READERS, so the two callers that ask "did this session hand over to a
+ * trade form" — the extraction processor's `source` and `ProfilesService`'s session choice — share
+ * one narrowing. (It lived privately in the processor; the service cannot import from there
+ * without a cycle, since the processor injects the service.)
+ */
+export function conversationFormKind(conversationState: unknown): string | null {
+  if (typeof conversationState !== "object" || conversationState === null) return null;
+  const kind = (conversationState as Record<string, unknown>).form_kind;
+  return typeof kind === "string" && FORM_KINDS.has(kind) ? kind : null;
 }
 
 /**
