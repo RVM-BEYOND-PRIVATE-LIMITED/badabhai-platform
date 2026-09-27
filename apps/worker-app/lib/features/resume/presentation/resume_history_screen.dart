@@ -11,6 +11,8 @@ import '../../../core/widgets/kit/kit_content_column.dart';
 import '../../../core/widgets/onboarding/shift_blue_header.dart';
 import '../../../router.dart';
 import '../../profile_tab/domain/profile_summary.dart';
+import '../../trade_form/domain/trade_form_args.dart' show TierEntry;
+import '../../trade_form/presentation/open_trade_form.dart';
 import '../../profile_tab/domain/profile_summary_repository.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_preview_screen.dart';
@@ -101,8 +103,14 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
   Future<void> _loadSummary() async {
     if (!locator.isRegistered<ProfileSummaryRepository>()) return;
     try {
+      // `includeDisplayExtras: true` FOR ATTESTATION (#1782). In lean mode the
+      // repository leaves `attested` at `false` without reading it, so the
+      // cards' verification note could never be true on this screen — and the
+      // code papered over that by falling back to the `verified` LIFECYCLE
+      // flag, which is exactly what #1586 forbids. If the note is worth showing
+      // at all, the fact behind it has to be fetched.
       final ProfileSummary s = await locator<ProfileSummaryRepository>()
-          .summary();
+          .summary(includeDisplayExtras: true);
       if (!mounted) return;
       setState(() => _summary = s);
     } catch (_) {
@@ -198,7 +206,15 @@ class _ResumeHistoryViewState extends State<_ResumeHistoryView> {
         if (draft != null) ...<Widget>[
           ResumeDraftCard(
             summary: draft,
-            onContinue: () => context.pushOnce(Routes.tradeForm),
+            // THROUGH `openTradeFormWithTier`, like every other road into the
+            // form (#1785). This card pushed `Routes.tradeForm` directly, so a
+            // worker the server answered `needs_choice` for went straight into
+            // the full walk and never saw the Easy / Medium / Hard chooser
+            // (#1698). `pushed` keeps Back returning to "Mere resume", and
+            // every answer other than `needs_choice` opens the form exactly as
+            // this line did before.
+            onContinue: () =>
+                openTradeFormWithTier(context, entry: TierEntry.pushed),
           ),
           const SizedBox(height: 12),
         ],
@@ -326,7 +342,22 @@ class _QuickActionBanner extends StatelessWidget {
           // system font the chip's label wrapped to two lines inside a pill,
           // and a CTA that reflows is worse than one that is simply wide.
           ElevatedButton(
-            onPressed: () => context.pushOnce(Routes.badaBhai),
+            // `go`, NOT `push` (#1783). `/bada-bhai` is the root of the
+            // chat branch, and "Mere resume" lives in the PROFILE branch, so a
+            // push merged into the profile branch's navigator: it put a SECOND
+            // `ChatProfilingScreen` on the profile stack, left the bottom bar
+            // on Profile, and — because `ChatBloc` is a `registerFactory` —
+            // started a whole separate chat beside the real tab's. The worker
+            // then tapped Bada Bhai and found a different conversation from the
+            // one they had just been typing in.
+            //
+            // `go` switches branches, and `StatefulShellRoute` restores the
+            // chat branch's OWN stack and its existing `ChatBloc`.
+            // `_ShellScaffold._syncActiveTabAfterBuild` is the documented
+            // safety net for exactly this — a branch change that did not come
+            // from a tab tap — so `TabFocus` follows and the tab still refetches
+            // on focus.
+            onPressed: () => context.go(Routes.badaBhai),
             style: ElevatedButton.styleFrom(
               backgroundColor: OnboardingColors.safetyYellow,
               foregroundColor: OnboardingColors.textOnYellow,
