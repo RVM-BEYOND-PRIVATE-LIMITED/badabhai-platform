@@ -136,9 +136,11 @@ their dated jobs only (R5). An undated job makes the total unknown, exactly as t
     the same mark, per handover, so a chat redo that hands the form over again starts incomplete. Residual: a handover
     whose flush failed is still active, and a later re-flush replaces the whole column and drops the mark; the card
     then returns until the brief is saved again.
-  - The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the voice
-    surface runs the skills stage and its handover has no card on that surface. The voice form is hidden by default;
-    before flag-ON either refuse to continue an armed skills-lane envelope on the voice surface or give it a step.
+  - ~~The voice form can re-attach to an ACTIVE chat session. If that session is armed and on the skills lane, the
+    voice surface runs the skills stage and its handover has no card on that surface.~~ **Closed:** the voice form's
+    `start` no longer re-attaches to a live session that is armed for the general road and not settled on the classic
+    lane (live envelope or durable stamp; an unreadable envelope counts as armed). It starts its own interview, which is
+    never armed, and the chat session is left for the chat to resume.
   - The lane, gate and handover events are emitted inside the turn's retry loop with once-per-session (or per-round)
     keys, like `profile.form_offered`, so a lost attempt's outcome can be the one recorded.
 

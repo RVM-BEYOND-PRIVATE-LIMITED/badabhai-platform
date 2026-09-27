@@ -29,7 +29,7 @@ import {
   type TurnResult,
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
-import { narrowAnswerRecords } from "./conversation-state";
+import { narrowAnswerRecords, readGeneralRoadStamp } from "./conversation-state";
 import { isSettled } from "./answer-map";
 import { otherAnswerTextOf } from "./pack-answer-row";
 import { clipId } from "./reply-closure";
@@ -115,8 +115,12 @@ export class ProfilingSessionService {
    */
   async start(workerId: string, ctx: RequestContext): Promise<ProfilingSessionResponse> {
     const existing = await this.chat.findLatestSessionByWorker(workerId);
+    const reattach =
+      existing !== undefined &&
+      existing.status === "active" &&
+      !(await this.armedForGeneralRoad(existing));
     const sessionId =
-      existing && existing.status === "active"
+      reattach && existing
         ? existing.id
         : ((await this.chatService.startSession(workerId, ctx)) as { session_id: string })
             .session_id;
@@ -128,6 +132,41 @@ export class ProfilingSessionService {
       ctx,
     });
     return { session_id: sessionId, step: this.stepOf(turn) };
+  }
+
+  /**
+   * ADR-0045 §5 ("open before flag-ON") — is this live CHAT session armed for the general road
+   * and not settled on the classic lane? The voice form must not continue one.
+   *
+   * WHY. Arming is stamped per session (only `POST /chat/message` arms, on the envelope's first
+   * turn), and the engine honours the stamp whichever surface takes the next turn. Continued here,
+   * such a session would run the skills stage and its gate on a surface that draws neither, and
+   * close with a general-form card this surface cannot show — a dead end. So the voice form starts
+   * its own interview instead, which `openTurn` never arms; the chat session stays as it was, for
+   * the chat to resume.
+   *
+   * TWO SOURCES, EITHER SUFFICES. The live envelope (Redis) knows the lane from the first turn;
+   * the durable stamp (`conversation_state.general_road`, written only on the skills lane) still
+   * knows after the buffer's TTL has lapsed. A lane settled as `classic` is today's interview and
+   * is continued as before.
+   *
+   * FAILS CLOSED: an envelope that cannot be read counts as armed. A fresh voice interview costs
+   * the worker the questions he answered by voice; continuing an armed session costs him the form.
+   */
+  private async armedForGeneralRoad(session: ChatSession): Promise<boolean> {
+    if (readGeneralRoadStamp(session.conversationState) !== null) return true;
+    try {
+      const road = (await this.orchestrator.viewSession(session.id, new Date()))?.envelope
+        .generalRoad;
+      return road?.armed === true && road.lane !== "classic";
+    } catch (error) {
+      this.logger.warn(
+        `voice form start: session ${session.id} unreadable (${
+          error instanceof Error ? error.name : "UnknownError"
+        }); starting a new interview rather than continuing a possibly armed one`,
+      );
+      return true;
+    }
   }
 
   /**
