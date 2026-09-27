@@ -531,8 +531,9 @@ async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtr
         # worker's AND the employer's PDF (`resume-render-input.ts`), which renders from the stored
         # profile, not from the résumé route's certified copy. The blocked-only check passed a
         # name behind a leading city ("Pune, Ramesh Kumar") and anything the gateway merely masks.
-        # A withheld city costs no matching signal: the API falls back to the answer map's city
-        # when the model's is empty (`preferModel`).
+        # A withheld city falls back to the answer map's city when it has one (`preferModel`:
+        # model, else deterministic); otherwise this profile has no city for matching. Withholding
+        # is still the direction the gate must fail in.
         out.preferred_locations = certified_items(out.preferred_locations)
         out.domain_label = _certified_scalar(out.domain_label)
         out.role_label = _certified_scalar(out.role_label)
