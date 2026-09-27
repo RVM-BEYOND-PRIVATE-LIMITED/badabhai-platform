@@ -3893,3 +3893,62 @@ def test_a_role_capture_that_starts_with_a_unit_is_not_a_role_title():
     detected = answers.detect_answers("Welder, need 5 years experience", "role_title")
     assert detected["role_title"] == "Welder, need 5 years experience"
     assert answers.detect_answers("need 5 welders", "role_title")["role_title"] == "welders"
+
+
+# --- #1737: a placeholder token's index is never read as a figure ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        ("Salary [PHONE_1]", "vacancy"),  # the issue: a masked pay figure became 1 opening
+        ("[AMOUNT_2] openings", "vacancy"),
+        ("[PERSON_3] ko bulana hai", "vacancy"),
+    ],
+)
+def test_a_placeholder_index_is_not_a_vacancy(text: str, asked: str) -> None:
+    assert "vacancy" not in answers.detect_answers(text, asked)
+
+
+def test_a_placeholder_index_is_not_read_in_passing_either() -> None:
+    """The cross-topic read on another question goes through the same dispatch."""
+    detected = answers.detect_answers("Salary [PHONE_1], welder chahiye", "role_title")
+    assert "vacancy" not in detected
+
+
+@pytest.mark.parametrize("text", ["₹[AMOUNT_18000]", "[PHONE_25000] monthly"])
+def test_a_placeholder_index_is_not_pay(text: str) -> None:
+    """An index past the pay floor used to record as the pay band."""
+    for asked in ("pay_range", "experience", None):
+        assert "pay_range" not in answers.detect_answers(text, asked)
+
+
+@pytest.mark.parametrize(
+    ("text", "asked", "topic", "expected"),
+    [
+        # The figure the payer DID type is still read: only the token's index is hidden.
+        ("need [PERSON_1] 5 welders", "vacancy", "vacancy", "2-5"),
+        ("10 openings, call [PHONE_4]", "vacancy", "vacancy", "6-10"),
+        (
+            "Salary 18000, call [PHONE_1]",
+            "pay_range",
+            "pay_range",
+            {"pay_min": 18000, "pay_max": None},
+        ),
+    ],
+)
+def test_a_figure_beside_a_placeholder_is_still_read(
+    text: str, asked: str, topic: str, expected: object
+) -> None:
+    assert answers.detect_answers(text, asked)[topic] == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [("[PERSON_1] Engineering, Chakan", "location_label"), ("[PERSON_1] welder", "role_title")],
+)
+def test_a_label_topic_still_sees_the_whole_token(text: str, asked: str) -> None:
+    """Only the FIGURE parsers lose the index. A label keeps the whole token, so the
+    placeholder guard still refuses to record it (a "[PERSON_]" half-token would slip
+    past that guard and publish)."""
+    assert asked not in answers.detect_answers(text, asked)
