@@ -1,6 +1,11 @@
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
-import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import type { AnswerRecord, QuestionPackItem, QuestionPackOption } from "@badabhai/ai-contracts";
 
 import { DISAMBIGUATION_ESCAPE_LABEL } from "@badabhai/config";
@@ -99,7 +104,12 @@ function makeWorld(
       status: string;
       conversationState?: Record<string, unknown> | null;
     } | null;
-    latest?: { id: string; workerId: string; status: string } | null;
+    latest?: {
+      id: string;
+      workerId: string;
+      status: string;
+      conversationState?: unknown;
+    } | null;
     view?: SessionView | null;
     outcome?: ChatTurnOutcome;
     opened?: TurnResult;
@@ -259,6 +269,109 @@ describe("start — reattach, never restart", () => {
     // An empty message through the turn machinery would record a worker line saying nothing.
     expect(chatService.runTurn).not.toHaveBeenCalled();
     expect(result.step).toMatchObject({ kind: "question" });
+  });
+});
+
+describe("start — never continues a chat session armed for the general road (ADR-0045 §5)", () => {
+  /** A live envelope whose general road is in the given state. */
+  const armedView = (road: Record<string, unknown>) =>
+    ({
+      buffer: {} as never,
+      envelope: { generalRoad: { armed: true, lane: null, handedOver: false, ...road } } as never,
+      items: [],
+      served: served(),
+    }) as SessionView;
+
+  it.each([
+    ["the lane is not decided yet", { lane: null }],
+    ["the worker is on the skills lane", { lane: "skills" }],
+    [
+      "the skills stage already handed over (a flush that failed)",
+      { lane: "skills", handedOver: true },
+    ],
+  ])("mints its own interview when %s", async (_label, road) => {
+    // Continued here, the session would run the skills stage and end on a general-form card this
+    // surface cannot draw.
+    const { service, chatService, orchestrator } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+      view: armedView(road),
+    });
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(chatService.startSession).toHaveBeenCalledOnce();
+    expect(result.session_id).toBe(OTHER_SESSION);
+    expect(orchestrator.openTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: OTHER_SESSION }),
+    );
+  });
+
+  it("continues an armed session whose lane settled as classic — that is today's interview", async () => {
+    const { service, chatService } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+      view: armedView({ lane: "classic" }),
+    });
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
+  });
+
+  it("the durable stamp alone is enough — a lapsed buffer does not make the session continuable", async () => {
+    const { service, chatService, orchestrator } = makeWorld({
+      latest: {
+        id: SESSION,
+        workerId: WORKER,
+        status: "active",
+        conversationState: {
+          general_road: {
+            v: 1,
+            lane: "skills",
+            role_label: "Graphic designer",
+            domain_label: null,
+            skills: [],
+            outcome: null,
+            handed_over: false,
+          },
+        },
+      },
+      view: null,
+    });
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(OTHER_SESSION);
+    expect(chatService.startSession).toHaveBeenCalledOnce();
+    // The stamp decided it; the live envelope was never needed.
+    expect(orchestrator.viewSession).not.toHaveBeenCalled();
+  });
+
+  it("FAILS CLOSED: an envelope that cannot be read counts as armed, and the log names no text", async () => {
+    const { service, chatService, orchestrator } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+    });
+    orchestrator.viewSession.mockRejectedValueOnce(new Error("redis down: secret detail"));
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(OTHER_SESSION);
+    expect(chatService.startSession).toHaveBeenCalledOnce();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret detail");
+    warn.mockRestore();
+  });
+
+  it("an unarmed live session is continued exactly as before", async () => {
+    const { service, chatService } = makeWorld({
+      latest: { id: SESSION, workerId: WORKER, status: "active" },
+      view: armedView({ armed: false }),
+    });
+
+    const result = await service.start(WORKER, CTX);
+
+    expect(result.session_id).toBe(SESSION);
+    expect(chatService.startSession).not.toHaveBeenCalled();
   });
 });
 
