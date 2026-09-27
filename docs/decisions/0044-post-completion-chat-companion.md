@@ -13,7 +13,7 @@
   (untouched: no push, no WhatsApp) · persona v3.2 (`docs/specs/persona-system-v3.2.md`)
 - **Implemented by:** PR #1742 (seams: event, flag, `publishedAfter`, exports) and PR #1743 (the companion module) on
   the backend; PR #1746 (the worker-app client, tracked by #1747; follow-ups #1750–#1756). PR #1760 (#1744, server half) lets
-  an explicit redo supersede the early-finish leftover; #1768 (app half) sends it (TD143).
+  an explicit redo supersede the early-finish leftover, and PR #1769 (#1768, app half) sends it (TD143).
 
 ---
 
@@ -67,7 +67,7 @@ Server-side, from worker-level facts, on every call; `interview` whenever it is 
 
 Any read error → interview.
 
-**TD143: server half in #1760, closes with #1768.** An early finish ("Phir bhi profile banaiye" → preview →
+**TD143, closed by PR #1760 (server) and PR #1769 (app).** An early finish ("Phir bhi profile banaiye" → preview →
 confirm) leaves its session `active` until the idle sweep. A redo used to REATTACH to it (#1197): it ran inside the
 pre-confirmation session, its first four answers moved no clock this module can read (so a cold start showed the
 recap), and its extraction deduped onto the early-finish job (so the redo never became a profile).
@@ -78,7 +78,7 @@ recap), and its extraction deduped onto the early-finish job (so the redo never 
   finished but whose last flush rolled back is re-flushed instead.
 - **A plain POST keeps the reattach.** It is also the cold-start resume fallback, and an old build's every open, and
   the worker may still be answering that session. The app sends `redo: true` from "Chat se resume banayein" only
-  (#1768); until it does, a redo behaves as before.
+  (#1768, PR #1769). A build older than that still reattaches, as before.
 - **The confirm itself closes nothing.** The Résumé tab's self-heal can confirm from an interview the worker is still
   answering.
 - **Failures fall back.** A failed supersede, or a close that did not commit, falls back to today's reattach, and the
@@ -157,9 +157,9 @@ recap), and its extraction deduped onto the early-finish job (so the redo never 
   the `jsonb_ops` GIN `job_postings_reach_ops_gin` that can).
 - **Residuals, accepted:** the same new jobs can be announced on several visits within the window (TD142). A completed
   worker whose first companion read times out falls back to today's path, which mints an empty interview that then
-  holds the tab in interview mode until the sweep. The client fix is #1750, and it must land before the switch is
-  widened. Until #1768 ships, a cold start in the first four answers of a redo after an early finish shows the recap
-  (TD143).
+  holds the tab in interview mode until the sweep. The client fix is #1750 (PR #1766), and a build carrying it must be
+  out before the switch is widened. So must PR #1769: on an older build a redo after an early finish still reattaches,
+  and a cold start in its first four answers shows the recap (TD143).
 
 ```
 Owner rulings R1–R10 taken 2026-09-26 in the planning session; production flag-ON requires this signature.
